@@ -113,6 +113,49 @@ func TestSamePathEditsSerialize(t *testing.T) {
 	}
 }
 
+// Bash takes the global lock because a command can touch anything, so a bash
+// call and a path mutation must not overlap. The per-path lock and the global
+// lock are separate gates, so this is the one pairing that proves the global
+// lock excludes anything other than a second bash.
+func TestBashExcludesPathMutations(t *testing.T) {
+	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+
+	var conc, maxConc atomic.Int32
+	instrumented := func(name string) tools.Tool {
+		return tools.Tool{
+			Def: llm.NewTool(name, name, `{"type":"object","properties":{"path":{"type":"string"},"command":{"type":"string"}}}`),
+			Run: func(ctx context.Context, args json.RawMessage) (string, error) {
+				n := conc.Add(1)
+				for {
+					m := maxConc.Load()
+					if n <= m || maxConc.CompareAndSwap(m, n) {
+						break
+					}
+				}
+				time.Sleep(25 * time.Millisecond)
+				conc.Add(-1)
+				return "ok", nil
+			},
+		}
+	}
+	ag.Tools = []tools.Tool{instrumented("bash"), instrumented("write")}
+
+	mk := func(id, name, args string) llm.ToolCall {
+		return llm.ToolCall{ID: id, Function: struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}{Name: name, Arguments: args}}
+	}
+	ag.runTools(context.Background(), []llm.ToolCall{
+		mk("1", "bash", `{"command":"rm -rf /tmp/anything"}`),
+		mk("2", "write", `{"path":"/tmp/same.go"}`),
+	}, Events{})
+
+	if maxConc.Load() != 1 {
+		t.Fatalf("bash must exclude path mutations (max concurrency 1), got %d", maxConc.Load())
+	}
+}
+
 // Background tasks run concurrently with the parent and deliver their report
 // via the Done channel + a steered message.
 func TestBackgroundTaskDeliversReport(t *testing.T) {
