@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -153,6 +154,90 @@ func TestBashExcludesPathMutations(t *testing.T) {
 
 	if maxConc.Load() != 1 {
 		t.Fatalf("bash must exclude path mutations (max concurrency 1), got %d", maxConc.Load())
+	}
+}
+
+// The gate bash write-locks is read-locked by every path mutation, so the
+// obvious wrong fix (an exclusive lock on both sides) would quietly serialize
+// every write in the batch. Different paths must still overlap.
+func TestDifferentPathWritesOverlap(t *testing.T) {
+	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	var conc, maxConc atomic.Int32
+	ag.Tools = []tools.Tool{{
+		Def: llm.NewTool("write", "w", `{"type":"object","properties":{"path":{"type":"string"}}}`),
+		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
+			n := conc.Add(1)
+			for {
+				m := maxConc.Load()
+				if n <= m || maxConc.CompareAndSwap(m, n) {
+					break
+				}
+			}
+			time.Sleep(25 * time.Millisecond)
+			conc.Add(-1)
+			return "ok", nil
+		},
+	}}
+	mk := func(id, p string) llm.ToolCall {
+		return llm.ToolCall{ID: id, Function: struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}{Name: "write", Arguments: fmt.Sprintf(`{"path":%q}`, p)}}
+	}
+	ag.runTools(context.Background(), []llm.ToolCall{
+		mk("1", "/tmp/a.go"), mk("2", "/tmp/b.go"), mk("3", "/tmp/c.go"),
+	}, Events{})
+	t.Logf("different-path max concurrency = %d", maxConc.Load())
+	if maxConc.Load() < 2 {
+		t.Fatalf("different-path writes no longer overlap: max concurrency %d", maxConc.Load())
+	}
+}
+
+// Go's RWMutex parks new readers once a writer is waiting, so a bash call
+// arriving mid-batch must still complete rather than starve behind a stream of
+// path mutations, and the batch must not deadlock when it is far larger than
+// the scheduler's parallelism.
+func TestBashCompletesUnderWriteLoad(t *testing.T) {
+	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	var bashDone atomic.Bool
+	slow := func(name string, mark bool) tools.Tool {
+		return tools.Tool{
+			Def: llm.NewTool(name, name, `{"type":"object","properties":{"path":{"type":"string"},"command":{"type":"string"}}}`),
+			Run: func(ctx context.Context, args json.RawMessage) (string, error) {
+				time.Sleep(5 * time.Millisecond)
+				if mark {
+					bashDone.Store(true)
+				}
+				return "ok", nil
+			},
+		}
+	}
+	ag.Tools = []tools.Tool{slow("write", false), slow("bash", true)}
+	mk := func(id, name, args string) llm.ToolCall {
+		return llm.ToolCall{ID: id, Function: struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}{Name: name, Arguments: args}}
+	}
+	var calls []llm.ToolCall
+	for i := range 60 {
+		calls = append(calls, mk(strconv.Itoa(i), "write", fmt.Sprintf(`{"path":"/tmp/w%d.go"}`, i)))
+	}
+	calls = append(calls, mk("bash", "bash", `{"command":"x"}`))
+	for i := 60; i < 120; i++ {
+		calls = append(calls, mk(strconv.Itoa(i), "write", fmt.Sprintf(`{"path":"/tmp/w%d.go"}`, i)))
+	}
+	done := make(chan struct{})
+	start := time.Now()
+	go func() { ag.runTools(context.Background(), calls, Events{}); close(done) }()
+	select {
+	case <-done:
+		t.Logf("121 calls finished in %v, bash ran = %v", time.Since(start), bashDone.Load())
+	case <-time.After(30 * time.Second):
+		t.Fatal("deadlock or starvation: runTools did not finish")
+	}
+	if !bashDone.Load() {
+		t.Fatal("the bash call never ran")
 	}
 }
 
