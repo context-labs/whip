@@ -55,9 +55,9 @@ var (
 
 // messages sent from the agent goroutine
 type (
-	textMsg       string
-	toolStartMsg  struct{ id, name, args string }
-	toolEndMsg    struct{ id, name, result string }
+	textMsg      string
+	toolStartMsg struct{ id, name, args string }
+	toolEndMsg   struct{ id, name, result string }
 	// toolCallMsg is a tool call still streaming from the model (args may be
 	// partial): renders a dim "queued" row that toolStartMsg replaces when
 	// execution begins.
@@ -1015,11 +1015,11 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 type blockKind int
 
 const (
-	blockText      blockKind = iota // already-styled line(s): re-wrap on resize
-	blockAssistant                  // raw markdown: re-render through glamour
-	blockTool                       // raw tool result: collapsed preview, expandable
-	blockToolRun                    // a running tool call: verb line, collapses on completion
-	blockToolQueued                 // a tool call still streaming from the model; replaced by blockToolRun on start
+	blockText       blockKind = iota // already-styled line(s): re-wrap on resize
+	blockAssistant                   // raw markdown: re-render through glamour
+	blockTool                        // raw tool result: collapsed preview, expandable
+	blockToolRun                     // a running tool call: verb line, collapses on completion
+	blockToolQueued                  // a tool call still streaming from the model; replaced by blockToolRun on start
 )
 
 // toolPreviewLines is how many lines of a tool result show when collapsed.
@@ -1711,7 +1711,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.flushCurrent()
 		// replace the queued row for this id (if the tool call streamed in)
 		// rather than appending a second row for the same call.
-		for i := len(m.blocks) - 1; i >= 0; i-- {
+		for i := range slices.Backward(m.blocks) {
 			if m.blocks[i].kind == blockToolQueued && m.blocks[i].toolID == msg.id {
 				m.blocks = slices.Delete(m.blocks, i, i+1)
 				break
