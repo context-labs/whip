@@ -3,6 +3,8 @@ package update
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -220,4 +222,44 @@ func TestPendingAndAcknowledge(t *testing.T) {
 	if !n.Acknowledged {
 		t.Error("notice lost its acknowledgement")
 	}
+}
+
+// fetchLatestGitHub parses the tag from a GitHub releases response and errors
+// on non-200 / empty tag. latestURL is swapped for a mock server.
+func TestFetchLatestGitHub(t *testing.T) {
+	orig := latestURL
+	defer func() { latestURL = orig }()
+
+	t.Run("ok", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v9.9.9"})
+		}))
+		defer srv.Close()
+		latestURL = srv.URL
+		tag, err := fetchLatestGitHub()
+		if err != nil || tag != "v9.9.9" {
+			t.Fatalf("tag=%q err=%v", tag, err)
+		}
+	})
+	t.Run("non-200", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+		latestURL = srv.URL
+		if _, err := fetchLatestGitHub(); err == nil {
+			t.Fatal("expected error on 404")
+		}
+	})
+	t.Run("empty tag", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": ""})
+		}))
+		defer srv.Close()
+		latestURL = srv.URL
+		if _, err := fetchLatestGitHub(); err == nil {
+			t.Fatal("expected error on empty tag_name")
+		}
+	})
 }
