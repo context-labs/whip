@@ -967,6 +967,7 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 	ag := agent.New(client, apiID, maxOut, sysPrompt)
 	ag.ModelName, ag.Provider = modelName, provName
 	ag.ContextLimit = ctxLimit
+	ag.WorktreeSubagents = cfg.WorktreeSubagents != nil && *cfg.WorktreeSubagents
 	if sp := mdl.SamplingParams; sp != nil {
 		ag.Temperature, ag.TopP = sp.Temperature, sp.TopP
 	}

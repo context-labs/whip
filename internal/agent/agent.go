@@ -74,6 +74,11 @@ type Agent struct {
 	// scripted run can't run away. 0 = uncapped (the TUI default).
 	MaxTurns int
 
+	// WorktreeSubagents is the session default for running background
+	// subagents in their own git worktree (isolated file edits). The subagent
+	// tool's per-call `worktree` argument overrides it. Off by default.
+	WorktreeSubagents bool
+
 	mu        sync.Mutex
 	pending   []pendingSteer // steered user messages awaiting injection
 	compacted bool           // a compaction already happened this turn — don't retry-loop

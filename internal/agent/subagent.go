@@ -74,7 +74,7 @@ func taskTool(parent *Agent) tools.Tool {
 	return tools.Tool{
 		Def: llm.NewTool("subagent",
 			"Launch a subagent to handle a self-contained task with its own fresh context. It has the same tools as you (bash, read, write, edit) and returns only its final report. Use it for context-heavy exploration or work that can be described completely up front. Set background=true to run it concurrently while you keep working — you'll be notified with the report automatically when it finishes; do NOT poll or sleep waiting for it (subagent_steer can send it mid-course corrections). Subagents run on a cheap fast model by default; set model only when the task needs a specific/stronger one.",
-			`{"type":"object","properties":{"description":{"type":"string","description":"Short 3-8 word summary of the task"},"prompt":{"type":"string","description":"Complete instructions for the subagent; it cannot ask follow-up questions"},"background":{"type":"boolean","description":"Run concurrently and get notified on completion (default false = block until done)"},"model":{"type":"string","description":"Optional model to run the subagent on (a configured model name or catalog id); omit for the default"},"provider":{"type":"string","description":"Optional provider for the model override; omit for its default routing"}},"required":["prompt"]}`),
+			`{"type":"object","properties":{"description":{"type":"string","description":"Short 3-8 word summary of the task"},"prompt":{"type":"string","description":"Complete instructions for the subagent; it cannot ask follow-up questions"},"background":{"type":"boolean","description":"Run concurrently and get notified on completion (default false = block until done)"},"model":{"type":"string","description":"Optional model to run the subagent on (a configured model name or catalog id); omit for the default"},"provider":{"type":"string","description":"Optional provider for the model override; omit for its default routing"},"worktree":{"type":"boolean","description":"Run the subagent in its own git worktree so its file edits stay isolated from yours and from other subagents (default: the session's worktreeSubagents setting). Use true for parallel EDITING subagents; leave false for read-only/exploration tasks (worktree is wasted) or when the subagent needs the parent's uncommitted changes."}},"required":["prompt"]}`),
 		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
 			var a struct {
 				Description string `json:"description"`
@@ -82,6 +82,7 @@ func taskTool(parent *Agent) tools.Tool {
 				Background  bool   `json:"background"`
 				Model       string `json:"model"`
 				Provider    string `json:"provider"`
+				Worktree    *bool  `json:"worktree"`
 			}
 			if err := json.Unmarshal(args, &a); err != nil {
 				return "", err
@@ -95,13 +96,39 @@ func taskTool(parent *Agent) tools.Tool {
 				//nolint:nilerr // tool contract: failures are tool output the model reads, never loop aborts
 				return "Error: model override: " + err.Error(), nil
 			}
+
+			// Resolve worktree isolation: per-call override wins, else the
+			// session default. Only meaningful for background subagents (a
+			// foreground one blocks the parent, so there is nothing to isolate
+			// from) and only possible inside a git repo.
+			useWorktree := parent.WorktreeSubagents
+			if a.Worktree != nil {
+				useWorktree = *a.Worktree
+			}
+			wtPath := ""
+			if a.Background && useWorktree {
+				if p, err := provisionSubagentWorktree(ctx, "sub"); err == nil {
+					wtPath = p
+				}
+				// ponytail: on any failure (not a repo, git missing, branch
+				// clash) fall back to the shared cwd rather than failing the
+				// dispatch — isolation is best-effort.
+			}
+			prompt := a.Prompt
+			if wtPath != "" {
+				prompt = "Work entirely inside the git worktree at " + wtPath + " (run `cd " + wtPath + "` first; it is your own branch, isolated from other agents). Commit your changes there.\n\n" + prompt
+			}
+
 			if a.Background {
-				t := parent.StartBackground(desc, a.Prompt, o)
+				t := parent.StartBackground(desc, prompt, o)
+				if wtPath != "" {
+					return fmt.Sprintf("Started background subagent %s in worktree %s: %s. Its edits are isolated from your working tree. Do not poll for it.", t.ID, wtPath, desc), nil
+				}
 				return fmt.Sprintf("Started background subagent %s: %s. Keep working on something else; the report will arrive as a message when it finishes. Do not poll for it.", t.ID, desc), nil
 			}
 			sub := parent.newSub(o)
 			// roll the subagent's spend into the parent's session totals
-			report, err := sub.Turn(ctx, a.Prompt, Events{OnUsage: parent.AddUsage})
+			report, err := sub.Turn(ctx, prompt, Events{OnUsage: parent.AddUsage})
 			return report, err
 		},
 	}

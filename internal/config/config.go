@@ -163,22 +163,26 @@ const DefaultCompactPct = 50
 
 // Config is the root of ~/.whip/config.json (JSONC: comments allowed).
 type Config struct {
-	DefaultModel    string              `json:"defaultModel"`
-	DefaultProvider string              `json:"defaultProvider,omitempty"` // override the model's first provider
-	DefaultEffort   string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "", "low", "medium", "high"
-	CompactModel    string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
-	CompactProvider string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
-	CompactPct      int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
-	TaskModel       string              `json:"taskModel,omitempty"`       // model subagents (the task tool) run on; "" = the built-in default
-	TaskProvider    string              `json:"taskProvider,omitempty"`    // provider for the subagent model; "" = the model's default routing
-	Theme           string              `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
-	Mouse           *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
-	Thinking        *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
-	CollapsePaste   *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
-	GoalMaxRounds   int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
-	MaxRetries      int                 `json:"maxRetries,omitempty"`      // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
-	Providers       map[string]Provider `json:"providers"`
-	Models          map[string]Model    `json:"models"`
+	DefaultModel    string `json:"defaultModel"`
+	DefaultProvider string `json:"defaultProvider,omitempty"` // override the model's first provider
+	DefaultEffort   string `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "", "low", "medium", "high"
+	CompactModel    string `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
+	CompactProvider string `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
+	CompactPct      int    `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
+	TaskModel       string `json:"taskModel,omitempty"`       // model subagents (the task tool) run on; "" = the built-in default
+	TaskProvider    string `json:"taskProvider,omitempty"`    // provider for the subagent model; "" = the model's default routing
+	Theme           string `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
+	Mouse           *bool  `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
+	Thinking        *bool  `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
+	CollapsePaste   *bool  `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
+	GoalMaxRounds   int    `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
+	// WorktreeSubagents defaults background subagents to run in their own git
+	// worktree so their file edits stay isolated from the parent's tree and
+	// from each other. The subagent tool's per-call `worktree` arg overrides this.
+	WorktreeSubagents *bool               `json:"worktreeSubagents,omitempty"`
+	MaxRetries        int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
+	Providers         map[string]Provider `json:"providers"`
+	Models            map[string]Model    `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: whip always wins per name.
