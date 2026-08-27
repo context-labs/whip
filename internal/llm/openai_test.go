@@ -129,6 +129,39 @@ func TestStreamTextAndToolCalls(t *testing.T) {
 	}
 }
 
+// onToolCall fires for each streaming tool-call delta once the call has an
+// id, with the id/name/args snapshot at that point — so the UI can render a
+// pending row before execution. A nil onToolCall must not panic.
+func TestStreamOnToolCallFiresPerDelta(t *testing.T) {
+	srv := sseServer(t,
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"ba","arguments":"{\"comm"}}]}}]}`,
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"sh","arguments":"and\":\"ls\"}"}}]}}]}`,
+		`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+	)
+	defer srv.Close()
+
+	type snap struct{ id, name, args string }
+	var got []snap
+	_, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m"}, nil, nil,
+		func(id, name, args string) { got = append(got, snap{id, name, args}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) < 2 {
+		t.Fatalf("onToolCall should fire per delta once the id exists, got %d calls: %+v", len(got), got)
+	}
+	for _, s := range got {
+		if s.id != "c1" {
+			t.Fatalf("snapshot missing id: %+v", s)
+		}
+	}
+	last := got[len(got)-1]
+	if last.name != "bash" || last.args != `{"command":"ls"}` {
+		t.Fatalf("final snapshot should have the assembled name+args, got %+v", last)
+	}
+}
+
 func TestStreamLengthDiscardsToolCalls(t *testing.T) {
 	srv := sseServer(t,
 		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"bash","arguments":"{\"comm"}}]}}]}`,
