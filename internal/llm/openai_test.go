@@ -256,6 +256,18 @@ func TestReasoningEffortSerialized(t *testing.T) {
 	}
 }
 
+func TestSamplingParamsSerialized(t *testing.T) {
+	temp, topP := 0.2, 0.9
+	b, _ := json.Marshal(Request{Model: "m", Temperature: &temp, TopP: &topP})
+	if !strings.Contains(string(b), `"temperature":0.2`) || !strings.Contains(string(b), `"top_p":0.9`) {
+		t.Fatalf("missing sampling params: %s", b)
+	}
+	b, _ = json.Marshal(Request{Model: "m"})
+	if strings.Contains(string(b), "temperature") || strings.Contains(string(b), "top_p") {
+		t.Fatalf("unset sampling params must be omitted: %s", b)
+	}
+}
+
 func TestComplete(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {

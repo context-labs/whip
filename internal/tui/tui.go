@@ -967,6 +967,9 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 	ag := agent.New(client, apiID, maxOut, sysPrompt)
 	ag.ModelName, ag.Provider = modelName, provName
 	ag.ContextLimit = ctxLimit
+	if sp := mdl.SamplingParams; sp != nil {
+		ag.Temperature, ag.TopP = sp.Temperature, sp.TopP
+	}
 	// Native browser subsystem: install the shared manager once; screenshots
 	// steer back into the conversation as image parts on vision models.
 	ag.BrowserDisabled = cfg.Browser.Enabled != nil && !*cfg.Browser.Enabled

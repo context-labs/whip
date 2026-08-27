@@ -120,6 +120,18 @@ type Model struct {
 	// gets a pointer note instead, so a text-only model isn't sent a request it
 	// would reject. A provider-advertised input_modalities entry overrides this.
 	Vision bool `json:"vision,omitempty"`
+	// SamplingParams are optional per-model sampling knobs (temperature, top_p)
+	// applied to outbound chat-completion requests for this model. Fields are
+	// omitted from requests when unset, so provider defaults are preserved.
+	SamplingParams *SamplingParams `json:"samplingParams,omitempty"`
+}
+
+// SamplingParams holds optional per-model sampling knobs sent on outbound
+// chat-completion requests. Pointer fields: a 0.0 temperature/top_p is a
+// legitimate value, and nil means "don't send" (provider default).
+type SamplingParams struct {
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
 }
 
 // ContextWindow returns the model's context (input) size, honoring the legacy

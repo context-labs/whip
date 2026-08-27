@@ -87,7 +87,7 @@ parallel tool calls and background subagents).
 - [ ] `anthropic-messages` API style alongside `openai-completions` (pi: `packages/ai/src/api/`)
 - [x] `"$VAR"` / `"!cmd"` resolution for apiKey/header values in config (pi models.json value resolution) — shipped with secrets-by-reference (internal/config/secret.go), resolved at point of use
 - [x] Reasoning effort: `/effort [off|low|medium|high]` (bare opens the selector), tab-completes, clickable `⚡` control in the header top-right; sent as `reasoning_effort`, inherited by subagents, survives model switches
-- [ ] Per-model sampling params in config (`samplingParams: {temperature, top_p}`)
+- [x] Per-model sampling params in config (`samplingParams: {temperature, top_p}`)
 
 ## MCP
 

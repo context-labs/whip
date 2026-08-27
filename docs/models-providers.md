@@ -89,8 +89,8 @@ re-keys in place, including the live session's routing when it's already on
 the openrouter provider.
 
 Per-model overrides still compose: add an entry under `"models"` in
-config.json (with `"providers": ["openrouter"]`) to pin context, maxOut, or
-vision for a specific id.
+config.json (with `"providers": ["openrouter"]`) to pin context, maxOut,
+vision, or sampling params for a specific id.
 
 ## Token bookkeeping
 
@@ -100,10 +100,13 @@ Three numbers with distinct meanings:
 |---|---|---|
 | `context` | model's **input** window | header % full, proactive compaction threshold |
 | `maxOut` | optional **output** cap | request `max_completion_tokens` |
+| `samplingParams` | optional `{temperature, top_p}` knobs | sent on outbound requests for this model; omitted when unset |
 | provider `context_length` | advertised limit | overrides `context` when present |
 
 The old `maxTokens` field still parses (it always meant the context window)
-but is superseded by `context`.
+but is superseded by `context`. A model whose config entry sets
+`"samplingParams": {"temperature": 0.2}` sends those params on every request
+to that model; unset params are omitted so the provider applies its defaults.
 
 ## Cost tracking
 

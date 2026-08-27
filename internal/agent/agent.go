@@ -42,8 +42,12 @@ type Agent struct {
 	Provider  string // config provider name
 	MaxTokens int
 	Effort    string // reasoning effort: "" = parameter omitted from requests
-	Tools     []tools.Tool
-	Messages  []llm.Message
+	// Temperature/TopP are optional per-model sampling knobs for outbound
+	// requests. nil omits the field, preserving provider defaults.
+	Temperature *float64
+	TopP        *float64
+	Tools       []tools.Tool
+	Messages    []llm.Message
 
 	// ContextLimit is the model's context window in tokens, as advertised by
 	// the provider's GET /models (0 when unadvertised — proactive compaction
@@ -325,6 +329,8 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			Messages:        msgs,
 			Tools:           tools.Defs(a.AllTools()),
 			ReasoningEffort: a.Effort,
+			Temperature:     a.Temperature,
+			TopP:            a.TopP,
 		}, ev.OnText, ev.OnThink, ev.OnToolCall)
 		a.Client.OnRetry = nil
 		a.AddUsage(usage)
