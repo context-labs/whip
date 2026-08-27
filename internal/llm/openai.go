@@ -602,10 +602,12 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 	return list.Data, nil
 }
 
-// Stream sends the request and invokes onText for each content delta and
-// onThink for each reasoning_content delta (both may be nil). It returns the
-// final assistant message (with any accumulated tool calls) plus the usage
-// the provider reports on the terminal chunk (stream_options:include_usage).
+// Stream sends the request and invokes onText for each content delta,
+// onThink for each reasoning_content delta (both may be nil), and onToolCall
+// for each tool-call state change as it streams (id/name/args snapshots; may
+// be partial mid-stream). It returns the final assistant message (with any
+// accumulated tool calls) plus the usage the provider reports on the terminal
+// chunk (stream_options:include_usage).
 //
 // Transient failures (transport errors, 429, 5xx) are retried with backoff —
 // but only until the first visible delta has been handed to onText/onThink.
@@ -613,7 +615,7 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 // the error is surfaced instead. A retry regenerates the whole assistant
 // message server-side; nothing in the request messages is mutated by a failed
 // attempt, so retrying is idempotent.
-func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(string)) (Message, Usage, error) {
+func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
 	req.Stream = true
 	req.StreamOptions = &struct {
 		IncludeUsage bool `json:"include_usage"`
@@ -633,7 +635,7 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 		if onThink != nil {
 			wrapThink = func(s string) { emitted = true; onThink(s) }
 		}
-		msg, usage, err := c.streamOnce(ctx, body, wrapText, wrapThink)
+		msg, usage, err := c.streamOnce(ctx, body, wrapText, wrapThink, onToolCall)
 		if err == nil {
 			return msg, usage, nil
 		}
@@ -656,7 +658,7 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 // streamOnce performs a single streaming request attempt; the Stream retry
 // wrapper calls it per attempt and reads its own `emitted` flag (set by the
 // wrapped callbacks) to decide whether a retry would replay visible output.
-func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink func(string)) (Message, Usage, error) {
+func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
 	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return Message{}, Usage{}, err
@@ -731,6 +733,12 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 				cur.Function.Name += tc.Function.Name
 			}
 			cur.Function.Arguments += tc.Function.Arguments
+			// Surface the streaming tool call as soon as it has an id, so the
+			// UI can show a pending row before execution (tool_call arguments
+			// stream in fragments, so re-fire each delta with the snapshot).
+			if onToolCall != nil && cur.ID != "" {
+				onToolCall(cur.ID, cur.Function.Name, cur.Function.Arguments)
+			}
 		}
 	}
 	if err := sc.Err(); err != nil {

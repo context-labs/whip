@@ -111,7 +111,7 @@ func TestStreamSendsSyntheticResultsForUnansweredCalls(t *testing.T) {
 		{Role: "user", Content: "q"},
 		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1"}}},
 	}
-	if _, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m", Messages: msgs}, nil, nil); err != nil {
+	if _, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m", Messages: msgs}, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	s := string(body)
@@ -142,7 +142,7 @@ func TestStreamToolMessagesCarryName(t *testing.T) {
 		{Role: "tool", Content: "ok", ToolCallID: "call_1"},
 		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_2"}}}, // unanswered
 	}
-	if _, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m", Messages: msgs}, nil, nil); err != nil {
+	if _, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m", Messages: msgs}, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	s := string(body)

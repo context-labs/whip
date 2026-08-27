@@ -30,6 +30,13 @@ func FanIn(evs ...Events) Events {
 				}
 			}
 		},
+		OnToolCall: func(id, name, args string) {
+			for _, e := range evs {
+				if e.OnToolCall != nil {
+					e.OnToolCall(id, name, args)
+				}
+			}
+		},
 		OnToolEnd: func(id, name, result string) {
 			for _, e := range evs {
 				if e.OnToolEnd != nil {

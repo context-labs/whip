@@ -20,6 +20,10 @@ type Events struct {
 	OnThink     func(delta string)            // reasoning/thinking tokens as they stream
 	OnToolStart func(id, name, args string)   // a tool call is about to run
 	OnToolEnd   func(id, name, result string) // a tool call finished
+	// OnToolCall fires as a tool call streams in (id/name/args snapshots; args
+	// may be partial mid-stream), so the UI can show a pending row before
+	// execution starts. Distinct from OnToolStart, which fires at run time.
+	OnToolCall func(id, name, args string)
 	// OnToolOutput streams partial output for a running tool call (bash only —
 	// throttled snapshots, ~100ms apart). Fires from tool worker goroutines.
 	OnToolOutput func(id, outputSoFar string)
@@ -321,7 +325,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			Messages:        msgs,
 			Tools:           tools.Defs(a.AllTools()),
 			ReasoningEffort: a.Effort,
-		}, ev.OnText, ev.OnThink)
+		}, ev.OnText, ev.OnThink, ev.OnToolCall)
 		a.Client.OnRetry = nil
 		a.AddUsage(usage)
 		if ev.OnUsage != nil {

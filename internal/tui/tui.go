@@ -58,6 +58,10 @@ type (
 	textMsg       string
 	toolStartMsg  struct{ id, name, args string }
 	toolEndMsg    struct{ id, name, result string }
+	// toolCallMsg is a tool call still streaming from the model (args may be
+	// partial): renders a dim "queued" row that toolStartMsg replaces when
+	// execution begins.
+	toolCallMsg   struct{ id, name, args string }
 	toolOutputMsg struct{ id, text string } // partial output for a running tool row
 	steeredMsg    string
 )
@@ -1015,6 +1019,7 @@ const (
 	blockAssistant                  // raw markdown: re-render through glamour
 	blockTool                       // raw tool result: collapsed preview, expandable
 	blockToolRun                    // a running tool call: verb line, collapses on completion
+	blockToolQueued                 // a tool call still streaming from the model; replaced by blockToolRun on start
 )
 
 // toolPreviewLines is how many lines of a tool result show when collapsed.
@@ -1692,9 +1697,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case toolCallMsg:
+		// a tool call still streaming from the model: show a dim queued row so
+		// the user sees it before execution starts. toolStartMsg swaps it for
+		// the live running row (matched by tool-call id).
+		row := dimStyle.Render("⋯ " + msg.name + " " + firstLine(msg.args))
+		m.blocks = append(m.blocks, block{kind: blockToolQueued, text: row, toolID: msg.id})
+		m.refreshVP()
+		return m, nil
+
 	case toolStartMsg:
 		m.flushThink()
 		m.flushCurrent()
+		// replace the queued row for this id (if the tool call streamed in)
+		// rather than appending a second row for the same call.
+		for i := len(m.blocks) - 1; i >= 0; i-- {
+			if m.blocks[i].kind == blockToolQueued && m.blocks[i].toolID == msg.id {
+				m.blocks = slices.Delete(m.blocks, i, i+1)
+				break
+			}
+		}
 		args := msg.args
 		if msg.name == "browser_exec" || msg.name == "computer_exec" {
 			// Surface the step label (the code's first # comment) as the row
@@ -3242,6 +3264,10 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 				send(toolStartMsg{id, n, a})
 			},
 			OnToolEnd: func(id, n, r string) { send(toolEndMsg{id, n, r}) },
+			// tool call still streaming from the model: show a queued row
+			// before execution. Detached send like OnToolOutput — args arrive
+			// in deltas and a parked p.Send must not wedge the stream.
+			OnToolCall: func(id, n, a string) { go send(toolCallMsg{id, n, a}) },
 			// Detached send: snapshots are lossy progress, and a parked
 			// p.Send must never wedge bashrun's ticker goroutine (the ABBA
 			// lesson from docs/concurrency.md — same rule as sendTaskMsg).

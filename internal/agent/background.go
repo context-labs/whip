@@ -296,6 +296,13 @@ func (r *taskRegistry) emitter(id string) Events {
 				}
 			})
 		},
+		OnToolCall: func(tcID, n, a string) {
+			r.broadcast(id, func(e Events) {
+				if e.OnToolCall != nil {
+					e.OnToolCall(tcID, n, a)
+				}
+			})
+		},
 		OnToolEnd: func(tcID, n, res string) {
 			r.broadcast(id, func(e Events) {
 				if e.OnToolEnd != nil {
