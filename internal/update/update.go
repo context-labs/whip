@@ -27,13 +27,18 @@ const (
 	noticeFile = "update.json"
 	// checkTTL caps the network check at once per day; a pending notice for
 	// a release not yet installed suppresses re-checks entirely.
-	checkTTL     = 24 * time.Hour
-	fetchTimeout = 2 * time.Second
+	checkTTL = 24 * time.Hour
 )
 
 // latestURL is the GitHub releases endpoint. A var so tests can point it at a
 // mock server.
 var latestURL = "https://api.github.com/repos/context-labs/whip/releases/latest"
+
+// fetchTimeout bounds the update check. A var so tests can relax it: the
+// hardcoded 2s is fine for a fire-and-forget startup check against GitHub, but
+// races under `-race -shuffle=on` on a loaded CI runner when the test server
+// is on the same box. Tests set this to a generous value.
+var fetchTimeout = 2 * time.Second
 
 // Notice is ~/.whip/update.json: the last check's outcome. Latest is set
 // only when a newer release exists; Acknowledged is flipped by `whip

@@ -229,6 +229,12 @@ func TestPendingAndAcknowledge(t *testing.T) {
 func TestFetchLatestGitHub(t *testing.T) {
 	orig := latestURL
 	defer func() { latestURL = orig }()
+	// Relax the fetch timeout: the 2s production bound races under
+	// `-race -shuffle=on` on a loaded CI runner (a localhost request took
+	// 2.1s and flaked the suite).
+	origTimeout := fetchTimeout
+	fetchTimeout = 30 * time.Second
+	defer func() { fetchTimeout = origTimeout }()
 
 	t.Run("ok", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
