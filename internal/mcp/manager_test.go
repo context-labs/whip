@@ -353,6 +353,44 @@ func TestManagerAutoReconnect(t *testing.T) {
 	}
 }
 
+// Close must actually shut the manager down: the drop watcher it wakes must
+// not mark the server failed and must not kick an auto-reconnect. Without the
+// closed flag every closed-guard in this file is inert and the manager is back
+// to ready within a few dozen milliseconds of Close returning, holding a live
+// session nobody can reach.
+func TestManagerCloseStopsReconnect(t *testing.T) {
+	t.Setenv("WHIP_TEST_MCP_BACKOFF_MS", "0")
+
+	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
+	m.Start(context.Background())
+	waitReady(t, m)
+	if st := m.Statuses(); st[0].Status != StatusReady {
+		t.Fatal("expected ready")
+	}
+
+	m.Close()
+
+	m.onChangeMu.Lock()
+	closed := m.closed
+	m.onChangeMu.Unlock()
+	if !closed {
+		t.Fatal("Close did not set closed, so every closed-guard is inert")
+	}
+
+	// Give the watcher and any reconnect it kicks time to act.
+	s := m.servers["docs"]
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		sess, status := s.sess, s.status
+		s.mu.Unlock()
+		if sess != nil {
+			t.Fatalf("reconnected after Close: status %v", status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // TestManagerAutoReconnectGivesUp: a server that keeps failing exhausts
 // autoReconnectMax tries and stays failed (no flapping forever).
 func TestManagerAutoReconnectGivesUp(t *testing.T) {
