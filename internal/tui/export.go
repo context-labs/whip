@@ -50,15 +50,17 @@ func exportTranscript(path string, msgs []llm.Message) error {
 			b.WriteString("#### Tool result\n\n" + msg.TextContent() + "\n\n")
 			continue
 		}
-		b.WriteString(fmt.Sprintf("## %s\n\n", displayRole(msg.Role)))
+		fmt.Fprintf(&b, "## %s\n\n", displayRole(msg.Role))
 		if c := msg.TextContent(); c != "" {
 			b.WriteString(c + "\n\n")
 		}
 		for _, tc := range msg.ToolCalls {
-			b.WriteString(fmt.Sprintf("`%s`\n\n", tc.Function.Name))
+			fmt.Fprintf(&b, "`%s`\n\n", tc.Function.Name)
 		}
 	}
-	return os.WriteFile(path, []byte(strings.TrimRight(b.String(), "\n")+"\n"), 0o644)
+	// 0o600: the transcript can hold secrets the user pasted; don't leave it
+	// world-readable (gosec G306).
+	return os.WriteFile(path, []byte(strings.TrimRight(b.String(), "\n")+"\n"), 0o600)
 }
 
 // displayRole maps a wire role to a reader-facing heading label.
@@ -71,6 +73,10 @@ func displayRole(role string) string {
 	case "system":
 		return "System"
 	default:
-		return strings.Title(role)
+		// Title-case the first letter without strings.Title (deprecated).
+		if role == "" {
+			return role
+		}
+		return strings.ToUpper(role[:1]) + role[1:]
 	}
 }
