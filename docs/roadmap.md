@@ -57,7 +57,7 @@ parallel tool calls and background subagents).
 - [x] Undo last message (conversation half): rewind restores the prompt text into the input for editing (opencode `routes/session/index.tsx:615`); file-change revert (opencode `revert.ts` git snapshots) is NOT done — conversation-only by design
 - [x] Compaction: summarize old turns when context fills (pi settings: `compaction: {reserveTokens, keepRecentTokens}`; opencode `/compact`) — `/compact` manually; auto-compacts proactively at a configurable % of the provider-advertised context_length (GET /models, cached in ~/.whip/models.json; default 50%, `compactPct`, slidable ←/→ in the ctrl+p palette) plus retries once when the provider errors with context_length_exceeded; `/compact <model> [provider]` picks the summarizer (default `deepseek-v4-flash-0731`, else the current model when the default isn't configured); kept tail never orphans a tool_call from its result
 - [x] Token/cost tracking per session (pi models.json carries `cost: {input, output, cacheRead, cacheWrite}`) — session usage totals in the status line; cost computed from provider-advertised `pricing` in GET /models (cached in ~/.whip/models.json), cached input billed at the cache-read rate; hidden when the provider doesn't advertise prices
-- [ ] Export transcript to markdown with include-options dialog (opencode `/export`, `ui/dialog-export-options.tsx`)
+- [x] Export transcript to markdown (opencode `/export`, `ui/dialog-export-options.tsx`) — `/export [path]` writes the transcript to a markdown file (default `./whip-transcript-<session>.md`) and confirms with the absolute path; the include-options dialog is deliberately skipped for v1 (ponytail)
 
 ## Agent loop
 

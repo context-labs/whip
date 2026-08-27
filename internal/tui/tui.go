@@ -3326,7 +3326,7 @@ func busyCmd(text string) bool {
 		return false
 	}
 	switch fields[0] {
-	case "/help", "/theme", "/mouse", "/effort", "/subagents", "/tasks", "/subagent", "/cd", "/pwd", "/report":
+	case "/help", "/theme", "/mouse", "/effort", "/subagents", "/tasks", "/subagent", "/cd", "/pwd", "/report", "/export":
 		return true
 	case "/auth": // must run now even while busy: an inline key queued as a chat message would be sent to the model
 		return true
@@ -3600,6 +3600,8 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		m.openPicker()
 	case "/context-doctor":
 		m.append(m.doctorReport())
+	case "/export": // read-only, so it runs mid-turn instead of being queued
+		m.exportCommand(strings.TrimSpace(strings.TrimPrefix(text, "/export")))
 	case "/report":
 		m.append(m.reportBlock())
 	case "/help":

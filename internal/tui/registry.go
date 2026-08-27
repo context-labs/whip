@@ -30,6 +30,7 @@ var registry = []registryEntry{
 	{Name: "/computer-use", Hint: "[task] — drive this Mac (apps, open Chrome, screen); also: allow|deny <app>", Category: "Agent"},
 	{Name: "/context-doctor", Hint: "— audit what a fresh session injects (skills, MCP, tool schemas) and its token cost", Category: "Session"},
 	{Name: "/effort", Hint: "[level] — reasoning effort: off·low·medium·high (bare opens selector)", Category: "Agent"},
+	{Name: "/export", Hint: "[path] — write the transcript to a markdown file (default ./whip-transcript-<session>.md)", Category: "Session"},
 	{Name: "/fork", Hint: "[name] — copy the conversation into a new session (pick a point in the rewind picker with f)", Category: "Session"},
 	{Name: "/goal", Hint: "<text> — keep working until the goal is met (resume | clear | rounds <n>|default [--global])", Category: "Session"},
 	{Name: "/goal-from-context", Hint: "[n] — formulate a goal from the last n messages (default 8) and work until it's met", Category: "Session"},
