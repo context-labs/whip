@@ -52,3 +52,37 @@ func TestExportNothingToExport(t *testing.T) {
 		t.Errorf("unexpected empty-transcript notice: %q", m.blocks[before].text)
 	}
 }
+
+// TestDisplayRole: known roles map to title-case labels; unknown roles are
+// title-cased by first letter (no strings.Title, which is deprecated), and the
+// empty string is returned unchanged rather than panicking on role[:1].
+func TestDisplayRole(t *testing.T) {
+	for in, want := range map[string]string{
+		"user":      "User",
+		"assistant": "Assistant",
+		"system":    "System",
+		"tool":      "Tool",
+		"custom":    "Custom",
+		"":          "",
+	} {
+		if got := displayRole(in); got != want {
+			t.Errorf("displayRole(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestExportFilePerms: the transcript can hold secrets the user pasted, so it
+// is written owner-only (0o600), not world-readable.
+func TestExportFilePerms(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out.md")
+	if err := exportTranscript(path, []llm.Message{{Role: "user", Content: "x"}}); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("transcript perms = %o, want 600", perm)
+	}
+}
