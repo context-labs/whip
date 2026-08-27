@@ -30,9 +30,16 @@ type Events struct {
 	OnRetry      func(ev llm.RetryEvent)          // a transient request failure is being retried
 }
 
+// retryReporter is an optional provider capability. The core provider
+// contract stays limited to model discovery and completions; OpenAI exposes
+// this additional hook because it retries transient failures locally.
+type retryReporter interface {
+	SetOnRetry(func(llm.RetryEvent))
+}
+
 // Agent holds one conversation.
 type Agent struct {
-	Client    *llm.Client
+	Client    llm.Client
 	Model     string // model id sent to the API
 	ModelName string // config model name (may differ from Model via id mapping)
 	Provider  string // config provider name
@@ -47,7 +54,7 @@ type Agent struct {
 	ContextLimit int
 	// CompactClient and CompactModel run the compaction summary; nil/"" uses
 	// the conversation's own client and model.
-	CompactClient *llm.Client
+	CompactClient llm.Client
 	CompactModel  string
 	// CompactThreshold is the fraction of ContextLimit at which Turn compacts
 	// proactively; 0 uses defaultCompactThreshold.
@@ -185,7 +192,7 @@ func (a *Agent) Usage() llm.Usage {
 	return u
 }
 
-func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
+func New(client llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
 	a := &Agent{
 		Client:    client,
 		Model:     model,
@@ -304,16 +311,23 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				llm.Message{Role: "system", Content: block})
 		}
 		// Surface transient-request retries through the event hook so the UI
-		// shows "retrying" instead of looking hung. Set/restored per call: the
-		// client may outlive this turn's Events.
-		a.Client.OnRetry = ev.OnRetry
+		// shows "retrying" instead of looking hung. The provider may outlive
+		// this turn, so clear an optional reporter immediately after the call.
+		var clearRetry func()
+		if client, ok := a.Client.(retryReporter); ok {
+			client.SetOnRetry(ev.OnRetry)
+			clearRetry = func() { client.SetOnRetry(nil) }
+		}
 		msg, usage, err := a.Client.Stream(ctx, llm.Request{
 			Model:           a.Model,
 			Messages:        msgs,
 			Tools:           tools.Defs(a.AllTools()),
+			MaxTokens:       a.MaxTokens,
 			ReasoningEffort: a.Effort,
 		}, ev.OnText, ev.OnThink)
-		a.Client.OnRetry = nil
+		if clearRetry != nil {
+			clearRetry()
+		}
 		a.AddUsage(usage)
 		if ev.OnUsage != nil {
 			ev.OnUsage(usage)

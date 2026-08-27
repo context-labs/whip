@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -290,6 +291,30 @@ func TestRunQuietJSON(t *testing.T) {
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			t.Fatalf("stdout should be clean NDJSON, got line %q: %v", line, err)
 		}
+	}
+}
+
+func TestRunClientForCodex(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, ".codex", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"access","refresh_token":"refresh","account_id":"account"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	client, err := runClientForProvider(config.Provider{
+		BaseURL: config.CodexBaseURL,
+		API:     "openai-codex-responses",
+		Auth:    "codex",
+	}, config.CodexProviderName, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := client.(*llm.Codex); !ok {
+		t.Fatalf("client = %T, want *llm.Codex", client)
 	}
 }
 

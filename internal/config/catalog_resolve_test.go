@@ -98,6 +98,27 @@ func TestResolveCatalogFallbackAmbiguous(t *testing.T) {
 	}
 }
 
+func TestResolveCatalogFallbackUsesDefaultProvider(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	if err := SaveCatalogs(map[string]Catalog{
+		"codex":     {Models: []ModelInfoLite{{ID: "gpt-5.6-terra", ContextLength: 1050000}}},
+		"inference": {Models: []ModelInfoLite{{ID: "gpt-5.6-terra", ContextLength: 1000000}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := cfgWithProviders("codex", "inference")
+	cfg.DefaultModel = "gpt-5.6-terra"
+	cfg.DefaultProvider = "codex"
+
+	p, m, id, err := cfg.Resolve("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.BaseURL != "https://codex" || id != "gpt-5.6-terra" || m.Context != 1050000 {
+		t.Fatalf("default provider should select the Codex catalog route: provider=%+v model=%+v id=%q", p, m, id)
+	}
+}
+
 // Config entries stay authoritative: a configured model never falls through
 // to the catalog, even when the catalog advertises the same id differently.
 func TestResolveConfigWinsOverCatalog(t *testing.T) {

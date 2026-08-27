@@ -42,7 +42,17 @@ func TestStreamStripsAuthoredFlag(t *testing.T) {
 	defer srv.Close()
 
 	sent := time.Now()
-	msgs := []Message{{Role: "user", Content: "typed by me", Authored: true, SentAt: &sent}}
+	msgs := []Message{
+		{Role: "user", Content: "typed by me", Authored: true, SentAt: &sent},
+		{
+			Role:           "assistant",
+			Content:        "a Codex response",
+			ResponseID:     "msg-codex",
+			ResponsePhase:  "commentary",
+			CodexReasoning: []json.RawMessage{json.RawMessage(`{"type":"reasoning","id":"rs-codex","encrypted_content":"encrypted"}`)},
+			ToolCalls:      []ToolCall{{ID: "call-codex", ItemID: "fc-codex"}},
+		},
+	}
 	if _, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m", Messages: msgs}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +61,9 @@ func TestStreamStripsAuthoredFlag(t *testing.T) {
 	}
 	if strings.Contains(string(body), "sent_at") {
 		t.Fatalf("SentAt timestamp leaked to provider: %s", body)
+	}
+	if strings.Contains(string(body), "response_id") || strings.Contains(string(body), "response_phase") || strings.Contains(string(body), "codex_reasoning") || strings.Contains(string(body), "item_id") {
+		t.Fatalf("Codex item metadata leaked to provider: %s", body)
 	}
 }
 

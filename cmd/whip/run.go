@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/codexauth"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
@@ -85,13 +86,10 @@ func runCLI(args []string) error {
 			provName = mdl.Providers[0]
 		}
 	}
-	key := prov.Key()
-	if key == "" {
-		return fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)", provName)
+	client, err := runClientForProvider(prov, provName, cfg.MaxRetries)
+	if err != nil {
+		return err
 	}
-
-	client := llm.New(prov.BaseURL, key)
-	client.MaxRetries = cfg.MaxRetries
 
 	// System prompt: -system-file wins over -system (a file is the deliberate
 	// choice; a stray -system alongside it is almost certainly stale).
@@ -107,7 +105,11 @@ func runCLI(args []string) error {
 		sys = string(data)
 	}
 
-	ag := agent.New(client, apiID, mdl.MaxTokens, sys)
+	maxOut := mdl.MaxOut
+	if maxOut == 0 {
+		maxOut = mdl.ContextWindow()
+	}
+	ag := agent.New(client, apiID, maxOut, sys)
 	ag.ModelName, ag.Provider = modelName, provName
 	// Headless runs have no one to answer a consent prompt: computer_exec
 	// stays disabled (no interactive approver is ever installed).
@@ -205,4 +207,34 @@ func runCLI(args []string) error {
 		note("session %s — resume with: whip run -resume %s \"…\" · or interactively: whip --resume %s", sessionID, sessionID, sessionID)
 	}
 	return err
+}
+
+func runClientForProvider(prov config.Provider, name string, maxRetries int) (llm.Client, error) {
+	switch prov.API {
+	case "", "openai-completions":
+		key, err := prov.ResolveKey()
+		if err != nil {
+			return nil, err
+		}
+		if key == "" {
+			return nil, fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)", name)
+		}
+		client := llm.New(prov.BaseURL, key)
+		client.MaxRetries = maxRetries
+		return client, nil
+	case "openai-codex-responses":
+		if prov.Auth != "codex" {
+			return nil, fmt.Errorf("codex provider %q requires auth:\"codex\"", name)
+		}
+		if strings.TrimRight(prov.BaseURL, "/") != config.CodexBaseURL {
+			return nil, fmt.Errorf("codex provider %q must use %s", name, config.CodexBaseURL)
+		}
+		source := &codexauth.Source{}
+		if err := source.Available(); err != nil {
+			return nil, err
+		}
+		return llm.NewCodex(prov.BaseURL, source), nil
+	default:
+		return nil, fmt.Errorf("unsupported API %q for provider %q", prov.API, name)
+	}
 }

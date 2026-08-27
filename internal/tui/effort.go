@@ -86,8 +86,8 @@ func effortCandsFor(levels []string) []cand {
 // fetch completes).
 func (m *model) updateCatalogs(cats map[string]config.Catalog) {
 	m.catalogs = cats
-	if n := m.contextLimitFor(m.provName, m.agent.Model); n != m.agent.ContextLimit {
-		m.agent.ContextLimit = n // /models is the source of truth
+	if n := m.contextLimitFor(m.provName, m.agent.Model); n > 0 && n != m.agent.ContextLimit {
+		m.agent.ContextLimit = n // a provider-advertised limit overrides the configured fallback
 	}
 	if !slices.Contains(m.effortsFor(), m.agent.Effort) {
 		m.resetEffort("")

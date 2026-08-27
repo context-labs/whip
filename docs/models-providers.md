@@ -92,6 +92,26 @@ Per-model overrides still compose: add an entry under `"models"` in
 config.json (with `"providers": ["openrouter"]`) to pin context, maxOut, or
 vision for a specific id.
 
+## Codex subscription: account-scoped models
+
+`whip auth codex` signs in through Codex's device-code flow, then fetches
+`GET /codex/models` with the resulting ChatGPT credentials.
+The response is cached in `~/.whip/models.json`, so `/model` immediately lists
+every model the signed-in account may use. As with OpenRouter, catalog entries
+need no individual config entry: select one from `/model`, or use
+`/model <id> codex` directly.
+
+The Codex backend is the source of truth for subscription availability. That
+means a model appears only when the account is entitled to it, and changes in
+plan or rollout state arrive on the next 24-hour refresh (or `/model refresh`).
+Whip keeps `gpt-5.4 @ codex` as a fallback route so a temporary catalog fetch
+failure never makes a completed login unusable.
+
+Codex subscription requests intentionally omit `max_output_tokens`: despite
+the public Responses API accepting that field, the ChatGPT subscription
+endpoint rejects it. The backend enforces the output limit for the selected
+subscription model.
+
 ## Token bookkeeping
 
 Three numbers with distinct meanings:
@@ -99,7 +119,7 @@ Three numbers with distinct meanings:
 | Field | Meaning | Drives |
 |---|---|---|
 | `context` | model's **input** window | header % full, proactive compaction threshold |
-| `maxOut` | optional **output** cap | request `max_completion_tokens` |
+| `maxOut` | optional **output** cap | request `max_completion_tokens` (non-Codex providers) |
 | provider `context_length` | advertised limit | overrides `context` when present |
 
 The old `maxTokens` field still parses (it always meant the context window)
@@ -117,8 +137,11 @@ accumulate per session. Hidden entirely when pricing isn't advertised.
 Compaction summarizes with a separate, cheaper model:
 `compactModel`/`compactProvider` in config, defaulting to
 `deepseek-v4-flash-0731` (`config.DefaultCompactModel`), falling back to the
-conversation's own model. `/compact <model> [provider]` picks the summarizer
-by hand. Mechanics: [agent-loop.md](agent-loop.md#compaction).
+conversation's own model. When `compactProvider` is omitted, Whip uses the
+compaction model's configured route rather than the session's `defaultProvider`;
+the built-in DeepSeek summarizer therefore uses `inference-net`, even in a Codex
+session. `/compact <model> [provider]` picks the summarizer by hand. Mechanics:
+[agent-loop.md](agent-loop.md#compaction).
 
 ## Read next
 

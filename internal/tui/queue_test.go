@@ -243,8 +243,8 @@ func TestEscDoesNotInterruptWhenIdle(t *testing.T) {
 
 // stubLLM answers chat completions with an immediate empty SSE stream so a
 // drained queue can submit without touching the network.
-func stubLLM() *llm.Client {
-	return &llm.Client{
+func stubLLM() *llm.OpenAI {
+	return &llm.OpenAI{
 		HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,

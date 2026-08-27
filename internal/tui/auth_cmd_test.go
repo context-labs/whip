@@ -44,11 +44,73 @@ func TestAuthCommandUsageAndUnknownProvider(t *testing.T) {
 	m.authCommand(nil)
 	m.authCommand([]string{"anthropic"})
 	out := m.transcriptText()
-	if !strings.Contains(out, "usage: /auth") {
+	if !strings.Contains(out, "usage: /auth") || !strings.Contains(out, "codex") {
 		t.Errorf("bare /auth should print usage:\n%s", out)
 	}
 	if !strings.Contains(out, "unknown provider anthropic") {
 		t.Errorf("unknown provider should be rejected:\n%s", out)
+	}
+}
+
+func TestAuthCommandCodexUsage(t *testing.T) {
+	m := authTestModel(t)
+	m.authCommand([]string{"codex", "unexpected"})
+	if out := m.transcriptText(); !strings.Contains(out, "usage: /auth codex") {
+		t.Errorf("codex with arguments should print usage:\n%s", out)
+	}
+}
+
+func TestCodexLoginResultConfiguresAndMakesModelPickable(t *testing.T) {
+	m := authTestModel(t)
+	m.busy = true
+	m.cancel = func() {}
+	m.applyCodexLoginResult(codexLoginResultMsg{models: []llm.ModelInfo{
+		{ID: "gpt-5.6-sol", ContextLength: 1050000, ReasoningEfforts: []string{"low", "high"}, InputModalities: []string{"text", "image"}},
+		{ID: "gpt-5.6-terra", ContextLength: 1050000, InputModalities: []string{"text", "image"}},
+	}})
+
+	if m.busy || m.cancel != nil {
+		t.Fatal("completed Codex login should clear its busy state")
+	}
+	p, ok := m.cfg.Providers[config.CodexProviderName]
+	if !ok || p.Auth != "codex" {
+		t.Fatalf("Codex provider was not configured: %+v", p)
+	}
+	m.openModelPicker()
+	if m.mpicker == nil {
+		t.Fatal("Codex login should make the model picker available")
+	}
+	var foundDefault, foundCatalog bool
+	for _, item := range m.mpicker.items {
+		if item.model == config.CodexDefaultModel && item.provider == config.CodexProviderName {
+			foundDefault = true
+		}
+		if item.model == "gpt-5.6-sol" && item.provider == config.CodexProviderName && item.fromCatalog {
+			foundCatalog = true
+		}
+	}
+	if !foundDefault {
+		t.Fatalf("%s @ %s missing from picker: %+v", config.CodexDefaultModel, config.CodexProviderName, m.mpicker.items)
+	}
+	if !foundCatalog {
+		t.Fatalf("account catalog model missing from picker: %+v", m.mpicker.items)
+	}
+	if out := m.transcriptText(); !strings.Contains(out, "Codex configured") {
+		t.Errorf("success should be reported:\n%s", out)
+	}
+}
+
+func TestCodexLoginResultFailureLeavesRouteUntouched(t *testing.T) {
+	m := authTestModel(t)
+	m.applyCodexLoginResult(codexLoginResultMsg{err: errors.New("device login rejected")})
+	if _, ok := m.cfg.Providers[config.CodexProviderName]; ok {
+		t.Fatal("failed Codex login must not configure a provider")
+	}
+	if _, ok := m.cfg.Models[config.CodexDefaultModel]; ok {
+		t.Fatal("failed Codex login must not add a model route")
+	}
+	if out := m.transcriptText(); !strings.Contains(out, "Codex login failed") {
+		t.Errorf("failure should be reported:\n%s", out)
 	}
 }
 
@@ -142,7 +204,11 @@ func TestAuthResultRekeysLiveSession(t *testing.T) {
 
 	m.applyAuthResult(authResultMsg{key: "sk-or-new", models: []llm.ModelInfo{{ID: "openai/gpt-5", ContextLength: 400000}}})
 
-	if m.agent.Client.APIKey != "sk-or-new" {
+	client, ok := m.agent.Client.(*llm.OpenAI)
+	if !ok {
+		t.Fatalf("client = %T, want *llm.OpenAI", m.agent.Client)
+	}
+	if client.APIKey != "sk-or-new" {
 		t.Error("live agent should be rebuilt with the new key")
 	}
 	if len(m.agent.Messages) != 2 || m.agent.Messages[1].Content != "hi" {
@@ -311,7 +377,11 @@ func TestAuthMakesCatalogModelsPickable(t *testing.T) {
 	if ag.ContextLimit != 400000 {
 		t.Errorf("context window should come from the catalog: %d", ag.ContextLimit)
 	}
-	if ag.Client.APIKey != "sk-or-live" {
+	client, ok := ag.Client.(*llm.OpenAI)
+	if !ok {
+		t.Fatalf("client = %T, want *llm.OpenAI", ag.Client)
+	}
+	if client.APIKey != "sk-or-live" {
 		t.Error("agent should carry the authed key")
 	}
 }

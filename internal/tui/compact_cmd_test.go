@@ -94,6 +94,24 @@ func TestCompactModelEmptyResolvesDefault(t *testing.T) {
 	}
 }
 
+// The inference-only built-in summary model must not inherit a Codex session's
+// default provider: ChatGPT subscriptions reject DeepSeek model IDs.
+func TestCompactModelDefaultDoesNotUseSessionDefaultProvider(t *testing.T) {
+	m := compactCmdModel()
+	m.cfg.DefaultProvider = config.CodexProviderName
+	m.cfg.Providers[config.CodexProviderName] = config.Provider{
+		BaseURL: config.CodexBaseURL,
+		API:     "openai-codex-responses",
+		Auth:    "codex",
+	}
+
+	m.applyCompactModel()
+
+	if m.agent.CompactModel != config.DefaultCompactModel || m.agent.CompactClient == nil {
+		t.Fatalf("default summary should use inference route, got model %q client %T", m.agent.CompactModel, m.agent.CompactClient)
+	}
+}
+
 // When the default model isn't in the user's config, the override clears and
 // compaction falls back to the conversation's own model — no error note.
 func TestCompactModelDefaultFallsBack(t *testing.T) {
@@ -135,6 +153,15 @@ func TestContextLimitFromCatalog(t *testing.T) {
 	m.updateCatalogs(cats)
 	if m.agent.ContextLimit != 262144 {
 		t.Fatalf("agent limit should follow the catalog, got %d", m.agent.ContextLimit)
+	}
+}
+
+func TestCatalogRefreshKeepsConfiguredFallback(t *testing.T) {
+	m := compactCmdModel()
+	m.agent.ContextLimit = 131072
+	m.updateCatalogs(map[string]config.Catalog{})
+	if m.agent.ContextLimit != 131072 {
+		t.Fatalf("unknown catalog limit should preserve the configured fallback, got %d", m.agent.ContextLimit)
 	}
 }
 

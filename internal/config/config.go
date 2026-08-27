@@ -14,7 +14,8 @@ import (
 type Provider struct {
 	Name      string `json:"name,omitempty"`
 	BaseURL   string `json:"baseUrl"`
-	API       string `json:"api"`              // "openai-completions" is the only supported value for now
+	API       string `json:"api"`              // "openai-completions" or "openai-codex-responses"
+	Auth      string `json:"auth,omitempty"`   // "codex" uses Whip's local Codex OAuth credentials
 	APIKey    string `json:"apiKey,omitempty"` // literal key or a secret reference ("$VAR"/"${VAR}"/"!cmd"); apiKeyEnv is another option
 	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
 }
@@ -436,6 +437,9 @@ func (c *Config) Resolve(model, provider string) (Provider, Model, string, error
 	if model == "" {
 		model = c.DefaultModel
 	}
+	if provider == "" {
+		provider = c.DefaultProvider
+	}
 	m, ok := c.Models[model]
 	if !ok {
 		// Catalog fallback: a provider-advertised model needs no config entry;
@@ -445,9 +449,6 @@ func (c *Config) Resolve(model, provider string) (Provider, Model, string, error
 		if err != nil {
 			return Provider{}, Model{}, "", err
 		}
-	}
-	if provider == "" {
-		provider = c.DefaultProvider
 	}
 	if provider == "" && len(m.Providers) > 0 {
 		provider = m.Providers[0]

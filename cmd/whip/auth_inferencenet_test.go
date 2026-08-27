@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -63,5 +64,47 @@ func TestAuthInferenceNetLogoutClearsStoredAuth(t *testing.T) {
 	a, _ := inferencenet.LoadAuth()
 	if a != (inferencenet.Auth{}) {
 		t.Errorf("logout should clear stored auth, got %+v", a)
+	}
+}
+
+func TestCLIChooser(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		input   string
+		options []string
+		want    string
+		wantErr bool
+	}{
+		{name: "defaults to first option", input: "\n", options: []string{"personal", "work"}, want: "personal"},
+		{name: "selects numbered option", input: "2\n", options: []string{"personal", "work"}, want: "work"},
+		{name: "rejects invalid choice", input: "3\n", options: []string{"personal", "work"}, wantErr: true},
+		{name: "reads a project name", input: "new project\n", want: "new project"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.WriteString(tc.input); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.Close(); err != nil {
+				t.Fatal(err)
+			}
+			original := os.Stdin
+			os.Stdin = r
+			t.Cleanup(func() {
+				os.Stdin = original
+				_ = r.Close()
+			})
+
+			got, err := cliChooser("project", "Choose a project", tc.options)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("cliChooser() error = %v, want error=%t", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Fatalf("cliChooser() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

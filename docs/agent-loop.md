@@ -88,10 +88,11 @@ flowchart TB
     C --> after["system + summary + tail<br/>(tail never orphans a tool call)"]
 ```
 
-The summarizer defaults to `deepseek-v4-flash-0731`
-(`config.DefaultCompactModel`), falls back to the configured
-`compactModel`/`compactProvider`, then to the conversation's own model.
-`/compact [model] [provider]` does it by hand.
+The summarizer uses the configured `compactModel`/`compactProvider`, or defaults
+to `deepseek-v4-flash-0731` (`config.DefaultCompactModel`). Without an explicit
+`compactProvider`, it uses the summarizer model's configured provider rather than
+the conversation's default provider. If the default model is unavailable, it uses
+the conversation's own model. `/compact [model] [provider]` does it by hand.
 
 ## Background subagents
 

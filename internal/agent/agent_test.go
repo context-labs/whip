@@ -83,6 +83,21 @@ func TestTurnLoop(t *testing.T) {
 	}
 }
 
+func TestTurnSendsMaxTokens(t *testing.T) {
+	srv := textServer(t, func(_ int, req llm.Request) string {
+		if req.MaxTokens != 123 {
+			t.Errorf("max tokens = %d, want 123", req.MaxTokens)
+		}
+		return "done"
+	})
+	defer srv.Close()
+
+	ag := New(llm.New(srv.URL, "k"), "m", 123, "sys")
+	if _, err := ag.Turn(context.Background(), "go", Events{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Each assistant message records its token usage and which model produced it;
 // tool calls record their run time and exit status. All survive for per-turn
 // cost and perf views after the in-memory session totals are gone.

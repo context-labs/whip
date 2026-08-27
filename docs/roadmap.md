@@ -81,6 +81,7 @@ parallel tool calls and background subagents).
 ## Models & providers
 
 - [x] Model → provider routing in config (switch providers without touching models)
+- [x] Codex subscription provider: `whip auth codex` runs Codex's device-code OAuth, writes local state, and immediately fetches the signed-in account's `/codex/models` catalog for `/model`; `/auth codex` does the same in-session. Expiring credentials refresh, and the ChatGPT Codex Responses SSE endpoint maps into the existing tool loop without the unsupported `max_output_tokens` parameter; the account-scoped catalog supplies context, vision, and reasoning capabilities
 - [ ] `anthropic-messages` API style alongside `openai-completions` (pi: `packages/ai/src/api/`)
 - [x] `"$VAR"` / `"!cmd"` resolution for apiKey/header values in config (pi models.json value resolution) — shipped with secrets-by-reference (internal/config/secret.go), resolved at point of use
 - [x] Reasoning effort: `/effort [off|low|medium|high]` (bare opens the selector), tab-completes, clickable `⚡` control in the header top-right; sent as `reasoning_effort`, inherited by subagents, survives model switches
@@ -114,7 +115,6 @@ Improvement plan with per-item checkboxes: [`.ai-docs/plans/mcp-polish/`](../.ai
 
 - [x] Permission prompt: Allow once / Allow always / Reject, where "always" previews the exact rule it installs and "reject" takes a free-text redirect message back to the model (opencode `routes/session/permission.tsx`)
 - [x] Command-prefix arity for useful "allow always" rules: `git checkout branch` → rule for `git checkout`, not the whole string (opencode `permission/arity.ts`)
-- [x] Project trust prompt on first run in a directory (pi: `trust.json`, `defaultProjectTrust: "ask"`) — `internal/tui/trust.go` + `~/.whip/trusted.json`, plain-terminal prompt before the TUI starts, piped stdin declines safely
 - [x] Secrets as references, never values: `"$VAR"`/`"!cmd"` (or `${ENV_VAR}`-style) indirection in config and MCP/tool init, resolved host-side at point of use so raw keys never enter the event log or model context (exo `crates/exoharness/src/secrets.rs` — AES-GCM at rest with keychain/file master key is the full version; the indirection alone is most of the safety)
 
 ## Theming & config
