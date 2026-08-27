@@ -354,10 +354,10 @@ type Request struct {
 	// Temperature and TopP are optional per-model sampling knobs. Pointers so
 	// 0.0 (a legitimate value) is distinguishable from unset; nil omits the
 	// field from the request, preserving provider defaults.
-	Temperature *float64 `json:"temperature,omitempty"`
-	TopP        *float64 `json:"top_p,omitempty"`
-	Stream      bool     `json:"stream"`
-	StreamOptions   *struct {
+	Temperature   *float64 `json:"temperature,omitempty"`
+	TopP          *float64 `json:"top_p,omitempty"`
+	Stream        bool     `json:"stream"`
+	StreamOptions *struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options,omitempty"`
 }
