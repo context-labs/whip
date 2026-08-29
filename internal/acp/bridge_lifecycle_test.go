@@ -60,6 +60,9 @@ func TestNewSessionAdvertisesModes(t *testing.T) {
 	if resp.SessionId == "" {
 		t.Fatal("empty sessionId")
 	}
+	if got := f.bridge.getSession(resp.SessionId).ag.SessionIDValue(); got != string(resp.SessionId) {
+		t.Fatalf("agent session scope = %q, want %q", got, resp.SessionId)
+	}
 	if resp.Modes == nil || resp.Modes.CurrentModeId != ModeAuto || len(resp.Modes.AvailableModes) != 2 {
 		t.Fatalf("modes = %+v", resp.Modes)
 	}

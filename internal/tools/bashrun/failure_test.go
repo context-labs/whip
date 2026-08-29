@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,77 @@ func TestRunReportsUnstartableShell(t *testing.T) {
 		if res.Output != "" {
 			t.Fatalf("interactive=%v: nothing ran, so there is no output: %q", interactive, res.Output)
 		}
+	}
+}
+
+func TestRunStructuredIO(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv("HOOK_TEST", "ambient")
+	dir := t.TempDir()
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Run(t.Context(), Options{
+		Command:        `read input; printf 'out:%s:%s:%s' "$input" "$HOOK_TEST" "$PWD"; printf 'diagnostic' >&2; exit 7`,
+		Stdin:          []byte("payload\n"),
+		Env:            []string{"HOOK_TEST=value"},
+		Dir:            dir,
+		SeparateOutput: true,
+	})
+	if res.ExitCode != 7 {
+		t.Fatalf("exit code = %d, want 7 (%+v)", res.ExitCode, res)
+	}
+	if res.Stdout != "out:payload:value:"+realDir {
+		t.Fatalf("stdout = %q", res.Stdout)
+	}
+	if res.Stderr != "diagnostic" {
+		t.Fatalf("stderr = %q", res.Stderr)
+	}
+	if !strings.Contains(res.Output, "out:payload:value:") || !strings.Contains(res.Output, "diagnostic") {
+		t.Fatalf("combined output lost a stream: %q", res.Output)
+	}
+}
+
+func TestRunCapsStructuredOutput(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	res := Run(t.Context(), Options{
+		Command:        `printf 'abcdefghij'`,
+		SeparateOutput: true,
+		MaxOutputBytes: 4,
+	})
+	if !res.Truncated {
+		t.Fatal("expected output cap to report truncation")
+	}
+	if res.Output != "abcd" || res.Stdout != "abcd" {
+		t.Fatalf("capped output = %q stdout = %q", res.Output, res.Stdout)
+	}
+}
+
+func TestRunStructuredOutputLimitAppliesPerStream(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	res := Run(t.Context(), Options{
+		Command:        `printf 'abcd'; printf 'wxyz' >&2`,
+		SeparateOutput: true,
+		MaxOutputBytes: 4,
+	})
+	if res.Truncated {
+		t.Fatalf("individually bounded streams reported truncation: %+v", res)
+	}
+	if res.Stdout != "abcd" || res.Stderr != "wxyz" || len(res.Output) != 8 {
+		t.Fatalf("structured output = stdout %q stderr %q combined %q", res.Stdout, res.Stderr, res.Output)
+	}
+}
+
+func TestMergeEnvReplacesDuplicateKeys(t *testing.T) {
+	got := mergeEnv(
+		[]string{"A=old", "B=base", "A=stale", "loose"},
+		[]string{"A=marker", "C=marker"},
+		[]string{"A=hook", "C=hook"},
+	)
+	want := []string{"A=hook", "B=base", "loose", "C=hook"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("merged environment = %v, want %v", got, want)
 	}
 }
 

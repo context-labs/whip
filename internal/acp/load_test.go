@@ -114,6 +114,9 @@ func TestLoadSessionReplaysHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session/load: %v", err)
 	}
+	if got := f2.bridge.getSession(id).ag.SessionIDValue(); got != string(id) {
+		t.Fatalf("loaded agent session scope = %q, want %q", got, id)
+	}
 
 	// Replay arrived before the response (LoadSession returned), and contains
 	// user chunk → tool card (completed) → agent chunk.

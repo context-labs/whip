@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/context-labs/whip/internal/hooks"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
 )
@@ -28,11 +30,12 @@ type Events struct {
 	// OnToolOutput streams partial output for a running tool call (bash only —
 	// throttled snapshots, ~100ms apart). Fires from tool worker goroutines.
 	OnToolOutput func(id, outputSoFar string)
-	OnSteer      func(text string)                // a steered message was injected
-	OnCompact    func(took, kept int)             // context was auto-compacted (messages removed/kept)
-	OnCompacted  func(summary string, cutoff int) // a compaction ran; record it (raw log survives)
-	OnUsage      func(u llm.Usage)                // a request reported its token usage
-	OnRetry      func(ev llm.RetryEvent)          // a transient request failure is being retried
+	OnSteer      func(text string)                              // a steered message was injected
+	OnCompact    func(took, kept int)                           // context was auto-compacted (messages removed/kept)
+	OnCompacted  func(summary string, cutoff int)               // a compaction ran; record it (raw log survives)
+	OnUsage      func(u llm.Usage)                              // a request reported its token usage
+	OnRetry      func(ev llm.RetryEvent)                        // a transient request failure is being retried
+	OnHook       func(event hooks.Event, outcome hooks.Outcome) // a lifecycle hook chain settled
 	// OnDecay fires when the per-turn decay pass rewrote n history messages
 	// (superseded reads / aged tool outputs). The caller must re-persist the
 	// affected prefix — the store's Save(from=1) INSERT OR REPLACEs it.
@@ -141,6 +144,14 @@ type Agent struct {
 	// ComputerDisabled, when true, keeps computer_exec out of the tool set
 	// (config computer.enabled=false).
 	ComputerDisabled bool
+
+	// hookMu guards the replaceable lifecycle runner and its explicit working
+	// directory. SetHookScope may run from the TUI's /cd path while
+	// tool workers are active; workers snapshot both and release the lock
+	// before any hook subprocess I/O.
+	hookMu     sync.RWMutex
+	hookRunner hooks.Runner
+	workingDir string
 
 	// OnOrphanedSteer, when set by the TUI, receives steered messages that lost
 	// the race against a turn's final loop boundary (a Steer landing after the
@@ -258,11 +269,13 @@ func (a *Agent) Usage() llm.Usage {
 }
 
 func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
+	wd, _ := os.Getwd()
 	a := &Agent{
-		Client:    client,
-		Model:     model,
-		MaxTokens: maxTokens,
-		Messages:  []llm.Message{{Role: "system", Content: systemPrompt}},
+		Client:     client,
+		Model:      model,
+		MaxTokens:  maxTokens,
+		Messages:   []llm.Message{{Role: "system", Content: systemPrompt}},
+		workingDir: wd,
 	}
 	a.Tools = tools.All()
 	if !a.BrowserDisabled {
@@ -278,6 +291,53 @@ func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *
 	a.files = newFileLocks()
 	a.bg = newTaskRegistry()
 	return a
+}
+
+// SetHooks atomically replaces the lifecycle runner used by future events.
+// In-flight events keep the immutable runner snapshot they already took.
+func (a *Agent) SetHooks(runner hooks.Runner) {
+	a.hookMu.Lock()
+	a.hookRunner = runner
+	a.hookMu.Unlock()
+}
+
+// SetHookScope atomically replaces the lifecycle runner and command working
+// directory. Reload paths use this instead of two independent setters so an
+// event can never pair a new manager with the previous directory.
+func (a *Agent) SetHookScope(runner hooks.Runner, dir string) {
+	a.hookMu.Lock()
+	a.hookRunner = runner
+	a.workingDir = dir
+	a.hookMu.Unlock()
+}
+
+// SetWorkingDir publishes the directory included in hook payloads and used as
+// each hook command's cwd. It is separate from os.Chdir so ACP sessions and
+// subagent worktrees can carry their own roots.
+func (a *Agent) SetWorkingDir(dir string) {
+	a.hookMu.Lock()
+	a.workingDir = dir
+	a.hookMu.Unlock()
+}
+
+func (a *Agent) hookSnapshot() (hooks.Runner, string) {
+	a.hookMu.RLock()
+	defer a.hookMu.RUnlock()
+	return a.hookRunner, a.workingDir
+}
+
+func (a *Agent) runHook(ctx context.Context, req hooks.Request, ev Events) hooks.Outcome {
+	runner, dir := a.hookSnapshot()
+	if runner == nil {
+		return hooks.Outcome{}
+	}
+	req.SessionID = a.SessionIDValue()
+	req.WorkingDir = dir
+	outcome := runner.Run(ctx, req)
+	if ev.OnHook != nil && (outcome.Ran > 0 || outcome.Blocked || outcome.AdditionalContext != "" || len(outcome.Failures) > 0) {
+		ev.OnHook(req.Event, outcome)
+	}
+	return outcome
 }
 
 // MessagesSnapshot returns a copy of the conversation safe to read while a
@@ -374,6 +434,19 @@ func (a *Agent) TurnWithImages(ctx context.Context, input string, parts []llm.Co
 }
 
 func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, ev Events) (string, error) {
+	promptHook := a.runHook(ctx, hooks.Request{
+		Event:          hooks.UserPromptSubmit,
+		MatcherContext: input,
+		Message:        input,
+	}, ev)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	if promptHook.Blocked {
+		return "", fmt.Errorf("prompt blocked by hook: %s", hookReason(promptHook))
+	}
+	input = withHookContext(input, hooks.UserPromptSubmit, promptHook.AdditionalContext)
+
 	// Decay old tool output before the new user message lands: the pass only
 	// prunes history outside the hot window, and running it pre-append keeps
 	// the new message (and this turn's tool results) inside the window where
@@ -395,6 +468,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 	a.Messages = append(a.Messages, msg)
 	a.msgsMu.Unlock()
 	rounds := 0
+	stopBlocks := 0
 	for {
 		if a.MaxTurns > 0 && rounds >= a.MaxTurns {
 			return "", fmt.Errorf("max turns (%d) reached — the model kept calling tools; re-run with a higher -max-turns or a more specific prompt", a.MaxTurns)
@@ -484,6 +558,32 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			a.msgsMu.Unlock()
 		}
 		if len(msg.ToolCalls) == 0 && len(steered) == 0 {
+			// Three rejected completions already produced three revision rounds.
+			// Accept the next draft without running Stop again; emitting another
+			// blocked outcome while ignoring it would make telemetry lie.
+			if stopBlocks >= maxStopHookRetries {
+				a.compacted = false
+				return msg.Content, nil
+			}
+			stopHook := a.runHook(ctx, hooks.Request{
+				Event:                hooks.Stop,
+				LastAssistantMessage: msg.Content,
+			}, ev)
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			if stopHook.Blocked {
+				stopBlocks++
+				feedback := "[Stop hook blocked completion] " + hookReason(stopHook)
+				feedback = withHookContext(feedback, hooks.Stop, stopHook.AdditionalContext)
+				if ev.OnSteer != nil {
+					ev.OnSteer(feedback)
+				}
+				a.msgsMu.Lock()
+				a.Messages = append(a.Messages, llm.Message{Role: "user", Content: feedback})
+				a.msgsMu.Unlock()
+				continue
+			}
 			a.compacted = false // reset for the next Turn
 			return msg.Content, nil
 		}
@@ -552,6 +652,35 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, ev Events) [
 		go func(i int, tc llm.ToolCall) {
 			defer wg.Done()
 			name, args := tc.Function.Name, tc.Function.Arguments
+			finish := func(out string, started time.Time, code int) {
+				ms := time.Since(started).Milliseconds()
+				if ev.OnToolEnd != nil {
+					ev.OnToolEnd(tc.ID, name, out)
+				}
+				outCh <- outcome{i, out, ms, code}
+			}
+
+			// Policy runs before mutation semaphores: hook subprocess I/O must
+			// never hold a file/global lock needed by another tool worker.
+			pre := a.runHook(ctx, hooks.Request{
+				Event:          hooks.PreToolUse,
+				MatcherContext: name,
+				ToolName:       name,
+				ToolInput:      json.RawMessage(args),
+				ToolCallID:     tc.ID,
+			}, ev)
+			if pre.Blocked || ctx.Err() != nil {
+				if ev.OnToolStart != nil {
+					ev.OnToolStart(tc.ID, name, args)
+				}
+				started := time.Now()
+				out := "Error: tool call blocked by hook: " + hookReason(pre)
+				if ctx.Err() != nil {
+					out = "Error: " + ctx.Err().Error()
+				}
+				finish(tools.Truncate(out), started, 1)
+				return
+			}
 
 			// Serialize against other mutations before starting. Acquiring here
 			// (before OnToolStart) keeps "running" rows honest: a tool only
@@ -563,7 +692,11 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, ev Events) [
 				release = a.files.acquireGlobal()
 			}
 			if release != nil {
-				defer release()
+				defer func() {
+					if release != nil {
+						release()
+					}
+				}()
 			}
 
 			if ev.OnToolStart != nil {
@@ -579,11 +712,33 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, ev Events) [
 				})
 			}
 			out := tools.Execute(callCtx, a.AllTools(), name, json.RawMessage(args))
-			ms := time.Since(start).Milliseconds()
-			if ev.OnToolEnd != nil {
-				ev.OnToolEnd(tc.ID, name, out)
+			code := toolExitCode(out)
+			if release != nil {
+				release()
+				release = nil
 			}
-			outCh <- outcome{i, out, ms, toolExitCode(out)}
+			postEvent := hooks.PostToolUse
+			postReq := hooks.Request{
+				Event:          postEvent,
+				MatcherContext: name,
+				ToolName:       name,
+				ToolInput:      json.RawMessage(args),
+				ToolResponse:   out,
+				ToolCallID:     tc.ID,
+			}
+			if code != 0 {
+				postEvent = hooks.PostToolUseFailure
+				postReq.Event = postEvent
+				postReq.ToolError = out
+				postReq.ToolResponse = ""
+			}
+			post := a.runHook(ctx, postReq, ev)
+			out = tools.Truncate(withHookContext(
+				out,
+				postEvent,
+				joinHookContext(pre.AdditionalContext, post.AdditionalContext),
+			))
+			finish(out, start, code)
 		}(i, tc)
 	}
 
@@ -604,10 +759,45 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, ev Events) [
 // by prefixing their output; 0 means success, 1 means the tool reported a
 // failure. Best-effort: the exact status lives in the tool, not the output.
 func toolExitCode(out string) int {
-	if strings.HasPrefix(out, "error") || strings.HasPrefix(out, "Error") {
+	if strings.HasPrefix(out, "error") || strings.HasPrefix(out, "Error") ||
+		strings.Contains(out, "\n((exit:") || strings.HasSuffix(out, "(command timed out)") ||
+		strings.HasSuffix(out, "\n(timed out)") || strings.HasSuffix(out, "\n(cancelled)") ||
+		strings.HasSuffix(out, "\n(timed out waiting for input)") {
 		return 1
 	}
 	return 0
+}
+
+const maxStopHookRetries = 3
+
+func hookReason(outcome hooks.Outcome) string {
+	if reason := strings.TrimSpace(outcome.Reason); reason != "" {
+		return reason
+	}
+	if context := strings.TrimSpace(outcome.AdditionalContext); context != "" {
+		return context
+	}
+	return "blocked by lifecycle policy"
+}
+
+func withHookContext(base string, event hooks.Event, additional string) string {
+	additional = strings.TrimSpace(additional)
+	if additional == "" {
+		return base
+	}
+	return base + fmt.Sprintf("\n\n<hook_context event=%q>\n%s\n</hook_context>", event, additional)
+}
+
+func joinHookContext(first, second string) string {
+	first = strings.TrimSpace(first)
+	second = strings.TrimSpace(second)
+	if first == "" {
+		return second
+	}
+	if second == "" {
+		return first
+	}
+	return first + "\n\n" + second
 }
 
 // compactKeepBack counts assistant turns (and any tool results they pulled in)

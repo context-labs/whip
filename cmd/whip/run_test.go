@@ -36,6 +36,7 @@ func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
 
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
+	t.Setenv("HOME", home) // lifecycle discovery must never execute real user plugins in tests
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
@@ -51,6 +52,10 @@ func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
 // non-TTY empty stdin, like `whip run "…" < /dev/null`).
 func runCapture(t *testing.T, stdinData string, args ...string) (string, error) {
 	t.Helper()
+	// Headless mode intentionally trusts project hooks. Run every fixture from
+	// an empty directory so repository-local hooks on a developer's checkout
+	// can never affect or execute during CLI tests.
+	t.Chdir(t.TempDir())
 
 	oldIn := os.Stdin
 	inR, inW, err := os.Pipe()
@@ -123,6 +128,40 @@ func TestRunJSONStream(t *testing.T) {
 	}
 	if !sawText || !sawDone {
 		t.Fatalf("want a text event and a done event, got:\n%s", out)
+	}
+}
+
+func TestRunJSONIncludesFlatHookEvents(t *testing.T) {
+	var reqs []llm.Request
+	runFixture(t, "all done", &reqs)
+	hookPath := filepath.Join(os.Getenv("HOME"), ".agents", "plugins", "policy", "hooks", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hookConfig := `{"hooks":{"UserPromptSubmit":[{"hooks":[{"command":"printf '{\"decision\":\"allow\",\"additionalContext\":\"ci policy\"}'"}]}]}}`
+	if err := os.WriteFile(hookPath, []byte(hookConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCapture(t, "", "--format", "json", "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hookEvent map[string]string
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		var event map[string]string
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("line not JSON: %q: %v", line, err)
+		}
+		if event["type"] == "hook" {
+			hookEvent = event
+		}
+	}
+	if hookEvent["event"] != "UserPromptSubmit" || hookEvent["ran"] != "1" || hookEvent["context"] != "ci policy" {
+		t.Fatalf("flat hook event = %v", hookEvent)
+	}
+	if len(reqs) != 1 || !strings.Contains(reqs[0].Messages[1].Content, "ci policy") {
+		t.Fatalf("hook context did not reach provider: %+v", reqs)
 	}
 }
 

@@ -1,6 +1,9 @@
 package agent
 
-import "github.com/context-labs/whip/internal/llm"
+import (
+	"github.com/context-labs/whip/internal/hooks"
+	"github.com/context-labs/whip/internal/llm"
+)
 
 // FanIn multiplexes several Events values into one: every fired callback is
 // invoked on each source that implements it. A background worker runs its
@@ -55,6 +58,13 @@ func FanIn(evs ...Events) Events {
 			for _, e := range evs {
 				if e.OnCompact != nil {
 					e.OnCompact(took, kept)
+				}
+			}
+		},
+		OnHook: func(event hooks.Event, outcome hooks.Outcome) {
+			for _, e := range evs {
+				if e.OnHook != nil {
+					e.OnHook(event, outcome)
 				}
 			}
 		},

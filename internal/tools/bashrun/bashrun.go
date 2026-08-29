@@ -70,9 +70,20 @@ func passwdShell() string {
 type Result struct {
 	// Output is the combined stdout+stderr captured for the model.
 	Output string
+	// Stdout and Stderr are populated when Options.SeparateOutput is true.
+	// Output remains populated too so callers can keep using the combined
+	// stream while protocols inspect their decision and diagnostic channels
+	// independently.
+	Stdout string
+	Stderr string
 	// Exit is the human-readable exit status fed back to the model. It is
 	// empty for a clean exit 0.
 	Exit string
+	// ExitCode is the process exit status. It is -1 when the process did not
+	// start, timed out, was cancelled, or died by signal.
+	ExitCode int
+	// Truncated reports MaxOutputBytes capped at least one captured stream.
+	Truncated bool
 	// TimedOut reports the command exceeded its wall-clock timeout.
 	TimedOut bool
 	// Killed reports the command was killed by us (timeout, inactivity
@@ -85,6 +96,21 @@ type Result struct {
 // Options configure a single run.
 type Options struct {
 	Command string
+	// Stdin is delivered to the command in non-interactive mode. nil keeps the
+	// existing /dev/null behavior; an empty non-nil slice delivers immediate
+	// EOF after a zero-byte input.
+	Stdin []byte
+	// Env overlays the inherited environment. Per-run values replace ambient
+	// keys instead of leaving duplicate entries whose lookup semantics vary by
+	// platform.
+	Env []string
+	// Dir sets the command's working directory. Empty inherits the process cwd.
+	Dir string
+	// SeparateOutput captures stdout and stderr independently in Result while
+	// still maintaining Output as the combined stream.
+	SeparateOutput bool
+	// MaxOutputBytes caps each captured stream. <=0 leaves capture unbounded.
+	MaxOutputBytes int
 	// Timeout is the hard wall-clock cap. <=0 means 120s.
 	Timeout time.Duration
 	// Interactive runs the command in a PTY so sudo/ssh-like password prompts
@@ -130,12 +156,44 @@ func Run(ctx context.Context, opts Options) Result {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, userShell(), "-c", opts.Command)
-	cmd.Env = append(os.Environ(), ChildMarkers...)
+	cmd.Env = mergeEnv(os.Environ(), markersSnapshot(), opts.Env)
+	cmd.Dir = opts.Dir
+	if opts.Stdin != nil {
+		cmd.Stdin = bytes.NewReader(opts.Stdin)
+	}
 
 	if opts.Interactive {
 		return runInteractive(ctx, cmd, opts)
 	}
-	return runPiped(ctx, cmd, opts.OnUpdate)
+	return runPiped(ctx, cmd, opts)
+}
+
+// mergeEnv applies overlays in order while emitting each key once. Values
+// without '=' are preserved as distinct entries; exec.Cmd accepts them and
+// callers outside the hook protocol may already rely on that behavior.
+func mergeEnv(base []string, overlays ...[]string) []string {
+	out := make([]string, 0, len(base))
+	index := make(map[string]int, len(base))
+	apply := func(env []string) {
+		for _, item := range env {
+			key, _, ok := strings.Cut(item, "=")
+			if !ok {
+				out = append(out, item)
+				continue
+			}
+			if i, found := index[key]; found {
+				out[i] = item
+				continue
+			}
+			index[key] = len(out)
+			out = append(out, item)
+		}
+	}
+	apply(base)
+	for _, overlay := range overlays {
+		apply(overlay)
+	}
+	return out
 }
 
 // runPiped runs the command with stdout/stderr captured, stdin wired to
@@ -155,26 +213,29 @@ func Run(ctx context.Context, opts Options) Result {
 // runs (pi throttles its bash onUpdate at 100ms too).
 const updateInterval = 100 * time.Millisecond
 
-func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result {
+func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	// Hand-rolled pipes, NOT cmd.StdoutPipe: Wait() closes StdoutPipe's read
 	// ends the moment the child exits, discarding kernel-buffered output the
 	// drain goroutines haven't read yet (lost output on fast commands). With
 	// our own pipes Wait touches nothing and we control when reads end.
 	stdout, outW, err := os.Pipe()
 	if err != nil {
-		return Result{Exit: "pipe: " + err.Error()}
+		return Result{Exit: "pipe: " + err.Error(), ExitCode: -1}
 	}
 	stderr, errW, err := os.Pipe()
 	if err != nil {
 		_ = stdout.Close()
 		_ = outW.Close()
-		return Result{Exit: "pipe: " + err.Error()}
+		return Result{Exit: "pipe: " + err.Error(), ExitCode: -1}
 	}
 	cmd.Stdout = outW
 	cmd.Stderr = errW
-	if devNull := openDevNull(); devNull != nil {
-		cmd.Stdin = devNull
-		defer devNull.Close()
+	if cmd.Stdin == nil {
+		devNull := openDevNull()
+		if devNull != nil {
+			cmd.Stdin = devNull
+			defer devNull.Close()
+		}
 	}
 	// Setsid gives the child a new session with no controlling terminal, so a
 	// program that insists on /dev/tty fails immediately instead of grabbing
@@ -186,7 +247,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 		_ = outW.Close()
 		_ = stderr.Close()
 		_ = errW.Close()
-		return Result{Exit: exitString(err)}
+		return Result{Exit: exitString(err), ExitCode: -1}
 	}
 	// Drop our copies of the write ends: the drains must see EOF when the
 	// child (and any grandchildren holding the pipes) are done writing.
@@ -197,18 +258,34 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 
 	// Drain both pipes concurrently; the readers finish on pipe EOF (process
 	// exit) OR when we close them below after Wait returns.
-	var out bytes.Buffer
+	combinedLimit := opts.MaxOutputBytes
+	if opts.SeparateOutput && combinedLimit > 0 && combinedLimit <= int(^uint(0)>>1)/2 {
+		// stdout and stderr each receive their own budget below. Give the
+		// auxiliary combined view both budgets too, otherwise two individually
+		// valid streams could make Result.Truncated report a false positive.
+		combinedLimit *= 2
+	}
+	out := cappedBuffer{max: combinedLimit}
+	stdoutOnly := cappedBuffer{max: opts.MaxOutputBytes}
+	stderrOnly := cappedBuffer{max: opts.MaxOutputBytes}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	wg.Add(2)
-	drain := func(r io.Reader) {
+	drain := func(r io.Reader, separate *cappedBuffer) {
 		defer wg.Done()
 		buf := make([]byte, 4096)
 		for {
 			n, rerr := r.Read(buf)
 			if n > 0 {
 				mu.Lock()
-				out.Write(buf[:n])
+				if opts.SeparateOutput {
+					before := separate.Len()
+					_, _ = separate.Write(buf[:n])
+					retained := separate.Len() - before
+					_, _ = out.Write(buf[:retained])
+				} else {
+					_, _ = out.Write(buf[:n])
+				}
 				mu.Unlock()
 			}
 			if rerr != nil {
@@ -216,13 +293,13 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 			}
 		}
 	}
-	go drain(stdout)
-	go drain(stderr)
+	go drain(stdout, &stdoutOnly)
+	go drain(stderr, &stderrOnly)
 	// Stream throttled snapshots of the accumulated output to the caller so
 	// in-flight progress is visible before the command exits. One goroutine,
 	// owned by this run, exits when updatesDone closes below.
 	var updatesDone chan struct{}
-	if onUpdate != nil {
+	if opts.OnUpdate != nil {
 		updatesDone = make(chan struct{})
 		defer close(updatesDone)
 		go func() {
@@ -236,7 +313,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 					mu.Lock()
 					snap := out.String()
 					mu.Unlock()
-					onUpdate(snap)
+					opts.OnUpdate(snap)
 				}
 			}
 		}()
@@ -273,16 +350,26 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 	_ = stderr.Close()
 	wg.Wait()
 
-	res := Result{Output: out.String()}
+	res := Result{
+		Output:    out.String(),
+		ExitCode:  processExitCode(waitErr),
+		Truncated: out.truncated || stdoutOnly.truncated || stderrOnly.truncated,
+	}
+	if opts.SeparateOutput {
+		res.Stdout = stdoutOnly.String()
+		res.Stderr = stderrOnly.String()
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		res.TimedOut = true
 		res.Killed = true
 		res.Exit = "timed out"
+		res.ExitCode = -1
 		return res
 	}
 	if isCancelled(ctx, waitErr) {
 		res.Killed = true
 		res.Exit = "cancelled"
+		res.ExitCode = -1
 		return res
 	}
 	res.Exit = exitString(waitErr)
@@ -290,6 +377,35 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 		res.Killed = isKilledBySignal(waitErr)
 	}
 	return res
+}
+
+// cappedBuffer accepts every write while retaining at most max bytes. It is
+// used under runPiped's capture mutex, so it needs no synchronization of its
+// own and preserves io.Writer's "accepted all bytes" contract for io.Copy.
+type cappedBuffer struct {
+	bytes.Buffer
+	max       int
+	truncated bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if b.max <= 0 {
+		_, _ = b.Buffer.Write(p)
+		return n, nil
+	}
+	remaining := b.max - b.Len()
+	if remaining <= 0 {
+		b.truncated = b.truncated || n > 0
+		return n, nil
+	}
+	if len(p) > remaining {
+		_, _ = b.Buffer.Write(p[:remaining])
+		b.truncated = true
+		return n, nil
+	}
+	_, _ = b.Buffer.Write(p)
+	return n, nil
 }
 
 // runInteractive runs the command in a PTY. sudo, ssh, gpg and friends detect a
@@ -305,7 +421,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	if err != nil {
 		// Fall back to the safe non-interactive path; an interactive failure
 		// must never hang the agent.
-		return runPiped(ctx, cmd, nil)
+		return runPiped(ctx, cmd, opts)
 	}
 	defer ptmx.Close()
 	track(cmd) // register for KillAll on whip exit
@@ -397,16 +513,18 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			// command exited). Wait for the child and return.
 			if !ok || chunk == nil {
 				waitErr := cmd.Wait()
-				res := Result{Output: buf.String(), Interactive: true}
+				res := Result{Output: buf.String(), ExitCode: processExitCode(waitErr), Interactive: true}
 				if ctx.Err() == context.DeadlineExceeded {
 					res.TimedOut = true
 					res.Killed = true
 					res.Exit = "timed out"
+					res.ExitCode = -1
 					return res
 				}
 				if isCancelled(ctx, waitErr) {
 					res.Killed = true
 					res.Exit = "cancelled"
+					res.ExitCode = -1
 					return res
 				}
 				res.Exit = exitString(waitErr)
@@ -428,7 +546,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				stop()
 				_ = cmd.Wait()
-				res := Result{Output: buf.String(), Killed: true, Interactive: true}
+				res := Result{Output: buf.String(), ExitCode: -1, Killed: true, Interactive: true}
 				if errors.Is(ctxErr, context.DeadlineExceeded) {
 					res.TimedOut = true
 					res.Exit = "timed out"
@@ -443,6 +561,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 				res := Result{
 					Output:      buf.String(),
 					Exit:        "timed out waiting for input",
+					ExitCode:    -1,
 					Killed:      true,
 					Interactive: true,
 				}
@@ -470,6 +589,16 @@ func exitString(err error) string {
 		return fmt.Sprintf("(exit: %s)", exitErr)
 	}
 	return fmt.Sprintf("(exit: %v)", err)
+}
+
+func processExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+		return exitErr.ExitCode()
+	}
+	return -1
 }
 
 // isKilledBySignal reports whether the error was a kill-by-signal.

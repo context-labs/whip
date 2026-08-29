@@ -159,3 +159,29 @@ for file A never wakes file B, and the loop breaks on the edited file's push
 plus one 50ms trailing wake (still deadline-bounded) for sibling frames —
 gopls fans pushes out across the whole package, so sibling errors land a
 tick after the edited file's.
+
+## 5. Lifecycle hooks = immutable snapshots outside mutation locks
+
+`internal/hooks.Manager` is fully built before publication and never mutated.
+The TUI's `/cd` path discovers a replacement, then `Agent.SetHookScope` swaps
+the runner and explicit working directory under a short `RWMutex` critical
+section. Each lifecycle event snapshots those two values and releases the
+lock before starting a subprocess. Existing events finish on the old manager;
+new events use the new one. No command ever observes a half-reloaded config.
+
+Parallel tool calls share the immutable manager safely. Commands for one event
+run serially in declaration order, while different tool workers may run their
+hook chains concurrently. `PreToolUse` runs before acquiring the per-path or
+global mutation semaphore. The tool releases that semaphore before
+`PostToolUse`/`PostToolUseFailure`, so a slow hook cannot hold a file lock or
+form a lock/I/O cycle with another tool. Subagents inherit the runner snapshot
+but carry their own working directory (including an isolated worktree).
+
+Hook callbacks therefore follow the same rule as task callbacks: they may run
+on tool-worker goroutines and consumers must be concurrency-safe. The TUI only
+sends a message, headless mode serializes through its turn-owned encoder, and
+ACP writes actionable outcomes to its synchronized event log.
+
+`bashrun` also snapshots the process-wide `WHIP_*` child markers under an
+`RWMutex` before merging each command environment. Publishing the first
+session id therefore cannot race a background tool or hook subprocess spawn.

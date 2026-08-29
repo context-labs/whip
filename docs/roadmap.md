@@ -68,6 +68,7 @@ parallel tool calls and background subagents).
 - [x] Streamed partial tool output (bash `onUpdate` throttled at 100ms in pi) — `bashrun.Options.OnUpdate` fires accumulated-output snapshots at most every 100ms from the run's own goroutine; the bash tool picks it up via a per-call ctx value (`tools.WithOnUpdate` — parallel calls can't cross wires), `agent.Events.OnToolOutput` carries it with the tool-call id, and the TUI renders the last-3-lines tail under the running tool row until `toolEndMsg` collapses it
 - [x] Spill truncated bash output to a temp file and mention the path (pi bash tool) — when combined output exceeds `maxOutput` and gets tail-truncated, `bashrun.Spill` writes the full bytes to `$TMPDIR/whip-bash-<pid>/*.log` (0600) and the tool result appends `[full output (N bytes): <path>]` so the model can read/grep the rest; spill failure degrades silently, never breaks the result
 - [x] Inject `WHIP_SESSION_ID` / `WHIP_MODEL` env into bash children (pi injects `PI_*`) — already shipped: `bashrun.SetMarkers` stamps `WHIP=1`, `WHIP_SESSION_ID`, `WHIP_MODEL`, `WHIP_PID` on every child env (wired from `tui.go` on session create/resume); checkbox was stale
+- [x] Portable lifecycle hooks — command hooks at `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, and `Stop`; loads plugin and project-owned formats, supports context/block decisions, trust-gates project code, inherits into subagents/worktrees, and exposes `/hooks` plus headless/ACP telemetry ([protocol](lifecycle-hooks.md))
 
 ## Skills & subagents
 

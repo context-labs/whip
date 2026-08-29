@@ -48,7 +48,12 @@ func TestProfileScanFindsPortFile(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	prof := filepath.Join(home, ".config", "google-chrome")
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+	dirs := profileDirs()
+	if len(dirs) == 0 {
+		t.Fatal("no profile directories for this platform")
+	}
+	prof := dirs[0]
 	if err := os.MkdirAll(prof, 0o755); err != nil {
 		t.Fatal(err)
 	}

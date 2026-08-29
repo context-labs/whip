@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/context-labs/whip/internal/hooks"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -377,6 +378,7 @@ func (a *Agent) RegisterBackground(description, prompt string, o SubModel) *Back
 // the same to the model either way.
 func (a *Agent) LaunchBackground(t *BackgroundTask, worktreePath string) {
 	if worktreePath != "" {
+		t.sub.SetWorkingDir(worktreePath)
 		t.sub.Steer("Work entirely inside the git worktree at " + worktreePath + " (run `cd " + worktreePath + "` first; it is your own branch, isolated from other agents). Commit your changes there.")
 	}
 	a.launchBackground(t)
@@ -553,6 +555,13 @@ func (r *taskRegistry) emitter(id string) Events {
 			for _, e := range r.emitLocked(id, 0, "", "", false) {
 				if e.OnCompact != nil {
 					e.OnCompact(took, kept)
+				}
+			}
+		},
+		OnHook: func(event hooks.Event, outcome hooks.Outcome) {
+			for _, e := range r.emitLocked(id, 0, "", "", false) {
+				if e.OnHook != nil {
+					e.OnHook(event, outcome)
 				}
 			}
 		},

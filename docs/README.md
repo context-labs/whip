@@ -188,6 +188,8 @@ How it works, from the top down:
   storage. Start here.
 - [agent-loop.md](agent-loop.md) — `Agent.Turn` in detail: the
   stream-tools-repeat cycle, parallel tool execution, compaction, steering.
+- [lifecycle-hooks.md](lifecycle-hooks.md) — command hooks for policy,
+  context, and quality gates.
 - [concurrency.md](concurrency.md) — the two channel patterns
   behind parallel tool calls (per-path locks) and background subagents.
 - [tools.md](tools.md) — the tool set the model gets: bash, file
