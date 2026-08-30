@@ -72,30 +72,31 @@ func TestUnsupportedPlatform(t *testing.T) {
 	if Available() {
 		t.Skip("darwin: osascript tier would drive the real desktop")
 	}
-	if _, err := osascript(`return "x"`); !errors.Is(err, ErrUnsupportedPlatform) {
+	automation := Automation{}
+	if _, err := automation.AppleScript(`return "x"`); !errors.Is(err, ErrUnsupportedPlatform) {
 		t.Errorf("osascript: %v", err)
 	}
 	if _, err := Tell("Finder", "activate"); !errors.Is(err, ErrUnsupportedPlatform) {
 		t.Errorf("Tell: %v", err)
 	}
 	calls := map[string]error{}
-	_, _, calls["ChromeActive"] = ChromeActive()
-	_, calls["ChromeTabs"] = ChromeTabs()
-	calls["ChromeGoto"] = ChromeGoto("https://example.com")
-	calls["ChromeNewTab"] = ChromeNewTab("https://example.com")
-	calls["ChromeActivateTab"] = ChromeActivateTab(1, 2)
-	calls["ChromeCloseTab"] = ChromeCloseTab(1, 2)
-	calls["ChromeBack"] = ChromeBack()
-	calls["ChromeReload"] = ChromeReload()
-	_, calls["ChromeFindTab"] = ChromeFindTab("example")
-	_, calls["ChromeState"] = ChromeState()
+	_, _, calls["ChromeActive"] = ChromeActive(automation)
+	_, calls["ChromeTabs"] = ChromeTabs(automation)
+	calls["ChromeGoto"] = ChromeGoto("https://example.com", automation)
+	calls["ChromeNewTab"] = ChromeNewTab("https://example.com", automation)
+	calls["ChromeActivateTab"] = ChromeActivateTab(1, 2, automation)
+	calls["ChromeCloseTab"] = ChromeCloseTab(1, 2, automation)
+	calls["ChromeBack"] = ChromeBack(automation)
+	calls["ChromeReload"] = ChromeReload(automation)
+	_, calls["ChromeFindTab"] = ChromeFindTab("example", automation)
+	_, calls["ChromeState"] = ChromeState(automation)
 	for name, err := range calls {
 		if !errors.Is(err, ErrUnsupportedPlatform) {
 			t.Errorf("%s: want ErrUnsupportedPlatform, got %v", name, err)
 		}
 	}
 	// The platform error must NOT be rewritten to the Chrome-toggle guidance.
-	if _, err := ChromeJS("1+1"); !errors.Is(err, ErrUnsupportedPlatform) || errors.Is(err, ErrJSFromAppleEvents) {
+	if _, err := ChromeJS("1+1", automation); !errors.Is(err, ErrUnsupportedPlatform) || errors.Is(err, ErrJSFromAppleEvents) {
 		t.Errorf("ChromeJS: %v", err)
 	}
 	if _, err := ensureHelperBinary(); !errors.Is(err, ErrUnsupportedPlatform) {

@@ -15,6 +15,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -64,6 +65,27 @@ func TestDefaultTransportStdio(t *testing.T) {
 	}
 	if !strings.HasSuffix(cmd.Path, "srv") || !reflect.DeepEqual(cmd.Args[1:], []string{"--stdio"}) {
 		t.Errorf("command = %v (%q)", cmd.Args, cmd.Path)
+	}
+}
+
+func TestManagedTransportUsesProcessScope(t *testing.T) {
+	processes := capability.NewProcessManager()
+	m := NewManager(nil)
+	dir := t.TempDir()
+	m.SetProcessOptions(processes, "root", dir, map[string]string{"SESSION": "one"})
+	transport, err := m.defaultTransport(context.Background(), ServerConfig{
+		Command: []string{"server", "--stdio"},
+		Env:     map[string]string{"SERVER": "two"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, ok := transport.(*managedTransport)
+	if !ok {
+		t.Fatalf("transport type %T", transport)
+	}
+	if managed.rootID != "root" || managed.cwd != dir || managed.env["SESSION"] != "one" || managed.env["SERVER"] != "two" {
+		t.Fatalf("managed scope = %+v", managed)
 	}
 }
 
@@ -491,6 +513,59 @@ func TestReconnectDropsLiveSession(t *testing.T) {
 	out := tools.Execute(context.Background(), m.Tools(), "mcp__docs__greet", json.RawMessage(`{"name":"again"}`))
 	if out != "hi again" {
 		t.Errorf("greet after reconnect = %q", out)
+	}
+}
+
+func TestProcessScopeChangeReconnects(t *testing.T) {
+	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	m.SetProcessOptions(processes, "one", t.TempDir(), nil)
+	m.Start(context.Background())
+	waitReady(t, m)
+	srv := m.servers["docs"]
+	srv.mu.Lock()
+	gen := srv.gen
+	srv.mu.Unlock()
+	m.SetProcessOptions(processes, "two", t.TempDir(), nil)
+	deadline := probeDeadline()
+	for !deadline.Done() {
+		srv.mu.Lock()
+		ready := srv.status == StatusReady && srv.sess != nil && srv.gen > gen
+		srv.mu.Unlock()
+		if ready {
+			return
+		}
+		deadline.Sleep()
+	}
+	t.Fatalf("server did not reconnect after process scope changed: %+v", m.Statuses())
+}
+
+func TestProcessScopeChangeInvalidatesInflightConnect(t *testing.T) {
+	var connects atomic.Int64
+	started := make(chan struct{})
+	release := make(chan struct{})
+	m := NewManager(map[string]ServerConfig{"docs": testCfg("docs")})
+	m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
+		if connects.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		return serveTestServer(t, "docs"), nil
+	}
+	processes := capability.NewProcessManager()
+	t.Cleanup(func() {
+		m.Close()
+		_ = processes.Close()
+	})
+	m.SetProcessOptions(processes, "one", t.TempDir(), nil)
+	m.Start(context.Background())
+	<-started
+	m.SetProcessOptions(processes, "two", t.TempDir(), nil)
+	close(release)
+	waitReady(t, m)
+	if got := connects.Load(); got != 2 {
+		t.Fatalf("process scope change made %d connections, want 2", got)
 	}
 }
 

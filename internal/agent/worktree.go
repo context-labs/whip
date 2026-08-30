@@ -5,15 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
+type worktreeRunner func(context.Context, string, ...string) ([]byte, error)
+
 // gitWorktreeRoot returns the repo root for dir, or "" when dir is not inside
 // a git work tree. Used to decide whether subagent worktree isolation applies.
-func gitWorktreeRoot(ctx context.Context, dir string) string {
-	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+func gitWorktreeRoot(ctx context.Context, dir string, run worktreeRunner) string {
+	out, err := run(ctx, "git", "-C", dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return ""
 	}
@@ -28,23 +29,26 @@ func gitWorktreeRoot(ctx context.Context, dir string) string {
 //
 // Cleanup is the caller's/orchestrator's job: whip leaves the worktree on
 // disk so the user can inspect or merge the subagent's commit afterward.
-func provisionSubagentWorktree(ctx context.Context, taskID string) (path string, err error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	root := gitWorktreeRoot(ctx, wd)
+func provisionSubagentWorktree(ctx context.Context, taskID, workspaceRoot string, run worktreeRunner) (path string, err error) {
+	root := gitWorktreeRoot(ctx, workspaceRoot, run)
 	if root == "" {
 		return "", errors.New("not inside a git work tree")
 	}
-	// ponytail: worktrees live as siblings of the repo (../<repo>-wt-<task>)
-	// rather than under .git/ so `git status` in the parent stays clean and
-	// the path is greppable. Branch name doubles as the dir suffix.
+	canonicalWD, err := filepath.EvalSymlinks(workspaceRoot)
+	if err != nil {
+		return "", err
+	}
+	if filepath.Clean(canonicalWD) != filepath.Clean(root) {
+		return "", errors.New("worktree isolation requires the session workspace to be the repository root")
+	}
+	// Keep the checkout inside the authorized workspace without making it
+	// appear as an untracked directory in the parent checkout.
 	branch := "subagent/" + taskID
-	dirName := filepath.Base(root) + "-wt-" + taskID
-	path = filepath.Join(filepath.Dir(root), dirName)
-	cmd := exec.CommandContext(ctx, "git", "-C", root, "worktree", "add", "-b", branch, path)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	path = filepath.Join(root, ".git", "whip-worktrees", taskID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if out, err := run(ctx, "git", "-C", root, "worktree", "add", "-b", branch, path); err != nil {
 		return "", fmt.Errorf("git worktree add: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return path, nil

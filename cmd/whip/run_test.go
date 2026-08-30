@@ -358,8 +358,16 @@ func TestRunUnreadableConfig(t *testing.T) {
 // In --format json the tool calls are events too, and a failed run ends with
 // an error event rather than a done event.
 func TestRunJSONToolEvents(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "target.txt")
-	if err := os.WriteFile(target, []byte("file body"), 0o600); err != nil {
+	targetFile, err := os.CreateTemp(".", "run-tool-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := targetFile.Name()
+	t.Cleanup(func() { _ = os.Remove(target) })
+	if _, err := targetFile.WriteString("file body"); err != nil {
+		t.Fatal(err)
+	}
+	if err := targetFile.Close(); err != nil {
 		t.Fatal(err)
 	}
 	// a server that always answers with a read tool call: only -max-turns ends it

@@ -7,7 +7,6 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 // /fork copies the conversation (whole, or up to a rewind-picker selection)
@@ -183,11 +182,15 @@ func (m *model) busyFork(title string) {
 // finished turn and survives untouched under /resume. Modeled on resume(),
 // minus cross-session restores that don't cross a fork (task dock, todos,
 // snapshots stay; the fork's workspace IS the current one).
-func (m *model) switchToForked(id string) {
+func (m *model) switchToForked(id string) bool {
+	if reason := m.replacementBlocked(); reason != "" {
+		m.append(errStyle.Render("cannot switch to fork while " + reason))
+		return false
+	}
 	meta, msgs, err := m.store.Load(id)
 	if err != nil {
 		m.append(errStyle.Render("fork switch failed: " + err.Error()))
-		return
+		return false
 	}
 	m.flushThink()
 	m.flushCurrent()
@@ -195,13 +198,28 @@ func (m *model) switchToForked(id string) {
 	m.future = nil                // the copy's branch point is its tail; no redo across
 	oldID := m.sessionID
 	// Prefer the session's model/provider; fall back to the current agent.
-	if ag, mn, pn, err := buildAgent(m.cfg, meta.Model, meta.Provider, m.sysPrompt); err == nil {
-		m.agent, m.modelName, m.provName = ag, mn, pn
+	previousAgent := m.agent
+	var nextAgent *agent.Agent
+	var nextModel, nextProvider string
+	if ag, mn, pn, err := buildAgent(m.cfg, meta.Model, meta.Provider, m.sysPrompt, m.agent.Services); err == nil {
+		nextAgent, nextModel, nextProvider = ag, mn, pn
 	} else {
-		m.agent = agent.New(m.agent.Client, m.agent.Model, m.agent.MaxTokens, m.sysPrompt)
-		m.agent.ModelName, m.agent.Provider = m.modelName, m.provName
-		m.agent.ContextLimit = m.contextLimitFor(m.provName, m.agent.Model)
+		nextAgent = agent.NewWithServices(previousAgent.Client, previousAgent.Model, previousAgent.MaxTokens, m.sysPrompt, previousAgent.Services)
+		nextAgent.ModelName, nextAgent.Provider = m.modelName, m.provName
+		nextAgent.ContextLimit = m.contextLimitFor(m.provName, nextAgent.Model)
+		nextModel, nextProvider = m.modelName, m.provName
 	}
+	nextAgent.WorkingDir = meta.CWD
+	nextAgent.Services.SetProcessMarkers(meta.ID, nextAgent.Model)
+	if err := m.bindSessionAuthority(nextAgent, meta.ID); err != nil {
+		previousAgent.Services.SetProcessMarkers(oldID, previousAgent.Model)
+		m.append(errStyle.Render("fork switch failed: " + err.Error()))
+		return false
+	}
+	previousAgent.Close()
+	m.agent, m.modelName, m.provName = nextAgent, nextModel, nextProvider
+	m.sessionID = meta.ID
+	m.bindToolServices(m.agent)
 	m.applyCompactModel()
 	m.applyTaskModel()
 	m.agent.CompactThreshold = compactThresholdFor(m.cfg)
@@ -220,8 +238,6 @@ func (m *model) switchToForked(id string) {
 		}
 		m.agent.SetUsage(u)
 	}
-	m.sessionID = meta.ID
-	bashrun.SetMarkers(meta.ID, m.agent.Model)
 	m.agent.Messages = append(m.agent.Messages, msgs...)
 	m.saved = len(m.agent.Messages)
 	m.goal = meta.Goal
@@ -229,6 +245,7 @@ func (m *model) switchToForked(id string) {
 	m.titled = true // the fork was named at creation; no auto-title attempt
 	m.rebuildTranscript()
 	m.append(dimStyle.Render(fmt.Sprintf("⑂ switched to the fork %q (%s) — the original %s kept the finished turn and is under /resume", meta.Title, meta.ID, oldID)))
+	return true
 }
 
 // renameCommand implements /rename [title].

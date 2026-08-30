@@ -119,6 +119,7 @@ func TestBackgroundWorktreeRegistersBeforeProvisioning(t *testing.T) {
 	defer srv.Close()
 	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
 	ag.WorktreeSubagents = true
+	bindTestAgent(t, ag, repo)
 
 	// Registration order probe: OnChange must fire before the tool result
 	// returns (which happens after provision + launch).
@@ -138,6 +139,9 @@ func TestBackgroundWorktreeRegistersBeforeProvisioning(t *testing.T) {
 	}
 	if !strings.Contains(out, "worktree") {
 		t.Fatalf("with isolation on, the result should name the worktree: %q", out)
+	}
+	if tasks[0].sub.WorkingDir == "" {
+		t.Fatal("worktree subagent tools should be scoped to the isolated checkout")
 	}
 	found := false
 	// The worktree instruction is steered in at launch; wait for the task to

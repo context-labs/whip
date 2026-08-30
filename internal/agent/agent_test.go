@@ -780,13 +780,8 @@ func TestTurnWithImagesMarksAuthoredAndCarriesParts(t *testing.T) {
 	}
 }
 
-// SetMCPTools makes the MCP set visible via AllTools and installs the
-// tools.Suggester, so a typo'd mcp__ call gets a "did you mean?" nudge.
+// SetMCPTools makes the MCP set visible to this agent's local suggester.
 func TestSetMCPToolsInstallsSuggester(t *testing.T) {
-	orig := tools.Suggester
-	tools.Suggester = nil
-	t.Cleanup(func() { tools.Suggester = orig })
-
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
 	mt := tools.Tool{Def: llm.NewTool("mcp__srv__hello", "h", `{"type":"object"}`)}
 	ag.SetMCPTools([]tools.Tool{mt})
@@ -800,11 +795,8 @@ func TestSetMCPToolsInstallsSuggester(t *testing.T) {
 	if !found {
 		t.Fatal("MCP tool missing from AllTools")
 	}
-	if tools.Suggester == nil {
-		t.Fatal("SetMCPTools should install the suggester")
-	}
 	// a near-miss call self-corrects through Execute's unknown-tool path
-	out := tools.Execute(context.Background(), ag.AllTools(), "mcp__srv__helo", json.RawMessage(`{}`))
+	out := tools.ExecuteWithSuggester(context.Background(), ag.AllTools(), "mcp__srv__helo", json.RawMessage(`{}`), ag.suggest)
 	if !strings.Contains(out, "did you mean") || !strings.Contains(out, "mcp__srv__hello") {
 		t.Fatalf("typo'd MCP call should suggest the live name, got %q", out)
 	}

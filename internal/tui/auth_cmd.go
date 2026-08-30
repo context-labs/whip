@@ -96,13 +96,15 @@ func (m *model) applyAuthResult(res authResultMsg) {
 	}
 	// If the current session routes through openrouter, rebuild the agent so
 	// the new key takes effect on the very next turn.
-	if m.provName == "openrouter" && m.modelName != "" {
-		if ag, _, _, err := buildAgent(m.cfg, m.modelName, m.provName, m.sysPrompt); err == nil {
+	if m.provName == "openrouter" && m.modelName != "" && m.replacementBlocked() == "" {
+		if ag, _, _, err := buildAgent(m.cfg, m.modelName, m.provName, m.sysPrompt, m.agent.Services); err == nil {
 			ag.Effort = m.agent.Effort
+			ag.WorkingDir = m.agent.WorkingDir
 			ag.Messages = append(ag.Messages, m.agent.Messages[1:]...)
 			ag.CompactClient, ag.CompactModel = m.agent.CompactClient, m.agent.CompactModel
 			ag.CompactThreshold = m.agent.CompactThreshold
 			m.agent = ag
+			m.bindToolServices(m.agent)
 			m.applyTaskModel()
 			m.wireTasks()
 		}

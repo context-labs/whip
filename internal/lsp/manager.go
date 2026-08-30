@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 )
 
@@ -95,22 +96,45 @@ type Status struct {
 // publish handler runs on the client's read goroutine and only takes mu
 // briefly to swap caches/close waiters.
 type Manager struct {
-	mu       sync.Mutex
-	specs    map[string]ServerSpec
-	clients  map[string]*clientState // key: id + "\x00" + root
-	broken   map[string]string       // key -> error message
-	spawning map[string]chan struct{}
-	diags    map[string][]Diagnostic    // abs path -> latest pushed set
-	waiters  map[string][]chan struct{} // abs path -> pending wakes
-	keyer    spawnKeyer                 // nil = findRoot (production)
-	closed   bool
+	mu         sync.Mutex
+	specs      map[string]ServerSpec
+	clients    map[string]*clientState // key: id + "\x00" + root
+	broken     map[string]string       // key -> error message
+	spawning   map[string]chan struct{}
+	diags      map[string][]Diagnostic    // abs path -> latest pushed set
+	waiters    map[string][]chan struct{} // abs path -> pending wakes
+	keyer      spawnKeyer                 // nil = findRoot (production)
+	closed     bool
+	processes  *capability.ProcessManager
+	rootID     string
+	workspace  string
+	processEnv map[string]string
 }
 
 type clientState struct {
-	cli  *client
-	cmd  *exec.Cmd
-	root string
-	docs map[string]int // abs path -> last sent version
+	cli     *client
+	cmd     *exec.Cmd
+	process *capability.Process
+	root    string
+	docs    map[string]int // abs path -> last sent version
+}
+
+func (m *Manager) SetProcessOptions(processes *capability.ProcessManager, rootID, workspace string, env map[string]string) {
+	m.mu.Lock()
+	var clients []*clientState
+	if m.rootID != "" && m.rootID != rootID {
+		for _, client := range m.clients {
+			clients = append(clients, client)
+		}
+		m.clients = map[string]*clientState{}
+		m.broken = map[string]string{}
+		m.diags = map[string][]Diagnostic{}
+	}
+	m.processes, m.rootID, m.workspace, m.processEnv = processes, rootID, workspace, maps.Clone(env)
+	m.mu.Unlock()
+	for _, client := range clients {
+		client.kill()
+	}
 }
 
 // spawnKeyer resolves the spawn key (server id + root) for a file; nil =
@@ -297,6 +321,7 @@ func (m *Manager) clientFor(ctx context.Context, abs string) (*clientState, erro
 	var name string
 	var spec ServerSpec
 	m.mu.Lock()
+	workspace := m.workspace
 	for n, s := range m.specs {
 		if slices.Contains(s.Extensions, ext) {
 			name, spec = n, s
@@ -309,7 +334,7 @@ func (m *Manager) clientFor(ctx context.Context, abs string) (*clientState, erro
 	if name == "" || spec.Disabled || len(spec.Command) == 0 {
 		return nil, nil //nolint:nilnil // nil client = no server for this file (or disabled); caller treats that as "no LSP available", not an error
 	}
-	root := findRoot(filepath.Dir(abs), spec.RootMarkers)
+	root := findRoot(filepath.Dir(abs), spec.RootMarkers, workspace)
 	if m.keyer != nil {
 		root = m.keyer(name, abs, spec.RootMarkers)
 	}
@@ -366,31 +391,46 @@ func (m *Manager) spawn(ctx context.Context, key, name string, spec ServerSpec, 
 	if _, err := exec.LookPath(spec.Command[0]); err != nil {
 		return nil, fmt.Errorf("%s not on PATH", spec.Command[0])
 	}
-	// WithoutCancel: ctx is the calling tool/turn context, but the server is
-	// cached in m.clients for the whole whip session — binding the process to
-	// the turn would kill gopls on the first interrupt and leave a dead client
-	// cached forever. Shutdown is cs.kill()/Close, not context cancellation.
-	cmd := exec.CommandContext(context.WithoutCancel(ctx), spec.Command[0], spec.Command[1:]...)
-	cmd.Dir = root
-	cmd.Env = os.Environ()
-	for k, v := range spec.Env {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // own group: kills take the tree
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	cmd.Stderr = nil // server diagnostics noise; /dev/null
-	if err := cmd.Start(); err != nil {
-		return nil, err
+	m.mu.Lock()
+	processes, rootID := m.processes, m.rootID
+	env := make(map[string]string, len(m.processEnv)+len(spec.Env))
+	maps.Copy(env, m.processEnv)
+	m.mu.Unlock()
+	var stdin io.WriteCloser
+	var stdout io.ReadCloser
+	var err error
+	cs := &clientState{root: root, docs: map[string]int{}}
+	if processes != nil {
+		maps.Copy(env, spec.Env)
+		cs.process, stdin, stdout, err = processes.StartPiped(context.WithoutCancel(ctx), rootID, spec.Command[0], spec.Command[1:], capability.ProcessOptions{
+			Cwd: root, Env: env, Stderr: io.Discard,
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// WithoutCancel: the server belongs to the manager, not one tool turn.
+		cmd := exec.CommandContext(context.WithoutCancel(ctx), spec.Command[0], spec.Command[1:]...)
+		cmd.Dir = root
+		cmd.Env = os.Environ()
+		for k, v := range spec.Env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			return nil, err
+		}
+		stdout, err = cmd.StdoutPipe()
+		if err != nil {
+			return nil, err
+		}
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		cs.cmd = cmd
 	}
 
-	cs := &clientState{cmd: cmd, root: root, docs: map[string]int{}}
 	cs.cli = newClient(stdin, stdout, func(uri string, version int, diags []Diagnostic) {
 		m.publish(key, uri, version, diags)
 	})
@@ -475,7 +515,7 @@ func (m *Manager) Statuses() []Status {
 }
 
 // Close shuts every server down (shutdown/exit then kill) and wakes all
-// waiters. Called on whip exit before bashrun.KillAll, mirroring mcpMgr.
+// waiters.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	if m.closed {
@@ -501,7 +541,7 @@ func (m *Manager) Close() {
 
 // kill tries the polite LSP shutdown then SIGKILLs the process group.
 func (cs *clientState) kill() {
-	if cs.cmd == nil { // pipe-attached test client: no process to kill
+	if cs.cmd == nil && cs.process == nil { // pipe-attached test client: no process to kill
 		cs.cli.shutdown()
 		return
 	}
@@ -513,6 +553,11 @@ func (cs *clientState) kill() {
 	if c, ok := cs.cli.stdin.(io.Closer); ok {
 		_ = c.Close()
 	}
+	if cs.process != nil {
+		_ = cs.process.Kill()
+		_ = cs.process.Wait()
+		return
+	}
 	if cs.cmd.Process != nil {
 		_ = syscall.Kill(-cs.cmd.Process.Pid, syscall.SIGKILL)
 	}
@@ -522,12 +567,19 @@ func (cs *clientState) kill() {
 // findRoot walks up from dir looking for any marker, falling back to dir
 // itself (opencode's NearestRoot falls back to the project dir the same way,
 // server.ts:32-79).
-func findRoot(dir string, markers []string) string {
+func findRoot(dir string, markers []string, boundary ...string) string {
+	stop := ""
+	if len(boundary) > 0 {
+		stop = filepath.Clean(boundary[0])
+	}
 	for d := dir; ; d = filepath.Dir(d) {
 		for _, mkr := range markers {
 			if _, err := os.Stat(filepath.Join(d, mkr)); err == nil {
 				return d
 			}
+		}
+		if stop != "" && d == stop {
+			return dir
 		}
 		parent := filepath.Dir(d)
 		if parent == d {

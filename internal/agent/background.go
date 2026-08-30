@@ -377,7 +377,8 @@ func (a *Agent) RegisterBackground(description, prompt string, o SubModel) *Back
 // the same to the model either way.
 func (a *Agent) LaunchBackground(t *BackgroundTask, worktreePath string) {
 	if worktreePath != "" {
-		t.sub.Steer("Work entirely inside the git worktree at " + worktreePath + " (run `cd " + worktreePath + "` first; it is your own branch, isolated from other agents). Commit your changes there.")
+		t.sub.WorkingDir = worktreePath
+		t.sub.Steer("Work entirely inside the git worktree at " + worktreePath + "; your tools are rooted there. Commit your changes there.")
 	}
 	a.launchBackground(t)
 }

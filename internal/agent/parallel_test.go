@@ -73,46 +73,6 @@ func TestToolCallsRunInParallel(t *testing.T) {
 	}
 }
 
-// Two edits to the SAME path must serialize (per-path lock), even though
-// unrelated calls run in parallel.
-func TestSamePathEditsSerialize(t *testing.T) {
-	// craft an agent whose runTools we drive directly
-	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
-
-	var conc, maxConc atomic.Int32
-	write := tools.Tool{
-		Def: llm.NewTool("write", "w", `{"type":"object","properties":{"path":{"type":"string"}}}`),
-		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
-			n := conc.Add(1)
-			for {
-				m := maxConc.Load()
-				if n <= m || maxConc.CompareAndSwap(m, n) {
-					break
-				}
-			}
-			time.Sleep(25 * time.Millisecond)
-			conc.Add(-1)
-			return "ok", nil
-		},
-	}
-	ag.Tools = []tools.Tool{write}
-
-	calls := []llm.ToolCall{
-		{ID: "1", Function: struct {
-			Name      string `json:"name"`
-			Arguments string `json:"arguments"`
-		}{Name: "write", Arguments: `{"path":"/tmp/same.go"}`}},
-		{ID: "2", Function: struct {
-			Name      string `json:"name"`
-			Arguments string `json:"arguments"`
-		}{Name: "write", Arguments: `{"path":"/tmp/same.go"}`}},
-	}
-	ag.runTools(context.Background(), calls, Events{})
-	if maxConc.Load() != 1 {
-		t.Fatalf("same-path writes must serialize (max concurrency 1), got %d", maxConc.Load())
-	}
-}
-
 // Background tasks run concurrently with the parent and deliver their report
 // via the Done channel + a steered message.
 func TestBackgroundTaskDeliversReport(t *testing.T) {
@@ -160,6 +120,7 @@ func TestBackgroundTaskBroadcastsToManyWaiters(t *testing.T) {
 	defer srv.Close()
 
 	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	task := ag.StartBackground("d", "p", SubModel{})
 
 	const waiters = 8
@@ -208,7 +169,6 @@ func TestBackgroundTaskCancel(t *testing.T) {
 	}
 }
 
-// Per-path keys canonicalize so ./x.go and x.go share one lock.
 // Same-burst tasks share a StartedAt; List must order them deterministically
 // (by the monotonic id) instead of reshuffling on map iteration each redraw.
 func TestTaskListStableOrder(t *testing.T) {
@@ -266,31 +226,6 @@ func TestClearSettledKeepsRunning(t *testing.T) {
 	}
 }
 
-// The global lock (bash) admits one holder at a time: a second acquire
-// blocks until the first releases.
-func TestAcquireGlobalSerializes(t *testing.T) {
-	f := newFileLocks()
-	release := f.acquireGlobal()
-
-	acquired := make(chan struct{})
-	go func() {
-		r2 := f.acquireGlobal()
-		close(acquired)
-		r2()
-	}()
-	select {
-	case <-acquired:
-		t.Fatal("second global acquire should block while the first holds it")
-	case <-time.After(50 * time.Millisecond):
-	}
-	release()
-	select {
-	case <-acquired:
-	case <-time.After(5 * time.Second):
-		t.Fatal("release never unblocked the waiter")
-	}
-}
-
 // SetSessionID publishes (and clears) the session tasks record against, and
 // settle hands that id to OnRecord.
 func TestRegistrySessionID(t *testing.T) {
@@ -314,34 +249,6 @@ func TestRegistrySessionID(t *testing.T) {
 	r.settle("task-1", TaskDone, "report")
 	if recorded != "s2" {
 		t.Fatalf("settle should record against the published session, got %q", recorded)
-	}
-}
-
-func TestCanonicalPathKey(t *testing.T) {
-	a := canonicalPathKey("foo/../bar/baz.go")
-	b := canonicalPathKey("bar/baz.go")
-	if a != b {
-		t.Fatalf("canonical keys differ: %q vs %q", a, b)
-	}
-}
-
-// toolMutationPath pulls the path out of write/edit args and reports
-// non-path-scoped for everything else.
-func TestToolMutationPath(t *testing.T) {
-	if p, ok := toolMutationPath("write", `{"path":"/a/b.go"}`); !ok || p != "/a/b.go" {
-		t.Fatalf("write: %q %v", p, ok)
-	}
-	if p, ok := toolMutationPath("edit", `{"path":"rel.go"}`); !ok || p != "rel.go" {
-		t.Fatalf("edit: %q %v", p, ok)
-	}
-	if _, ok := toolMutationPath("bash", `{"command":"ls"}`); ok {
-		t.Fatal("bash must be global (not path-scoped)")
-	}
-	if _, ok := toolMutationPath("read", `{"path":"/a"}`); ok {
-		t.Fatal("read is not a mutation")
-	}
-	if _, ok := toolMutationPath("write", `{bad`); ok {
-		t.Fatal("malformed write args fall back to global")
 	}
 }
 
@@ -420,6 +327,7 @@ func TestBackgroundTaskSubscriberSeesToolEvents(t *testing.T) {
 	defer srv.Close()
 
 	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	task := ag.StartBackground("d", "p", SubModel{})
 
 	var mu sync.Mutex

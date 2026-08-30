@@ -11,8 +11,10 @@ import (
 	"github.com/context-labs/whip/internal/tools"
 )
 
-func subagentPrompt() string {
-	wd, _ := os.Getwd()
+func subagentPrompt(wd string) string {
+	if wd == "" {
+		wd, _ = os.Getwd()
+	}
 	return "You are a subagent inside whip, a coding agent harness. Complete the task you are given using your tools (bash, read, write, edit), then reply with a concise final report — that report is the only thing the caller sees, so include every finding or result that matters. Do not ask questions; make reasonable assumptions. The caller (or the user) may send you additional guidance mid-task as user messages — fold it into the work.\n\nCurrent working directory: " + wd
 }
 
@@ -44,10 +46,15 @@ func (a *Agent) newSub(o SubModel) *Agent {
 	// *http.Client is concurrency-safe and stays shared.
 	c := *o.Client
 	o.Client = &c
-	sub := New(o.Client, o.Model, o.MaxTokens, subagentPrompt())
+	wd := a.WorkingDir
+	if wd == "" {
+		wd = a.Services.ProcessOptions().Cwd
+	}
+	sub := NewWithServices(o.Client, o.Model, o.MaxTokens, subagentPrompt(wd), a.Services)
+	sub.WorkingDir = wd
 	sub.Effort = a.Effort
 	sub.ContextLimit = o.ContextLimit
-	sub.Tools = tools.All()
+	sub.Tools = tools.AllWithServices(a.Services)
 	return sub
 }
 
@@ -108,21 +115,22 @@ func taskTool(parent *Agent) tools.Tool {
 			prompt := a.Prompt
 
 			if a.Background {
-				// Register the dock row + badge BEFORE the synchronous
-				// worktree provision (git worktree add can take a moment —
-				// spawn lag). The worktree path then goes to the subagent as
-				// its first steered message at launch rather than being baked
-				// into the initial prompt (which OnRecord already persisted).
-				t := parent.RegisterBackground(desc, prompt, o)
 				wtPath := ""
 				if useWorktree {
-					if p, err := provisionSubagentWorktree(ctx, "sub"); err == nil {
+					workspaceRoot := parent.Services.ProcessOptions().Cwd
+					if workspaceRoot == "" {
+						workspaceRoot, _ = os.Getwd()
+					}
+					if p, err := provisionSubagentWorktree(ctx, "sub", workspaceRoot, parent.Services.RunWorkspaceProcess); err == nil {
 						wtPath = p
+					} else if a.Worktree != nil && *a.Worktree {
+						return "Error: create subagent worktree: " + err.Error(), nil
 					}
 					// ponytail: on any failure (not a repo, git missing, branch
 					// clash) fall back to the shared cwd rather than failing the
 					// dispatch — isolation is best-effort.
 				}
+				t := parent.RegisterBackground(desc, prompt, o)
 				parent.LaunchBackground(t, wtPath)
 				if wtPath != "" {
 					return fmt.Sprintf("Started background subagent %s in worktree %s: %s. Its edits are isolated from your working tree. Do not poll for it.", t.ID, wtPath, desc), nil

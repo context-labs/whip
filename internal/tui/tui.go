@@ -33,7 +33,6 @@ import (
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/tools"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 	"github.com/context-labs/whip/internal/update"
 
 	"github.com/charmbracelet/x/ansi"
@@ -161,12 +160,13 @@ type model struct {
 	saved     int            // messages already persisted (index into agent.Messages)
 	snapshots map[int]string // workspace snapshot ref per turn-start index (mirrors the snapshots table)
 
-	hist     []string         // submitted inputs, for up/down recall
-	pasteBuf string           // held paste text for the [Pasted ~N lines] placeholder (config collapsePaste)
-	histIdx  int              // len(hist) == not navigating
-	draft    string           // in-progress input saved while navigating history
-	lastUp   time.Time        // last ↑ keypress; repeat detection for history rollover
-	now      func() time.Time // test seam; defaults to time.Now
+	hist     []string           // submitted inputs, for up/down recall
+	pasteBuf string             // held paste text for the [Pasted ~N lines] placeholder (config collapsePaste)
+	histIdx  int                // len(hist) == not navigating
+	draft    string             // in-progress input saved while navigating history
+	lastUp   time.Time          // last ↑ keypress; repeat detection for history rollover
+	now      func() time.Time   // test seam; defaults to time.Now
+	chdir    func(string) error // production owns one TUI cwd; tests opt in explicitly
 
 	turnStart time.Time // when the in-flight turn began; zero when idle (busy line shows elapsed)
 
@@ -180,6 +180,7 @@ type model struct {
 	titled     bool   // an auto-title has been attempted for this session
 
 	pendingForkID string // busy-forked copy awaiting the turn's end to switch into ("" = none)
+	shellRunning  int    // asynchronous ! commands still attributed to this agent/root
 
 	mouseOn      bool       // runtime mouse-capture state (toggle with /mouse)
 	sel          *selection // in-flight/last drag selection over the transcript
@@ -205,10 +206,12 @@ type model struct {
 	// temp-dir skills instead of whatever the test machine happens to have.
 	skillScan func() []skills.Skill
 
-	irunner *interactiveRunner // installed on tools.InteractiveBash at startup
+	irunner *interactiveRunner // TUI-owned interactive command runner
 	iactive *interactive       // in-flight interactive command; nil when idle
 
-	perms      permRules   // saved allow-always rules
+	permsMu    sync.Mutex
+	perms      permRules // saved allow-always rules
+	toolGate   tools.Gate
 	permDialog *permDialog // open permission modal; the turn is paused on it
 
 	tasksFocus bool      // the tasks dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
@@ -339,6 +342,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		cfg: cfg, agent: ag, modelName: mn, provName: pn, sysPrompt: sysPrompt,
 		input: ti, spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true, saved: 1,
 		catalogs: config.LoadCatalogs(), mouseOn: mouseOn, now: time.Now, showThinking: showThinking,
+		chdir:        os.Chdir,
 		compactModel: cfg.CompactModel, compactProv: cfg.CompactProvider,
 		skillScan: func() []skills.Skill { return skills.Scan(skills.DefaultDirs()...) },
 	}
@@ -360,7 +364,6 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 			m.mcpMgr = mcp.NewManager(merged)
 			m.mcpMgr.SetBlocked(disc.Blocked)
 			m.mcpMgr.SetOnChange(m.mcpOnChange())
-			m.mcpMgr.Start(context.Background())
 			ag.SetMCPTools(m.mcpMgr.Tools())
 			for src, derr := range mcpErrs {
 				m.append(errStyle.Render(fmt.Sprintf("mcp: %s: %s", src, derr)))
@@ -371,38 +374,31 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		// Servers spawn lazily on first covered file touch; a missing binary
 		// is remembered as broken, so this never blocks startup.
 		m.lspMgr = lsp.NewManager(lsp.FromConfigMap(cfg.LSPServers))
-		tools.LSP = m.lspMgr
+		m.bindToolServices(m.agent)
 	}
-	// computer-use: the per-app consent prompt — installed once, here, where
-	// the model exists (buildAgent is package-level and has no m).
-	tools.ComputerApprover = m.computerConsent
 	// Permission prompts are opt-in (--cautious); without it tools run free.
 	if cautious {
 		m.installPermGate()
 	}
-	if dir, derr := config.Dir(); derr == nil {
-		if st, serr := session.Open(dir + "/sessions.db"); serr == nil {
-			m.store = st
-			defer func() { _ = st.Close() }()
-			// Seed input recall with user messages from ALL sessions (every
-			// folder), so ↑ cycles global history, not just this session's.
-			// UserHistory is newest-first; hist is oldest-first (up-arrow walks
-			// back from the end), so reverse it into place.
-			if hist, herr := st.UserHistory(500); herr == nil && len(hist) > 0 {
-				for _, h := range slices.Backward(hist) {
-					m.hist = append(m.hist, h)
-				}
-				m.histIdx = len(m.hist)
-			}
-		} else {
-			config.LogEvent("session.open", "FAILED: "+serr.Error())
-			m.append(errStyle.Render("sessions disabled: " + serr.Error()))
+	dir, err := config.Dir()
+	if err != nil {
+		return "", fmt.Errorf("session directory: %w", err)
+	}
+	st, err := session.Open(dir + "/sessions.db")
+	if err != nil {
+		return "", fmt.Errorf("session store: %w", err)
+	}
+	m.store = st
+	defer func() { _ = st.Close() }()
+	// Seed input recall with user messages from ALL sessions (every folder),
+	// so ↑ cycles global history rather than only the current session.
+	if hist, herr := st.UserHistory(500); herr == nil && len(hist) > 0 {
+		for _, h := range slices.Backward(hist) {
+			m.hist = append(m.hist, h)
 		}
+		m.histIdx = len(m.hist)
 	}
 	if resumeID != "" {
-		if m.store == nil {
-			return "", errors.New("cannot resume: session store unavailable")
-		}
 		if err := m.resume(resumeID); err != nil {
 			return "", err
 		}
@@ -454,7 +450,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// install the interactive bash runner so the agent's bash tool can hand
 	// sudo/ssh-style prompts to the user with a 15s inactivity timeout.
 	m.irunner = newInteractiveRunner(p)
-	tools.InteractiveBash = m.irunner
+	m.bindToolServices(m.agent)
 	go m.fetchCatalogs(false)
 	go func() { p.Send(cfgSyncTick{}) }()     // start the config watcher
 	go func() { p.Send(scheduleTickMsg{}) }() // start the wakeup channel
@@ -464,6 +460,9 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	tuiRunning = true
 	_, err = p.Run()
 	tuiRunning = false
+	processes := m.agent.Services.ProcessOptions()
+	m.agent.Close()
+	m.agent.Services.Close()
 	// The UI has exited (quit, /quit, or a signal). We enabled click/wheel mouse
 	// reporting directly on the TTY (bubbletea doesn't manage it), so release it.
 	if m.mouseOn {
@@ -477,13 +476,64 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// LSP servers get the same courtesy (shutdown/exit, then SIGKILL).
 	if m.lspMgr != nil {
 		m.lspMgr.Close()
-		tools.LSP = nil
 	}
-	// Make sure no agent-spawned child process (a server the model started, a
-	// watcher, a daemon) outlives whip. KillAll SIGKILLs every tracked process
-	// group and waits for them.
-	bashrun.KillAll()
+	if processes.Processes != nil && processes.RootID != "" {
+		_ = processes.Processes.StopRoot(processes.RootID)
+	}
 	return m.sessionID, err
+}
+
+func (m *model) bindToolServices(a *agent.Agent) {
+	if a == nil || a.Services == nil {
+		return
+	}
+	if m.lspMgr != nil {
+		a.Services.SetDiagnostics(m.lspMgr)
+	} else {
+		a.Services.SetDiagnostics(nil)
+	}
+	a.Services.SetInteractive(m.irunner)
+	a.Services.SetGate(m.toolGate)
+	a.Services.SetComputerApprover(m.computerConsent)
+	if err := m.bindSessionAuthority(a, m.sessionID); err != nil {
+		config.LogEvent("capability.bind", "FAILED: "+err.Error())
+	}
+}
+
+func (m *model) bindSessionAuthority(a *agent.Agent, sessionID string) error {
+	if m.store == nil || sessionID == "" || a == nil || a.Services == nil || a.Services.ProcessOptions().RootID == sessionID {
+		return nil
+	}
+	previous := a.Services.ProcessOptions()
+	authority, err := m.store.EnsureClassicAuthority(context.Background(), sessionID)
+	if err != nil {
+		return err
+	}
+	if err := a.Services.BindDispatcher(m.store, m.store.Workspaces(), m.store.Processes(), authority); err != nil {
+		return err
+	}
+	if previous.Processes != nil && previous.RootID != "" {
+		if err := previous.Processes.StopRoot(previous.RootID); err != nil {
+			config.LogEvent("capability.stop", "FAILED: "+err.Error())
+		}
+	}
+	return nil
+}
+
+func (m *model) replacementBlocked() string {
+	if m.busy {
+		return "a turn is running"
+	}
+	if m.shellRunning > 0 {
+		return "a shell command is running"
+	}
+	if m.agent != nil && m.agent.HasRunningTasks() {
+		return "a background task is running"
+	}
+	if m.agent != nil && m.agent.HasRunningWaits() {
+		return "a wait is running"
+	}
+	return ""
 }
 
 // startupReport prints one block naming what whip loaded — skills (with
@@ -649,14 +699,14 @@ func (m *model) fetchCatalogs(force bool) {
 // path performs no network fetch; a persistent failure surfaces the ORIGINAL
 // error (the refresh's failures are already logged by refreshCatalogs).
 func buildAgentWithRefresh(cfg *config.Config, modelName, provName, sysPrompt string) (*agent.Agent, string, string, error) {
-	ag, mn, pn, err := buildAgent(cfg, modelName, provName, sysPrompt)
+	ag, mn, pn, err := buildAgent(cfg, modelName, provName, sysPrompt, nil)
 	var unknown *config.UnknownModelError
 	if !errors.As(err, &unknown) {
 		return ag, mn, pn, err
 	}
 	config.LogEvent("catalog.fetch", fmt.Sprintf("startup resolve missed %q — force-refreshing catalogs", unknown.Model))
 	refreshCatalogs(cfg, true)
-	if ag, mn, pn, rerr := buildAgent(cfg, modelName, provName, sysPrompt); rerr == nil {
+	if ag, mn, pn, rerr := buildAgent(cfg, modelName, provName, sysPrompt, nil); rerr == nil {
 		return ag, mn, pn, nil
 	}
 	return nil, "", "", err
@@ -681,10 +731,29 @@ func ResolveWithRefresh(cfg *config.Config, modelName, provName string) (config.
 
 // resume replaces the conversation with a stored session.
 func (m *model) resume(id string) error {
+	if reason := m.replacementBlocked(); reason != "" {
+		return fmt.Errorf("cannot resume while %s", reason)
+	}
 	meta, msgs, err := m.store.Load(id)
 	if err != nil {
 		return err
 	}
+	previousCWD := ""
+	restoreCWD := true
+	if m.chdir != nil {
+		previousCWD, err = os.Getwd()
+		if err != nil {
+			return err
+		}
+		if err := m.chdir(meta.CWD); err != nil {
+			return fmt.Errorf("resume workspace: %w", err)
+		}
+	}
+	defer func() {
+		if restoreCWD && previousCWD != "" {
+			_ = os.Chdir(previousCWD)
+		}
+	}()
 	// prefer the session's model/provider; fall back to current on error.
 	// The session's own effort wins; a row that pre-dates per-session effort
 	// ("") inherits the current default and gets stamped on the next save.
@@ -692,13 +761,31 @@ func (m *model) resume(id string) error {
 	if effort == "" {
 		effort = m.agent.Effort
 	}
-	if ag, mn, pn, err := buildAgent(m.cfg, meta.Model, meta.Provider, m.sysPrompt); err == nil {
-		m.agent, m.modelName, m.provName = ag, mn, pn
+	rootedPrompt := rerootSystemPrompt(m.sysPrompt, meta.CWD)
+	previousAgent := m.agent
+	var nextAgent *agent.Agent
+	var nextModel, nextProvider string
+	if ag, mn, pn, err := buildAgent(m.cfg, meta.Model, meta.Provider, rootedPrompt, previousAgent.Services); err == nil {
+		nextAgent, nextModel, nextProvider = ag, mn, pn
 	} else {
-		m.agent = agent.New(m.agent.Client, m.agent.Model, m.agent.MaxTokens, m.sysPrompt)
-		m.agent.ModelName, m.agent.Provider = m.modelName, m.provName
-		m.agent.ContextLimit = m.contextLimitFor(m.provName, m.agent.Model)
+		nextAgent = agent.NewWithServices(previousAgent.Client, previousAgent.Model, previousAgent.MaxTokens, rootedPrompt, previousAgent.Services)
+		nextAgent.ModelName, nextAgent.Provider = m.modelName, m.provName
+		nextAgent.ContextLimit = m.contextLimitFor(m.provName, nextAgent.Model)
+		nextModel, nextProvider = m.modelName, m.provName
 	}
+	nextAgent.WorkingDir = meta.CWD
+	nextAgent.Services.SetProcessMarkers(meta.ID, nextAgent.Model)
+	if err := m.bindSessionAuthority(nextAgent, meta.ID); err != nil {
+		previousAgent.Services.SetProcessMarkers(m.sessionID, previousAgent.Model)
+		return fmt.Errorf("resume authority: %w", err)
+	}
+	previousAgent.Close()
+	m.agent, m.modelName, m.provName = nextAgent, nextModel, nextProvider
+	m.sysPrompt = rootedPrompt
+	m.sessionID = meta.ID
+	m.bindToolServices(m.agent)
+	m.reloadMCP(meta.CWD)
+	restoreCWD = false
 	m.applyCompactModel()
 	m.applyTaskModel()
 	m.agent.CompactThreshold = compactThresholdFor(m.cfg)
@@ -754,8 +841,6 @@ func (m *model) resume(id string) error {
 	if slices.Contains(m.effortsFor(), effort) {
 		m.agent.Effort = effort
 	}
-	m.sessionID = meta.ID
-	bashrun.SetMarkers(meta.ID, m.agent.Model)
 	m.saved = len(m.agent.Messages)
 	// Add this session's user messages to recall, skipping any already present
 	// from the global cross-session seed (resume runs after that seed).
@@ -793,6 +878,42 @@ func (m *model) resume(id string) error {
 	}
 	m.seedTranscript(msgs, 1)
 	return nil
+}
+
+func rerootSystemPrompt(prompt, workingDirectory string) string {
+	const marker = "  Working directory: "
+	start := strings.Index(prompt, marker)
+	if start < 0 {
+		return prompt
+	}
+	start += len(marker)
+	end := strings.IndexByte(prompt[start:], '\n')
+	if end < 0 {
+		return prompt[:start] + workingDirectory
+	}
+	return prompt[:start] + workingDirectory + prompt[start+end:]
+}
+
+func (m *model) reloadMCP(workingDirectory string) {
+	if m.mcpMgr != nil {
+		m.mcpMgr.Close()
+	}
+	discovery := mcp.LoadMergedFiltered(workingDirectory, mcp.FromConfigMap(m.cfg.MCPServers), mcp.ImportPolicyFrom(m.cfg.MCPImport))
+	for source, err := range discovery.Errs {
+		config.LogEvent("mcp.discovery", source+": "+err.Error())
+	}
+	if len(discovery.Merged) == 0 && len(discovery.Blocked) == 0 {
+		m.mcpMgr = nil
+		m.agent.SetMCPTools(nil)
+		return
+	}
+	m.mcpMgr = mcp.NewManager(discovery.Merged)
+	m.mcpMgr.SetBlocked(discovery.Blocked)
+	m.mcpMgr.SetOnChange(m.mcpOnChange())
+	opts := m.agent.Services.ProcessOptions()
+	m.mcpMgr.SetProcessOptions(opts.Processes, opts.RootID, opts.Cwd, opts.Env)
+	m.mcpMgr.Start(context.Background())
+	m.agent.SetMCPTools(m.mcpMgr.Tools())
 }
 
 // seedTranscript re-renders stored messages into the viewport. Blocks are
@@ -850,16 +971,11 @@ func (m *model) persist() {
 		if len(m.agent.Messages) <= m.saved {
 			return // nothing new to say; don't create an empty session row
 		}
-		id, err := m.store.Create(cwd(), m.modelName, m.provName)
-		if err != nil {
+		if err := m.ensureSession(); err != nil {
 			config.LogEvent("session.save", "create failed: "+err.Error())
 			m.append(errStyle.Render("session save failed: " + err.Error()))
 			return
 		}
-		m.sessionID = id
-		bashrun.SetMarkers(id, m.agent.Model)
-		m.agent.Tasks().SetSessionID(id) // publish before Save so a settling subagent records
-		m.agent.SetSessionID(id)         // scopes the per-session memory file
 	}
 	// Bookkeeping re-stamps every persist — even one with no new messages —
 	// so a resume restores goal/effort, and the cumulative token totals that
@@ -879,6 +995,35 @@ func (m *model) persist() {
 		return
 	}
 	m.saved = len(m.agent.Messages)
+}
+
+func (m *model) ensureSession() error {
+	if m.store == nil {
+		if m.mcpMgr != nil {
+			m.mcpMgr.Start(context.Background())
+		}
+		return nil
+	}
+	if m.sessionID == "" {
+		id, err := m.store.Create(cwd(), m.modelName, m.provName)
+		if err != nil {
+			return err
+		}
+		m.sessionID = id
+		m.agent.Services.SetProcessMarkers(id, m.agent.Model)
+		m.agent.Tasks().SetSessionID(id)
+		m.agent.SetSessionID(id)
+	}
+	if err := m.bindSessionAuthority(m.agent, m.sessionID); err != nil {
+		return err
+	}
+	if m.mcpMgr != nil {
+		opts := m.agent.Services.ProcessOptions()
+		m.mcpMgr.SetProcessOptions(opts.Processes, opts.RootID, opts.Cwd, opts.Env)
+		m.mcpMgr.Start(context.Background())
+		m.agent.SetMCPTools(m.mcpMgr.Tools())
+	}
+	return nil
 }
 
 // setTheme switches the color scheme ("light"/"dark"/"auto") live and
@@ -971,7 +1116,7 @@ func (m *model) setGoal(goal string) {
 	}
 }
 
-func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*agent.Agent, string, string, error) {
+func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string, existingServices *tools.Services) (*agent.Agent, string, string, error) {
 	prov, mdl, apiID, err := cfg.Resolve(modelName, provName)
 	if err != nil {
 		return nil, "", "", err
@@ -1013,7 +1158,12 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 	}
 	client := llm.New(prov.BaseURL, key)
 	client.MaxRetries = cfg.MaxRetries
-	ag := agent.New(client, apiID, maxOut, sysPrompt)
+	services := existingServices
+	if services == nil {
+		services = tools.NewServices()
+	}
+	freshServices := existingServices == nil
+	ag := agent.NewWithServices(client, apiID, maxOut, sysPrompt, services)
 	ag.ModelName, ag.Provider = modelName, provName
 	ag.ContextLimit = ctxLimit
 	ag.WorktreeSubagents = cfg.WorktreeSubagents != nil && *cfg.WorktreeSubagents
@@ -1026,11 +1176,11 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 	// Computer-use: per-app consent policy from config; the consent prompt is
 	// installed below (the model never touches an unapproved app silently).
 	ag.ComputerDisabled = cfg.Computer.Enabled != nil && !*cfg.Computer.Enabled
-	if !ag.ComputerDisabled {
+	if freshServices && !ag.ComputerDisabled {
 		defaultDeny := cfg.Computer.DefaultDeny != nil && *cfg.Computer.DefaultDeny // default: allow-all
-		tools.ComputerPolicy = computer.NewPolicy(cfg.Computer.Allow, cfg.Computer.Deny, defaultDeny)
+		services.SetComputerPolicy(computer.NewPolicy(cfg.Computer.Allow, cfg.Computer.Deny, defaultDeny))
 	}
-	if !ag.BrowserDisabled && tools.Browser == nil {
+	if freshServices && !ag.BrowserDisabled {
 		mode := browser.ModeLive
 		switch cfg.Browser.Mode {
 		case "dedicated":
@@ -1040,22 +1190,21 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 		case "extension":
 			mode = browser.ModeExtension
 		}
-		tools.Browser = browser.NewManager(mode)
+		services.SetBrowser(browser.NewManager(mode), cfg.Browser.AllowPrivateURLs)
 		if cfg.Browser.CDPURL != "" {
 			_ = os.Setenv("WHIP_CDP_URL", cfg.Browser.CDPURL)
 		}
-		browser.AllowPrivateURLs = cfg.Browser.AllowPrivateURLs
 	}
 	if modelSupportsVision(cfg, modelName, apiID, config.LoadCatalogs(), provName) {
-		tools.ScreenshotSink = func(jpegs [][]byte) {
+		services.SetScreenshotSink(func(jpegs [][]byte) {
 			parts := make([]llm.ContentPart, 0, len(jpegs))
 			for _, j := range jpegs {
 				parts = append(parts, llm.ImagePart("jpg", j))
 			}
 			ag.SteerImages("browser_exec screenshots attached:", parts)
-		}
+		})
 	} else {
-		tools.ScreenshotSink = nil
+		services.SetScreenshotSink(nil)
 	}
 	return ag, modelName, provName, nil
 }
@@ -2024,9 +2173,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This precedes the queue drain and goal loop so any follow-up turns
 		// continue inside the fork, not the abandoned original.
 		if m.pendingForkID != "" {
-			m.switchToForked(m.pendingForkID)
-			m.pendingForkID = ""
-			return m, nil
+			if m.switchToForked(m.pendingForkID) {
+				m.pendingForkID = ""
+				return m, nil
+			}
 		}
 		// codex-style follow-up: send queued messages one turn at a time;
 		// `!` shell escapes execute locally instead of starting a turn.
@@ -2950,16 +3100,22 @@ func (m *model) tasksView() string {
 // persist=false (/model-for-session) leaves the saved default untouched, so the
 // next whip launch still opens on the configured model.
 func (m *model) switchModel(name, prov string, persist bool) {
-	ag, mn, pn, err := buildAgent(m.cfg, name, prov, m.sysPrompt)
+	if reason := m.replacementBlocked(); reason != "" {
+		m.append(errStyle.Render("cannot switch models while " + reason))
+		return
+	}
+	ag, mn, pn, err := buildAgent(m.cfg, name, prov, m.sysPrompt, m.agent.Services)
 	if err != nil {
 		m.append(errStyle.Render(err.Error()))
 		return
 	}
 	ag.Effort = m.agent.Effort
+	ag.WorkingDir = m.agent.WorkingDir
 	ag.Messages = append(ag.Messages, m.agent.Messages[1:]...) // carry history
 	ag.CompactClient, ag.CompactModel = m.agent.CompactClient, m.agent.CompactModel
 	ag.CompactThreshold = m.agent.CompactThreshold
 	m.agent, m.modelName, m.provName = ag, mn, pn
+	m.bindToolServices(m.agent)
 	m.applyTaskModel()
 	m.wireTasks()
 	if !slices.Contains(m.effortsFor(), ag.Effort) {
@@ -3335,6 +3491,10 @@ func (m *model) submitGoal(text string) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
+	if err := m.ensureSession(); err != nil {
+		m.append(errStyle.Render("session start failed: " + err.Error()))
+		return m, nil
+	}
 	m.busy = true
 	m.turnStart = m.nowFn()
 	prepared, parts := m.prepareTurn(text)

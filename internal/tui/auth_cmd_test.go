@@ -133,7 +133,7 @@ func TestAuthResultRekeysLiveSession(t *testing.T) {
 	// Session currently routed through openrouter with a config-entry model.
 	m.cfg.Models["gpt-5"] = config.Model{Providers: []string{"openrouter"}, ID: "openai/gpt-5", Context: 400000}
 	m.modelName, m.provName = "gpt-5", "openrouter"
-	ag, _, _, err := buildAgent(m.cfg, m.modelName, m.provName, "sys")
+	ag, _, _, err := buildAgent(m.cfg, m.modelName, m.provName, "sys", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestAuthMakesCatalogModelsPickable(t *testing.T) {
 
 	// And the picked model resolves + builds an agent through the catalog —
 	// the actual switch a user makes next.
-	ag, name, prov, err := buildAgent(m.cfg, "openai/gpt-5", "openrouter", "sys")
+	ag, name, prov, err := buildAgent(m.cfg, "openai/gpt-5", "openrouter", "sys", nil)
 	if err != nil {
 		t.Fatalf("catalog model should build an agent: %v", err)
 	}

@@ -16,6 +16,7 @@ import (
 // and delivers exactly one "met" message.
 func TestWaitConditionMetImmediately(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 
 	var woke atomic.Int32
@@ -45,6 +46,7 @@ func TestWaitConditionMetImmediately(t *testing.T) {
 // `until` is set, and a matching output settles it once the pattern appears.
 func TestWaitUntilRegex(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -68,6 +70,7 @@ func TestWaitUntilRegex(t *testing.T) {
 // of polling until the timeout.
 func TestWaitStrikesOut(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -88,6 +91,7 @@ func TestWaitStrikesOut(t *testing.T) {
 // Timeout delivers a timeout message exactly once.
 func TestWaitTimeout(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -107,6 +111,7 @@ func TestWaitTimeout(t *testing.T) {
 // A running turn routes delivery through Steer (loop boundary), not OnWake.
 func TestWaitBusySteersInsteadOfWaking(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.running.Store(true) // simulate an in-flight turn
 
@@ -129,6 +134,7 @@ func TestWaitBusySteersInsteadOfWaking(t *testing.T) {
 // Cancel stops the wait and suppresses delivery.
 func TestWaitCancel(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -151,6 +157,7 @@ func TestWaitCancel(t *testing.T) {
 // poll" contract message.
 func TestWaitToolRegisters(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 
 	var wt tools.Tool
@@ -203,6 +210,7 @@ func TestWaitToolRegisters(t *testing.T) {
 // the real minimum and confirms a later poll settles the wait.
 func TestWaitTickerPath(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -261,8 +269,10 @@ func TestTurnTeardownDrainsOrphanedSteers(t *testing.T) {
 // CancelWait racing a deliver must not panic (double close). The CAS makes
 // exactly one of them own the close. Run under -race.
 func TestWaitCancelRacesDeliver(t *testing.T) {
+	services := tools.NewServices()
+	bindTestServices(t, services, t.TempDir())
 	for range 200 {
-		ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+		ag := NewWithServices(llm.New("http://unused", "k"), "m", 100, "sys", services)
 		ag.Waits().OnWake = func(string) {}
 		w, err := ag.StartWait(WaitTaskSpec{Command: "exit 0", Interval: waitMinInterval, Timeout: time.Minute})
 		if err != nil {

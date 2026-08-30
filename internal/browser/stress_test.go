@@ -22,8 +22,6 @@ import (
 func TestConcurrentSessionsDriveIsolatedBrowsers(t *testing.T) {
 	_ = chromiumPath(t)
 	t.Setenv("HOME", t.TempDir())
-	AllowPrivateURLs = true
-	defer func() { AllowPrivateURLs = false }()
 	url := testPage(t)
 
 	m := NewManager(ModeHeadless)
@@ -74,8 +72,6 @@ func TestConcurrentSessionsDriveIsolatedBrowsers(t *testing.T) {
 func TestChurnOpenClose(t *testing.T) {
 	_ = chromiumPath(t)
 	t.Setenv("HOME", t.TempDir())
-	AllowPrivateURLs = true
-	defer func() { AllowPrivateURLs = false }()
 	url := testPage(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
@@ -103,8 +99,6 @@ func TestChurnOpenClose(t *testing.T) {
 func TestRecoverFromClosedBrowser(t *testing.T) {
 	_ = chromiumPath(t)
 	t.Setenv("HOME", t.TempDir())
-	AllowPrivateURLs = true
-	defer func() { AllowPrivateURLs = false }()
 	url := testPage(t)
 
 	m := NewManager(ModeHeadless)
@@ -143,8 +137,6 @@ func TestRecoverFromClosedBrowser(t *testing.T) {
 func TestManySequentialCalls(t *testing.T) {
 	_ = chromiumPath(t)
 	t.Setenv("HOME", t.TempDir())
-	AllowPrivateURLs = true
-	defer func() { AllowPrivateURLs = false }()
 	url := testPage(t)
 
 	m := NewManager(ModeHeadless)

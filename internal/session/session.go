@@ -16,6 +16,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/context-labs/whip/internal/capability"
 	contentstore "github.com/context-labs/whip/internal/content"
 	"github.com/context-labs/whip/internal/llm"
 )
@@ -55,6 +56,8 @@ type Store struct {
 	db          *sql.DB
 	defaultMode Mode
 	content     *contentstore.Store
+	workspaces  *capability.Workspaces
+	processes   *capability.ProcessManager
 }
 
 // Open opens (creating if needed) the sessions database at path.
@@ -99,7 +102,10 @@ func OpenWithDefaultMode(path string, defaultMode Mode) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{db: db, defaultMode: defaultMode, content: content}
+	store := &Store{
+		db: db, defaultMode: defaultMode, content: content,
+		workspaces: capability.NewWorkspaces(), processes: capability.NewProcessManager(),
+	}
 	failed = false
 	return store, nil
 }
@@ -195,7 +201,7 @@ func (s *Store) LoadTasks(sessionID string) ([]Task, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error { return errors.Join(s.processes.Close(), s.db.Close()) }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
 

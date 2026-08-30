@@ -7,7 +7,12 @@
 package tools
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"strings"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // GateDecision is the user's answer to a permission prompt.
@@ -26,9 +31,36 @@ type GateRequest struct {
 	Rule    string // the rule "always" would install (arity-collapsed)
 }
 
-// Gate is the installed permission hook. It returns the decision and, on
-// reject, a free-text redirect that goes back to the model. Nil = allow.
-var Gate func(GateRequest) (GateDecision, string)
+// Gate is a session-scoped permission hook. Nil means allow.
+type Gate func(context.Context, GateRequest) (GateDecision, string)
+
+type servicesKey struct{}
+type localHumanKey struct{}
+
+// WithServices exposes the calling agent's services to custom tools.
+func WithServices(ctx context.Context, services *Services) context.Context {
+	return context.WithValue(ctx, servicesKey{}, services)
+}
+
+// WithLocalHuman marks an operation already initiated directly by the user.
+func WithLocalHuman(ctx context.Context) context.Context {
+	return context.WithValue(ctx, localHumanKey{}, true)
+}
+
+func servicesFromContext(ctx context.Context) *Services {
+	services, _ := ctx.Value(servicesKey{}).(*Services)
+	return services
+}
+
+// CheckGate follows the calling agent's permission policy. Custom tools use
+// this when they need the same consent behavior as built-ins.
+func CheckGate(ctx context.Context, tool, command string) string {
+	services := servicesFromContext(ctx)
+	if services == nil {
+		return ""
+	}
+	return services.CheckGate(ctx, tool, command)
+}
 
 // arity maps a command prefix to how many tokens define "the command" —
 // longest prefix wins, flags never count. Compact version of opencode's
@@ -77,13 +109,15 @@ func CommandRule(command string) string {
 	return tokens[0] // unknown command: the binary is the rule
 }
 
-// checkGate runs the installed gate for a tool call; "" means proceed, a
-// non-empty string is the rejection fed back to the model.
-func checkGate(tool, command string) string {
-	if Gate == nil {
+// CheckGate runs the installed gate; "" means proceed.
+func (s *Services) CheckGate(ctx context.Context, tool, command string) string {
+	s.mu.RLock()
+	gate := s.gate
+	s.mu.RUnlock()
+	if gate == nil {
 		return ""
 	}
-	decision, redirect := Gate(GateRequest{Tool: tool, Command: command, Rule: CommandRule(command)})
+	decision, redirect := gate(ctx, GateRequest{Tool: tool, Command: command, Rule: CommandRule(command)})
 	if decision == GateReject {
 		if redirect == "" {
 			redirect = "the user rejected this action"
@@ -91,4 +125,35 @@ func checkGate(tool, command string) string {
 		return "Permission denied: " + redirect
 	}
 	return ""
+}
+
+// Decide adapts the session gate to durable dispatcher permission decisions.
+func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPrompt) (capability.Decision, error) {
+	if local, _ := ctx.Value(localHumanKey{}).(bool); local {
+		return capability.Decision{Allow: true, PrincipalID: "local-human"}, nil
+	}
+	var args struct {
+		Command string `json:"command"`
+		Path    string `json:"path"`
+	}
+	if err := json.Unmarshal(prompt.Arguments, &args); err != nil {
+		return capability.Decision{}, err
+	}
+	command := args.Path
+	if prompt.Operation == "bash" || prompt.Operation == "workspace_process" {
+		command = args.Command
+	} else if prompt.CanonicalPath != "" {
+		command = prompt.CanonicalPath
+	}
+	if command == "" {
+		return capability.Decision{}, errors.New("permission request target is empty")
+	}
+	s.mu.RLock()
+	gate := s.gate
+	s.mu.RUnlock()
+	if gate == nil {
+		return capability.Decision{Allow: true, PrincipalID: "local-client"}, nil
+	}
+	decision, reason := gate(ctx, GateRequest{Tool: prompt.Operation, Command: command, Rule: CommandRule(command)})
+	return capability.Decision{Allow: decision != GateReject, PrincipalID: "local-human", Reason: reason}, nil
 }

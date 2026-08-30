@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -17,9 +18,12 @@ import (
 //
 // registered as a stdio server. The `task` tool is excluded (no subagent
 // recursion over MCP). Callers use the raw llm definitions verbatim.
-func Serve(ctx context.Context, version string) error {
+func Serve(ctx context.Context, version string, services *tools.Services) error {
+	if services == nil || services.ProcessOptions().Processes == nil {
+		return errors.New("mcp serve requires scoped tool services")
+	}
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "whip", Version: version}, nil)
-	for _, t := range tools.All() {
+	for _, t := range tools.AllWithServices(services) {
 		srv.AddTool(&sdkmcp.Tool{
 			Name:        t.Def.Function.Name,
 			Description: t.Def.Function.Description,
@@ -28,11 +32,12 @@ func Serve(ctx context.Context, version string) error {
 			InputSchema: t.Def.Function.Parameters,
 		}, func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
 			out, err := t.Run(ctx, req.Params.Arguments)
+			isError := err != nil
 			if err != nil {
 				out = "Error: " + err.Error() // errors are tool output, not protocol failures
 			}
 			return &sdkmcp.CallToolResult{
-				Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: out}},
+				Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: out}}, IsError: isError,
 			}, nil
 		})
 	}

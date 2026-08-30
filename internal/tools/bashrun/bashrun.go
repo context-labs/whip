@@ -24,12 +24,16 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/creack/pty"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // userShell resolves the user's login shell: $SHELL first, then the passwd
@@ -84,7 +88,11 @@ type Result struct {
 
 // Options configure a single run.
 type Options struct {
-	Command string
+	Command   string
+	Cwd       string
+	RootID    string
+	Processes *capability.ProcessManager
+	Env       map[string]string
 	// Timeout is the hard wall-clock cap. <=0 means 120s.
 	Timeout time.Duration
 	// Interactive runs the command in a PTY so sudo/ssh-like password prompts
@@ -129,13 +137,77 @@ func Run(ctx context.Context, opts Options) Result {
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, userShell(), "-c", opts.Command)
-	cmd.Env = append(os.Environ(), ChildMarkers...)
+	cmd := exec.Command(userShell(), "-c", opts.Command)
+	cmd.Dir = opts.Cwd
+	if opts.Processes == nil {
+		cmd.Env = childEnvironment(opts.Env)
+	}
 
 	if opts.Interactive {
 		return runInteractive(ctx, cmd, opts)
 	}
-	return runPiped(ctx, cmd, opts.OnUpdate)
+	return runPiped(ctx, cmd, opts)
+}
+
+type processHandle interface {
+	Wait() error
+	Kill() error
+}
+
+type commandProcess struct{ cmd *exec.Cmd }
+
+func (p commandProcess) Wait() error { return p.cmd.Wait() }
+
+func (p commandProcess) Kill() error {
+	if p.cmd.Process == nil {
+		return nil
+	}
+	err := syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL)
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	return err
+}
+
+func startProcess(ctx context.Context, cmd *exec.Cmd, opts Options, controllingTTY bool) (processHandle, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, func() {}, err
+	}
+	if opts.Processes != nil {
+		env := map[string]string{"WHIP": "1", "WHIP_PID": strconv.Itoa(os.Getpid())}
+		for name, value := range opts.Env {
+			env[name] = value
+		}
+		process, err := opts.Processes.Start(context.WithoutCancel(ctx), opts.RootID, cmd.Path, cmd.Args[1:], capability.ProcessOptions{
+			Cwd: cmd.Dir, Env: env, Stdin: cmd.Stdin, Stdout: cmd.Stdout, Stderr: cmd.Stderr, ControllingTTY: controllingTTY,
+		})
+		return process, func() {}, err
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: controllingTTY}
+	if err := cmd.Start(); err != nil {
+		return nil, func() {}, err
+	}
+	return commandProcess{cmd}, func() {}, nil
+}
+
+func childEnvironment(overrides map[string]string) []string {
+	values := make(map[string]string, len(os.Environ())+len(overrides)+2)
+	for _, entry := range os.Environ() {
+		if name, value, ok := strings.Cut(entry, "="); ok {
+			values[name] = value
+		}
+	}
+	values["WHIP"] = "1"
+	values["WHIP_PID"] = strconv.Itoa(os.Getpid())
+	for name, value := range overrides {
+		values[name] = value
+	}
+	env := make([]string, 0, len(values))
+	for name, value := range values {
+		env = append(env, name+"="+value)
+	}
+	sort.Strings(env)
+	return env
 }
 
 // runPiped runs the command with stdout/stderr captured, stdin wired to
@@ -155,7 +227,7 @@ func Run(ctx context.Context, opts Options) Result {
 // runs (pi throttles its bash onUpdate at 100ms too).
 const updateInterval = 100 * time.Millisecond
 
-func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result {
+func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	// Hand-rolled pipes, NOT cmd.StdoutPipe: Wait() closes StdoutPipe's read
 	// ends the moment the child exits, discarding kernel-buffered output the
 	// drain goroutines haven't read yet (lost output on fast commands). With
@@ -176,25 +248,19 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 		cmd.Stdin = devNull
 		defer devNull.Close()
 	}
-	// Setsid gives the child a new session with no controlling terminal, so a
-	// program that insists on /dev/tty fails immediately instead of grabbing
-	// whip's terminal and blocking its input loop.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-
-	if err := cmd.Start(); err != nil {
+	process, cleanup, err := startProcess(ctx, cmd, opts, false)
+	if err != nil {
 		_ = stdout.Close()
 		_ = outW.Close()
 		_ = stderr.Close()
 		_ = errW.Close()
 		return Result{Exit: exitString(err)}
 	}
+	defer cleanup()
 	// Drop our copies of the write ends: the drains must see EOF when the
 	// child (and any grandchildren holding the pipes) are done writing.
 	_ = outW.Close()
 	_ = errW.Close()
-	track(cmd) // register for KillAll on whip exit
-	defer untrack(cmd)
-
 	// Drain both pipes concurrently; the readers finish on pipe EOF (process
 	// exit) OR when we close them below after Wait returns.
 	var out bytes.Buffer
@@ -222,7 +288,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 	// in-flight progress is visible before the command exits. One goroutine,
 	// owned by this run, exits when updatesDone closes below.
 	var updatesDone chan struct{}
-	if onUpdate != nil {
+	if opts.OnUpdate != nil {
 		updatesDone = make(chan struct{})
 		defer close(updatesDone)
 		go func() {
@@ -236,7 +302,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 					mu.Lock()
 					snap := out.String()
 					mu.Unlock()
-					onUpdate(snap)
+					opts.OnUpdate(snap)
 				}
 			}
 		}()
@@ -247,14 +313,12 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 	go func() {
 		select {
 		case <-ctx.Done():
-			if cmd.Process != nil {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			}
+			_ = process.Kill()
 		case <-watchDone:
 		}
 	}()
 
-	waitErr := cmd.Wait()
+	waitErr := process.Wait()
 	// The direct child exited. On the common path the drains hit EOF at once
 	// (all write ends are closed) and finish having read everything. The timer
 	// bounds the detached-grandchild case only: a lingering writer holds the
@@ -297,26 +361,30 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, onUpdate func(string)) Result 
 // transcript because the PTY slave's ECHO is off for the master and the runner
 // forwards raw bytes, not display text.
 func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
-	// Setsid + Setctty make pty.Start give the child a controlling terminal
-	// that is the pty slave — exactly what sudo wants.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
-
-	ptmx, err := pty.Start(cmd)
+	ptmx, tty, err := pty.Open()
 	if err != nil {
-		// Fall back to the safe non-interactive path; an interactive failure
-		// must never hang the agent.
-		return runPiped(ctx, cmd, nil)
+		fallback := exec.Command(userShell(), "-c", opts.Command)
+		fallback.Dir = opts.Cwd
+		fallback.Env = cmd.Env
+		return runPiped(ctx, fallback, opts)
 	}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
+	process, cleanup, err := startProcess(ctx, cmd, opts, true)
+	_ = tty.Close()
+	if err != nil {
+		_ = ptmx.Close()
+		fallback := exec.Command(userShell(), "-c", opts.Command)
+		fallback.Dir = opts.Cwd
+		fallback.Env = cmd.Env
+		return runPiped(ctx, fallback, opts)
+	}
+	defer cleanup()
 	defer ptmx.Close()
-	track(cmd) // register for KillAll on whip exit
-	defer untrack(cmd)
 
 	// Kill the whole process group (bash + any children) on timeout/cancel so
 	// nothing outlives the run.
 	stop := sync.OnceFunc(func() {
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
+		_ = process.Kill()
 	})
 	go func() {
 		<-ctx.Done()
@@ -396,7 +464,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			// ok==false OR nil chunk => the output pump ended (PTY closed,
 			// command exited). Wait for the child and return.
 			if !ok || chunk == nil {
-				waitErr := cmd.Wait()
+				waitErr := process.Wait()
 				res := Result{Output: buf.String(), Interactive: true}
 				if ctx.Err() == context.DeadlineExceeded {
 					res.TimedOut = true
@@ -427,7 +495,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			// "timed out"/"cancelled" or as "timed out waiting for input".
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				stop()
-				_ = cmd.Wait()
+				_ = process.Wait()
 				res := Result{Output: buf.String(), Killed: true, Interactive: true}
 				if errors.Is(ctxErr, context.DeadlineExceeded) {
 					res.TimedOut = true
@@ -439,7 +507,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 			}
 			if idle >= opts.InactivityTimeout {
 				stop()
-				_ = cmd.Wait()
+				_ = process.Wait()
 				res := Result{
 					Output:      buf.String(),
 					Exit:        "timed out waiting for input",
@@ -497,62 +565,6 @@ func openDevNull() *os.File {
 		return nil
 	}
 	return f
-}
-
-// Registry of in-flight child processes so KillAll can guarantee none outlive
-// whip. track is called right after a successful Start; untrack after Wait.
-var (
-	trackMu sync.Mutex
-	tracked = map[int]*exec.Cmd{}
-)
-
-func track(cmd *exec.Cmd) {
-	if cmd.Process == nil {
-		return
-	}
-	trackMu.Lock()
-	tracked[cmd.Process.Pid] = cmd
-	trackMu.Unlock()
-}
-
-func untrack(cmd *exec.Cmd) {
-	if cmd.Process == nil {
-		return
-	}
-	trackMu.Lock()
-	delete(tracked, cmd.Process.Pid)
-	trackMu.Unlock()
-}
-
-// KillAll SIGKILLs every tracked child process group and waits briefly for
-// them to die. Called on whip exit so an agent-spawned server or watcher
-// never outlives the harness. Safe to call more than once.
-func KillAll() {
-	trackMu.Lock()
-	procs := make([]*exec.Cmd, 0, len(tracked))
-	for _, c := range tracked {
-		procs = append(procs, c)
-	}
-	trackMu.Unlock()
-	for _, c := range procs {
-		if c.Process != nil {
-			// negative pid kills the whole process group (bash + children)
-			_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
-		}
-	}
-	// Give the kernel a moment to reap; don't block exit indefinitely.
-	deadline := time.Now().Add(2 * time.Second)
-	for _, c := range procs {
-		if c.Process == nil {
-			continue
-		}
-		for time.Now().Before(deadline) {
-			if err := c.Process.Signal(syscall.Signal(0)); err != nil {
-				break // process gone
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
 }
 
 // KeyBytes converts a small set of named special keys to their terminal byte

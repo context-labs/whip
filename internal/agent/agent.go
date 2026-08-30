@@ -89,6 +89,8 @@ type Agent struct {
 	// MaxTurns caps the tool-call loop (rounds of model→tools→model) so a
 	// scripted run can't run away. 0 = uncapped (the TUI default).
 	MaxTurns int
+	// WorkingDir scopes relative tool paths inside the session workspace.
+	WorkingDir string
 
 	// WorktreeSubagents is the session default for running background
 	// subagents in their own git worktree (isolated file edits). The subagent
@@ -106,8 +108,7 @@ type Agent struct {
 	// consistent slice. Mutations hold it only for the append.
 	msgsMu sync.Mutex
 
-	files *fileLocks // per-path mutation locks for parallel tool calls
-	bg    *taskRegistry
+	bg *taskRegistry
 
 	// subagentInflight / otherInflight count in-flight tool calls by kind
 	// (incremented in runTools after the mutation lock, decremented at tool
@@ -133,6 +134,7 @@ type Agent struct {
 	// request.
 	toolsMu  sync.Mutex
 	mcpTools []tools.Tool
+	Services *tools.Services
 
 	// BrowserDisabled, when true, keeps browser_exec out of the tool set
 	// (config browser.enabled=false) even when the manager hook exists.
@@ -157,6 +159,53 @@ type Agent struct {
 // registry routes delivery on it: busy → Steer (drained at the next loop
 // boundary), idle → the OnWake hook (a parked steer would never be seen).
 func (a *Agent) TurnRunning() bool { return a.running.Load() }
+
+func (a *Agent) HasRunningTasks() bool {
+	for _, task := range a.Tasks().List() {
+		if task.Status == TaskRunning {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Agent) HasRunningWaits() bool {
+	a.mu.Lock()
+	registry := a.waitReg
+	a.mu.Unlock()
+	if registry == nil {
+		return false
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	for _, wait := range registry.waits {
+		if wait.Status() == WaitRunning {
+			return true
+		}
+	}
+	return false
+}
+
+// Close stops waits and background tasks, then waits for their goroutines.
+func (a *Agent) Close() {
+	a.mu.Lock()
+	waits := a.waitReg
+	a.mu.Unlock()
+	if waits != nil {
+		waits.Close()
+	}
+	tasks := a.Tasks().List()
+	for _, task := range tasks {
+		if task.Status == TaskRunning {
+			a.Tasks().Cancel(task.ID)
+		}
+	}
+	for _, task := range tasks {
+		if task.Status == TaskRunning {
+			<-task.Done
+		}
+	}
+}
 
 // Steer queues a user message for injection at the next loop boundary of the
 // running turn — after the in-flight response and its tool calls complete,
@@ -258,24 +307,31 @@ func (a *Agent) Usage() llm.Usage {
 }
 
 func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
+	return NewWithServices(client, model, maxTokens, systemPrompt, tools.NewServices())
+}
+
+func NewWithServices(client *llm.Client, model string, maxTokens int, systemPrompt string, services *tools.Services) *Agent {
+	if services == nil {
+		services = tools.NewServices()
+	}
 	a := &Agent{
 		Client:    client,
 		Model:     model,
 		MaxTokens: maxTokens,
 		Messages:  []llm.Message{{Role: "system", Content: systemPrompt}},
+		Services:  services,
 	}
-	a.Tools = tools.All()
+	a.Tools = tools.AllWithServices(services)
 	if !a.BrowserDisabled {
-		a.Tools = append(a.Tools, tools.BrowserExec())
+		a.Tools = append(a.Tools, tools.BrowserExec(services))
 	}
 	if !a.ComputerDisabled {
-		a.Tools = append(a.Tools, tools.ComputerExec())
+		a.Tools = append(a.Tools, tools.ComputerExec(services))
 	}
 	a.Tools = append(a.Tools, taskTool(a), taskSteerTool(a))
 	a.Tools = append(a.Tools, todoTool(a))
 	a.Tools = append(a.Tools, waitTool(a))
 	a.Tools = append(a.Tools, memoryTools(a)...)
-	a.files = newFileLocks()
 	a.bg = newTaskRegistry()
 	return a
 }
@@ -292,34 +348,13 @@ func (a *Agent) MessagesSnapshot() []llm.Message {
 // SetMCPTools swaps in the current MCP tool set (called by the MCP manager's
 // OnChange whenever a server settles). MCP tools live separately from
 // a.Tools so a settle mid-turn never mutates the slice a Turn is reading.
-// The package-global tools.Suggester is process-wide, shared across agents
-// (model switches swap the agent). It must (a) be installed/written under a
-// lock so two SetMCPTools calls racing don't tear it, and (b) resolve through
-// the LATEST agent, not capture the first — a stale pointer would suggest
-// from a replaced agent's tool list.
-var (
-	suggesterMu      sync.Mutex
-	suggesterCurrent atomic.Pointer[Agent]
-)
-
-// A Suggester is installed on first use so a stale/typo'd mcp__ call gets a
-// "did you mean?" nudge instead of a dead end.
 func (a *Agent) SetMCPTools(ts []tools.Tool) {
 	a.toolsMu.Lock()
 	a.mcpTools = ts
 	a.toolsMu.Unlock()
-	suggesterMu.Lock()
-	suggesterCurrent.Store(a)
-	tools.Suggester = func(name string) []string {
-		if cur := suggesterCurrent.Load(); cur != nil {
-			return cur.suggest(name)
-		}
-		return nil
-	}
-	suggesterMu.Unlock()
 }
 
-// suggest lists candidate names for tools.Suggester: built-ins + live MCP
+// suggest lists candidate names from built-ins and live MCP tools.
 // tools, filtered by the mcp package's edit-distance logic.
 func (a *Agent) suggest(name string) []string {
 	a.toolsMu.Lock()
@@ -374,6 +409,11 @@ func (a *Agent) TurnWithImages(ctx context.Context, input string, parts []llm.Co
 }
 
 func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, ev Events) (string, error) {
+	var err error
+	ctx, err = tools.WithTurnIdentity(ctx, "classic")
+	if err != nil {
+		return "", err
+	}
 	// Decay old tool output before the new user message lands: the pass only
 	// prunes history outside the hot window, and running it pre-append keeps
 	// the new message (and this turn's tool results) inside the window where
@@ -455,7 +495,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		a.Messages = append(a.Messages, msg)
 		a.msgsMu.Unlock()
 		if len(msg.ToolCalls) > 0 {
-			results := a.runTools(ctx, msg.ToolCalls, ev)
+			results := a.runTools(ctx, msg.ToolCalls, rounds, ev)
 			a.msgsMu.Lock()
 			for i, tc := range msg.ToolCalls {
 				a.Messages = append(a.Messages, llm.Message{
@@ -530,13 +570,11 @@ func (a *Agent) WaitingOnSubagents() bool {
 //
 //   - Each call runs in its own goroutine; a buffered results channel collects
 //     (index, output) pairs, and a final pass lays them back out in order.
-//   - Mutations to the same file serialize through a per-path channel
-//     semaphore (fileLocks), so two edits to foo.go can't interleave; edits to
-//     different files run truly in parallel.
-//   - bash takes a global lock: its side effects aren't attributable to a path.
+//   - Tool services serialize workspace mutations through the capability
+//     dispatcher, so parallel calls here share the same authority as RLM calls.
 //   - OnToolStart/OnToolEnd fire per call so the UI shows each tool as it
 //     begins and lands, not in a burst at the end.
-func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, ev Events) []string {
+func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, round int, ev Events) []string {
 	results := make([]string, len(calls))
 	type outcome struct {
 		i    int
@@ -553,32 +591,21 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, ev Events) [
 			defer wg.Done()
 			name, args := tc.Function.Name, tc.Function.Arguments
 
-			// Serialize against other mutations before starting. Acquiring here
-			// (before OnToolStart) keeps "running" rows honest: a tool only
-			// shows as running once it actually holds its lock.
-			var release func()
-			if path, ok := toolMutationPath(name, args); ok {
-				release = a.files.acquirePath(path)
-			} else if name == "bash" {
-				release = a.files.acquireGlobal()
-			}
-			if release != nil {
-				defer release()
-			}
-
 			if ev.OnToolStart != nil {
 				ev.OnToolStart(tc.ID, name, args)
 			}
 			a.trackTool(name, 1)
 			defer a.trackTool(name, -1)
 			start := time.Now()
-			callCtx := ctx
+			callCtx := tools.WithServices(ctx, a.Services)
+			callCtx = tools.WithOperationIdentity(callCtx, fmt.Sprintf("%d:%s", round, tc.ID))
+			callCtx = tools.WithWorkingDirectory(callCtx, a.WorkingDir)
 			if ev.OnToolOutput != nil && name == "bash" {
-				callCtx = tools.WithOnUpdate(ctx, func(soFar string) {
+				callCtx = tools.WithOnUpdate(callCtx, func(soFar string) {
 					ev.OnToolOutput(tc.ID, soFar)
 				})
 			}
-			out := tools.Execute(callCtx, a.AllTools(), name, json.RawMessage(args))
+			out := tools.ExecuteWithSuggester(callCtx, a.AllTools(), name, json.RawMessage(args), a.suggest)
 			ms := time.Since(start).Milliseconds()
 			if ev.OnToolEnd != nil {
 				ev.OnToolEnd(tc.ID, name, out)

@@ -5,17 +5,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// provisionSubagentWorktree creates a sibling worktree on a task-named branch
-// inside a real git repo, and reports "" outside one.
+func testWorktreeRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
+// provisionSubagentWorktree creates an authorized worktree on a task-named
+// branch inside a real git repo, and reports "" outside one.
 func TestProvisionSubagentWorktree(t *testing.T) {
 	if os.Getenv("WHIP_SKIP_WORKTREE_TEST") == "1" {
-		// Fails only while an outer `git commit` holds the repo's index lock
-		// (the pre-commit hook's test run): git's commondir resolution for the
-		// sibling worktree breaks with ".git/index: Not a directory". Pure
-		// environment timing — the pre-commit hook sets the skip.
+		// The pre-commit hook already holds the repository index lock.
 		t.Skip("skipped via WHIP_SKIP_WORKTREE_TEST")
 	}
 	ctx := context.Background()
@@ -40,12 +42,16 @@ func TestProvisionSubagentWorktree(t *testing.T) {
 	// provision from inside the repo
 	t.Chdir(repo)
 
-	path, err := provisionSubagentWorktree(ctx, "task-42")
+	path, err := provisionSubagentWorktree(ctx, "task-42", repo, testWorktreeRunner)
 	if err != nil {
 		t.Fatalf("provision: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(path, "f.txt")); err != nil {
 		t.Fatalf("worktree should contain the committed file: %v", err)
+	}
+	canonicalRepo, _ := filepath.EvalSymlinks(repo)
+	if rel, err := filepath.Rel(canonicalRepo, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		t.Fatalf("worktree path %q is outside repository %q", path, repo)
 	}
 	// branch named after the task exists
 	out, _ := exec.CommandContext(ctx, "git", "-C", repo, "branch", "--list", "subagent/task-42").Output()
@@ -59,8 +65,8 @@ func TestProvisionSubagentWorktree(t *testing.T) {
 // Outside a git repo, provisioning must fail (the caller falls back to the
 // shared cwd) rather than create anything.
 func TestProvisionSubagentWorktreeNotARepo(t *testing.T) {
-	t.Chdir(t.TempDir())
-	if _, err := provisionSubagentWorktree(context.Background(), "task-9"); err == nil {
+	dir := t.TempDir()
+	if _, err := provisionSubagentWorktree(context.Background(), "task-9", dir, testWorktreeRunner); err == nil {
 		t.Fatal("expected an error outside a git repo")
 	}
 }

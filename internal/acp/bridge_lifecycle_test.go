@@ -15,8 +15,6 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-
-	"github.com/context-labs/whip/internal/tools"
 )
 
 func TestInitializeCapabilities(t *testing.T) {
@@ -72,7 +70,7 @@ func TestPromptStreamsTextAndToolCards(t *testing.T) {
 		{toolName: "write", toolArgs: `{"path":"` + target + `","content":"hello acp"}`},
 		{text: "all done"},
 	})
-	f := newFixture(t, nil, nil, factoryFor(srv, tools.All()))
+	f := newFixture(t, nil, testStore(t), factoryFor(srv, nil))
 	f.initialize(t)
 	id := f.newSession(t, dir)
 
@@ -89,11 +87,16 @@ func TestPromptStreamsTextAndToolCards(t *testing.T) {
 	if !strings.Contains(kinds, "tool_call(") || !strings.Contains(kinds, "tool_call_update(") {
 		t.Errorf("missing tool cards: %s", kinds)
 	}
-	// Final agent chunk carries the reply.
-	last := ups[len(ups)-1]
-	if last.Update.AgentMessageChunk == nil || last.Update.AgentMessageChunk.Content.Text == nil ||
-		last.Update.AgentMessageChunk.Content.Text.Text != "all done" {
-		t.Errorf("final update = %+v", last.Update)
+	// An agent chunk carries the reply; a persisted session may emit metadata
+	// immediately after it.
+	var reply string
+	for _, update := range ups {
+		if chunk := update.Update.AgentMessageChunk; chunk != nil && chunk.Content.Text != nil {
+			reply += chunk.Content.Text.Text
+		}
+	}
+	if reply != "all done" {
+		t.Errorf("agent reply = %q", reply)
 	}
 	// The write tool card should end completed with a diff content entry.
 	tc := f.client.waitFor(t, func(n acp.SessionNotification) bool {
@@ -123,7 +126,7 @@ func TestPromptCancelledMidTurn(t *testing.T) {
 	})
 	defer close(release)
 
-	f := newFixture(t, nil, nil, factoryFor(srv, tools.All()))
+	f := newFixture(t, nil, testStore(t), factoryFor(srv, nil))
 	f.initialize(t)
 	id := f.newSession(t, t.TempDir())
 
@@ -155,6 +158,31 @@ func TestPromptCancelledMidTurn(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("prompt did not return after cancel")
+	}
+}
+
+func TestCloseSessionWaitsForActiveTurn(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	srv := scriptServer(t, []step{{text: "partial", block: release}})
+	f := newFixture(t, nil, nil, factoryFor(srv, nil))
+	f.initialize(t)
+	id := f.newSession(t, t.TempDir())
+	done := make(chan struct{})
+	go func() {
+		_, _ = f.prompt(t, id, "stay busy")
+		close(done)
+	}()
+	f.client.waitFor(t, func(n acp.SessionNotification) bool {
+		return n.Update.AgentMessageChunk != nil
+	}, "first chunk")
+	if _, err := f.conn.CloseSession(context.Background(), acp.CloseSessionRequest{SessionId: id}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("close returned before the active turn stopped")
 	}
 }
 

@@ -8,11 +8,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/computer"
+	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 func run(t *testing.T, name, args string) string {
 	t.Helper()
-	return Execute(context.Background(), All(), name, json.RawMessage(args))
+	return Execute(context.Background(), directTools(), name, json.RawMessage(args))
 }
 
 func TestToolRoundTrip(t *testing.T) {
@@ -152,24 +157,23 @@ type mockInteractiveRunner struct {
 	returnThis string
 }
 
-func (m *mockInteractiveRunner) Run(_ context.Context, command string, timeout time.Duration, keys <-chan []byte) string {
-	m.gotCommand = command
-	m.gotTimeout = timeout
-	m.gotKeys = keys
+func (m *mockInteractiveRunner) Run(_ context.Context, opts bashrun.Options) string {
+	m.gotCommand = opts.Command
+	m.gotTimeout = opts.Timeout
+	m.gotKeys = opts.Keys
 	return m.returnThis
 }
 
 // TestBashToolInteractiveHook verifies that bash with interactive:true hands
-// off to the installed InteractiveBash runner, passing command+timeout+keys,
+// off to the injected runner, passing command+timeout+keys,
 // and returns whatever the runner returns. It also confirms the hook is
 // consulted only when interactive is true.
 func TestBashToolInteractiveHook(t *testing.T) {
 	mock := &mockInteractiveRunner{returnThis: "PASSWORD_ACCEPTED\n(exit: 0)"}
-	prev := InteractiveBash
-	InteractiveBash = mock
-	defer func() { InteractiveBash = prev }()
+	services := NewServices()
+	services.SetInteractive(mock)
 
-	out := run(t, "bash", `{"command":"sudo apt install -y sl","interactive":true,"timeout":20}`)
+	out := Execute(context.Background(), []Tool{bashTool(services)}, "bash", json.RawMessage(`{"command":"sudo apt install -y sl","interactive":true,"timeout":20}`))
 	if out != "PASSWORD_ACCEPTED\n(exit: 0)" {
 		t.Fatalf("interactive bash should return runner output verbatim: %q", out)
 	}
@@ -185,7 +189,7 @@ func TestBashToolInteractiveHook(t *testing.T) {
 
 	// interactive:false must NOT call the runner even when it's installed
 	mock.gotCommand = ""
-	out = run(t, "bash", `{"command":"echo nohook"}`)
+	out = Execute(context.Background(), []Tool{bashTool(services)}, "bash", json.RawMessage(`{"command":"echo nohook"}`))
 	if mock.gotCommand != "" {
 		t.Fatalf("non-interactive call should not reach the runner: %q", mock.gotCommand)
 	}
@@ -218,7 +222,7 @@ func TestEditDiffLineNumbers(t *testing.T) {
 func TestWriteToolDiffOnOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
-	w := writeTool()
+	w := writeTool(NewServices())
 	out, err := w.Run(context.Background(), json.RawMessage(`{"path":"`+p+`","content":"a\nb\n"}`))
 	if err != nil || strings.Contains(out, "```diff") {
 		t.Fatalf("fresh write should carry no diff: %q, %v", out, err)
@@ -230,4 +234,71 @@ func TestWriteToolDiffOnOverwrite(t *testing.T) {
 	if !strings.Contains(out, "```diff") || !strings.Contains(out, "2 - b") || !strings.Contains(out, "2 + c") {
 		t.Fatalf("overwrite should diff with absolute line numbers: %q", out)
 	}
+}
+
+func TestServicesKeepHostHooksIsolated(t *testing.T) {
+	one, two := NewServices(), NewServices()
+	browserOne, browserTwo := browser.NewManager(browser.ModeHeadless), browser.NewManager(browser.ModeLive)
+	one.SetBrowser(browserOne, true)
+	two.SetBrowser(browserTwo, false)
+	one.SetComputerPolicy(computer.NewPolicy([]string{"One"}, nil, true))
+	two.SetComputerPolicy(computer.NewPolicy([]string{"Two"}, nil, true))
+	oneCtx, twoCtx := WithServices(t.Context(), one), WithServices(t.Context(), two)
+
+	if one.Browser() != browserOne || two.Browser() != browserTwo {
+		t.Fatal("browser managers crossed service boundaries")
+	}
+	if err := gateApp(oneCtx, "One"); err != nil {
+		t.Fatalf("first policy denied its app: %v", err)
+	}
+	if err := gateApp(twoCtx, "One"); err == nil {
+		t.Fatal("second policy inherited the first service's approval")
+	}
+
+	noteGeneration(oneCtx, "App", &computer.AppState{Generation: 7})
+	if genFor(oneCtx, "App") != 7 || genFor(twoCtx, "App") != 0 {
+		t.Fatal("computer generations crossed service boundaries")
+	}
+
+	var oneShots, twoShots int
+	one.SetScreenshotSink(func(shots [][]byte) { oneShots += len(shots) })
+	two.SetScreenshotSink(func(shots [][]byte) { twoShots += len(shots) })
+	one.screenshots()([][]byte{{1}})
+	if oneShots != 1 || twoShots != 0 {
+		t.Fatal("screenshot callback crossed service boundaries")
+	}
+}
+
+func TestServicesKeepProcessScopesIsolated(t *testing.T) {
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	one, two := NewServices(), NewServices()
+	one.processes, one.processCwd, one.processEnv, one.authority.RootID = processes, canonicalDir(t, t.TempDir()), map[string]string{"WHIP_SESSION_ID": "one"}, "one"
+	two.processes, two.processCwd, two.processEnv, two.authority.RootID = processes, canonicalDir(t, t.TempDir()), map[string]string{"WHIP_SESSION_ID": "two"}, "two"
+
+	type result struct{ output string }
+	results := make(chan result, 2)
+	for _, services := range []*Services{one, two} {
+		go func() {
+			out, err := services.computerAutomation(t.Context()).Run(t.Context(), "sh", "-c", `printf '%s:%s' "$WHIP_SESSION_ID" "$PWD"`)
+			if err != nil {
+				results <- result{"error: " + err.Error()}
+				return
+			}
+			results <- result{string(out)}
+		}()
+	}
+	got := map[string]bool{(<-results).output: true, (<-results).output: true}
+	if !got["one:"+one.processCwd] || !got["two:"+two.processCwd] {
+		t.Fatalf("process scopes crossed: %v", got)
+	}
+}
+
+func canonicalDir(t *testing.T, dir string) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

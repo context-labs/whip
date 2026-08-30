@@ -44,19 +44,16 @@ func TestBrowserExecE2E(t *testing.T) {
 	url := fmt.Sprintf("http://%s:%d", ip, ln.Addr().(*net.TCPAddr).Port)
 
 	t.Setenv("HOME", t.TempDir())
-	browser.AllowPrivateURLs = true // test server is on the LAN IP
-	defer func() { browser.AllowPrivateURLs = false }()
 	mgr := browser.NewManager(browser.ModeHeadless)
 	defer mgr.CloseAll()
-	old := Browser
-	Browser = mgr
-	defer func() { Browser = old }()
+	services := NewServices()
+	services.SetBrowser(mgr, true)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	code := "# check the test page\ngoto(\"" + url + "\")\nprint(js(\"document.title\"))\nprint(info())"
 	args, _ := json.Marshal(map[string]string{"code": code})
-	out := Execute(ctx, []Tool{BrowserExec()}, "browser_exec", args)
+	out := Execute(ctx, []Tool{BrowserExec(services)}, "browser_exec", args)
 	if strings.HasPrefix(out, "Error") {
 		t.Fatalf("tool error: %s", out)
 	}

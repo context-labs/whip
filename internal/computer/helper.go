@@ -20,6 +20,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // ProtocolVersion must match Protocol.version in the Swift driver.
@@ -119,12 +121,17 @@ type TCCStatus struct {
 // Helper manages one whip-computer subprocess. The zero value is unusable;
 // get it via Shared(). Thread-safe; restarts the helper on crash.
 type Helper struct {
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	reader *bufio.Reader
-	token  string
-	nextID int64
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	process   *capability.Process
+	processes *capability.ProcessManager
+	rootID    string
+	cwd       string
+	env       map[string]string
+	stdin     io.WriteCloser
+	reader    *bufio.Reader
+	token     string
+	nextID    int64
 }
 
 var shared = struct {
@@ -151,6 +158,14 @@ func Shared() (*Helper, error) {
 		return nil, err
 	}
 	shared.h = h
+	return h, nil
+}
+
+func NewManagedHelper(processes *capability.ProcessManager, rootID, cwd string, env map[string]string) (*Helper, error) {
+	h := &Helper{processes: processes, rootID: rootID, cwd: cwd, env: env}
+	if err := h.spawn(); err != nil {
+		return nil, err
+	}
 	return h, nil
 }
 
@@ -185,21 +200,33 @@ func (h *Helper) spawn() error {
 	}
 	h.token = hex.EncodeToString(tok)
 
-	h.cmd = exec.CommandContext(context.Background(), path)
-	h.cmd.Env = append(os.Environ(), tokenEnvVar+"="+h.token)
-	stdin, err := h.cmd.StdinPipe()
-	if err != nil {
-		return err
+	var stdin io.WriteCloser
+	var stdout io.ReadCloser
+	if h.processes != nil {
+		env := make(map[string]string, len(h.env)+1)
+		for name, value := range h.env {
+			env[name] = value
+		}
+		env[tokenEnvVar] = h.token
+		h.process, stdin, stdout, err = h.processes.StartPiped(context.Background(), h.rootID, path, nil, capability.ProcessOptions{
+			Cwd: h.cwd, Env: env, Stderr: io.Discard,
+		})
+	} else {
+		h.cmd = exec.CommandContext(context.Background(), path)
+		h.cmd.Env = append(os.Environ(), tokenEnvVar+"="+h.token)
+		stdin, err = h.cmd.StdinPipe()
+		if err == nil {
+			stdout, err = h.cmd.StdoutPipe()
+		}
+		if err == nil {
+			err = h.cmd.Start()
+		}
 	}
-	stdout, err := h.cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return fmt.Errorf("spawn whip-computer: %w", err)
 	}
 	h.stdin = stdin
 	h.reader = bufio.NewReaderSize(stdout, 4<<20)
-	if err := h.cmd.Start(); err != nil {
-		return fmt.Errorf("spawn whip-computer: %w", err)
-	}
 
 	// First line is the version announcement (plain text, not JSON).
 	announce, err := h.readLineTimeout(10 * time.Second)
@@ -255,11 +282,26 @@ func (h *Helper) readLineTimeout(d time.Duration) (string, error) {
 }
 
 func (h *Helper) kill() {
+	if h.stdin != nil {
+		_ = h.stdin.Close()
+	}
+	if h.process != nil {
+		_ = h.process.Kill()
+		_ = h.process.Wait()
+		h.process = nil
+	}
 	if h.cmd != nil && h.cmd.Process != nil {
 		_ = h.cmd.Process.Kill()
 		_, _ = h.cmd.Process.Wait()
 	}
 	h.cmd = nil
+	h.stdin = nil
+}
+
+func (h *Helper) Close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.kill()
 }
 
 // restartLocked respawns after a crash. Caller holds h.mu.
@@ -302,7 +344,7 @@ func (h *Helper) Call(ctx context.Context, method string, params map[string]any,
 
 // callLocked performs one round-trip. Caller holds h.mu and set the token.
 func (h *Helper) callLocked(ctx context.Context, method string, params map[string]any, out any) error {
-	if h.cmd == nil {
+	if h.cmd == nil && h.process == nil {
 		return errors.New("whip-computer not running")
 	}
 	h.nextID++
