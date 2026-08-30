@@ -482,7 +482,11 @@ relay: full device login + key mint, store round-trip, key validation),
   and ←/→ steppers for the compaction level — `palette.go`.
 - **Mouse**: `/mouse` toggles capture; with capture off the terminal's native
   selection works, with it on shift-drag selects. `"mouse": false` in config
-  disables capture at startup.
+  disables capture at startup. A drag that copies shows a transient "⧉ copied"
+  badge at the header's top-right (issue #82): it paints in place on the header
+  row — no rows added, so nothing shifts and mouse row math is untouched — and
+  a 2s tick takes it down (`copyBadge`/`copyBadgeMsg`/`copyBadgeView` in
+  `select.go`; tests: `TestCopyBadge` in `select_test.go`).
 - Queueing (enter while busy), steering (empty enter), history recall (↑/↓),
   `@file` mentions, `$skill` invocation, `/goal` loop, `/resume` session
   picker, `/effort` reasoning levels — see the roadmap for the full list.

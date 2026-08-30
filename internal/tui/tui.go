@@ -181,10 +181,11 @@ type model struct {
 
 	pendingForkID string // busy-forked copy awaiting the turn's end to switch into ("" = none)
 
-	mouseOn  bool       // runtime mouse-capture state (toggle with /mouse)
-	sel      *selection // in-flight/last drag selection over the transcript
-	selDragX int        // last drag pointer position (edge auto-scroll re-checks it)
-	selDragY int
+	mouseOn   bool       // runtime mouse-capture state (toggle with /mouse)
+	sel       *selection // in-flight/last drag selection over the transcript
+	selDragX  int        // last drag pointer position (edge auto-scroll re-checks it)
+	selDragY  int
+	copyBadge bool // "⧉ copied" badge on the header's top-right (issue #82); a 2s tick clears it
 	// Input box selection tracking: View records the input's absolute screen
 	// rows so drag-select can hit-test/extract/highlight it. inputBodyOff is
 	// the line offset within viewBody where the input starts; inputTop is the
@@ -1666,6 +1667,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// drag parked past the viewport edge: keep scrolling + extending the
 		// selection until the drag ends or the viewport hits its limit
 		return m, m.selEdgeScroll()
+
+	case copyBadgeMsg:
+		m.copyBadge = false // the copied acknowledgment has shown long enough
+		return m, nil
 
 	case tea.KeyMsg:
 		m.sel = nil // any keypress clears a finished selection highlight
@@ -3905,7 +3910,7 @@ func (m *model) currentView() string {
 // (WindowSizeMsg handler) and the next render re-anchors to the bottom.
 func (m *model) View() string {
 	m.syncInputPlaceholder()
-	v := m.viewBody()
+	v := m.copyBadgeView(m.viewBody()) // in-place header overlay; height is unchanged
 	if m.height > 0 {
 		m.viewH = lipgloss.Height(v)
 		m.viewTop = max(min(m.viewTop, m.height-m.viewH), 0)

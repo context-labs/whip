@@ -301,6 +301,47 @@ func copyText(s string) {
 // selection can keep growing past what's on screen.
 type selScrollTick struct{}
 
+// copyBadgeMsg is the timer that clears the "copied" badge (issue #82).
+type copyBadgeMsg struct{}
+
+// copyBadgeFor is how long the badge stays up. The opencode toast this is
+// modeled on (ui/toast.tsx) uses 5s; a copy acknowledgment doesn't need that
+// long — 2s matches the other transient hints (quit/esc arm windows).
+const copyBadgeFor = 2 * time.Second
+
+// showCopyBadge paints the "⧉ copied" badge at the header's top-right and
+// arms the timer that takes it down. It paints IN PLACE over the header's
+// right edge (same trick as the selection highlight): no rows are added, so
+// the layout, the transcript, and all mouse row math stay exactly where they
+// were. A repeat copy retriggers the 2s window — that's fine: the badge is
+// idempotent, the superseded tick just clears it a little early.
+func (m *model) showCopyBadge() tea.Cmd {
+	m.copyBadge = true
+	return tea.Tick(copyBadgeFor, func(time.Time) tea.Msg { return copyBadgeMsg{} })
+}
+
+// copyBadgeView overlays the badge onto the rendered header line, right-aligned
+// (the header's own right-aligned ⚡ control hides beneath it — the badge is
+// the transient guest).
+func (m *model) copyBadgeView(header string) string {
+	if !m.copyBadge {
+		return header
+	}
+	badge := toolStyle.Render("⧉ copied")
+	i := strings.IndexByte(header, '\n') // the header is viewBody's first line
+	if i < 0 {
+		i = len(header)
+	}
+	line, rest := header[:i], header[i:]
+	budget := max(m.width-ansi.StringWidth(badge), 0)
+	if bw := ansi.StringWidth(line); bw < budget {
+		line += strings.Repeat(" ", budget-bw) // push the badge to the right edge
+	} else {
+		line = ansi.Truncate(line, budget, "") // narrow header: make room
+	}
+	return line + badge + rest
+}
+
 // handleMouseSelect runs the selection state machine for one mouse event. It
 // returns handled=true when the event is consumed by selection: a left press
 // inside the transcript block range (the viewport must NOT see it — a click
@@ -351,7 +392,7 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 		if m.sel.anchor != m.sel.cur { // a real drag: copy, keep the highlight
 			m.sel.done = true
 			copyText(m.selText(*m.sel))
-			return true, nil
+			return true, m.showCopyBadge()
 		}
 		inputClick := m.sel.anchor.input
 		m.sel = nil

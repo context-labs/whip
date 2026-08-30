@@ -44,7 +44,7 @@ parallel tool calls and background subagents).
 - [x] Tool rows: icon + present-participle verb while running ("Reading file…"), collapse on completion to a claude-style `● Verb(subject)` header that keeps the path/command visible, result under a `⎿` marker, red on failure (opencode `routes/session/index.tsx:1836`; claude-code header/summary shape)
 - [x] Render tool calls as they stream, before execution starts (pi: `message_update` spawns `ToolExecutionComponent` keyed by tool-call id)
 - [x] Spinner with elapsed time + token count (% of context window) in status line (opencode `routes/session/footer.tsx`) — cost part done (status line shows session spend when the provider advertises pricing)
-- [ ] Toast-style transient notifications for command success/failure (opencode `ui/toast.tsx` — 102 lines)
+- [ ] Toast-style transient notifications for command success/failure (opencode `ui/toast.tsx` — 102 lines) — partially: drag-copy shows a transient "⧉ copied" badge at the header's top-right (issue #82; `copyBadgeView` in `select.go`)
 - [ ] Desktop notification/sound when a turn finishes and the terminal is blurred (opencode `attention.ts` — "when: blurred" is the detail that makes it not-annoying)
 
 ## Sessions

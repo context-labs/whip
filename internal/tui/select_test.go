@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -83,6 +84,60 @@ func TestDragSelectsHighlightsCopies(t *testing.T) {
 	m = tm.(*model)
 	if m.sel != nil {
 		t.Fatal("keypress must clear the selection highlight")
+	}
+}
+
+// A real drag's release shows the "⧉ copied" badge at the header's top-right
+// (issue #82): the badge paints IN PLACE on the header row (no rows added, so
+// nothing shifts), and the 2s tick takes it down.
+func TestCopyBadge(t *testing.T) {
+	m := selTestModel()
+	y := blockRowY(m, m.blocks[1].y0)
+	before := m.View()
+	if strings.Contains(before, "copied") {
+		t.Fatal("no badge before any copy")
+	}
+
+	tm, cmd := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 0, Y: y})
+	m = tm.(*model)
+	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 6, Y: y})
+	m = tm.(*model)
+	tm, cmd = m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 6, Y: y})
+	m = tm.(*model)
+	if !m.copyBadge || cmd == nil {
+		t.Fatalf("release must show the badge and arm its clear tick (badge=%v cmd=%v)", m.copyBadge, cmd != nil)
+	}
+
+	after := m.View()
+	rowOf := func(v, substr string) int {
+		for i, l := range strings.Split(v, "\n") {
+			if strings.Contains(ansi.Strip(l), substr) {
+				return i
+			}
+		}
+		return -1
+	}
+	// top-right: same header row as before, badge ends at the right edge
+	if r := rowOf(after, "copied"); r != 0 {
+		t.Fatalf("badge must paint on the header row, got row %d:\n%q", r, after)
+	}
+	hdr := strings.Split(after, "\n")[0]
+	if ansi.StringWidth(hdr) != m.width || !strings.HasSuffix(ansi.Strip(hdr), "copied") {
+		t.Fatalf("badge must sit at the top-right edge (width %d, want %d): %q", ansi.StringWidth(hdr), m.width, hdr)
+	}
+	// painting in place: the transcript didn't move
+	if rowOf(before, "second block here") != rowOf(after, "second block here") {
+		t.Fatal("the badge must not shift the transcript")
+	}
+	if lipgloss.Height(after) != lipgloss.Height(before) {
+		t.Fatal("the badge must not change the view height")
+	}
+
+	// the tick clears it
+	tm, _ = m.Update(copyBadgeMsg{})
+	m = tm.(*model)
+	if m.copyBadge || strings.Contains(m.View(), "copied") {
+		t.Fatal("copyBadgeMsg must take the badge down")
 	}
 }
 
