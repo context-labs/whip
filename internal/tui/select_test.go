@@ -98,11 +98,11 @@ func TestCopyBadge(t *testing.T) {
 		t.Fatal("no badge before any copy")
 	}
 
-	tm, cmd := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 0, Y: y})
+	tm, _ := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 0, Y: y})
 	m = tm.(*model)
 	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 6, Y: y})
 	m = tm.(*model)
-	tm, cmd = m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 6, Y: y})
+	tm, cmd := m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 6, Y: y})
 	m = tm.(*model)
 	if !m.copyBadge || cmd == nil {
 		t.Fatalf("release must show the badge and arm its clear tick (badge=%v cmd=%v)", m.copyBadge, cmd != nil)
@@ -121,7 +121,7 @@ func TestCopyBadge(t *testing.T) {
 	if r := rowOf(after, "copied"); r != 0 {
 		t.Fatalf("badge must paint on the header row, got row %d:\n%q", r, after)
 	}
-	hdr := strings.Split(after, "\n")[0]
+	hdr, _, _ := strings.Cut(after, "\n")
 	if ansi.StringWidth(hdr) != m.width || !strings.HasSuffix(ansi.Strip(hdr), "copied") {
 		t.Fatalf("badge must sit at the top-right edge (width %d, want %d): %q", ansi.StringWidth(hdr), m.width, hdr)
 	}
