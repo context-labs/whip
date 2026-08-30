@@ -1,8 +1,10 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +12,164 @@ import (
 
 	"github.com/context-labs/whip/internal/llm"
 )
+
+func TestMigrationFailureKeepsCheckpointedSourceAndSyncedBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	db := createHistoricalStore(t, path, historicalShape{name: "H0"})
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE blocker(x); CREATE INDEX events ON blocker(x)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO messages VALUES('legacy',9,'user','{"role":"user","content":"committed in WAL"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path + "-wal"); err != nil || info.Size() == 0 {
+		t.Fatalf("fixture did not retain committed WAL data: info=%v err=%v", info, err)
+	}
+
+	if st, err := Open(path); err == nil {
+		st.Close()
+		t.Fatal("migration should fail on the colliding events index")
+	}
+	var sourceRows, sourceVersion int
+	if err := db.QueryRow(`SELECT count(*) FROM messages WHERE seq=9`).Scan(&sourceRows); err != nil || sourceRows != 1 {
+		t.Fatalf("source lost WAL row: rows=%d err=%v", sourceRows, err)
+	}
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&sourceVersion); err != nil || sourceVersion != 0 {
+		t.Fatalf("failed migration changed source version: %d, %v", sourceVersion, err)
+	}
+	var modeColumn int
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('sessions') WHERE name='mode'`).Scan(&modeColumn); err != nil || modeColumn != 0 {
+		t.Fatalf("failed migration left partial columns: count=%d err=%v", modeColumn, err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	backup, err := sql.Open("sqlite", migrationBackupPath(path, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backup.Close()
+	var backupRows, backupVersion int
+	if err := backup.QueryRow(`SELECT count(*) FROM messages WHERE seq=9`).Scan(&backupRows); err != nil || backupRows != 1 {
+		t.Fatalf("backup lost checkpointed WAL row: rows=%d err=%v", backupRows, err)
+	}
+	if err := backup.QueryRow(`PRAGMA user_version`).Scan(&backupVersion); err != nil || backupVersion != 0 {
+		t.Fatalf("backup version=%d err=%v", backupVersion, err)
+	}
+}
+
+func TestRuntimeTransitionFailureRollsBackRowsAndDiagnosesBody(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, _ := st.Create("/workspace", "m", "p")
+	exec(t, st, `CREATE TRIGGER reject_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+	large := bytes.Repeat([]byte("orphan-on-rollback"), 1024)
+	_, err = st.CommitRuntime(context.Background(), RuntimeTransition{
+		Agent:   &RuntimeAgent{ID: "a", RootID: rootID, Status: "idle"},
+		Command: &RuntimeCommand{ClientID: "c", ID: "cmd", Scope: CommandScopeRoot, RootID: rootID, RequestDigest: "d", Status: "queued", Payload: RuntimePayload{Data: large}},
+		Inbox:   &RuntimeInbox{RootID: rootID, AgentID: "a", Seq: 1, Kind: "command", Status: "queued", Payload: RuntimePayload{Data: large}},
+		State:   &RuntimeState{RootID: rootID, AgentID: "a", Key: "k", Version: 1, AuthorAgentID: "a", Payload: RuntimePayload{Data: large}},
+		Event:   &RuntimeEvent{RootID: rootID, Seq: 1, Kind: "event", Payload: RuntimePayload{Data: large}},
+		Usage:   &RuntimeUsage{ID: "u", RootID: rootID, AgentID: "a"},
+	})
+	if err == nil {
+		t.Fatal("trigger should abort the runtime transition")
+	}
+	exec(t, st, `DROP TRIGGER reject_event`)
+	for _, table := range []string{"agents", "commands", "inbox", "agent_state", "events", "usage_charges", "content_objects", "content_references", "content_grants"} {
+		var n int
+		if err := st.db.QueryRow(`SELECT count(*) FROM ` + table).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("failed transition left %s rows=%d err=%v", table, n, err)
+		}
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	orphans, err := st.OrphanContent(context.Background())
+	if err != nil || len(orphans) != 1 {
+		t.Fatalf("orphan diagnoses=%+v err=%v", orphans, err)
+	}
+	if body, err := st.content.Read(orphans[0].Digest, 0, len(large)); err != nil || !bytes.Equal(body, large) {
+		t.Fatalf("diagnosis deleted or changed body: %d bytes err=%v", len(body), err)
+	}
+}
+
+func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, _ := st.Create("/workspace", "m", "p")
+	exec(t, st, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at) VALUES('a',?,NULL,'idle',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'d','queued',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES('turn',?,'a','running',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO child_executions(id,root_id,parent_agent_id,child_agent_id,status,created_at,updated_at) VALUES('child',?,'a','a','running',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,created_at,updated_at) VALUES('op',?,'a','running',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO leases(id,root_id,agent_id,operation_id,status,created_at,updated_at) VALUES('lease',?,'a','op','running',?,?)`, rootID, now(), now())
+	exec(t, st, `CREATE TRIGGER reject_recovery BEFORE UPDATE ON operations BEGIN SELECT RAISE(ABORT,'recovery failure'); END`)
+	st.Close()
+
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Recover(context.Background()); err == nil {
+		t.Fatal("recovery should fail closed")
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for table, want := range map[string]string{"commands": "queued", "turns": "running", "child_executions": "running", "operations": "running", "leases": "running"} {
+		var status string
+		if err := db.QueryRow(`SELECT status FROM ` + table + ` LIMIT 1`).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if status != want {
+			t.Errorf("partial recovery changed %s to %q", table, status)
+		}
+	}
+	if _, err := db.Exec(`DROP TRIGGER reject_recovery`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
+		var status string
+		if err := st.db.QueryRow(`SELECT status FROM ` + table + ` LIMIT 1`).Scan(&status); err != nil || status != "interrupted" {
+			t.Errorf("%s status=%q err=%v", table, status, err)
+		}
+	}
+}
+
+func TestOpenRejectsInvalidDefaultMode(t *testing.T) {
+	if _, err := OpenWithDefaultMode(filepath.Join(t.TempDir(), "sessions.db"), Mode("future")); err == nil {
+		t.Fatal("invalid configured mode should fail before opening")
+	}
+}
 
 // exec runs test-only SQL against the store's own database. Every fault below
 // is injected this way — through the real store's real connection — so the

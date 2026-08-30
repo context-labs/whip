@@ -187,6 +187,45 @@ func TestEffortRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSessionModePersistsConfiguredDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.db")
+	st, err := OpenWithDefaultMode(path, ModeRLM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rid, err := st.Create("/tmp", "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+
+	st, err = OpenWithDefaultMode(path, ModeClassic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cid, err := st.Create("/tmp", "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rmeta, _, err := st.Load(rid)
+	if err != nil || rmeta.Mode != ModeRLM {
+		t.Fatalf("RLM session changed after config change: mode=%q err=%v", rmeta.Mode, err)
+	}
+	cmeta, _, err := st.Load(cid)
+	if err != nil || cmeta.Mode != ModeClassic {
+		t.Fatalf("new Classic session mode=%q err=%v", cmeta.Mode, err)
+	}
+	sid, err := st.SaveSubagentTranscript(rid, "child", []llm.Message{{Role: "assistant", Content: "done"}}, "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	smeta, _, err := st.Load(sid)
+	if err != nil || smeta.Mode != ModeRLM {
+		t.Fatalf("subagent should inherit persisted parent mode: mode=%q err=%v", smeta.Mode, err)
+	}
+}
+
 func TestUserHistory(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
 	if err != nil {
