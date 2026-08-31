@@ -172,6 +172,7 @@ const (
 	workerSteerAccepted = "steer.accepted"
 	workerTaskRecord    = "task.record"
 	workerScheduleTick  = "schedule.tick"
+	workerControl       = "control"
 )
 
 type workerCompletion struct {
@@ -201,6 +202,7 @@ type workerEnvelope struct {
 	task       *sessionstore.Task
 	transcript []llm.Message
 	model      string
+	control    func(context.Context) error
 	reply      chan error
 	at         time.Time
 }
@@ -450,7 +452,7 @@ func (s *Session) run() {
 	}
 	cleanupErr = errors.Join(cleanupErr, s.store.Processes().StopRoot(s.meta.ID))
 	s.supervisor.wait()
-	cleanupErr = errors.Join(cleanupErr, s.flushTaskRecords())
+	cleanupErr = errors.Join(cleanupErr, s.flushPendingEvents())
 	if failed {
 		_, err := s.store.FailClassicRoot(context.Background(), s.meta.ID, actorErr.Error())
 		cleanupErr = errors.Join(cleanupErr, err)
@@ -498,16 +500,32 @@ func (s *Session) actor() error {
 				taskErr = errors.Join(taskErr, err)
 			}
 			if taskErr != nil {
+				for _, pending := range events {
+					if pending.kind == workerControl {
+						pending.reply <- ErrStopped
+					}
+				}
 				return taskErr
 			}
-			for _, event := range events {
+			for i, event := range events {
 				if event.kind == workerTaskRecord {
 					continue
 				}
 				if event.err != nil {
+					for _, pending := range events[i+1:] {
+						if pending.kind == workerControl {
+							pending.reply <- ErrStopped
+						}
+					}
 					return event.err
 				}
 				switch event.kind {
+				case workerControl:
+					err := errors.New("actor control is missing")
+					if event.control != nil {
+						err = event.control(s.supervisor.ctx)
+					}
+					event.reply <- err
 				case workerTurnStarted:
 					s.turnStarted = true
 				case workerSteerAccepted:
@@ -547,10 +565,14 @@ func (s *Session) recordTask(event workerEnvelope) error {
 	return err
 }
 
-func (s *Session) flushTaskRecords() error {
+func (s *Session) flushPendingEvents() error {
 	var flushErr error
 	for _, event := range s.supervisor.take() {
 		flushErr = errors.Join(flushErr, event.err)
+		if event.kind == workerControl {
+			event.reply <- ErrStopped
+			continue
+		}
 		if event.kind != workerTaskRecord || event.task == nil {
 			continue
 		}

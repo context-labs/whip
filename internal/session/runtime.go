@@ -139,19 +139,22 @@ type ScheduleFireClaim struct {
 }
 
 type actorEvent struct {
-	AgentID         string  `json:"agent_id,omitempty"`
-	InboxSeq        int64   `json:"inbox_seq,omitempty"`
-	InboxKind       string  `json:"inbox_kind,omitempty"`
-	Status          string  `json:"status,omitempty"`
-	CommandClientID string  `json:"command_client_id,omitempty"`
-	CommandID       string  `json:"command_id,omitempty"`
-	OperationID     string  `json:"operation_id,omitempty"`
-	TraceID         string  `json:"trace_id,omitempty"`
-	ScheduleID      int     `json:"schedule_id,omitempty"`
-	Slot            string  `json:"slot,omitempty"`
-	Error           string  `json:"error,omitempty"`
-	Acknowledged    []int64 `json:"acknowledged_inbox,omitempty"`
-	TaskID          string  `json:"task_id,omitempty"`
+	AgentID          string  `json:"agent_id,omitempty"`
+	SenderAgentID    string  `json:"sender_agent_id,omitempty"`
+	InboxSeq         int64   `json:"inbox_seq,omitempty"`
+	InboxKind        string  `json:"inbox_kind,omitempty"`
+	Delivery         string  `json:"delivery,omitempty"`
+	Status           string  `json:"status,omitempty"`
+	CommandClientID  string  `json:"command_client_id,omitempty"`
+	CommandID        string  `json:"command_id,omitempty"`
+	OperationID      string  `json:"operation_id,omitempty"`
+	TraceID          string  `json:"trace_id,omitempty"`
+	ScheduleID       int     `json:"schedule_id,omitempty"`
+	Slot             string  `json:"slot,omitempty"`
+	Error            string  `json:"error,omitempty"`
+	Acknowledged     []int64 `json:"acknowledged_inbox,omitempty"`
+	TaskID           string  `json:"task_id,omitempty"`
+	ChildExecutionID string  `json:"child_execution_id,omitempty"`
 }
 
 type ClassicTurnCommit struct {
