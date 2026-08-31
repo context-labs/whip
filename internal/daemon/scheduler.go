@@ -52,11 +52,9 @@ func (s *Session) fireDueSchedules(at time.Time) error {
 
 func nextScheduleSlot(parsed schedule.Schedule, task session.Schedule, at time.Time) (time.Time, bool) {
 	if task.LastFire.IsZero() {
-		slot := task.Anchor
+		slot := parsed.At
 		if parsed.Every > 0 {
 			slot, _ = parsed.NextAfter(task.Anchor, task.Anchor.Add(-time.Nanosecond))
-		} else {
-			slot = parsed.At
 		}
 		return slot, !slot.Truncate(time.Second).After(at)
 	}
