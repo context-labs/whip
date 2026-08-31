@@ -131,7 +131,9 @@ func (m *model) taskCommand(rest string) {
 
 // subagentModelCommand picks the model subagents run on. The pick persists to
 // the global config (taskModel/taskProvider); "off" restores the built-in
-// default. Driven from the ctrl+p "Subagent model" picker.
+// default. Driven from the ctrl+p "Subagent model" picker. The model may be a
+// config entry or a catalog-advertised id (the catalog fallback in Resolve
+// routes it); anything else resolves fuzzy before giving up.
 func (m *model) subagentModelCommand(args []string) {
 	if args[0] == "off" {
 		m.cfg.TaskModel, m.cfg.TaskProvider = "", ""
@@ -146,9 +148,17 @@ func (m *model) subagentModelCommand(args []string) {
 	if at, p, ok := strings.Cut(model, "@"); ok {
 		model, prov = at, p
 	}
-	if _, ok := m.cfg.Models[model]; !ok {
-		m.append(errStyle.Render("unknown model " + model))
-		return
+	if _, ok := m.cfg.Models[model]; !ok && !catalogAdvertises(m.cfg, model) {
+		resolved, ok2, cands := resolveModelFuzzy(m.cfg, model)
+		if !ok2 {
+			if len(cands) > 0 {
+				m.append(errStyle.Render("ambiguous model " + model + " — could be " + strings.Join(cands, ", ")))
+			} else {
+				m.append(errStyle.Render("unknown model " + model))
+			}
+			return
+		}
+		model = resolved
 	}
 	if len(args) > 1 {
 		prov = args[1]
@@ -162,12 +172,11 @@ func (m *model) subagentModelCommand(args []string) {
 	if err := m.cfg.Save(); err != nil {
 		m.append(errStyle.Render("config save failed: " + err.Error()))
 	}
-	if prov == "" {
-		if mdl := m.cfg.Models[model]; len(mdl.Providers) > 0 {
-			prov = mdl.Providers[0]
-		}
+	note := "◎ subagent model: " + model
+	if p := resolvedProvider(m.cfg, model, prov); p != "" {
+		note += " @ " + p
 	}
-	m.append(dimStyle.Render("◎ subagent model: " + model + " @ " + prov))
+	m.append(dimStyle.Render(note))
 }
 
 // taskDesc derives a short dock description from a /task prompt.

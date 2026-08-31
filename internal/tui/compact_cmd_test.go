@@ -120,6 +120,43 @@ func TestCompactCommandRejectsUnknownModel(t *testing.T) {
 	}
 }
 
+// A catalog-advertised id with no config entry is a valid pick: the catalog
+// fallback in Resolve routes it to the advertising provider.
+func TestCompactCommandSelectsCatalogModel(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"inference": {Models: []config.ModelInfoLite{{ID: "deepseek-v4-pro", ContextLength: 1048576}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := compactCmdModel()
+	m.compactCommand([]string{"deepseek-v4-pro"})
+	if m.compactModel != "deepseek-v4-pro" || m.agent.CompactModel != "deepseek-v4-pro" || m.agent.CompactClient == nil {
+		t.Fatalf("catalog model should be picked and applied: %q / %q", m.compactModel, m.agent.CompactModel)
+	}
+	if m.cfg.CompactModel != "deepseek-v4-pro" {
+		t.Fatalf("config should persist the catalog pick, got %q", m.cfg.CompactModel)
+	}
+	if !strings.Contains(m.blocks[len(m.blocks)-1].text, "deepseek-v4-pro @ inference") {
+		t.Fatalf("the note should name the resolved provider, got %v", m.blocks[len(m.blocks)-1].text)
+	}
+}
+
+// A typo of a catalog id resolves fuzzy instead of dying on "unknown model".
+func TestCompactCommandResolvesFuzzy(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"inference": {Models: []config.ModelInfoLite{{ID: "deepseek-v4-pro", ContextLength: 1048576}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := compactCmdModel()
+	m.compactCommand([]string{"deepseek-v4-pr"})
+	if m.compactModel != "deepseek-v4-pro" {
+		t.Fatalf("a fuzzy hit should pick the catalog model, got %q", m.compactModel)
+	}
+}
+
 func TestContextLimitFromCatalog(t *testing.T) {
 	m := compactCmdModel()
 	if got := m.contextLimitFor("inference", "kimi-k3-fast"); got != 131072 {

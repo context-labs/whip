@@ -128,6 +128,24 @@ func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string)
 	return models[0], true, nil
 }
 
+// modelNamesFor lists every selectable model name: cfg.Models sorted
+// alphabetically, then catalog-advertised ids without a config entry (marked
+// "(new)"), sorted by name. The catalog fallback in Resolve makes the extra
+// ids usable without a config entry, so pickers list them alongside.
+func modelNamesFor(cfg *config.Config) []string {
+	names := make([]string, 0, len(cfg.Models))
+	for _, it := range buildModelItems(cfg) {
+		name := it.model
+		if it.fromCatalog {
+			name += dimNew
+		}
+		if len(names) == 0 || names[len(names)-1] != name {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // buildModelItems flattens the config into selectable routes, models sorted
 // alphabetically, providers in each model's declared order. Models advertised
 // by a provider's cached /models catalog but absent from cfg.Models follow in

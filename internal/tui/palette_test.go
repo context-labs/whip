@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -369,6 +370,47 @@ func TestPaletteCompactPanelDefaultRowRestores(t *testing.T) {
 	// into from the root list), the whole palette closed with it
 	if m.palette != nil && m.palette.top() != nil {
 		t.Fatal("enter should pop the panel")
+	}
+}
+
+// The compaction panel lists catalog-advertised models alongside the
+// configured ones (marked (new)), and selecting one applies it.
+func TestPaletteCompactPanelListsCatalogModels(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"inference": {FetchedAt: time.Now(), Models: []config.ModelInfoLite{{ID: "deepseek-v4-pro", ContextLength: 1048576}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := compactCmdModel()
+	m.openPaletteOn("Compaction model")
+	pp := m.palette.top()
+	if pp == nil || pp.kind != panelCompact {
+		t.Fatal("openPaletteOn should land in the compaction panel")
+	}
+	found := -1
+	for i, name := range pp.list {
+		if strings.HasPrefix(name, "deepseek-v4-pro") {
+			found = i
+			if !strings.HasSuffix(name, dimNew) {
+				t.Fatalf("the catalog row should carry the (new) marker, got %q", name)
+			}
+		}
+	}
+	if found < 0 {
+		t.Fatalf("catalog models should be listed, got %v", pp.list)
+	}
+	for pp.midx != found { // walk onto the catalog row
+		tm, _ := m.paletteKey(tea.KeyMsg{Type: tea.KeyDown})
+		m = tm.(*model)
+	}
+	tm, _ := m.paletteKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = tm.(*model)
+	if m.compactModel != "deepseek-v4-pro" || m.agent.CompactModel != "deepseek-v4-pro" {
+		t.Fatalf("enter should pick the catalog model, got %q / %q", m.compactModel, m.agent.CompactModel)
+	}
+	if _, ok := m.cfg.Models["deepseek-v4-pro"]; ok {
+		t.Error("picking a catalog model must not write it into cfg.Models")
 	}
 }
 

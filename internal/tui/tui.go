@@ -3823,7 +3823,9 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 }
 
 // compactCommand handles "/compact <args…>": off restores the built-in
-// default compaction model, "<model> [provider]" selects one (persisted).
+// default compaction model, "<model> [provider]" selects one (persisted). The
+// model may be a config entry or a catalog-advertised id (the catalog fallback
+// in Resolve routes it); anything else resolves fuzzy before giving up.
 func (m *model) compactCommand(args []string) {
 	if args[0] == "off" {
 		m.compactModel, m.compactProv = "", ""
@@ -3835,11 +3837,20 @@ func (m *model) compactCommand(args []string) {
 		m.append(dimStyle.Render("◎ compaction model: default (" + config.DefaultCompactModel + ")"))
 		return
 	}
-	if _, ok := m.cfg.Models[args[0]]; !ok {
-		m.append(errStyle.Render("unknown model " + args[0]))
-		return
+	name := args[0]
+	if _, ok := m.cfg.Models[name]; !ok && !catalogAdvertises(m.cfg, name) {
+		resolved, ok2, cands := resolveModelFuzzy(m.cfg, name)
+		if !ok2 {
+			if len(cands) > 0 {
+				m.append(errStyle.Render("ambiguous model " + name + " — could be " + strings.Join(cands, ", ")))
+			} else {
+				m.append(errStyle.Render("unknown model " + name))
+			}
+			return
+		}
+		name = resolved
 	}
-	m.compactModel = args[0]
+	m.compactModel = name
 	m.compactProv = ""
 	if len(args) > 1 {
 		m.compactProv = args[1]
@@ -3853,13 +3864,42 @@ func (m *model) compactCommand(args []string) {
 	if err := m.cfg.Save(); err != nil {
 		m.append(errStyle.Render("config save failed: " + err.Error()))
 	}
-	prov := m.compactProv
-	if prov == "" {
-		if mdl := m.cfg.Models[m.compactModel]; len(mdl.Providers) > 0 {
-			prov = mdl.Providers[0]
+	note := "◎ compaction model: " + m.compactModel
+	if prov := resolvedProvider(m.cfg, m.compactModel, m.compactProv); prov != "" {
+		note += " @ " + prov
+	}
+	m.append(dimStyle.Render(note))
+}
+
+// resolvedProvider reports which provider serves a picked model: the explicit
+// pick when given, else the model's first configured provider, else the
+// catalog's owner (for catalog-advertised picks without a config entry).
+func resolvedProvider(cfg *config.Config, model, prov string) string {
+	if prov != "" {
+		return prov
+	}
+	if mdl := cfg.Models[model]; len(mdl.Providers) > 0 {
+		return mdl.Providers[0]
+	}
+	cats := config.LoadCatalogs()
+	for name := range cfg.Providers {
+		if cat, ok := cats[name]; ok && cat.Find(model) != nil {
+			return name
 		}
 	}
-	m.append(dimStyle.Render("◎ compaction model: " + m.compactModel + " @ " + prov))
+	return ""
+}
+
+// catalogAdvertises reports whether a configured provider's cached /models
+// catalog lists the model id (making it resolvable without a config entry).
+func catalogAdvertises(cfg *config.Config, name string) bool {
+	cats := config.LoadCatalogs()
+	for p := range cfg.Providers {
+		if cat, ok := cats[p]; ok && cat.Find(name) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // compactPct returns the live threshold percent (the default when unset).

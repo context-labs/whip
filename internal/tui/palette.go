@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -83,9 +82,10 @@ type ppanel struct {
 
 	prepare string // panelGoal: text submitted when the editor closes
 
-	cands []string // panelCompact/panelSubagent: model names from config
-	list  []string // panelCompact/panelSubagent: "default (…)" + cands; panelTheme: {"auto","light","dark"}
-	midx  int      // panelCompact/panelSubagent/panelTheme/panelBrowser/panelMCP: selection
+	list []string // panelCompact/panelSubagent: "default (…)" + every known model (config then catalog "(new)"); panelTheme: {"auto","light","dark"}
+	midx int      // panelCompact/panelSubagent/panelTheme/panelBrowser/panelMCP: selection
+
+	note string // panelCompact/panelSubagent: dim footer note (stale catalog hint)
 
 	mcps []mcpRow // panelMCP: the two source toggles then one row per server
 
@@ -276,15 +276,10 @@ func (m *model) paletteItems() []paletteItem {
 			},
 			dynHint: func(m *model) string { return "/compact <model>" },
 			panel: func(m *model) *ppanel {
-				names := make([]string, 0, len(m.cfg.Models))
-				for name := range m.cfg.Models {
-					names = append(names, name)
-				}
-				sort.Strings(names)
+				names := modelNamesFor(m.cfg)
 				pp := &ppanel{
 					kind:  panelCompact,
 					title: "Compaction model",
-					cands: names,
 					list:  append([]string{"default (" + config.DefaultCompactModel + ")"}, names...),
 				}
 				for i, name := range pp.list {
@@ -292,6 +287,9 @@ func (m *model) paletteItems() []paletteItem {
 						pp.midx = i
 						break
 					}
+				}
+				if st := staleCatalogs(m.cfg, config.LoadCatalogs()); len(st) > 0 {
+					pp.note = "catalog stale for " + strings.Join(st, ", ") + " — /model refresh pulls newly announced models"
 				}
 				return pp
 			},
@@ -332,15 +330,10 @@ func (m *model) paletteItems() []paletteItem {
 			},
 			dynHint: func(m *model) string { return "config taskModel" },
 			panel: func(m *model) *ppanel {
-				names := make([]string, 0, len(m.cfg.Models))
-				for name := range m.cfg.Models {
-					names = append(names, name)
-				}
-				sort.Strings(names)
+				names := modelNamesFor(m.cfg)
 				pp := &ppanel{
 					kind:  panelSubagent,
 					title: "Subagent model",
-					cands: names,
 					list:  append([]string{"default (" + config.DefaultTaskModel + ")"}, names...),
 				}
 				for i, name := range pp.list {
@@ -348,6 +341,9 @@ func (m *model) paletteItems() []paletteItem {
 						pp.midx = i
 						break
 					}
+				}
+				if st := staleCatalogs(m.cfg, config.LoadCatalogs()); len(st) > 0 {
+					pp.note = "catalog stale for " + strings.Join(st, ", ") + " — /model refresh pulls newly announced models"
 				}
 				return pp
 			},
@@ -696,12 +692,8 @@ func (m *model) panelKey(msg tea.KeyMsg, pp *ppanel) (tea.Model, tea.Cmd) {
 				m.subagentModelCommand([]string{"off"})
 				pp.err = ""
 			} else {
-				name := pp.list[pp.midx]
-				args := []string{name}
-				if mdl := m.cfg.Models[name]; len(mdl.Providers) > 0 {
-					args = append(args, mdl.Providers[0])
-				}
-				m.subagentModelCommand(args)
+				name := strings.TrimSuffix(pp.list[pp.midx], dimNew)
+				m.subagentModelCommand([]string{name})
 				pp.err = ""
 				if m.cfg.TaskModel != name {
 					pp.err = "couldn't resolve " + name + " — kept previous"
@@ -727,12 +719,8 @@ func (m *model) panelKey(msg tea.KeyMsg, pp *ppanel) (tea.Model, tea.Cmd) {
 				m.compactCommand([]string{"off"})
 				pp.err = ""
 			} else {
-				name := pp.list[pp.midx]
-				args := []string{name}
-				if mdl := m.cfg.Models[name]; len(mdl.Providers) > 0 {
-					args = append(args, mdl.Providers[0])
-				}
-				m.compactCommand(args)
+				name := strings.TrimSuffix(pp.list[pp.midx], dimNew)
+				m.compactCommand([]string{name})
 				pp.err = ""
 				if m.compactModel != name {
 					pp.err = "couldn't resolve " + name + " — kept previous"
@@ -1019,14 +1007,21 @@ func (m *model) panelView(pp *ppanel) string {
 			if (i == 0 && m.cfg.TaskModel == "") || (i > 0 && name == m.cfg.TaskModel) {
 				cur = dimStyle.Render("  (current)")
 			}
+			line := name + cur
+			if strings.HasSuffix(name, dimNew) {
+				line = dimStyle.Render(line)
+			}
 			if i == pp.midx {
-				b.WriteString(botStyle.Render(" → "+name) + cur + "\n")
+				b.WriteString(botStyle.Render(" → "+line) + "\n")
 			} else {
-				b.WriteString("   " + name + cur + "\n")
+				b.WriteString("   " + line + "\n")
 			}
 		}
 		if pp.err != "" {
 			b.WriteString(errStyle.Render("  "+pp.err) + "\n")
+		}
+		if pp.note != "" {
+			b.WriteString(dimStyle.Render("  "+pp.note) + "\n")
 		}
 		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
 
@@ -1036,14 +1031,21 @@ func (m *model) panelView(pp *ppanel) string {
 			if (i == 0 && m.compactModel == "") || (i > 0 && name == m.compactModel) {
 				cur = dimStyle.Render("  (current)")
 			}
+			line := name + cur
+			if strings.HasSuffix(name, dimNew) {
+				line = dimStyle.Render(line)
+			}
 			if i == pp.midx {
-				b.WriteString(botStyle.Render(" → "+name) + cur + "\n")
+				b.WriteString(botStyle.Render(" → "+line) + "\n")
 			} else {
-				b.WriteString("   " + name + cur + "\n")
+				b.WriteString("   " + line + "\n")
 			}
 		}
 		if pp.err != "" {
 			b.WriteString(errStyle.Render("  "+pp.err) + "\n")
+		}
+		if pp.note != "" {
+			b.WriteString(dimStyle.Render("  "+pp.note) + "\n")
 		}
 		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
 
