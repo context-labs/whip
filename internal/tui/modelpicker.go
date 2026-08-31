@@ -25,11 +25,77 @@ type modelItem struct {
 	fromCatalog bool
 }
 
+// modelFilter is the shared type-to-filter for every model-selecting surface
+// (/model picker routes, palette model panels): a query plus the row indexes
+// it matches. Matches are tiered fuzzy (substring of the model or provider,
+// then subsequence), ranked best-first via matchTier. An empty query matches
+// everything (match == nil); a non-empty query with no hits yields an empty
+// (non-nil) match so views can render "no models match".
+type modelFilter struct {
+	query string
+	match []int // indexes into the caller's list, in ranked order; nil = no query
+}
+
+// apply refilters the rows with the given scoring function; empty query
+// restores the full list. score returns the match tier for row i (lower is
+// better, negative = no match).
+func (f *modelFilter) apply(rows int, score func(i int) int) {
+	q := strings.ToLower(strings.TrimSpace(f.query))
+	if q == "" {
+		f.match = nil
+		return
+	}
+	type hit struct {
+		i, tier int
+	}
+	var hits []hit
+	for i := range rows {
+		if tier := score(i); tier >= 0 {
+			hits = append(hits, hit{i, tier})
+		}
+	}
+	sort.SliceStable(hits, func(a, b int) bool { return hits[a].tier < hits[b].tier })
+	f.match = make([]int, 0, len(hits))
+	for _, h := range hits {
+		f.match = append(f.match, h.i)
+	}
+}
+
+// view returns the indexes into rows the filter currently shows (all rows in
+// order when the query is empty).
+func (f *modelFilter) view(rows int) []int {
+	if f.match == nil {
+		idx := make([]int, rows)
+		for i := range idx {
+			idx[i] = i
+		}
+		return idx
+	}
+	return f.match
+}
+
+// typeRunes appends typed runes to the query; backspace trims one. Both
+// return whether the query changed (so callers re-apply).
+func (f *modelFilter) typeRunes(rs []rune) bool {
+	if len(rs) == 0 {
+		return false
+	}
+	f.query += string(rs)
+	return true
+}
+
+func (f *modelFilter) backspace() bool {
+	if f.query == "" {
+		return false
+	}
+	f.query = f.query[:len(f.query)-1]
+	return true
+}
+
 // modelPicker is the /model browser: models grouped, providers indented under them.
 type modelPicker struct {
 	items      []modelItem
-	filtered   []modelItem // items matching query (nil == all)
-	query      string      // type-to-filter text
+	filter     modelFilter // type-to-filter over items
 	idx        int
 	staleHints []string // providers whose cached catalog is past its TTL
 	// sessionOnly marks a picker opened by /model-for-session: the selection
@@ -39,37 +105,36 @@ type modelPicker struct {
 
 // view returns the items the picker is currently showing.
 func (p *modelPicker) view() []modelItem {
-	if p.filtered != nil {
-		return p.filtered
+	idx := p.filter.view(len(p.items))
+	out := make([]modelItem, len(idx))
+	for i, j := range idx {
+		out[i] = p.items[j]
 	}
-	return p.items
+	return out
 }
 
-// applyQuery refilters items; empty query restores the full list. Matches are
-// fuzzy (tiered: substring of the model or provider, then subsequence), ranked
-// best-first. A query with no matches yields an empty (non-nil) filtered
-// slice — nil means "no query".
+// applyQuery refilters items; empty query restores the full list.
 func (p *modelPicker) applyQuery() {
-	q := strings.ToLower(strings.TrimSpace(p.query))
-	if q == "" {
-		p.filtered = nil
-		return
-	}
-	type hit struct {
-		item modelItem
-		tier int
-	}
-	var hits []hit
-	for _, it := range p.items {
-		if tier := bestTier(it.model, it.provider, q); tier >= 0 {
-			hits = append(hits, hit{it, tier})
+	q := strings.ToLower(strings.TrimSpace(p.filter.query))
+	p.filter.apply(len(p.items), func(i int) int {
+		it := p.items[i]
+		return bestTier(it.model, it.provider, q)
+	})
+}
+
+// applyModelList filters a plain list of model names (palette compact/subagent
+// panels, whose rows are names, not routes). The "(new)" catalog marker and
+// the leading "default (…)" row are stripped for scoring so the query matches
+// the real name.
+func (f *modelFilter) applyModelList(list []string) {
+	q := strings.ToLower(strings.TrimSpace(f.query))
+	f.apply(len(list), func(i int) int {
+		name := strings.TrimSuffix(list[i], dimNew)
+		if inner, ok := strings.CutPrefix(name, "default ("); ok {
+			name = strings.TrimSuffix(inner, ")")
 		}
-	}
-	sort.SliceStable(hits, func(a, b int) bool { return hits[a].tier < hits[b].tier })
-	p.filtered = make([]modelItem, 0, len(hits))
-	for _, h := range hits {
-		p.filtered = append(p.filtered, h.item)
-	}
+		return bestTier(name, "", q)
+	})
 }
 
 // bestTier is the best (lowest non-negative) match tier of the model and
@@ -244,8 +309,7 @@ func (m *model) modelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			p.idx++
 		}
 	case tea.KeyBackspace:
-		if p.query != "" {
-			p.query = p.query[:len(p.query)-1]
+		if p.filter.backspace() {
 			p.applyQuery()
 			p.idx = 0
 		}
@@ -259,7 +323,7 @@ func (m *model) modelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mpicker = nil
 		m.switchModel(it.model, it.provider, !sessionOnly)
 	case tea.KeyRunes, tea.KeySpace:
-		p.query += string(msg.Runes)
+		p.filter.typeRunes(msg.Runes)
 		p.applyQuery()
 		if p.idx >= len(p.view()) {
 			p.idx = max(len(p.view())-1, 0)
@@ -272,7 +336,7 @@ func (m *model) modelPickerView() string {
 	p := m.mpicker
 	view := p.view()
 	var rows []string
-	rows = append(rows, "  "+botStyle.Render("/")+p.query+dimStyle.Render("▏"))
+	rows = append(rows, "  "+botStyle.Render("/")+p.filter.query+dimStyle.Render("▏"))
 	lastModel := ""
 	for i, it := range view {
 		heading := " " + it.model
@@ -298,7 +362,7 @@ func (m *model) modelPickerView() string {
 		}
 	}
 	if len(view) == 0 {
-		rows = append(rows, dimStyle.Render("  no models match "+strconv.Quote(p.query)))
+		rows = append(rows, dimStyle.Render("  no models match "+strconv.Quote(p.filter.query)))
 	}
 	rows = append(rows, dimStyle.Render(fmt.Sprintf("  (%d/%d) type to filter · ↑/↓ select · enter switch · esc cancel", p.idx+1, len(view))))
 	if len(p.staleHints) > 0 {

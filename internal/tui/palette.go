@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -84,6 +85,8 @@ type ppanel struct {
 
 	list []string // panelCompact/panelSubagent: "default (…)" + every known model (config then catalog "(new)"); panelTheme: {"auto","light","dark"}
 	midx int      // panelCompact/panelSubagent/panelTheme/panelBrowser/panelMCP: selection
+
+	filter modelFilter // panelCompact/panelSubagent: type-to-filter over list
 
 	note string // panelCompact/panelSubagent: dim footer note (stale catalog hint)
 
@@ -677,57 +680,64 @@ func (m *model) panelKey(msg tea.KeyMsg, pp *ppanel) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case panelSubagent:
-		switch msg.Type {
-		case tea.KeyEsc, tea.KeyCtrlC:
-			pop()
-		case tea.KeyUp, tea.KeyCtrlP, tea.KeyShiftTab:
-			pp.midx = (pp.midx - 1 + len(pp.list)) % len(pp.list)
-		case tea.KeyDown, tea.KeyCtrlN, tea.KeyTab:
-			pp.midx = (pp.midx + 1) % len(pp.list)
-		case tea.KeyLeft, tea.KeyRight, tea.KeyEnter:
-			// apply immediately so a bad pick reports its error inline while
-			// the panel is still open
-			if pp.midx == 0 {
-				m.subagentModelCommand([]string{"off"})
-				pp.err = ""
+	case panelSubagent, panelCompact:
+		// compact and subagent share the model-list interaction: type-to-filter,
+		// ↑/↓ move over the filtered rows, ←/→/enter apply the highlighted one.
+		view := pp.filter.view(len(pp.list))
+		apply := func() {
+			if len(view) == 0 || pp.midx >= len(view) {
+				return
+			}
+			row := view[pp.midx]
+			name := strings.TrimSuffix(pp.list[row], dimNew)
+			pp.err = ""
+			if row == 0 { // the "default (…)" row
+				if pp.kind == panelCompact {
+					m.compactCommand([]string{"off"})
+				} else {
+					m.subagentModelCommand([]string{"off"})
+				}
+				return
+			}
+			if pp.kind == panelCompact {
+				m.compactCommand([]string{name})
+				if m.compactModel != name {
+					pp.err = "couldn't resolve " + name + " — kept previous"
+				}
 			} else {
-				name := strings.TrimSuffix(pp.list[pp.midx], dimNew)
 				m.subagentModelCommand([]string{name})
-				pp.err = ""
 				if m.cfg.TaskModel != name {
 					pp.err = "couldn't resolve " + name + " — kept previous"
 				}
 			}
-			if msg.Type == tea.KeyEnter && pp.err == "" {
-				pop()
-			}
 		}
-
-	case panelCompact:
 		switch msg.Type {
 		case tea.KeyEsc, tea.KeyCtrlC:
 			pop()
 		case tea.KeyUp, tea.KeyCtrlP, tea.KeyShiftTab:
-			pp.midx = (pp.midx - 1 + len(pp.list)) % len(pp.list)
-		case tea.KeyDown, tea.KeyCtrlN, tea.KeyTab:
-			pp.midx = (pp.midx + 1) % len(pp.list)
-		case tea.KeyLeft, tea.KeyRight, tea.KeyEnter:
-			// apply immediately so a bad pick reports its error inline while
-			// the panel is still open
-			if pp.midx == 0 {
-				m.compactCommand([]string{"off"})
-				pp.err = ""
-			} else {
-				name := strings.TrimSuffix(pp.list[pp.midx], dimNew)
-				m.compactCommand([]string{name})
-				pp.err = ""
-				if m.compactModel != name {
-					pp.err = "couldn't resolve " + name + " — kept previous"
-				}
+			if len(view) > 0 {
+				pp.midx = (pp.midx - 1 + len(view)) % len(view)
 			}
-			if msg.Type == tea.KeyEnter && pp.err == "" {
+		case tea.KeyDown, tea.KeyCtrlN, tea.KeyTab:
+			if len(view) > 0 {
+				pp.midx = (pp.midx + 1) % len(view)
+			}
+		case tea.KeyLeft, tea.KeyRight:
+			apply()
+		case tea.KeyEnter:
+			apply()
+			if pp.err == "" {
 				pop()
+			}
+		case tea.KeyBackspace, tea.KeyDelete:
+			if pp.filter.backspace() {
+				pp.filter.applyModelList(pp.list)
+				pp.midx = 0
+			}
+		case tea.KeyRunes, tea.KeySpace:
+			if pp.filter.typeRunes(msg.Runes) {
+				pp.filter.applyModelList(pp.list)
+				pp.midx = 0
 			}
 		}
 
@@ -1001,10 +1011,19 @@ func (m *model) panelView(pp *ppanel) string {
 		}
 		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
 
-	case panelSubagent:
-		for i, name := range pp.list {
+	case panelSubagent, panelCompact:
+		// compact and subagent share the model-list render: a "/" query line,
+		// the filtered rows, then err/note/footer.
+		b.WriteString("  " + botStyle.Render("/") + pp.filter.query + dimStyle.Render("▏") + "\n")
+		view := pp.filter.view(len(pp.list))
+		for i, row := range view {
+			name := pp.list[row]
 			cur := ""
-			if (i == 0 && m.cfg.TaskModel == "") || (i > 0 && name == m.cfg.TaskModel) {
+			current := m.compactModel
+			if pp.kind == panelSubagent {
+				current = m.cfg.TaskModel
+			}
+			if (row == 0 && current == "") || (row > 0 && name == current) {
 				cur = dimStyle.Render("  (current)")
 			}
 			line := name + cur
@@ -1017,29 +1036,8 @@ func (m *model) panelView(pp *ppanel) string {
 				b.WriteString("   " + line + "\n")
 			}
 		}
-		if pp.err != "" {
-			b.WriteString(errStyle.Render("  "+pp.err) + "\n")
-		}
-		if pp.note != "" {
-			b.WriteString(dimStyle.Render("  "+pp.note) + "\n")
-		}
-		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
-
-	case panelCompact:
-		for i, name := range pp.list {
-			cur := ""
-			if (i == 0 && m.compactModel == "") || (i > 0 && name == m.compactModel) {
-				cur = dimStyle.Render("  (current)")
-			}
-			line := name + cur
-			if strings.HasSuffix(name, dimNew) {
-				line = dimStyle.Render(line)
-			}
-			if i == pp.midx {
-				b.WriteString(botStyle.Render(" → "+line) + "\n")
-			} else {
-				b.WriteString("   " + line + "\n")
-			}
+		if len(view) == 0 {
+			b.WriteString(dimStyle.Render("  no models match "+strconv.Quote(pp.filter.query)) + "\n")
 		}
 		if pp.err != "" {
 			b.WriteString(errStyle.Render("  "+pp.err) + "\n")
@@ -1047,7 +1045,7 @@ func (m *model) panelView(pp *ppanel) string {
 		if pp.note != "" {
 			b.WriteString(dimStyle.Render("  "+pp.note) + "\n")
 		}
-		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
+		b.WriteString("\n" + dimStyle.Render("  type to filter · ↑/↓ select · enter/←/→ apply · esc back"))
 
 	case panelTheme:
 		cur := m.cfg.Theme

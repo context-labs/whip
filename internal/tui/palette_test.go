@@ -373,6 +373,78 @@ func TestPaletteCompactPanelDefaultRowRestores(t *testing.T) {
 	}
 }
 
+// Typing in a model panel fuzzy-filters the rows (same behavior as /model):
+// matches narrow as runes arrive, and enter applies the highlighted row.
+func TestPaletteModelPanelFilters(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"inference": {FetchedAt: time.Now(), Models: []config.ModelInfoLite{{ID: "deepseek-v4-pro", ContextLength: 1048576}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := compactCmdModel()
+	m.openPaletteOn("Compaction model")
+	pp := m.palette.top()
+	full := len(pp.list)
+	if full < 2 {
+		t.Fatalf("fixture should list several models, got %v", pp.list)
+	}
+	tm, _ := m.paletteKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v4-pro")})
+	m = tm.(*model)
+	pp = m.palette.top()
+	view := pp.filter.view(len(pp.list))
+	if len(view) != 1 {
+		var rows []string
+		for _, r := range view {
+			rows = append(rows, pp.list[r])
+		}
+		t.Fatalf("typing should narrow %d rows to the v4-pro match, got %v", full, rows)
+	}
+	if name := pp.list[view[0]]; !strings.HasPrefix(name, "deepseek-v4-pro") {
+		t.Fatalf("the surviving row should be the catalog model, got %q", name)
+	}
+	// clearing the query via backspace restores the full list
+	for len(pp.filter.query) > 0 {
+		tm, _ = m.paletteKey(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = tm.(*model)
+		pp = m.palette.top()
+	}
+	if len(pp.filter.view(len(pp.list))) != full {
+		t.Fatalf("clearing the query should restore all %d rows, got %d", full, len(pp.filter.view(len(pp.list))))
+	}
+	// re-filter and apply the match
+	tm, _ = m.paletteKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v4-pro")})
+	m = tm.(*model)
+	tm, _ = m.paletteKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = tm.(*model)
+	if m.compactModel != "deepseek-v4-pro" {
+		t.Fatalf("enter should apply the filtered model, got %q", m.compactModel)
+	}
+}
+
+// A query with no matches renders the "no models match" line and apply is a
+// no-op (no crash on an empty view).
+func TestPaletteModelPanelFilterNoMatch(t *testing.T) {
+	m := compactCmdModel()
+	m.openPaletteOn("Compaction model")
+	tm, _ := m.paletteKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("zzz-no-such")})
+	m = tm.(*model)
+	pp := m.palette.top()
+	if len(pp.filter.view(len(pp.list))) != 0 {
+		t.Fatal("a nonsense query should match nothing")
+	}
+	view := m.panelView(pp)
+	if !strings.Contains(view, "no models match") {
+		t.Errorf("the empty-filter view should say so, got %q", view)
+	}
+	// enter on an empty view must not panic or apply anything
+	tm, _ = m.paletteKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = tm.(*model)
+	if m.compactModel != "" {
+		t.Errorf("an empty view must not change the compaction model, got %q", m.compactModel)
+	}
+}
+
 // The compaction panel lists catalog-advertised models alongside the
 // configured ones (marked (new)), and selecting one applies it.
 func TestPaletteCompactPanelListsCatalogModels(t *testing.T) {
