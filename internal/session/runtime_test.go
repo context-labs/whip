@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/llm"
 )
 
 func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
@@ -344,6 +345,232 @@ func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 	}
 }
 
+func TestClassicTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rootID, _ := st.Create(t.TempDir(), "old-model", "old-provider")
+	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := []llm.Message{{Role: "user", Content: "stale"}, {Role: "assistant", Content: "one"}, {Role: "user", Content: "stale two"}, {Role: "assistant", Content: "tail"}}
+	if err := st.Save(rootID, 0, stale, "old-model", "old-provider"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: authority.AgentID, Kind: "submit", Payload: RuntimePayload{Data: []byte("work")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	steer, err := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: authority.AgentID, Kind: "steer", Payload: RuntimePayload{Data: []byte("adjust")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, first.InboxSeq); err != nil {
+		t.Fatal(err)
+	}
+	history := []llm.Message{
+		{Role: "system", Content: "not persisted"},
+		{Role: "user", Content: "work", Authored: true},
+		{Role: "user", Content: "adjust"},
+		{Role: "assistant", Content: "done"},
+	}
+	if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
+		RootID: rootID, AgentID: authority.AgentID, InboxSeq: first.InboxSeq,
+		AcknowledgedInbox: []int64{steer.InboxSeq}, Messages: history,
+		Model: "new-model", Provider: "new-provider",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	meta, restored, err := st.Load(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Model != "new-model" || meta.Provider != "new-provider" {
+		t.Fatalf("route=%s/%s", meta.Provider, meta.Model)
+	}
+	if len(restored) != 7 || restored[0].Content != "stale" || restored[4].Content != "work" || restored[6].Content != "done" {
+		t.Fatalf("restored history=%+v", restored)
+	}
+	var activeInbox, activeTurns int
+	if err := st.db.QueryRow(`SELECT count(*) FROM inbox WHERE root_id=? AND status!='consumed'`, rootID).Scan(&activeInbox); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRow(`SELECT count(*) FROM turns WHERE root_id=? AND status!='succeeded'`, rootID).Scan(&activeTurns); err != nil {
+		t.Fatal(err)
+	}
+	if activeInbox != 0 || activeTurns != 0 {
+		t.Fatalf("active inbox=%d turns=%d", activeInbox, activeTurns)
+	}
+}
+
+func TestClassicTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rootID, _ := st.Create(t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	raw := []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "q1"}, {Role: "assistant", Content: "a1"},
+		{Role: "user", Content: "q2"}, {Role: "assistant", Content: "a2"},
+		{Role: "user", Content: "q3"}, {Role: "assistant", Content: "a3"},
+	}
+	if err := st.Save(rootID, 0, raw, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordCompaction(rootID, 4, "q1 and q2 summary"); err != nil {
+		t.Fatal(err)
+	}
+	item, _ := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: authority.AgentID, Kind: "submit", Payload: RuntimePayload{Data: []byte("q4")}})
+	if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
+		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
+		Messages: []llm.Message{{Role: "user", Content: "q4"}, {Role: "assistant", Content: "a4"}},
+		Model:    "model", Provider: "provider",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored := st.RawMessages(rootID)
+	if len(stored) != 9 || stored[1].Content != "q1" || stored[8].Content != "a4" {
+		t.Fatalf("raw history was rewritten: %+v", stored)
+	}
+	_, history, err := st.Load(rootID)
+	if err != nil || len(history) != 7 || history[1].Role != "system" || history[6].Content != "a4" {
+		t.Fatalf("compacted reconstruction=%+v err=%v", history, err)
+	}
+}
+
+func TestClassicTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rootID, _ := st.Create(t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	history := []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "q1"}, {Role: "assistant", Content: "a1"},
+		{Role: "user", Content: "q2"}, {Role: "assistant", Content: "a2"},
+		{Role: "user", Content: "q3"}, {Role: "assistant", Content: "a3"},
+	}
+	if err := st.Save(rootID, 1, history, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	commit := func(input, output string, cutoff, rawTail int) {
+		t.Helper()
+		item, err := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: authority.AgentID, Kind: "submit", Payload: RuntimePayload{Data: []byte(input)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
+			RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
+			Messages:    []llm.Message{{Role: "user", Content: input}, {Role: "assistant", Content: output}},
+			Compactions: []ClassicCompaction{{Summary: "summary " + input, Cutoff: cutoff, RawTailStart: rawTail}},
+			Model:       "model", Provider: "provider",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("q4", "a4", 4, 1)
+	commit("q5", "a5", 4, 3)
+	events := st.Compactions(rootID)
+	if len(events) != 2 || events[0].Cutoff != 3 || events[1].Cutoff != 4 {
+		t.Fatalf("raw compaction coordinates=%+v", events)
+	}
+	_, restored, err := st.Load(rootID)
+	if err != nil || len(restored) != 8 || restored[0].Content != "q1" || restored[2].Content != "q3" || restored[7].Content != "a5" {
+		t.Fatalf("restored compaction=%+v err=%v", restored, err)
+	}
+}
+
+func TestClassicTurnCommitRollsBackAsOneTransition(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rootID, _ := st.Create(t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	if err := st.SetGoal(rootID, "finish the work"); err != nil {
+		t.Fatal(err)
+	}
+	item, _ := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: authority.AgentID, Kind: "submit", Payload: RuntimePayload{Data: []byte("work")}})
+	if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
+		t.Fatal(err)
+	}
+	want := errors.New("commit fault")
+	err = st.commitClassicTurn(context.Background(), ClassicTurnCommit{
+		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
+		Messages: []llm.Message{{Role: "user", Content: "work"}}, GoalContinuation: "continue", Model: "model", Provider: "provider",
+	}, func() error { return want })
+	if !errors.Is(err, want) {
+		t.Fatalf("commit error=%v", err)
+	}
+	var inboxStatus, turnStatus string
+	if err := st.db.QueryRow(`SELECT status FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`, rootID, authority.AgentID, item.InboxSeq).Scan(&inboxStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRow(`SELECT status FROM turns WHERE id=?`, classicTurnID(authority.AgentID, item.InboxSeq)).Scan(&turnStatus); err != nil {
+		t.Fatal(err)
+	}
+	if inboxStatus != "running" || turnStatus != "running" {
+		t.Fatalf("partial terminal state inbox=%q turn=%q", inboxStatus, turnStatus)
+	}
+	var messages int
+	if err := st.db.QueryRow(`SELECT count(*) FROM messages WHERE session_id=?`, rootID).Scan(&messages); err != nil || messages != 0 {
+		t.Fatalf("messages=%d err=%v", messages, err)
+	}
+	meta, _, err := st.Load(rootID)
+	if err != nil || meta.Goal != "finish the work" {
+		t.Fatalf("goal changed after rollback: %q, %v", meta.Goal, err)
+	}
+	var continuations int
+	if err := st.db.QueryRow(`SELECT count(*) FROM inbox WHERE root_id=? AND kind='goal'`, rootID).Scan(&continuations); err != nil || continuations != 0 {
+		t.Fatalf("goal continuation survived rollback: count=%d err=%v", continuations, err)
+	}
+}
+
+func TestClassicTaskAndTranscriptRollBackTogether(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rootID, _ := st.Create(t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	if _, err := st.db.Exec(`CREATE TRIGGER reject_task_transcript BEFORE INSERT ON messages
+		WHEN NEW.session_id LIKE 'task-%' BEGIN SELECT RAISE(ABORT,'no transcript'); END`); err != nil {
+		t.Fatal(err)
+	}
+	task := Task{ID: "task-1", Description: "work", Prompt: "do it", Status: "done", StartedAt: time.Now(), EndedAt: time.Now()}
+	if err := st.RecordClassicTaskTranscript(context.Background(), rootID, authority.AgentID, task,
+		[]llm.Message{{Role: "assistant", Content: "done"}}, "model", "provider"); err == nil {
+		t.Fatal("task transcript write should fail")
+	}
+	var tasks, transcripts int
+	if err := st.db.QueryRow(`SELECT count(*) FROM tasks WHERE session_id=? AND task_id=?`, rootID, task.ID).Scan(&tasks); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRow(`SELECT count(*) FROM sessions WHERE id=?`, subagentSessionID(rootID, task.ID)).Scan(&transcripts); err != nil {
+		t.Fatal(err)
+	}
+	if tasks != 0 || transcripts != 0 {
+		t.Fatalf("partial task persistence: tasks=%d transcripts=%d", tasks, transcripts)
+	}
+}
+
 func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	st, err := Open(path)
@@ -627,5 +854,56 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	items, err := st.LoadQueuedInbox(context.Background(), rootID, "a", 0, 10)
 	if err != nil || len(items) != 1 || items[0].Kind != "schedule" {
 		t.Fatalf("recovery replay queue=%+v err=%v", items, err)
+	}
+}
+
+func TestRecoveryReleasesReservationsAndInterruptsClassicTasks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, _ := st.Create(t.TempDir(), "model", "provider")
+	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := Task{ID: "task-1", Description: "work", Prompt: "do it", Status: "running", StartedAt: time.Now()}
+	if err := st.RecordClassicTask(context.Background(), rootID, authority.AgentID, task); err != nil {
+		t.Fatal(err)
+	}
+	admission := capability.Admission{Request: capability.Request{
+		RootID: rootID, AgentID: authority.AgentID, CapabilityID: authority.Files.ID,
+		CapabilityGeneration: authority.Files.Generation, OperationID: "active-operation", Operation: "read", TraceID: "trace",
+		Reservations: []capability.Reservation{{Kind: "active_operations", Amount: 1}},
+	}}
+	if _, err := st.Begin(context.Background(), admission); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var taskStatus, report string
+	if err := st.db.QueryRow(`SELECT status,report FROM tasks WHERE session_id=? AND task_id='task-1'`, rootID).Scan(&taskStatus, &report); err != nil {
+		t.Fatal(err)
+	}
+	if taskStatus != "error" || report != "interrupted by daemon restart" {
+		t.Fatalf("recovered task=%q %q", taskStatus, report)
+	}
+	var operationStatus string
+	if err := st.db.QueryRow(`SELECT status FROM operations WHERE id='active-operation'`).Scan(&operationStatus); err != nil || operationStatus != "interrupted" {
+		t.Fatalf("operation status=%q err=%v", operationStatus, err)
+	}
+	var reserved int64
+	if err := st.db.QueryRow(`SELECT reserved_value FROM budgets WHERE root_id=? AND kind='active_operations'`, rootID).Scan(&reserved); err != nil || reserved != 0 {
+		t.Fatalf("reserved=%d err=%v", reserved, err)
 	}
 }

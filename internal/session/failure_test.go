@@ -318,6 +318,7 @@ func TestClosedStoreDegradesGracefully(t *testing.T) {
 		"ForksOf":     func() error { _, err := st.ForksOf(id); return err },
 		"ForkTitle":   func() error { _, err := st.ForkTitle("base"); return err },
 		"AddSchedule": func() error { _, err := st.AddSchedule(id, "@every 1m", "p", time.Now()); return err },
+		"Schedules":   func() error { _, err := st.SchedulesContext(context.Background(), id); return err },
 	}
 	for name, fn := range errCases {
 		if err := fn(); err == nil {

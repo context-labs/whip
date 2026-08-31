@@ -697,6 +697,19 @@ func TestCompactKeepsToolCallPair(t *testing.T) {
 	}
 }
 
+func TestCompactionRawTailStartSkipsDerivedSummaries(t *testing.T) {
+	before := []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "first request"},
+		{Role: "system", Content: "Summary of the conversation so far:\n\nnew"},
+		{Role: "system", Content: "Summary of the conversation so far:\n\nprior"},
+		{Role: "assistant", Content: "raw tail"},
+	}
+	if got := CompactionRawTailStart(before, len(before)); got != 4 {
+		t.Fatalf("raw tail start=%d", got)
+	}
+}
+
 // SteerImages queues a multimodal user message: the turn continues past it
 // and the injected message carries both the text and the image parts.
 func TestSteerImagesInjectsParts(t *testing.T) {

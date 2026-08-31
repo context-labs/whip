@@ -55,6 +55,9 @@ func (a *Agent) newSub(o SubModel) *Agent {
 	sub.Effort = a.Effort
 	sub.ContextLimit = o.ContextLimit
 	sub.Tools = tools.AllWithServices(a.Services)
+	a.mu.Lock()
+	sub.launcher = a.launcher
+	a.mu.Unlock()
 	return sub
 }
 

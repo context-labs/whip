@@ -53,6 +53,14 @@ func (s *Store) EnsureClassicAuthority(ctx context.Context, rootID string) (capa
 		VALUES(?,?,NULL,'idle',?,?) ON CONFLICT(id) DO NOTHING`, authority.AgentID, rootID, stamp, stamp); err != nil {
 		return capability.ClassicAuthority{}, err
 	}
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM agents WHERE id=? AND root_id=?`, authority.AgentID, rootID).Scan(&status); err != nil {
+		return capability.ClassicAuthority{}, err
+	}
+	switch status {
+	case "failed", "stopped", "cancelled", "interrupted", "deleted", "succeeded":
+		return capability.ClassicAuthority{}, ErrRootTerminal
+	}
 	for _, grant := range []struct {
 		id         string
 		operations []byte

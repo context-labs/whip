@@ -309,6 +309,19 @@ func (r *taskRegistry) settle(id string, status TaskStatus, report string) {
 
 var taskIDCounter atomic.Int64
 
+// ResumeTaskIDs advances the process counter past task ids restored from disk.
+func (a *Agent) ResumeTaskIDs(ids []string) {
+	maximum := int64(0)
+	for _, id := range ids {
+		maximum = max(maximum, taskIDNum(id))
+	}
+	for current := taskIDCounter.Load(); current < maximum; current = taskIDCounter.Load() {
+		if taskIDCounter.CompareAndSwap(current, maximum) {
+			return
+		}
+	}
+}
+
 // StartBackground launches a subagent that runs concurrently with the parent.
 // It returns immediately with a task handle; the model is told the task id and
 // that the result will arrive as a steered message when done. This is the
@@ -387,7 +400,14 @@ func (a *Agent) LaunchBackground(t *BackgroundTask, worktreePath string) {
 func (a *Agent) launchBackground(t *BackgroundTask) {
 	id, description, prompt := t.ID, t.Description, t.Prompt
 	taskCtx := t.ctx
-	go func() {
+	if !a.launch("background task "+id, func() {
+		defer func() {
+			if value := recover(); value != nil {
+				t.SubMessages = t.sub.MessagesSnapshot()
+				a.bg.settle(id, TaskError, fmt.Sprintf("panic: %v", value))
+				panic(value)
+			}
+		}()
 		report, err := t.sub.Turn(taskCtx, prompt, FanIn(a.bg.emitter(id), Events{OnUsage: a.AddUsage}))
 		status := TaskDone
 		text := report
@@ -410,7 +430,9 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		// sees it on the next loop boundary — channel-close (settle) → Steer.
 		// text/status are locals (not the shared task struct), so no race.
 		a.Steer(fmt.Sprintf("[subagent %s %s] %s\n\n%s", id, status, description, text))
-	}()
+	}) {
+		a.bg.settle(id, TaskCancelled, "cancelled")
+	}
 }
 
 // refreshTranscript re-snapshots a settled task's SubMessages after a

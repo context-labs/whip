@@ -11,7 +11,31 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/session"
 )
+
+func TestRawCutoffAccountsForDerivedSystemMessages(t *testing.T) {
+	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	id, _ := store.Create(t.TempDir(), "model", "provider")
+	history := []llm.Message{{Role: "system", Content: "system"}, {Role: "user", Content: "q1"}, {Role: "assistant", Content: "a1"}, {Role: "user", Content: "q2"}, {Role: "assistant", Content: "a2"}}
+	if err := store.Save(id, 1, history, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	m := &model{store: store, sessionID: id}
+	if got := m.rawCutoff(4, 1); got != 3 {
+		t.Fatalf("first raw cutoff=%d", got)
+	}
+	if err := store.RecordCompaction(id, 3, "summary"); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.rawCutoff(4, 3); got != 4 {
+		t.Fatalf("next raw cutoff=%d", got)
+	}
+}
 
 func compactCmdModel() *model {
 	// NOTE: any test that drives setEffort/switchModel/compactCommand writes

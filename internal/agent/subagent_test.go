@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,34 @@ import (
 
 	"github.com/context-labs/whip/internal/llm"
 )
+
+func TestResumeTaskIDsAdvancesCounter(t *testing.T) {
+	previous := taskIDCounter.Load()
+	t.Cleanup(func() { taskIDCounter.Store(previous) })
+	want := previous + 100
+	ag := New(llm.New("http://unused", "key"), "model", 100, "system")
+	ag.ResumeTaskIDs([]string{fmt.Sprintf("old-task-%d", want)})
+	if got := taskIDCounter.Add(1); got != want+1 {
+		t.Fatalf("next task counter=%d, want %d", got, want+1)
+	}
+}
+
+func TestSubagentInheritsLauncher(t *testing.T) {
+	parent := New(llm.New("http://unused", "key"), "model", 100, "system")
+	launched := make(chan string, 1)
+	parent.SetLauncher(func(kind string, work func()) bool {
+		launched <- kind
+		work()
+		return true
+	})
+	child := parent.newSub(SubModel{})
+	if !child.launch("child work", func() {}) {
+		t.Fatal("child launcher rejected work")
+	}
+	if kind := <-launched; kind != "child work" {
+		t.Fatalf("launcher kind=%q", kind)
+	}
+}
 
 // A foreground subagent's report is capped before it lands in the parent's
 // context, so one long investigation can't swamp the parent's window. Under

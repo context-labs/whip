@@ -153,7 +153,14 @@ func (a *Agent) StartWait(spec WaitTaskSpec) (*waitTask, error) {
 	r.waits[id] = w
 	r.mu.Unlock()
 
-	go r.poll(ctx, w, untilRe)
+	if !a.launch("wait "+id, func() { r.poll(ctx, w, untilRe) }) {
+		cancel()
+		r.mu.Lock()
+		delete(r.waits, id)
+		r.mu.Unlock()
+		close(w.pollDone)
+		return nil, errors.New("agent is stopping")
+	}
 	return w, nil
 }
 

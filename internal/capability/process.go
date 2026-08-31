@@ -317,9 +317,18 @@ func rootStops(root *processRoot) []func() error {
 func runStops(stops []func() error) error {
 	var err error
 	for _, stop := range stops {
-		err = errors.Join(err, stop())
+		err = errors.Join(err, runStop(stop))
 	}
 	return err
+}
+
+func runStop(stop func() error) (err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			err = fmt.Errorf("dependency stop panic: %v", value)
+		}
+	}()
+	return stop()
 }
 
 func activeProcesses(root *processRoot) []*Process {

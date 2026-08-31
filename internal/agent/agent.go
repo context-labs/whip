@@ -17,6 +17,7 @@ import (
 
 // Events receives streaming callbacks during a turn. All fields are optional.
 type Events struct {
+	OnStart     func()                        // the turn owns the loop boundary
 	OnText      func(delta string)            // assistant text as it streams
 	OnThink     func(delta string)            // reasoning/thinking tokens as they stream
 	OnToolStart func(id, name, args string)   // a tool call is about to run
@@ -31,8 +32,9 @@ type Events struct {
 	OnSteer      func(text string)                // a steered message was injected
 	OnCompact    func(took, kept int)             // context was auto-compacted (messages removed/kept)
 	OnCompacted  func(summary string, cutoff int) // a compaction ran; record it (raw log survives)
-	OnUsage      func(u llm.Usage)                // a request reported its token usage
-	OnRetry      func(ev llm.RetryEvent)          // a transient request failure is being retried
+	OnCompaction func(summary string, cutoff int, before []llm.Message)
+	OnUsage      func(u llm.Usage)       // a request reported its token usage
+	OnRetry      func(ev llm.RetryEvent) // a transient request failure is being retried
 	// OnDecay fires when the per-turn decay pass rewrote n history messages
 	// (superseded reads / aged tool outputs). The caller must re-persist the
 	// affected prefix — the store's Save(from=1) INSERT OR REPLACEs it.
@@ -99,9 +101,11 @@ type Agent struct {
 
 	mu        sync.Mutex
 	pending   []pendingSteer // steered user messages awaiting injection
-	compacted bool           // a compaction already happened this turn — don't retry-loop
-	running   atomic.Bool    // a turn is in flight (wait delivery routes on it)
-	waitReg   *waitRegistry  // lazily created by waits()
+	steerIn   func(string)   // daemon ingress; nil keeps the embedded path
+	launcher  func(string, func()) bool
+	compacted bool          // a compaction already happened this turn — don't retry-loop
+	running   atomic.Bool   // a turn is in flight (wait delivery routes on it)
+	waitReg   *waitRegistry // lazily created by waits()
 
 	// msgsMu guards Messages for concurrent READERS: the turn goroutine
 	// mutates Messages freely, but a test/UI reader taking msgsMu sees a
@@ -215,13 +219,62 @@ func (a *Agent) Close() {
 // straight to OnOrphanedSteer instead of parking forever. One guard here
 // covers every Steer caller (TUI keys, wait-tool delivery, subagent fan-in).
 func (a *Agent) Steer(text string) {
-	if !a.running.Load() && a.OnOrphanedSteer != nil {
-		a.OnOrphanedSteer(text)
+	a.mu.Lock()
+	ingress := a.steerIn
+	a.mu.Unlock()
+	if ingress != nil {
+		ingress(text)
 		return
 	}
+	a.deliverSteer(text, true)
+}
+
+// SetSteerIngress routes producers through a daemon's durable inbox. The
+// actor uses DeliverSteer to preserve the existing loop-boundary behavior.
+func (a *Agent) SetSteerIngress(ingress func(string)) {
 	a.mu.Lock()
+	a.steerIn = ingress
+	a.mu.Unlock()
+}
+
+// SetLauncher lets a daemon supervisor own agent-created goroutines.
+func (a *Agent) SetLauncher(launcher func(string, func()) bool) {
+	a.mu.Lock()
+	a.launcher = launcher
+	a.mu.Unlock()
+}
+
+func (a *Agent) launch(kind string, work func()) bool {
+	a.mu.Lock()
+	launcher := a.launcher
+	a.mu.Unlock()
+	if launcher != nil {
+		return launcher(kind, work)
+	}
+	go work()
+	return true
+}
+
+func (a *Agent) DeliverSteer(text string) bool {
+	return a.deliverSteer(text, false)
+}
+
+func (a *Agent) deliverSteer(text string, park bool) bool {
+	a.mu.Lock()
+	if !a.running.Load() {
+		hook := a.OnOrphanedSteer
+		if park && hook == nil {
+			a.pending = append(a.pending, pendingSteer{text: text})
+		}
+		a.mu.Unlock()
+		if park && hook != nil {
+			hook(text)
+		}
+		return false
+	}
 	a.pending = append(a.pending, pendingSteer{text: text})
 	a.mu.Unlock()
+	return true
 }
 
 // pendingSteer is a queued steered message, optionally carrying images
@@ -421,11 +474,13 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 	if n := a.decay(); n > 0 && ev.OnDecay != nil {
 		ev.OnDecay(n)
 	}
+	a.mu.Lock()
 	a.running.Store(true)
-	defer func() {
-		a.running.Store(false)
-		a.drainOrphanedSteers() // catch steers that lost the race to teardown
-	}()
+	a.mu.Unlock()
+	defer a.finishTurn()
+	if ev.OnStart != nil {
+		ev.OnStart()
+	}
 	msg := llm.Message{Role: "user", Content: input, Parts: parts, Authored: authored}
 	if authored {
 		now := time.Now()
@@ -471,7 +526,8 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		if err != nil {
 			if !a.compacted && llm.IsContextLimit(err) && ctx.Err() == nil {
 				a.compacted = true
-				took := len(a.Messages)
+				before := append([]llm.Message(nil), a.Messages...)
+				took := len(before)
 				sum, cutoff, cerr := a.compact(ctx)
 				if cerr != nil {
 					// restore the guard on hard errors so a manual /compact
@@ -484,6 +540,9 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				}
 				if ev.OnCompacted != nil {
 					ev.OnCompacted(sum, cutoff)
+				}
+				if ev.OnCompaction != nil {
+					ev.OnCompaction(sum, cutoff, before)
 				}
 				continue // retry the (now-smaller) request
 			}
@@ -510,7 +569,13 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				return "", ctx.Err()
 			}
 		}
-		steered := a.drainPending()
+		a.mu.Lock()
+		steered := a.pending
+		a.pending = nil
+		if len(msg.ToolCalls) == 0 && len(steered) == 0 {
+			a.running.Store(false)
+		}
+		a.mu.Unlock()
 		if len(steered) > 0 {
 			a.msgsMu.Lock()
 		}
@@ -530,18 +595,19 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 	}
 }
 
-// drainOrphanedSteers re-drains any steered messages that lost the race
-// against a turn's final loop boundary: a Steer landing after the last
-// drainPending but before running flips false would otherwise sit in pending
-// forever (a user's mid-turn message while waiting on subagents, the wait
-// registry's busy delivery). The deferred teardown hands each survivor to
-// OnOrphanedSteer, which the TUI installs to submit it as a machine turn.
-func (a *Agent) drainOrphanedSteers() {
-	if a.OnOrphanedSteer == nil {
+func (a *Agent) finishTurn() {
+	a.mu.Lock()
+	a.running.Store(false)
+	hook := a.OnOrphanedSteer
+	if hook == nil {
+		a.mu.Unlock()
 		return
 	}
-	for _, s := range a.drainPending() {
-		a.OnOrphanedSteer(s.text)
+	pending := a.pending
+	a.pending = nil
+	a.mu.Unlock()
+	for _, steer := range pending {
+		hook(steer.text)
 	}
 }
 
@@ -587,7 +653,7 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, round int, e
 	var wg sync.WaitGroup
 	for i, tc := range calls {
 		wg.Add(1)
-		go func(i int, tc llm.ToolCall) {
+		if !a.launch("tool "+tc.Function.Name, func() {
 			defer wg.Done()
 			name, args := tc.Function.Name, tc.Function.Arguments
 
@@ -611,7 +677,9 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, round int, e
 				ev.OnToolEnd(tc.ID, name, out)
 			}
 			outCh <- outcome{i, out, ms, toolExitCode(out)}
-		}(i, tc)
+		}) {
+			wg.Done()
+		}
 	}
 
 	// Close the channel when all workers finish so the range loop terminates.
@@ -664,7 +732,8 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	if a.ContextLimit == 0 || EstimateTokens(a.Messages) < int(a.threshold()*float64(a.ContextLimit)) {
 		return nil
 	}
-	took := len(a.Messages)
+	before := append([]llm.Message(nil), a.Messages...)
+	took := len(before)
 	sum, cutoff, err := a.compact(ctx)
 	if err != nil {
 		if err.Error() == "not enough history to compact" {
@@ -677,6 +746,9 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	}
 	if ev.OnCompacted != nil {
 		ev.OnCompacted(sum, cutoff)
+	}
+	if ev.OnCompaction != nil {
+		ev.OnCompaction(sum, cutoff, before)
 	}
 	return nil
 }
@@ -756,6 +828,18 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, err er
 	), kept...)
 	a.msgsMu.Unlock()
 	return summary, tailStart, nil
+}
+
+// CompactionRawTailStart returns the pre-compaction index where the prior
+// event's raw tail begins. Generated summaries before it have no raw row.
+func CompactionRawTailStart(before []llm.Message, cutoff int) int {
+	start := 2 // primary system prompt + current derived summary
+	for i := 1; i < cutoff && i < len(before); i++ {
+		if before[i].Role == "system" && strings.HasPrefix(before[i].Content, "Summary of the conversation so far:\n\n") {
+			start = i + 1
+		}
+	}
+	return start
 }
 
 // buildSummaryPrompt renders the unsummarized turns as a transcript the model
@@ -848,6 +932,7 @@ func truncateField(s string, n int) string {
 // OnCompact and reports whether compaction ran (false when there's too
 // little history). It is safe to call while a turn is not in flight.
 func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
+	before := append([]llm.Message(nil), a.Messages...)
 	sum, cutoff, err := a.compact(ctx)
 	if err != nil {
 		return err
@@ -857,6 +942,9 @@ func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 	}
 	if ev.OnCompacted != nil {
 		ev.OnCompacted(sum, cutoff)
+	}
+	if ev.OnCompaction != nil {
+		ev.OnCompaction(sum, cutoff, before)
 	}
 	return nil
 }

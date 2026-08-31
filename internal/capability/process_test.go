@@ -217,6 +217,24 @@ func TestProcessRootStopsRegisteredDependency(t *testing.T) {
 	}
 }
 
+func TestProcessRootContainsDependencyStopPanic(t *testing.T) {
+	m := NewProcessManager()
+	called := false
+	if _, err := m.RegisterStop("root", func() error { panic("stop exploded") }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.RegisterStop("root", func() error { called = true; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	err := m.StopRoot("root")
+	if err == nil || !strings.Contains(err.Error(), "stop exploded") {
+		t.Fatalf("stop panic error=%v", err)
+	}
+	if !called {
+		t.Fatal("one stop panic prevented remaining cleanup")
+	}
+}
+
 func TestProcessContextCancellation(t *testing.T) {
 	m := NewProcessManager()
 	ctx, cancel := context.WithCancel(context.Background())

@@ -254,9 +254,7 @@ func TestTurnTeardownDrainsOrphanedSteers(t *testing.T) {
 
 	ag.running.Store(true)
 	ag.Steer("orphaned message")
-	// Simulate teardown: running flips false, then the re-drain runs.
-	ag.running.Store(false)
-	ag.drainOrphanedSteers()
+	ag.finishTurn()
 
 	if len(woke) != 1 || woke[0] != "orphaned message" {
 		t.Fatalf("orphaned steer should wake, got %v", woke)

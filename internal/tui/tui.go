@@ -77,6 +77,7 @@ type compactMsg struct {
 	took, kept int // messages removed / kept after compaction
 	summary    string
 	cutoff     int // index in the pre-compaction history the summary replaces
+	rawTail    int // index in that history where the prior raw tail begins
 	err        error
 }
 type turnDoneMsg struct {
@@ -2127,7 +2128,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.store != nil && m.sessionID != "" {
 				// the agent's cutoff is in compacted coordinates; store the raw
 				// seq so Load never double-folds a summary
-				if err := m.store.RecordCompaction(m.sessionID, m.rawCutoff(msg.cutoff), msg.summary); err != nil {
+				if err := m.store.RecordCompaction(m.sessionID, m.rawCutoff(msg.cutoff, msg.rawTail), msg.summary); err != nil {
 					config.LogEvent("session.compact", "record failed: "+err.Error())
 				}
 			}
@@ -3602,8 +3603,10 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 				flush()
 				send(steeredMsg(s))
 			},
-			OnCompacted: func(sum string, cutoff int) { send(compactMsg{summary: sum, cutoff: cutoff}) },
-			OnUsage:     func(u llm.Usage) { send(usageMsg(u)) },
+			OnCompaction: func(sum string, cutoff int, before []llm.Message) {
+				send(compactMsg{summary: sum, cutoff: cutoff, rawTail: agent.CompactionRawTailStart(before, cutoff)})
+			},
+			OnUsage: func(u llm.Usage) { send(usageMsg(u)) },
 			// The decay pass rewrote n prefix messages in agent.Messages; drop
 			// the saved watermark so the next persist re-saves everything
 			// (from 1 — seq 0 is the system prompt, never a stored row; the
@@ -3723,11 +3726,14 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 			took := len(ag.Messages)
 			var summary string
 			var cutoff int
+			var rawTail int
 			err := ag.ManualCompact(ctx, agent.Events{
-				OnCompacted: func(s string, c int) { summary, cutoff = s, c },
+				OnCompaction: func(s string, c int, before []llm.Message) {
+					summary, cutoff, rawTail = s, c, agent.CompactionRawTailStart(before, c)
+				},
 			})
 			if p != nil { // nil in headless tests; compaction still ran
-				p.Send(compactMsg{took: took - len(ag.Messages), kept: len(ag.Messages), summary: summary, cutoff: cutoff, err: err})
+				p.Send(compactMsg{took: took - len(ag.Messages), kept: len(ag.Messages), summary: summary, cutoff: cutoff, rawTail: rawTail, err: err})
 				p.Send(turnDoneMsg{}) // clear busy state
 			}
 		}()

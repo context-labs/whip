@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
 	contentstore "github.com/context-labs/whip/internal/content"
+	"github.com/context-labs/whip/internal/llm"
 	schedulepkg "github.com/context-labs/whip/internal/schedule"
 )
 
@@ -137,17 +139,39 @@ type ScheduleFireClaim struct {
 }
 
 type actorEvent struct {
-	AgentID         string `json:"agent_id,omitempty"`
-	InboxSeq        int64  `json:"inbox_seq,omitempty"`
-	InboxKind       string `json:"inbox_kind,omitempty"`
-	Status          string `json:"status,omitempty"`
-	CommandClientID string `json:"command_client_id,omitempty"`
-	CommandID       string `json:"command_id,omitempty"`
-	OperationID     string `json:"operation_id,omitempty"`
-	TraceID         string `json:"trace_id,omitempty"`
-	ScheduleID      int    `json:"schedule_id,omitempty"`
-	Slot            string `json:"slot,omitempty"`
-	Error           string `json:"error,omitempty"`
+	AgentID         string  `json:"agent_id,omitempty"`
+	InboxSeq        int64   `json:"inbox_seq,omitempty"`
+	InboxKind       string  `json:"inbox_kind,omitempty"`
+	Status          string  `json:"status,omitempty"`
+	CommandClientID string  `json:"command_client_id,omitempty"`
+	CommandID       string  `json:"command_id,omitempty"`
+	OperationID     string  `json:"operation_id,omitempty"`
+	TraceID         string  `json:"trace_id,omitempty"`
+	ScheduleID      int     `json:"schedule_id,omitempty"`
+	Slot            string  `json:"slot,omitempty"`
+	Error           string  `json:"error,omitempty"`
+	Acknowledged    []int64 `json:"acknowledged_inbox,omitempty"`
+	TaskID          string  `json:"task_id,omitempty"`
+}
+
+type ClassicTurnCommit struct {
+	RootID            string
+	AgentID           string
+	InboxSeq          int64
+	AcknowledgedInbox []int64
+	Messages          []llm.Message
+	Compactions       []ClassicCompaction
+	ClearGoal         bool
+	GoalContinuation  string
+	Model             string
+	Provider          string
+	Error             string
+}
+
+type ClassicCompaction struct {
+	Summary      string
+	Cutoff       int
+	RawTailStart int
 }
 
 type RuntimeState struct {
@@ -288,6 +312,258 @@ func (s *Store) ConsumeInbox(ctx context.Context, rootID, agentID string, seq in
 	return eventSeq, nil
 }
 
+func classicTurnID(agentID string, inboxSeq int64) string {
+	return fmt.Sprintf("%s:turn:%d", agentID, inboxSeq)
+}
+
+func (s *Store) StartClassicTurn(ctx context.Context, rootID, agentID string, inboxSeq int64) error {
+	if rootID == "" || agentID == "" || inboxSeq < 1 {
+		return errors.New("classic turn start requires a root, agent, and positive inbox sequence")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stamp := now()
+	result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running' WHERE root_id=? AND agent_id=? AND seq=? AND status='queued'`, rootID, agentID, inboxSeq)
+	if err != nil {
+		return err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return err
+		}
+		return ErrInboxTerminal
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES(?,?,?,'running',?,?)`,
+		classicTurnID(agentID, inboxSeq), rootID, agentID, stamp, stamp); err != nil {
+		return err
+	}
+	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{AgentID: agentID, InboxSeq: inboxSeq, Status: "running"}, stamp); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) CommitClassicTurn(ctx context.Context, commit ClassicTurnCommit) error {
+	return s.commitClassicTurn(ctx, commit, nil)
+}
+
+func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit, beforeCommit func() error) error {
+	if commit.RootID == "" || commit.AgentID == "" || commit.InboxSeq < 1 {
+		return errors.New("classic turn commit requires a root, agent, and positive inbox sequence")
+	}
+	seen := map[int64]bool{commit.InboxSeq: true}
+	for _, seq := range commit.AcknowledgedInbox {
+		if seq < 1 || seen[seq] {
+			return errors.New("classic turn acknowledged inbox sequences must be positive and unique")
+		}
+		seen[seq] = true
+	}
+	if commit.ClearGoal && commit.GoalContinuation != "" {
+		return errors.New("classic turn cannot clear and continue a goal")
+	}
+	var goalValue preparedRuntimeValue
+	if commit.GoalContinuation != "" {
+		var err error
+		goalValue, err = s.prepareRuntimeValue(RuntimePayload{Data: []byte(commit.GoalContinuation), MediaType: "text/plain", Source: "goal continuation"}, ContentGrant{
+			RootID: commit.RootID, AgentID: commit.AgentID, Scope: ContentGrantAgent,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stamp := now()
+	status, eventKind := "succeeded", "turn.succeeded"
+	if commit.Error != "" {
+		status, eventKind = "failed", "turn.failed"
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE turns SET status=?,updated_at=? WHERE id=? AND root_id=? AND agent_id=? AND status='running'`,
+		status, stamp, classicTurnID(commit.AgentID, commit.InboxSeq), commit.RootID, commit.AgentID)
+	if err != nil {
+		return err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return err
+		}
+		return errors.New("classic turn is not running")
+	}
+	for seq := range seen {
+		result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='consumed' WHERE root_id=? AND agent_id=? AND seq=? AND status IN ('queued','running')`,
+			commit.RootID, commit.AgentID, seq)
+		if err != nil {
+			return err
+		}
+		if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+			if err != nil {
+				return err
+			}
+			return ErrInboxTerminal
+		}
+	}
+	var messageSeq int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM messages WHERE session_id=?`, commit.RootID).Scan(&messageSeq); err != nil {
+		return err
+	}
+	for _, message := range commit.Messages {
+		if message.Role == "" || message.Role == "system" {
+			continue
+		}
+		messageSeq++
+		data, err := json.Marshal(message)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(session_id,seq,role,content) VALUES(?,?,?,?)`, commit.RootID, messageSeq, message.Role, string(data)); err != nil {
+			return err
+		}
+	}
+	var compactionSeq, rawCutoff int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM compactions WHERE session_id=?`, commit.RootID).Scan(&compactionSeq); err != nil {
+		return err
+	}
+	if compactionSeq > 0 {
+		if err := tx.QueryRowContext(ctx, `SELECT cutoff FROM compactions WHERE session_id=? AND seq=?`, commit.RootID, compactionSeq).Scan(&rawCutoff); err != nil {
+			return err
+		}
+	}
+	for _, compaction := range commit.Compactions {
+		if compaction.Cutoff < 1 || compaction.Summary == "" {
+			return errors.New("classic turn compaction requires a cutoff and summary")
+		}
+		if compactionSeq > 0 {
+			tailStart := compaction.RawTailStart
+			if tailStart < 1 {
+				tailStart = 2
+			}
+			rawCutoff += compaction.Cutoff - tailStart
+		} else {
+			rawCutoff = compaction.Cutoff
+			var firstRole string
+			if err := tx.QueryRowContext(ctx, `SELECT role FROM messages WHERE session_id=? ORDER BY seq LIMIT 1`, commit.RootID).Scan(&firstRole); err != nil {
+				return err
+			}
+			if firstRole != "system" {
+				rawCutoff--
+			}
+		}
+		compactionSeq++
+		if _, err := tx.ExecContext(ctx, `INSERT INTO compactions(session_id,seq,cutoff,summary,created_at) VALUES(?,?,?,?,?)`,
+			commit.RootID, compactionSeq, rawCutoff, compaction.Summary, stamp); err != nil {
+			return err
+		}
+	}
+	title := ""
+	for _, message := range commit.Messages {
+		if message.Role == "user" {
+			title = truncate(strings.Join(strings.Fields(message.TextContent()), " "), 64)
+			break
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at=?,model=?,provider=?,title=CASE WHEN title='' THEN ? ELSE title END WHERE id=?`,
+		stamp, commit.Model, commit.Provider, title, commit.RootID); err != nil {
+		return err
+	}
+	if commit.ClearGoal {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET goal='' WHERE id=?`, commit.RootID); err != nil {
+			return err
+		}
+	} else if commit.GoalContinuation != "" {
+		if _, err := s.enqueueInboxTx(ctx, tx, InboxEnqueue{
+			RootID: commit.RootID, AgentID: commit.AgentID, Kind: "goal",
+			Payload: RuntimePayload{Data: []byte(commit.GoalContinuation), MediaType: "text/plain", Source: "goal continuation"},
+		}, goalValue, "goal.continued", actorEvent{AgentID: commit.AgentID, Status: "queued"}); err != nil {
+			return err
+		}
+	}
+	acknowledged := append([]int64{commit.InboxSeq}, commit.AcknowledgedInbox...)
+	if _, err := s.insertActorEventTx(ctx, tx, commit.RootID, eventKind, actorEvent{
+		AgentID: commit.AgentID, InboxSeq: commit.InboxSeq, Status: status, Error: commit.Error, Acknowledged: acknowledged,
+	}, stamp); err != nil {
+		return err
+	}
+	if beforeCommit != nil {
+		if err := beforeCommit(); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) RecordClassicTask(ctx context.Context, rootID, agentID string, task Task) error {
+	return s.RecordClassicTaskTranscript(ctx, rootID, agentID, task, nil, "", "")
+}
+
+func (s *Store) RecordClassicTaskTranscript(ctx context.Context, rootID, agentID string, task Task, transcript []llm.Message, model, provider string) error {
+	if rootID == "" || agentID == "" || task.ID == "" {
+		return errors.New("classic task record requires a root, agent, and task")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var agents int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM agents WHERE root_id=? AND id=?`, rootID, agentID).Scan(&agents); err != nil {
+		return err
+	}
+	if agents != 1 {
+		return errors.New("classic task agent is not in root")
+	}
+	ended := ""
+	if !task.EndedAt.IsZero() {
+		ended = task.EndedAt.UTC().Format(time.RFC3339)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO tasks
+		(session_id,task_id,description,prompt,status,report,started_at,ended_at) VALUES(?,?,?,?,?,?,?,?)`,
+		rootID, task.ID, task.Description, task.Prompt, task.Status, task.Report,
+		task.StartedAt.UTC().Format(time.RFC3339), ended); err != nil {
+		return err
+	}
+	if _, err := s.insertActorEventTx(ctx, tx, rootID, "task."+task.Status, actorEvent{
+		AgentID: agentID, TaskID: task.ID, Status: task.Status, Error: task.Report,
+	}, now()); err != nil {
+		return err
+	}
+	if task.Status != "running" && transcript != nil {
+		id := subagentSessionID(rootID, task.ID)
+		stamp := now()
+		if _, err := tx.ExecContext(ctx, `INSERT INTO sessions
+			(id,created_at,updated_at,cwd,model,provider,title,forked_from,task_id,mode)
+			VALUES(?,?,?,?,?,?,?,?,?,(SELECT mode FROM sessions WHERE id=?))
+			ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at,model=excluded.model,provider=excluded.provider`,
+			id, stamp, stamp, "", model, provider, "subagent "+task.ID, rootID, task.ID, rootID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE session_id=?`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM compactions WHERE session_id=?`, id); err != nil {
+			return err
+		}
+		for i, message := range transcript {
+			if message.Role == "" {
+				continue
+			}
+			data, err := json.Marshal(message)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO messages(session_id,seq,role,content) VALUES(?,?,?,?)`, id, i, message.Role, string(data)); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) ClaimScheduleFire(ctx context.Context, claim ScheduleFireClaim) (InboxSequence, error) {
 	if claim.RootID == "" || claim.AgentID == "" || claim.ScheduleID < 1 || claim.Slot.IsZero() ||
 		(claim.CommandClientID == "") != (claim.CommandID == "") {
@@ -391,54 +667,7 @@ func (s *Store) FailClassicRoot(ctx context.Context, rootID, reason string) (int
 		}
 		return 0, ErrRootTerminal
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT payload_inline,payload_ref FROM operations WHERE root_id=? AND status IN ('queued','running','waiting')`, rootID)
-	if err != nil {
-		return 0, err
-	}
-	var admissions []capability.Admission
-	for rows.Next() {
-		var inline []byte
-		var reference sql.NullString
-		if err := rows.Scan(&inline, &reference); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		if len(inline) == 0 && !reference.Valid {
-			continue
-		}
-		payload, err := s.readRuntimeValueTx(ctx, tx, inline, reference)
-		if err != nil {
-			rows.Close()
-			return 0, err
-		}
-		var admission capability.Admission
-		if err := json.Unmarshal(payload, &admission); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		if admission.Request.RootID != rootID {
-			rows.Close()
-			return 0, errors.New("operation admission root does not match stored root")
-		}
-		admissions = append(admissions, admission)
-	}
-	if err := rows.Close(); err != nil {
-		return 0, err
-	}
-	for _, admission := range admissions {
-		if err := releaseCapabilityBudgets(ctx, tx, rootID, admission.Request.Reservations); err != nil {
-			return 0, err
-		}
-	}
-	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
-		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE root_id=? AND status IN ('queued','running','waiting')`, stamp, rootID); err != nil {
-			return 0, err
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE root_id=? AND status IN ('queued','running')`, rootID); err != nil {
-		return 0, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE root_id=? AND status='pending'`, stamp, rootID); err != nil {
+	if err := s.interruptClassicRootTx(ctx, tx, rootID, reason, stamp, false); err != nil {
 		return 0, err
 	}
 	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "root.failed", actorEvent{AgentID: agentID, Status: "failed", Error: reason}, stamp)
@@ -449,6 +678,141 @@ func (s *Store) FailClassicRoot(ctx context.Context, rootID, reason string) (int
 		return 0, err
 	}
 	return eventSeq, nil
+}
+
+func (s *Store) InterruptClassicRoot(ctx context.Context, rootID, reason string) (int64, error) {
+	if rootID == "" {
+		return 0, errors.New("root interruption requires a root")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	stamp := now()
+	if err := s.interruptClassicRootTx(ctx, tx, rootID, reason, stamp, true); err != nil {
+		return 0, err
+	}
+	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "root.interrupted", actorEvent{AgentID: "classic:" + rootID, Status: "interrupted", Error: reason}, stamp)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return eventSeq, nil
+}
+
+func (s *Store) StopClassicRoot(ctx context.Context, rootID, reason string) (int64, error) {
+	if rootID == "" {
+		return 0, errors.New("root stop requires a root")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	stamp := now()
+	agentID := "classic:" + rootID
+	result, err := tx.ExecContext(ctx, `UPDATE agents SET status='stopped',updated_at=? WHERE root_id=? AND id=?
+		AND status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`, stamp, rootID, agentID)
+	if err != nil {
+		return 0, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return 0, err
+		}
+		return 0, ErrRootTerminal
+	}
+	if err := s.interruptClassicRootTx(ctx, tx, rootID, reason, stamp, false); err != nil {
+		return 0, err
+	}
+	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "root.stopped", actorEvent{AgentID: agentID, Status: "stopped", Error: reason}, stamp)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return eventSeq, nil
+}
+
+func (s *Store) interruptClassicRootTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string, preserveSchedules bool) error {
+	if err := s.releaseOperationReservations(ctx, tx, rootID); err != nil {
+		return err
+	}
+	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
+		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE root_id=? AND status IN ('queued','running','waiting')`, stamp, rootID); err != nil {
+			return err
+		}
+	}
+	inboxWhere := `status IN ('queued','running')`
+	if preserveSchedules {
+		inboxWhere = `status='running' OR (status='queued' AND kind!='schedule')`
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE root_id=? AND (`+inboxWhere+`)`, rootID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE root_id=? AND status='pending'`, stamp, rootID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE tasks SET status='error',report=?,ended_at=? WHERE session_id=? AND status='running'`, reason, stamp, rootID)
+	return err
+}
+
+func (s *Store) releaseOperationReservations(ctx context.Context, tx *sql.Tx, rootID string) error {
+	query := `SELECT root_id,payload_inline,payload_ref FROM operations WHERE status IN ('queued','running','waiting')`
+	var args []any
+	if rootID != "" {
+		query += ` AND root_id=?`
+		args = append(args, rootID)
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	type reserved struct {
+		rootID    string
+		admission capability.Admission
+	}
+	var admissions []reserved
+	for rows.Next() {
+		var storedRoot string
+		var inline []byte
+		var reference sql.NullString
+		if err := rows.Scan(&storedRoot, &inline, &reference); err != nil {
+			rows.Close()
+			return err
+		}
+		if len(inline) == 0 && !reference.Valid {
+			continue
+		}
+		payload, err := s.readRuntimeValueTx(ctx, tx, inline, reference)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		var admission capability.Admission
+		if err := json.Unmarshal(payload, &admission); err != nil {
+			rows.Close()
+			return err
+		}
+		if admission.Request.RootID != storedRoot {
+			rows.Close()
+			return errors.New("operation admission root does not match stored root")
+		}
+		admissions = append(admissions, reserved{rootID: storedRoot, admission: admission})
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, reserved := range admissions {
+		if err := releaseCapabilityBudgets(ctx, tx, reserved.rootID, reserved.admission.Request.Reservations); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateInboxEnqueue(item InboxEnqueue) error {
@@ -983,6 +1347,9 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	}
 	defer tx.Rollback()
 	stamp := now()
+	if err := s.releaseOperationReservations(ctx, tx, ""); err != nil {
+		return err
+	}
 	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE status IN ('queued','running','waiting')`, stamp); err != nil {
 			return err
@@ -992,6 +1359,9 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE status='pending'`, stamp); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET status='error',report='interrupted by daemon restart',ended_at=? WHERE status='running'`, stamp); err != nil {
 		return err
 	}
 	return tx.Commit()

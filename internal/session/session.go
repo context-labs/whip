@@ -12,6 +12,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -58,7 +59,12 @@ type Store struct {
 	content     *contentstore.Store
 	workspaces  *capability.Workspaces
 	processes   *capability.ProcessManager
+	daemonOwned atomic.Bool
 }
+
+// ponytail: U3 is in-process; U5 replaces this lease with the daemon socket/file lock.
+func (s *Store) AcquireDaemon() bool { return s.daemonOwned.CompareAndSwap(false, true) }
+func (s *Store) ReleaseDaemon()      { s.daemonOwned.Store(false) }
 
 // Open opens (creating if needed) the sessions database at path.
 func Open(path string) (*Store, error) {
@@ -362,19 +368,21 @@ func (s *Store) loadMessages(id string) ([]llm.Message, error) {
 }
 
 // applyCompaction derives the compacted view from the raw log: the latest
-// compaction event's summary replaces raw messages [1, cutoff), keeping the
-// system prompt (seq 0) and the raw tail. "Raw" matters: a stored row that is
-// itself a summary (system role past index 0) is a *derived* row saved after
-// a compaction — folding it again would nest summaries — so the cutoff only
-// ever applies to non-system rows. No event → the log loads verbatim. This is
-// what makes a compaction non-destructive: the event is metadata, the raw
-// rows are the history.
+// compaction event's summary replaces the raw prefix before cutoff and keeps
+// a persisted system prompt when present. "Raw" matters: a stored row that is
+// itself a summary is a derived row saved after a compaction, so folding it
+// again would nest summaries. No event means the log loads verbatim.
 func applyCompaction(db *sql.DB, sessionID string, msgs []llm.Message) []llm.Message {
 	var cutoff int
 	var summary string
 	err := db.QueryRowContext(context.Background(), `SELECT cutoff, summary FROM compactions WHERE session_id=? ORDER BY seq DESC LIMIT 1`,
 		sessionID).Scan(&cutoff, &summary)
-	if err != nil || cutoff <= 1 || cutoff > len(msgs) {
+	hasSystem := len(msgs) > 0 && msgs[0].Role == "system"
+	minimum := 0
+	if hasSystem {
+		minimum = 1
+	}
+	if err != nil || cutoff <= minimum || cutoff > len(msgs) {
 		return msgs // no event, or one that post-dates the raw log
 	}
 	// the fold point is the first raw (non-system) row at or past cutoff
@@ -386,12 +394,13 @@ func applyCompaction(db *sql.DB, sessionID string, msgs []llm.Message) []llm.Mes
 		}
 	}
 	out := make([]llm.Message, 0, len(msgs))
-	out = append(out, msgs[0],
-		llm.Message{Role: "system", Content: "Summary of the conversation so far:\n\n" + summary})
+	out = append(out, msgs[0])
+	start := 1
+	out = append(out, llm.Message{Role: "system", Content: "Summary of the conversation so far:\n\n" + summary})
 	// keep the last derived summary before the fold (a second compaction's
 	// saved row — it summarizes history the new summary doesn't reach)
 	var prior []llm.Message
-	for i := 1; i < fold; i++ {
+	for i := start; i < fold; i++ {
 		if msgs[i].Role == "system" {
 			prior = append(prior, msgs[i])
 		}
@@ -597,26 +606,36 @@ func (s *Store) AddSchedule(sessionID, schedule, prompt string, anchor time.Time
 
 // Schedules returns a session's scheduled tasks, id order.
 func (s *Store) Schedules(sessionID string) []Schedule {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id, schedule, prompt, anchor, last_fire FROM schedules WHERE session_id=? ORDER BY id`, sessionID)
+	schedules, _ := s.SchedulesContext(context.Background(), sessionID)
+	return schedules
+}
+
+func (s *Store) SchedulesContext(ctx context.Context, sessionID string) ([]Schedule, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, schedule, prompt, anchor, last_fire FROM schedules WHERE session_id=? ORDER BY id`, sessionID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	var out []Schedule
 	for rows.Next() {
 		var sc Schedule
 		var anchor, lastFire string
-		if rows.Scan(&sc.ID, &sc.Schedule, &sc.Prompt, &anchor, &lastFire) != nil {
+		if err := rows.Scan(&sc.ID, &sc.Schedule, &sc.Prompt, &anchor, &lastFire); err != nil {
 			continue
 		}
-		sc.Anchor, _ = time.Parse(time.RFC3339, anchor)
-		sc.LastFire, _ = time.Parse(time.RFC3339, lastFire)
+		sc.Anchor, err = time.Parse(time.RFC3339, anchor)
+		if err != nil {
+			continue
+		}
+		if lastFire != "" {
+			sc.LastFire, err = time.Parse(time.RFC3339, lastFire)
+			if err != nil {
+				continue
+			}
+		}
 		out = append(out, sc)
 	}
-	if rows.Err() != nil {
-		return nil
-	}
-	return out
+	return out, rows.Err()
 }
 
 // MarkFired stamps a task's last fire (a fired one-shot stays listed but
