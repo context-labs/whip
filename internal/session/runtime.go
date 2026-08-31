@@ -155,6 +155,11 @@ type actorEvent struct {
 	Acknowledged     []int64 `json:"acknowledged_inbox,omitempty"`
 	TaskID           string  `json:"task_id,omitempty"`
 	ChildExecutionID string  `json:"child_execution_id,omitempty"`
+	SubscriptionID   string  `json:"subscription_id,omitempty"`
+	Key              string  `json:"key,omitempty"`
+	Version          int64   `json:"version,omitempty"`
+	ExpectedVersion  int64   `json:"expected_version,omitempty"`
+	Attempt          string  `json:"attempt,omitempty"`
 }
 
 type ClassicTurnCommit struct {
@@ -752,7 +757,7 @@ func (s *Store) interruptClassicRootTx(ctx context.Context, tx *sql.Tx, rootID, 
 	}
 	inboxWhere := `status IN ('queued','running')`
 	if preserveSchedules {
-		inboxWhere = `status='running' OR (status='queued' AND kind!='schedule')`
+		inboxWhere = `status='running' OR (status='queued' AND kind NOT IN ('schedule','subscription'))`
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE root_id=? AND (`+inboxWhere+`)`, rootID); err != nil {
 		return err
@@ -1358,7 +1363,7 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE status='running' OR (status='queued' AND kind!='schedule')`); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE status='running' OR (status='queued' AND kind NOT IN ('schedule','subscription'))`); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE status='pending'`, stamp); err != nil {
