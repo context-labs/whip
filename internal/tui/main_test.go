@@ -18,6 +18,9 @@ func TestMain(m *testing.M) {
 	}
 	defer os.RemoveAll(dir)
 	os.Setenv("WHIP_HOME", dir)
+	// Hook discovery reads the platform home directory, not WHIP_HOME. Keep
+	// tests from loading or executing a developer's real ~/.agents plugins.
+	os.Setenv("HOME", dir)
 	// Style tests assert ANSI-dark markdown output; pin a known dark theme so a
 	// test-binary with no tty (where detection reports unknown → neutral) still
 	// renders the dark style they expect. Per-test overrides (SetLightTheme,

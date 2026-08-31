@@ -34,6 +34,31 @@ Tests: `parallel_test.go` — `TestToolCallsRunInParallel` (overlap measured via
 a concurrency counter), `TestSamePathEditsSerialize`, `TestToolMutationPath`,
 `TestCanonicalPathKey`.
 
+### Portable lifecycle hooks
+
+`internal/hooks/` loads command hooks from plugin files
+(`.agents/plugins/*/hooks/hooks.json`) and the project-owned
+`.whip/hooks.json` file into one immutable manager. Five boundaries cover the
+useful policy surface: prompt submission, before a tool, after tool success,
+after tool failure, and before the agent stops. Hooks can add model context;
+prompt/pre-tool/stop hooks can block. Stop rejection is capped at three
+revision rounds, and command failures fail open unless a pre-tool action
+explicitly requests `on_failure: block`.
+
+The agent depends only on `hooks.Runner`, so configuration stays outside the
+loop and tests use a recording fake. Pre-hooks run before file/global mutation
+locks and post-hooks after release. The manager is immutable and atomically
+swapped on `/cd`; subagents inherit it with an explicit working directory.
+The TUI exposes `/hooks`, headless JSON mode emits flat hook events, and ACP
+logs actionable outcomes. Project hooks obey folder trust in interactive and
+ACP modes; `WHIP_DISABLE_HOOKS=1` is the recovery switch.
+
+Full configuration and protocol: [lifecycle-hooks.md](lifecycle-hooks.md).
+
+Tests: `internal/hooks/{config,runner}_test.go`,
+`internal/agent/hooks_test.go`, `internal/tui/hooks_test.go`, and structured
+subprocess coverage in `internal/tools/bashrun/failure_test.go`.
+
 ### Bash output feedback: live streaming + truncation spill
 
 Two ways a bash command stops being a black box (pi's bash tool has both):

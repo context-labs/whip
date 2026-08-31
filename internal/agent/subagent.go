@@ -48,6 +48,9 @@ func (a *Agent) newSub(o SubModel) *Agent {
 	sub.Effort = a.Effort
 	sub.ContextLimit = o.ContextLimit
 	sub.Tools = tools.All()
+	runner, dir := a.hookSnapshot()
+	sub.SetHookScope(runner, dir)
+	sub.SetSessionID(a.SessionIDValue())
 	return sub
 }
 

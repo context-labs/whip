@@ -8,6 +8,21 @@ import (
 	"time"
 )
 
+// Hook discovery uses the platform home directory. Isolate the whole test
+// binary so no CLI test can load or execute a developer's real plugins.
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "whip-cli-test-home")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("HOME", home); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
+}
+
 // The system prompt always carries the built-in operating rules (the safety
 // rails); ~/.whip/me.md appends the user's standing instructions after them.
 func TestSystemPromptAppendsUserMe(t *testing.T) {

@@ -16,12 +16,15 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/hooks"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tui"
@@ -99,7 +102,8 @@ func runCLI(args []string) error {
 
 	// System prompt: -system-file wins over -system (a file is the deliberate
 	// choice; a stray -system alongside it is almost certainly stale).
-	sys := systemPrompt(cwd(), time.Now())
+	workingDir := cwd()
+	sys := systemPrompt(workingDir, time.Now())
 	if *systemFlag != "" {
 		sys = *systemFlag
 	}
@@ -150,6 +154,7 @@ func runCLI(args []string) error {
 			}
 		}
 	}
+	ag.SetSessionID(sessionID)
 
 	// ctrl+c cancels the turn; -timeout caps the whole run.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -167,9 +172,18 @@ func runCLI(args []string) error {
 			fmt.Fprintf(os.Stderr, format+"\n", a...)
 		}
 	}
+	hookMgr := hooks.Load(hooks.LoadOptions{WorkingDir: workingDir, IncludeProject: true})
+	ag.SetHookScope(hookMgr, workingDir)
+	for _, warning := range hookMgr.Warnings() {
+		config.LogEvent("hooks.load", warning)
+		note("hooks: %s", warning)
+	}
 	if *format == "json" {
 		enc := json.NewEncoder(os.Stdout)
+		var emitMu sync.Mutex
 		emit = func(v any) {
+			emitMu.Lock()
+			defer emitMu.Unlock()
 			if err := enc.Encode(v); err != nil {
 				fmt.Fprintln(os.Stderr, "whip: json encode:", err)
 			}
@@ -184,9 +198,32 @@ func runCLI(args []string) error {
 		ev.OnToolEnd = func(_, name, result string) {
 			emit(map[string]string{"type": "tool_end", "name": name, "result": result})
 		}
+		ev.OnHook = func(event hooks.Event, outcome hooks.Outcome) {
+			emit(map[string]string{
+				"type":     "hook",
+				"event":    string(event),
+				"blocked":  strconv.FormatBool(outcome.Blocked),
+				"ran":      strconv.Itoa(outcome.Ran),
+				"reason":   outcome.Reason,
+				"context":  outcome.AdditionalContext,
+				"failures": strings.Join(outcome.Failures, "; "),
+			})
+		}
 	} else {
 		ev.OnText = func(d string) { fmt.Fprint(os.Stdout, d) }
 		ev.OnToolStart = func(_, name, args string) { note("⚒ %s", name) }
+		ev.OnHook = func(event hooks.Event, outcome hooks.Outcome) {
+			if outcome.Blocked {
+				note("hook %s blocked: %s", event, outcome.Reason)
+			}
+			failureLabel := "failed open"
+			if outcome.Blocked {
+				failureLabel = "failure"
+			}
+			for _, failure := range outcome.Failures {
+				note("hook %s %s: %s", event, failureLabel, failure)
+			}
+		}
 	}
 
 	// Subagent routing: same default chain as the TUI (taskModel → built-in

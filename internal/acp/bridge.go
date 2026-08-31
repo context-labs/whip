@@ -15,6 +15,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/hooks"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
@@ -253,6 +254,7 @@ func (b *Bridge) NewSession(ctx context.Context, params acp.NewSessionRequest) (
 			s.id = acp.SessionId(sid)
 		}
 	}
+	ag.SetSessionID(string(s.id))
 	b.mu.Lock()
 	if b.sessions == nil {
 		b.sessions = make(map[acp.SessionId]*acpSession)
@@ -296,6 +298,7 @@ func (b *Bridge) LoadSession(ctx context.Context, params acp.LoadSessionRequest)
 	// prompt; storeFrom tracks the in-memory index the next Save starts at.
 	ag.Messages = append(ag.Messages, msgs...)
 	s := newACPSession(acp.SessionId(meta.ID), ag, mgr)
+	ag.SetSessionID(meta.ID)
 	s.storeFrom = len(ag.Messages)
 	b.mu.Lock()
 	if b.sessions == nil {
@@ -433,7 +436,12 @@ func (b *Bridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Prom
 		OnThink:     func(d string) { _ = b.update(turnCtx, s.id, updateThoughtText(d)) },
 		OnToolStart: func(id, name, args string) { _ = b.update(turnCtx, s.id, startToolCall(id, name, args)) },
 		OnToolEnd:   func(id, name, result string) { _ = b.update(turnCtx, s.id, b.endTool(s, id, name, result)) },
-		OnUsage:     func(u llm.Usage) { b.sendUsage(turnCtx, s, u) },
+		OnHook: func(event hooks.Event, outcome hooks.Outcome) {
+			if outcome.Blocked || len(outcome.Failures) > 0 {
+				config_logf("session %s hook %s: blocked=%t failures=%v", s.id, event, outcome.Blocked, outcome.Failures)
+			}
+		},
+		OnUsage: func(u llm.Usage) { b.sendUsage(turnCtx, s, u) },
 	})
 
 	// Persist like run.go: best-effort, incremental. When the save lands and

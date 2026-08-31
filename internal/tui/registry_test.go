@@ -10,6 +10,7 @@ import (
 // class. The probe runs the bare command on a scratch model and fails if the
 // transcript reports an unknown command.
 func TestRegistryEntriesDispatch(t *testing.T) {
+	t.Chdir(t.TempDir())
 	for _, e := range slashRegistry() {
 		if !compactCmdModel().dispatches(e.Name) {
 			t.Errorf("%s is in the registry but the command switch doesn't handle it", e.Name)

@@ -35,6 +35,7 @@ var registry = []registryEntry{
 	{Name: "/goal", Hint: "<text> — keep working until the goal is met (resume | clear | rounds <n>|default [--global])", Category: "Session"},
 	{Name: "/goal-from-context", Hint: "[n] — formulate a goal from the last n messages (default 8) and work until it's met", Category: "Session"},
 	{Name: "/help", Hint: "— show all commands and keybindings", Category: "App"},
+	{Name: "/hooks", Hint: "— show loaded lifecycle hooks and discovery warnings", Category: "Session"},
 	{Name: "/mcp", Hint: "[name] [reconnect|enable|disable] — MCP servers: status, reconnect, toggle", Category: "Session"},
 	{Name: "/me", Hint: "— edit your standing instructions (~/.whip/me.md) in $EDITOR", Category: "Agent"},
 	{Name: "/memory", Hint: "[n] [session] — saved memories: list what's injected each turn, mark entry n done", Category: "Session"},

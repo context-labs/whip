@@ -24,6 +24,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/tools/bashrun"
 )
@@ -130,5 +131,7 @@ func (m *model) cdCommand(arg string) {
 		m.append(errStyle.Render("/cd: " + err.Error()))
 		return
 	}
-	m.append(dimStyle.Render("→ " + cwd()))
+	dir := cwd()
+	m.reloadHooks(dir, config.Trusted(dir))
+	m.append(dimStyle.Render("→ " + dir))
 }

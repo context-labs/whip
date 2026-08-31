@@ -11,10 +11,12 @@ package computer
 
 import (
 	_ "embed"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 )
+
+const helperFilename = "whip-computer"
 
 // helperBinary is empty until `task driver` builds the Swift driver and
 // copies it into internal/computer/bin/ (go:embed needs the file at build
@@ -29,7 +31,7 @@ func helperDest() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".whip", "bin", "whip-computer"), nil
+	return filepath.Join(home, ".whip", "bin", helperFilename), nil
 }
 
 // ensureHelperBinary extracts the embedded helper to ~/.whip/bin (once —
@@ -51,19 +53,30 @@ func ensureHelperBinary() (string, error) {
 				return abs, nil
 			}
 		}
-		return "", fmt.Errorf("no whip-computer helper embedded and none built — run `task driver` (macOS, needs Xcode CLT)")
+		return "", errors.New("no whip-computer helper embedded and none built — run `task driver` (macOS, needs Xcode CLT)")
 	}
-	if existing, err := os.ReadFile(dest); err == nil && bytesEqual(existing, helperBinary) {
+	dir := filepath.Dir(dest)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	if existing, err := root.ReadFile(helperFilename); err == nil && bytesEqual(existing, helperBinary) {
 		return dest, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	tmp := helperFilename + ".tmp"
+	if err := root.WriteFile(tmp, helperBinary, 0o600); err != nil {
 		return "", err
 	}
-	tmp := dest + ".tmp"
-	if err := os.WriteFile(tmp, helperBinary, 0o755); err != nil {
+	if err := root.Chmod(tmp, 0o700); err != nil {
+		_ = root.Remove(tmp)
 		return "", err
 	}
-	if err := os.Rename(tmp, dest); err != nil {
+	if err := root.Rename(tmp, helperFilename); err != nil {
+		_ = root.Remove(tmp)
 		return "", err
 	}
 	return dest, nil

@@ -26,6 +26,7 @@ import (
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/hooks"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
@@ -207,6 +208,7 @@ type model struct {
 	mcpMgr       *mcp.Manager              // MCP server connections; nil when none configured
 	mcpSeen      map[string]bool           // servers whose first settle was announced
 	lspMgr       *lsp.Manager              // LSP diagnostics source for write/edit tool output
+	hookMgr      *hooks.Manager            // immutable lifecycle commands shared by active and replacement agents
 	// skillScan is the skills discovery seam (skills.Scan over DefaultDirs in
 	// the real model): a field so the context doctor can be tested against
 	// temp-dir skills instead of whatever the test machine happens to have.
@@ -352,6 +354,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	m.applyCompactModel()
 	m.applyTaskModel()
 	m.agent.CompactThreshold = compactThresholdFor(cfg)
+	m.reloadHooks(cwd(), true)
 	m.wireTasks() // redraw the UI when background subagents start/settle
 
 	// MCP: merge whip's own config with imported claude (.mcp.json) and codex
@@ -2842,6 +2845,9 @@ func (m *model) applyCompactModel() {
 // every start/settle. OnChange runs on the worker goroutine, so it only sends
 // a message (never touches UI state directly).
 func (m *model) wireTasks() {
+	// Every agent replacement path converges here, so a new conversation keeps
+	// the current immutable hook set and working-directory scope.
+	m.agent.SetHookScope(m.hookMgr, cwd())
 	// Persist every start/settle to the session store so --resume can restore
 	// the dock. Headless-safe (no prog needed). The session id comes in as an
 	// argument — published via SetSessionID — so this worker-goroutine
@@ -3449,6 +3455,11 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 				flush()
 				send(steeredMsg(s))
 			},
+			OnHook: func(event hooks.Event, outcome hooks.Outcome) {
+				if notice := hookNotice(event, outcome); notice != "" {
+					send(noticeMsg(notice))
+				}
+			},
 			OnCompacted: func(sum string, cutoff int) { send(compactMsg{summary: sum, cutoff: cutoff}) },
 			OnUsage:     func(u llm.Usage) { send(usageMsg(u)) },
 			// The decay pass rewrote n prefix messages in agent.Messages; drop
@@ -3505,7 +3516,7 @@ func busyCmd(text string) bool {
 		return false
 	}
 	switch fields[0] {
-	case "/help", "/theme", "/mouse", "/effort", "/subagents", "/tasks", "/subagent", "/cd", "/pwd", "/report", "/export", "/fork":
+	case "/help", "/theme", "/mouse", "/effort", "/subagents", "/tasks", "/subagent", "/cd", "/pwd", "/hooks", "/report", "/export", "/fork":
 		return true
 	case "/auth": // must run now even while busy: an inline key queued as a chat message would be sent to the model
 		return true
@@ -3588,6 +3599,9 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "/pwd":
 		m.append(dimStyle.Render(cwd()))
+		return m, nil
+	case "/hooks":
+		m.append(dimStyle.Render(m.hooksStatus()))
 		return m, nil
 	case "/subagent": // user-spawned background subagent — the LLM isn't the only driver
 		m.taskCommand(strings.TrimSpace(strings.TrimPrefix(text, "/subagent")))

@@ -22,6 +22,7 @@ import (
 	"github.com/context-labs/whip/internal/acp"
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/hooks"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
@@ -127,6 +128,15 @@ func acpCLI(args []string) error {
 		// supported level, else off — so a non-reasoning model never sends an
 		// effort parameter the provider would reject.
 		ag.Effort = tui.DefaultEffortFor(config.LoadCatalogs(), provName, ag.Model, cfg.DefaultEffort)
+		hookMgr := hooks.Load(hooks.LoadOptions{
+			WorkingDir:     wd,
+			IncludeProject: config.Trusted(wd),
+		})
+		ag.SetHookScope(hookMgr, wd)
+		for _, warning := range hookMgr.Warnings() {
+			config.LogEvent("hooks.load", warning)
+			fmt.Fprintln(os.Stderr, "whip: hooks:", warning)
+		}
 
 		// Skills + memory ride the system prompt. The TUI refreshes these per
 		// turn; ACP sessions refresh at session creation — a new skill lands
