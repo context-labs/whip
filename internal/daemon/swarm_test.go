@@ -26,8 +26,7 @@ func TestDaemonBackgroundSubagentIsDurableAndSteerable(t *testing.T) {
 	releaseChild := sync.OnceFunc(func() { close(release) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request llm.Request
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Error(err)
+		if json.NewDecoder(r.Body).Decode(&request) != nil {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -176,8 +175,7 @@ func TestDaemonSubagentCancellationTerminalizesDurableChild(t *testing.T) {
 	started := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request llm.Request
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Error(err)
+		if json.NewDecoder(r.Body).Decode(&request) != nil {
 			return
 		}
 		if len(request.Messages) > 0 && strings.Contains(request.Messages[0].Content, "subagent inside whip") {

@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 	"slices"
-	"sort"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -47,7 +47,8 @@ type paletteItem struct {
 type panelKind int
 
 const (
-	panelModel panelKind = iota
+	panelSubagent panelKind = iota
+	panelModel
 	panelEffort
 	panelGoal
 	panelCompact
@@ -82,9 +83,12 @@ type ppanel struct {
 
 	prepare string // panelGoal: text submitted when the editor closes
 
-	cands []string // panelCompact: model names from config
-	list  []string // panelCompact: "default (…)" + cands; panelTheme: {"auto","light","dark"}
-	midx  int      // panelCompact/panelTheme/panelBrowser/panelMCP: selection
+	list []string // panelCompact/panelSubagent: "default (…)" + every known model (config then catalog "(new)"); panelTheme: {"auto","light","dark"}
+	midx int      // panelCompact/panelSubagent/panelTheme/panelBrowser/panelMCP: selection
+
+	filter modelFilter // panelCompact/panelSubagent: type-to-filter over list
+
+	note string // panelCompact/panelSubagent: dim footer note (stale catalog hint)
 
 	mcps []mcpRow // panelMCP: the two source toggles then one row per server
 
@@ -275,15 +279,10 @@ func (m *model) paletteItems() []paletteItem {
 			},
 			dynHint: func(m *model) string { return "/compact <model>" },
 			panel: func(m *model) *ppanel {
-				names := make([]string, 0, len(m.cfg.Models))
-				for name := range m.cfg.Models {
-					names = append(names, name)
-				}
-				sort.Strings(names)
+				names := modelNamesFor(m.cfg)
 				pp := &ppanel{
 					kind:  panelCompact,
 					title: "Compaction model",
-					cands: names,
 					list:  append([]string{"default (" + config.DefaultCompactModel + ")"}, names...),
 				}
 				for i, name := range pp.list {
@@ -291,6 +290,9 @@ func (m *model) paletteItems() []paletteItem {
 						pp.midx = i
 						break
 					}
+				}
+				if st := staleCatalogs(m.cfg, config.LoadCatalogs()); len(st) > 0 {
+					pp.note = "catalog stale for " + strings.Join(st, ", ") + " — /model refresh pulls newly announced models"
 				}
 				return pp
 			},
@@ -315,6 +317,37 @@ func (m *model) paletteItems() []paletteItem {
 			dynHint: func(m *model) string { return "/goal " + slashHint(m, "/goal") },
 			panel: func(m *model) *ppanel {
 				pp := &ppanel{kind: panelGoal, title: "Goal", prepare: m.goal}
+				return pp
+			},
+		},
+		// After "Goal": the "goal" filter fuzzy-matches this row's haystack too
+		// ("SubAgent model Session" contains g→o→a→l), and first match wins —
+		// Goal is the exact hit, so it must sit earlier.
+		{
+			title: "Subagent model", category: "Session",
+			dynDesc: func(m *model) string {
+				if m.cfg.TaskModel == "" {
+					return "default (" + config.DefaultTaskModel + ")"
+				}
+				return m.cfg.TaskModel
+			},
+			dynHint: func(m *model) string { return "config taskModel" },
+			panel: func(m *model) *ppanel {
+				names := modelNamesFor(m.cfg)
+				pp := &ppanel{
+					kind:  panelSubagent,
+					title: "Subagent model",
+					list:  append([]string{"default (" + config.DefaultTaskModel + ")"}, names...),
+				}
+				for i, name := range pp.list {
+					if name == m.cfg.TaskModel {
+						pp.midx = i
+						break
+					}
+				}
+				if st := staleCatalogs(m.cfg, config.LoadCatalogs()); len(st) > 0 {
+					pp.note = "catalog stale for " + strings.Join(st, ", ") + " — /model refresh pulls newly announced models"
+				}
 				return pp
 			},
 		},
@@ -647,34 +680,64 @@ func (m *model) panelKey(msg tea.KeyMsg, pp *ppanel) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case panelCompact:
+	case panelSubagent, panelCompact:
+		// compact and subagent share the model-list interaction: type-to-filter,
+		// ↑/↓ move over the filtered rows, ←/→/enter apply the highlighted one.
+		view := pp.filter.view(len(pp.list))
+		apply := func() {
+			if len(view) == 0 || pp.midx >= len(view) {
+				return
+			}
+			row := view[pp.midx]
+			name := strings.TrimSuffix(pp.list[row], dimNew)
+			pp.err = ""
+			if row == 0 { // the "default (…)" row
+				if pp.kind == panelCompact {
+					m.compactCommand([]string{"off"})
+				} else {
+					m.subagentModelCommand([]string{"off"})
+				}
+				return
+			}
+			if pp.kind == panelCompact {
+				m.compactCommand([]string{name})
+				if m.compactModel != name {
+					pp.err = "couldn't resolve " + name + " — kept previous"
+				}
+			} else {
+				m.subagentModelCommand([]string{name})
+				if m.cfg.TaskModel != name {
+					pp.err = "couldn't resolve " + name + " — kept previous"
+				}
+			}
+		}
 		switch msg.Type {
 		case tea.KeyEsc, tea.KeyCtrlC:
 			pop()
 		case tea.KeyUp, tea.KeyCtrlP, tea.KeyShiftTab:
-			pp.midx = (pp.midx - 1 + len(pp.list)) % len(pp.list)
-		case tea.KeyDown, tea.KeyCtrlN, tea.KeyTab:
-			pp.midx = (pp.midx + 1) % len(pp.list)
-		case tea.KeyLeft, tea.KeyRight, tea.KeyEnter:
-			// apply immediately so a bad pick reports its error inline while
-			// the panel is still open
-			if pp.midx == 0 {
-				m.compactCommand([]string{"off"})
-				pp.err = ""
-			} else {
-				name := pp.list[pp.midx]
-				args := []string{name}
-				if mdl := m.cfg.Models[name]; len(mdl.Providers) > 0 {
-					args = append(args, mdl.Providers[0])
-				}
-				m.compactCommand(args)
-				pp.err = ""
-				if m.compactModel != name {
-					pp.err = "couldn't resolve " + name + " — kept previous"
-				}
+			if len(view) > 0 {
+				pp.midx = (pp.midx - 1 + len(view)) % len(view)
 			}
-			if msg.Type == tea.KeyEnter && pp.err == "" {
+		case tea.KeyDown, tea.KeyCtrlN, tea.KeyTab:
+			if len(view) > 0 {
+				pp.midx = (pp.midx + 1) % len(view)
+			}
+		case tea.KeyLeft, tea.KeyRight:
+			apply()
+		case tea.KeyEnter:
+			apply()
+			if pp.err == "" {
 				pop()
+			}
+		case tea.KeyBackspace, tea.KeyDelete:
+			if pp.filter.backspace() {
+				pp.filter.applyModelList(pp.list)
+				pp.midx = 0
+			}
+		case tea.KeyRunes, tea.KeySpace:
+			if pp.filter.typeRunes(msg.Runes) {
+				pp.filter.applyModelList(pp.list)
+				pp.midx = 0
 			}
 		}
 
@@ -953,22 +1016,41 @@ func (m *model) panelView(pp *ppanel) string {
 		}
 		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
 
-	case panelCompact:
-		for i, name := range pp.list {
+	case panelSubagent, panelCompact:
+		// compact and subagent share the model-list render: a "/" query line,
+		// the filtered rows, then err/note/footer.
+		b.WriteString("  " + botStyle.Render("/") + pp.filter.query + dimStyle.Render("▏") + "\n")
+		view := pp.filter.view(len(pp.list))
+		for i, row := range view {
+			name := pp.list[row]
 			cur := ""
-			if (i == 0 && m.compactModel == "") || (i > 0 && name == m.compactModel) {
+			current := m.compactModel
+			if pp.kind == panelSubagent {
+				current = m.cfg.TaskModel
+			}
+			if (row == 0 && current == "") || (row > 0 && name == current) {
 				cur = dimStyle.Render("  (current)")
 			}
-			if i == pp.midx {
-				b.WriteString(botStyle.Render(" → "+name) + cur + "\n")
-			} else {
-				b.WriteString("   " + name + cur + "\n")
+			line := name + cur
+			if strings.HasSuffix(name, dimNew) {
+				line = dimStyle.Render(line)
 			}
+			if i == pp.midx {
+				b.WriteString(botStyle.Render(" → "+line) + "\n")
+			} else {
+				b.WriteString("   " + line + "\n")
+			}
+		}
+		if len(view) == 0 {
+			b.WriteString(dimStyle.Render("  no models match "+strconv.Quote(pp.filter.query)) + "\n")
 		}
 		if pp.err != "" {
 			b.WriteString(errStyle.Render("  "+pp.err) + "\n")
 		}
-		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
+		if pp.note != "" {
+			b.WriteString(dimStyle.Render("  "+pp.note) + "\n")
+		}
+		b.WriteString("\n" + dimStyle.Render("  type to filter · ↑/↓ select · enter/←/→ apply · esc back"))
 
 	case panelTheme:
 		cur := m.cfg.Theme

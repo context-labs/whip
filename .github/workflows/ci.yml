@@ -38,7 +38,7 @@ jobs:
       # time. Key on the sources too, with a prefix restore-key, so each run
       # starts from the nearest previous compile and saves an updated cache.
       - name: Go build cache (lint)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: gobuild-lint-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -94,7 +94,7 @@ jobs:
       # expensive part of this job and setup-go's go.sum-keyed cache never
       # refreshes to hold them.
       - name: Go build cache (race + coverage objects)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: gobuild-test-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -136,7 +136,7 @@ jobs:
       # Per-target: each GOOS/GOARCH has its own standard-library objects, so
       # they get their own cache rather than evicting each other.
       - name: Go build cache (${{ matrix.target }})
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/go-build
           key: gobuild-${{ matrix.target }}-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}

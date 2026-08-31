@@ -247,7 +247,9 @@ always sees the recorded final state.
 **Subagent model routing** (`internal/agent/subagent.go` `SubModel`,
 `internal/tui/taskmodel.go`): subagents default to the cheap fast
 `deepseek-v4-flash-0731` route (`config.DefaultTaskModel`, same default as
-compaction); config `taskModel`/`taskProvider` pins a different one; the main
+compaction); config `taskModel`/`taskProvider` pins a different one —
+ctrl+p › Subagent model sets it and persists to the global config (the
+picker's "default" row restores the built-in default); the main
 model overrides per call via the `subagent` tool's optional `model`/`provider`
 params. Resolution chain: taskModel → built-in default → catalog id ending in
 `/<default>` (openrouter-style vendor prefixes) → silently fall back to the

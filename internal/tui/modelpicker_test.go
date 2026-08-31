@@ -54,28 +54,28 @@ func TestModelPickerFilter(t *testing.T) {
 	}
 
 	// substring on model name, case-insensitive
-	p.query = "BET"
+	p.filter.query = "BET"
 	p.applyQuery()
 	if got := p.view(); len(got) != 2 || got[0].model != "beta" {
 		t.Fatalf("filter by model: %+v", got)
 	}
 
 	// substring on provider name
-	p.query = "c"
+	p.filter.query = "c"
 	p.applyQuery()
 	if got := p.view(); len(got) != 1 || got[0].provider != "c" {
 		t.Fatalf("filter by provider: %+v", got)
 	}
 
 	// no match: empty view, not a crash
-	p.query = "zzz"
+	p.filter.query = "zzz"
 	p.applyQuery()
 	if got := p.view(); len(got) != 0 {
 		t.Fatalf("no-match view: %+v", got)
 	}
 
 	// clearing the query restores everything
-	p.query = ""
+	p.filter.query = ""
 	p.applyQuery()
 	if got := len(p.view()); got != 4 {
 		t.Fatalf("cleared query view: %d", got)
@@ -89,14 +89,14 @@ func TestModelPickerFuzzyFilter(t *testing.T) {
 	}}
 
 	// subsequence: "claudopus" skips the "-" and still matches
-	p.query = "claudopus"
+	p.filter.query = "claudopus"
 	p.applyQuery()
 	if got := p.view(); len(got) != 1 || got[0].model != "claude-opus-4" {
 		t.Fatalf("subsequence filter: %+v", got)
 	}
 
 	// provider match ranks alongside model matches
-	p.query = "openai"
+	p.filter.query = "openai"
 	p.applyQuery()
 	if got := p.view(); len(got) != 1 || got[0].model != "gpt-5" {
 		t.Fatalf("provider subsequence filter: %+v", got)

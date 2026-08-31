@@ -526,7 +526,9 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 	rounds := 0
 	for {
 		if a.MaxTurns > 0 && rounds >= a.MaxTurns {
-			return "", fmt.Errorf("max turns (%d) reached — the model kept calling tools; re-run with a higher -max-turns or a more specific prompt", a.MaxTurns)
+			// Cap reached: instead of failing, make one final no-tools call so
+			// the model produces an answer from what it already gathered.
+			return a.finalAnswer(ctx, ev)
 		}
 		rounds++
 		if err := a.maybeCompact(ctx, ev); err != nil {
@@ -1013,4 +1015,31 @@ func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 		ev.OnCompaction(sum, cutoff, before)
 	}
 	return nil
+}
+
+// finalAnswer makes one last completion with tools disabled, so a run that hit
+// the tool-turn cap still returns the model's best answer instead of an error.
+// A system nudge tells the model to stop calling tools and answer now.
+func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
+	msgs := append(append([]llm.Message(nil), a.Messages...),
+		llm.Message{Role: "system", Content: "You have reached the tool-call limit. Do NOT request any more tools. Give your final answer now using only what you have already gathered."})
+	a.Client.OnRetry = ev.OnRetry
+	msg, usage, err := a.Client.Stream(ctx, llm.Request{
+		Model:           a.Model,
+		Messages:        msgs,
+		Tools:           nil, // no tools — force a text answer
+		ReasoningEffort: a.Effort,
+		Temperature:     a.Temperature,
+		TopP:            a.TopP,
+	}, ev.OnText, ev.OnThink, ev.OnToolCall)
+	a.Client.OnRetry = nil
+	a.AddUsage(usage)
+	if ev.OnUsage != nil {
+		ev.OnUsage(usage)
+	}
+	if err != nil {
+		return "", err
+	}
+	a.compacted = false
+	return msg.Content, nil
 }

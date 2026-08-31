@@ -34,9 +34,13 @@ import (
 // and copy reconstruction mimics the word-aware wrap rather than keeping a
 // parallel plain-text render of every block.
 
-// selPos is one endpoint of the drag, in viewport content coordinates.
+// selPos is one endpoint of the drag. For the transcript region, row is a
+// viewport content row (see selPoint); for the input region, row is an index
+// into inputLines. input marks which region the endpoint is in — a selection
+// is always confined to one region (anchor's), so the two never mix.
 type selPos struct {
-	row, col int // col is a display cell (wide runes count 2)
+	row, col int  // col is a display cell (wide runes count 2)
+	input    bool // true = endpoint is in the input box, not the transcript
 }
 
 // selection is the in-flight (dragging) or last-completed selection. It
@@ -70,6 +74,27 @@ func (m *model) selPoint(x, y int, clamp bool) (selPos, bool) {
 	row = max(min(row, last), first)
 	w := ansi.StringWidth(m.contentLine(row))
 	return selPos{row: row, col: max(min(x, w), 0)}, true
+}
+
+// inInputRow reports whether an absolute screen row is inside the input box.
+func (m *model) inInputRow(y int) bool {
+	return m.inputTop >= 0 && y >= m.inputTop && y < m.inputTop+len(m.inputLines)
+}
+
+// inputPoint converts absolute screen coords in the input box to a selection
+// endpoint (region=input). clamp=true (drag motion) clamps the row into the
+// box; clamp=false (a press) returns ok=false outside it.
+func (m *model) inputPoint(x, y int, clamp bool) (selPos, bool) {
+	if m.inputTop < 0 || len(m.inputLines) == 0 {
+		return selPos{}, false
+	}
+	row := y - m.inputTop
+	if !clamp && (row < 0 || row >= len(m.inputLines)) {
+		return selPos{}, false
+	}
+	row = max(min(row, len(m.inputLines)-1), 0)
+	w := ansi.StringWidth(m.inputLines[row])
+	return selPos{row: row, col: max(min(x, w), 0), input: true}, true
 }
 
 // contentLine returns the unstyled text on content row r, read from the
@@ -118,7 +143,14 @@ func (m *model) selText(s selection) string {
 	lo, hi := selOrder(s)
 	var lines []string
 	for r := lo.row; r <= hi.row; r++ {
-		ln := m.contentLine(r)
+		var ln string
+		if lo.input {
+			if r < len(m.inputLines) {
+				ln = m.inputLines[r]
+			}
+		} else {
+			ln = m.contentLine(r)
+		}
 		start, end := selCols(lo, hi, r, ansi.StringWidth(ln))
 		lines = append(lines, strings.TrimRight(cellSlice(ln, start, end-start), " \t"))
 	}
@@ -144,6 +176,23 @@ func selCols(lo, hi selPos, r, lineWidth int) (int, int) {
 		end = hi.col
 	}
 	return start, max(end, start)
+}
+
+// highlightInput repaints the selected range in reverse video on the input
+// box's rendered view. Called from viewBody when the selection lives in the
+// input region. Row r maps directly to input view line r (the input box is
+// not scrolled/trimmed the way the transcript viewport is).
+func (m *model) highlightInput(iv string) string {
+	if m.sel == nil || !m.sel.anchor.input {
+		return iv
+	}
+	lines := strings.Split(iv, "\n")
+	lo, hi := selOrder(*m.sel)
+	for r := lo.row; r <= hi.row && r < len(lines); r++ {
+		start, end := selCols(lo, hi, r, ansi.StringWidth(lines[r]))
+		lines[r] = reverseRange(lines[r], start, end)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // highlightSelection repaints the selected range in reverse video on the FULL
@@ -266,6 +315,12 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 		if msg.Button != tea.MouseButtonLeft {
 			return false, nil
 		}
+		// Input box: a press there starts an input-region selection. The textarea
+		// doesn't use mouse for editing, so consuming it costs nothing.
+		if p, ok := m.inputPoint(msg.X, msg.Y, false); ok {
+			m.sel = &selection{anchor: p, cur: p}
+			return true, nil
+		}
 		p, ok := m.selPoint(msg.X, msg.Y, false)
 		if !ok {
 			return false, nil
@@ -275,6 +330,14 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 	case tea.MouseActionMotion:
 		if m.sel == nil || m.sel.done {
 			return false, nil
+		}
+		// The drag stays in the anchor's region: input-anchored drags clamp into
+		// the input box; transcript-anchored drags clamp into the blocks.
+		if m.sel.anchor.input {
+			if p, ok := m.inputPoint(msg.X, msg.Y, true); ok {
+				m.sel.cur = p
+			}
+			return true, nil // the input box doesn't scroll; no edge tick
 		}
 		if p, ok := m.selPoint(msg.X, msg.Y, true); ok {
 			m.sel.cur = p
@@ -290,7 +353,11 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 			copyText(m.selText(*m.sel))
 			return true, nil
 		}
+		inputClick := m.sel.anchor.input
 		m.sel = nil
+		if inputClick {
+			return true, nil // a no-drag click in the input box is just focus
+		}
 		m.clickAt(msg.X, msg.Y) // no drag: the press was a click all along
 		return true, nil
 	}

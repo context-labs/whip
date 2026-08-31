@@ -97,6 +97,101 @@ func TestTaskCommandSpawns(t *testing.T) {
 	}
 }
 
+// taskmodelCfgModel builds a headless model with a config where both "m" and
+// the built-in subagent default route to provider "p".
+func taskmodelCfgModel(url string) *model {
+	m := tasksModel(url)
+	m.cfg = taskCfg(url)
+	m.modelName, m.provName = "m", "p"
+	return m
+}
+
+// Picking the subagent model persists it to the config; off restores the
+// built-in default.
+func TestSubagentModelCommandPersists(t *testing.T) {
+	m := taskmodelCfgModel(sseTextServer(t, "").URL)
+
+	m.subagentModelCommand([]string{"m"})
+	if m.cfg.TaskModel != "m" || m.cfg.TaskProvider != "" {
+		t.Fatalf("state: %q @ %q", m.cfg.TaskModel, m.cfg.TaskProvider)
+	}
+	if m.agent.TaskDefault.Client == nil || m.agent.TaskDefault.Model != "m" {
+		t.Fatalf("the agent's default subagent route should follow the pick: %+v", m.agent.TaskDefault)
+	}
+	if !strings.Contains(m.blocks[len(m.blocks)-1].text, "subagent model: m @ p") {
+		t.Fatalf("expected a confirmation note, got %q", m.blocks[len(m.blocks)-1].text)
+	}
+
+	m.subagentModelCommand([]string{"off"})
+	if m.cfg.TaskModel != "" || m.agent.TaskDefault.Model != config.DefaultTaskModel {
+		t.Fatalf("off should restore the default route: %q", m.cfg.TaskModel)
+	}
+	if !strings.Contains(m.blocks[len(m.blocks)-1].text, "default ("+config.DefaultTaskModel+")") {
+		t.Fatalf("off should note the default, got %q", m.blocks[len(m.blocks)-1].text)
+	}
+}
+
+// An unresolvable pick reports the error and never persists a broken route.
+func TestSubagentModelCommandRejectsBadPick(t *testing.T) {
+	m := taskmodelCfgModel(sseTextServer(t, "").URL)
+
+	m.subagentModelCommand([]string{"nope"})
+	if m.cfg.TaskModel != "" {
+		t.Fatal("an unknown model must not persist")
+	}
+	if !strings.Contains(m.blocks[len(m.blocks)-1].text, "unknown model") {
+		t.Fatalf("expected an unknown-model note, got %q", m.blocks[len(m.blocks)-1].text)
+	}
+
+	// a model that resolves but routes to a provider with no key errors too
+	m.cfg.Models["nokey"] = config.Model{Providers: []string{"nokey"}}
+	m.cfg.Providers["nokey"] = config.Provider{BaseURL: "http://x"}
+	m.subagentModelCommand([]string{"nokey"})
+	if m.cfg.TaskModel != "" {
+		t.Fatal("an unresolvable route must not persist")
+	}
+	if !strings.Contains(m.blocks[len(m.blocks)-1].text, "task model:") {
+		t.Fatalf("expected a resolve error, got %q", m.blocks[len(m.blocks)-1].text)
+	}
+}
+
+// The palette's Subagent model row opens the picker: a pick applies through
+// subagentModelCommand (config persists) and esc pops back.
+func TestSubagentModelPanel(t *testing.T) {
+	m := taskmodelCfgModel(sseTextServer(t, "").URL)
+	m.openPalette()
+	var pp *ppanel
+	for _, it := range m.palette.all {
+		if it.title == "Subagent model" {
+			pp = it.panel(m)
+		}
+	}
+	if pp == nil {
+		t.Fatal("palette should have a Subagent model row")
+	}
+	if pp.list[0] != "default ("+config.DefaultTaskModel+")" || len(pp.list) != len(m.cfg.Models)+1 {
+		t.Fatalf("panel list: %v", pp.list)
+	}
+
+	m.palette.stack = []*ppanel{pp}
+	for i, name := range pp.list {
+		if name == "m" {
+			pp.midx = i
+		}
+	}
+	m.panelKey(tea.KeyMsg{Type: tea.KeyEnter}, pp)
+	if m.cfg.TaskModel != "m" || m.palette != nil && len(m.palette.stack) != 0 {
+		t.Fatalf("enter should apply and pop: taskModel=%q stack=%v", m.cfg.TaskModel, m.palette)
+	}
+
+	pp.midx = 0
+	m.palette.stack = []*ppanel{pp}
+	m.panelKey(tea.KeyMsg{Type: tea.KeyEnter}, pp)
+	if m.cfg.TaskModel != "" {
+		t.Fatal("the default row should restore the built-in subagent model")
+	}
+}
+
 // Typing in an open task view steers a running task and starts a follow-up
 // turn on a settled one.
 func TestTaskViewChat(t *testing.T) {

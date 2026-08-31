@@ -121,19 +121,23 @@ func TestClickExpandsToolBlock(t *testing.T) {
 	}
 }
 
-// A press below the transcript (input box / dock rows) must NOT start a
-// selection — handleMouseSelect runs before the dock/input click handlers, so
-// consuming those presses would break their clicks. A drag that overshoots
-// past the last block still clamps (motion only).
+// A press on the header/status rows must NOT start a selection —
+// handleMouseSelect runs before the dock/effort click handlers, so consuming
+// those presses would break their clicks. The input box IS selectable now (a
+// press there starts an input-region selection). A drag that overshoots past
+// the last block still clamps (motion only).
 func TestPressOutsideTranscriptNotConsumed(t *testing.T) {
 	m := selTestModel()
-	lastY := blockRowY(m, m.blocks[1].y1)
-	for _, y := range []int{0, 1, lastY + 2, m.height - 1} {
+	m.View()
+	for _, y := range []int{0, 1, m.height - 1} { // header rows + status line
+		if m.inInputRow(y) {
+			continue // the input box is its own selectable region now
+		}
 		if handled, _ := m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 2, Y: y}); handled {
-			t.Fatalf("press on non-transcript row %d must not be consumed", y)
+			t.Fatalf("press on non-selectable row %d must not be consumed", y)
 		}
 		if m.sel != nil {
-			t.Fatalf("press on non-transcript row %d must not start a selection", y)
+			t.Fatalf("press on non-selectable row %d must not start a selection", y)
 		}
 	}
 	// but a drag that starts on the transcript and overshoots below clamps
@@ -154,6 +158,61 @@ func TestDragBackward(t *testing.T) {
 	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 7, Y: y})
 	if got := m.selText(*m.sel); got != "block here" {
 		t.Fatalf("backward drag selected %q, want %q", got, "block here")
+	}
+}
+
+// A drag over the input box selects its text and copies it on release, with a
+// reverse-video highlight that does not move the box.
+func TestInputDragSelectsHighlightsCopies(t *testing.T) {
+	m := selTestModel()
+	m.input.SetValue("copy me from input")
+	tm, _ := m.Update(mkWinSize(80, 30))
+	m = tm.(*model)
+	m.View()
+	iy := m.inputTop
+	if iy < 0 {
+		t.Fatal("inputTop must be set after View")
+	}
+	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 2, Y: iy})
+	m = tm.(*model)
+	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 15, Y: iy})
+	m = tm.(*model)
+	if m.sel == nil || !m.sel.anchor.input {
+		t.Fatal("a drag over the input box must start an input-region selection")
+	}
+	if !strings.Contains(m.View(), "\x1b[7m") {
+		t.Fatalf("input selection must paint a highlight:\n%q", m.View())
+	}
+	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 15, Y: iy})
+	m = tm.(*model)
+	if m.sel == nil || !m.sel.done {
+		t.Fatal("release must keep a done selection for the highlight")
+	}
+	if got := m.selText(*m.sel); !strings.Contains(got, "copy me") {
+		t.Fatalf("input drag copied %q, want it to contain %q", got, "copy me")
+	}
+}
+
+// A no-drag click in the input box is just focus: no selection, and typing
+// afterward still reaches the textarea.
+func TestInputClickThenType(t *testing.T) {
+	m := selTestModel()
+	m.input.SetValue("")
+	tm, _ := m.Update(mkWinSize(80, 30))
+	m = tm.(*model)
+	m.View()
+	iy := m.inputTop
+	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 2, Y: iy})
+	m = tm.(*model)
+	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 2, Y: iy})
+	m = tm.(*model)
+	if m.sel != nil {
+		t.Fatal("a no-drag input click must leave no selection")
+	}
+	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hello")})
+	m = tm.(*model)
+	if m.input.Value() != "hello" {
+		t.Fatalf("typing after an input click broke: input=%q", m.input.Value())
 	}
 }
 
