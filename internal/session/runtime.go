@@ -5,18 +5,29 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	contentstore "github.com/context-labs/whip/internal/content"
+	schedulepkg "github.com/context-labs/whip/internal/schedule"
 )
 
 const (
 	InlineValueLimit = 8 << 10
 	MaxContentRead   = contentstore.MaxReadSize
+	MaxInboxBatch    = 256
 )
 
-var ErrContentAccess = errors.New("content reference is not authorized")
+var (
+	ErrContentAccess       = errors.New("content reference is not authorized")
+	ErrInboxTerminal       = errors.New("inbox item is terminal")
+	ErrScheduleClaimed     = errors.New("schedule fire was already claimed")
+	ErrInvalidScheduleSlot = errors.New("schedule fire is not on the next grid slot")
+	ErrRootTerminal        = errors.New("root agent is terminal")
+)
 
 type CommandScope string
 
@@ -88,6 +99,57 @@ type RuntimeInbox struct {
 	Payload RuntimePayload
 }
 
+type InboxEnqueue struct {
+	RootID          string
+	AgentID         string
+	Kind            string
+	CommandClientID string
+	CommandID       string
+	OperationID     string
+	TraceID         string
+	Payload         RuntimePayload
+}
+
+type InboxSequence struct {
+	InboxSeq int64
+	EventSeq int64
+}
+
+type InboxItem struct {
+	RootID  string
+	AgentID string
+	Seq     int64
+	Kind    string
+	Status  string
+	Payload RuntimeValue
+}
+
+type ScheduleFireClaim struct {
+	RootID           string
+	AgentID          string
+	ScheduleID       int
+	ExpectedLastFire time.Time
+	Slot             time.Time
+	CommandClientID  string
+	CommandID        string
+	OperationID      string
+	TraceID          string
+}
+
+type actorEvent struct {
+	AgentID         string `json:"agent_id,omitempty"`
+	InboxSeq        int64  `json:"inbox_seq,omitempty"`
+	InboxKind       string `json:"inbox_kind,omitempty"`
+	Status          string `json:"status,omitempty"`
+	CommandClientID string `json:"command_client_id,omitempty"`
+	CommandID       string `json:"command_id,omitempty"`
+	OperationID     string `json:"operation_id,omitempty"`
+	TraceID         string `json:"trace_id,omitempty"`
+	ScheduleID      int    `json:"schedule_id,omitempty"`
+	Slot            string `json:"slot,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
 type RuntimeState struct {
 	RootID        string
 	AgentID       string
@@ -135,6 +197,326 @@ type RuntimeResult struct {
 type preparedRuntimeValue struct {
 	RuntimeValue
 	grant ContentGrant
+}
+
+func (s *Store) EnqueueInbox(ctx context.Context, item InboxEnqueue) (InboxSequence, error) {
+	if err := validateInboxEnqueue(item); err != nil {
+		return InboxSequence{}, err
+	}
+	prepared, err := s.prepareRuntimeValue(item.Payload, ContentGrant{RootID: item.RootID, AgentID: item.AgentID, Scope: ContentGrantAgent})
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	defer tx.Rollback()
+	sequence, err := s.enqueueInboxTx(ctx, tx, item, prepared, "inbox.queued", actorEvent{})
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return InboxSequence{}, err
+	}
+	return sequence, nil
+}
+
+func (s *Store) LoadQueuedInbox(ctx context.Context, rootID, agentID string, afterSeq int64, limit int) ([]InboxItem, error) {
+	if rootID == "" || agentID == "" || afterSeq < 0 || limit < 1 || limit > MaxInboxBatch {
+		return nil, fmt.Errorf("queued inbox load requires a root, agent, nonnegative cursor, and limit from 1 to %d", MaxInboxBatch)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT i.seq,i.kind,i.status,substr(i.payload_inline,1,?),COALESCE(i.payload_ref,''),
+		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
+		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref
+		WHERE i.root_id=? AND i.agent_id=? AND i.status='queued' AND i.seq>? ORDER BY i.seq LIMIT ?`, InlineValueLimit+1, rootID, agentID, afterSeq, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		item := InboxItem{RootID: rootID, AgentID: agentID}
+		var referenceID string
+		if err := rows.Scan(&item.Seq, &item.Kind, &item.Status, &item.Payload.Inline, &referenceID,
+			&item.Payload.Digest, &item.Payload.Size, &item.Payload.MediaType, &item.Payload.Source); err != nil {
+			return nil, err
+		}
+		if referenceID == "" {
+			if len(item.Payload.Inline) > InlineValueLimit {
+				return nil, fmt.Errorf("inbox item %d has an oversized inline payload", item.Seq)
+			}
+			item.Payload.Size = int64(len(item.Payload.Inline))
+		} else {
+			item.Payload.ReferenceID = referenceID
+			item.Payload.Inline = nil
+			if item.Payload.Digest == "" {
+				return nil, fmt.Errorf("inbox item %d references missing content", item.Seq)
+			}
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) ConsumeInbox(ctx context.Context, rootID, agentID string, seq int64) (int64, error) {
+	if rootID == "" || agentID == "" || seq < 1 {
+		return 0, errors.New("inbox consume requires a root, agent, and positive sequence")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='consumed' WHERE root_id=? AND agent_id=? AND seq=? AND status IN ('queued','running')`, rootID, agentID, seq)
+	if err != nil {
+		return 0, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return 0, err
+		}
+		return 0, ErrInboxTerminal
+	}
+	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "inbox.consumed", actorEvent{AgentID: agentID, InboxSeq: seq, Status: "consumed"}, now())
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return eventSeq, nil
+}
+
+func (s *Store) ClaimScheduleFire(ctx context.Context, claim ScheduleFireClaim) (InboxSequence, error) {
+	if claim.RootID == "" || claim.AgentID == "" || claim.ScheduleID < 1 || claim.Slot.IsZero() ||
+		(claim.CommandClientID == "") != (claim.CommandID == "") {
+		return InboxSequence{}, errors.New("schedule claim requires root, agent, schedule, slot, and complete command identity")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	defer tx.Rollback()
+	var expression, prompt, anchorText, lastFireText string
+	if err := tx.QueryRowContext(ctx, `SELECT schedule,prompt,anchor,last_fire FROM schedules WHERE session_id=? AND id=?`, claim.RootID, claim.ScheduleID).
+		Scan(&expression, &prompt, &anchorText, &lastFireText); err != nil {
+		return InboxSequence{}, err
+	}
+	anchor, err := time.Parse(time.RFC3339, anchorText)
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	var lastFire time.Time
+	if lastFireText != "" {
+		lastFire, err = time.Parse(time.RFC3339, lastFireText)
+		if err != nil {
+			return InboxSequence{}, err
+		}
+	}
+	if !lastFire.Equal(claim.ExpectedLastFire) {
+		return InboxSequence{}, ErrScheduleClaimed
+	}
+	parsed, err := schedulepkg.Parse(expression)
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	var expected time.Time
+	if parsed.Every > 0 {
+		if lastFire.IsZero() {
+			expected = anchor
+		} else {
+			expected, _ = parsed.NextAfter(anchor, lastFire)
+		}
+	} else {
+		if !lastFire.IsZero() {
+			return InboxSequence{}, ErrScheduleClaimed
+		}
+		expected = parsed.At
+	}
+	if !claim.Slot.UTC().Equal(expected.UTC()) {
+		return InboxSequence{}, ErrInvalidScheduleSlot
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE schedules SET last_fire=? WHERE session_id=? AND id=? AND last_fire=?`,
+		claim.Slot.UTC().Format(time.RFC3339), claim.RootID, claim.ScheduleID, lastFireText)
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return InboxSequence{}, err
+		}
+		return InboxSequence{}, ErrScheduleClaimed
+	}
+	item := InboxEnqueue{
+		RootID: claim.RootID, AgentID: claim.AgentID, Kind: "schedule", CommandClientID: claim.CommandClientID,
+		CommandID: claim.CommandID, OperationID: claim.OperationID, TraceID: claim.TraceID,
+		Payload: RuntimePayload{Data: []byte(prompt), MediaType: "text/plain", Source: "schedule prompt"},
+	}
+	prepared, err := s.prepareRuntimeValue(item.Payload, ContentGrant{RootID: item.RootID, AgentID: item.AgentID, Scope: ContentGrantAgent})
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	sequence, err := s.enqueueInboxTx(ctx, tx, item, prepared, "schedule.fired", actorEvent{
+		ScheduleID: claim.ScheduleID, Slot: claim.Slot.UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return InboxSequence{}, err
+	}
+	return sequence, nil
+}
+
+func (s *Store) FailClassicRoot(ctx context.Context, rootID, reason string) (int64, error) {
+	if rootID == "" {
+		return 0, errors.New("root failure requires a root")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	stamp := now()
+	agentID := "classic:" + rootID
+	result, err := tx.ExecContext(ctx, `UPDATE agents SET status='failed',updated_at=? WHERE root_id=? AND id=?
+		AND status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`, stamp, rootID, agentID)
+	if err != nil {
+		return 0, err
+	}
+	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+		if err != nil {
+			return 0, err
+		}
+		return 0, ErrRootTerminal
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT payload_inline,payload_ref FROM operations WHERE root_id=? AND status IN ('queued','running','waiting')`, rootID)
+	if err != nil {
+		return 0, err
+	}
+	var admissions []capability.Admission
+	for rows.Next() {
+		var inline []byte
+		var reference sql.NullString
+		if err := rows.Scan(&inline, &reference); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if len(inline) == 0 && !reference.Valid {
+			continue
+		}
+		payload, err := s.readRuntimeValueTx(ctx, tx, inline, reference)
+		if err != nil {
+			rows.Close()
+			return 0, err
+		}
+		var admission capability.Admission
+		if err := json.Unmarshal(payload, &admission); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if admission.Request.RootID != rootID {
+			rows.Close()
+			return 0, errors.New("operation admission root does not match stored root")
+		}
+		admissions = append(admissions, admission)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	for _, admission := range admissions {
+		if err := releaseCapabilityBudgets(ctx, tx, rootID, admission.Request.Reservations); err != nil {
+			return 0, err
+		}
+	}
+	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
+		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE root_id=? AND status IN ('queued','running','waiting')`, stamp, rootID); err != nil {
+			return 0, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE root_id=? AND status IN ('queued','running')`, rootID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE root_id=? AND status='pending'`, stamp, rootID); err != nil {
+		return 0, err
+	}
+	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "root.failed", actorEvent{AgentID: agentID, Status: "failed", Error: reason}, stamp)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return eventSeq, nil
+}
+
+func validateInboxEnqueue(item InboxEnqueue) error {
+	if item.RootID == "" || item.AgentID == "" || item.Kind == "" || (item.CommandClientID == "") != (item.CommandID == "") {
+		return errors.New("inbox enqueue requires root, agent, kind, and complete command identity")
+	}
+	return nil
+}
+
+func (s *Store) enqueueInboxTx(ctx context.Context, tx *sql.Tx, item InboxEnqueue, prepared preparedRuntimeValue, eventKind string, event actorEvent) (InboxSequence, error) {
+	if err := validateInboxEnqueue(item); err != nil {
+		return InboxSequence{}, err
+	}
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM agents WHERE root_id=? AND id=?`, item.RootID, item.AgentID).Scan(&status); err != nil {
+		return InboxSequence{}, err
+	}
+	if status == "failed" || status == "stopped" || status == "cancelled" || status == "interrupted" || status == "deleted" || status == "succeeded" {
+		return InboxSequence{}, ErrRootTerminal
+	}
+	var sequence InboxSequence
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM inbox WHERE root_id=? AND agent_id=?`, item.RootID, item.AgentID).Scan(&sequence.InboxSeq); err != nil {
+		return InboxSequence{}, err
+	}
+	stamp := now()
+	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
+		return InboxSequence{}, err
+	}
+	inline, reference := runtimeValueColumns(prepared.RuntimeValue)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO inbox(root_id,agent_id,seq,kind,status,payload_inline,payload_ref,created_at) VALUES(?,?,?,?, 'queued',?,?,?)`,
+		item.RootID, item.AgentID, sequence.InboxSeq, item.Kind, inline, reference, stamp); err != nil {
+		return InboxSequence{}, err
+	}
+	event.AgentID = item.AgentID
+	event.InboxSeq = sequence.InboxSeq
+	event.InboxKind = item.Kind
+	event.Status = "queued"
+	event.CommandClientID = item.CommandClientID
+	event.CommandID = item.CommandID
+	event.OperationID = item.OperationID
+	event.TraceID = item.TraceID
+	eventSeq, err := s.insertActorEventTx(ctx, tx, item.RootID, eventKind, event, stamp)
+	sequence.EventSeq = eventSeq
+	return sequence, err
+}
+
+func (s *Store) insertActorEventTx(ctx context.Context, tx *sql.Tx, rootID, kind string, event actorEvent, stamp string) (int64, error) {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return 0, err
+	}
+	prepared, err := s.prepareRuntimeValue(RuntimePayload{Data: payload, MediaType: "application/json", Source: "actor event"}, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return 0, err
+	}
+	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
+		return 0, err
+	}
+	var seq int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM events WHERE root_id=?`, rootID).Scan(&seq); err != nil {
+		return 0, err
+	}
+	inline, reference := runtimeValueColumns(prepared.RuntimeValue)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events(root_id,seq,kind,payload_inline,payload_ref,created_at) VALUES(?,?,?,?,?,?)`,
+		rootID, seq, kind, inline, reference, stamp); err != nil {
+		return 0, err
+	}
+	return seq, nil
 }
 
 func (s *Store) CommitRuntime(ctx context.Context, transition RuntimeTransition) (RuntimeResult, error) {
@@ -605,6 +987,12 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE status IN ('queued','running','waiting')`, stamp); err != nil {
 			return err
 		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE status='running' OR (status='queued' AND kind!='schedule')`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE status='pending'`, stamp); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

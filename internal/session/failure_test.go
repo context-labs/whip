@@ -106,6 +106,97 @@ func TestRuntimeTransitionFailureRollsBackRowsAndDiagnosesBody(t *testing.T) {
 	}
 }
 
+func TestActorPersistenceEventFailuresRollBack(t *testing.T) {
+	t.Run("enqueue", func(t *testing.T) {
+		st, rootID, agentID := actorFailureFixture(t)
+		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+		_, err := st.EnqueueInbox(context.Background(), InboxEnqueue{
+			RootID: rootID, AgentID: agentID, Kind: "command",
+			Payload: RuntimePayload{Data: bytes.Repeat([]byte("large"), 4096)},
+		})
+		if err == nil {
+			t.Fatal("event failure should abort enqueue")
+		}
+		assertActorRows(t, st, rootID, 0, 0)
+	})
+
+	t.Run("consume", func(t *testing.T) {
+		st, rootID, agentID := actorFailureFixture(t)
+		pair, err := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: agentID, Kind: "command"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+		if _, err := st.ConsumeInbox(context.Background(), rootID, agentID, pair.InboxSeq); err == nil {
+			t.Fatal("event failure should abort consume")
+		}
+		var status string
+		if err := st.db.QueryRow(`SELECT status FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`, rootID, agentID, pair.InboxSeq).Scan(&status); err != nil || status != "queued" {
+			t.Fatalf("failed consume status=%q err=%v", status, err)
+		}
+		assertActorRows(t, st, rootID, 1, 1)
+	})
+
+	t.Run("schedule", func(t *testing.T) {
+		st, rootID, agentID := actorFailureFixture(t)
+		anchor := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+		id, err := st.AddSchedule(rootID, "@every 10m", "work", anchor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+		if _, err := st.ClaimScheduleFire(context.Background(), ScheduleFireClaim{RootID: rootID, AgentID: agentID, ScheduleID: id, Slot: anchor}); err == nil {
+			t.Fatal("event failure should abort schedule claim")
+		}
+		if got := st.Schedules(rootID); len(got) != 1 || !got[0].LastFire.IsZero() {
+			t.Fatalf("failed schedule claim stamped row: %+v", got)
+		}
+		assertActorRows(t, st, rootID, 0, 0)
+	})
+
+	t.Run("root failure", func(t *testing.T) {
+		st, rootID, agentID := actorFailureFixture(t)
+		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'d','running',?,?)`, rootID, now(), now())
+		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+		if _, err := st.FailClassicRoot(context.Background(), rootID, "actor panic"); err == nil {
+			t.Fatal("event failure should abort root terminalization")
+		}
+		var statuses string
+		if err := st.db.QueryRow(`SELECT a.status || ':' || c.status FROM agents a JOIN commands c ON c.root_id=a.root_id WHERE a.id=? AND c.command_id='cmd'`, agentID).Scan(&statuses); err != nil || statuses != "idle:running" {
+			t.Fatalf("failed terminalization statuses=%q err=%v", statuses, err)
+		}
+		assertActorRows(t, st, rootID, 0, 0)
+	})
+}
+
+func actorFailureFixture(t *testing.T) (*Store, string, string) {
+	t.Helper()
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rootID, err := st.Create(t.TempDir(), "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st, rootID, authority.AgentID
+}
+
+func assertActorRows(t *testing.T, st *Store, rootID string, inbox, events int) {
+	t.Helper()
+	for table, want := range map[string]int{"inbox": inbox, "events": events} {
+		var got int
+		if err := st.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE root_id=?`, rootID).Scan(&got); err != nil || got != want {
+			t.Fatalf("%s rows=%d want=%d err=%v", table, got, want, err)
+		}
+	}
+}
+
 func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	st, err := Open(path)
