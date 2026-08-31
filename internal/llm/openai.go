@@ -349,6 +349,16 @@ func New(baseURL, apiKey string) *Client {
 	}
 }
 
+const userAgent = "whip"
+
+func (c *Client) setProviderHeaders(req *http.Request, contentType bool) {
+	if contentType {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	req.Header.Set("User-Agent", userAgent)
+}
+
 // Request is a chat completions request.
 type Request struct {
 	Model           string    `json:"model"`
@@ -600,7 +610,7 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	c.setProviderHeaders(hr, false)
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
 		return nil, err
@@ -683,8 +693,7 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
-	hr.Header.Set("Content-Type", "application/json")
-	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	c.setProviderHeaders(hr, true)
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
 		return Message{}, Usage{}, err
@@ -814,8 +823,7 @@ func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 	if err != nil {
 		return "", Usage{}, err
 	}
-	hr.Header.Set("Content-Type", "application/json")
-	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	c.setProviderHeaders(hr, true)
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
 		return "", Usage{}, err
