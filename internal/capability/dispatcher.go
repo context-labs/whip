@@ -41,6 +41,11 @@ type Reservation struct {
 	Consume bool   `json:"consume,omitempty"`
 }
 
+type Usage struct {
+	Kind   string `json:"kind"`
+	Amount int64  `json:"amount"`
+}
+
 type Grant struct {
 	ID            string
 	RootID        string
@@ -103,6 +108,7 @@ type Completion struct {
 	Status    Status
 	Output    string
 	Error     string
+	Usage     []Usage
 }
 
 type Decision struct {

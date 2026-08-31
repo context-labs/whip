@@ -74,8 +74,7 @@ func (s *Store) EnsureClassicAuthority(ctx context.Context, rootID string) (capa
 			return capability.ClassicAuthority{}, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO budgets(root_id,agent_id,kind,limit_value,updated_at)
-		VALUES(?,'','active_operations',64,?) ON CONFLICT(root_id,agent_id,kind) DO NOTHING`, rootID, stamp); err != nil {
+	if err := insertDefaultRootBudgets(ctx, tx, rootID, stamp); err != nil {
 		return capability.ClassicAuthority{}, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT generation FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
@@ -168,26 +167,6 @@ func (s *Store) RevokeCapability(ctx context.Context, capabilityID string) error
 	return nil
 }
 
-func (s *Store) SetCapabilityBudget(ctx context.Context, rootID, kind string, limit int64) error {
-	if rootID == "" || kind == "" || limit < 0 {
-		return errors.New("budget requires a root, kind, and nonnegative limit")
-	}
-	result, err := s.db.ExecContext(ctx, `INSERT INTO budgets(root_id,agent_id,kind,limit_value,updated_at)
-		SELECT ?,'',?,?,? WHERE EXISTS(SELECT 1 FROM sessions WHERE id=?)
-		ON CONFLICT(root_id,agent_id,kind) DO UPDATE SET limit_value=excluded.limit_value,updated_at=excluded.updated_at`,
-		rootID, kind, limit, now(), rootID)
-	if err != nil {
-		return err
-	}
-	if n, err := result.RowsAffected(); err != nil || n != 1 {
-		if err != nil {
-			return err
-		}
-		return capability.ErrDenied
-	}
-	return nil
-}
-
 func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capability.Ticket, error) {
 	payload, err := json.Marshal(admission)
 	if err != nil {
@@ -210,7 +189,7 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 	if err := validateCapabilityAdmission(ctx, tx, admission); err != nil {
 		return capability.Ticket{}, s.commitDeniedAdmission(ctx, tx, prepared, admission, err)
 	}
-	if err := validateCapabilityBudgets(ctx, tx, admission.Request.RootID, admission.Request.Reservations, false); err != nil {
+	if err := validateCapabilityBudgets(ctx, tx, admission.Request.RootID, admission.Request.AgentID, admission.Request.Reservations, false); err != nil {
 		return capability.Ticket{}, s.commitDeniedAdmission(ctx, tx, prepared, admission, err)
 	}
 	stamp := now()
@@ -234,7 +213,7 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 		admission.Request.CommandClientID, admission.Request.CommandID, status, inline, reference, stamp, stamp); err != nil {
 		return capability.Ticket{}, err
 	}
-	if err := reserveCapabilityBudgets(ctx, tx, admission.Request.RootID, admission.Request.Reservations); err != nil {
+	if err := reserveCapabilityBudgets(ctx, tx, admission.Request.RootID, admission.Request.AgentID, admission.Request.Reservations); err != nil {
 		return capability.Ticket{}, err
 	}
 	if admission.RequirePermission {
@@ -326,7 +305,7 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 	if err := validateCapabilityAdmission(ctx, tx, admission); err != nil {
 		return capability.Ticket{}, s.denyStalePermission(ctx, tx, admission, permissionID, decision, err)
 	}
-	if err := validateCapabilityBudgets(ctx, tx, rootID, admission.Request.Reservations, true); err != nil {
+	if err := validateCapabilityBudgets(ctx, tx, rootID, agentID, admission.Request.Reservations, true); err != nil {
 		return capability.Ticket{}, s.denyStalePermission(ctx, tx, admission, permissionID, decision, err)
 	}
 	leaseID, err := runtimeID()
@@ -404,7 +383,7 @@ func (s *Store) Finish(ctx context.Context, completion capability.Completion) er
 	if _, err := tx.ExecContext(ctx, `UPDATE leases SET status=?,updated_at=? WHERE id=? AND status='running'`, completion.Status, stamp, completion.LeaseID); err != nil {
 		return err
 	}
-	if err := settleCapabilityBudgets(ctx, tx, stored.Request.RootID, stored.Request.Reservations); err != nil {
+	if err := settleCapabilityBudgets(ctx, tx, stored.Request.RootID, stored.Request.AgentID, stored.Request.Reservations, completion.Usage); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -481,64 +460,6 @@ func loadCapabilityGrant(ctx context.Context, tx *sql.Tx, rootID, agentID, capab
 	return grant, nil
 }
 
-func validateCapabilityBudgets(ctx context.Context, tx *sql.Tx, rootID string, reservations []capability.Reservation, reserved bool) error {
-	for _, reservation := range reservations {
-		var limit, used, held int64
-		if err := tx.QueryRowContext(ctx, `SELECT limit_value,used_value,reserved_value FROM budgets WHERE root_id=? AND agent_id='' AND kind=?`,
-			rootID, reservation.Kind).Scan(&limit, &used, &held); err != nil {
-			return capability.ErrDenied
-		}
-		if reserved {
-			if held < reservation.Amount || used+held > limit {
-				return capability.ErrDenied
-			}
-		} else if used+held+reservation.Amount > limit {
-			return capability.ErrDenied
-		}
-	}
-	return nil
-}
-
-func reserveCapabilityBudgets(ctx context.Context, tx *sql.Tx, rootID string, reservations []capability.Reservation) error {
-	for _, reservation := range reservations {
-		result, err := tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=reserved_value+?,updated_at=?
-			WHERE root_id=? AND agent_id='' AND kind=? AND used_value+reserved_value+?<=limit_value`,
-			reservation.Amount, now(), rootID, reservation.Kind, reservation.Amount)
-		if err != nil {
-			return err
-		}
-		if n, err := result.RowsAffected(); err != nil || n != 1 {
-			if err != nil {
-				return err
-			}
-			return capability.ErrDenied
-		}
-	}
-	return nil
-}
-
-func settleCapabilityBudgets(ctx context.Context, tx *sql.Tx, rootID string, reservations []capability.Reservation) error {
-	for _, reservation := range reservations {
-		used := int64(0)
-		if reservation.Consume {
-			used = reservation.Amount
-		}
-		result, err := tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=reserved_value-?,used_value=used_value+?,updated_at=?
-			WHERE root_id=? AND agent_id='' AND kind=? AND reserved_value>=?`,
-			reservation.Amount, used, now(), rootID, reservation.Kind, reservation.Amount)
-		if err != nil {
-			return err
-		}
-		if n, err := result.RowsAffected(); err != nil || n != 1 {
-			if err != nil {
-				return err
-			}
-			return capability.ErrDenied
-		}
-	}
-	return nil
-}
-
 func insertCapabilityLease(ctx context.Context, tx *sql.Tx, leaseID string, admission capability.Admission, stamp string) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO leases(id,root_id,agent_id,operation_id,capability_id,trace_id,command_client_id,command_id,status,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?)`, leaseID, admission.Request.RootID, admission.Request.AgentID, admission.Request.OperationID,
@@ -573,25 +494,7 @@ func terminalizePermission(ctx context.Context, tx *sql.Tx, admission capability
 		capability.StatusDenied, []byte(reason), stamp, admission.Request.OperationID); err != nil {
 		return err
 	}
-	return releaseCapabilityBudgets(ctx, tx, admission.Request.RootID, admission.Request.Reservations)
-}
-
-func releaseCapabilityBudgets(ctx context.Context, tx *sql.Tx, rootID string, reservations []capability.Reservation) error {
-	for _, reservation := range reservations {
-		result, err := tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=reserved_value-?,updated_at=?
-			WHERE root_id=? AND agent_id='' AND kind=? AND reserved_value>=?`,
-			reservation.Amount, now(), rootID, reservation.Kind, reservation.Amount)
-		if err != nil {
-			return err
-		}
-		if n, err := result.RowsAffected(); err != nil || n != 1 {
-			if err != nil {
-				return err
-			}
-			return capability.ErrDenied
-		}
-	}
-	return nil
+	return releaseCapabilityBudgets(ctx, tx, admission.Request.RootID, admission.Request.AgentID, admission.Request.Reservations)
 }
 
 func (s *Store) denyStalePermission(ctx context.Context, tx *sql.Tx, admission capability.Admission, permissionID string, decision capability.Decision, denial error) error {

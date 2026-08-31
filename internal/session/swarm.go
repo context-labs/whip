@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 var (
@@ -18,6 +20,7 @@ type ChildAdmission struct {
 	ParentAgentID string
 	ChildAgentID  string
 	ExecutionID   string
+	Budgets       []BudgetLimit
 }
 
 type AgentRelatives struct {
@@ -70,6 +73,37 @@ func (s *Store) AdmitChild(ctx context.Context, admission ChildAdmission) (int64
 	if isTerminalAgentStatus(parent.Status) {
 		return 0, ErrAgentTerminal
 	}
+	if err := syncChildBudgetReservationsTx(ctx, tx, admission.RootID); err != nil {
+		return 0, err
+	}
+	requested := make(map[BudgetKind]int64, len(admission.Budgets))
+	for _, budget := range admission.Budgets {
+		if budget.Kind == "" || budget.Limit < 0 {
+			return 0, errors.New("child budgets require a kind and nonnegative limit")
+		}
+		if _, duplicate := requested[budget.Kind]; duplicate {
+			return 0, errors.New("child budget kinds must be unique")
+		}
+		requested[budget.Kind] = budget.Limit
+	}
+	parentDepth, err := agentDepthTx(ctx, tx, admission.RootID, admission.ParentAgentID)
+	if err != nil {
+		return 0, err
+	}
+	childDepth := parentDepth + 1
+	depthRows, err := loadBudgetRowsTx(ctx, tx, admission.RootID, admission.ParentAgentID, BudgetDepth)
+	if err != nil {
+		return 0, err
+	}
+	for _, row := range depthRows {
+		if childDepth > row.limit {
+			return 0, capability.ErrDenied
+		}
+	}
+	activeChild := []capability.Reservation{{Kind: string(BudgetActiveChildren), Amount: 1}}
+	if err := reserveCapabilityBudgets(ctx, tx, admission.RootID, admission.ParentAgentID, activeChild); err != nil {
+		return 0, err
+	}
 	stamp := now()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at) VALUES(?,?,?,'idle',?,?)`,
 		admission.ChildAgentID, admission.RootID, admission.ParentAgentID, stamp, stamp); err != nil {
@@ -79,9 +113,135 @@ func (s *Store) AdmitChild(ctx context.Context, admission ChildAdmission) (int64
 		admission.ExecutionID, admission.RootID, admission.ParentAgentID, admission.ChildAgentID, stamp, stamp); err != nil {
 		return 0, err
 	}
+	for kind, requestedLimit := range requested {
+		rows, err := loadBudgetRowsTx(ctx, tx, admission.RootID, admission.ParentAgentID, kind)
+		if err != nil {
+			return 0, err
+		}
+		limit := requestedLimit
+		for _, row := range rows {
+			remaining, valid := budgetRemaining(row)
+			if !valid {
+				return 0, capability.ErrDenied
+			}
+			if remaining < limit {
+				limit = remaining
+			}
+		}
+		if kind == BudgetDepth && childDepth > limit {
+			return 0, capability.ErrDenied
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO budgets(root_id,agent_id,kind,limit_value,updated_at) VALUES(?,?,?,?,?)`,
+			admission.RootID, admission.ChildAgentID, kind, limit, stamp); err != nil {
+			return 0, err
+		}
+	}
+	if _, err := s.insertActorEventTx(ctx, tx, admission.RootID, "budget.active_child.reserved", actorEvent{
+		AgentID: admission.ParentAgentID, ChildExecutionID: admission.ExecutionID, BudgetKind: string(BudgetActiveChildren), Amount: 1,
+	}, stamp); err != nil {
+		return 0, err
+	}
+	if err := syncChildBudgetReservationsTx(ctx, tx, admission.RootID); err != nil {
+		return 0, err
+	}
 	eventSeq, err := s.insertActorEventTx(ctx, tx, admission.RootID, "child.admitted", actorEvent{
 		AgentID: admission.ChildAgentID, Status: "queued", ChildExecutionID: admission.ExecutionID,
 	}, stamp)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return eventSeq, nil
+}
+
+func (s *Store) StartChildTurn(ctx context.Context, rootID, callerAgentID, executionID string) (int64, error) {
+	if rootID == "" || callerAgentID == "" || executionID == "" {
+		return 0, ErrAgentAccess
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	parentID, childID, status, err := loadChildExecutionTx(ctx, tx, rootID, executionID)
+	if err != nil {
+		return 0, err
+	}
+	if status != "queued" && status != "idle" && status != "waiting" {
+		return 0, ErrAgentTerminal
+	}
+	if err := authorizeExecutionCallerTx(ctx, tx, rootID, callerAgentID, parentID); err != nil {
+		return 0, err
+	}
+	child, err := loadAgentTx(ctx, tx, rootID, childID)
+	if err != nil {
+		return 0, err
+	}
+	if isTerminalAgentStatus(child.Status) {
+		return 0, ErrAgentTerminal
+	}
+	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
+		return 0, err
+	}
+	concurrency := []capability.Reservation{{Kind: string(BudgetConcurrentChildTurns), Amount: 1}}
+	if err := reserveCapabilityBudgets(ctx, tx, rootID, parentID, concurrency); err != nil {
+		return 0, err
+	}
+	stamp := now()
+	if _, err := tx.ExecContext(ctx, `UPDATE child_executions SET status='running',updated_at=? WHERE root_id=? AND id=? AND status=?`, stamp, rootID, executionID, status); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status='running',updated_at=? WHERE root_id=? AND id=?`, stamp, rootID, childID); err != nil {
+		return 0, err
+	}
+	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "budget.child_turn.reserved", actorEvent{
+		AgentID: parentID, ChildExecutionID: executionID, BudgetKind: string(BudgetConcurrentChildTurns), Amount: 1,
+	}, stamp)
+	if err != nil {
+		return 0, err
+	}
+	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return eventSeq, nil
+}
+
+func (s *Store) FinishChildTurn(ctx context.Context, rootID, callerAgentID, executionID, status string) (int64, error) {
+	if status != "succeeded" && status != "failed" && status != "cancelled" && status != "interrupted" {
+		return 0, errors.New("child turn completion requires a terminal status")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	parentID, childID, current, err := loadChildExecutionTx(ctx, tx, rootID, executionID)
+	if err != nil {
+		return 0, err
+	}
+	if current != "running" {
+		return 0, ErrAgentTerminal
+	}
+	if err := authorizeExecutionCallerTx(ctx, tx, rootID, callerAgentID, parentID); err != nil {
+		return 0, err
+	}
+	stamp := now()
+	if _, err := tx.ExecContext(ctx, `UPDATE child_executions SET status=?,updated_at=? WHERE root_id=? AND id=? AND status='running'`, status, stamp, rootID, executionID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status=?,updated_at=? WHERE root_id=? AND id=? AND status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`,
+		status, stamp, rootID, childID); err != nil {
+		return 0, err
+	}
+	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
+		return 0, err
+	}
+	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "child.turn."+status, actorEvent{AgentID: childID, ChildExecutionID: executionID, Status: status}, stamp)
 	if err != nil {
 		return 0, err
 	}
@@ -228,6 +388,9 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 		return 0, ErrAgentTerminal
 	}
 	stamp := now()
+	if err := s.settleInterruptedOperationReservations(ctx, tx, rootID, targetAgentID); err != nil {
+		return 0, err
+	}
 	agentWhere := `status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`
 	executionWhere := `status IN ('queued','running','waiting','idle')`
 	if status == "deleted" {
@@ -240,6 +403,9 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 	}
 	if _, err := tx.ExecContext(ctx, subtreeCTE+`UPDATE child_executions SET status=?,updated_at=? WHERE root_id=? AND child_agent_id IN (SELECT id FROM subtree) AND `+executionWhere,
 		rootID, targetAgentID, rootID, status, stamp, rootID); err != nil {
+		return 0, err
+	}
+	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
 		return 0, err
 	}
 	interrupt := func(query string, args ...any) error {
@@ -332,6 +498,96 @@ func agentInSubtreeTx(ctx context.Context, tx *sql.Tx, rootID, ancestorAgentID, 
 	var found int
 	err := tx.QueryRowContext(ctx, subtreeCTE+`SELECT count(*) FROM subtree WHERE id=?`, rootID, ancestorAgentID, rootID, agentID).Scan(&found)
 	return found == 1, err
+}
+
+func agentDepthTx(ctx context.Context, tx *sql.Tx, rootID, agentID string) (int64, error) {
+	var depth int64
+	err := tx.QueryRowContext(ctx, `WITH RECURSIVE ancestors(id,parent_id,depth) AS (
+		SELECT id,parent_id,0 FROM agents WHERE root_id=? AND id=?
+		UNION ALL
+		SELECT a.id,a.parent_id,p.depth+1 FROM agents a JOIN ancestors p ON a.id=p.parent_id WHERE a.root_id=?
+	) SELECT COALESCE(MAX(depth),-1) FROM ancestors`, rootID, agentID, rootID).Scan(&depth)
+	if err != nil || depth < 0 {
+		if err != nil {
+			return 0, err
+		}
+		return 0, ErrAgentAccess
+	}
+	return depth, nil
+}
+
+func loadChildExecutionTx(ctx context.Context, tx *sql.Tx, rootID, executionID string) (parentID, childID, status string, err error) {
+	err = tx.QueryRowContext(ctx, `SELECT parent_agent_id,child_agent_id,status FROM child_executions WHERE root_id=? AND id=?`, rootID, executionID).
+		Scan(&parentID, &childID, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrAgentAccess
+	}
+	return
+}
+
+func authorizeExecutionCallerTx(ctx context.Context, tx *sql.Tx, rootID, callerAgentID, parentAgentID string) error {
+	allowed, err := agentInSubtreeTx(ctx, tx, rootID, callerAgentID, parentAgentID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrAgentAccess
+	}
+	return nil
+}
+
+func syncChildBudgetReservationsTx(ctx context.Context, tx *sql.Tx, rootID string) error {
+	query := `SELECT root_id,agent_id,kind FROM budgets WHERE kind IN (?,?)`
+	args := []any{BudgetActiveChildren, BudgetConcurrentChildTurns}
+	if rootID != "" {
+		query += ` AND root_id=?`
+		args = append(args, rootID)
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	type budget struct {
+		rootID, agentID string
+		kind            BudgetKind
+	}
+	var budgets []budget
+	for rows.Next() {
+		var row budget
+		if err := rows.Scan(&row.rootID, &row.agentID, &row.kind); err != nil {
+			rows.Close()
+			return err
+		}
+		budgets = append(budgets, row)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, budget := range budgets {
+		status := `status IN ('queued','running','waiting','idle')`
+		if budget.kind == BudgetConcurrentChildTurns {
+			status = `status='running'`
+		}
+		var reserved int64
+		if budget.agentID == "" {
+			err = tx.QueryRowContext(ctx, `SELECT count(*) FROM child_executions WHERE root_id=? AND `+status, budget.rootID).Scan(&reserved)
+		} else {
+			err = tx.QueryRowContext(ctx, `WITH RECURSIVE descendants(id) AS (
+				SELECT id FROM agents WHERE root_id=? AND id=?
+				UNION ALL
+				SELECT a.id FROM agents a JOIN descendants d ON a.parent_id=d.id WHERE a.root_id=?
+			) SELECT count(*) FROM child_executions WHERE root_id=? AND parent_agent_id IN (SELECT id FROM descendants) AND `+status,
+				budget.rootID, budget.agentID, budget.rootID, budget.rootID).Scan(&reserved)
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=?,updated_at=? WHERE root_id=? AND agent_id=? AND kind=?`,
+			reserved, now(), budget.rootID, budget.agentID, budget.kind); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func isTerminalAgentStatus(status string) bool {

@@ -6,11 +6,26 @@ import (
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
-func (s *Session) AdmitChild(ctx context.Context, parentAgentID, childAgentID, executionID string) error {
+func (s *Session) AdmitChild(ctx context.Context, parentAgentID, childAgentID, executionID string, budgets ...sessionstore.BudgetLimit) error {
 	return s.routeControl(ctx, func(actorCtx context.Context) error {
 		_, err := s.store.AdmitChild(actorCtx, sessionstore.ChildAdmission{
 			RootID: s.meta.ID, ParentAgentID: parentAgentID, ChildAgentID: childAgentID, ExecutionID: executionID,
+			Budgets: budgets,
 		})
+		return err
+	})
+}
+
+func (s *Session) StartChildTurn(ctx context.Context, callerAgentID, executionID string) error {
+	return s.routeControl(ctx, func(actorCtx context.Context) error {
+		_, err := s.store.StartChildTurn(actorCtx, s.meta.ID, callerAgentID, executionID)
+		return err
+	})
+}
+
+func (s *Session) FinishChildTurn(ctx context.Context, callerAgentID, executionID, status string) error {
+	return s.routeControl(ctx, func(actorCtx context.Context) error {
+		_, err := s.store.FinishChildTurn(actorCtx, s.meta.ID, callerAgentID, executionID, status)
 		return err
 	})
 }

@@ -160,6 +160,11 @@ type actorEvent struct {
 	Version          int64   `json:"version,omitempty"`
 	ExpectedVersion  int64   `json:"expected_version,omitempty"`
 	Attempt          string  `json:"attempt,omitempty"`
+	BudgetKind       string  `json:"budget_kind,omitempty"`
+	Amount           int64   `json:"amount,omitempty"`
+	Limit            int64   `json:"limit,omitempty"`
+	Used             int64   `json:"used,omitempty"`
+	Reserved         int64   `json:"reserved,omitempty"`
 }
 
 type ClassicTurnCommit struct {
@@ -747,13 +752,16 @@ func (s *Store) StopClassicRoot(ctx context.Context, rootID, reason string) (int
 }
 
 func (s *Store) interruptClassicRootTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string, preserveSchedules bool) error {
-	if err := s.releaseOperationReservations(ctx, tx, rootID); err != nil {
+	if err := s.settleInterruptedOperationReservations(ctx, tx, rootID, ""); err != nil {
 		return err
 	}
 	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE root_id=? AND status IN ('queued','running','waiting')`, stamp, rootID); err != nil {
 			return err
 		}
+	}
+	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
+		return err
 	}
 	inboxWhere := `status IN ('queued','running')`
 	if preserveSchedules {
@@ -769,10 +777,14 @@ func (s *Store) interruptClassicRootTx(ctx context.Context, tx *sql.Tx, rootID, 
 	return err
 }
 
-func (s *Store) releaseOperationReservations(ctx context.Context, tx *sql.Tx, rootID string) error {
+func (s *Store) settleInterruptedOperationReservations(ctx context.Context, tx *sql.Tx, rootID, targetAgentID string) error {
 	query := `SELECT root_id,payload_inline,payload_ref FROM operations WHERE status IN ('queued','running','waiting')`
 	var args []any
-	if rootID != "" {
+	if targetAgentID != "" {
+		query = subtreeCTE + `SELECT o.root_id,o.payload_inline,o.payload_ref FROM operations o
+			WHERE o.root_id=? AND o.agent_id IN (SELECT id FROM subtree) AND o.status IN ('queued','running','waiting')`
+		args = []any{rootID, targetAgentID, rootID, rootID}
+	} else if rootID != "" {
 		query += ` AND root_id=?`
 		args = append(args, rootID)
 	}
@@ -816,7 +828,7 @@ func (s *Store) releaseOperationReservations(ctx context.Context, tx *sql.Tx, ro
 		return err
 	}
 	for _, reserved := range admissions {
-		if err := releaseCapabilityBudgets(ctx, tx, reserved.rootID, reserved.admission.Request.Reservations); err != nil {
+		if err := settleCapabilityBudgets(ctx, tx, reserved.rootID, reserved.admission.Request.AgentID, reserved.admission.Request.Reservations, nil); err != nil {
 			return err
 		}
 	}
@@ -1355,13 +1367,16 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	}
 	defer tx.Rollback()
 	stamp := now()
-	if err := s.releaseOperationReservations(ctx, tx, ""); err != nil {
+	if err := s.settleInterruptedOperationReservations(ctx, tx, "", ""); err != nil {
 		return err
 	}
 	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE status IN ('queued','running','waiting')`, stamp); err != nil {
 			return err
 		}
+	}
+	if err := syncChildBudgetReservationsTx(ctx, tx, ""); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE status='running' OR (status='queued' AND kind NOT IN ('schedule','subscription'))`); err != nil {
 		return err
