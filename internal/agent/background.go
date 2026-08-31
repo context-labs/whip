@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -23,6 +24,18 @@ const (
 	TaskError     TaskStatus = "error"
 	TaskCancelled TaskStatus = "cancelled"
 )
+
+// SubagentRuntime is the daemon seam around the existing child Agent loop.
+// The embedded agent remains the executor; the runtime owns durable identity,
+// turn admission, steering, cancellation, and live-child retention.
+type SubagentRuntime interface {
+	AdmitSubagent(context.Context, string, *Agent) error
+	StartSubagent(context.Context, string) error
+	FinishSubagent(context.Context, string, TaskStatus) error
+	SteerSubagent(context.Context, string, string) error
+	StopSubagent(string)
+	ReleaseSubagent(string)
+}
 
 // BackgroundTask is one backgrounded subagent. Done is closed exactly once when
 // the task settles — closing a channel broadcasts to every waiter at once,
@@ -53,7 +66,8 @@ type BackgroundTask struct {
 	// guidance, and after settle FollowupTask keeps chatting on its preserved
 	// context. nil on restored tasks (their process died). Set before the
 	// task is published, never reassigned — snapshots copy the pointer safely.
-	sub *Agent
+	sub     *Agent
+	runtime SubagentRuntime
 
 	// SubMessages is the subagent's full conversation, snapshotted at settle
 	// for persistence (the TUI's OnRecord saves it as an attributed session).
@@ -253,17 +267,22 @@ func (r *taskRegistry) Get(id string) (BackgroundTask, bool) {
 // (a task whose chat pane is open must survive). Returns the number cleared.
 func (r *taskRegistry) ClearSettled(keep ...string) int {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	n := 0
+	var cleared []*BackgroundTask
 	for id, t := range r.tasks {
 		if !slices.Contains(keep, id) && t.Status != TaskRunning {
 			delete(r.tasks, id)
 			delete(r.subs, id)
 			delete(r.journals, id)
-			n++
+			cleared = append(cleared, t)
 		}
 	}
-	return n
+	r.mu.Unlock()
+	for _, task := range cleared {
+		if task.runtime != nil {
+			task.runtime.ReleaseSubagent(task.ID)
+		}
+	}
+	return len(cleared)
 }
 
 // Cancel signals a running task's context. Returns false if not running.
@@ -279,6 +298,9 @@ func (r *taskRegistry) Cancel(id string) bool {
 	r.mu.Unlock()
 	if !running {
 		return false
+	}
+	if t.runtime != nil {
+		t.runtime.StopSubagent(id)
 	}
 	t.cancel()
 	return true
@@ -333,7 +355,7 @@ func (a *Agent) ResumeTaskIDs(ids []string) {
 // that started it, so it owns its own cancellable context.
 func (a *Agent) StartBackground(description, prompt string, o SubModel) *BackgroundTask {
 	t := a.RegisterBackground(description, prompt, o)
-	a.launchBackground(t)
+	a.LaunchBackground(t, "")
 	return t
 }
 
@@ -361,7 +383,7 @@ func (a *Agent) RegisterBackground(description, prompt string, o SubModel) *Back
 		ID: id, Description: description, Prompt: prompt,
 		Status: TaskRunning, StartedAt: time.Now(),
 		Done: make(chan struct{}), ctx: taskCtx, cancel: cancel,
-		sub: sub,
+		sub: sub, runtime: a.subagentRuntime(),
 		// Attribute the transcript to the route the sub actually runs on.
 		// sub.Model is the resolved API id (TaskDefault → per-task override →
 		// parent's, per newSub's precedence) — often NOT the parent's model,
@@ -369,6 +391,17 @@ func (a *Agent) RegisterBackground(description, prompt string, o SubModel) *Back
 		// provider isn't recoverable here (SubModel carries only client+API
 		// id), so it's left for the caller to keep blank.
 		SubModel: sub.Model,
+	}
+	if t.runtime != nil {
+		if err := t.runtime.AdmitSubagent(taskCtx, id, sub); err != nil {
+			t.Status = TaskError
+			if errors.Is(err, context.Canceled) {
+				t.Status = TaskCancelled
+			}
+			t.Report, t.EndedAt = err.Error(), time.Now()
+			cancel()
+			close(t.Done)
+		}
 	}
 	a.bg.mu.Lock()
 	a.bg.tasks[id] = t
@@ -389,6 +422,9 @@ func (a *Agent) RegisterBackground(description, prompt string, o SubModel) *Back
 // by OnRecord at register time, and a late-arriving path instruction reads
 // the same to the model either way.
 func (a *Agent) LaunchBackground(t *BackgroundTask, worktreePath string) {
+	if t.Status != TaskRunning {
+		return
+	}
 	if worktreePath != "" {
 		t.sub.WorkingDir = worktreePath
 		t.sub.Steer("Work entirely inside the git worktree at " + worktreePath + "; your tools are rooted there. Commit your changes there.")
@@ -404,10 +440,23 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		defer func() {
 			if value := recover(); value != nil {
 				t.SubMessages = t.sub.MessagesSnapshot()
+				if t.runtime != nil {
+					_ = t.runtime.FinishSubagent(context.Background(), id, TaskError)
+				}
 				a.bg.settle(id, TaskError, fmt.Sprintf("panic: %v", value))
 				panic(value)
 			}
 		}()
+		if taskCtx.Err() != nil {
+			a.bg.settle(id, TaskCancelled, "cancelled")
+			return
+		}
+		if t.runtime != nil {
+			if err := t.runtime.StartSubagent(taskCtx, id); err != nil {
+				a.bg.settle(id, TaskError, err.Error())
+				return
+			}
+		}
 		report, err := t.sub.Turn(taskCtx, prompt, FanIn(a.bg.emitter(id), Events{OnUsage: a.AddUsage}))
 		status := TaskDone
 		text := report
@@ -420,6 +469,11 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		// Snapshot the transcript BEFORE settle: settle fires OnRecord (which
 		// persists SubMessages), so it must be populated first.
 		t.SubMessages = t.sub.MessagesSnapshot()
+		if t.runtime != nil {
+			if finishErr := t.runtime.FinishSubagent(context.Background(), id, status); finishErr != nil {
+				status, text = TaskError, finishErr.Error()
+			}
+		}
 		a.bg.settle(id, status, text)
 		// subscribers stop here; late events after settle go nowhere (Subscribe
 		// rejects non-running tasks, and settled state is visible via List/Get)
@@ -431,6 +485,10 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		// text/status are locals (not the shared task struct), so no race.
 		a.Steer(fmt.Sprintf("[subagent %s %s] %s\n\n%s", id, status, description, text))
 	}) {
+		if t.runtime != nil {
+			t.runtime.StopSubagent(id)
+		}
+		t.cancel()
 		a.bg.settle(id, TaskCancelled, "cancelled")
 	}
 }

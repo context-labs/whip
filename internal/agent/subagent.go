@@ -118,22 +118,27 @@ func taskTool(parent *Agent) tools.Tool {
 			prompt := a.Prompt
 
 			if a.Background {
+				t := parent.RegisterBackground(desc, prompt, o)
+				if t.Status != TaskRunning {
+					return "Error: start subagent: " + t.Report, nil
+				}
 				wtPath := ""
 				if useWorktree {
 					workspaceRoot := parent.Services.ProcessOptions().Cwd
 					if workspaceRoot == "" {
 						workspaceRoot, _ = os.Getwd()
 					}
-					if p, err := provisionSubagentWorktree(ctx, "sub", workspaceRoot, parent.Services.RunWorkspaceProcess); err == nil {
+					if p, err := provisionSubagentWorktree(ctx, t.ID, workspaceRoot, parent.Services.RunWorkspaceProcess); err == nil {
 						wtPath = p
 					} else if a.Worktree != nil && *a.Worktree {
+						parent.Tasks().Cancel(t.ID)
+						parent.LaunchBackground(t, "")
 						return "Error: create subagent worktree: " + err.Error(), nil
 					}
 					// ponytail: on any failure (not a repo, git missing, branch
 					// clash) fall back to the shared cwd rather than failing the
 					// dispatch — isolation is best-effort.
 				}
-				t := parent.RegisterBackground(desc, prompt, o)
 				parent.LaunchBackground(t, wtPath)
 				if wtPath != "" {
 					return fmt.Sprintf("Started background subagent %s in worktree %s: %s. Its edits are isolated from your working tree. Do not poll for it.", t.ID, wtPath, desc), nil
@@ -202,6 +207,9 @@ func (a *Agent) SteerTask(id, text string) error {
 	}
 	if t.sub == nil {
 		return fmt.Errorf("subagent %s is not live", id)
+	}
+	if t.runtime != nil {
+		return t.runtime.SteerSubagent(context.Background(), id, text)
 	}
 	t.sub.Steer(text)
 	return nil

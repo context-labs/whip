@@ -102,6 +102,7 @@ func (r *agentRunner) bind(root *Session) error {
 	r.agent.ResumeTaskIDs(ids)
 	r.agent.SetSteerIngress(func(text string) { root.enqueueWake("steer", text) })
 	r.agent.SetLauncher(root.supervisor.launchWorker)
+	r.agent.SetSubagentRuntime(root)
 	r.agent.Waits().OnWake = func(text string) { root.enqueueWake("wait", text) }
 	r.agent.Tasks().OnRecord = func(sessionID string, task *agent.BackgroundTask) {
 		record := sessionstore.Task{
@@ -313,6 +314,7 @@ type Session struct {
 	turnStarted  bool
 	offered      []sessionstore.InboxItem
 	accepted     []sessionstore.InboxItem
+	children     map[string]*liveSubagent
 }
 
 func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority capability.ClassicAuthority, components Components) *Session {
@@ -323,7 +325,7 @@ func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority cap
 	return &Session{
 		store: store, meta: meta, authority: authority, runner: components.Runner, mcp: components.MCP,
 		supervisor: newSupervisor(), mailbox: make(chan inboxReady, 1), done: make(chan struct{}),
-		receipts: make(map[int64][]*Receipt), goalMax: goalMax,
+		receipts: make(map[int64][]*Receipt), goalMax: goalMax, children: make(map[string]*liveSubagent),
 	}
 }
 
@@ -558,11 +560,19 @@ func (s *Session) recordTask(event workerEnvelope) error {
 	if event.task == nil {
 		return errors.New("task record is missing")
 	}
-	err := s.store.RecordClassicTaskTranscript(s.supervisor.ctx, s.meta.ID, s.authority.AgentID, *event.task, event.transcript, event.model, "")
+	agentID := s.taskAgentID(event.task.ID)
+	err := s.store.RecordClassicTaskTranscript(s.supervisor.ctx, s.meta.ID, agentID, *event.task, event.transcript, event.model, "")
 	if errors.Is(err, context.Canceled) {
-		err = s.store.RecordClassicTaskTranscript(context.Background(), s.meta.ID, s.authority.AgentID, *event.task, event.transcript, event.model, "")
+		err = s.store.RecordClassicTaskTranscript(context.Background(), s.meta.ID, agentID, *event.task, event.transcript, event.model, "")
 	}
 	return err
+}
+
+func (s *Session) taskAgentID(taskID string) string {
+	if child := s.children[taskID]; child != nil {
+		return child.agentID
+	}
+	return s.authority.AgentID
 }
 
 func (s *Session) flushPendingEvents() error {
@@ -576,7 +586,7 @@ func (s *Session) flushPendingEvents() error {
 		if event.kind != workerTaskRecord || event.task == nil {
 			continue
 		}
-		err := s.store.RecordClassicTaskTranscript(context.Background(), s.meta.ID, s.authority.AgentID, *event.task, event.transcript, event.model, "")
+		err := s.store.RecordClassicTaskTranscript(context.Background(), s.meta.ID, s.taskAgentID(event.task.ID), *event.task, event.transcript, event.model, "")
 		flushErr = errors.Join(flushErr, err)
 		select {
 		case event.reply <- err:

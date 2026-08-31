@@ -41,6 +41,12 @@ type Events struct {
 	OnDecay func(n int)
 }
 
+// ModelCallBudget reserves descendant model spend before a provider request
+// and reconciles the provider-reported usage afterward.
+type ModelCallBudget interface {
+	ReserveModelCall(context.Context, int64) (func(llm.Usage) error, error)
+}
+
 // OnTodos is the agent-level hook fired by setTodos (the todowrite tool)
 // whenever the plan is rewritten. Set by the ACP bridge for the duration of
 // a turn; nil elsewhere. Kept off Events because todowrite is a tool call
@@ -99,13 +105,15 @@ type Agent struct {
 	// tool's per-call `worktree` argument overrides it. Off by default.
 	WorktreeSubagents bool
 
-	mu        sync.Mutex
-	pending   []pendingSteer // steered user messages awaiting injection
-	steerIn   func(string)   // daemon ingress; nil keeps the embedded path
-	launcher  func(string, func()) bool
-	compacted bool          // a compaction already happened this turn — don't retry-loop
-	running   atomic.Bool   // a turn is in flight (wait delivery routes on it)
-	waitReg   *waitRegistry // lazily created by waits()
+	mu          sync.Mutex
+	pending     []pendingSteer // steered user messages awaiting injection
+	steerIn     func(string)   // daemon ingress; nil keeps the embedded path
+	launcher    func(string, func()) bool
+	subagents   SubagentRuntime
+	modelBudget ModelCallBudget
+	compacted   bool          // a compaction already happened this turn — don't retry-loop
+	running     atomic.Bool   // a turn is in flight (wait delivery routes on it)
+	waitReg     *waitRegistry // lazily created by waits()
 
 	// msgsMu guards Messages for concurrent READERS: the turn goroutine
 	// mutates Messages freely, but a test/UI reader taking msgsMu sees a
@@ -242,6 +250,32 @@ func (a *Agent) SetLauncher(launcher func(string, func()) bool) {
 	a.mu.Lock()
 	a.launcher = launcher
 	a.mu.Unlock()
+}
+
+// SetSubagentRuntime lets a daemon own durable child admission and control.
+// Nil keeps the embedded process-local behavior.
+func (a *Agent) SetSubagentRuntime(runtime SubagentRuntime) {
+	a.mu.Lock()
+	a.subagents = runtime
+	a.mu.Unlock()
+}
+
+func (a *Agent) subagentRuntime() SubagentRuntime {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.subagents
+}
+
+func (a *Agent) SetModelCallBudget(budget ModelCallBudget) {
+	a.mu.Lock()
+	a.modelBudget = budget
+	a.mu.Unlock()
+}
+
+func (a *Agent) modelCallBudget() ModelCallBudget {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.modelBudget
 }
 
 func (a *Agent) launch(kind string, work func()) bool {
@@ -509,16 +543,28 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		// Surface transient-request retries through the event hook so the UI
 		// shows "retrying" instead of looking hung. Set/restored per call: the
 		// client may outlive this turn's Events.
-		a.Client.OnRetry = ev.OnRetry
-		msg, usage, err := a.Client.Stream(ctx, llm.Request{
+		toolDefs := tools.Defs(a.AllTools())
+		request := llm.Request{
 			Model:           a.Model,
 			Messages:        msgs,
-			Tools:           tools.Defs(a.AllTools()),
+			Tools:           toolDefs,
 			ReasoningEffort: a.Effort,
 			Temperature:     a.Temperature,
 			TopP:            a.TopP,
-		}, ev.OnText, ev.OnThink, ev.OnToolCall)
+			MaxTokens:       a.MaxTokens,
+		}
+		settleBudget, err := a.reserveModelCall(ctx, request)
+		if err != nil {
+			return "", err
+		}
+		a.Client.OnRetry = ev.OnRetry
+		msg, usage, err := a.Client.Stream(ctx, request, ev.OnText, ev.OnThink, ev.OnToolCall)
 		a.Client.OnRetry = nil
+		if settleBudget != nil {
+			if budgetErr := settleBudget(usage); err == nil && budgetErr != nil {
+				err = budgetErr
+			}
+		}
 		a.AddUsage(usage)
 		if ev.OnUsage != nil {
 			ev.OnUsage(usage)
@@ -593,6 +639,16 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			return msg.Content, nil
 		}
 	}
+}
+
+func (a *Agent) reserveModelCall(ctx context.Context, request llm.Request) (func(llm.Usage) error, error) {
+	budget := a.modelCallBudget()
+	if budget == nil {
+		return nil, nil
+	}
+	definitionBytes, _ := json.Marshal(request.Tools)
+	estimate := int64(EstimateTokens(request.Messages) + max(request.MaxTokens, 1) + (len(definitionBytes)+3)/4)
+	return budget.ReserveModelCall(ctx, estimate)
 }
 
 func (a *Agent) finishTurn() {
@@ -808,14 +864,24 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, err er
 	if mdl == "" {
 		mdl = a.Model
 	}
-	sum, usage, cerr := cli.Complete(ctx, llm.Request{
+	request := llm.Request{
 		Model:     mdl,
 		MaxTokens: 1024,
 		Messages: []llm.Message{
 			sysPrompt,
 			{Role: "user", Content: summaryPrompt},
 		},
-	})
+	}
+	settleBudget, err := a.reserveModelCall(ctx, request)
+	if err != nil {
+		return "", 0, err
+	}
+	sum, usage, cerr := cli.Complete(ctx, request)
+	if settleBudget != nil {
+		if budgetErr := settleBudget(usage); cerr == nil && budgetErr != nil {
+			cerr = budgetErr
+		}
+	}
 	a.AddUsage(usage) // the summary call is session spend too
 	if cerr != nil {
 		return "", 0, fmt.Errorf("compaction summary failed: %w", cerr)

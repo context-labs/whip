@@ -431,10 +431,14 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 	}
 	s.mu.RLock()
 	env := maps.Clone(s.processEnv)
+	browserManager := s.browser
 	s.mu.RUnlock()
-	childEnv, err := processes.ChildEnvironment(env)
-	if err != nil {
-		return err
+	var childEnv []string
+	if browserManager != nil {
+		childEnv, err = processes.ChildEnvironment(env)
+		if err != nil {
+			return err
+		}
 	}
 	s.mu.Lock()
 	s.dispatcher = dispatcher
@@ -442,7 +446,7 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 	s.processes = processes
 	s.workspace = workspace
 	s.processCwd = workspace.Root()
-	diagnostics, browserManager := s.diagnostics, s.browser
+	diagnostics := s.diagnostics
 	computerHelper := s.computerHelper
 	s.computerHelper = nil
 	s.mu.Unlock()
@@ -458,6 +462,23 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 		scoped.SetProcessOptions(processes, authority.RootID, workspace.Root(), env)
 	}
 	return nil
+}
+
+// CloneForAuthority keeps the parent's host integrations while binding tool
+// calls to a distinct descendant capability set.
+func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.ClassicAuthority) (*Services, error) {
+	s.mu.RLock()
+	clone := &Services{
+		interactive: s.interactive,
+		diagnostics: s.diagnostics,
+		gate:        s.gate,
+		processEnv:  maps.Clone(s.processEnv),
+	}
+	s.mu.RUnlock()
+	if err := clone.BindDispatcher(ledger, workspaces, processes, authority); err != nil {
+		return nil, err
+	}
+	return clone, nil
 }
 
 func toolPath(arguments json.RawMessage) (string, error) {
