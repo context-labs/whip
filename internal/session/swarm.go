@@ -21,6 +21,7 @@ type ChildAdmission struct {
 	ChildAgentID  string
 	ExecutionID   string
 	Budgets       []BudgetLimit
+	Capabilities  []CapabilityDelegation
 }
 
 type AgentRelatives struct {
@@ -133,6 +134,14 @@ func (s *Store) AdmitChild(ctx context.Context, admission ChildAdmission) (int64
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO budgets(root_id,agent_id,kind,limit_value,updated_at) VALUES(?,?,?,?,?)`,
 			admission.RootID, admission.ChildAgentID, kind, limit, stamp); err != nil {
+			return 0, err
+		}
+	}
+	for _, delegation := range admission.Capabilities {
+		if delegation.AgentID != admission.ChildAgentID {
+			return 0, capability.ErrDenied
+		}
+		if _, err := s.delegateCapabilityTx(ctx, tx, admission.RootID, admission.ParentAgentID, delegation); err != nil {
 			return 0, err
 		}
 	}
@@ -388,6 +397,9 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 		return 0, ErrAgentTerminal
 	}
 	stamp := now()
+	if err := s.cancelPendingPermissionsTx(ctx, tx, rootID, targetAgentID, "", "interrupted", "", status+" subtree"); err != nil {
+		return 0, err
+	}
 	if err := s.settleInterruptedOperationReservations(ctx, tx, rootID, targetAgentID); err != nil {
 		return 0, err
 	}

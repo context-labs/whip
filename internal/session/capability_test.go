@@ -229,7 +229,7 @@ func TestCapabilityPermissionSurvivesDispatcherAndRevalidates(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT status || ':' || (SELECT status FROM operations WHERE id='pending') FROM permission_requests WHERE id=?`, pending.PermissionID).Scan(&statuses); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(statuses, "denied/paired-human:denied") {
+	if !strings.HasPrefix(statuses, "denied/owner:denied") {
 		t.Fatalf("terminal provenance/status = %q", statuses)
 	}
 }

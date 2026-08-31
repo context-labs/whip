@@ -154,17 +154,12 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 }
 
 func (s *Store) RevokeCapability(ctx context.Context, capabilityID string) error {
-	result, err := s.db.ExecContext(ctx, `UPDATE capabilities SET status='revoked',generation=generation+1,updated_at=? WHERE id=? AND status='active'`, now(), capabilityID)
-	if err != nil {
-		return err
-	}
-	if n, err := result.RowsAffected(); err != nil || n != 1 {
-		if err != nil {
-			return err
-		}
+	var rootID, agentID string
+	if err := s.db.QueryRowContext(ctx, `SELECT root_id,agent_id FROM capabilities WHERE id=?`, capabilityID).Scan(&rootID, &agentID); err != nil {
 		return capability.ErrDenied
 	}
-	return nil
+	_, err := s.RevokeCapabilityFor(ctx, rootID, agentID, capabilityID)
+	return err
 }
 
 func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capability.Ticket, error) {
@@ -236,13 +231,17 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 }
 
 func (s *Store) Pending(ctx context.Context, permissionID string) (capability.Admission, error) {
+	var permissionStatus, operationStatus string
 	var inline []byte
 	var reference sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT o.payload_inline,o.payload_ref FROM permission_requests p
+	err := s.db.QueryRowContext(ctx, `SELECT p.status,o.status,o.payload_inline,o.payload_ref FROM permission_requests p
 		JOIN operations o ON o.root_id=p.root_id AND o.id=p.operation_id
-		WHERE p.id=? AND p.status='pending' AND o.status='waiting'`, permissionID).Scan(&inline, &reference)
+		WHERE p.id=?`, permissionID).Scan(&permissionStatus, &operationStatus, &inline, &reference)
 	if err != nil {
 		return capability.Admission{}, err
+	}
+	if permissionStatus != "pending" || operationStatus != "waiting" {
+		return capability.Admission{}, capability.ErrDenied
 	}
 	payload, err := s.readRuntimeValue(ctx, inline, reference)
 	if err != nil {
@@ -281,7 +280,7 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 		return capability.Ticket{}, err
 	}
 	if !sameCapabilityAdmission(stored, admission) || rootID != stored.Request.RootID || agentID != stored.Request.AgentID || operationID != stored.Request.OperationID {
-		if err := terminalizePermission(ctx, tx, stored, permissionID, "denied", decision.PrincipalID, capability.ErrStaleAdmission.Error()); err != nil {
+		if err := terminalizePermission(ctx, tx, stored, permissionID, string(capability.StatusDenied), decision.PrincipalID, capability.ErrStaleAdmission.Error()); err != nil {
 			return capability.Ticket{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -291,7 +290,7 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 	}
 	admission = stored
 	if !decision.Allow {
-		if err := terminalizePermission(ctx, tx, admission, permissionID, "denied", decision.PrincipalID, decision.Reason); err != nil {
+		if err := terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, decision.Reason); err != nil {
 			return capability.Ticket{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -491,14 +490,14 @@ func terminalizePermission(ctx context.Context, tx *sql.Tx, admission capability
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE operations SET status=?,result_inline=?,updated_at=? WHERE id=? AND status='waiting'`,
-		capability.StatusDenied, []byte(reason), stamp, admission.Request.OperationID); err != nil {
+		status, []byte(reason), stamp, admission.Request.OperationID); err != nil {
 		return err
 	}
 	return releaseCapabilityBudgets(ctx, tx, admission.Request.RootID, admission.Request.AgentID, admission.Request.Reservations)
 }
 
 func (s *Store) denyStalePermission(ctx context.Context, tx *sql.Tx, admission capability.Admission, permissionID string, decision capability.Decision, denial error) error {
-	if err := terminalizePermission(ctx, tx, admission, permissionID, "denied", decision.PrincipalID, denial.Error()); err != nil {
+	if err := terminalizePermission(ctx, tx, admission, permissionID, string(capability.StatusDenied), decision.PrincipalID, denial.Error()); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

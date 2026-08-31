@@ -165,6 +165,8 @@ type actorEvent struct {
 	Limit            int64   `json:"limit,omitempty"`
 	Used             int64   `json:"used,omitempty"`
 	Reserved         int64   `json:"reserved,omitempty"`
+	CapabilityID     string  `json:"capability_id,omitempty"`
+	Generation       int64   `json:"generation,omitempty"`
 }
 
 type ClassicTurnCommit struct {
@@ -752,6 +754,9 @@ func (s *Store) StopClassicRoot(ctx context.Context, rootID, reason string) (int
 }
 
 func (s *Store) interruptClassicRootTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string, preserveSchedules bool) error {
+	if err := s.cancelPendingPermissionsTx(ctx, tx, rootID, "", "", "interrupted", "", reason); err != nil {
+		return err
+	}
 	if err := s.settleInterruptedOperationReservations(ctx, tx, rootID, ""); err != nil {
 		return err
 	}
@@ -1367,6 +1372,9 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	}
 	defer tx.Rollback()
 	stamp := now()
+	if err := s.cancelPendingPermissionsTx(ctx, tx, "", "", "", "interrupted", "", "interrupted by daemon restart"); err != nil {
+		return err
+	}
 	if err := s.settleInterruptedOperationReservations(ctx, tx, "", ""); err != nil {
 		return err
 	}

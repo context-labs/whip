@@ -7,10 +7,16 @@ import (
 )
 
 func (s *Session) AdmitChild(ctx context.Context, parentAgentID, childAgentID, executionID string, budgets ...sessionstore.BudgetLimit) error {
+	return s.AdmitChildWithCapabilities(ctx, parentAgentID, childAgentID, executionID, nil, budgets...)
+}
+
+// AdmitChildWithCapabilities commits the child and delegated grants together;
+// callers may start child work only after this actor-routed call returns.
+func (s *Session) AdmitChildWithCapabilities(ctx context.Context, parentAgentID, childAgentID, executionID string, capabilities []sessionstore.CapabilityDelegation, budgets ...sessionstore.BudgetLimit) error {
 	return s.routeControl(ctx, func(actorCtx context.Context) error {
 		_, err := s.store.AdmitChild(actorCtx, sessionstore.ChildAdmission{
 			RootID: s.meta.ID, ParentAgentID: parentAgentID, ChildAgentID: childAgentID, ExecutionID: executionID,
-			Budgets: budgets,
+			Budgets: budgets, Capabilities: capabilities,
 		})
 		return err
 	})
