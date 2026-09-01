@@ -12,6 +12,8 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 // mcpCLI implements `whip mcp <list|add|remove|serve|test|import>`.
@@ -31,7 +33,7 @@ func mcpCLI(args []string, version string) error {
 		return errors.New("usage: whip mcp <list|add|remove|import|serve|test>")
 	}
 	if args[0] == "serve" {
-		return mcp.Serve(context.Background(), version)
+		return mcpServe(version)
 	}
 	if args[0] == "test" {
 		if len(args) < 2 {
@@ -135,6 +137,37 @@ func mcpCLI(args []string, version string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown mcp subcommand %q (list|add|remove|import|serve|test)", args[0])
+}
+
+func mcpServe(version string) error {
+	dir, err := config.Dir()
+	if err != nil {
+		return err
+	}
+	store, err := session.Open(dir + "/sessions.db")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = store.Close() }()
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	rootID, err := store.Create(wd, "mcp", "local")
+	if err != nil {
+		return err
+	}
+	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	if err != nil {
+		return err
+	}
+	services := tools.NewServices()
+	services.SetProcessMarkers(rootID, "mcp")
+	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+		return err
+	}
+	defer services.Close()
+	return mcp.Serve(context.Background(), version, services)
 }
 
 // mcpTestCLI is the doctor: connect to one configured server, report status,

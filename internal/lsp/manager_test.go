@@ -324,6 +324,9 @@ func TestRootWalk(t *testing.T) {
 	if root := findRoot(dir+"/sub/deep", []string{"nope.marker"}); root != dir+"/sub/deep" {
 		t.Fatalf("fallback root = %q, want file dir", root)
 	}
+	if root := findRoot(dir+"/sub/deep", []string{"go.mod"}, dir+"/sub"); root != dir+"/sub/deep" {
+		t.Fatalf("bounded root escaped workspace: %q", root)
+	}
 }
 
 // --- helpers ---

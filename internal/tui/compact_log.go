@@ -8,20 +8,24 @@ import (
 // Compaction events are recorded in raw-log coordinates so Load never
 // double-folds a summary. The agent reports its cutoff in compacted
 // coordinates (indices into its current Messages); rawCutoff maps that to the
-// raw row the kept tail begins at. When the compacted history carries a prior
-// summary at index 1, it stands in for everything before the previous event's
-// cutoff, so the raw boundary shifts by one.
-func (m *model) rawCutoff(cutoff int) int {
+// raw row the kept tail begins at. The raw log normally omits the agent's
+// system prompt, and each compacted history adds a derived summary after it.
+func (m *model) rawCutoff(cutoff, rawTailStart int) int {
 	if m.store == nil || m.sessionID == "" {
 		return cutoff
 	}
 	events := m.store.Compactions(m.sessionID)
 	if len(events) == 0 {
+		raw := m.store.RawMessages(m.sessionID)
+		if len(raw) > 0 && raw[0].Role != "system" {
+			return cutoff - 1
+		}
 		return cutoff
 	}
-	// the prior event's summary sat at index 1 of the just-compacted history,
-	// so compacted index c corresponds to raw seq (prev.cutoff + c - 1)
-	return events[len(events)-1].Cutoff + cutoff - 1
+	if rawTailStart < 1 {
+		rawTailStart = 2
+	}
+	return events[len(events)-1].Cutoff + cutoff - rawTailStart
 }
 
 // /compact retry — drop the latest compaction event and re-compact from the
@@ -50,7 +54,10 @@ func (m *model) compactRetry() {
 		m.append(errStyle.Render("/compact retry: reload failed: " + err.Error()))
 		return
 	}
-	m.agent.Messages = append(m.agent.Messages[:1], msgs[1:]...)
+	if len(msgs) > 0 && msgs[0].Role == "system" {
+		msgs = msgs[1:]
+	}
+	m.agent.Messages = append(m.agent.Messages[:1], msgs...)
 	m.saved = 1 // re-save from scratch next persist
 	m.rebuildTranscript()
 }

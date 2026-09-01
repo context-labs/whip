@@ -49,13 +49,11 @@ func TestBrowserExecReachesModel(t *testing.T) {
 	}
 	pageURL := fmt.Sprintf("http://%s:%d", ip, ln.Addr().(*net.TCPAddr).Port)
 
-	browser.AllowPrivateURLs = true
-	defer func() { browser.AllowPrivateURLs = false }()
 	mgr := browser.NewManager(browser.ModeHeadless)
 	defer mgr.CloseAll()
-	oldB := tools.Browser
-	tools.Browser = mgr
-	defer func() { tools.Browser = oldB }()
+	services := tools.NewServices()
+	services.SetBrowser(mgr, true)
+	bindTestServices(t, services, t.TempDir())
 
 	code := fmt.Sprintf("# read the test page\ngoto(%q)\nprint(js(\"document.title\"))", pageURL)
 	argsJSON, _ := json.Marshal(map[string]string{"code": code})
@@ -92,7 +90,7 @@ func TestBrowserExecReachesModel(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := NewWithServices(llm.New(srv.URL, "k"), "m", 100, "sys", services)
 	final, err := ag.Turn(ctx, "what's the page title?", Events{})
 	if err != nil {
 		t.Fatal(err)

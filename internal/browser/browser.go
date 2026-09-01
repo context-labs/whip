@@ -17,11 +17,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
+
+	"github.com/context-labs/whip/internal/capability"
 )
 
 // Mode selects which browser whip drives.
@@ -151,6 +154,7 @@ type Browser struct {
 	launcher   *launcher.Launcher // non-nil only when we launched (dedicated/headless)
 	obtained   Obtained           // how this connection was established
 	profileDir string             // dedicated/headless profile (reattach target)
+	unregister func()             // removes a dependency-owned launch from root tracking
 }
 
 // Obtained records how a Backend connection came about — the session layer
@@ -170,28 +174,14 @@ const (
 )
 
 // Drivers lists the selectable drivers for UI pickers.
-var Drivers = []string{DriverRod, DriverChromedp}
+func Drivers() []string { return []string{DriverRod, DriverChromedp} }
 
-// Driver selects the browser driver, read at Open time. The
-// WHIP_BROWSER_DRIVER env wins; otherwise the value set by SetDriver
-// (default rod). A live switch invalidates open sessions via the Manager.
-var Driver = func() string {
+// DefaultDriver returns the environment-pinned driver or rod.
+func DefaultDriver() string {
 	if d := os.Getenv("WHIP_BROWSER_DRIVER"); d != "" {
 		return d
 	}
 	return "rod"
-}()
-
-// SetDriver switches the active driver. When env overrides the driver,
-// SetDriver is a no-op (env is the operator's explicit pin).
-func SetDriver(d string) {
-	if os.Getenv("WHIP_BROWSER_DRIVER") != "" {
-		return
-	}
-	switch d {
-	case DriverRod, DriverChromedp:
-		Driver = d
-	}
 }
 
 // Open connects (or launches) per mode and attaches to a controllable tab.
@@ -208,13 +198,17 @@ func Open(ctx context.Context, mode Mode) (Backend, error) {
 // mode ignores the name (one pinned tab per relay) and always uses rod — the
 // relay speaks CDP, and chromedp is only the spike backup for local launches.
 func OpenNamed(ctx context.Context, mode Mode, sessionName string) (Backend, error) {
+	return openNamedWithOptions(ctx, mode, sessionName, DefaultDriver(), nil, nil, "")
+}
+
+func openNamedWithOptions(ctx context.Context, mode Mode, sessionName, driver string, env []string, processes *capability.ProcessManager, rootID string) (Backend, error) {
 	if mode == ModeExtension {
 		return openExtension(ctx)
 	}
-	if Driver == "chromedp" {
-		return openChromedp(ctx, mode, sessionName)
+	if driver == DriverChromedp {
+		return openChromedp(ctx, mode, sessionName, env)
 	}
-	return openRod(ctx, mode, sessionName)
+	return openRod(ctx, mode, sessionName, env, processes, rootID)
 }
 
 // openRod is the rod-backed Open (the default driver).
@@ -226,7 +220,7 @@ func OpenNamed(ctx context.Context, mode Mode, sessionName string) (Backend, err
 // — only the user can click Chrome's Allow popup. Dedicated/headless
 // reattach to an already-running whip Chrome for the same profile rather
 // than spawning a duplicate.
-func openRod(ctx context.Context, mode Mode, sessionName string) (*Browser, error) {
+func openRod(ctx context.Context, mode Mode, sessionName string, env []string, processes *capability.ProcessManager, rootID string) (*Browser, error) {
 	b := &Browser{mode: mode}
 	switch mode {
 	case ModeLive:
@@ -237,7 +231,7 @@ func openRod(ctx context.Context, mode Mode, sessionName string) (*Browser, erro
 			}
 			// Fallback: launch the dedicated Chrome. Keep the original
 			// discovery error's guidance if the fallback also fails.
-			fb, ferr := openRod(ctx, ModeDedicated, sessionName)
+			fb, ferr := openRod(ctx, ModeDedicated, sessionName, env, processes, rootID)
 			if ferr != nil {
 				return nil, fmt.Errorf("%w; dedicated fallback failed: %w", err, ferr)
 			}
@@ -275,6 +269,9 @@ func openRod(ctx context.Context, mode Mode, sessionName string) (*Browser, erro
 				Set("remote-debugging-port", "0"). // random free port — a squatter on 9222 is irrelevant
 				Leakless(true).
 				Headless(mode == ModeHeadless)
+			if env != nil {
+				l = l.Env(env...)
+			}
 			if os.Getenv("WHIP_BROWSER_DEBUG") != "" {
 				l = l.Set("enable-logging", "stderr").Set("v", "1")
 			}
@@ -288,11 +285,21 @@ func openRod(ctx context.Context, mode Mode, sessionName string) (*Browser, erro
 			return nil, err
 		}
 		b.launcher = l
+		if processes != nil {
+			b.unregister, err = processes.RegisterStop(rootID, func() error { return stopLauncher(l) })
+			if err != nil {
+				_ = stopLauncher(l)
+				return nil, err
+			}
+		}
 		b.obtained = ObtainedLaunched
 		b.browser = rod.New().ControlURL(ws)
 		if err := b.browser.Connect(); err != nil {
 			l.Kill()    // unblock Cleanup: a healthy Chrome won't exit on its own
 			l.Cleanup() // remove the failed profile + process tree
+			if b.unregister != nil {
+				b.unregister()
+			}
 			return nil, fmt.Errorf("connect to launched chrome: %w", err)
 		}
 	default:
@@ -307,10 +314,25 @@ func openRod(ctx context.Context, mode Mode, sessionName string) (*Browser, erro
 		if b.launcher != nil {
 			b.launcher.Kill()
 			b.launcher.Cleanup()
+			if b.unregister != nil {
+				b.unregister()
+			}
 		}
 		return nil, err
 	}
 	return b, nil
+}
+
+func stopLauncher(l *launcher.Launcher) error {
+	l.Kill()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(-l.PID(), 0); errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("browser process group %d did not stop", l.PID())
 }
 
 // launchDedicated launches a dedicated/headless Chrome, recovering from a
@@ -446,6 +468,9 @@ func (b *Browser) Close() error {
 		if b.launcher != nil {
 			b.launcher.Kill()
 			b.launcher.Cleanup()
+			if b.unregister != nil {
+				b.unregister()
+			}
 		}
 	}
 	b.browser = nil

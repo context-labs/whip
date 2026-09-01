@@ -1,6 +1,9 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -63,5 +66,99 @@ func TestAuthInferenceNetLogoutClearsStoredAuth(t *testing.T) {
 	a, _ := inferencenet.LoadAuth()
 	if a != (inferencenet.Auth{}) {
 		t.Errorf("logout should clear stored auth, got %+v", a)
+	}
+}
+
+func TestAuthInferenceNetBYOKValidatesAndPersists(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv(config.InferenceNetEnvVar, "")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" || r.Header.Get("Authorization") != "Bearer good" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	defer inferencenet.SetURLsForTest("", "", srv.URL)()
+
+	if err := authCLI([]string{"inference-net", "login", "--key", "bad"}); err == nil {
+		t.Fatal("rejected key was accepted")
+	}
+	if err := authCLI([]string{"inference-net", "login", "--key", " good\n"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := cfg.Providers[config.InferenceNetProvider]
+	if provider.APIKey != "good" || provider.APIKeyEnv != "" {
+		t.Fatalf("persisted provider = %+v", provider)
+	}
+
+	t.Setenv(config.InferenceNetEnvVar, "good")
+	if err := authCLI([]string{"inference-net", "login", "--env"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider = cfg.Providers[config.InferenceNetProvider]
+	if provider.APIKey != "" || provider.APIKeyEnv != config.InferenceNetEnvVar {
+		t.Fatalf("persisted env provider = %+v", provider)
+	}
+	if err := inferencenet.SaveAuth(inferencenet.Auth{UserEmail: "user@example.com", ProjectID: "project", ProjectName: "Project", MachineKey: "key", MachineKeyName: "whip-test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := inferenceNetStatusCLI(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCLIChooser(t *testing.T) {
+	withInput := func(input string, choose func() (string, error)) (string, error) {
+		t.Helper()
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.WriteString(input); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		old := os.Stdin
+		os.Stdin = reader
+		defer func() {
+			os.Stdin = old
+			_ = reader.Close()
+		}()
+		return choose()
+	}
+
+	for _, test := range []struct {
+		name    string
+		input   string
+		options []string
+		want    string
+		wantErr bool
+	}{
+		{name: "free text", input: "project\n", want: "project"},
+		{name: "default", input: "\n", options: []string{"first", "second"}, want: "first"},
+		{name: "selection", input: "2\n", options: []string{"first", "second"}, want: "second"},
+		{name: "invalid", input: "3\n", options: []string{"first", "second"}, wantErr: true},
+		{name: "closed input", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := withInput(test.input, func() (string, error) {
+				return cliChooser("project", "Choose", test.options)
+			})
+			if (err != nil) != test.wantErr || got != test.want {
+				t.Fatalf("choice=%q err=%v", got, err)
+			}
+		})
 	}
 }

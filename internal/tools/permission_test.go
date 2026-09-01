@@ -1,6 +1,12 @@
 package tools
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/context-labs/whip/internal/capability"
+)
 
 func TestCommandRule(t *testing.T) {
 	cases := []struct{ in, want string }{
@@ -24,5 +30,38 @@ func TestCommandRule(t *testing.T) {
 		if got := CommandRule(c.in); got != c.want {
 			t.Errorf("CommandRule(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestDispatcherPermissionUsesCanonicalPath(t *testing.T) {
+	services := NewServices()
+	var got GateRequest
+	services.SetGate(func(_ context.Context, request GateRequest) (GateDecision, string) {
+		got = request
+		return GateAllowOnce, ""
+	})
+	decision, err := services.Decide(context.Background(), capability.PermissionPrompt{
+		Operation: "write", Arguments: json.RawMessage(`{"path":"alias/file"}`), CanonicalPath: "/workspace/file",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Allow || got.Command != "/workspace/file" || got.Rule != "/workspace/file" {
+		t.Fatalf("decision=%+v gate=%+v", decision, got)
+	}
+}
+
+func TestPermissionGateIsScopedToServices(t *testing.T) {
+	allowed := NewServices()
+	denied := NewServices()
+	denied.SetGate(func(context.Context, GateRequest) (GateDecision, string) {
+		return GateReject, "not this session"
+	})
+
+	if got := allowed.CheckGate(context.Background(), "bash", "pwd"); got != "" {
+		t.Fatalf("ungated services denied command: %q", got)
+	}
+	if got := denied.CheckGate(context.Background(), "bash", "pwd"); got != "Permission denied: not this session" {
+		t.Fatalf("denied services result = %q", got)
 	}
 }

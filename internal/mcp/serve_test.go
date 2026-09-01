@@ -3,11 +3,15 @@ package mcp
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 // TestServeInProcess drives Serve without a subprocess: Serve's
@@ -16,6 +20,29 @@ import (
 // WHIP_TEST_SELFHOST-gated tests cover the real-subprocess path; this one
 // keeps Serve covered in plain CI.
 func TestServeInProcess(t *testing.T) {
+	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, err := store.Create(cwd, "mcp-test", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := tools.NewServices()
+	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(services.Close)
+
 	inR, inW, err := os.Pipe() // server stdin
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +56,7 @@ func TestServeInProcess(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, "test") }()
+	go func() { done <- Serve(ctx, "test", services) }()
 
 	// Restore stdio only after Serve has returned, so the swap can't race
 	// the server's reads under -race.
@@ -74,6 +101,9 @@ func TestServeInProcess(t *testing.T) {
 	if !ok || !strings.Contains(txt.Text, "package mcp") {
 		t.Fatalf("read via MCP = %#v", res.Content)
 	}
+	if res.IsError {
+		t.Fatal("successful tool result marked as an error")
+	}
 
 	// Tool errors must come back as tool output, not protocol failures.
 	res, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -86,5 +116,8 @@ func TestServeInProcess(t *testing.T) {
 	txt, ok = res.Content[0].(*sdkmcp.TextContent)
 	if !ok || !strings.HasPrefix(txt.Text, "Error: ") {
 		t.Fatalf("tool error surfaced as %#v", res.Content)
+	}
+	if !res.IsError {
+		t.Fatal("failed tool result was not marked as an error")
 	}
 }

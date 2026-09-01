@@ -52,6 +52,7 @@ type Bridge struct {
 
 	mu       sync.Mutex
 	sessions map[acp.SessionId]*acpSession
+	loading  map[acp.SessionId]bool
 }
 
 // Compile-time conformance with the SDK's agent-side interfaces.
@@ -97,13 +98,18 @@ type acpSession struct {
 	turnMu    sync.Mutex // guards cancel, mode, titleSent, allowed
 	turnCh    chan struct{}
 	cancel    context.CancelFunc
+	lifecycle context.Context
+	stop      context.CancelFunc
+	closeOnce sync.Once
+	closed    bool
 	mode      string
 	titleSent bool
 	allowed   map[string]bool // "allow always" rules, this session only
 }
 
 func newACPSession(id acp.SessionId, ag *agent.Agent, m *mcp.Manager) *acpSession {
-	s := &acpSession{id: id, ag: ag, mcp: m, mode: ModeAuto, storeFrom: 1, allowed: map[string]bool{}}
+	lifecycle, stop := context.WithCancel(context.Background())
+	s := &acpSession{id: id, ag: ag, mcp: m, lifecycle: lifecycle, stop: stop, mode: ModeAuto, storeFrom: 1, allowed: map[string]bool{}}
 	s.turnCh = make(chan struct{}, 1)
 	return s
 }
@@ -111,14 +117,42 @@ func newACPSession(id acp.SessionId, ag *agent.Agent, m *mcp.Manager) *acpSessio
 // close cancels any running turn and releases the session's MCP manager.
 // Idempotent; safe with a nil manager.
 func (s *acpSession) close() {
-	s.turnMu.Lock()
-	if s.cancel != nil {
-		s.cancel()
+	s.closeOnce.Do(func() {
+		s.turnMu.Lock()
+		s.closed = true
+		if s.stop != nil {
+			s.stop()
+		}
+		if s.cancel != nil {
+			s.cancel()
+		}
+		s.turnMu.Unlock()
+		if s.turnCh != nil {
+			s.turnCh <- struct{}{}
+			defer func() { <-s.turnCh }()
+		}
+		if s.mcp != nil {
+			s.mcp.Close()
+		}
+		if s.ag != nil && s.ag.Services != nil {
+			opts := s.ag.Services.ProcessOptions()
+			s.ag.Close()
+			s.ag.Services.Close()
+			if opts.Processes != nil && opts.RootID != "" {
+				_ = opts.Processes.StopRoot(opts.RootID)
+			}
+		}
+	})
+}
+
+func startMCP(ctx context.Context, ag *agent.Agent, manager *mcp.Manager) {
+	if manager == nil {
+		return
 	}
-	s.turnMu.Unlock()
-	if s.mcp != nil {
-		s.mcp.Close()
-	}
+	opts := ag.Services.ProcessOptions()
+	manager.SetProcessOptions(opts.Processes, opts.RootID, opts.Cwd, opts.Env)
+	manager.Start(ctx)
+	ag.SetMCPTools(manager.Tools())
 }
 
 // --- initialization -------------------------------------------------------
@@ -248,11 +282,26 @@ func (b *Bridge) NewSession(ctx context.Context, params acp.NewSessionRequest) (
 	}
 	id := acp.SessionId(newID())
 	s := newACPSession(id, ag, mgr)
+	b.bindPermissionGate(s)
 	if b.store != nil {
-		if sid, err := b.store.Create(params.Cwd, ag.ModelName, ag.Provider); err == nil {
-			s.id = acp.SessionId(sid)
+		sid, err := b.store.Create(params.Cwd, ag.ModelName, ag.Provider)
+		if err != nil {
+			s.close()
+			return acp.NewSessionResponse{}, acp.NewInternalError(err.Error())
+		}
+		s.id = acp.SessionId(sid)
+		ag.SetSessionID(sid)
+		ag.Services.SetProcessMarkers(sid, ag.Model)
+		authority, err := b.store.EnsureClassicAuthority(ctx, sid)
+		if err == nil {
+			err = ag.Services.BindDispatcher(b.store, b.store.Workspaces(), b.store.Processes(), authority)
+		}
+		if err != nil {
+			s.close()
+			return acp.NewSessionResponse{}, acp.NewInternalError(err.Error())
 		}
 	}
+	startMCP(s.lifecycle, ag, mgr)
 	b.mu.Lock()
 	if b.sessions == nil {
 		b.sessions = make(map[acp.SessionId]*acpSession)
@@ -287,6 +336,21 @@ func (b *Bridge) LoadSession(ctx context.Context, params acp.LoadSessionRequest)
 	if params.Cwd != "" && meta.CWD != "" && params.Cwd != meta.CWD {
 		return acp.LoadSessionResponse{}, acp.NewInvalidParams(fmt.Sprintf("cwd %q does not match session cwd %q", params.Cwd, meta.CWD))
 	}
+	b.mu.Lock()
+	if _, active := b.sessions[params.SessionId]; active || b.loading[params.SessionId] {
+		b.mu.Unlock()
+		return acp.LoadSessionResponse{}, acp.NewInvalidParams(fmt.Sprintf("session %q is already active", params.SessionId))
+	}
+	if b.loading == nil {
+		b.loading = make(map[acp.SessionId]bool)
+	}
+	b.loading[params.SessionId] = true
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		delete(b.loading, params.SessionId)
+		b.mu.Unlock()
+	}()
 	ag, mgr, err := b.newAg(ctx, meta.CWD, b.mergeMCPServers(params.McpServers))
 	if err != nil {
 		return acp.LoadSessionResponse{}, acp.NewInternalError(err.Error())
@@ -296,6 +360,18 @@ func (b *Bridge) LoadSession(ctx context.Context, params acp.LoadSessionRequest)
 	// prompt; storeFrom tracks the in-memory index the next Save starts at.
 	ag.Messages = append(ag.Messages, msgs...)
 	s := newACPSession(acp.SessionId(meta.ID), ag, mgr)
+	b.bindPermissionGate(s)
+	ag.SetSessionID(meta.ID)
+	ag.Services.SetProcessMarkers(meta.ID, ag.Model)
+	authority, err := b.store.EnsureClassicAuthority(ctx, meta.ID)
+	if err == nil {
+		err = ag.Services.BindDispatcher(b.store, b.store.Workspaces(), b.store.Processes(), authority)
+	}
+	if err != nil {
+		s.close()
+		return acp.LoadSessionResponse{}, acp.NewInternalError(err.Error())
+	}
+	startMCP(s.lifecycle, ag, mgr)
 	s.storeFrom = len(ag.Messages)
 	b.mu.Lock()
 	if b.sessions == nil {
@@ -387,6 +463,13 @@ func (b *Bridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Prom
 	default:
 		return acp.PromptResponse{}, acp.NewInternalError("session busy: a prompt turn is already running")
 	}
+	s.turnMu.Lock()
+	closed := s.closed
+	s.turnMu.Unlock()
+	if closed {
+		<-s.turnCh
+		return acp.PromptResponse{}, acp.NewInternalError("session is closed")
+	}
 	defer func() { <-s.turnCh }()
 
 	text, parts := promptFromBlocks(params.Prompt, b.vision)
@@ -399,8 +482,12 @@ func (b *Bridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Prom
 	// disconnect. turnCtx dies with the deferred cleanup below.
 	turnCtx, cancel := context.WithCancel(context.Background())
 	s.turnMu.Lock()
+	if s.closed {
+		s.turnMu.Unlock()
+		cancel()
+		return acp.PromptResponse{}, acp.NewInternalError("session is closed")
+	}
 	s.cancel = cancel
-	mode := s.mode
 	s.turnMu.Unlock()
 	defer func() {
 		cancel()
@@ -408,10 +495,6 @@ func (b *Bridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Prom
 		s.cancel = nil
 		s.turnMu.Unlock()
 	}()
-
-	if mode == ModeAsk {
-		defer b.installPermissionGate(s, turnCtx)()
-	}
 
 	// todowrite rewrites → ACP plan updates (full list, wholesale replace —
 	// spec requires the complete entry list each time).

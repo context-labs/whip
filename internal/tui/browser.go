@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/browser"
-	"github.com/context-labs/whip/internal/tools"
 )
 
 // browserStepLabel extracts the step label from browser_exec args: the
@@ -41,10 +40,21 @@ func (m *model) switchBrowserDriver(d string) {
 		m.append(dimStyle.Render("◎ browser driver pinned by WHIP_BROWSER_DRIVER=" + os.Getenv("WHIP_BROWSER_DRIVER") + " — unset it to switch"))
 		return
 	}
-	if tools.Browser != nil {
-		tools.Browser.SwitchDriver(d)
-	} else {
-		browser.SetDriver(d)
+	var manager *browser.Manager
+	if m.agent != nil && m.agent.Services != nil {
+		manager = m.agent.Services.Browser()
 	}
-	m.append(dimStyle.Render("◎ browser driver: " + browser.Driver + " (open browser sessions re-open on next use)"))
+	if manager != nil {
+		manager.SwitchDriver(d)
+	}
+	m.append(dimStyle.Render("◎ browser driver: " + m.browserDriver() + " (open browser sessions re-open on next use)"))
+}
+
+func (m *model) browserDriver() string {
+	if m.agent != nil && m.agent.Services != nil {
+		if manager := m.agent.Services.Browser(); manager != nil {
+			return manager.Driver()
+		}
+	}
+	return browser.DefaultDriver()
 }

@@ -29,7 +29,6 @@ import (
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/tools"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 	"github.com/context-labs/whip/internal/tui"
 )
 
@@ -75,26 +74,17 @@ func acpCLI(args []string) error {
 	vision := acpSupportsVision(cfg, modelName, apiID, provName)
 	acp.SetEventLog(func(format string, args ...any) { config.LogEvent("acp", fmt.Sprintf(format, args...)) })
 
-	// Session store: same SQLite file as the TUI, so editor sessions are
-	// resumable in the terminal (`whip --resume <id>`) and vice versa.
-	// Best-effort like run.go: ACP mode still works without it (loadSession
-	// capability simply isn't advertised).
-	var store *session.Store
-	if dir, derr := config.Dir(); derr == nil {
-		if st, serr := session.Open(dir + "/sessions.db"); serr == nil {
-			store = st
-			defer func() { _ = st.Close() }()
-		}
+	// The session store is also the capability ledger; execution must not
+	// continue without it.
+	dir, err := config.Dir()
+	if err != nil {
+		return fmt.Errorf("session directory: %w", err)
 	}
-
-	// LSP diagnostics for write/edit output — same built-in gopls + config
-	// servers as the TUI, spawned lazily on first covered file touch.
-	lspMgr := lsp.NewManager(lsp.FromConfigMap(cfg.LSPServers))
-	tools.LSP = lspMgr
-	defer func() {
-		lspMgr.Close()
-		tools.LSP = nil
-	}()
+	store, err := session.Open(dir + "/sessions.db")
+	if err != nil {
+		return fmt.Errorf("session store: %w", err)
+	}
+	defer func() { _ = store.Close() }()
 
 	// Resolved once: the catalog values buildAgent re-derives per session are
 	// constant for the process lifetime (same provider + model).
@@ -118,7 +108,10 @@ func acpCLI(args []string) error {
 	factory := func(ctx context.Context, wd string, servers map[string]mcp.ServerConfig) (*agent.Agent, *mcp.Manager, error) {
 		client := llm.New(prov.BaseURL, key)
 		client.MaxRetries = cfg.MaxRetries
-		ag := agent.New(client, apiID, maxOut, systemPrompt(wd, time.Now()))
+		toolServices := tools.NewServices()
+		lspMgr := lsp.NewManager(lsp.FromConfigMap(cfg.LSPServers))
+		toolServices.SetDiagnostics(lspMgr)
+		ag := agent.NewWithServices(client, apiID, maxOut, systemPrompt(wd, time.Now()), toolServices)
 		ag.ModelName, ag.Provider = modelName, provName
 		ag.ComputerDisabled = true
 		ag.ContextLimit = ctxLimit
@@ -139,7 +132,6 @@ func acpCLI(args []string) error {
 		// config wins clashes).
 		mgr := mcp.NewManager(servers)
 		mgr.SetOnChange(func() { ag.SetMCPTools(mgr.Tools()) })
-		mgr.Start(ctx)
 		ag.SetMCPTools(mgr.Tools())
 		if ib := mgr.InstructionsBlock(); ib != "" {
 			ag.Messages[0].Content += ib
@@ -162,11 +154,8 @@ func acpCLI(args []string) error {
 	}
 
 	// Client gone or signal: stop every in-flight/queued turn and shut each
-	// session's MCP manager down politely (stdin close → SIGTERM → SIGKILL)
-	// before KillAll sweeps any agent-spawned process groups — the TUI's
-	// exit ordering.
+	// session's scoped MCP, LSP, browser, and child processes down.
 	bridge.CloseAll()
-	bashrun.KillAll()
 	return nil
 }
 

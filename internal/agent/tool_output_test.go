@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/tools"
 )
 
 // TestOnToolOutputStreamsBash: a slow bash tool call fires OnToolOutput with
@@ -35,7 +34,7 @@ func TestOnToolOutputStreamsBash(t *testing.T) {
 	defer srv.Close()
 
 	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
-	ag.Tools = tools.All()
+	bindTestAgent(t, ag, t.TempDir())
 
 	var mu sync.Mutex
 	var ids []string

@@ -1,7 +1,7 @@
 // interactive.go: PTY-backed interactive command runner for the bash tool.
 //
 // When the agent calls bash with interactive:true, the tool delegates to the
-// interactiveRunner installed here (tools.InteractiveBash). The runner spawns
+// interactiveRunner is injected into the active agent's tool services. It spawns
 // the command in a PTY (via bashrun), streams its output into the transcript,
 // shows a countdown when the command goes quiet (likely awaiting input), and
 // forwards the user's keystrokes to the PTY. After 15s of no input the command
@@ -64,22 +64,19 @@ func newInteractiveRunner(prog *tea.Program) *interactiveRunner {
 
 // Run implements tools.InteractiveRunner. It blocks the agent goroutine until
 // the command finishes, the inactivity timeout fires, or ctx is cancelled.
-func (r *interactiveRunner) Run(ctx context.Context, command string, timeout time.Duration, _ <-chan []byte) string {
+func (r *interactiveRunner) Run(ctx context.Context, opts bashrun.Options) string {
 	keys := make(chan []byte, 16)
 	r.mu.Lock()
 	r.keys = keys
 	r.mu.Unlock()
 	r.prog.Send(interactiveStartMsg{keys: keys}) //nolint:uilock // background: the interactive bash tool goroutine
 
-	res := bashrun.Run(ctx, bashrun.Options{
-		Command:           command,
-		Timeout:           timeout,
-		Interactive:       true,
-		InactivityTimeout: 15 * time.Second,
-		OnOutput:          func(chunk string) { r.prog.Send(interactiveOutMsg{chunk}) },  //nolint:uilock // background: bashrun's PTY reader goroutine
-		OnAwaitInput:      func(s int) { r.prog.Send(interactiveAwaitMsg{secsLeft: s}) }, //nolint:uilock // background: bashrun's PTY goroutine
-		Keys:              keys,
-	})
+	opts.Interactive = true
+	opts.InactivityTimeout = 15 * time.Second
+	opts.OnOutput = func(chunk string) { r.prog.Send(interactiveOutMsg{chunk}) }      //nolint:uilock // background: bashrun's PTY reader goroutine
+	opts.OnAwaitInput = func(s int) { r.prog.Send(interactiveAwaitMsg{secsLeft: s}) } //nolint:uilock // background: bashrun's PTY goroutine
+	opts.Keys = keys
+	res := bashrun.Run(ctx, opts)
 
 	r.mu.Lock()
 	r.keys = nil

@@ -120,10 +120,9 @@ func TestWaitingOnSubagentsDuringForegroundSubagent(t *testing.T) {
 func TestDrainOrphanedSteers(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
 
-	// No hook: a steer with no turn running parks for a later drain (headless
-	// contract), and drainOrphanedSteers without a hook leaves it put.
+	// No hook: a steer with no turn running parks for a later drain.
 	ag.Steer("keep me")
-	ag.drainOrphanedSteers()
+	ag.finishTurn()
 	if got := ag.drainPending(); len(got) != 1 || got[0].text != "keep me" {
 		t.Fatalf("no hook: pending should survive, got %+v", got)
 	}
@@ -135,8 +134,7 @@ func TestDrainOrphanedSteers(t *testing.T) {
 	ag.running.Store(true)
 	ag.Steer("one")
 	ag.Steer("two")
-	ag.running.Store(false)
-	ag.drainOrphanedSteers()
+	ag.finishTurn()
 	if len(surfaced) != 2 || surfaced[0] != "one" || surfaced[1] != "two" {
 		t.Fatalf("hook should receive both steers in order, got %v", surfaced)
 	}
@@ -166,5 +164,23 @@ func TestSteerOnIdleAgentFiresOrphanHook(t *testing.T) {
 	}
 	if got := ag.drainPending(); len(got) != 0 {
 		t.Fatalf("fired steer must not also park, got %+v", got)
+	}
+}
+
+func TestSteerIngressKeepsActorDeliveryAtLoopBoundary(t *testing.T) {
+	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	var admitted []string
+	ag.SetSteerIngress(func(text string) { admitted = append(admitted, text) })
+	ag.running.Store(true)
+	ag.Steer("persist first")
+	if len(admitted) != 1 || admitted[0] != "persist first" || len(ag.drainPending()) != 0 {
+		t.Fatalf("producer steer bypassed ingress: admitted=%v", admitted)
+	}
+
+	if !ag.DeliverSteer("actor delivery") {
+		t.Fatal("running turn rejected actor delivery")
+	}
+	if got := ag.drainPending(); len(got) != 1 || got[0].text != "actor delivery" {
+		t.Fatalf("actor delivery missed loop boundary: %+v", got)
 	}
 }

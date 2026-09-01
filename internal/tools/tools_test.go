@@ -3,16 +3,24 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/computer"
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 func run(t *testing.T, name, args string) string {
 	t.Helper()
-	return Execute(context.Background(), All(), name, json.RawMessage(args))
+	return Execute(context.Background(), directTools(), name, json.RawMessage(args))
 }
 
 func TestToolRoundTrip(t *testing.T) {
@@ -152,24 +160,23 @@ type mockInteractiveRunner struct {
 	returnThis string
 }
 
-func (m *mockInteractiveRunner) Run(_ context.Context, command string, timeout time.Duration, keys <-chan []byte) string {
-	m.gotCommand = command
-	m.gotTimeout = timeout
-	m.gotKeys = keys
+func (m *mockInteractiveRunner) Run(_ context.Context, opts bashrun.Options) string {
+	m.gotCommand = opts.Command
+	m.gotTimeout = opts.Timeout
+	m.gotKeys = opts.Keys
 	return m.returnThis
 }
 
 // TestBashToolInteractiveHook verifies that bash with interactive:true hands
-// off to the installed InteractiveBash runner, passing command+timeout+keys,
+// off to the injected runner, passing command+timeout+keys,
 // and returns whatever the runner returns. It also confirms the hook is
 // consulted only when interactive is true.
 func TestBashToolInteractiveHook(t *testing.T) {
 	mock := &mockInteractiveRunner{returnThis: "PASSWORD_ACCEPTED\n(exit: 0)"}
-	prev := InteractiveBash
-	InteractiveBash = mock
-	defer func() { InteractiveBash = prev }()
+	services := NewServices()
+	services.SetInteractive(mock)
 
-	out := run(t, "bash", `{"command":"sudo apt install -y sl","interactive":true,"timeout":20}`)
+	out := Execute(context.Background(), []Tool{bashTool(services)}, "bash", json.RawMessage(`{"command":"sudo apt install -y sl","interactive":true,"timeout":20}`))
 	if out != "PASSWORD_ACCEPTED\n(exit: 0)" {
 		t.Fatalf("interactive bash should return runner output verbatim: %q", out)
 	}
@@ -185,7 +192,7 @@ func TestBashToolInteractiveHook(t *testing.T) {
 
 	// interactive:false must NOT call the runner even when it's installed
 	mock.gotCommand = ""
-	out = run(t, "bash", `{"command":"echo nohook"}`)
+	out = Execute(context.Background(), []Tool{bashTool(services)}, "bash", json.RawMessage(`{"command":"echo nohook"}`))
 	if mock.gotCommand != "" {
 		t.Fatalf("non-interactive call should not reach the runner: %q", mock.gotCommand)
 	}
@@ -218,7 +225,7 @@ func TestEditDiffLineNumbers(t *testing.T) {
 func TestWriteToolDiffOnOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.txt")
-	w := writeTool()
+	w := writeTool(NewServices())
 	out, err := w.Run(context.Background(), json.RawMessage(`{"path":"`+p+`","content":"a\nb\n"}`))
 	if err != nil || strings.Contains(out, "```diff") {
 		t.Fatalf("fresh write should carry no diff: %q, %v", out, err)
@@ -230,4 +237,222 @@ func TestWriteToolDiffOnOverwrite(t *testing.T) {
 	if !strings.Contains(out, "```diff") || !strings.Contains(out, "2 - b") || !strings.Contains(out, "2 + c") {
 		t.Fatalf("overwrite should diff with absolute line numbers: %q", out)
 	}
+}
+
+func TestServicesKeepHostHooksIsolated(t *testing.T) {
+	one, two := NewServices(), NewServices()
+	browserOne, browserTwo := browser.NewManager(browser.ModeHeadless), browser.NewManager(browser.ModeLive)
+	one.SetBrowser(browserOne, true)
+	two.SetBrowser(browserTwo, false)
+	one.SetComputerPolicy(computer.NewPolicy([]string{"One"}, nil, true))
+	two.SetComputerPolicy(computer.NewPolicy([]string{"Two"}, nil, true))
+	oneCtx, twoCtx := WithServices(t.Context(), one), WithServices(t.Context(), two)
+
+	if one.Browser() != browserOne || two.Browser() != browserTwo {
+		t.Fatal("browser managers crossed service boundaries")
+	}
+	if err := gateApp(oneCtx, "One"); err != nil {
+		t.Fatalf("first policy denied its app: %v", err)
+	}
+	if err := gateApp(twoCtx, "One"); err == nil {
+		t.Fatal("second policy inherited the first service's approval")
+	}
+
+	noteGeneration(oneCtx, "App", &computer.AppState{Generation: 7})
+	if genFor(oneCtx, "App") != 7 || genFor(twoCtx, "App") != 0 {
+		t.Fatal("computer generations crossed service boundaries")
+	}
+
+	var oneShots, twoShots int
+	one.SetScreenshotSink(func(shots [][]byte) { oneShots += len(shots) })
+	two.SetScreenshotSink(func(shots [][]byte) { twoShots += len(shots) })
+	one.screenshots()([][]byte{{1}})
+	if oneShots != 1 || twoShots != 0 {
+		t.Fatal("screenshot callback crossed service boundaries")
+	}
+}
+
+func TestServicesKeepProcessScopesIsolated(t *testing.T) {
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	one, two := NewServices(), NewServices()
+	one.processes, one.processCwd, one.processEnv, one.authority.RootID = processes, canonicalDir(t, t.TempDir()), map[string]string{"WHIP_SESSION_ID": "one"}, "one"
+	two.processes, two.processCwd, two.processEnv, two.authority.RootID = processes, canonicalDir(t, t.TempDir()), map[string]string{"WHIP_SESSION_ID": "two"}, "two"
+
+	type result struct{ output string }
+	results := make(chan result, 2)
+	for _, services := range []*Services{one, two} {
+		go func() {
+			out, err := services.computerAutomation(t.Context()).Run(t.Context(), "sh", "-c", `printf '%s:%s' "$WHIP_SESSION_ID" "$PWD"`)
+			if err != nil {
+				results <- result{"error: " + err.Error()}
+				return
+			}
+			results <- result{string(out)}
+		}()
+	}
+	got := map[string]bool{(<-results).output: true, (<-results).output: true}
+	if !got["one:"+one.processCwd] || !got["two:"+two.processCwd] {
+		t.Fatalf("process scopes crossed: %v", got)
+	}
+}
+
+func canonicalDir(t *testing.T, dir string) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestServicesValidationPaths(t *testing.T) {
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	ledger := &countingLedger{}
+	workspaces := capability.NewWorkspaces()
+	authority := capability.ClassicAuthority{
+		RootID: "root", AgentID: "agent",
+		Files: capability.Reference{ID: "files"}, Shell: capability.Reference{ID: "shell"},
+	}
+	for _, tc := range []struct {
+		name       string
+		ledger     capability.Ledger
+		workspaces *capability.Workspaces
+		processes  *capability.ProcessManager
+		authority  capability.ClassicAuthority
+	}{
+		{"nil ledger", nil, workspaces, processes, authority},
+		{"nil workspaces", ledger, nil, processes, authority},
+		{"nil processes", ledger, workspaces, nil, authority},
+		{"missing authority", ledger, workspaces, processes, capability.ClassicAuthority{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := NewServices().BindDispatcher(tc.ledger, tc.workspaces, tc.processes, tc.authority); err == nil {
+				t.Fatal("BindDispatcher accepted incomplete authority")
+			}
+		})
+	}
+
+	services := NewServices()
+	root := t.TempDir()
+	workspace, err := workspaces.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services.workspace = workspace
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{file, filepath.Join(root, "missing"), filepath.Join(root, "..", "outside")} {
+		if _, err := services.ResolveWorkingDirectory(path); err == nil {
+			t.Errorf("ResolveWorkingDirectory(%q) succeeded", path)
+		}
+	}
+
+	services.dispatcher = capability.NewDispatcher(nil, nil, nil)
+	if _, err := services.run(context.Background(), "missing", nil, nil); err == nil || !strings.Contains(err.Error(), "unknown classic operation") {
+		t.Fatalf("unknown operation error = %v", err)
+	}
+}
+
+type workspaceRootLedger struct {
+	capability.Ledger
+	root string
+	err  error
+}
+
+func (l workspaceRootLedger) WorkspaceRoot(context.Context, string) (string, error) {
+	return l.root, l.err
+}
+
+func TestServicesRemainingPaths(t *testing.T) {
+	services := NewServices()
+	policy := computer.NewPolicy(nil, nil, false)
+	services.SetComputerPolicy(policy)
+	if services.ComputerPolicy() != policy {
+		t.Fatal("computer policy was not retained")
+	}
+
+	dir := canonicalDir(t, t.TempDir())
+	if got, err := services.ResolveWorkingDirectory(dir); err != nil || got != dir {
+		t.Fatalf("unbound working directory = %q, %v", got, err)
+	}
+	workspace, err := capability.NewWorkspaces().Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services.workspace = workspace
+	if got, err := services.ResolveWorkingDirectory(dir); err != nil || got != dir {
+		t.Fatalf("bound working directory = %q, %v", got, err)
+	}
+
+	out, err := NewServices().RunProcess(t.Context(), "sh", "-c", "printf direct")
+	if err != nil || string(out) != "direct" {
+		t.Fatalf("direct process = %q, %v", out, err)
+	}
+	if len(AllWithServices(nil)) != len(All()) {
+		t.Fatal("nil services changed the advertised tools")
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("unknown classic tool did not panic")
+			}
+		}()
+		classicTool(NewServices(), "missing")
+	}()
+
+	direct := services.wrap(Tool{Def: llm.NewTool("direct", "", `{}`), Run: func(context.Context, json.RawMessage) (string, error) {
+		return "direct", nil
+	}})
+	ctx := context.WithValue(t.Context(), dispatchCallKey{}, capability.Call{})
+	if got, err := direct.Run(ctx, nil); err != nil || got != "direct" {
+		t.Fatalf("direct dispatch = %q, %v", got, err)
+	}
+	for _, args := range []json.RawMessage{json.RawMessage(`{bad`), json.RawMessage(`{}`)} {
+		if _, err := toolPath(args); err == nil {
+			t.Fatalf("toolPath accepted %q", args)
+		}
+	}
+	if got := ExecuteWithSuggester(t.Context(), []Tool{{Def: llm.NewTool("empty", "", `{}`), Run: func(context.Context, json.RawMessage) (string, error) {
+		return "", nil
+	}}}, "empty", nil, nil); got != "(no output)" {
+		t.Fatalf("empty output = %q", got)
+	}
+
+	denied := NewServices()
+	denied.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateReject, "denied" })
+	for _, tool := range []Tool{bashTool(denied), writeTool(denied), editTool(denied)} {
+		args := json.RawMessage(`{"command":"true"}`)
+		if tool.Def.Function.Name != "bash" {
+			args = json.RawMessage(`{"path":"file","old_string":"x","new_string":"y","content":"x"}`)
+		}
+		if _, err := tool.Run(t.Context(), args); err == nil || !strings.Contains(err.Error(), "denied") {
+			t.Errorf("%s gate error = %v", tool.Def.Function.Name, err)
+		}
+	}
+	if _, err := writeTool(NewServices()).Run(t.Context(), json.RawMessage(fmt.Sprintf(`{"path":%q,"content":"x"}`, dir))); err == nil {
+		t.Fatal("write accepted a directory target")
+	}
+	if got := editDiff(strings.Repeat("x", 201), "y", 1); !strings.Contains(got, "…") {
+		t.Fatalf("long diff line was not shortened: %q", got)
+	}
+
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	authority := capability.ClassicAuthority{RootID: "root", AgentID: "agent", Files: capability.Reference{ID: "files"}, Shell: capability.Reference{ID: "shell"}}
+	for _, ledger := range []capability.Ledger{
+		workspaceRootLedger{err: errors.New("root failed")},
+		workspaceRootLedger{root: filepath.Join(t.TempDir(), "missing")},
+	} {
+		if err := NewServices().BindDispatcher(ledger, capability.NewWorkspaces(), processes, authority); err == nil {
+			t.Fatal("BindDispatcher accepted a failing workspace root")
+		}
+	}
+
+	browserManager := browser.NewManager(browser.ModeHeadless)
+	services.SetBrowser(browserManager, false)
+	services.Close()
 }

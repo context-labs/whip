@@ -124,7 +124,7 @@ func execOne(t *testing.T, b browser.Backend, code string) (string, []byte, erro
 	if len(prog) != 1 {
 		t.Fatalf("want 1 statement from %q, got %d", code, len(prog))
 	}
-	return prog[0].exec(t.Context(), b)
+	return prog[0].exec(t.Context(), b, false)
 }
 
 // TestExecHelpers drives every helper in exec's dispatch switch, asserting
@@ -337,7 +337,7 @@ func TestExecGotoSafety(t *testing.T) {
 
 func TestRunBrowserCodeProgram(t *testing.T) {
 	b := &fakeBackend{mode: browser.ModeHeadless, eval: `"title"`, info: browser.PageInfo{URL: "http://93.184.216.34/"}}
-	out, err := runBrowserCode(t.Context(), b, "# label\ngoto(\"http://93.184.216.34/\")\nprint(js(\"document.title\"))\nwaitLoad()", "")
+	out, err := runBrowserCode(t.Context(), b, "# label\ngoto(\"http://93.184.216.34/\")\nprint(js(\"document.title\"))\nwaitLoad()", "", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +352,7 @@ func TestRunBrowserCodeProgram(t *testing.T) {
 
 func TestRunBrowserCodeParseError(t *testing.T) {
 	b := &fakeBackend{mode: browser.ModeHeadless}
-	if _, err := runBrowserCode(t.Context(), b, "not a call", ""); err == nil {
+	if _, err := runBrowserCode(t.Context(), b, "not a call", "", false, nil); err == nil {
 		t.Fatal("malformed program must error")
 	}
 	if len(b.calls) != 0 {
@@ -364,7 +364,7 @@ func TestRunBrowserCodeParseError(t *testing.T) {
 // statement's text.
 func TestRunBrowserCodeStatementError(t *testing.T) {
 	b := &fakeBackend{mode: browser.ModeHeadless}
-	out, err := runBrowserCode(t.Context(), b, `print("first")`+"\n"+`box("x")`, "")
+	out, err := runBrowserCode(t.Context(), b, `print("first")`+"\n"+`box("x")`, "", false, nil)
 	if err == nil || !strings.Contains(err.Error(), `box("x")`) {
 		t.Fatalf("err = %v, want the failing statement in it", err)
 	}
@@ -375,12 +375,9 @@ func TestRunBrowserCodeStatementError(t *testing.T) {
 
 func TestRunBrowserCodeScreenshotSink(t *testing.T) {
 	var got [][]byte
-	old := ScreenshotSink
-	ScreenshotSink = func(jpegs [][]byte) { got = jpegs }
-	defer func() { ScreenshotSink = old }()
 
 	b := &fakeBackend{mode: browser.ModeHeadless, shot: []byte("jpeg")}
-	out, err := runBrowserCode(t.Context(), b, "screenshot(); screenshot()", "")
+	out, err := runBrowserCode(t.Context(), b, "screenshot(); screenshot()", "", false, func(jpegs [][]byte) { got = jpegs })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +431,7 @@ func TestNeutralizeIfBlocked(t *testing.T) {
 // runBrowserCode neutralizes even on the error path, before returning.
 func TestRunBrowserCodeNeutralizesOnError(t *testing.T) {
 	b := &fakeBackend{mode: browser.ModeHeadless, info: browser.PageInfo{URL: "http://169.254.169.254/"}}
-	if _, err := runBrowserCode(t.Context(), b, `box("x")`, ""); err == nil {
+	if _, err := runBrowserCode(t.Context(), b, `box("x")`, "", false, nil); err == nil {
 		t.Fatal("want error")
 	}
 	want := "Info() Navigate(about:blank)"
@@ -444,9 +441,8 @@ func TestRunBrowserCodeNeutralizesOnError(t *testing.T) {
 }
 
 func TestBrowserExecArgErrors(t *testing.T) {
-	old := Browser
-	Browser = browser.NewManager(browser.ModeHeadless)
-	defer func() { Browser = old }()
+	services := NewServices()
+	services.SetBrowser(browser.NewManager(browser.ModeHeadless), false)
 
 	tests := []struct {
 		name, args, want string
@@ -458,7 +454,7 @@ func TestBrowserExecArgErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out := Execute(t.Context(), []Tool{BrowserExec()}, "browser_exec", json.RawMessage(tt.args))
+			out := Execute(t.Context(), []Tool{browserExec(services)}, "browser_exec", json.RawMessage(tt.args))
 			if !strings.HasPrefix(out, "Error") || !strings.Contains(out, tt.want) {
 				t.Fatalf("out = %q, want error containing %q", out, tt.want)
 			}
@@ -494,7 +490,7 @@ js("say \"hi\"; ok")`)
 // output when the page moved onto a blocked URL.
 func TestRunBrowserCodeAppendsSafetyNote(t *testing.T) {
 	b := &fakeBackend{mode: browser.ModeHeadless, info: browser.PageInfo{URL: "http://169.254.169.254/"}}
-	out, err := runBrowserCode(t.Context(), b, `js("location='http://169.254.169.254/'")`, "")
+	out, err := runBrowserCode(t.Context(), b, `js("location='http://169.254.169.254/'")`, "", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

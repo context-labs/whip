@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -124,10 +125,11 @@ func runCLI(args []string) error {
 	ag.Effort = tui.DefaultEffortFor(config.LoadCatalogs(), provName, ag.Model, cfg.DefaultEffort)
 	ag.MaxTurns = *maxTurnsFlag
 
-	// Session: resume an existing one, or create a fresh one — unless
-	// -no-session (a one-off cron job shouldn't clutter whip sessions).
+	// Session: persistent unless -no-session, where a temporary store still
+	// supplies the capability ledger without cluttering session history.
 	var store *session.Store
 	var sessionID string
+	persistSession := !*noSessionFlag
 	if !*noSessionFlag {
 		if dir, derr := config.Dir(); derr == nil {
 			if st, serr := session.Open(dir + "/sessions.db"); serr == nil {
@@ -135,6 +137,22 @@ func runCLI(args []string) error {
 				defer func() { _ = st.Close() }()
 			}
 		}
+	}
+	if store == nil && *resumeFlag == "" {
+		tmp, terr := os.MkdirTemp("", "whip-run-")
+		if terr != nil {
+			return terr
+		}
+		defer func() { _ = os.RemoveAll(tmp) }()
+		store, err = session.Open(filepath.Join(tmp, "sessions.db"))
+		if err != nil {
+			return err
+		}
+		defer func() { _ = store.Close() }()
+		persistSession = false
+	}
+	if store == nil && *resumeFlag != "" {
+		return errors.New("-resume: session store unavailable")
 	}
 	if store != nil {
 		if *resumeFlag != "" {
@@ -150,6 +168,21 @@ func runCLI(args []string) error {
 			}
 		}
 	}
+	if sessionID == "" {
+		return errors.New("session unavailable")
+	}
+	authority, err := store.EnsureClassicAuthority(context.Background(), sessionID)
+	if err != nil {
+		return err
+	}
+	ag.Services.SetProcessMarkers(sessionID, ag.Model)
+	if err := ag.Services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+		return err
+	}
+	defer ag.Services.Close()
+	defer ag.Close()
+	ag.SetSessionID(sessionID)
+	ag.Tasks().SetSessionID(sessionID)
 
 	// ctrl+c cancels the turn; -timeout caps the whole run.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -218,7 +251,7 @@ func runCLI(args []string) error {
 	// Best-effort persistence (the TUI's persist does the same each turn).
 	// Save from index 0: Load re-derives the system-prompt slot, so a resumed
 	// conversation must not skip it (saving from 1 shifts everything off).
-	if store != nil && sessionID != "" {
+	if persistSession {
 		if serr := store.Save(sessionID, 0, ag.MessagesSnapshot(), modelName, provName); serr != nil {
 			config.LogEvent("session.save", "run FAILED id="+sessionID+": "+serr.Error())
 		}

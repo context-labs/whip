@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/computer"
-	"github.com/context-labs/whip/internal/tools"
 )
 
 // computerUseCommand implements /computer-use (alias /computer):
@@ -22,21 +21,23 @@ func (m *model) computerUseCommand(args []string, text string) {
 	}
 	if len(args) > 0 && args[0] == "allow" && len(args) > 1 {
 		app := strings.Join(args[1:], " ")
-		if tools.ComputerPolicy == nil {
+		policy := m.agent.Services.ComputerPolicy()
+		if policy == nil {
 			m.append(errStyle.Render("no computer policy installed"))
 			return
 		}
-		tools.ComputerPolicy.Approve(app)
+		policy.Approve(app)
 		m.append(dimStyle.Render("◎ computer-use: " + app + " approved for this session"))
 		return
 	}
 	if len(args) > 0 && args[0] == "deny" && len(args) > 1 {
 		// session deny: add to the deny map via a fresh policy check path
-		if tools.ComputerPolicy == nil {
+		policy := m.agent.Services.ComputerPolicy()
+		if policy == nil {
 			m.append(errStyle.Render("no computer policy installed"))
 			return
 		}
-		tools.ComputerPolicy.Deny(strings.Join(args[1:], " "))
+		policy.Deny(strings.Join(args[1:], " "))
 		m.append(dimStyle.Render("◎ computer-use: " + strings.Join(args[1:], " ") + " denied for this session"))
 		return
 	}
@@ -47,8 +48,8 @@ func (m *model) computerUseCommand(args []string, text string) {
 	}
 	// bare: status
 	apps := "none"
-	if tools.ComputerPolicy != nil {
-		apps = tools.ComputerPolicy.Summary()
+	if policy := m.agent.Services.ComputerPolicy(); policy != nil {
+		apps = policy.Summary()
 	}
 	m.append(dimStyle.Render("◎ computer-use: macOS ✓ · approved apps: " + apps + " · /computer-use <task> to drive the desktop, allow/deny <app> to manage consent"))
 }

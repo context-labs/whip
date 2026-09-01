@@ -2,15 +2,24 @@
 package tools
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools/bashrun"
 )
@@ -28,26 +37,522 @@ type Tool struct {
 // Implementations must be safe to call from a goroutine that is not the UI
 // thread, and must not block forever when no input arrives.
 type InteractiveRunner interface {
-	Run(ctx context.Context, command string, timeout time.Duration, keys <-chan []byte) string
+	Run(ctx context.Context, opts bashrun.Options) string
 }
 
-// InteractiveBash is the hook installed by the TUI; nil means the agent's bash
-// tool runs interactive commands itself using the non-interactive fallback
-// (which fast-fails sudo-style prompts instead of hanging).
-var InteractiveBash InteractiveRunner
-
-// LSP, when non-nil, feeds language-server diagnostics back to the model by
-// appending a <diagnostics> block to write/edit tool output (see
-// internal/lsp). Installed by the TUI at startup; nil in tests and headless
-// runs. Implementations must be safe for concurrent use (parallel tool
-// calls) and must honor ctx (ctrl+c cancels the wait).
-var LSP interface {
+type Diagnostics interface {
 	WaitDiagnostics(ctx context.Context, path string) string
 }
 
-// All returns the built-in tool set.
+type Services struct {
+	mu               sync.RWMutex
+	interactive      InteractiveRunner
+	diagnostics      Diagnostics
+	gate             Gate
+	dispatcher       *capability.Dispatcher
+	authority        capability.ClassicAuthority
+	processes        *capability.ProcessManager
+	workspace        *capability.Workspace
+	processCwd       string
+	processEnv       map[string]string
+	browser          *browser.Manager
+	allowPrivateURLs bool
+	screenshotSink   func([][]byte)
+	computerPolicy   *computer.Policy
+	computerApprover func(string) bool
+	computerHelper   *computer.Helper
+	appGenerations   map[string]int
+}
+
+func NewServices() *Services { return &Services{} }
+
+func (s *Services) SetBrowser(manager *browser.Manager, allowPrivateURLs bool) {
+	s.mu.Lock()
+	s.browser = manager
+	s.allowPrivateURLs = allowPrivateURLs
+	s.mu.Unlock()
+}
+
+func (s *Services) Browser() *browser.Manager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.browser
+}
+
+func (s *Services) browserConfig() (*browser.Manager, bool, func([][]byte)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.browser, s.allowPrivateURLs, s.screenshotSink
+}
+
+func (s *Services) SetScreenshotSink(sink func([][]byte)) {
+	s.mu.Lock()
+	s.screenshotSink = sink
+	s.mu.Unlock()
+}
+
+func (s *Services) screenshots() func([][]byte) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.screenshotSink
+}
+
+func (s *Services) SetComputerPolicy(policy *computer.Policy) {
+	s.mu.Lock()
+	s.computerPolicy = policy
+	s.mu.Unlock()
+}
+
+func (s *Services) ComputerPolicy() *computer.Policy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.computerPolicy
+}
+
+func (s *Services) SetComputerApprover(approver func(string) bool) {
+	s.mu.Lock()
+	s.computerApprover = approver
+	s.mu.Unlock()
+}
+
+func (s *Services) computerApproval() (*computer.Policy, func(string) bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.computerPolicy, s.computerApprover
+}
+
+func (s *Services) noteGeneration(app string, generation int) {
+	s.mu.Lock()
+	if s.appGenerations == nil {
+		s.appGenerations = map[string]int{}
+	}
+	s.appGenerations[strings.ToLower(app)] = generation
+	s.mu.Unlock()
+}
+
+func (s *Services) generationFor(app string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.appGenerations[strings.ToLower(app)]
+}
+
+func (s *Services) SetInteractive(runner InteractiveRunner) {
+	s.mu.Lock()
+	s.interactive = runner
+	s.mu.Unlock()
+}
+
+func (s *Services) SetDiagnostics(diagnostics Diagnostics) {
+	s.mu.Lock()
+	s.diagnostics = diagnostics
+	s.mu.Unlock()
+}
+
+func (s *Services) SetGate(gate Gate) {
+	s.mu.Lock()
+	s.gate = gate
+	s.mu.Unlock()
+}
+
+func (s *Services) SetProcessMarkers(sessionID, model string) {
+	s.mu.Lock()
+	s.processEnv = bashrun.Markers(sessionID, model)
+	s.mu.Unlock()
+}
+
+func (s *Services) ProcessOptions() bashrun.Options {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return bashrun.Options{Cwd: s.processCwd, RootID: s.authority.RootID, Processes: s.processes, Env: maps.Clone(s.processEnv)}
+}
+
+func (s *Services) ResolveWorkingDirectory(path string) (string, error) {
+	s.mu.RLock()
+	workspace := s.workspace
+	s.mu.RUnlock()
+	if workspace == nil {
+		return filepath.Abs(path)
+	}
+	resolved, err := workspace.Resolve(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", path)
+	}
+	return resolved, nil
+}
+
+type workingDirectoryKey struct{}
+
+func WithWorkingDirectory(ctx context.Context, path string) context.Context {
+	if path == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, workingDirectoryKey{}, path)
+}
+
+func workingDirectory(ctx context.Context) string {
+	path, _ := ctx.Value(workingDirectoryKey{}).(string)
+	return path
+}
+
+type invocationKey struct{}
+
+type invocation struct {
+	commandClientID string
+	commandID       string
+	operationID     string
+	traceID         string
+}
+
+// WithTurnIdentity attributes all tool calls made from one agent turn to the
+// same command and trace.
+func WithTurnIdentity(ctx context.Context, clientID string) (context.Context, error) {
+	id, err := randomID()
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, invocationKey{}, invocation{
+		commandClientID: clientID,
+		commandID:       id,
+		traceID:         id,
+	}), nil
+}
+
+// WithOperationIdentity attributes one model tool call within a turn.
+func WithOperationIdentity(ctx context.Context, callID string) context.Context {
+	identity, _ := ctx.Value(invocationKey{}).(invocation)
+	if callID != "" {
+		identity.operationID = identity.commandID + ":" + callID
+	}
+	return context.WithValue(ctx, invocationKey{}, identity)
+}
+
+type bashResultKey struct{}
+
+func (s *Services) RunBash(ctx context.Context, command string, timeout time.Duration) (bashrun.Result, error) {
+	arguments, err := json.Marshal(struct {
+		Command string  `json:"command"`
+		Timeout float64 `json:"timeout"`
+	}{Command: command, Timeout: timeout.Seconds()})
+	if err != nil {
+		return bashrun.Result{}, err
+	}
+	var result bashrun.Result
+	ctx = context.WithValue(ctx, bashResultKey{}, &result)
+	_, err = s.run(ctx, "bash", arguments, bashTool(s).Run)
+	return result, err
+}
+
+func (s *Services) RunProcess(ctx context.Context, name string, args ...string) ([]byte, error) {
+	opts := s.ProcessOptions()
+	if opts.Processes == nil {
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Dir = opts.Cwd
+		return cmd.CombinedOutput()
+	}
+	var stdout, stderr bytes.Buffer
+	process, err := opts.Processes.Start(ctx, opts.RootID, name, args, capability.ProcessOptions{
+		Cwd: opts.Cwd, Env: opts.Env, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr,
+	})
+	if err == nil {
+		err = process.Wait()
+	}
+	return append(stdout.Bytes(), stderr.Bytes()...), err
+}
+
+func (s *Services) RunWorkspaceProcess(ctx context.Context, name string, args ...string) ([]byte, error) {
+	arguments, err := json.Marshal(struct {
+		Name    string   `json:"name"`
+		Args    []string `json:"args"`
+		Command string   `json:"command"`
+	}{Name: name, Args: args, Command: strings.Join(append([]string{name}, args...), " ")})
+	if err != nil {
+		return nil, err
+	}
+	out, err := s.run(ctx, "workspace_process", arguments, workspaceProcessTool(s).Run)
+	return []byte(out), err
+}
+
+func workspaceProcessTool(services *Services) Tool {
+	return Tool{Def: llm.NewTool("workspace_process", "Run an internal workspace-wide process.", `{}`), Run: func(ctx context.Context, arguments json.RawMessage) (string, error) {
+		var args struct {
+			Name string   `json:"name"`
+			Args []string `json:"args"`
+		}
+		if err := json.Unmarshal(arguments, &args); err != nil {
+			return "", err
+		}
+		out, err := services.RunProcess(ctx, args.Name, args.Args...)
+		return string(out), err
+	}}
+}
+
+func (s *Services) computerAutomation(ctx context.Context) computer.Automation {
+	return computer.Automation{Context: ctx, Run: s.RunProcess}
+}
+
+func (s *Services) nativeComputerHelper() (*computer.Helper, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.computerHelper != nil {
+		return s.computerHelper, nil
+	}
+	if s.processes == nil {
+		return computer.Shared()
+	}
+	helper, err := computer.NewManagedHelper(s.processes, s.authority.RootID, s.processCwd, maps.Clone(s.processEnv))
+	if err != nil {
+		return nil, err
+	}
+	s.computerHelper = helper
+	return helper, nil
+}
+
+func (s *Services) Close() {
+	s.mu.RLock()
+	diagnostics, browserManager, computerHelper := s.diagnostics, s.browser, s.computerHelper
+	s.mu.RUnlock()
+	if closer, ok := diagnostics.(interface{ Close() }); ok {
+		closer.Close()
+	}
+	if browserManager != nil {
+		browserManager.CloseAll()
+	}
+	if computerHelper != nil {
+		computerHelper.Close()
+	}
+}
+
+// All returns an unbound built-in tool set. Execution fails closed until its
+// Services is bound to dispatcher authority.
 func All() []Tool {
-	return []Tool{bashTool(), readTool(), writeTool(), editTool()}
+	return AllWithServices(NewServices())
+}
+
+func AllWithServices(services *Services) []Tool {
+	if services == nil {
+		services = NewServices()
+	}
+	var toolset []Tool
+	for _, spec := range classicToolSpecs {
+		if spec.advertised {
+			toolset = append(toolset, services.wrap(spec.build(services)))
+		}
+	}
+	return toolset
+}
+
+type classicToolSpec struct {
+	build      func(*Services) Tool
+	advertised bool
+	shell      bool
+	writer     bool
+	mutation   capability.Mutation
+	permission bool
+	path       func(json.RawMessage) (string, error)
+}
+
+var classicToolSpecs = []classicToolSpec{
+	{build: bashTool, advertised: true, shell: true, writer: true, mutation: capability.MutationWorkspace, permission: true},
+	{build: func(*Services) Tool { return readTool() }, advertised: true, path: toolPath},
+	{build: writeTool, advertised: true, mutation: capability.MutationPath, permission: true, path: toolPath},
+	{build: editTool, advertised: true, mutation: capability.MutationPath, permission: true, path: toolPath},
+	{build: browserExec, shell: true},
+	{build: computerExec, shell: true},
+	{build: workspaceProcessTool, shell: true, writer: true, mutation: capability.MutationWorkspace, permission: true},
+}
+
+func classicTool(services *Services, operation string) Tool {
+	for _, spec := range classicToolSpecs {
+		tool := spec.build(services)
+		if tool.Def.Function.Name == operation {
+			return services.wrap(tool)
+		}
+	}
+	panic("unknown classic tool: " + operation)
+}
+
+func classicSpec(operation string) (classicToolSpec, bool) {
+	for _, spec := range classicToolSpecs {
+		if spec.build(nil).Def.Function.Name == operation {
+			return spec, true
+		}
+	}
+	return classicToolSpec{}, false
+}
+
+func (s *Services) wrap(tool Tool) Tool {
+	direct := tool.Run
+	operation := tool.Def.Function.Name
+	tool.Run = func(ctx context.Context, arguments json.RawMessage) (string, error) {
+		if _, dispatched := dispatchCall(ctx); dispatched {
+			return direct(ctx, arguments)
+		}
+		return s.run(ctx, operation, arguments, direct)
+	}
+	return tool
+}
+
+type dispatchCallKey struct{}
+
+func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.ClassicAuthority) error {
+	if ledger == nil || workspaces == nil || processes == nil || authority.RootID == "" || authority.AgentID == "" || authority.Files.ID == "" || authority.Shell.ID == "" {
+		return errors.New("classic dispatcher authority is incomplete")
+	}
+	s.mu.RLock()
+	bound := s.dispatcher != nil && s.processes == processes && s.authority == authority
+	s.mu.RUnlock()
+	if bound {
+		return nil
+	}
+	dispatcher := capability.NewDispatcher(ledger, workspaces, s)
+	root, err := ledger.WorkspaceRoot(context.Background(), authority.RootID)
+	if err != nil {
+		return err
+	}
+	workspace, err := workspaces.Open(root)
+	if err != nil {
+		return err
+	}
+	for _, spec := range classicToolSpecs {
+		tool := spec.build(s)
+		operation := tool.Def.Function.Name
+		registration := capability.Registration{Operation: operation, Handler: func(ctx context.Context, call capability.Call) (string, error) {
+			return tool.Run(context.WithValue(ctx, dispatchCallKey{}, call), call.Arguments)
+		}, Mutation: spec.mutation, Permission: spec.permission, Path: spec.path}
+		if err := dispatcher.Register(registration); err != nil {
+			return err
+		}
+	}
+	s.mu.RLock()
+	env := maps.Clone(s.processEnv)
+	browserManager := s.browser
+	s.mu.RUnlock()
+	var childEnv []string
+	if browserManager != nil {
+		childEnv, err = processes.ChildEnvironment(env)
+		if err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	s.dispatcher = dispatcher
+	s.authority = authority
+	s.processes = processes
+	s.workspace = workspace
+	s.processCwd = workspace.Root()
+	diagnostics := s.diagnostics
+	computerHelper := s.computerHelper
+	s.computerHelper = nil
+	s.mu.Unlock()
+	if computerHelper != nil {
+		computerHelper.Close()
+	}
+	if browserManager != nil {
+		browserManager.SetProcessOptions(processes, authority.RootID, childEnv)
+	}
+	if scoped, ok := diagnostics.(interface {
+		SetProcessOptions(*capability.ProcessManager, string, string, map[string]string)
+	}); ok {
+		scoped.SetProcessOptions(processes, authority.RootID, workspace.Root(), env)
+	}
+	return nil
+}
+
+// CloneForAuthority keeps the parent's host integrations while binding tool
+// calls to a distinct descendant capability set.
+func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.ClassicAuthority) (*Services, error) {
+	s.mu.RLock()
+	clone := &Services{
+		interactive: s.interactive,
+		diagnostics: s.diagnostics,
+		gate:        s.gate,
+		processEnv:  maps.Clone(s.processEnv),
+	}
+	s.mu.RUnlock()
+	if err := clone.BindDispatcher(ledger, workspaces, processes, authority); err != nil {
+		return nil, err
+	}
+	return clone, nil
+}
+
+func toolPath(arguments json.RawMessage) (string, error) {
+	var args struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(arguments, &args); err != nil {
+		return "", err
+	}
+	if args.Path == "" {
+		return "", errors.New("path is required")
+	}
+	return args.Path, nil
+}
+
+func (s *Services) run(ctx context.Context, operation string, arguments json.RawMessage, direct func(context.Context, json.RawMessage) (string, error)) (string, error) {
+	s.mu.RLock()
+	dispatcher, authority := s.dispatcher, s.authority
+	s.mu.RUnlock()
+	if dispatcher == nil {
+		return "", errors.New("tool services are not bound to dispatcher authority")
+	}
+	spec, ok := classicSpec(operation)
+	if !ok {
+		return "", fmt.Errorf("unknown classic operation %q", operation)
+	}
+	capabilityRef := authority.Files
+	identity, ok := ctx.Value(invocationKey{}).(invocation)
+	if !ok || identity.traceID == "" {
+		var err error
+		ctx, err = WithTurnIdentity(ctx, "classic")
+		if err != nil {
+			return "", err
+		}
+		identity = ctx.Value(invocationKey{}).(invocation)
+	}
+	request := capability.Request{
+		RootID: authority.RootID, AgentID: authority.AgentID, Operation: operation, Arguments: arguments,
+		CommandClientID: identity.commandClientID, CommandID: identity.commandID, TraceID: identity.traceID,
+	}
+	if spec.shell {
+		capabilityRef = authority.Shell
+	}
+	if spec.writer {
+		request.WriterCapabilityID = authority.Files.ID
+		request.WriterCapabilityGeneration = authority.Files.Generation
+	}
+	request.CapabilityID = capabilityRef.ID
+	request.CapabilityGeneration = capabilityRef.Generation
+	request.WorkingDirectory = workingDirectory(ctx)
+	request.OperationID = identity.operationID
+	if request.OperationID == "" {
+		var err error
+		request.OperationID, err = randomID()
+		if err != nil {
+			return "", err
+		}
+	}
+	response, err := dispatcher.Dispatch(ctx, request)
+	return response.Output, err
+}
+
+func randomID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(id[:]), nil
+}
+
+func dispatchCall(ctx context.Context) (capability.Call, bool) {
+	call, ok := ctx.Value(dispatchCallKey{}).(capability.Call)
+	return call, ok
 }
 
 // updateKey carries a per-tool-call partial-output callback. The agent layer
@@ -71,15 +576,13 @@ func Defs(ts []Tool) []llm.Tool {
 	return defs
 }
 
-// Suggester returns the closest known tool names for an unknown one —
-// installed by the agent (which knows the live MCP tool set) so a stale or
-// typo'd tool call nudges the model toward the right name instead of
-// dead-ending the turn.
-var Suggester func(name string) []string
-
 // Execute runs the named tool. Errors are returned as strings so they can be
 // fed back to the model rather than aborting the loop.
 func Execute(ctx context.Context, ts []Tool, name string, args json.RawMessage) string {
+	return ExecuteWithSuggester(ctx, ts, name, args, nil)
+}
+
+func ExecuteWithSuggester(ctx context.Context, ts []Tool, name string, args json.RawMessage, suggest func(string) []string) string {
 	for _, t := range ts {
 		if t.Def.Function.Name == name {
 			out, err := t.Run(ctx, args)
@@ -93,8 +596,8 @@ func Execute(ctx context.Context, ts []Tool, name string, args json.RawMessage) 
 		}
 	}
 	msg := fmt.Sprintf("Error: unknown tool %q", name)
-	if Suggester != nil {
-		if hints := Suggester(name); len(hints) > 0 {
+	if suggest != nil {
+		if hints := suggest(name); len(hints) > 0 {
 			msg += " — did you mean " + strings.Join(hints, " or ") + "?"
 		}
 	}
@@ -140,11 +643,14 @@ func middleElide(s string) string {
 // lspDiagnostics appends the LSP diagnostics block for a just-written file.
 // Never fails the tool: a nil hook, an uncovered file, or a slow server all
 // yield "" (the wait is capped inside internal/lsp).
-func lspDiagnostics(ctx context.Context, path string) string {
-	if LSP == nil {
+func (s *Services) lspDiagnostics(ctx context.Context, path string) string {
+	s.mu.RLock()
+	diagnostics := s.diagnostics
+	s.mu.RUnlock()
+	if diagnostics == nil {
 		return ""
 	}
-	return LSP.WaitDiagnostics(ctx, path)
+	return diagnostics.WaitDiagnostics(ctx, path)
 }
 
 // TruncateTail caps tool output at maxOutput bytes, keeping the tail (the end
@@ -157,7 +663,7 @@ func TruncateTail(s string) string {
 	return fmt.Sprintf("[... first %d bytes truncated]\n", len(s)-maxOutput) + s[len(s)-maxOutput:]
 }
 
-func bashTool() Tool {
+func bashTool(services *Services) Tool {
 	return Tool{
 		Def: llm.NewTool("bash",
 			"Execute a bash command in the current working directory and return its combined stdout/stderr. Use for running programs, git, searching (grep/rg), listing files, etc.",
@@ -174,17 +680,31 @@ func bashTool() Tool {
 			if a.Timeout <= 0 {
 				a.Timeout = 120
 			}
-			if deny := checkGate("bash", a.Command); deny != "" {
-				return "", errors.New(deny)
+			call, dispatched := dispatchCall(ctx)
+			if !dispatched {
+				if deny := services.CheckGate(ctx, "bash", a.Command); deny != "" {
+					return "", errors.New(deny)
+				}
 			}
 			dur := time.Duration(a.Timeout * float64(time.Second))
 
 			// Interactive mode hands the live terminal to the user only when the
 			// TUI has wired a runner. Without it we run non-interactively, which
 			// fails sudo-style prompts fast instead of hanging on whip's tty.
-			if a.Interactive && InteractiveBash != nil {
+			services.mu.RLock()
+			interactive := services.interactive
+			services.mu.RUnlock()
+			processOpts := services.ProcessOptions()
+			processOpts.Command = a.Command
+			processOpts.Cwd = call.WorkingDir
+			if processOpts.Cwd == "" {
+				processOpts.Cwd = call.CanonicalRoot
+			}
+			processOpts.Timeout = dur
+			if a.Interactive && interactive != nil {
 				keys := make(chan []byte, 16)
-				out := InteractiveBash.Run(ctx, a.Command, dur, keys)
+				processOpts.Keys = keys
+				out := interactive.Run(ctx, processOpts)
 				return TruncateTail(out), nil
 			}
 
@@ -192,11 +712,11 @@ func bashTool() Tool {
 			if cb, ok := ctx.Value(updateKey{}).(func(string)); ok {
 				onUpdate = cb
 			}
-			res := bashrun.Run(ctx, bashrun.Options{
-				Command:  a.Command,
-				Timeout:  dur,
-				OnUpdate: onUpdate,
-			})
+			processOpts.OnUpdate = onUpdate
+			res := bashrun.Run(ctx, processOpts)
+			if result, ok := ctx.Value(bashResultKey{}).(*bashrun.Result); ok {
+				*result = res
+			}
 
 			s := TruncateTail(res.Output)
 			if len(res.Output) > maxOutput {
@@ -234,7 +754,11 @@ func readTool() Tool {
 			if err := json.Unmarshal(args, &a); err != nil {
 				return "", err
 			}
-			data, err := os.ReadFile(a.Path)
+			actualPath := a.Path
+			if call, ok := dispatchCall(ctx); ok {
+				actualPath = call.CanonicalPath
+			}
+			data, err := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			if err != nil {
 				return "", err
 			}
@@ -257,7 +781,7 @@ func readTool() Tool {
 	}
 }
 
-func writeTool() Tool {
+func writeTool(services *Services) Tool {
 	return Tool{
 		Def: llm.NewTool("write",
 			"Write content to a file, creating it (and parent directories) or overwriting it.",
@@ -270,17 +794,24 @@ func writeTool() Tool {
 			if err := json.Unmarshal(args, &a); err != nil {
 				return "", err
 			}
-			if deny := checkGate("write", a.Path); deny != "" {
-				return "", errors.New(deny)
+			call, dispatched := dispatchCall(ctx)
+			if !dispatched {
+				if deny := services.CheckGate(ctx, "write", a.Path); deny != "" {
+					return "", errors.New(deny)
+				}
+			}
+			actualPath := a.Path
+			if dispatched {
+				actualPath = call.CanonicalPath
 			}
 			// old content (if any) so an overwrite reports what changed
-			old, oldErr := os.ReadFile(a.Path)
+			old, oldErr := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			//nolint:gosec // workspace files get the user default perms
-			if err := os.MkdirAll(filepath.Dir(a.Path), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(actualPath), 0o755); err != nil {
 				return "", err
 			}
 			//nolint:gosec // workspace files get the user default perms
-			if err := os.WriteFile(a.Path, []byte(a.Content), 0o644); err != nil {
+			if err := os.WriteFile(actualPath, []byte(a.Content), 0o644); err != nil {
 				return "", err
 			}
 			out := fmt.Sprintf("Wrote %d bytes to %s", len(a.Content), a.Path)
@@ -292,12 +823,12 @@ func writeTool() Tool {
 					out += "\n```diff\n" + d + "\n```"
 				}
 			}
-			return out + lspDiagnostics(ctx, a.Path), nil
+			return out + services.lspDiagnostics(ctx, actualPath), nil
 		},
 	}
 }
 
-func editTool() Tool {
+func editTool(services *Services) Tool {
 	return Tool{
 		Def: llm.NewTool("edit",
 			"Replace an exact string in a file. old_string must appear exactly once unless replace_all is true.",
@@ -312,10 +843,17 @@ func editTool() Tool {
 			if err := json.Unmarshal(args, &a); err != nil {
 				return "", err
 			}
-			if deny := checkGate("edit", a.Path); deny != "" {
-				return "", errors.New(deny)
+			call, dispatched := dispatchCall(ctx)
+			if !dispatched {
+				if deny := services.CheckGate(ctx, "edit", a.Path); deny != "" {
+					return "", errors.New(deny)
+				}
 			}
-			data, err := os.ReadFile(a.Path)
+			actualPath := a.Path
+			if dispatched {
+				actualPath = call.CanonicalPath
+			}
+			data, err := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			if err != nil {
 				return "", err
 			}
@@ -329,7 +867,7 @@ func editTool() Tool {
 			}
 			s = strings.ReplaceAll(s, a.OldString, a.NewString)
 			//nolint:gosec // workspace files get the user default perms
-			if err := os.WriteFile(a.Path, []byte(s), 0o644); err != nil {
+			if err := os.WriteFile(actualPath, []byte(s), 0o644); err != nil {
 				return "", err
 			}
 			out := fmt.Sprintf("Replaced %d occurrence(s) in %s", n, a.Path)
@@ -342,7 +880,7 @@ func editTool() Tool {
 			if d := editDiff(a.OldString, a.NewString, startLine); d != "" {
 				out += "\n```diff\n" + d + "\n```"
 			}
-			return out + lspDiagnostics(ctx, a.Path), nil
+			return out + services.lspDiagnostics(ctx, actualPath), nil
 		},
 	}
 }
