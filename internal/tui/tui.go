@@ -367,11 +367,16 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	if cfg.Thinking != nil {
 		showThinking = *cfg.Thinking
 	}
+	sidebarHide := false // default shown (when the terminal is wide enough); "sidebar": false opts out at startup
+	if cfg.Sidebar != nil {
+		sidebarHide = !*cfg.Sidebar
+	}
 	m := &model{
 		cfg: cfg, agent: ag, modelName: mn, provName: pn, sysPrompt: sysPrompt,
 		input: ti, spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true, saved: 1, hoverIdx: -1,
 		catalogs: config.LoadCatalogs(), mouseOn: mouseOn, now: time.Now, showThinking: showThinking,
 		chdir:        os.Chdir,
+		sidebarHide:  sidebarHide,
 		compactModel: cfg.CompactModel, compactProv: cfg.CompactProvider,
 		skillScan: func() []skills.Skill { return skills.Scan(skills.DefaultDirs()...) },
 	}
