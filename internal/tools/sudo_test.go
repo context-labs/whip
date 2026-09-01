@@ -19,7 +19,7 @@ func TestBashSudoFastFail(t *testing.T) {
 	}
 
 	start := time.Now()
-	out := Execute(context.Background(), All(), "bash", json.RawMessage(`{"command":"sudo true 2>&1; echo RC=$?","timeout":5}`))
+	out := Execute(context.Background(), directTools(), "bash", json.RawMessage(`{"command":"sudo true 2>&1; echo RC=$?","timeout":5}`))
 	elapsed := time.Since(start)
 
 	if elapsed > 4*time.Second {

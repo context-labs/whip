@@ -14,7 +14,6 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/tools"
 )
 
 func testStore(t *testing.T) *session.Store {
@@ -84,7 +83,7 @@ func TestLoadSessionReplaysHistory(t *testing.T) {
 		{toolName: "write", toolArgs: `{"path":"` + target + `","content":"v1"}`},
 		{text: "written"},
 	})
-	f1 := newFixture(t, nil, st, factoryFor(srv1, tools.All()))
+	f1 := newFixture(t, nil, st, factoryFor(srv1, nil))
 	f1.initialize(t)
 	id := f1.newSession(t, dir)
 	if _, err := f1.prompt(t, id, "make the file"); err != nil {
@@ -113,6 +112,9 @@ func TestLoadSessionReplaysHistory(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("session/load: %v", err)
+	}
+	if _, err := f2.conn.LoadSession(context.Background(), acp.LoadSessionRequest{SessionId: id, Cwd: dir, McpServers: []acp.McpServer{}}); err == nil {
+		t.Fatal("loading an already-active session should fail")
 	}
 
 	// Replay arrived before the response (LoadSession returned), and contains
@@ -153,6 +155,12 @@ func TestLoadSessionReplaysHistory(t *testing.T) {
 	}
 	if len(users) != 2 || users[0] != "make the file" || users[1] != "what did you do?" {
 		t.Errorf("conversation = %v", users)
+	}
+	if _, err := f2.conn.CloseSession(context.Background(), acp.CloseSessionRequest{SessionId: id}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f2.conn.LoadSession(context.Background(), acp.LoadSessionRequest{SessionId: id, Cwd: dir, McpServers: []acp.McpServer{}}); err != nil {
+		t.Fatalf("reload after close: %v", err)
 	}
 }
 

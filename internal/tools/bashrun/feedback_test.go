@@ -17,6 +17,7 @@ func TestOnUpdateThrottle(t *testing.T) {
 	var snaps []string
 	var times []time.Time
 
+	started := time.Now()
 	res := Run(context.Background(), Options{
 		Command: `echo stage1; sleep 0.35; echo stage2; sleep 0.35; echo stage3`,
 		Timeout: 10 * time.Second,
@@ -27,6 +28,7 @@ func TestOnUpdateThrottle(t *testing.T) {
 			mu.Unlock()
 		},
 	})
+	elapsed := time.Since(started)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -45,12 +47,10 @@ func TestOnUpdateThrottle(t *testing.T) {
 	if !strings.Contains(joined, "stage1") {
 		t.Errorf("no snapshot contained the first stage's output: %v", snaps)
 	}
-	// Throttle: consecutive fires are at least ~updateInterval apart (5ms
-	// slack for scheduler jitter on a loaded CI box).
-	for i := 1; i < len(times); i++ {
-		if gap := times[i].Sub(times[i-1]); gap < updateInterval-5*time.Millisecond {
-			t.Errorf("OnUpdate fired %s after previous call — throttle regressed (< %s)", gap, updateInterval)
-		}
+	// A delayed ticker delivery can make adjacent callbacks less than one
+	// interval apart. Bound the average rate instead.
+	if maxCalls := int(elapsed/updateInterval) + 1; len(times) > maxCalls {
+		t.Errorf("OnUpdate fired %d times over %s; want at most %d", len(times), elapsed, maxCalls)
 	}
 	// The final Result still carries the complete output (OnUpdate never
 	// claims to deliver the end state).

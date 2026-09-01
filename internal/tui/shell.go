@@ -22,7 +22,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/tools/bashrun"
@@ -60,26 +62,54 @@ func (m *model) startShell(text string, echo bool) {
 		m.flushCurrent() // don't split the in-flight assistant line with the echo
 		m.append(youStyle.Render(glyphUser) + text)
 	}
+	if m.store != nil {
+		if err := m.ensureSession(); err != nil {
+			m.append(errStyle.Render("shell start failed: " + err.Error()))
+			return
+		}
+	}
 
 	if m.prog == nil {
 		// headless (tests): run inline and apply the result directly
-		out := shellExec(cmdLine)
+		out := shellExecWithOptions(cmdLine, m.shellOptions())
 		m.applyShellDone(shellDoneMsg{cmd: cmdLine, out: out})
 		return
 	}
 	p := m.prog
+	services := m.agent.Services
+	workingDir := m.agent.WorkingDir
+	m.shellRunning++
 	go func() {
-		p.Send(shellDoneMsg{cmd: cmdLine, out: shellExec(cmdLine)})
+		ctx := tools.WithWorkingDirectory(tools.WithLocalHuman(context.Background()), workingDir)
+		res, err := services.RunBash(ctx, cmdLine, 120*time.Second)
+		p.Send(shellDoneMsg{cmd: cmdLine, out: formatShellResult(res, err)})
 	}()
 }
 
-// shellExec runs one shell-escape command, formatting the result exactly like
-// the bash tool does (tail truncation, exit/timeout markers).
-func shellExec(cmdLine string) string {
+func (m *model) shellOptions() bashrun.Options {
+	if m.agent == nil || m.agent.Services == nil {
+		return bashrun.Options{}
+	}
+	opts := m.agent.Services.ProcessOptions()
+	if m.agent.WorkingDir != "" {
+		opts.Cwd = m.agent.WorkingDir
+	}
+	return opts
+}
+
+func shellExecWithOptions(cmdLine string, opts bashrun.Options) string {
 	// context.Background is deliberate: the command is independent of any
 	// turn, and esc stays bound to turn interruption. The 120s cap bounds it.
-	res := bashrun.Run(context.Background(), bashrun.Options{Command: cmdLine})
+	opts.Command = cmdLine
+	res := bashrun.Run(context.Background(), opts)
+	return formatShellResult(res, nil)
+}
+
+func formatShellResult(res bashrun.Result, err error) string {
 	out := tools.TruncateTail(res.Output)
+	if err != nil {
+		out = strings.TrimSpace(out + "\n" + err.Error())
+	}
 	if res.TimedOut {
 		out += "\n(command timed out)"
 	} else if res.Exit != "" {
@@ -93,6 +123,9 @@ func shellExec(cmdLine string) string {
 
 // applyShellDone lands a finished command in the transcript and conversation.
 func (m *model) applyShellDone(msg shellDoneMsg) {
+	if m.shellRunning > 0 {
+		m.shellRunning--
+	}
 	// transcript: a tool-style block (collapsed preview, ctrl+e/click expand)
 	m.appendRaw(blockTool, msg.out)
 
@@ -114,6 +147,10 @@ func (m *model) applyShellDone(msg shellDoneMsg) {
 // already running under the old cwd keeps it (POSIX); whip's next spawns —
 // and the next session record — use the new one.
 func (m *model) cdCommand(arg string) {
+	if m.shellRunning > 0 {
+		m.append(errStyle.Render("/cd: a shell command is running"))
+		return
+	}
 	if arg == "" {
 		m.append(dimStyle.Render(cwd()))
 		return
@@ -126,9 +163,24 @@ func (m *model) cdCommand(arg string) {
 		}
 		arg = home + arg[1:]
 	}
-	if err := os.Chdir(arg); err != nil {
+	target, err := filepath.Abs(arg)
+	if err != nil {
 		m.append(errStyle.Render("/cd: " + err.Error()))
 		return
+	}
+	if m.agent != nil && m.agent.Services != nil {
+		target, err = m.agent.Services.ResolveWorkingDirectory(target)
+		if err != nil {
+			m.append(errStyle.Render("/cd: " + err.Error()))
+			return
+		}
+	}
+	if err := os.Chdir(target); err != nil {
+		m.append(errStyle.Render("/cd: " + err.Error()))
+		return
+	}
+	if m.agent != nil {
+		m.agent.WorkingDir = target
 	}
 	m.append(dimStyle.Render("→ " + cwd()))
 }

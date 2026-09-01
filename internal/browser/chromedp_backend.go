@@ -41,7 +41,7 @@ type chromedpBackend struct {
 // instance when none is debuggable; dedicated/headless reattach to a
 // still-running whip Chrome for the profile, else launch via the default
 // allocator (chromedp's own launcher, headed off in headless mode).
-func openChromedp(ctx context.Context, mode Mode, sessionName string) (*chromedpBackend, error) {
+func openChromedp(ctx context.Context, mode Mode, sessionName string, env []string) (*chromedpBackend, error) {
 	b := &chromedpBackend{mode: mode}
 	var allocCtx context.Context
 	var cancel context.CancelFunc
@@ -52,11 +52,14 @@ func openChromedp(ctx context.Context, mode Mode, sessionName string) (*chromedp
 			if !errors.Is(err, ErrNoLiveBrowser) {
 				return nil, err
 			}
-			return openChromedp(ctx, ModeDedicated, sessionName) // fallback
+			return openChromedp(ctx, ModeDedicated, sessionName, env) // fallback
 		}
 		allocCtx, cancel = chromedp.NewRemoteAllocator(ctx, ws)
 		b.obtained = ObtainedLive
 	case ModeDedicated, ModeHeadless:
+		if env != nil {
+			return nil, errors.New("chromedp cannot launch with an isolated environment; use the rod driver")
+		}
 		// Note: chromedp dedicated does NOT reattach — Close kills its Chrome
 		// (ExecAllocator cancel kills the process; there's no detach-only
 		// path as with rod). A prior detached dedicated Chrome belongs to the

@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"context"
 	"os"
 
 	"github.com/context-labs/whip/internal/llm"
@@ -14,26 +15,9 @@ func llmTool(name string) llm.Tool {
 	return llm.NewTool(name, name, `{"type":"object","properties":{}}`)
 }
 
-// checkGateForTest invokes the installed tools.Gate exactly as the real
-// gated tools do (bash/write/edit call the unexported checkGate).
-func checkGateForTest(tool, command string) string {
-	if tools.Gate == nil {
-		return ""
-	}
-	decision, redirect := tools.Gate(tools.GateRequest{
-		Tool:    tool,
-		Command: command,
-		Rule:    tools.CommandRule(command),
-	})
-	switch decision {
-	case tools.GateReject:
-		if redirect == "" {
-			redirect = "the user rejected this action"
-		}
-		return "Permission denied: " + redirect
-	default:
-		return ""
-	}
+// checkGateForTest follows the same context-bound permission seam as built-ins.
+func checkGateForTest(ctx context.Context, tool, command string) string {
+	return tools.CheckGate(ctx, tool, command)
 }
 
 type errStringT string

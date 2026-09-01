@@ -1,20 +1,12 @@
 package acp
 
-// permission.go adapts whip's tools.Gate consent seam to ACP's
-// session/request_permission: in "ask" mode a gated tool call blocks on the
-// client's answer, exactly like the TUI's consent prompt.
-//
-// tools.Gate is package-global, so installs serialize bridge-wide
-// (b.gateMu): a second session's ask-mode turn waits rather than interleave
-// prompts the user can't attribute to the right session. "Allow always"
-// rules are remembered per session (s.allowed, keyed by the arity-collapsed
-// rule) — the TUI persists these to disk; ACP sessions keep them in memory
-// only, which matches the editor's per-session permission model.
+// permission.go adapts a session's tools.Gate consent seam to ACP's
+// session/request_permission. "Allow always" rules stay in that ACP session;
+// the TUI persists its corresponding rules to disk.
 
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	acp "github.com/coder/acp-go-sdk"
 
@@ -27,24 +19,16 @@ const (
 	optReject      = "reject"
 )
 
-// gateMu serializes tools.Gate installation across sessions (see above).
-var gateMu sync.Mutex
-
-// installPermissionGate points tools.Gate at the client for this session's
-// turn and returns the restore func. Blocking on gateMu here means a
-// concurrent ask-mode turn in another session holds the gate until its turn
-// ends — ask-mode turns are inherently user-paced, so this is the honest
-// serialization point.
-func (b *Bridge) installPermissionGate(s *acpSession, turnCtx context.Context) (restore func()) {
-	gateMu.Lock()
-	prev := tools.Gate
-	tools.Gate = func(req tools.GateRequest) (tools.GateDecision, string) {
-		return b.requestPermission(turnCtx, s, req)
-	}
-	return func() {
-		tools.Gate = prev
-		gateMu.Unlock()
-	}
+func (b *Bridge) bindPermissionGate(s *acpSession) {
+	s.ag.Services.SetGate(func(ctx context.Context, req tools.GateRequest) (tools.GateDecision, string) {
+		s.turnMu.Lock()
+		mode := s.mode
+		s.turnMu.Unlock()
+		if mode != ModeAsk {
+			return tools.GateAllowOnce, ""
+		}
+		return b.requestPermission(ctx, s, req)
+	})
 }
 
 // requestPermission round-trips one GateRequest through the client. The ctx
@@ -53,7 +37,7 @@ func (b *Bridge) installPermissionGate(s *acpSession, turnCtx context.Context) (
 // A cancelled or errored prompt is a reject — fail-closed.
 func (b *Bridge) requestPermission(ctx context.Context, s *acpSession, req tools.GateRequest) (tools.GateDecision, string) {
 	if b.conn == nil {
-		return tools.GateAllowOnce, ""
+		return tools.GateReject, "permission client is unavailable"
 	}
 
 	// "Always allow" rules cover repeat calls without re-prompting.

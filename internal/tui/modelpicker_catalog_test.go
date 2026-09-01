@@ -99,6 +99,7 @@ func TestModelPickerSelectsCatalogRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := compactCmdModel() // cfg providers carry an API key; switchModel needs it
+	services := m.agent.Services
 	m.openModelPicker(false)
 	p := m.mpicker
 	// walk to the catalog route
@@ -115,6 +116,9 @@ func TestModelPickerSelectsCatalogRoute(t *testing.T) {
 	}
 	if m.cfg.DefaultModel != "deepseek-v4-pro" {
 		t.Errorf("the switch should persist as the new default, got %q", m.cfg.DefaultModel)
+	}
+	if m.agent.Services != services {
+		t.Error("switching models replaced session-scoped tool services")
 	}
 	if _, ok := m.cfg.Models["deepseek-v4-pro"]; ok {
 		t.Error("catalog routes must not be written into cfg.Models")

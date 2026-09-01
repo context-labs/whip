@@ -95,8 +95,9 @@ func (m *model) mcpSetEnabled(name string, enabled bool) {
 // the TUI (the frozen-ctrl-p bug). A stale message is harmless: Update is
 // idempotent on mcpStatusMsg.
 func (m *model) mcpOnChange() func() {
+	manager, ag := m.mcpMgr, m.agent
 	return func() {
-		m.agent.SetMCPTools(m.mcpMgr.Tools())
+		ag.SetMCPTools(manager.Tools())
 		if m.prog != nil { // nil in headless tests
 			go m.prog.Send(mcpStatusMsg{})
 		}

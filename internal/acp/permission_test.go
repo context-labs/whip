@@ -22,12 +22,19 @@ func gatedProbe(ran *bool) tools.Tool {
 	return tools.Tool{
 		Def: llmTool("probe"),
 		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
-			if deny := checkGateForTest("bash", "rm -rf x"); deny != "" {
+			if deny := checkGateForTest(ctx, "bash", "rm -rf x"); deny != "" {
 				return "", errString(deny)
 			}
 			*ran = true
 			return "ran", nil
 		},
+	}
+}
+
+func TestPermissionWithoutClientFailsClosed(t *testing.T) {
+	decision, _ := (&Bridge{}).requestPermission(context.Background(), &acpSession{}, tools.GateRequest{Tool: "bash", Command: "true"})
+	if decision != tools.GateReject {
+		t.Fatalf("decision = %v, want reject", decision)
 	}
 }
 

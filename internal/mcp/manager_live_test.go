@@ -121,9 +121,11 @@ func TestStaleToolAfterRemoveFailsClean(t *testing.T) {
 // removed server.
 func TestRemoveDuringInFlightConnect(t *testing.T) {
 	release := make(chan struct{})
+	exited := make(chan struct{})
 	m := NewManager(nil)
 	t.Cleanup(m.Close)
 	m.connectTransport = func(ctx context.Context, cfg ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
+		defer close(exited)
 		select {
 		case <-release:
 			return serveTestServer(t, cfg.Command[0]), nil
@@ -136,6 +138,11 @@ func TestRemoveDuringInFlightConnect(t *testing.T) {
 	// Remove while the connect is parked in the transport, then let the
 	// connect finish — the guard must close the session, not store it.
 	m.RemoveServers("churn")
+	select {
+	case <-exited:
+	case <-time.After(time.Second):
+		t.Fatal("removed server lifecycle did not stop")
+	}
 	close(release)
 
 	deadline := time.Now().Add(2 * time.Second)

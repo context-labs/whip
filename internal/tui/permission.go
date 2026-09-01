@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -77,11 +78,14 @@ func (r permRules) coveredBy(req tools.GateRequest) bool {
 	return r[ruleKey(req.Tool, rule)]
 }
 
-// installPermGate wires tools.Gate to the modal. Called once at startup.
+// installPermGate wires this session's tools to the modal. Called once at startup.
 func (m *model) installPermGate() {
 	m.perms = loadPermRules()
-	tools.Gate = func(req tools.GateRequest) (tools.GateDecision, string) {
-		if m.perms.coveredBy(req) {
+	m.toolGate = func(ctx context.Context, req tools.GateRequest) (tools.GateDecision, string) {
+		m.permsMu.Lock()
+		covered := m.perms.coveredBy(req)
+		m.permsMu.Unlock()
+		if covered {
 			return tools.GateAllowOnce, ""
 		}
 		if m.prog == nil {
@@ -89,9 +93,14 @@ func (m *model) installPermGate() {
 		}
 		reply := make(chan permAnswer, 1)
 		m.prog.Send(permRequest{req: req, reply: reply}) //nolint:uilock // background: the calling tool goroutine, which blocks on reply — never the event loop
-		ans := <-reply                                   // block the tool goroutine until the user answers
-		return ans.decision, ans.redirect
+		select {
+		case ans := <-reply:
+			return ans.decision, ans.redirect
+		case <-ctx.Done():
+			return tools.GateReject, "the permission prompt was cancelled"
+		}
 	}
+	m.bindToolServices(m.agent)
 }
 
 // permKey handles keys while the dialog is open. Returns (handled).
@@ -136,8 +145,10 @@ func (m *model) permKey(msg tea.KeyMsg) bool {
 			if d.req.Tool != "bash" {
 				rule = d.req.Command
 			}
+			m.permsMu.Lock()
 			m.perms[ruleKey(d.req.Tool, rule)] = true
 			m.perms.save()
+			m.permsMu.Unlock()
 			answer(permAnswer{decision: tools.GateAllowAlways})
 		case 2:
 			d.rejecting = true // take the redirect text
@@ -151,8 +162,10 @@ func (m *model) permKey(msg tea.KeyMsg) bool {
 			if d.req.Tool != "bash" {
 				rule = d.req.Command
 			}
+			m.permsMu.Lock()
 			m.perms[ruleKey(d.req.Tool, rule)] = true
 			m.perms.save()
+			m.permsMu.Unlock()
 			answer(permAnswer{decision: tools.GateAllowAlways})
 		case "r":
 			d.rejecting = true
