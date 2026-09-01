@@ -204,6 +204,22 @@ func TestWaitToolRegisters(t *testing.T) {
 	}
 }
 
+func TestWaitToolRejectsInvalidOrUnlaunchableWaits(t *testing.T) {
+	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	wt := waitTool(ag)
+	if _, err := wt.Run(t.Context(), json.RawMessage(`{`)); err == nil {
+		t.Fatal("malformed wait arguments should fail")
+	}
+
+	ag.SetLauncher(func(string, func()) bool { return false })
+	if _, err := wt.Run(t.Context(), json.RawMessage(`{"command":"exit 0"}`)); err == nil {
+		t.Fatal("a rejected waiter launch should fail")
+	}
+	if left := len(ag.Waits().waits); left != 0 {
+		t.Fatalf("rejected wait should be removed from the registry, %d left", left)
+	}
+}
+
 // The ticker path (a condition false on the immediate first check but true on
 // a later poll) is distinct from the immediate-check path — the 2s minimum
 // interval clamps make sub-2s tests never exercise it, so this one sits at
