@@ -245,14 +245,14 @@ func (r *waitRegistry) deliver(w *waitTask, status WaitStatus, msg string) {
 	}
 	// Headless idle (no turn, no hook): the message is dropped by design —
 	// an idle headless agent has no loop boundary coming (see waitRegistry doc).
-	close(w.Done)
-	w.cancel() // stop the ticker select
 	// ponytail: no listing surface exists yet (no /waits command), so a
 	// settled wait serves no one — drop it to keep the map bounded. If a
 	// listing lands later, keep settled rows and bound by count instead.
 	r.mu.Lock()
 	delete(r.waits, w.ID)
 	r.mu.Unlock()
+	close(w.Done)
+	w.cancel() // stop the ticker select
 }
 
 // Close stops every poller goroutine. Called when the agent is being torn
@@ -288,11 +288,11 @@ func (r *waitRegistry) CancelWait(id string) bool {
 		return false // a deliver is already settling it
 	}
 	w.setStatus(WaitKilled)
-	close(w.Done)
-	w.cancel()
 	r.mu.Lock()
 	delete(r.waits, id)
 	r.mu.Unlock()
+	close(w.Done)
+	w.cancel()
 	return true
 }
 
