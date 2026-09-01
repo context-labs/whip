@@ -148,7 +148,7 @@ func mcpServe(version string) error {
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	wd, err := os.Getwd()
 	if err != nil {
 		return err

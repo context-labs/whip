@@ -89,14 +89,14 @@ func TestPromptStreamsTextAndToolCards(t *testing.T) {
 	}
 	// An agent chunk carries the reply; a persisted session may emit metadata
 	// immediately after it.
-	var reply string
+	var reply strings.Builder
 	for _, update := range ups {
 		if chunk := update.Update.AgentMessageChunk; chunk != nil && chunk.Content.Text != nil {
-			reply += chunk.Content.Text.Text
+			reply.WriteString(chunk.Content.Text.Text)
 		}
 	}
-	if reply != "all done" {
-		t.Errorf("agent reply = %q", reply)
+	if reply.String() != "all done" {
+		t.Errorf("agent reply = %q", reply.String())
 	}
 	// The write tool card should end completed with a diff content entry.
 	tc := f.client.waitFor(t, func(n acp.SessionNotification) bool {

@@ -4,22 +4,24 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
 func TestMigrationFailureKeepsCheckpointedSourceAndSyncedBackup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	db := createHistoricalStore(t, path, historicalShape{name: "H0"})
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE blocker(x); CREATE INDEX events ON blocker(x)`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE blocker(x); CREATE INDEX events ON blocker(x)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO messages VALUES('legacy',9,'user','{"role":"user","content":"committed in WAL"}')`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO messages VALUES('legacy',9,'user','{"role":"user","content":"committed in WAL"}')`); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(path + "-wal"); err != nil || info.Size() == 0 {
@@ -31,14 +33,14 @@ func TestMigrationFailureKeepsCheckpointedSourceAndSyncedBackup(t *testing.T) {
 		t.Fatal("migration should fail on the colliding events index")
 	}
 	var sourceRows, sourceVersion int
-	if err := db.QueryRow(`SELECT count(*) FROM messages WHERE seq=9`).Scan(&sourceRows); err != nil || sourceRows != 1 {
+	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM messages WHERE seq=9`).Scan(&sourceRows); err != nil || sourceRows != 1 {
 		t.Fatalf("source lost WAL row: rows=%d err=%v", sourceRows, err)
 	}
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&sourceVersion); err != nil || sourceVersion != 0 {
+	if err := db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&sourceVersion); err != nil || sourceVersion != 0 {
 		t.Fatalf("failed migration changed source version: %d, %v", sourceVersion, err)
 	}
 	var modeColumn int
-	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('sessions') WHERE name='mode'`).Scan(&modeColumn); err != nil || modeColumn != 0 {
+	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM pragma_table_info('sessions') WHERE name='mode'`).Scan(&modeColumn); err != nil || modeColumn != 0 {
 		t.Fatalf("failed migration left partial columns: count=%d err=%v", modeColumn, err)
 	}
 	if err := db.Close(); err != nil {
@@ -51,10 +53,10 @@ func TestMigrationFailureKeepsCheckpointedSourceAndSyncedBackup(t *testing.T) {
 	}
 	defer backup.Close()
 	var backupRows, backupVersion int
-	if err := backup.QueryRow(`SELECT count(*) FROM messages WHERE seq=9`).Scan(&backupRows); err != nil || backupRows != 1 {
+	if err := backup.QueryRowContext(context.Background(), `SELECT count(*) FROM messages WHERE seq=9`).Scan(&backupRows); err != nil || backupRows != 1 {
 		t.Fatalf("backup lost checkpointed WAL row: rows=%d err=%v", backupRows, err)
 	}
-	if err := backup.QueryRow(`PRAGMA user_version`).Scan(&backupVersion); err != nil || backupVersion != 0 {
+	if err := backup.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&backupVersion); err != nil || backupVersion != 0 {
 		t.Fatalf("backup version=%d err=%v", backupVersion, err)
 	}
 }
@@ -82,7 +84,7 @@ func TestRuntimeTransitionFailureRollsBackRowsAndDiagnosesBody(t *testing.T) {
 	exec(t, st, `DROP TRIGGER reject_event`)
 	for _, table := range []string{"agents", "commands", "inbox", "agent_state", "events", "usage_charges", "content_objects", "content_references", "content_grants"} {
 		var n int
-		if err := st.db.QueryRow(`SELECT count(*) FROM ` + table).Scan(&n); err != nil || n != 0 {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 0 {
 			t.Fatalf("failed transition left %s rows=%d err=%v", table, n, err)
 		}
 	}
@@ -131,7 +133,7 @@ func TestActorPersistenceEventFailuresRollBack(t *testing.T) {
 			t.Fatal("event failure should abort consume")
 		}
 		var status string
-		if err := st.db.QueryRow(`SELECT status FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`, rootID, agentID, pair.InboxSeq).Scan(&status); err != nil || status != "queued" {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`, rootID, agentID, pair.InboxSeq).Scan(&status); err != nil || status != "queued" {
 			t.Fatalf("failed consume status=%q err=%v", status, err)
 		}
 		assertActorRows(t, st, rootID, 1, 1)
@@ -162,7 +164,7 @@ func TestActorPersistenceEventFailuresRollBack(t *testing.T) {
 			t.Fatal("event failure should abort root terminalization")
 		}
 		var statuses string
-		if err := st.db.QueryRow(`SELECT a.status || ':' || c.status FROM agents a JOIN commands c ON c.root_id=a.root_id WHERE a.id=? AND c.command_id='cmd'`, agentID).Scan(&statuses); err != nil || statuses != "idle:running" {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT a.status || ':' || c.status FROM agents a JOIN commands c ON c.root_id=a.root_id WHERE a.id=? AND c.command_id='cmd'`, agentID).Scan(&statuses); err != nil || statuses != "idle:running" {
 			t.Fatalf("failed terminalization statuses=%q err=%v", statuses, err)
 		}
 		assertActorRows(t, st, rootID, 0, 0)
@@ -191,7 +193,7 @@ func assertActorRows(t *testing.T, st *Store, rootID string, inbox, events int) 
 	t.Helper()
 	for table, want := range map[string]int{"inbox": inbox, "events": events} {
 		var got int
-		if err := st.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE root_id=?`, rootID).Scan(&got); err != nil || got != want {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM `+table+` WHERE root_id=?`, rootID).Scan(&got); err != nil || got != want {
 			t.Fatalf("%s rows=%d want=%d err=%v", table, got, want, err)
 		}
 	}
@@ -229,14 +231,14 @@ func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 	}
 	for table, want := range map[string]string{"commands": "queued", "turns": "running", "child_executions": "running", "operations": "running", "leases": "running"} {
 		var status string
-		if err := db.QueryRow(`SELECT status FROM ` + table + ` LIMIT 1`).Scan(&status); err != nil {
+		if err := db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` LIMIT 1`).Scan(&status); err != nil {
 			t.Fatal(err)
 		}
 		if status != want {
 			t.Errorf("partial recovery changed %s to %q", table, status)
 		}
 	}
-	if _, err := db.Exec(`DROP TRIGGER reject_recovery`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `DROP TRIGGER reject_recovery`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -250,7 +252,7 @@ func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 	}
 	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
 		var status string
-		if err := st.db.QueryRow(`SELECT status FROM ` + table + ` LIMIT 1`).Scan(&status); err != nil || status != "interrupted" {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` LIMIT 1`).Scan(&status); err != nil || status != "interrupted" {
 			t.Errorf("%s status=%q err=%v", table, status, err)
 		}
 	}
@@ -319,6 +321,72 @@ func TestClosedStoreDegradesGracefully(t *testing.T) {
 		"ForkTitle":   func() error { _, err := st.ForkTitle("base"); return err },
 		"AddSchedule": func() error { _, err := st.AddSchedule(id, "@every 1m", "p", time.Now()); return err },
 		"Schedules":   func() error { _, err := st.SchedulesContext(context.Background(), id); return err },
+		"EnqueueInbox": func() error {
+			_, err := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: id, AgentID: "agent", Kind: "test"})
+			return err
+		},
+		"LoadQueuedInbox": func() error {
+			_, err := st.LoadQueuedInbox(context.Background(), id, "agent", 0, 1)
+			return err
+		},
+		"ConsumeInbox": func() error { _, err := st.ConsumeInbox(context.Background(), id, "agent", 1); return err },
+		"StartClassicTurn": func() error {
+			return st.StartClassicTurn(context.Background(), id, "agent", 1)
+		},
+		"CommitClassicTurn": func() error {
+			return st.CommitClassicTurn(context.Background(), ClassicTurnCommit{RootID: id, AgentID: "agent", InboxSeq: 1})
+		},
+		"RecordClassicTask": func() error {
+			return st.RecordClassicTask(context.Background(), id, "agent", Task{ID: "task"})
+		},
+		"ClaimScheduleFire": func() error {
+			_, err := st.ClaimScheduleFire(context.Background(), ScheduleFireClaim{RootID: id, AgentID: "agent", ScheduleID: 1, Slot: time.Now()})
+			return err
+		},
+		"FailClassicRoot":      func() error { _, err := st.FailClassicRoot(context.Background(), id, "failed"); return err },
+		"InterruptClassicRoot": func() error { _, err := st.InterruptClassicRoot(context.Background(), id, "interrupted"); return err },
+		"StopClassicRoot":      func() error { _, err := st.StopClassicRoot(context.Background(), id, "stopped"); return err },
+		"CommitRuntime": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Event: &RuntimeEvent{RootID: id, Seq: 1, Kind: "test"}})
+			return err
+		},
+		"FinishCommand": func() error {
+			_, err := st.FinishCommand(context.Background(), "client", "command", "succeeded", RuntimePayload{})
+			return err
+		},
+		"StoreContent": func() error {
+			_, err := st.StoreContent(context.Background(), ContentGrant{RootID: id, Scope: ContentGrantRoot}, RuntimePayload{})
+			return err
+		},
+		"ReadContent": func() error {
+			_, _, err := st.ReadContent(context.Background(), "reference", id, "agent", 0, 1)
+			return err
+		},
+		"RevokeContentGrant": func() error {
+			return st.RevokeContentGrant(context.Background(), "reference", id, "agent")
+		},
+		"OrphanContent": func() error { _, err := st.OrphanContent(context.Background()); return err },
+		"EnsureClassicAuthority": func() error {
+			_, err := st.EnsureClassicAuthority(context.Background(), id)
+			return err
+		},
+		"WorkspaceRoot": func() error { _, err := st.WorkspaceRoot(context.Background(), id); return err },
+		"IssueCapability": func() error {
+			return st.IssueCapability(context.Background(), capability.Grant{ID: "cap", RootID: id, AgentID: "agent", Operations: []string{"read"}})
+		},
+		"RevokeCapability": func() error { return st.RevokeCapability(context.Background(), "cap") },
+		"BeginCapability": func() error {
+			_, err := st.Begin(context.Background(), capability.Admission{Request: capability.Request{RootID: id, AgentID: "agent", OperationID: "operation"}})
+			return err
+		},
+		"PendingCapability": func() error { _, err := st.Pending(context.Background(), "permission"); return err },
+		"DecideCapability": func() error {
+			_, err := st.Decide(context.Background(), capability.Admission{}, "permission", capability.Decision{})
+			return err
+		},
+		"FinishCapability": func() error {
+			return st.Finish(context.Background(), capability.Completion{Status: capability.StatusSucceeded})
+		},
 	}
 	for name, fn := range errCases {
 		if err := fn(); err == nil {
@@ -340,6 +408,48 @@ func TestClosedStoreDegradesGracefully(t *testing.T) {
 	}
 	if got := st.Todos(id); got != "" {
 		t.Errorf("Todos on a closed store = %q, want empty", got)
+	}
+}
+
+func TestRecoveryRejectsCorruptAdmissionsBeforeRecordingOrphans(t *testing.T) {
+	st, rootID, agentID := actorFailureFixture(t)
+	orphan, err := st.content.Put([]byte("unreferenced recovery body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,payload_inline,created_at,updated_at) VALUES('malformed',?,?, 'running','{',?,?)`, rootID, agentID, now(), now())
+	if err := st.Recover(context.Background()); err == nil {
+		t.Fatal("malformed admission should fail recovery")
+	}
+	var status string
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM operations WHERE id='malformed'`).Scan(&status); err != nil || status != "running" {
+		t.Fatalf("failed recovery operation status=%q err=%v", status, err)
+	}
+	if orphans, err := st.OrphanContent(context.Background()); err != nil || len(orphans) != 0 {
+		t.Fatalf("failed runtime recovery recorded orphans=%+v err=%v", orphans, err)
+	}
+	exec(t, st, `UPDATE operations SET status='succeeded' WHERE id='malformed'`)
+	mismatched, err := json.Marshal(capability.Admission{Request: capability.Request{RootID: "other-root", AgentID: agentID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,payload_inline,created_at,updated_at) VALUES('mismatched',?,?, 'running',?,?,?)`, rootID, agentID, mismatched, now(), now())
+	if err := st.Recover(context.Background()); err == nil || !strings.Contains(err.Error(), "root does not match") {
+		t.Fatalf("mismatched admission recovery error=%v", err)
+	}
+	exec(t, st, `UPDATE operations SET status='succeeded' WHERE id='mismatched'`)
+	if err := st.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	orphans, err := st.OrphanContent(context.Background())
+	if err != nil || len(orphans) != 1 || orphans[0].Digest != orphan.Digest || orphans[0].Size != orphan.Size {
+		t.Fatalf("recorded orphans=%+v err=%v", orphans, err)
+	}
+	if err := st.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if orphans, err := st.OrphanContent(context.Background()); err != nil || len(orphans) != 1 {
+		t.Fatalf("repeated recovery duplicated orphans=%+v err=%v", orphans, err)
 	}
 }
 

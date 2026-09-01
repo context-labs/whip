@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"os/user"
@@ -137,7 +138,8 @@ func Run(ctx context.Context, opts Options) Result {
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	cmd := exec.Command(userShell(), "-c", opts.Command)
+	// Cancellation below kills the process group; CommandContext would kill only the shell.
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), userShell(), "-c", opts.Command)
 	cmd.Dir = opts.Cwd
 	if opts.Processes == nil {
 		cmd.Env = childEnvironment(opts.Env)
@@ -175,9 +177,7 @@ func startProcess(ctx context.Context, cmd *exec.Cmd, opts Options, controllingT
 	}
 	if opts.Processes != nil {
 		env := map[string]string{"WHIP": "1", "WHIP_PID": strconv.Itoa(os.Getpid())}
-		for name, value := range opts.Env {
-			env[name] = value
-		}
+		maps.Copy(env, opts.Env)
 		process, err := opts.Processes.Start(context.WithoutCancel(ctx), opts.RootID, cmd.Path, cmd.Args[1:], capability.ProcessOptions{
 			Cwd: cmd.Dir, Env: env, Stdin: cmd.Stdin, Stdout: cmd.Stdout, Stderr: cmd.Stderr, ControllingTTY: controllingTTY,
 		})
@@ -199,9 +199,7 @@ func childEnvironment(overrides map[string]string) []string {
 	}
 	values["WHIP"] = "1"
 	values["WHIP_PID"] = strconv.Itoa(os.Getpid())
-	for name, value := range overrides {
-		values[name] = value
-	}
+	maps.Copy(values, overrides)
 	env := make([]string, 0, len(values))
 	for name, value := range values {
 		env = append(env, name+"="+value)
@@ -363,7 +361,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	ptmx, tty, err := pty.Open()
 	if err != nil {
-		fallback := exec.Command(userShell(), "-c", opts.Command)
+		fallback := exec.CommandContext(context.WithoutCancel(ctx), userShell(), "-c", opts.Command)
 		fallback.Dir = opts.Cwd
 		fallback.Env = cmd.Env
 		return runPiped(ctx, fallback, opts)
@@ -373,7 +371,7 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	_ = tty.Close()
 	if err != nil {
 		_ = ptmx.Close()
-		fallback := exec.Command(userShell(), "-c", opts.Command)
+		fallback := exec.CommandContext(context.WithoutCancel(ctx), userShell(), "-c", opts.Command)
 		fallback.Dir = opts.Cwd
 		fallback.Env = cmd.Env
 		return runPiped(ctx, fallback, opts)

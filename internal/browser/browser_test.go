@@ -499,7 +499,7 @@ func TestManagersKeepLaunchOptionsIsolated(t *testing.T) {
 		env    string
 	}
 	launches := make(chan launch, 2)
-	open := func(_ context.Context, mode Mode, _ string, driver string, env []string, _ *capability.ProcessManager, _ string) (Backend, error) {
+	open := func(_ context.Context, mode Mode, _, driver string, env []string, _ *capability.ProcessManager, _ string) (Backend, error) {
 		launches <- launch{driver: driver, env: strings.Join(env, ",")}
 		return &fakeBackend{mode: mode, obtained: ObtainedLive}, nil
 	}

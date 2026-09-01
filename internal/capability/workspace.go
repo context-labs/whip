@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -73,8 +74,8 @@ func (w *Workspace) Resolve(path string) (string, error) {
 	for {
 		canonical, evalErr := filepath.EvalSymlinks(current)
 		if evalErr == nil {
-			for i := len(missing) - 1; i >= 0; i-- {
-				canonical = filepath.Join(canonical, missing[i])
+			for _, m := range slices.Backward(missing) {
+				canonical = filepath.Join(canonical, m)
 			}
 			canonical = filepath.Clean(canonical)
 			rel, relErr := filepath.Rel(w.root, canonical)

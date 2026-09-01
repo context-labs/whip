@@ -11,6 +11,65 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
+func TestStateWrappersRouteThroughActor(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = daemon.Close() })
+	root, err := daemon.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	agentID := root.authority.AgentID
+	payload := func(value string) session.RuntimePayload {
+		return session.RuntimePayload{Data: []byte(value), MediaType: "text/plain"}
+	}
+
+	private, err := root.SetPrivateState(ctx, agentID, "private", payload("one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := root.GetPrivateState(ctx, agentID, "private"); err != nil || got.Version != private.Version {
+		t.Fatalf("private get=%+v err=%v", got, err)
+	}
+	private, err = root.AppendPrivateState(ctx, agentID, "private", payload(" two"))
+	if err != nil || string(private.Payload.Inline) != "one two" {
+		t.Fatalf("private append=%+v err=%v", private, err)
+	}
+	private, err = root.CompareAndSwapPrivateState(ctx, agentID, "private", private.Version, payload("three"))
+	if err != nil || private.Version != 3 {
+		t.Fatalf("private CAS=%+v err=%v", private, err)
+	}
+	if values, err := root.ListPrivateState(ctx, agentID); err != nil || len(values) != 1 || values[0].Version != 3 {
+		t.Fatalf("private list=%+v err=%v", values, err)
+	}
+
+	blackboard, err := root.SetBlackboard(ctx, agentID, "shared", payload("one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := root.GetBlackboard(ctx, agentID, "shared"); err != nil || got.Version != blackboard.Version {
+		t.Fatalf("blackboard get=%+v err=%v", got, err)
+	}
+	blackboard, err = root.AppendBlackboard(ctx, agentID, "shared", payload(" two"))
+	if err != nil || string(blackboard.Payload.Inline) != "one two" {
+		t.Fatalf("blackboard append=%+v err=%v", blackboard, err)
+	}
+	blackboard, err = root.CompareAndSwapBlackboard(ctx, agentID, "shared", blackboard.Version, payload("three"))
+	if err != nil || blackboard.Version != 3 {
+		t.Fatalf("blackboard CAS=%+v err=%v", blackboard, err)
+	}
+	if values, err := root.BlackboardHistory(ctx, agentID, "shared"); err != nil || len(values) != 3 || values[2].Version != 3 {
+		t.Fatalf("blackboard history=%+v err=%v", values, err)
+	}
+}
+
 func TestBlackboardSubscriptionRoutesThroughActorAndSurvivesRecovery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	store := openStore(t, path)

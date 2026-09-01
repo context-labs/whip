@@ -2,8 +2,11 @@ package content
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -105,5 +108,91 @@ func TestPublishFailuresLeaveOnlyDiagnosableBodies(t *testing.T) {
 	}
 	if orphans, err = st.Orphans(map[string]struct{}{published.Digest: {}}); err != nil || len(orphans) != 0 {
 		t.Fatalf("referenced body reported orphan: %+v, %v", orphans, err)
+	}
+}
+
+func TestStoreRejectsMalformedFilesystemState(t *testing.T) {
+	homeFile := filepath.Join(t.TempDir(), "home")
+	if err := os.WriteFile(homeFile, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(homeFile); err == nil {
+		t.Fatal("New accepted a file as its home directory")
+	}
+
+	st, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(st.dir, "not-a-digest"), []byte("junk"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(st.dir, strings.Repeat("0", 64)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if bodies, err := st.Bodies(); err != nil || len(bodies) != 0 {
+		t.Fatalf("malformed directory entries became bodies: %+v, %v", bodies, err)
+	}
+
+	payload := []byte("immutable")
+	body, err := st.Put(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(st.path(body.Digest), []byte("corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Put(payload); err == nil || !strings.Contains(err.Error(), "does not match its digest") {
+		t.Fatalf("Put accepted a corrupt existing body: %v", err)
+	}
+}
+
+func TestStoreValidationAndFilesystemErrors(t *testing.T) {
+	st, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Read("bad", 0, 1); err == nil {
+		t.Fatal("Read accepted an invalid digest")
+	}
+	if _, err := st.Read(strings.Repeat("0", 64), 0, 1); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing body error = %v", err)
+	}
+
+	dirDigest := strings.Repeat("a", 64)
+	if err := os.Mkdir(st.path(dirDigest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.verify(Body{Digest: dirDigest}); err == nil {
+		t.Fatal("verify accepted a directory as a body")
+	}
+
+	payload := []byte("rename collision")
+	digest := fmt.Sprintf("%x", sha256.Sum256(payload))
+	if _, err := st.put(payload, func(stage string) error {
+		if stage == "before_file_sync" {
+			return os.Mkdir(st.path(digest), 0o700)
+		}
+		return nil
+	}); err == nil {
+		t.Fatal("Put accepted a directory at the final body path")
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing")
+	if err := syncDir(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("syncDir missing path error = %v", err)
+	}
+	broken, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(broken.dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := broken.Bodies(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Bodies missing directory error = %v", err)
+	}
+	if _, err := broken.Orphans(nil); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Orphans missing directory error = %v", err)
 	}
 }

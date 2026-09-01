@@ -250,7 +250,7 @@ func (s *Store) EnqueueInbox(ctx context.Context, item InboxEnqueue) (InboxSeque
 	if err != nil {
 		return InboxSequence{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	sequence, err := s.enqueueInboxTx(ctx, tx, item, prepared, "inbox.queued", actorEvent{})
 	if err != nil {
 		return InboxSequence{}, err
@@ -272,7 +272,7 @@ func (s *Store) LoadQueuedInbox(ctx context.Context, rootID, agentID string, aft
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var items []InboxItem
 	for rows.Next() {
 		item := InboxItem{RootID: rootID, AgentID: agentID}
@@ -306,7 +306,7 @@ func (s *Store) ConsumeInbox(ctx context.Context, rootID, agentID string, seq in
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='consumed' WHERE root_id=? AND agent_id=? AND seq=? AND status IN ('queued','running')`, rootID, agentID, seq)
 	if err != nil {
 		return 0, err
@@ -339,7 +339,7 @@ func (s *Store) StartClassicTurn(ctx context.Context, rootID, agentID string, in
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='running' WHERE root_id=? AND agent_id=? AND seq=? AND status='queued'`, rootID, agentID, inboxSeq)
 	if err != nil {
@@ -393,7 +393,7 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	status, eventKind := "succeeded", "turn.succeeded"
 	if commit.Error != "" {
@@ -524,7 +524,7 @@ func (s *Store) RecordClassicTaskTranscript(ctx context.Context, rootID, agentID
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var agents int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM agents WHERE root_id=? AND id=?`, rootID, agentID).Scan(&agents); err != nil {
 		return err
@@ -588,7 +588,7 @@ func (s *Store) ClaimScheduleFire(ctx context.Context, claim ScheduleFireClaim) 
 	if err != nil {
 		return InboxSequence{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var expression, prompt, anchorText, lastFireText string
 	if err := tx.QueryRowContext(ctx, `SELECT schedule,prompt,anchor,last_fire FROM schedules WHERE session_id=? AND id=?`, claim.RootID, claim.ScheduleID).
 		Scan(&expression, &prompt, &anchorText, &lastFireText); err != nil {
@@ -668,7 +668,7 @@ func (s *Store) FailClassicRoot(ctx context.Context, rootID, reason string) (int
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	agentID := "classic:" + rootID
 	result, err := tx.ExecContext(ctx, `UPDATE agents SET status='failed',updated_at=? WHERE root_id=? AND id=?
@@ -703,7 +703,7 @@ func (s *Store) InterruptClassicRoot(ctx context.Context, rootID, reason string)
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	if err := s.interruptClassicRootTx(ctx, tx, rootID, reason, stamp, true); err != nil {
 		return 0, err
@@ -726,7 +726,7 @@ func (s *Store) StopClassicRoot(ctx context.Context, rootID, reason string) (int
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	agentID := "classic:" + rootID
 	result, err := tx.ExecContext(ctx, `UPDATE agents SET status='stopped',updated_at=? WHERE root_id=? AND id=?
@@ -761,7 +761,7 @@ func (s *Store) interruptClassicRootTx(ctx context.Context, tx *sql.Tx, rootID, 
 		return err
 	}
 	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
-		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE root_id=? AND status IN ('queued','running','waiting')`, stamp, rootID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE root_id=? AND status IN ('queued','running','waiting')`, stamp, rootID); err != nil { //nolint:gosec // table comes from the static allowlist above
 			return err
 		}
 	}
@@ -797,6 +797,7 @@ func (s *Store) settleInterruptedOperationReservations(ctx context.Context, tx *
 	if err != nil {
 		return err
 	}
+	defer func() { _ = rows.Close() }()
 	type reserved struct {
 		rootID    string
 		admission capability.Admission
@@ -807,7 +808,6 @@ func (s *Store) settleInterruptedOperationReservations(ctx context.Context, tx *
 		var inline []byte
 		var reference sql.NullString
 		if err := rows.Scan(&storedRoot, &inline, &reference); err != nil {
-			rows.Close()
 			return err
 		}
 		if len(inline) == 0 && !reference.Valid {
@@ -815,19 +815,19 @@ func (s *Store) settleInterruptedOperationReservations(ctx context.Context, tx *
 		}
 		payload, err := s.readRuntimeValueTx(ctx, tx, inline, reference)
 		if err != nil {
-			rows.Close()
 			return err
 		}
 		var admission capability.Admission
 		if err := json.Unmarshal(payload, &admission); err != nil {
-			rows.Close()
 			return err
 		}
 		if admission.Request.RootID != storedRoot {
-			rows.Close()
 			return errors.New("operation admission root does not match stored root")
 		}
 		admissions = append(admissions, reserved{rootID: storedRoot, admission: admission})
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -968,7 +968,7 @@ func (s *Store) commitRuntime(ctx context.Context, transition RuntimeTransition,
 	if transition.Command != nil {
 		grant := ContentGrant{RootID: transition.Command.RootID, Scope: ContentGrantRoot}
 		if transition.Command.Scope == CommandScopeDaemon && len(transition.Command.Payload.Data) > InlineValueLimit {
-			return RuntimeResult{}, fmt.Errorf("daemon-scoped large content has no root grant")
+			return RuntimeResult{}, errors.New("daemon-scoped large content has no root grant")
 		}
 		prepared.command, err = s.prepareRuntimeValue(transition.Command.Payload, grant)
 	}
@@ -989,7 +989,7 @@ func (s *Store) commitRuntime(ctx context.Context, transition RuntimeTransition,
 	if err != nil {
 		return RuntimeResult{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	if transition.Agent != nil {
 		a := transition.Agent
@@ -1044,11 +1044,11 @@ func (s *Store) commitRuntime(ctx context.Context, transition RuntimeTransition,
 				return RuntimeResult{}, err
 			}
 			if agents != 1 {
-				return RuntimeResult{}, fmt.Errorf("usage agent is not in root")
+				return RuntimeResult{}, errors.New("usage agent is not in root")
 			}
 		}
 		if (v.CommandClientID == "") != (v.CommandID == "") {
-			return RuntimeResult{}, fmt.Errorf("usage command identity is incomplete")
+			return RuntimeResult{}, errors.New("usage command identity is incomplete")
 		}
 		if v.CommandID != "" {
 			var commands int
@@ -1056,7 +1056,7 @@ func (s *Store) commitRuntime(ctx context.Context, transition RuntimeTransition,
 				return RuntimeResult{}, err
 			}
 			if commands != 1 {
-				return RuntimeResult{}, fmt.Errorf("usage command is not in root")
+				return RuntimeResult{}, errors.New("usage command is not in root")
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO usage_charges(id,root_id,agent_id,command_client_id,command_id,input_tokens,cached_tokens,output_tokens,cost_micros,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
@@ -1094,7 +1094,7 @@ func (s *Store) FinishCommand(ctx context.Context, clientID, commandID, status s
 		return RuntimeValue{}, fmt.Errorf("command is already terminal with status %q", currentStatus)
 	}
 	if scope == CommandScopeDaemon && len(outcome.Data) > InlineValueLimit {
-		return RuntimeValue{}, fmt.Errorf("daemon-scoped large content has no root grant")
+		return RuntimeValue{}, errors.New("daemon-scoped large content has no root grant")
 	}
 	prepared, err := s.prepareRuntimeValue(outcome, ContentGrant{RootID: rootID.String, Scope: ContentGrantRoot})
 	if err != nil {
@@ -1104,7 +1104,7 @@ func (s *Store) FinishCommand(ctx context.Context, clientID, commandID, status s
 	if err != nil {
 		return RuntimeValue{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
 		return RuntimeValue{}, err
@@ -1119,7 +1119,7 @@ func (s *Store) FinishCommand(ctx context.Context, clientID, commandID, status s
 		if err != nil {
 			return RuntimeValue{}, err
 		}
-		return RuntimeValue{}, fmt.Errorf("command became terminal before outcome commit")
+		return RuntimeValue{}, errors.New("command became terminal before outcome commit")
 	}
 	if err := tx.Commit(); err != nil {
 		return RuntimeValue{}, err
@@ -1139,7 +1139,7 @@ func (s *Store) StoreContent(ctx context.Context, grant ContentGrant, payload Ru
 	if err != nil {
 		return RuntimeValue{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := insertRuntimeValue(ctx, tx, prepared, now()); err != nil {
 		return RuntimeValue{}, err
 	}
@@ -1160,6 +1160,7 @@ func (s *Store) ReadContent(ctx context.Context, referenceID, rootID, agentID st
 	if err != nil {
 		return nil, ContentMetadata{}, err
 	}
+	defer func() { _ = rows.Close() }()
 	type grant struct {
 		scope   ContentGrantScope
 		agentID string
@@ -1168,10 +1169,12 @@ func (s *Store) ReadContent(ctx context.Context, referenceID, rootID, agentID st
 	for rows.Next() {
 		var g grant
 		if err := rows.Scan(&g.scope, &g.agentID); err != nil {
-			rows.Close()
 			return nil, ContentMetadata{}, err
 		}
 		grants = append(grants, g)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, ContentMetadata{}, err
 	}
 	if err := rows.Close(); err != nil {
 		return nil, ContentMetadata{}, err
@@ -1225,7 +1228,7 @@ func (s *Store) OrphanContent(ctx context.Context) ([]ContentOrphan, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []ContentOrphan
 	for rows.Next() {
 		var orphan ContentOrphan
@@ -1248,7 +1251,7 @@ func (s *Store) prepareRuntimeValue(payload RuntimePayload, grant ContentGrant) 
 
 func (s *Store) prepareContentReference(payload RuntimePayload, grant ContentGrant) (preparedRuntimeValue, error) {
 	if grant.RootID == "" {
-		return preparedRuntimeValue{}, fmt.Errorf("large content requires a root grant")
+		return preparedRuntimeValue{}, errors.New("large content requires a root grant")
 	}
 	if grant.Scope != ContentGrantRoot && grant.Scope != ContentGrantAgent && grant.Scope != ContentGrantSubtree {
 		return preparedRuntimeValue{}, fmt.Errorf("invalid content grant scope %q", grant.Scope)
@@ -1280,7 +1283,7 @@ func insertRuntimeValue(ctx context.Context, tx *sql.Tx, value preparedRuntimeVa
 	}
 	if value.grant.Scope == ContentGrantRoot {
 		if value.grant.AgentID != "" {
-			return fmt.Errorf("root content grant cannot name an agent")
+			return errors.New("root content grant cannot name an agent")
 		}
 	} else {
 		var agents int
@@ -1288,7 +1291,7 @@ func insertRuntimeValue(ctx context.Context, tx *sql.Tx, value preparedRuntimeVa
 			return err
 		}
 		if agents != 1 {
-			return fmt.Errorf("content grant agent is not in root")
+			return errors.New("content grant agent is not in root")
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO content_objects(digest,size,created_at) VALUES(?,?,?)`, value.Digest, value.Size, stamp); err != nil {
@@ -1312,7 +1315,7 @@ func runtimeValueColumns(value RuntimeValue) (any, any) {
 
 func (s *Store) validateContentGrant(ctx context.Context, grant ContentGrant) error {
 	if grant.RootID == "" {
-		return fmt.Errorf("content grant requires a root")
+		return errors.New("content grant requires a root")
 	}
 	var exists int
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id=?`, grant.RootID).Scan(&exists); err != nil {
@@ -1325,10 +1328,10 @@ func (s *Store) validateContentGrant(ctx context.Context, grant ContentGrant) er
 		return nil
 	}
 	if grant.Scope != ContentGrantAgent && grant.Scope != ContentGrantSubtree {
-		return fmt.Errorf("invalid content grant")
+		return errors.New("invalid content grant")
 	}
 	if !s.agentInRoot(ctx, grant.RootID, grant.AgentID) {
-		return fmt.Errorf("content grant agent is not in root")
+		return errors.New("content grant agent is not in root")
 	}
 	return nil
 }
@@ -1370,7 +1373,7 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	if err := s.cancelPendingPermissionsTx(ctx, tx, "", "", "", "interrupted", "", "interrupted by daemon restart"); err != nil {
 		return err
@@ -1379,7 +1382,7 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 		return err
 	}
 	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
-		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE status IN ('queued','running','waiting')`, stamp); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE status IN ('queued','running','waiting')`, stamp); err != nil { //nolint:gosec // table comes from the static allowlist above
 			return err
 		}
 	}
@@ -1404,13 +1407,16 @@ func recordOrphanContent(ctx context.Context, s *Store) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var digest string
 		if err := rows.Scan(&digest); err != nil {
-			rows.Close()
 			return err
 		}
 		referenced[digest] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -1426,7 +1432,7 @@ func recordOrphanContent(ctx context.Context, s *Store) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	for _, orphan := range orphans {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO content_orphans(digest,size,first_seen_at,last_seen_at) VALUES(?,?,?,?)

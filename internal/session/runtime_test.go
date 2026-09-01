@@ -48,7 +48,7 @@ func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 		defer reader.Close()
 		for _, table := range []string{"agents", "commands", "inbox", "agent_state", "events", "usage_charges", "content_references"} {
 			var n int
-			if err := reader.QueryRow(`SELECT count(*) FROM ` + table).Scan(&n); err != nil {
+			if err := reader.QueryRowContext(context.Background(), `SELECT count(*) FROM `+table).Scan(&n); err != nil {
 				return err
 			}
 			if n != 0 {
@@ -70,18 +70,18 @@ func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 		}
 	}
 	var bodies int
-	if err := st.db.QueryRow(`SELECT count(*) FROM content_objects`).Scan(&bodies); err != nil || bodies != 1 {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM content_objects`).Scan(&bodies); err != nil || bodies != 1 {
 		t.Fatalf("content objects = %d, err %v", bodies, err)
 	}
 	for _, table := range []string{"agents", "commands", "inbox", "agent_state", "events", "usage_charges"} {
 		var n int
-		if err := st.db.QueryRow(`SELECT count(*) FROM ` + table).Scan(&n); err != nil || n != 1 {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 1 {
 			t.Fatalf("%s rows = %d, err %v", table, n, err)
 		}
 	}
 	for _, table := range []string{"commands", "inbox", "agent_state", "events"} {
 		var inline, refs int
-		if err := st.db.QueryRow(`SELECT COALESCE(MAX(length(payload_inline)),0), count(payload_ref) FROM `+table).Scan(&inline, &refs); err != nil {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT COALESCE(MAX(length(payload_inline)),0), count(payload_ref) FROM `+table).Scan(&inline, &refs); err != nil {
 			t.Fatal(err)
 		}
 		if inline > InlineValueLimit || refs != 1 {
@@ -110,7 +110,7 @@ func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 		t.Fatal(err)
 	}
 	var status string
-	if err := st.db.QueryRow(`SELECT status FROM commands WHERE client_id='client-1' AND command_id='command-1'`).Scan(&status); err != nil || status != "succeeded" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM commands WHERE client_id='client-1' AND command_id='command-1'`).Scan(&status); err != nil || status != "succeeded" {
 		t.Fatalf("terminal command status=%q err=%v", status, err)
 	}
 	got, meta, err = st.ReadContent(context.Background(), outcome.ReferenceID, rootID, "agent-root", 0, len(large))
@@ -168,7 +168,7 @@ func TestContentReferencesEnforceRootAgentAndSubtreeGrants(t *testing.T) {
 	}}); err == nil {
 		t.Fatal("cross-root inbox ownership should fail")
 	}
-	if _, err := st.db.Exec(`INSERT INTO blackboard(root_id,key,version,author_agent_id,updated_at) VALUES(?,?,?,?,?)`, root1, "invalid", 1, "other-root", now()); err == nil {
+	if _, err := st.db.ExecContext(context.Background(), `INSERT INTO blackboard(root_id,key,version,author_agent_id,updated_at) VALUES(?,?,?,?,?)`, root1, "invalid", 1, "other-root", now()); err == nil {
 		t.Fatal("cross-root blackboard authorship should fail")
 	}
 	if _, err := st.CommitRuntime(context.Background(), RuntimeTransition{
@@ -181,7 +181,7 @@ func TestContentReferencesEnforceRootAgentAndSubtreeGrants(t *testing.T) {
 		t.Fatal("usage should not name an agent from another root")
 	}
 	exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,created_at,updated_at) VALUES('other-operation',?,'other-root','running',?,?)`, root2, now(), now())
-	if _, err := st.db.Exec(`INSERT INTO leases(id,root_id,agent_id,operation_id,status,created_at,updated_at) VALUES('cross-root-lease',?,'parent','other-operation','running',?,?)`, root1, now(), now()); err == nil {
+	if _, err := st.db.ExecContext(context.Background(), `INSERT INTO leases(id,root_id,agent_id,operation_id,status,created_at,updated_at) VALUES('cross-root-lease',?,'parent','other-operation','running',?,?)`, root1, now(), now()); err == nil {
 		t.Fatal("lease should not name an operation from another root")
 	}
 	body := bytes.Repeat([]byte("authorized"), 8192)
@@ -265,10 +265,8 @@ func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 	pairs := make(chan InboxSequence, concurrent)
 	errs := make(chan error, concurrent)
 	var wg sync.WaitGroup
-	for i := 0; i < concurrent; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrent {
+		wg.Go(func() {
 			pair, err := st.EnqueueInbox(context.Background(), InboxEnqueue{
 				RootID: rootID, AgentID: authority.AgentID, Kind: "command",
 				Payload: RuntimePayload{Data: []byte("small")},
@@ -278,7 +276,7 @@ func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 				return
 			}
 			pairs <- pair
-		}()
+		})
 	}
 	wg.Wait()
 	close(pairs)
@@ -298,7 +296,7 @@ func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 		}
 	}
 	var eventPayload []byte
-	if err := st.db.QueryRow(`SELECT payload_inline FROM events WHERE root_id=? AND seq=1`, rootID).Scan(&eventPayload); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT payload_inline FROM events WHERE root_id=? AND seq=1`, rootID).Scan(&eventPayload); err != nil {
 		t.Fatal(err)
 	}
 	var event actorEvent
@@ -396,10 +394,10 @@ func TestClassicTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t
 		t.Fatalf("restored history=%+v", restored)
 	}
 	var activeInbox, activeTurns int
-	if err := st.db.QueryRow(`SELECT count(*) FROM inbox WHERE root_id=? AND status!='consumed'`, rootID).Scan(&activeInbox); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM inbox WHERE root_id=? AND status!='consumed'`, rootID).Scan(&activeInbox); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.db.QueryRow(`SELECT count(*) FROM turns WHERE root_id=? AND status!='succeeded'`, rootID).Scan(&activeTurns); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM turns WHERE root_id=? AND status!='succeeded'`, rootID).Scan(&activeTurns); err != nil {
 		t.Fatal(err)
 	}
 	if activeInbox != 0 || activeTurns != 0 {
@@ -417,9 +415,12 @@ func TestClassicTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
 	raw := []llm.Message{
 		{Role: "system", Content: "system"},
-		{Role: "user", Content: "q1"}, {Role: "assistant", Content: "a1"},
-		{Role: "user", Content: "q2"}, {Role: "assistant", Content: "a2"},
-		{Role: "user", Content: "q3"}, {Role: "assistant", Content: "a3"},
+		{Role: "user", Content: "q1"},
+		{Role: "assistant", Content: "a1"},
+		{Role: "user", Content: "q2"},
+		{Role: "assistant", Content: "a2"},
+		{Role: "user", Content: "q3"},
+		{Role: "assistant", Content: "a3"},
 	}
 	if err := st.Save(rootID, 0, raw, "model", "provider"); err != nil {
 		t.Fatal(err)
@@ -458,9 +459,12 @@ func TestClassicTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
 	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
 	history := []llm.Message{
 		{Role: "system", Content: "system"},
-		{Role: "user", Content: "q1"}, {Role: "assistant", Content: "a1"},
-		{Role: "user", Content: "q2"}, {Role: "assistant", Content: "a2"},
-		{Role: "user", Content: "q3"}, {Role: "assistant", Content: "a3"},
+		{Role: "user", Content: "q1"},
+		{Role: "assistant", Content: "a1"},
+		{Role: "user", Content: "q2"},
+		{Role: "assistant", Content: "a2"},
+		{Role: "user", Content: "q3"},
+		{Role: "assistant", Content: "a3"},
 	}
 	if err := st.Save(rootID, 1, history, "model", "provider"); err != nil {
 		t.Fatal(err)
@@ -519,17 +523,17 @@ func TestClassicTurnCommitRollsBackAsOneTransition(t *testing.T) {
 		t.Fatalf("commit error=%v", err)
 	}
 	var inboxStatus, turnStatus string
-	if err := st.db.QueryRow(`SELECT status FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`, rootID, authority.AgentID, item.InboxSeq).Scan(&inboxStatus); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`, rootID, authority.AgentID, item.InboxSeq).Scan(&inboxStatus); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.db.QueryRow(`SELECT status FROM turns WHERE id=?`, classicTurnID(authority.AgentID, item.InboxSeq)).Scan(&turnStatus); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM turns WHERE id=?`, classicTurnID(authority.AgentID, item.InboxSeq)).Scan(&turnStatus); err != nil {
 		t.Fatal(err)
 	}
 	if inboxStatus != "running" || turnStatus != "running" {
 		t.Fatalf("partial terminal state inbox=%q turn=%q", inboxStatus, turnStatus)
 	}
 	var messages int
-	if err := st.db.QueryRow(`SELECT count(*) FROM messages WHERE session_id=?`, rootID).Scan(&messages); err != nil || messages != 0 {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM messages WHERE session_id=?`, rootID).Scan(&messages); err != nil || messages != 0 {
 		t.Fatalf("messages=%d err=%v", messages, err)
 	}
 	meta, _, err := st.Load(rootID)
@@ -537,7 +541,7 @@ func TestClassicTurnCommitRollsBackAsOneTransition(t *testing.T) {
 		t.Fatalf("goal changed after rollback: %q, %v", meta.Goal, err)
 	}
 	var continuations int
-	if err := st.db.QueryRow(`SELECT count(*) FROM inbox WHERE root_id=? AND kind='goal'`, rootID).Scan(&continuations); err != nil || continuations != 0 {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM inbox WHERE root_id=? AND kind='goal'`, rootID).Scan(&continuations); err != nil || continuations != 0 {
 		t.Fatalf("goal continuation survived rollback: count=%d err=%v", continuations, err)
 	}
 }
@@ -550,7 +554,7 @@ func TestClassicTaskAndTranscriptRollBackTogether(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 	rootID, _ := st.Create(t.TempDir(), "model", "provider")
 	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
-	if _, err := st.db.Exec(`CREATE TRIGGER reject_task_transcript BEFORE INSERT ON messages
+	if _, err := st.db.ExecContext(context.Background(), `CREATE TRIGGER reject_task_transcript BEFORE INSERT ON messages
 		WHEN NEW.session_id LIKE 'task-%' BEGIN SELECT RAISE(ABORT,'no transcript'); END`); err != nil {
 		t.Fatal(err)
 	}
@@ -560,10 +564,10 @@ func TestClassicTaskAndTranscriptRollBackTogether(t *testing.T) {
 		t.Fatal("task transcript write should fail")
 	}
 	var tasks, transcripts int
-	if err := st.db.QueryRow(`SELECT count(*) FROM tasks WHERE session_id=? AND task_id=?`, rootID, task.ID).Scan(&tasks); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM tasks WHERE session_id=? AND task_id=?`, rootID, task.ID).Scan(&tasks); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.db.QueryRow(`SELECT count(*) FROM sessions WHERE id=?`, subagentSessionID(rootID, task.ID)).Scan(&transcripts); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM sessions WHERE id=?`, subagentSessionID(rootID, task.ID)).Scan(&transcripts); err != nil {
 		t.Fatal(err)
 	}
 	if tasks != 0 || transcripts != 0 {
@@ -597,14 +601,14 @@ func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 
 	claim := ScheduleFireClaim{RootID: rootID, AgentID: authority.AgentID, ScheduleID: scheduleID, Slot: anchor}
 	results := make(chan error, 2)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		go func() {
 			_, err := st.ClaimScheduleFire(context.Background(), claim)
 			results <- err
 		}()
 	}
 	var succeeded, claimed int
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		switch err := <-results; {
 		case err == nil:
 			succeeded++
@@ -711,7 +715,7 @@ func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 
 	root := fixtures[0]
 	var eventsBefore int
-	if err := st.db.QueryRow(`SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsBefore); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
 	eventSeq, err := st.FailClassicRoot(context.Background(), root.root, "actor panic")
@@ -722,12 +726,12 @@ func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 		t.Fatalf("second failure error = %v", err)
 	}
 	var eventsAfter int
-	if err := st.db.QueryRow(`SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsAfter); err != nil || eventsAfter != eventsBefore+1 {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsAfter); err != nil || eventsAfter != eventsBefore+1 {
 		t.Fatalf("terminal retry appended events=%d want=%d err=%v", eventsAfter, eventsBefore+1, err)
 	}
 
 	var status string
-	if err := st.db.QueryRow(`SELECT status FROM agents WHERE id=?`, root.authority.AgentID).Scan(&status); err != nil || status != "failed" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM agents WHERE id=?`, root.authority.AgentID).Scan(&status); err != nil || status != "failed" {
 		t.Fatalf("root agent status=%q err=%v", status, err)
 	}
 	for table, id := range map[string]string{
@@ -738,14 +742,14 @@ func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 		if table == "commands" {
 			idColumn = "command_id"
 		}
-		if err := st.db.QueryRow(`SELECT status FROM `+table+` WHERE root_id=? AND `+idColumn+`=?`, root.root, id).Scan(&status); err != nil {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` WHERE root_id=? AND `+idColumn+`=?`, root.root, id).Scan(&status); err != nil {
 			t.Fatal(err)
 		}
 		if status != "interrupted" {
 			t.Errorf("%s status=%q want interrupted", table, status)
 		}
 	}
-	if err := st.db.QueryRow(`SELECT status FROM leases WHERE root_id=? AND operation_id='a-operation'`, root.root).Scan(&status); err != nil || status != "interrupted" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM leases WHERE root_id=? AND operation_id='a-operation'`, root.root).Scan(&status); err != nil || status != "interrupted" {
 		t.Errorf("active lease status=%q err=%v", status, err)
 	}
 	for table, id := range map[string]string{"commands": "done", "turns": "a-turn-succeeded", "child_executions": "a-child-succeeded", "operations": "a-done-operation"} {
@@ -753,33 +757,33 @@ func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 		if table == "commands" {
 			idColumn = "command_id"
 		}
-		if err := st.db.QueryRow(`SELECT status FROM `+table+` WHERE root_id=? AND `+idColumn+`=?`, root.root, id).Scan(&status); err != nil || status != "succeeded" {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` WHERE root_id=? AND `+idColumn+`=?`, root.root, id).Scan(&status); err != nil || status != "succeeded" {
 			t.Errorf("terminal %s status=%q err=%v", table, status, err)
 		}
 	}
-	if err := st.db.QueryRow(`SELECT status FROM leases WHERE root_id=? AND id='a-done-lease'`, root.root).Scan(&status); err != nil || status != "succeeded" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM leases WHERE root_id=? AND id='a-done-lease'`, root.root).Scan(&status); err != nil || status != "succeeded" {
 		t.Errorf("terminal lease status=%q err=%v", status, err)
 	}
 	for seq, want := range map[int]string{1: "interrupted", 2: "interrupted", 3: "consumed"} {
-		if err := st.db.QueryRow(`SELECT status FROM inbox WHERE root_id=? AND seq=?`, root.root, seq).Scan(&status); err != nil || status != want {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND seq=?`, root.root, seq).Scan(&status); err != nil || status != want {
 			t.Errorf("inbox %d status=%q want=%q err=%v", seq, status, want, err)
 		}
 	}
-	if err := st.db.QueryRow(`SELECT status FROM permission_requests WHERE id=?`, root.pending).Scan(&status); err != nil || status != "interrupted" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM permission_requests WHERE id=?`, root.pending).Scan(&status); err != nil || status != "interrupted" {
 		t.Fatalf("pending permission status=%q err=%v", status, err)
 	}
 	var reserved int64
-	if err := st.db.QueryRow(`SELECT reserved_value FROM budgets WHERE root_id=? AND kind='active_operations'`, root.root).Scan(&reserved); err != nil || reserved != 0 {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT reserved_value FROM budgets WHERE root_id=? AND kind='active_operations'`, root.root).Scan(&reserved); err != nil || reserved != 0 {
 		t.Fatalf("failed root reservation=%d err=%v", reserved, err)
 	}
 	other := fixtures[1]
-	if err := st.db.QueryRow(`SELECT status FROM agents WHERE id=?`, other.authority.AgentID).Scan(&status); err != nil || status != "idle" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM agents WHERE id=?`, other.authority.AgentID).Scan(&status); err != nil || status != "idle" {
 		t.Fatalf("other root agent status=%q err=%v", status, err)
 	}
-	if err := st.db.QueryRow(`SELECT status FROM operations WHERE id='b-operation'`).Scan(&status); err != nil || status != "running" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM operations WHERE id='b-operation'`).Scan(&status); err != nil || status != "running" {
 		t.Fatalf("other root operation status=%q err=%v", status, err)
 	}
-	if err := st.db.QueryRow(`SELECT reserved_value FROM budgets WHERE root_id=? AND kind='active_operations'`, other.root).Scan(&reserved); err != nil || reserved != 2 {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT reserved_value FROM budgets WHERE root_id=? AND kind='active_operations'`, other.root).Scan(&reserved); err != nil || reserved != 2 {
 		t.Fatalf("other root reservation=%d err=%v", reserved, err)
 	}
 }
@@ -815,7 +819,7 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	}
 	defer st.Close()
 	var status string
-	if err := st.db.QueryRow(`SELECT status FROM commands WHERE command_id='cmd-queued'`).Scan(&status); err != nil || status != "queued" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM commands WHERE command_id='cmd-queued'`).Scan(&status); err != nil || status != "queued" {
 		t.Fatalf("ordinary open changed active command status=%q err=%v", status, err)
 	}
 	if err := st.Recover(context.Background()); err != nil {
@@ -829,7 +833,7 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 		for _, original := range []string{"queued", "running", "succeeded"} {
 			var got string
 			prefix := map[string]string{"commands": "cmd-", "turns": "turn-", "child_executions": "child-", "operations": "op-", "leases": "lease-"}[table]
-			if err := st.db.QueryRow(`SELECT status FROM `+table+` WHERE `+idColumn+`=?`, prefix+original).Scan(&got); err != nil {
+			if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` WHERE `+idColumn+`=?`, prefix+original).Scan(&got); err != nil {
 				t.Fatal(err)
 			}
 			want := "interrupted"
@@ -843,12 +847,12 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	}
 	for seq, want := range map[int]string{1: "interrupted", 2: "interrupted", 3: "consumed", 4: "queued"} {
 		var got string
-		if err := st.db.QueryRow(`SELECT status FROM inbox WHERE root_id=? AND seq=?`, rootID, seq).Scan(&got); err != nil || got != want {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND seq=?`, rootID, seq).Scan(&got); err != nil || got != want {
 			t.Errorf("recovered inbox %d status=%q want=%q err=%v", seq, got, want, err)
 		}
 	}
 	var permission string
-	if err := st.db.QueryRow(`SELECT status FROM permission_requests WHERE id='permission'`).Scan(&permission); err != nil || permission != "interrupted" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM permission_requests WHERE id='permission'`).Scan(&permission); err != nil || permission != "interrupted" {
 		t.Errorf("recovered permission status=%q err=%v", permission, err)
 	}
 	items, err := st.LoadQueuedInbox(context.Background(), rootID, "a", 0, 10)
@@ -892,18 +896,186 @@ func TestRecoveryReleasesReservationsAndInterruptsClassicTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	var taskStatus, report string
-	if err := st.db.QueryRow(`SELECT status,report FROM tasks WHERE session_id=? AND task_id='task-1'`, rootID).Scan(&taskStatus, &report); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status,report FROM tasks WHERE session_id=? AND task_id='task-1'`, rootID).Scan(&taskStatus, &report); err != nil {
 		t.Fatal(err)
 	}
 	if taskStatus != "error" || report != "interrupted by daemon restart" {
 		t.Fatalf("recovered task=%q %q", taskStatus, report)
 	}
 	var operationStatus string
-	if err := st.db.QueryRow(`SELECT status FROM operations WHERE id='active-operation'`).Scan(&operationStatus); err != nil || operationStatus != "interrupted" {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM operations WHERE id='active-operation'`).Scan(&operationStatus); err != nil || operationStatus != "interrupted" {
 		t.Fatalf("operation status=%q err=%v", operationStatus, err)
 	}
 	var reserved int64
-	if err := st.db.QueryRow(`SELECT reserved_value FROM budgets WHERE root_id=? AND kind='active_operations'`, rootID).Scan(&reserved); err != nil || reserved != 0 {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT reserved_value FROM budgets WHERE root_id=? AND kind='active_operations'`, rootID).Scan(&reserved); err != nil || reserved != 0 {
 		t.Fatalf("reserved=%d err=%v", reserved, err)
+	}
+}
+
+func TestRuntimeAPIValidationMatrix(t *testing.T) {
+	st, rootID, agentID := actorFailureFixture(t)
+	large := bytes.Repeat([]byte("x"), InlineValueLimit+1)
+
+	cases := map[string]func() error{
+		"enqueue identity": func() error {
+			_, err := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: agentID})
+			return err
+		},
+		"load cursor": func() error {
+			_, err := st.LoadQueuedInbox(context.Background(), rootID, agentID, -1, 1)
+			return err
+		},
+		"consume sequence": func() error {
+			_, err := st.ConsumeInbox(context.Background(), rootID, agentID, 0)
+			return err
+		},
+		"start sequence": func() error {
+			return st.StartClassicTurn(context.Background(), rootID, agentID, 0)
+		},
+		"commit identity": func() error {
+			return st.CommitClassicTurn(context.Background(), ClassicTurnCommit{})
+		},
+		"commit duplicate acknowledgement": func() error {
+			return st.CommitClassicTurn(context.Background(), ClassicTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: 1, AcknowledgedInbox: []int64{1}})
+		},
+		"commit conflicting goal": func() error {
+			return st.CommitClassicTurn(context.Background(), ClassicTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: 1, ClearGoal: true, GoalContinuation: "continue"})
+		},
+		"task identity": func() error {
+			return st.RecordClassicTask(context.Background(), rootID, agentID, Task{})
+		},
+		"schedule identity": func() error {
+			_, err := st.ClaimScheduleFire(context.Background(), ScheduleFireClaim{})
+			return err
+		},
+		"unknown command scope": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Command: &RuntimeCommand{Scope: CommandScope("unknown")}})
+			return err
+		},
+		"root command without root": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Command: &RuntimeCommand{Scope: CommandScopeRoot}})
+			return err
+		},
+		"daemon command with root": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Command: &RuntimeCommand{Scope: CommandScopeDaemon, RootID: rootID}})
+			return err
+		},
+		"mixed roots": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{
+				State: &RuntimeState{RootID: rootID}, Event: &RuntimeEvent{RootID: "other"},
+			})
+			return err
+		},
+		"daemon mixed with root": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{
+				Command: &RuntimeCommand{Scope: CommandScopeDaemon}, Event: &RuntimeEvent{RootID: rootID},
+			})
+			return err
+		},
+		"large daemon payload": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Command: &RuntimeCommand{Scope: CommandScopeDaemon, Payload: RuntimePayload{Data: large}}})
+			return err
+		},
+		"usage unknown agent": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Usage: &RuntimeUsage{ID: "bad-agent", RootID: rootID, AgentID: "unknown"}})
+			return err
+		},
+		"usage incomplete command": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Usage: &RuntimeUsage{ID: "bad-command-pair", RootID: rootID, CommandID: "command"}})
+			return err
+		},
+		"usage unknown command": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Usage: &RuntimeUsage{ID: "bad-command", RootID: rootID, CommandClientID: "client", CommandID: "command"}})
+			return err
+		},
+		"nonterminal command outcome": func() error {
+			_, err := st.FinishCommand(context.Background(), "client", "command", "running", RuntimePayload{})
+			return err
+		},
+		"content without root": func() error {
+			_, err := st.StoreContent(context.Background(), ContentGrant{Scope: ContentGrantRoot}, RuntimePayload{})
+			return err
+		},
+		"root content naming agent": func() error {
+			_, err := st.StoreContent(context.Background(), ContentGrant{RootID: rootID, AgentID: agentID, Scope: ContentGrantRoot}, RuntimePayload{})
+			return err
+		},
+		"invalid content scope": func() error {
+			_, err := st.StoreContent(context.Background(), ContentGrant{RootID: rootID, Scope: ContentGrantScope("invalid")}, RuntimePayload{})
+			return err
+		},
+		"unknown content agent": func() error {
+			_, err := st.StoreContent(context.Background(), ContentGrant{RootID: rootID, AgentID: "unknown", Scope: ContentGrantAgent}, RuntimePayload{})
+			return err
+		},
+		"unknown content read": func() error {
+			_, _, err := st.ReadContent(context.Background(), "missing", rootID, agentID, 0, 1)
+			return err
+		},
+		"unknown content revocation": func() error {
+			return st.RevokeContentGrant(context.Background(), "missing", rootID, agentID)
+		},
+		"missing failure root": func() error {
+			_, err := st.FailClassicRoot(context.Background(), "", "reason")
+			return err
+		},
+		"missing interruption root": func() error {
+			_, err := st.InterruptClassicRoot(context.Background(), "", "reason")
+			return err
+		},
+		"missing stop root": func() error {
+			_, err := st.StopClassicRoot(context.Background(), "", "reason")
+			return err
+		},
+	}
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := call(); err == nil {
+				t.Fatal("invalid request succeeded")
+			}
+		})
+	}
+}
+
+func TestClassicRootInterruptAndStop(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		stop             bool
+		wantAgent        string
+		wantScheduleItem string
+	}{
+		{name: "interrupt", wantAgent: "idle", wantScheduleItem: "queued"},
+		{name: "stop", stop: true, wantAgent: "stopped", wantScheduleItem: "interrupted"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			st, rootID, agentID := actorFailureFixture(t)
+			for _, kind := range []string{"command", "schedule"} {
+				if _, err := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: agentID, Kind: kind}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var err error
+			if test.stop {
+				_, err = st.StopClassicRoot(context.Background(), rootID, "shutdown")
+			} else {
+				_, err = st.InterruptClassicRoot(context.Background(), rootID, "restart")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var agentStatus, commandStatus, scheduleStatus string
+			if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM agents WHERE id=?`, agentID).Scan(&agentStatus); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND kind='command'`, rootID).Scan(&commandStatus); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND kind='schedule'`, rootID).Scan(&scheduleStatus); err != nil {
+				t.Fatal(err)
+			}
+			if agentStatus != test.wantAgent || commandStatus != "interrupted" || scheduleStatus != test.wantScheduleItem {
+				t.Fatalf("statuses agent=%q command=%q schedule=%q", agentStatus, commandStatus, scheduleStatus)
+			}
+		})
 	}
 }

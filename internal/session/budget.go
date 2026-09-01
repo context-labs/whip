@@ -87,7 +87,7 @@ func (s *Store) SetBudgetLimit(ctx context.Context, rootID, agentID string, kind
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if agentID != "" {
 		if _, err := loadAgentTx(ctx, tx, rootID, agentID); err != nil {
 			return err
@@ -149,7 +149,7 @@ func (s *Store) InspectBudgets(ctx context.Context, rootID, agentID string) ([]B
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	rows, err := loadBudgetRowsTx(ctx, tx, rootID, agentID, "")
 	if err != nil {
 		return nil, err
@@ -163,7 +163,7 @@ func (s *Store) InspectBudgetsFor(ctx context.Context, rootID, callerAgentID, ta
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := loadAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return nil, err
 	}
@@ -207,7 +207,7 @@ func (s *Store) ReserveBudget(ctx context.Context, rootID, agentID string, reser
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := reserveCapabilityBudgets(ctx, tx, rootID, agentID, reservations); err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func (s *Store) ReconcileBudget(ctx context.Context, rootID, agentID string, res
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := settleCapabilityBudgets(ctx, tx, rootID, agentID, reservations, actual); err != nil {
 		return err
 	}
@@ -231,7 +231,7 @@ func (s *Store) ReleaseBudget(ctx context.Context, rootID, agentID string, reser
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := releaseCapabilityBudgets(ctx, tx, rootID, agentID, reservations); err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func (s *Store) CapBudget(ctx context.Context, rootID, callerAgentID, targetAgen
 	if err != nil {
 		return BudgetState{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	caller, err := loadAgentTx(ctx, tx, rootID, callerAgentID)
 	if err != nil {
 		return BudgetState{}, err
@@ -354,7 +354,7 @@ func loadBudgetRowsTx(ctx context.Context, tx *sql.Tx, rootID, agentID string, k
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var budgets []budgetRow
 	for rows.Next() {
 		var row budgetRow

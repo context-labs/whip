@@ -176,6 +176,38 @@ func TestWorkspaceBarrierSpansRoots(t *testing.T) {
 	(<-lockedAll)()
 }
 
+func TestWorkspaceFilesystemErrors(t *testing.T) {
+	root := t.TempDir()
+	rootFile := filepath.Join(root, "file")
+	if err := os.WriteFile(rootFile, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWorkspaces().Open(rootFile); err == nil {
+		t.Fatal("Open accepted a file as a workspace root")
+	}
+
+	workspaces := NewWorkspaces()
+	w, err := workspaces.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("loop", filepath.Join(root, "loop")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Resolve("loop"); err == nil {
+		t.Fatal("Resolve accepted a symlink loop")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := w.LockPath(ctx, "new-file"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("LockPath error = %v, want context.Canceled", err)
+	}
+	if len(workspaces.path) != 0 {
+		t.Fatalf("canceled LockPath leaked %d path locks", len(workspaces.path))
+	}
+}
+
 func assertBlocked(t *testing.T, acquired <-chan func(), message string) {
 	t.Helper()
 	select {

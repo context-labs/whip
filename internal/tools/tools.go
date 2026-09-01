@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -546,7 +547,7 @@ func randomID() (string, error) {
 	if _, err := rand.Read(id[:]); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%x", id[:]), nil
+	return hex.EncodeToString(id[:]), nil
 }
 
 func dispatchCall(ctx context.Context) (capability.Call, bool) {
@@ -757,7 +758,7 @@ func readTool() Tool {
 			if call, ok := dispatchCall(ctx); ok {
 				actualPath = call.CanonicalPath
 			}
-			data, err := os.ReadFile(actualPath)
+			data, err := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			if err != nil {
 				return "", err
 			}
@@ -804,7 +805,7 @@ func writeTool(services *Services) Tool {
 				actualPath = call.CanonicalPath
 			}
 			// old content (if any) so an overwrite reports what changed
-			old, oldErr := os.ReadFile(actualPath)
+			old, oldErr := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			//nolint:gosec // workspace files get the user default perms
 			if err := os.MkdirAll(filepath.Dir(actualPath), 0o755); err != nil {
 				return "", err
@@ -852,7 +853,7 @@ func editTool(services *Services) Tool {
 			if dispatched {
 				actualPath = call.CanonicalPath
 			}
-			data, err := os.ReadFile(actualPath)
+			data, err := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			if err != nil {
 				return "", err
 			}

@@ -55,7 +55,7 @@ func (s *Store) GetPrivateState(ctx context.Context, rootID, callerAgentID, key 
 	if err != nil {
 		return StateValue{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return StateValue{}, err
 	}
@@ -71,7 +71,7 @@ func (s *Store) ListPrivateState(ctx context.Context, rootID, callerAgentID stri
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (s *Store) mutatePrivateState(ctx context.Context, rootID, callerAgentID, k
 	if err != nil {
 		return StateValue{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return StateValue{}, err
 	}
@@ -169,7 +169,7 @@ func (s *Store) GetBlackboard(ctx context.Context, rootID, callerAgentID, key st
 	if err != nil {
 		return StateValue{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return StateValue{}, err
 	}
@@ -200,7 +200,7 @@ func (s *Store) mutateBlackboard(ctx context.Context, rootID, callerAgentID, key
 	if err != nil {
 		return StateValue{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return StateValue{}, err
 	}
@@ -283,7 +283,7 @@ func (s *Store) BlackboardHistory(ctx context.Context, rootID, callerAgentID, ke
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return nil, err
 	}
@@ -307,7 +307,7 @@ func (s *Store) CreateBlackboardSubscription(ctx context.Context, rootID, caller
 	if err != nil {
 		return BlackboardSubscription{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return BlackboardSubscription{}, err
 	}
@@ -348,7 +348,7 @@ func (s *Store) ListBlackboardSubscriptions(ctx context.Context, rootID, callerA
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return nil, err
 	}
@@ -356,7 +356,7 @@ func (s *Store) ListBlackboardSubscriptions(ctx context.Context, rootID, callerA
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var subscriptions []BlackboardSubscription
 	for rows.Next() {
 		var subscription BlackboardSubscription
@@ -382,7 +382,7 @@ func (s *Store) CancelBlackboardSubscription(ctx context.Context, rootID, caller
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
 		return err
 	}
@@ -418,15 +418,18 @@ func (s *Store) enqueueSubscriptionWakesTx(ctx context.Context, tx *sql.Tx, root
 	if err != nil {
 		return err
 	}
+	defer func() { _ = rows.Close() }()
 	type target struct{ id, agentID string }
 	var targets []target
 	for rows.Next() {
 		var target target
 		if err := rows.Scan(&target.id, &target.agentID); err != nil {
-			rows.Close()
 			return err
 		}
 		targets = append(targets, target)
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -516,7 +519,7 @@ func scanState(scanner stateScanner) (StateValue, error) {
 }
 
 func scanStateRows(rows *sql.Rows) ([]StateValue, error) {
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var values []StateValue
 	for rows.Next() {
 		value, err := scanState(rows)
@@ -557,7 +560,7 @@ func validateStateMutation(key, operation string, expectedVersion int64) error {
 
 func validateStateKey(key string) error {
 	if key == "" || len(key) > maxStateKeyBytes || !utf8.ValidString(key) || strings.TrimSpace(key) != key || strings.IndexFunc(key, unicode.IsControl) >= 0 {
-		return fmt.Errorf("invalid state key")
+		return errors.New("invalid state key")
 	}
 	return nil
 }

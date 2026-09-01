@@ -66,7 +66,7 @@ func (s *Store) AdmitChild(ctx context.Context, admission ChildAdmission) (int64
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	parent, err := loadAgentTx(ctx, tx, admission.RootID, admission.ParentAgentID)
 	if err != nil {
 		return 0, err
@@ -173,7 +173,7 @@ func (s *Store) StartChildTurn(ctx context.Context, rootID, callerAgentID, execu
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	parentID, childID, status, err := loadChildExecutionTx(ctx, tx, rootID, executionID)
 	if err != nil {
 		return 0, err
@@ -228,7 +228,7 @@ func (s *Store) FinishChildTurn(ctx context.Context, rootID, callerAgentID, exec
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	parentID, childID, current, err := loadChildExecutionTx(ctx, tx, rootID, executionID)
 	if err != nil {
 		return 0, err
@@ -268,7 +268,7 @@ func (s *Store) ListAgentRelatives(ctx context.Context, rootID, callerAgentID st
 	if err != nil {
 		return AgentRelatives{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	caller, err := loadAgentTx(ctx, tx, rootID, callerAgentID)
 	if err != nil {
 		return AgentRelatives{}, err
@@ -323,7 +323,7 @@ func (s *Store) SendAgentMessage(ctx context.Context, rootID, senderAgentID, rec
 	if err != nil {
 		return InboxSequence{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := validateDirectRelativeTx(ctx, tx, rootID, senderAgentID, recipientAgentID); err != nil {
 		return InboxSequence{}, err
 	}
@@ -374,7 +374,7 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	caller, err := loadAgentTx(ctx, tx, rootID, callerAgentID)
 	if err != nil {
 		return 0, err
@@ -462,7 +462,7 @@ func loadAgentsTx(ctx context.Context, tx *sql.Tx, query string, args ...any) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var agents []RuntimeAgent
 	for rows.Next() {
 		var agent RuntimeAgent
@@ -559,6 +559,7 @@ func syncChildBudgetReservationsTx(ctx context.Context, tx *sql.Tx, rootID strin
 	if err != nil {
 		return err
 	}
+	defer func() { _ = rows.Close() }()
 	type budget struct {
 		rootID, agentID string
 		kind            BudgetKind
@@ -567,10 +568,12 @@ func syncChildBudgetReservationsTx(ctx context.Context, tx *sql.Tx, rootID strin
 	for rows.Next() {
 		var row budget
 		if err := rows.Scan(&row.rootID, &row.agentID, &row.kind); err != nil {
-			rows.Close()
 			return err
 		}
 		budgets = append(budgets, row)
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	if err := rows.Close(); err != nil {
 		return err

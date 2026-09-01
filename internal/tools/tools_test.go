@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/computer"
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
@@ -301,4 +304,155 @@ func canonicalDir(t *testing.T, dir string) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+func TestServicesValidationPaths(t *testing.T) {
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	ledger := &countingLedger{}
+	workspaces := capability.NewWorkspaces()
+	authority := capability.ClassicAuthority{
+		RootID: "root", AgentID: "agent",
+		Files: capability.Reference{ID: "files"}, Shell: capability.Reference{ID: "shell"},
+	}
+	for _, tc := range []struct {
+		name       string
+		ledger     capability.Ledger
+		workspaces *capability.Workspaces
+		processes  *capability.ProcessManager
+		authority  capability.ClassicAuthority
+	}{
+		{"nil ledger", nil, workspaces, processes, authority},
+		{"nil workspaces", ledger, nil, processes, authority},
+		{"nil processes", ledger, workspaces, nil, authority},
+		{"missing authority", ledger, workspaces, processes, capability.ClassicAuthority{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := NewServices().BindDispatcher(tc.ledger, tc.workspaces, tc.processes, tc.authority); err == nil {
+				t.Fatal("BindDispatcher accepted incomplete authority")
+			}
+		})
+	}
+
+	services := NewServices()
+	root := t.TempDir()
+	workspace, err := workspaces.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services.workspace = workspace
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{file, filepath.Join(root, "missing"), filepath.Join(root, "..", "outside")} {
+		if _, err := services.ResolveWorkingDirectory(path); err == nil {
+			t.Errorf("ResolveWorkingDirectory(%q) succeeded", path)
+		}
+	}
+
+	services.dispatcher = capability.NewDispatcher(nil, nil, nil)
+	if _, err := services.run(context.Background(), "missing", nil, nil); err == nil || !strings.Contains(err.Error(), "unknown classic operation") {
+		t.Fatalf("unknown operation error = %v", err)
+	}
+}
+
+type workspaceRootLedger struct {
+	capability.Ledger
+	root string
+	err  error
+}
+
+func (l workspaceRootLedger) WorkspaceRoot(context.Context, string) (string, error) {
+	return l.root, l.err
+}
+
+func TestServicesRemainingPaths(t *testing.T) {
+	services := NewServices()
+	policy := computer.NewPolicy(nil, nil, false)
+	services.SetComputerPolicy(policy)
+	if services.ComputerPolicy() != policy {
+		t.Fatal("computer policy was not retained")
+	}
+
+	dir := canonicalDir(t, t.TempDir())
+	if got, err := services.ResolveWorkingDirectory(dir); err != nil || got != dir {
+		t.Fatalf("unbound working directory = %q, %v", got, err)
+	}
+	workspace, err := capability.NewWorkspaces().Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services.workspace = workspace
+	if got, err := services.ResolveWorkingDirectory(dir); err != nil || got != dir {
+		t.Fatalf("bound working directory = %q, %v", got, err)
+	}
+
+	out, err := NewServices().RunProcess(t.Context(), "sh", "-c", "printf direct")
+	if err != nil || string(out) != "direct" {
+		t.Fatalf("direct process = %q, %v", out, err)
+	}
+	if len(AllWithServices(nil)) != len(All()) {
+		t.Fatal("nil services changed the advertised tools")
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("unknown classic tool did not panic")
+			}
+		}()
+		classicTool(NewServices(), "missing")
+	}()
+
+	direct := services.wrap(Tool{Def: llm.NewTool("direct", "", `{}`), Run: func(context.Context, json.RawMessage) (string, error) {
+		return "direct", nil
+	}})
+	ctx := context.WithValue(t.Context(), dispatchCallKey{}, capability.Call{})
+	if got, err := direct.Run(ctx, nil); err != nil || got != "direct" {
+		t.Fatalf("direct dispatch = %q, %v", got, err)
+	}
+	for _, args := range []json.RawMessage{json.RawMessage(`{bad`), json.RawMessage(`{}`)} {
+		if _, err := toolPath(args); err == nil {
+			t.Fatalf("toolPath accepted %q", args)
+		}
+	}
+	if got := ExecuteWithSuggester(t.Context(), []Tool{{Def: llm.NewTool("empty", "", `{}`), Run: func(context.Context, json.RawMessage) (string, error) {
+		return "", nil
+	}}}, "empty", nil, nil); got != "(no output)" {
+		t.Fatalf("empty output = %q", got)
+	}
+
+	denied := NewServices()
+	denied.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateReject, "denied" })
+	for _, tool := range []Tool{bashTool(denied), writeTool(denied), editTool(denied)} {
+		args := json.RawMessage(`{"command":"true"}`)
+		if tool.Def.Function.Name != "bash" {
+			args = json.RawMessage(`{"path":"file","old_string":"x","new_string":"y","content":"x"}`)
+		}
+		if _, err := tool.Run(t.Context(), args); err == nil || !strings.Contains(err.Error(), "denied") {
+			t.Errorf("%s gate error = %v", tool.Def.Function.Name, err)
+		}
+	}
+	if _, err := writeTool(NewServices()).Run(t.Context(), json.RawMessage(fmt.Sprintf(`{"path":%q,"content":"x"}`, dir))); err == nil {
+		t.Fatal("write accepted a directory target")
+	}
+	if got := editDiff(strings.Repeat("x", 201), "y", 1); !strings.Contains(got, "…") {
+		t.Fatalf("long diff line was not shortened: %q", got)
+	}
+
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	authority := capability.ClassicAuthority{RootID: "root", AgentID: "agent", Files: capability.Reference{ID: "files"}, Shell: capability.Reference{ID: "shell"}}
+	for _, ledger := range []capability.Ledger{
+		workspaceRootLedger{err: errors.New("root failed")},
+		workspaceRootLedger{root: filepath.Join(t.TempDir(), "missing")},
+	} {
+		if err := NewServices().BindDispatcher(ledger, capability.NewWorkspaces(), processes, authority); err == nil {
+			t.Fatal("BindDispatcher accepted a failing workspace root")
+		}
+	}
+
+	browserManager := browser.NewManager(browser.ModeHeadless)
+	services.SetBrowser(browserManager, false)
+	services.Close()
 }

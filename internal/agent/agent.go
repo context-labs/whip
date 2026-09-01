@@ -646,7 +646,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 func (a *Agent) reserveModelCall(ctx context.Context, request llm.Request) (func(llm.Usage) error, error) {
 	budget := a.modelCallBudget()
 	if budget == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // nil settlement means no model-call budget is configured
 	}
 	definitionBytes, _ := json.Marshal(request.Tools)
 	estimate := int64(EstimateTokens(request.Messages) + max(request.MaxTokens, 1) + (len(definitionBytes)+3)/4)

@@ -78,10 +78,12 @@ func (r *agentRunner) turnJournal() turnJournal {
 	defer r.mu.Unlock()
 	return turnJournal{Messages: append([]llm.Message(nil), r.turn.Messages...), Compactions: append([]turnCompaction(nil), r.turn.Compactions...)}
 }
+
 func (r *agentRunner) Close() {
 	r.agent.SetSteerIngress(nil)
 	r.agent.Close()
 }
+
 func (r *agentRunner) bind(root *Session) error {
 	if r.agent.Services == nil {
 		return errors.New("agent services are required")
@@ -379,7 +381,7 @@ func (s *Session) enqueue(ctx context.Context, kind, text string, receipt bool) 
 	s.admitMu.RUnlock()
 	s.notify()
 	if !receipt {
-		return nil, nil
+		return nil, nil //nolint:nilnil // internal wake messages intentionally have no receipt
 	}
 	return result, nil
 }
@@ -755,12 +757,12 @@ func panicError(kind string, value any) error {
 	return fmt.Errorf("%s panic: %v\n%s", kind, value, debug.Stack())
 }
 
-func safeClose(kind string, close func()) (err error) {
+func safeClose(kind string, closeFn func()) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
 			err = panicError(kind+" close", value)
 		}
 	}()
-	close()
+	closeFn()
 	return nil
 }

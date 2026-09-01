@@ -143,7 +143,7 @@ func runCLI(args []string) error {
 		if terr != nil {
 			return terr
 		}
-		defer os.RemoveAll(tmp)
+		defer func() { _ = os.RemoveAll(tmp) }()
 		store, err = session.Open(filepath.Join(tmp, "sessions.db"))
 		if err != nil {
 			return err

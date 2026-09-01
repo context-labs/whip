@@ -4,6 +4,7 @@ package content
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,7 +26,7 @@ func New(home string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // this path is a directory, not a regular file
 		return nil, err
 	}
 	return &Store{dir: dir}, nil
@@ -94,10 +95,10 @@ func (s *Store) put(data []byte, hook func(string) error) (Body, error) {
 
 func (s *Store) Read(digest string, offset int64, length int) ([]byte, error) {
 	if !validDigest(digest) {
-		return nil, fmt.Errorf("invalid content digest")
+		return nil, errors.New("invalid content digest")
 	}
 	if offset < 0 || length < 0 {
-		return nil, fmt.Errorf("invalid content range")
+		return nil, errors.New("invalid content range")
 	}
 	f, err := os.Open(s.path(digest))
 	if err != nil {
@@ -122,7 +123,7 @@ func (s *Store) Read(digest string, offset int64, length int) ([]byte, error) {
 		return buf, nil
 	}
 	n, err := f.ReadAt(buf, offset)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
 	return buf[:n], nil
@@ -195,7 +196,7 @@ func validDigest(digest string) bool {
 }
 
 func syncDir(path string) error {
-	dir, err := os.Open(path)
+	dir, err := os.Open(path) //nolint:gosec // callers pass only store-owned directories
 	if err != nil {
 		return err
 	}

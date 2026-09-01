@@ -40,7 +40,7 @@ func (s *Store) InspectCapability(ctx context.Context, rootID, callerAgentID, ca
 	if err != nil {
 		return CapabilityRecord{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	record, err := loadCapabilityRecordTx(ctx, tx, rootID, capabilityID)
 	if err != nil {
 		return CapabilityRecord{}, err
@@ -66,7 +66,7 @@ func (s *Store) DelegateCapability(ctx context.Context, rootID, callerAgentID st
 	if err != nil {
 		return CapabilityRecord{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	record, err := s.delegateCapabilityTx(ctx, tx, rootID, callerAgentID, delegation)
 	if err != nil {
 		return CapabilityRecord{}, err
@@ -185,7 +185,7 @@ func (s *Store) RevokeCapabilityFor(ctx context.Context, rootID, callerAgentID, 
 	if err != nil {
 		return CapabilityRecord{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	record, err := loadCapabilityRecordTx(ctx, tx, rootID, capabilityID)
 	if err != nil {
 		return CapabilityRecord{}, err
@@ -288,6 +288,7 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 	if err != nil {
 		return err
 	}
+	defer func() { _ = rows.Close() }()
 	type pendingPermission struct {
 		id        string
 		admission capability.Admission
@@ -298,21 +299,21 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 		var inline []byte
 		var reference sql.NullString
 		if err := rows.Scan(&item.id, &inline, &reference); err != nil {
-			rows.Close()
 			return err
 		}
 		payload, err := s.readRuntimeValueTx(ctx, tx, inline, reference)
 		if err != nil {
-			rows.Close()
 			return err
 		}
 		if err := json.Unmarshal(payload, &item.admission); err != nil {
-			rows.Close()
 			return err
 		}
 		if capabilityID == "" || item.admission.Request.CapabilityID == capabilityID || item.admission.Request.WriterCapabilityID == capabilityID {
 			pending = append(pending, item)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	if err := rows.Close(); err != nil {
 		return err

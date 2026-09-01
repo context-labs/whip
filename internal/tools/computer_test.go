@@ -22,6 +22,24 @@ func TestComputerExecGates(t *testing.T) {
 	}
 }
 
+func TestComputerExecDirect(t *testing.T) {
+	tool := computerExec(NewServices())
+	if !computer.Available() {
+		if _, err := tool.Run(t.Context(), []byte(`{"code":"print(1)"}`)); err == nil || !strings.Contains(err.Error(), "macOS-only") {
+			t.Fatalf("direct computerExec error = %v", err)
+		}
+		return
+	}
+	for _, args := range []string{`{bad`, `{}`, `{"code":"   "}`} {
+		if _, err := tool.Run(t.Context(), []byte(args)); err == nil {
+			t.Fatalf("computerExec accepted %q", args)
+		}
+	}
+	if out, err := tool.Run(t.Context(), []byte(`{"code":"print(1)"}`)); err != nil || out != "1\n" {
+		t.Fatalf("computerExec print = %q, %v", out, err)
+	}
+}
+
 // The policy gate blocks denied apps and surfaces ApprovalNeeded for
 // unlisted ones; an approver granting consent unblocks.
 func TestGateApp(t *testing.T) {
@@ -166,6 +184,48 @@ func TestRunComputerCodeOsascriptTierUnsupported(t *testing.T) {
 	} {
 		if _, err := runComputerCode(ctx, code); err == nil || !errors.Is(err, computer.ErrUnsupportedPlatform) {
 			t.Errorf("%s: want ErrUnsupportedPlatform, got %v", code, err)
+		}
+	}
+}
+
+func TestRunComputerCodeWithFakeOSAScript(t *testing.T) {
+	if !computer.Available() {
+		t.Skip("darwin-only AppleScript entry points")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "osascript")
+	script := `#!/bin/sh
+case "$2" in
+  *"set theUrl to URL of active tab"*) printf 'https://active.example\nActive title\n' ;;
+  *"set wCount to count windows"*) printf '1￨2￨https://two.example￨Two\n' ;;
+  *"execute javascript"*) printf 'js-result\n' ;;
+  *) printf 'ok\n' ;;
+esac
+`
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, _ := withComputerPolicy(t, computer.NewPolicy([]string{"Finder", "Google Chrome"}, nil, true))
+
+	out, err := runComputerCode(ctx, `tell("Finder", "activate")
+chrome_state()
+chrome_tabs()
+chrome_goto("https://93.184.216.34/")
+chrome_new_tab("https://93.184.216.34/")
+chrome_activate(1, 2)
+chrome_close(1, 2)
+chrome_back()
+chrome_reload()
+chrome_js("1+1")
+chrome_find("two.example")
+chrome_find("missing")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ok", "active.example", "two.example", "js-result", "null"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
 }
@@ -349,6 +409,15 @@ func TestNativeTierWithFakeHelper(t *testing.T) {
 	if err != nil || !strings.Contains(out, "screenshot captured: 5 bytes") {
 		t.Fatalf("screenshot: %q %v", out, err)
 	}
+	h, err := computer.Shared()
+	if err != nil {
+		t.Fatal(err)
+	}
+	services.computerHelper = h
+	if cached, err := services.nativeComputerHelper(); err != nil || cached != h {
+		t.Fatalf("cached helper = %p, %v", cached, err)
+	}
+	services.Close()
 }
 
 // Every remaining native mutation forwards its arguments to the helper under

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"sync"
@@ -204,9 +205,7 @@ func (h *Helper) spawn() error {
 	var stdout io.ReadCloser
 	if h.processes != nil {
 		env := make(map[string]string, len(h.env)+1)
-		for name, value := range h.env {
-			env[name] = value
-		}
+		maps.Copy(env, h.env)
 		env[tokenEnvVar] = h.token
 		h.process, stdin, stdout, err = h.processes.StartPiped(context.Background(), h.rootID, path, nil, capability.ProcessOptions{
 			Cwd: h.cwd, Env: env, Stderr: io.Discard,

@@ -282,6 +282,83 @@ func TestSwarmMutationsRouteThroughRootActor(t *testing.T) {
 	}
 }
 
+func TestChildTurnWrappersAndSubagentGuards(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = daemon.Close() })
+	root, err := daemon.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	parentID := root.authority.AgentID
+	if err := root.AdmitChild(ctx, parentID, "wrapper-child", "wrapper-exec"); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.StartChildTurn(ctx, parentID, "wrapper-exec"); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.FinishChildTurn(ctx, parentID, "wrapper-exec", "succeeded"); err != nil {
+		t.Fatal(err)
+	}
+	relatives, err := root.ListAgentRelatives(ctx, parentID)
+	if err != nil || len(relatives.Children) != 1 || relatives.Children[0].Status != "succeeded" {
+		t.Fatalf("finished child=%+v err=%v", relatives.Children, err)
+	}
+
+	child := agent.New(llm.New("http://unused", "key"), "model", 100, "system")
+	t.Cleanup(child.Close)
+	if err := root.AdmitSubagent(ctx, "", child); err == nil {
+		t.Fatal("empty subagent task ID was accepted")
+	}
+	if err := root.AdmitSubagent(ctx, "task", nil); err == nil {
+		t.Fatal("nil subagent was accepted")
+	}
+	if err := root.StartSubagent(ctx, "missing"); !errors.Is(err, session.ErrAgentAccess) {
+		t.Fatalf("missing start error=%v", err)
+	}
+	if err := root.FinishSubagent(ctx, "missing", agent.TaskRunning); err == nil {
+		t.Fatal("running completion status was accepted")
+	}
+	if err := root.FinishSubagent(ctx, "missing", agent.TaskDone); !errors.Is(err, session.ErrAgentAccess) {
+		t.Fatalf("missing finish error=%v", err)
+	}
+	if err := root.SteerSubagent(ctx, "missing", "change"); !errors.Is(err, session.ErrAgentTerminal) {
+		t.Fatalf("missing steer error=%v", err)
+	}
+	if _, err := (subagentModelBudget{root: root, taskID: "missing"}).ReserveModelCall(ctx, 1); !errors.Is(err, session.ErrAgentTerminal) {
+		t.Fatalf("missing budget child error=%v", err)
+	}
+
+	if err := root.AdmitSubagent(ctx, "task", child); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.AdmitSubagent(ctx, "task", child); err == nil {
+		t.Fatal("duplicate subagent was accepted")
+	}
+	if err := root.SteerSubagent(ctx, "task", "early"); !errors.Is(err, session.ErrAgentTerminal) {
+		t.Fatalf("idle steer error=%v", err)
+	}
+	if err := root.StartSubagent(ctx, "task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.StartSubagent(ctx, "task"); err == nil {
+		t.Fatal("second subagent start was accepted")
+	}
+	if err := root.FinishSubagent(ctx, "task", agent.TaskDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.FinishSubagent(ctx, "task", agent.TaskDone); err != nil {
+		t.Fatalf("settled subagent finish=%v", err)
+	}
+}
+
 func TestSwarmControlQueuedAfterFailureIsRejected(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	t.Cleanup(func() { _ = store.Close() })

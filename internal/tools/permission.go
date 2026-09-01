@@ -34,8 +34,10 @@ type GateRequest struct {
 // Gate is a session-scoped permission hook. Nil means allow.
 type Gate func(context.Context, GateRequest) (GateDecision, string)
 
-type servicesKey struct{}
-type localHumanKey struct{}
+type (
+	servicesKey   struct{}
+	localHumanKey struct{}
+)
 
 // WithServices exposes the calling agent's services to custom tools.
 func WithServices(ctx context.Context, services *Services) context.Context {

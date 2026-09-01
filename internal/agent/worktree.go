@@ -45,7 +45,11 @@ func provisionSubagentWorktree(ctx context.Context, taskID, workspaceRoot string
 	// appear as an untracked directory in the parent checkout.
 	branch := "subagent/" + taskID
 	path = filepath.Join(root, ".git", "whip-worktrees", taskID)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	parent := filepath.Dir(path)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(parent, 0o700); err != nil { //nolint:gosec // Worktrees are intentionally owner-only.
 		return "", err
 	}
 	if out, err := run(ctx, "git", "-C", root, "worktree", "add", "-b", branch, path); err != nil {

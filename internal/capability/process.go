@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -145,7 +146,7 @@ func (m *ProcessManager) Start(ctx context.Context, rootID, name string, args []
 		return nil, err
 	}
 
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), name, args...) //nolint:gosec // callers authorize the executable through the capability ledger
 	cmd.Dir = cwd
 	cmd.Env = env
 	cmd.Stdin = opts.Stdin
@@ -196,17 +197,17 @@ func (m *ProcessManager) StartPiped(ctx context.Context, rootID, name string, ar
 	}
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
-		stdinR.Close()
-		stdinW.Close()
+		_ = stdinR.Close()
+		_ = stdinW.Close()
 		return nil, nil, nil, err
 	}
 	opts.Stdin, opts.Stdout = stdinR, stdoutW
 	process, err := m.Start(ctx, rootID, name, args, opts)
-	stdinR.Close()
-	stdoutW.Close()
+	_ = stdinR.Close()
+	_ = stdoutW.Close()
 	if err != nil {
-		stdinW.Close()
-		stdoutR.Close()
+		_ = stdinW.Close()
+		_ = stdoutR.Close()
 		return nil, nil, nil, err
 	}
 	return process, stdinW, stdoutR, nil
@@ -375,9 +376,7 @@ func allowedBaseEnvironment(name string) bool {
 
 func (m *ProcessManager) environment(overrides map[string]string) ([]string, error) {
 	values := make(map[string]string, len(m.env)+len(overrides))
-	for name, value := range m.env {
-		values[name] = value
-	}
+	maps.Copy(values, m.env)
 	for name, value := range overrides {
 		if !validEnvironmentName(name) {
 			return nil, fmt.Errorf("invalid environment name %q", name)

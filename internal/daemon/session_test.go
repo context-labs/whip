@@ -92,6 +92,13 @@ type fakeCloser struct{ closed atomic.Bool }
 
 func (c *fakeCloser) Close() { c.closed.Store(true) }
 
+type bindErrorRunner struct {
+	fakeRunner
+	err error
+}
+
+func (r *bindErrorRunner) bind(*Session) error { return r.err }
+
 type fakeMCP struct {
 	fakeCloser
 	processes *capability.ProcessManager
@@ -180,9 +187,7 @@ func TestConcurrentSubmitUsesCommittedInboxOrder(t *testing.T) {
 	admissions := make(chan admitted, posts)
 	var writers sync.WaitGroup
 	for i := range posts {
-		writers.Add(1)
-		go func() {
-			defer writers.Done()
+		writers.Go(func() {
 			text := fmt.Sprintf("post-%02d", i)
 			receipt, err := root.Submit(context.Background(), text)
 			if err != nil {
@@ -190,7 +195,7 @@ func TestConcurrentSubmitUsesCommittedInboxOrder(t *testing.T) {
 				return
 			}
 			admissions <- admitted{text: text, receipt: receipt}
-		}()
+		})
 	}
 	writers.Wait()
 	close(admissions)
@@ -761,7 +766,7 @@ func TestFailedTaskRecordCancelsBeforeLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TRIGGER reject_classic_task BEFORE INSERT ON tasks BEGIN SELECT RAISE(ABORT,'no task'); END`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `CREATE TRIGGER reject_classic_task BEFORE INSERT ON tasks BEGIN SELECT RAISE(ABORT,'no task'); END`); err != nil {
 		_ = db.Close()
 		t.Fatal(err)
 	}
@@ -902,7 +907,7 @@ func TestLoadInboxCapsPendingBacklog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < session.MaxInboxBatch+5; i++ {
+	for range session.MaxInboxBatch + 5 {
 		if _, err := store.EnqueueInbox(context.Background(), session.InboxEnqueue{
 			RootID: rootID, AgentID: authority.AgentID, Kind: "submit",
 			Payload: session.RuntimePayload{Data: []byte("work")},
@@ -983,6 +988,75 @@ func TestFactoryPanicSettlesOpenAndClose(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Close blocked after factory panic")
+	}
+}
+
+func TestNewAndOpenValidateAndCleanUpFailedConstruction(t *testing.T) {
+	factory := func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	}
+	if _, err := New(nil, factory); err == nil {
+		t.Fatal("nil store was accepted")
+	}
+	closedStore := openStore(t, filepath.Join(t.TempDir(), "closed.db"))
+	if err := closedStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(closedStore, factory); err == nil {
+		t.Fatal("closed store recovery succeeded")
+	}
+	if !closedStore.AcquireDaemon() {
+		t.Fatal("failed recovery retained daemon ownership")
+	}
+	closedStore.ReleaseDaemon()
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	if _, err := New(store, nil); err == nil {
+		t.Fatal("nil factory was accepted")
+	}
+	bindRootID, missingRunnerRootID := createRoot(t, store), createRoot(t, store)
+	bindErr := errors.New("bind failed")
+	runner := &bindErrorRunner{err: bindErr}
+	bindMCP, missingRunnerMCP := &fakeCloser{}, &fakeCloser{}
+	var bindProcessStopped, missingRunnerProcessStopped atomic.Bool
+	daemon, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+		stopped := &bindProcessStopped
+		components := Components{Runner: runner, MCP: bindMCP}
+		if meta.ID == missingRunnerRootID {
+			stopped = &missingRunnerProcessStopped
+			components = Components{MCP: missingRunnerMCP}
+		}
+		if _, err := store.Processes().RegisterStop(meta.ID, func() error {
+			stopped.Store(true)
+			return nil
+		}); err != nil {
+			return Components{}, err
+		}
+		return components, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = daemon.Close() })
+	if _, err := daemon.Open(""); err == nil {
+		t.Fatal("empty root ID was accepted")
+	}
+	if _, err := daemon.Open(bindRootID); !errors.Is(err, bindErr) {
+		t.Fatalf("bind error=%v", err)
+	}
+	if !runner.closed.Load() || !bindMCP.closed.Load() || !bindProcessStopped.Load() {
+		t.Fatalf("bind cleanup runner=%v MCP=%v process=%v", runner.closed.Load(), bindMCP.closed.Load(), bindProcessStopped.Load())
+	}
+	if _, err := daemon.Open(missingRunnerRootID); err == nil || !strings.Contains(err.Error(), "no runner") {
+		t.Fatalf("missing runner error=%v", err)
+	}
+	if !missingRunnerMCP.closed.Load() || !missingRunnerProcessStopped.Load() {
+		t.Fatalf("missing runner cleanup MCP=%v process=%v", missingRunnerMCP.closed.Load(), missingRunnerProcessStopped.Load())
+	}
+	if err := daemon.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := daemon.Open(bindRootID); !errors.Is(err, ErrClosed) {
+		t.Fatalf("open after close error=%v", err)
 	}
 }
 

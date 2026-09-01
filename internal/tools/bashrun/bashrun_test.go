@@ -2,6 +2,9 @@ package bashrun
 
 import (
 	"context"
+	"errors"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -73,16 +76,36 @@ func TestNonInteractiveTimeout(t *testing.T) {
 	}
 }
 
+func TestNonInteractiveTimeoutKillsDescendants(t *testing.T) {
+	marker := t.TempDir() + "/survived"
+	res := Run(context.Background(), Options{
+		Command: `(sleep 0.4; touch ` + strconv.Quote(marker) + `) & wait`,
+		Timeout: 100 * time.Millisecond,
+	})
+	if !res.TimedOut || !res.Killed {
+		t.Fatalf("expected Killed+TimedOut: %+v", res)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("descendant survived timeout: %v", err)
+	}
+}
+
 // TestNonInteractiveCancellation exercises the ctx-cancel path.
 func TestNonInteractiveCancellation(t *testing.T) {
+	marker := t.TempDir() + "/survived"
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		time.Sleep(80 * time.Millisecond)
 		cancel()
 	}()
-	res := Run(ctx, Options{Command: `sleep 5`, Timeout: 10 * time.Second})
+	res := Run(ctx, Options{Command: `(sleep 0.4; touch ` + strconv.Quote(marker) + `) & wait`, Timeout: 10 * time.Second})
 	if !res.Killed {
 		t.Fatalf("cancellation should kill: %+v", res)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("descendant survived cancellation: %v", err)
 	}
 }
 

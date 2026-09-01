@@ -295,7 +295,7 @@ func (m *Manager) AddServers(_ context.Context, cfgs map[string]ServerConfig) {
 			continue
 		}
 		s := newServer(name, cfg)
-		s.runCtx, s.stop = context.WithCancel(m.runCtx)
+		s.runCtx, s.stop = context.WithCancel(m.runCtx) //nolint:fatcontext // each server stores an independent child context
 		m.servers[name] = s
 		if s.status == StatusConnecting {
 			fresh = append(fresh, s)
@@ -378,7 +378,7 @@ func (m *Manager) Start(ctx context.Context) {
 	servers := make([]*server, 0, len(m.servers))
 	for _, s := range m.servers {
 		if s.status == StatusConnecting {
-			s.runCtx, s.stop = context.WithCancel(startCtx)
+			s.runCtx, s.stop = context.WithCancel(startCtx) //nolint:fatcontext // each server stores an independent child context
 			servers = append(servers, s)
 		}
 	}
@@ -882,7 +882,7 @@ func Probe(ctx context.Context, name string, cfg ServerConfig) ProbeResult {
 	m := NewManager(map[string]ServerConfig{name: cfg})
 	defer m.Close()
 	processes := capability.NewProcessManager()
-	defer processes.Close()
+	defer func() { _ = processes.Close() }()
 	cwd, _ := os.Getwd()
 	m.SetProcessOptions(processes, "mcp-probe", cwd, nil)
 	m.Start(ctx)

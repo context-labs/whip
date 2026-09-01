@@ -7,8 +7,33 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/schedule"
 	"github.com/context-labs/whip/internal/session"
 )
+
+func TestNextScheduleSlotEdges(t *testing.T) {
+	at := time.Date(2026, time.August, 31, 12, 0, 5, 500_000_000, time.UTC)
+	anchor := at.Add(-5 * time.Second)
+	for _, test := range []struct {
+		name   string
+		parsed schedule.Schedule
+		task   session.Schedule
+		want   time.Time
+		due    bool
+	}{
+		{name: "unfired recurring starts at anchor", parsed: schedule.Schedule{Every: 5 * time.Second}, task: session.Schedule{Anchor: anchor}, want: anchor, due: true},
+		{name: "future recurring slot", parsed: schedule.Schedule{Every: 5 * time.Second}, task: session.Schedule{Anchor: anchor, LastFire: at}, want: at.Add(5 * time.Second)},
+		{name: "one-shot is due within current second", parsed: schedule.Schedule{At: at.Add(400 * time.Millisecond)}, want: at.Add(400 * time.Millisecond), due: true},
+		{name: "fired one-shot has no next slot", parsed: schedule.Schedule{At: anchor}, task: session.Schedule{Anchor: anchor, LastFire: anchor}, want: time.Time{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, due := nextScheduleSlot(test.parsed, test.task, at)
+			if !got.Equal(test.want) || due != test.due {
+				t.Fatalf("slot=%v due=%v, want %v/%v", got, due, test.want, test.due)
+			}
+		})
+	}
+}
 
 func TestSchedulerClaimsDueFireWithoutClient(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))

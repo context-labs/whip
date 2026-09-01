@@ -97,12 +97,6 @@ func (m *model) shellOptions() bashrun.Options {
 	return opts
 }
 
-// shellExec runs one shell-escape command, formatting the result exactly like
-// the bash tool does (tail truncation, exit/timeout markers).
-func shellExec(cmdLine string) string {
-	return shellExecWithOptions(cmdLine, bashrun.Options{})
-}
-
 func shellExecWithOptions(cmdLine string, opts bashrun.Options) string {
 	// context.Background is deliberate: the command is independent of any
 	// turn, and esc stays bound to turn interruption. The 120s cap bounds it.

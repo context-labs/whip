@@ -85,7 +85,7 @@ func createHistoricalStore(t *testing.T, path string, shape historicalShape) *sq
 		db.Close()
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO sessions(id,created_at,updated_at,cwd,model,provider,title) VALUES('legacy','2026-01-01T00:00:00Z','2026-01-02T00:00:00Z','/old','m','p','old title')`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO sessions(id,created_at,updated_at,cwd,model,provider,title) VALUES('legacy','2026-01-01T00:00:00Z','2026-01-02T00:00:00Z','/old','m','p','old title')`); err != nil {
 		t.Fatal(err)
 	}
 	updates := []string{}
@@ -105,24 +105,24 @@ func createHistoricalStore(t *testing.T, path string, shape historicalShape) *sq
 		updates = append(updates, `task_id='child-7'`)
 	}
 	if len(updates) > 0 {
-		if _, err := db.Exec(`UPDATE sessions SET ` + strings.Join(updates, ",") + ` WHERE id='legacy'`); err != nil {
+		if _, err := db.ExecContext(context.Background(), `UPDATE sessions SET `+strings.Join(updates, ",")+` WHERE id='legacy'`); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.Exec(`INSERT INTO messages VALUES('legacy',1,'user',?),('legacy',3,'assistant','{"role":"assistant","content":"answer"}')`, historicalMessage); err != nil {
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO messages VALUES('legacy',1,'user',?),('legacy',3,'assistant','{"role":"assistant","content":"answer"}')`, historicalMessage); err != nil {
 		t.Fatal(err)
 	}
 	if shape.tasks {
-		_, err = db.Exec(`INSERT INTO tasks VALUES('legacy','t1','desc','prompt','done','report','2026-01-01T00:00:00Z','2026-01-01T00:01:00Z')`)
+		_, err = db.ExecContext(context.Background(), `INSERT INTO tasks VALUES('legacy','t1','desc','prompt','done','report','2026-01-01T00:00:00Z','2026-01-01T00:01:00Z')`)
 	}
 	if err == nil && shape.snapshots {
-		_, err = db.Exec(`INSERT INTO snapshots VALUES('legacy',3,'stash@{2}','2026-01-01T00:00:00Z')`)
+		_, err = db.ExecContext(context.Background(), `INSERT INTO snapshots VALUES('legacy',3,'stash@{2}','2026-01-01T00:00:00Z')`)
 	}
 	if err == nil && shape.compactions {
-		_, err = db.Exec(`INSERT INTO compactions VALUES('legacy',1,2,'summary','2026-01-01T00:00:00Z')`)
+		_, err = db.ExecContext(context.Background(), `INSERT INTO compactions VALUES('legacy',1,2,'summary','2026-01-01T00:00:00Z')`)
 	}
 	if err == nil && shape.schedules {
-		_, err = db.Exec(`INSERT INTO schedules VALUES('legacy',4,'@every 1h','wake','2026-01-01T00:00:00Z','','2026-01-01T00:00:00Z')`)
+		_, err = db.ExecContext(context.Background(), `INSERT INTO schedules VALUES('legacy',4,'@every 1h','wake','2026-01-01T00:00:00Z','','2026-01-01T00:00:00Z')`)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestHistoricalVersionZeroShapesMigrateWithoutChangingHistory(t *testing.T) 
 func assertHistoricalStore(t *testing.T, st *Store, shape historicalShape) {
 	t.Helper()
 	var version int
-	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != currentSchemaVersion {
+	if err := st.db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&version); err != nil || version != currentSchemaVersion {
 		t.Fatalf("user_version = %d, err %v", version, err)
 	}
 	meta, msgs, err := st.Load("legacy")
@@ -196,7 +196,7 @@ func assertHistoricalStore(t *testing.T, st *Store, shape historicalShape) {
 		t.Fatalf("usage metadata changed: %+v", meta)
 	}
 	var seqs, raw string
-	if err := st.db.QueryRow(`SELECT group_concat(seq), group_concat(content,'|') FROM messages WHERE session_id='legacy' ORDER BY seq`).Scan(&seqs, &raw); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT group_concat(seq), group_concat(content,'|') FROM messages WHERE session_id='legacy' ORDER BY seq`).Scan(&seqs, &raw); err != nil {
 		t.Fatal(err)
 	}
 	if seqs != "1,3" || !strings.HasPrefix(raw, historicalMessage+"|") {
@@ -217,7 +217,7 @@ func assertHistoricalStore(t *testing.T, st *Store, shape historicalShape) {
 			continue
 		}
 		var got string
-		if err := st.db.QueryRow(check.query).Scan(&got); err != nil || got != check.want {
+		if err := st.db.QueryRowContext(context.Background(), check.query).Scan(&got); err != nil || got != check.want {
 			t.Fatalf("%s = %q, err %v, want %q", check.query, got, err, check.want)
 		}
 	}
@@ -230,12 +230,12 @@ func TestFreshStoreAppliesVersionedSchemaOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != currentSchemaVersion {
+	if err := st.db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&version); err != nil || version != currentSchemaVersion {
 		t.Fatalf("version = %d, err %v", version, err)
 	}
 	for _, table := range []string{"sessions", "commands", "agents", "turns", "child_executions", "operations", "leases", "content_objects", "content_references", "content_grants"} {
 		var n int
-		if err := st.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?`, table).Scan(&n); err != nil || n != 1 {
+		if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?`, table).Scan(&n); err != nil || n != 1 {
 			t.Fatalf("table %s missing: count=%d err=%v", table, n, err)
 		}
 	}
@@ -248,7 +248,7 @@ func TestFreshStoreAppliesVersionedSchemaOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != currentSchemaVersion {
+	if err := st.db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&version); err != nil || version != currentSchemaVersion {
 		t.Fatalf("reopen version = %d, err %v", version, err)
 	}
 }
@@ -259,7 +259,7 @@ func TestUnknownFutureSchemaVersionIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version=%d`, currentSchemaVersion+1)); err != nil {
+	if _, err := db.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version=%d`, currentSchemaVersion+1)); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -272,7 +272,7 @@ func TestUnknownFutureSchemaVersionIsRejected(t *testing.T) {
 	}
 	defer db.Close()
 	var journalMode string
-	if err := db.QueryRow(`PRAGMA journal_mode`).Scan(&journalMode); err != nil || journalMode != "delete" {
+	if err := db.QueryRowContext(context.Background(), `PRAGMA journal_mode`).Scan(&journalMode); err != nil || journalMode != "delete" {
 		t.Fatalf("rejected future schema changed journal mode to %q, err %v", journalMode, err)
 	}
 }
@@ -280,7 +280,7 @@ func TestUnknownFutureSchemaVersionIsRejected(t *testing.T) {
 func TestUnknownVersionZeroTableCollisionIsRejected(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	db := createHistoricalStore(t, path, historicalShape{name: "H0"})
-	if _, err := db.Exec(`CREATE TABLE events(unrelated TEXT)`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE events(unrelated TEXT)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -295,11 +295,11 @@ func TestUnknownVersionZeroTableCollisionIsRejected(t *testing.T) {
 	}
 	defer db.Close()
 	var version int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 0 {
+	if err := db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&version); err != nil || version != 0 {
 		t.Fatalf("rejected database version=%d err=%v", version, err)
 	}
 	var value string
-	if err := db.QueryRow(`SELECT unrelated FROM events`).Scan(&value); !errors.Is(err, sql.ErrNoRows) {
+	if err := db.QueryRowContext(context.Background(), `SELECT unrelated FROM events`).Scan(&value); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("rejected database changed colliding table: %v", err)
 	}
 }
@@ -310,7 +310,7 @@ func TestUnknownVersionZeroHistoricalShapeIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`CREATE TABLE sessions (
+	_, err = db.ExecContext(context.Background(), `CREATE TABLE sessions (
 		id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cwd TEXT NOT NULL,
 		model TEXT NOT NULL, provider TEXT NOT NULL, title TEXT NOT NULL DEFAULT ''
 	);
@@ -323,5 +323,71 @@ func TestUnknownVersionZeroHistoricalShapeIsRejected(t *testing.T) {
 	}
 	if _, err := Open(path); err == nil || !strings.Contains(err.Error(), "primary key") {
 		t.Fatalf("malformed historical table error = %v", err)
+	}
+}
+
+func TestVersionZeroCompatibilityErrors(t *testing.T) {
+	base := `id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cwd TEXT NOT NULL, model TEXT NOT NULL, provider TEXT NOT NULL`
+	for _, test := range []struct {
+		name   string
+		schema string
+		want   string
+	}{
+		{name: "missing title", schema: `CREATE TABLE sessions (` + base + `)`, want: "missing title"},
+		{name: "title default", schema: `CREATE TABLE sessions (` + base + `, title TEXT NOT NULL DEFAULT 'legacy')`, want: "title must default"},
+		{name: "historical view", schema: `CREATE TABLE sessions (` + base + `, title TEXT NOT NULL DEFAULT ''); CREATE VIEW messages AS SELECT '' AS session_id, 0 AS seq, '' AS role, '' AS content`, want: "expected table"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "sessions.db")
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(context.Background(), test.schema); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if st, err := Open(path); err == nil {
+				st.Close()
+				t.Fatal("incompatible version-zero database was accepted")
+			} else if !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("compatibility error=%v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestMigrationBackupRefusesOccupiedDestination(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	db := createHistoricalStore(t, path, historicalShape{name: "H0"})
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	target := migrationBackupPath(path, 0)
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "keep"), []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := Open(path); err == nil {
+		st.Close()
+		t.Fatal("migration should fail when its backup destination is occupied")
+	} else if !strings.Contains(err.Error(), "backup before migration") {
+		t.Fatalf("backup failure error=%v", err)
+	}
+	if _, err := os.Stat(target + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("failed backup left temporary file: %v", err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version int
+	if err := db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&version); err != nil || version != 0 {
+		t.Fatalf("backup failure changed source version=%d err=%v", version, err)
 	}
 }

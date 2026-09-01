@@ -55,10 +55,10 @@ func TestChildAdmissionDelegatesNarrowInspectableCapabilityAtomically(t *testing
 		t.Fatalf("atomic escalation error = %v", err)
 	}
 	var children, grants int
-	if err := store.db.QueryRow(`SELECT count(*) FROM agents WHERE id='rolled-back'`).Scan(&children); err != nil {
+	if err := store.db.QueryRowContext(context.Background(), `SELECT count(*) FROM agents WHERE id='rolled-back'`).Scan(&children); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.db.QueryRow(`SELECT count(*) FROM capabilities WHERE id='escalated'`).Scan(&grants); err != nil {
+	if err := store.db.QueryRowContext(context.Background(), `SELECT count(*) FROM capabilities WHERE id='escalated'`).Scan(&grants); err != nil {
 		t.Fatal(err)
 	}
 	if children != 0 || grants != 0 {
@@ -107,12 +107,14 @@ func TestDelegationDeniesAuthorityEscalationAndUnrelatedCallers(t *testing.T) {
 		caller string
 		value  CapabilityDelegation
 	}{
-		"operation":         {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Operations = []string{"network"}; return v }()},
-		"path":              {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Scopes = []string{filepath.Join(root, "other")}; return v }()},
-		"expiry":            {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.ExpiresAt = expires.Add(time.Minute); return v }()},
-		"missing expiry":    {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.ExpiresAt = time.Time{}; return v }()},
-		"generation":        {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Generation = 2; return v }()},
-		"issuer generation": {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Issuer.Generation = 3; return v }()},
+		"missing issuer":      {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Issuer.ID = ""; return v }()},
+		"duplicate operation": {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Operations = []string{"read", "read"}; return v }()},
+		"operation":           {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Operations = []string{"network"}; return v }()},
+		"path":                {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Scopes = []string{filepath.Join(root, "other")}; return v }()},
+		"expiry":              {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.ExpiresAt = expires.Add(time.Minute); return v }()},
+		"missing expiry":      {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.ExpiresAt = time.Time{}; return v }()},
+		"generation":          {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Generation = 2; return v }()},
+		"issuer generation":   {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Issuer.Generation = 3; return v }()},
 		"shell path": {rootID, rootAgentID, func() CapabilityDelegation {
 			v := base
 			v.Issuer = capability.Reference{ID: "classic-shell:" + rootID, Generation: 1}
@@ -318,6 +320,9 @@ func TestCapabilityRevocationCancelsPendingPermissionAndRetainsHistory(t *testin
 			if record.Status != "revoked" || record.Generation != 2 {
 				t.Fatalf("revoked record = %+v", record)
 			}
+			if _, err := store.RevokeCapabilityFor(ctx, rootID, rootAgentID, revokedID); !errors.Is(err, capability.ErrDenied) {
+				t.Fatalf("duplicate revocation error = %v", err)
+			}
 			if got := budgetState(t, store, rootID, "child", BudgetActiveOperations); got.Reserved != 0 || got.Used != 0 {
 				t.Fatalf("revoked budget = %+v", got)
 			}
@@ -332,13 +337,13 @@ func TestCapabilityRevocationCancelsPendingPermissionAndRetainsHistory(t *testin
 				t.Fatalf("revoked handler ran %d times", runs)
 			}
 			var permissionStatus, operationStatus, unrelatedStatus string
-			if err := store.db.QueryRow(`SELECT status FROM permission_requests WHERE id=?`, pending.PermissionID).Scan(&permissionStatus); err != nil {
+			if err := store.db.QueryRowContext(context.Background(), `SELECT status FROM permission_requests WHERE id=?`, pending.PermissionID).Scan(&permissionStatus); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.db.QueryRow(`SELECT status FROM operations WHERE id='pending'`).Scan(&operationStatus); err != nil {
+			if err := store.db.QueryRowContext(context.Background(), `SELECT status FROM operations WHERE id='pending'`).Scan(&operationStatus); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.db.QueryRow(`SELECT status FROM capabilities WHERE id='unrelated'`).Scan(&unrelatedStatus); err != nil {
+			if err := store.db.QueryRowContext(context.Background(), `SELECT status FROM capabilities WHERE id='unrelated'`).Scan(&unrelatedStatus); err != nil {
 				t.Fatal(err)
 			}
 			if permissionStatus != "denied/"+rootAgentID || operationStatus != "denied" || unrelatedStatus != "active" {
@@ -349,11 +354,11 @@ func TestCapabilityRevocationCancelsPendingPermissionAndRetainsHistory(t *testin
 				t.Fatalf("historical inspection = %+v, %v", inspected, err)
 			}
 			var rows int
-			if err := store.db.QueryRow(`SELECT count(*) FROM capabilities WHERE id=?`, revokedID).Scan(&rows); err != nil || rows != 1 {
+			if err := store.db.QueryRowContext(context.Background(), `SELECT count(*) FROM capabilities WHERE id=?`, revokedID).Scan(&rows); err != nil || rows != 1 {
 				t.Fatalf("historical rows=%d err=%v", rows, err)
 			}
 			var payload []byte
-			if err := store.db.QueryRow(`SELECT payload_inline FROM events WHERE root_id=? AND kind='capability.revoked' ORDER BY seq DESC LIMIT 1`, rootID).Scan(&payload); err != nil {
+			if err := store.db.QueryRowContext(context.Background(), `SELECT payload_inline FROM events WHERE root_id=? AND kind='capability.revoked' ORDER BY seq DESC LIMIT 1`, rootID).Scan(&payload); err != nil {
 				t.Fatal(err)
 			}
 			var event actorEvent
@@ -390,13 +395,133 @@ func TestSubtreeStopReleasesPendingPermissionReservationWithoutConsumption(t *te
 		t.Fatalf("stopped pending budget = %+v", got)
 	}
 	var permissionStatus, operationStatus string
-	if err := store.db.QueryRow(`SELECT status FROM permission_requests WHERE id=?`, ticket.PermissionID).Scan(&permissionStatus); err != nil {
+	if err := store.db.QueryRowContext(context.Background(), `SELECT status FROM permission_requests WHERE id=?`, ticket.PermissionID).Scan(&permissionStatus); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.db.QueryRow(`SELECT status FROM operations WHERE id='waiting'`).Scan(&operationStatus); err != nil {
+	if err := store.db.QueryRowContext(context.Background(), `SELECT status FROM operations WHERE id='waiting'`).Scan(&operationStatus); err != nil {
 		t.Fatal(err)
 	}
 	if permissionStatus != "interrupted" || operationStatus != "interrupted" {
 		t.Fatalf("stopped pending statuses=%q/%q", permissionStatus, operationStatus)
+	}
+}
+
+func TestCapabilityInspectionRevocationAndCorruptRecords(t *testing.T) {
+	store, rootID, rootAgentID := newSwarmFixture(t)
+	ctx := context.Background()
+	admitTestChild(t, store, rootID, rootAgentID, "child")
+	admitTestChild(t, store, rootID, rootAgentID, "sibling")
+	if err := store.IssueCapability(ctx, capability.Grant{ID: "inspect", RootID: rootID, AgentID: "child", Operations: []string{"read"}, Generation: 1}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.InspectCapability(ctx, rootID, "child", "inspect")
+	if err != nil || record.ID != "inspect" || record.AgentID != "child" || record.Generation != 1 {
+		t.Fatalf("self inspection=%+v err=%v", record, err)
+	}
+	for name, caller := range map[string]string{"sibling": "sibling", "missing caller": "missing"} {
+		if _, err := store.InspectCapability(ctx, rootID, caller, "inspect"); !errors.Is(err, capability.ErrDenied) {
+			t.Fatalf("%s inspection error=%v", name, err)
+		}
+	}
+	if _, err := store.InspectCapability(ctx, rootID, rootAgentID, "missing"); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("missing capability inspection error=%v", err)
+	}
+	if _, err := store.RevokeCapabilityFor(ctx, rootID, rootAgentID, "missing"); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("missing capability revocation error=%v", err)
+	}
+
+	corruptions := []struct {
+		name  string
+		query string
+		value string
+	}{
+		{"operations", `UPDATE capabilities SET operations=? WHERE id=?`, `{`},
+		{"scopes", `UPDATE capabilities SET scopes=? WHERE id=?`, `{`},
+		{"expiry", `UPDATE capabilities SET scopes=? WHERE id=?`, `{"expires_at":"bad"}`},
+		{"created", `UPDATE capabilities SET created_at=? WHERE id=?`, `bad`},
+		{"updated", `UPDATE capabilities SET updated_at=? WHERE id=?`, `bad`},
+	}
+	for _, corruption := range corruptions {
+		id := "corrupt-" + corruption.name
+		if err := store.IssueCapability(ctx, capability.Grant{ID: id, RootID: rootID, AgentID: "child", Operations: []string{"read"}, Generation: 1}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.db.ExecContext(ctx, corruption.query, corruption.value, id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.InspectCapability(ctx, rootID, rootAgentID, id); err == nil {
+			t.Fatalf("corrupt %s capability was inspected", corruption.name)
+		}
+	}
+
+	admitTestChild(t, store, rootID, rootAgentID, "terminal-parent")
+	admitTestChild(t, store, rootID, "terminal-parent", "terminal-child")
+	if err := store.IssueCapability(ctx, capability.Grant{ID: "terminal-capability", RootID: rootID, AgentID: "terminal-child", Operations: []string{"read"}, Generation: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.TerminalizeSubtree(ctx, rootID, rootAgentID, "terminal-parent", "stopped"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RevokeCapabilityFor(ctx, rootID, "terminal-parent", "terminal-capability"); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("terminal caller revocation error=%v", err)
+	}
+}
+
+func TestPermissionAPIsReturnClosedStoreErrors(t *testing.T) {
+	store, rootID, agentID := newSwarmFixture(t)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for name, call := range map[string]func() error{
+		"inspect": func() error { _, err := store.InspectCapability(ctx, rootID, agentID, "capability"); return err },
+		"delegate": func() error {
+			_, err := store.DelegateCapability(ctx, rootID, agentID, CapabilityDelegation{ID: "delegated", Issuer: capability.Reference{ID: "issuer"}, AgentID: "child", Operations: []string{"read"}})
+			return err
+		},
+		"revoke": func() error { _, err := store.RevokeCapabilityFor(ctx, rootID, agentID, "capability"); return err },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := call(); err == nil {
+				t.Fatal("closed store call succeeded")
+			}
+		})
+	}
+}
+
+func TestDelegationMissingRecordsDuplicateAndWorkspace(t *testing.T) {
+	store, rootID, rootAgentID := newSwarmFixture(t)
+	ctx := context.Background()
+	admitTestChild(t, store, rootID, rootAgentID, "child")
+	if err := store.IssueCapability(ctx, capability.Grant{ID: "issuer", RootID: rootID, AgentID: rootAgentID, Operations: []string{"read"}, Generation: 1}); err != nil {
+		t.Fatal(err)
+	}
+	base := CapabilityDelegation{
+		ID: "delegated", Issuer: capability.Reference{ID: "issuer", Generation: 1}, AgentID: "child", Operations: []string{"read"},
+	}
+	missingSubject := base
+	missingSubject.ID = "missing-subject"
+	missingSubject.AgentID = "missing"
+	if _, err := store.DelegateCapability(ctx, rootID, rootAgentID, missingSubject); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("missing subject error=%v", err)
+	}
+	missingIssuer := base
+	missingIssuer.ID = "missing-issuer"
+	missingIssuer.Issuer.ID = "missing"
+	if _, err := store.DelegateCapability(ctx, rootID, rootAgentID, missingIssuer); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("missing issuer error=%v", err)
+	}
+	if _, err := store.DelegateCapability(ctx, rootID, rootAgentID, base); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DelegateCapability(ctx, rootID, rootAgentID, base); err == nil {
+		t.Fatal("duplicate capability ID was accepted")
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE sessions SET cwd=? WHERE id=?`, filepath.Join(t.TempDir(), "missing"), rootID); err != nil {
+		t.Fatal(err)
+	}
+	base.ID = "missing-workspace"
+	if _, err := store.DelegateCapability(ctx, rootID, rootAgentID, base); err == nil {
+		t.Fatal("delegation with a missing workspace succeeded")
 	}
 }

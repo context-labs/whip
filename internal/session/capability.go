@@ -48,7 +48,7 @@ func (s *Store) EnsureClassicAuthority(ctx context.Context, rootID string) (capa
 	if err != nil {
 		return capability.ClassicAuthority{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at)
 		VALUES(?,?,NULL,'idle',?,?) ON CONFLICT(id) DO NOTHING`, authority.AgentID, rootID, stamp, stamp); err != nil {
 		return capability.ClassicAuthority{}, err
@@ -171,7 +171,7 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 	if err != nil {
 		return capability.Ticket{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := validateCapabilityAgent(ctx, tx, admission.Request.RootID, admission.Request.AgentID); err != nil {
 		return capability.Ticket{}, err
 	}
@@ -259,7 +259,7 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 	if err != nil {
 		return capability.Ticket{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var rootID, agentID, operationID, permissionStatus, operationStatus string
 	var inline []byte
 	var reference sql.NullString
@@ -339,7 +339,7 @@ func (s *Store) Finish(ctx context.Context, completion capability.Completion) er
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var operationStatus, leaseStatus string
 	var inline []byte
 	var reference sql.NullString
@@ -480,7 +480,7 @@ func (s *Store) commitDeniedAdmission(ctx context.Context, tx *sql.Tx, prepared 
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return fmt.Errorf("%w: %v", capability.ErrDenied, denial)
+	return fmt.Errorf("%w: %w", capability.ErrDenied, denial)
 }
 
 func terminalizePermission(ctx context.Context, tx *sql.Tx, admission capability.Admission, permissionID, status, principal, reason string) error {
@@ -503,7 +503,7 @@ func (s *Store) denyStalePermission(ctx context.Context, tx *sql.Tx, admission c
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return fmt.Errorf("%w: %v", capability.ErrDenied, denial)
+	return fmt.Errorf("%w: %w", capability.ErrDenied, denial)
 }
 
 func permissionStatusValue(status, principal string) string {

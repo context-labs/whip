@@ -208,7 +208,7 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	var version int
 	if err := conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
 		return err
@@ -262,7 +262,7 @@ func migrateVersionOne(ctx context.Context, conn *sql.Conn) error {
 		return err
 	}
 	if columns["title"].defaultValue.String != "''" {
-		return fmt.Errorf("incompatible sessions table: title must default to empty text")
+		return errors.New("incompatible sessions table: title must default to empty text")
 	}
 	for _, column := range sessionColumns {
 		if _, ok := columns[column.name]; ok {
@@ -327,7 +327,7 @@ func validateTable(ctx context.Context, conn *sql.Conn, table string, required, 
 	var objectType string
 	err := conn.QueryRowContext(ctx, `SELECT type FROM sqlite_schema WHERE name=?`, table).Scan(&objectType)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // a nil map means the optional historical table is absent
 	}
 	if err != nil {
 		return nil, err
@@ -339,7 +339,7 @@ func validateTable(ctx context.Context, conn *sql.Conn, table string, required, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	columns := map[string]tableColumn{}
 	for rows.Next() {
 		var name string
@@ -404,7 +404,7 @@ func backupDatabase(ctx context.Context, conn *sql.Conn, path string, version in
 	if err := conn.Raw(func(driverConn any) error {
 		b, ok := driverConn.(backuper)
 		if !ok {
-			return fmt.Errorf("sqlite driver does not support online backup")
+			return errors.New("sqlite driver does not support online backup")
 		}
 		backup, err := b.NewBackup(tmp)
 		if err != nil {
@@ -426,7 +426,7 @@ func backupDatabase(ctx context.Context, conn *sql.Conn, path string, version in
 		_ = os.Remove(tmp)
 		return err
 	}
-	f, err := os.Open(tmp)
+	f, err := os.Open(tmp) //nolint:gosec // tmp is derived from the configured sessions database path
 	if err != nil {
 		_ = os.Remove(tmp)
 		return err
