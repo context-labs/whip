@@ -66,6 +66,10 @@ install script above.
 Drop a `.mcp.json` in your repo and MCP servers just appear (`/mcp` to see
 them). ctrl+c once interrupts; twice quits.
 
+Sessions save automatically. Use `whip -c` to continue the most recent
+session in this directory, `whip -r` to browse this directory's previous
+sessions, or `whip --resume <id>` to open a known session from `whip sessions`.
+
 ## Docs
 
 The full setup, config reference, MCP, browser/computer-use, and how

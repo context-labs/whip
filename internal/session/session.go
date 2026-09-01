@@ -502,6 +502,19 @@ func (s *Store) Recent(n int) ([]Meta, error) {
 	return scanMetas(rows)
 }
 
+// RecentForCWD returns up to n sessions from cwd, newest first. Startup
+// continue/browse intentionally stay within the current project; Recent is
+// still available for the cross-project /resume browser and `whip sessions`.
+func (s *Store) RecentForCWD(cwd string, n int) ([]Meta, error) {
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, updated_at FROM sessions
+		WHERE cwd=? AND EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)
+		ORDER BY updated_at DESC LIMIT ?`, cwd, n)
+	if err != nil {
+		return nil, err
+	}
+	return scanMetas(rows)
+}
+
 // UserHistory returns user-message contents across ALL sessions (every folder),
 // newest first and de-duplicated, for up-arrow input recall. Order is by the
 // session's last activity then the message's position within it, so the most

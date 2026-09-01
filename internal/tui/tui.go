@@ -244,6 +244,17 @@ type picker struct {
 	previews map[string][2]string // id -> last user, last assistant
 }
 
+// SessionStart selects a persisted conversation when the interactive TUI
+// starts. An explicit --resume id remains separate from these convenience
+// modes because it may name a session from another directory.
+type SessionStart int
+
+const (
+	SessionStartNone SessionStart = iota
+	SessionStartContinue
+	SessionStartBrowse
+)
+
 // newInput builds the prompt textarea with whip's keybindings and styling.
 // Newlines come from ctrl+j / shift+enter / alt+enter; plain enter submits.
 func newInput() textarea.Model {
@@ -288,8 +299,10 @@ var (
 // Run starts the interactive session. It returns the id of the session that
 // was active on exit ("" if nothing was said). firstRun reports the config
 // file did not exist at startup (the caller checks config.Exists before
-// config.Load creates it) and triggers the one-time setup wizard.
-func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool) (string, error) {
+// config.Load creates it) and triggers the one-time setup wizard. start
+// selects a persisted conversation for this directory (-c/-r) when resumeID
+// is empty.
+func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, start SessionStart, cautious, firstRun bool) (string, error) {
 	// One shared stdin reader for the pre-TUI prompts: a bufio.Reader reads
 	// ahead, so separate readers for the trust gate and the setup wizard would
 	// lose buffered answers (a pasted "y\n2\n…\n" answers both).
@@ -412,6 +425,15 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		}
 		if err := m.resume(resumeID); err != nil {
 			return "", err
+		}
+	} else {
+		switch start {
+		case SessionStartContinue:
+			if err := m.continueRecent(); err != nil {
+				return "", err
+			}
+		case SessionStartBrowse:
+			m.openPickerForCWD(cwd())
 		}
 	}
 	// Pick up whatever the update check recorded: a notice from an earlier
@@ -3019,21 +3041,55 @@ func (p *picker) loadPreview(store *session.Store) {
 
 // openPicker starts the /resume browser on recent sessions.
 func (m *model) openPicker() {
+	m.openPickerForCWD("")
+}
+
+// openPickerForCWD starts the /resume browser, optionally limiting it to a
+// project directory. Startup `whip -r` uses the scoped form; /resume keeps
+// its established cross-project behavior.
+func (m *model) openPickerForCWD(wd string) {
 	if m.store == nil {
 		m.append(errStyle.Render("session store unavailable"))
 		return
 	}
-	metas, err := m.store.Recent(50)
+	var (
+		metas []session.Meta
+		err   error
+	)
+	if wd == "" {
+		metas, err = m.store.Recent(50)
+	} else {
+		metas, err = m.store.RecentForCWD(wd, 50)
+	}
 	if err != nil {
 		m.append(errStyle.Render(err.Error()))
 		return
 	}
 	if len(metas) == 0 {
-		m.append(dimStyle.Render("(no previous sessions)"))
+		message := "(no previous sessions)"
+		if wd != "" {
+			message = "(no previous sessions in this directory)"
+		}
+		m.append(dimStyle.Render(message))
 		return
 	}
 	m.picker = &picker{metas: metas, previews: map[string][2]string{}}
 	m.picker.loadPreview(m.store)
+}
+
+// continueRecent resumes the latest persisted conversation for this directory.
+func (m *model) continueRecent() error {
+	if m.store == nil {
+		return errors.New("cannot continue: session store unavailable")
+	}
+	metas, err := m.store.RecentForCWD(cwd(), 1)
+	if err != nil {
+		return err
+	}
+	if len(metas) == 0 {
+		return errors.New("no previous session in this directory")
+	}
+	return m.resume(metas[0].ID)
 }
 
 // openMenu starts tab completion: every candidate for the token's prefix is

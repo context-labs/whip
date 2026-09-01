@@ -543,20 +543,34 @@ func TestRestoreTaskSettledAndVisible(t *testing.T) {
 // still complete while a subscriber is parked mid-callback, and the parked
 // subscriber must be released by Cancel (not by contending on mu first).
 func TestBroadcastBlockingSubscriberCannotDeadlock(t *testing.T) {
+	allowEvent := make(chan struct{}, 1)
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-allowEvent:
+		case <-r.Context().Done():
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"hi"}}]}`+"\n\n")
 		w.(http.Flusher).Flush() // deliver the delta while the stream stays open
-		// Park the handler (not the body read) so the connection closes on
-		// server shutdown even if a test assertion fails mid-way.
+		// Park the handler (not the body read) until cleanup unblocks the
+		// subscriber and server, even when an assertion fails mid-way.
 		select {
 		case <-release:
 		case <-r.Context().Done():
 		}
 	}))
-	t.Cleanup(func() { close(release) }) // before srv.Close so the handler unwinds first
-	defer srv.Close()
+	t.Cleanup(func() {
+		// The handler may still be waiting to emit or the subscriber may be
+		// parked mid-callback. Unblock both before Close waits for it.
+		select {
+		case allowEvent <- struct{}{}:
+		default:
+		}
+		close(release)
+		srv.Close()
+	})
 
 	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
 	task := ag.StartBackground("probe", "p", SubModel{})
@@ -571,6 +585,7 @@ func TestBroadcastBlockingSubscriberCannotDeadlock(t *testing.T) {
 	}); !ok {
 		t.Fatal("task should accept a subscriber while running")
 	}
+	allowEvent <- struct{}{} // emit only after the subscriber is registered
 
 	select {
 	case <-inCallback:

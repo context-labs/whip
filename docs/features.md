@@ -485,7 +485,8 @@ relay: full device login + key mint, store round-trip, key validation),
   disables capture at startup.
 - Queueing (enter while busy), steering (empty enter), history recall (↑/↓),
   `@file` mentions, `$skill` invocation, `/goal` loop, `/resume` session
-  picker, `/effort` reasoning levels — see the roadmap for the full list.
+  picker, `whip -c` continue and `whip -r` browse for this directory,
+  `/effort` reasoning levels — see the roadmap for the full list.
 - **Typing steers a turn that's only waiting on subagents.** When a turn is
   running but its only in-flight tool calls are subagents
   (`Agent.WaitingOnSubagents` — the agent tracks in-flight tool names in

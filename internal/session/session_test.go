@@ -227,6 +227,37 @@ func TestUserHistory(t *testing.T) {
 	}
 }
 
+func TestRecentForCWD(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	save := func(cwd, text string) string {
+		t.Helper()
+		id, err := st.Create(cwd, "m", "p")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Save(id, 1, []llm.Message{{Role: "system"}, {Role: "user", Content: text}}, "m", "p"); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+
+	projectID := save("/projects/whip", "current project")
+	save("/projects/other", "another project")
+
+	recent, err := st.RecentForCWD("/projects/whip", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 1 || recent[0].ID != projectID {
+		t.Fatalf("RecentForCWD returned %+v, want only %s", recent, projectID)
+	}
+}
+
 // History recall must skip messages whip injected on the user's behalf
 // (steered background-task results, goal-continuation prompts) — only genuinely
 // typed submissions are recalled.

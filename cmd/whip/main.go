@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -88,6 +89,8 @@ func main() {
 	providerFlag := flag.String("p", "", "provider to route the model through (default: model's first provider)")
 	versionFlag := flag.Bool("version", false, "print version")
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
+	continueFlag := flag.Bool("c", false, "continue the most recent session in this directory")
+	browseFlag := flag.Bool("r", false, "browse previous sessions in this directory")
 	benchFlag := flag.Bool("bench", false, "do full startup init (config, routing, key, agent) then exit; for `task benchmark`")
 	cautiousFlag := flag.Bool("cautious", false, "ask before running commands / writing files")
 	flag.Parse()
@@ -95,6 +98,11 @@ func main() {
 	if *versionFlag {
 		fmt.Println("whip", version)
 		return
+	}
+	start, err := sessionStart(*resumeFlag, *continueFlag, *browseFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "whip:", err)
+		os.Exit(2)
 	}
 
 	// `whip mcp ...` — server management and the MCP server mode.
@@ -188,7 +196,7 @@ func main() {
 	// notice still shows on the next launch.
 	go update.Check(version)
 	tui.Version = version // /report names the build in the bug-report bundle
-	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, systemPrompt(cwd(), time.Now()), *resumeFlag, *cautiousFlag, firstRun)
+	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, systemPrompt(cwd(), time.Now()), *resumeFlag, start, *cautiousFlag, firstRun)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whip:", err)
 		os.Exit(1)
@@ -196,4 +204,20 @@ func main() {
 	if sessionID != "" {
 		fmt.Printf("session %s — resume with: whip --resume %s\n", sessionID, sessionID)
 	}
+}
+
+// sessionStart maps the mutually exclusive session-start flags to the TUI
+// mode. --resume deliberately keeps its established explicit-ID behavior;
+// -c and -r match Pi's current-project shortcuts.
+func sessionStart(resumeID string, continueRecent, browse bool) (tui.SessionStart, error) {
+	if (continueRecent && browse) || (resumeID != "" && (continueRecent || browse)) {
+		return tui.SessionStartNone, errors.New("choose only one of --resume, -c, or -r")
+	}
+	if continueRecent {
+		return tui.SessionStartContinue, nil
+	}
+	if browse {
+		return tui.SessionStartBrowse, nil
+	}
+	return tui.SessionStartNone, nil
 }
