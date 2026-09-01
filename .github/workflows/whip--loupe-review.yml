@@ -1,0 +1,68 @@
+name: "[Whip] loupe PR review"
+
+# AI PR review for whip. Runs the Go-focused reviewer defined in
+# .loupe/config.json and posts a review with inline comments. @loupe chat lives
+# in whip--loupe-chat.yml (separate file so neither shows as a perpetually
+# "skipped" job on the other's events).
+#
+# whip is a PUBLIC repo: this job is gated to same-repo branch PRs (fork PRs get
+# no OIDC token and no secrets by design), so it never runs untrusted fork code
+# with the inference key.
+#
+# Harness: whip, provider: inference.net (model kimi-k3). Key from Infisical
+# ci-cd /loupe (env dev) as INFERENCE_NET_API_KEY, mapped to INFERENCE_API_KEY.
+# Advisory and non-blocking (continue-on-error, NOT a required check).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  id-token: write # Required for OIDC-based Infisical auth
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: loupe-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  INFISICAL_IDENTITY_ID: "46f034e9-14e7-49ad-b3f7-f0d8ad8a989f" # Github-Ci
+  WHIP_VERSION: "v0.5.4"
+
+jobs:
+  loupe:
+    name: "[whip] loupe review"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # Same-repo branch PRs only — fork PRs carry no OIDC/secrets on a public repo.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install whip (release binary)
+        continue-on-error: true
+        run: |
+          curl -fsSL -o whip \
+            "https://github.com/context-labs/whip/releases/download/${WHIP_VERSION}/whip-linux-x64"
+          chmod +x whip
+          sudo mv whip /usr/local/bin/whip
+          whip --version || true
+      - name: Load loupe secrets from Infisical
+        continue-on-error: true
+        uses: Infisical/secrets-action@v1.0.15
+        with:
+          method: "oidc"
+          identity-id: ${{ env.INFISICAL_IDENTITY_ID }}
+          project-slug: "ci-cd"
+          env-slug: dev
+          secret-path: "/loupe"
+          include-imports: true
+      - name: Review
+        continue-on-error: true
+        uses: context-labs/loupe@v0
+        with:
+          config: .loupe/config.json
+        env:
+          INFERENCE_API_KEY: ${{ env.INFERENCE_NET_API_KEY }}

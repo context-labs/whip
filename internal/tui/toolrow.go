@@ -94,13 +94,17 @@ func queuedSubject(name, args string) string {
 	return firstLine(args)
 }
 
-// toolHeaderRow renders the completed call's header: "● Update(path)".
+// toolHeaderRow renders the completed call's header: "● Update(path)"
+// (opencode mode: an indent-3 icon row, see ocToolRow).
 func toolHeaderRow(name, args string, failed bool) string {
+	if ocActive {
+		return ocToolRow(name, args, failed)
+	}
 	head := toolHeaderName(name) + "(" + toolSubject(name, args) + ")"
 	if failed {
-		return errStyle.Render("● " + head)
+		return errStyle.Render(glyphAssistant + head)
 	}
-	return toolStyle.Render("● ") + toolHeadStyle.Render(toolHeaderName(name)) + "(" + toolSubject(name, args) + ")"
+	return toolStyle.Render(glyphAssistant) + toolHeadStyle.Render(toolHeaderName(name)) + "(" + toolSubject(name, args) + ")"
 }
 
 // extractDiff splits a tool result into its fenced ```diff block and the

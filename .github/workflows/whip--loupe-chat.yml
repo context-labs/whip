@@ -1,0 +1,67 @@
+name: "[Whip] loupe chat"
+
+# Answers @loupe mentions in PR comments. Separate from the review workflow so
+# neither appears as a perpetually "skipped" job on the other's events.
+# Commands: @loupe review | @loupe fix <what> | @loupe <question> | @loupe help.
+#
+# whip is a PUBLIC repo: this job runs with secrets and contents: write, so it
+# is gated to trusted commenters (OWNER/MEMBER/COLLABORATOR) to keep an
+# arbitrary external commenter from triggering an authenticated agentic run.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  id-token: write # Required for OIDC-based Infisical auth
+  contents: write # @loupe fix pushes a commit to the PR branch
+  pull-requests: write
+
+concurrency:
+  group: loupe-chat-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  INFISICAL_IDENTITY_ID: "46f034e9-14e7-49ad-b3f7-f0d8ad8a989f" # Github-Ci
+  WHIP_VERSION: "v0.5.4"
+
+jobs:
+  chat:
+    name: "[whip] loupe chat"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # A PR comment that mentions @loupe, from a trusted collaborator only.
+    if: >-
+      ( github.event_name == 'pull_request_review_comment' ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null) ) &&
+      contains(github.event.comment.body, '@loupe') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install whip (release binary)
+        continue-on-error: true
+        run: |
+          curl -fsSL -o whip \
+            "https://github.com/context-labs/whip/releases/download/${WHIP_VERSION}/whip-linux-x64"
+          chmod +x whip
+          sudo mv whip /usr/local/bin/whip
+          whip --version || true
+      - name: Load loupe secrets from Infisical
+        continue-on-error: true
+        uses: Infisical/secrets-action@v1.0.15
+        with:
+          method: "oidc"
+          identity-id: ${{ env.INFISICAL_IDENTITY_ID }}
+          project-slug: "ci-cd"
+          env-slug: dev
+          secret-path: "/loupe"
+          include-imports: true
+      - name: Respond
+        continue-on-error: true
+        uses: context-labs/loupe@v0
+        with:
+          config: .loupe/config.json
+        env:
+          INFERENCE_API_KEY: ${{ env.INFERENCE_NET_API_KEY }}

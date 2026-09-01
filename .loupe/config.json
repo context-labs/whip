@@ -1,0 +1,35 @@
+{
+  "harness": "whip",
+  "model": "kimi-k3",
+  "timezone": "PST",
+  "whip": {
+    "provider": {
+      "name": "inference-net",
+      "label": "Inference.net",
+      "baseUrl": "https://api.inference.net/v1",
+      "apiKeyEnv": "INFERENCE_API_KEY"
+    },
+    "defaultModel": "kimi-k3",
+    "models": [
+      "kimi-k3",
+      "kimi-k3-fast",
+      "glm-5.3-flash",
+      "glm-5.2-fast",
+      "deepseek-v4-pro-0813"
+    ]
+  },
+  "reviewers": [
+    {
+      "name": "go-review",
+      "promptFile": "reviewers/go-review.md",
+      "reasoning": "medium",
+      "profile": "chill",
+      "exclude": [
+        ".agents/skills/**",
+        "driver/**",
+        "docs/**",
+        "**/*.md"
+      ]
+    }
+  ]
+}

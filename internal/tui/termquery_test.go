@@ -5,9 +5,10 @@ import (
 	"testing"
 )
 
-// bgQuery outside tmux: one bare OSC 11 plus the CSI 6n terminator.
+// bgQuery outside tmux: bare OSC 11, the ?996 theme-report query, then the
+// CSI 6n terminator.
 func TestBgQueryPlain(t *testing.T) {
-	if got := bgQuery(false); got != "\x1b]11;?\x1b\\\x1b[6n" {
+	if got := bgQuery(false); got != "\x1b]11;?\x1b\\\x1b[?996n\x1b[6n" {
 		t.Fatalf("plain query wrong: %q", got)
 	}
 }
@@ -24,8 +25,8 @@ func TestBgQueryTmux(t *testing.T) {
 	if !strings.Contains(got, "\x1bPtmux;\x1b\x1b]11;?\x1b\x1b\\\x1b\\") {
 		t.Fatalf("must include the passthrough-wrapped OSC 11 (ESCs doubled): %q", got)
 	}
-	if !strings.HasSuffix(got, "\x1b\\\x1b[6n") {
-		t.Fatalf("CSI 6n terminator must be last and unwrapped: %q", got)
+	if !strings.HasSuffix(got, "\x1b[?996n\x1b[6n") {
+		t.Fatalf("996 theme query then the CSI 6n terminator must be last and unwrapped: %q", got)
 	}
 }
 

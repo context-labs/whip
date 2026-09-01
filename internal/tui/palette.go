@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/config"
@@ -383,6 +384,19 @@ func (m *model) paletteItems() []paletteItem {
 			},
 			stepBack: func(m *model) { m.setTheme("light") },
 			stepFwd:  func(m *model) { m.setTheme("dark") },
+		},
+		{
+			title: "UI mode", category: "Display",
+			dynDesc: func(m *model) string {
+				return "current: " + uiModeLabel(m.uiMode) + " — opencode reproduces opencode's TUI look"
+			},
+			dynHint: func(m *model) string { return "opencode / default" },
+			run: func(m *model) (tea.Model, tea.Cmd) {
+				if m.uiMode == opencodeMode {
+					return m, m.setUIMode("")
+				}
+				return m, m.setUIMode(opencodeMode)
+			},
 		},
 		{
 			title: "Browser driver", category: "Display",
@@ -893,10 +907,10 @@ func (m *model) paletteView() string {
 
 	if pp := p.top(); pp != nil {
 		b.WriteString(m.panelView(pp))
-		return b.String()
+		return m.paletteChrome(b.String())
 	}
 
-	b.WriteString(" " + youStyle.Render("❯ ") + p.filter + dimStyle.Render("█"))
+	b.WriteString(" " + youStyle.Render(glyphUser) + p.filter + dimStyle.Render("█"))
 	b.WriteString("\n\n")
 
 	lastCat := ""
@@ -937,7 +951,16 @@ func (m *model) paletteView() string {
 	}
 	b.WriteString("\n" + dimStyle.Render(fmt.Sprintf("  (%d/%d) ↑/↓ select · enter open/apply · ←/→ change · esc close",
 		min(p.idx+1, len(p.items)), len(p.items))))
-	return b.String()
+	return m.paletteChrome(b.String())
+}
+
+// paletteChrome applies opencode's dialog chrome (a paddingLeft-4 indent for the
+// whole palette) in opencode mode; default mode renders unchanged.
+func (m *model) paletteChrome(s string) string {
+	if m.uiMode != opencodeMode {
+		return s
+	}
+	return lipgloss.NewStyle().PaddingLeft(3).Render(s) // +3 over the base 1-col indent = 4
 }
 
 // paletteState renders a row's live value (toggle state, effort level, …).
@@ -1085,7 +1108,7 @@ func (m *model) panelView(pp *ppanel) string {
 		b.WriteString("\n" + dimStyle.Render("  ↑/↓ select · enter/←/→ apply · esc back"))
 
 	case panelGoal:
-		b.WriteString(" " + youStyle.Render("❯ ") + pp.prepare + dimStyle.Render("█"))
+		b.WriteString(" " + youStyle.Render(glyphUser) + pp.prepare + dimStyle.Render("█"))
 		b.WriteString("\n\n" + dimStyle.Render(fmt.Sprintf("  type the goal · empty clears · enter/esc apply · max %d rounds (/goal rounds)", m.goalMaxRounds())))
 
 	case panelMCP:

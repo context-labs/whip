@@ -39,6 +39,56 @@ func modelRecorder(t *testing.T, reply string) (*httptest.Server, func() []strin
 	}
 }
 
+// effortRecorder is a text server that records the reasoning_effort of every
+// request, so routing tests can assert which effort a subagent ran at.
+func effortRecorder(t *testing.T, reply string) (*httptest.Server, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var efforts []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		efforts = append(efforts, req.ReasoningEffort)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		b, _ := json.Marshal(reply)
+		fmt.Fprintf(w, `data: {"choices":[{"delta":{"content":%s},"finish_reason":"stop"}]}`+"\n\n", b)
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	return srv, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), efforts...)
+	}
+}
+
+// A task-call effort override sets the subagent's reasoning effort independently
+// of the parent's; omitting it inherits the parent's effort.
+func TestTaskEffortOverride(t *testing.T) {
+	srv, efforts := effortRecorder(t, "ok")
+	defer srv.Close()
+
+	ag := New(llm.New(srv.URL, "k"), "parent-model", 100, "sys")
+	ag.Effort = "low"
+
+	// Explicit effort on the task call wins over the parent's.
+	out, err := findTool(t, ag, "subagent").Run(context.Background(),
+		json.RawMessage(`{"prompt":"go","effort":"xhigh"}`))
+	if err != nil || out != "ok" {
+		t.Fatalf("task run: %q, %v", out, err)
+	}
+	// No effort given: the subagent inherits the parent's "low".
+	if _, err := findTool(t, ag, "subagent").Run(context.Background(),
+		json.RawMessage(`{"prompt":"go"}`)); err != nil {
+		t.Fatal(err)
+	}
+	got := efforts()
+	if len(got) != 2 || got[0] != "xhigh" || got[1] != "low" {
+		t.Fatalf("subagent efforts should be [xhigh, low], saw %v", got)
+	}
+}
+
 // findTool digs a named tool out of an agent's built-in set.
 func findTool(t *testing.T, a *Agent, name string) tools.Tool {
 	t.Helper()

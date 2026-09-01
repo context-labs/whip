@@ -80,6 +80,36 @@ func TestSkillCompletion(t *testing.T) {
 	}
 }
 
+// Regression: after a ctrl+j newline (or a pasted multi-line block) the last
+// token starts on a later line; a space-only split never saw the $ prefix, so
+// skill completion silently died.
+func TestSkillCompletionAfterNewline(t *testing.T) {
+	sk := []cand{{"$go-style", "style rules"}, {"$go-testing", "test rules"}, {"$other", ""}}
+	for _, val := range []string{
+		"first line\n$go-",            // ctrl+j then start the token
+		"first line\napply $go-",      // ctrl+j then words then the token
+		"pasted\nmulti\nline\nuse $g", // pasted block ending in a $ token
+	} {
+		head, cs := completions(val, nil, nil, sk, nil)
+		if len(cs) == 0 || !strings.HasPrefix(cs[0].Text, "$go-") {
+			t.Fatalf("$ completion after newline: %q -> %v", val, texts(cs))
+		}
+		if !strings.HasSuffix(head, "$") && !strings.HasSuffix(head, " ") && !strings.HasSuffix(head, "\n") {
+			t.Fatalf("head should keep everything before the token: %q -> head %q", val, head)
+		}
+	}
+}
+
+// Same regression for @file completion on a later line.
+func TestAtMentionCompletionAfterNewline(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "alpha.txt"), nil, 0o644)
+	_, cs := completions("first line\nfix @"+dir+"/al", nil, nil, nil, nil)
+	if len(cs) != 1 || cs[0].Text != "@"+filepath.Join(dir, "alpha.txt") {
+		t.Fatalf("@ completion after newline: %v", texts(cs))
+	}
+}
+
 func TestPrepareTurnReloadsSkillsEveryTurn(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)

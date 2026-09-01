@@ -204,7 +204,7 @@ func (m *model) permView() string {
 	b.WriteString("\n  ")
 	for i, o := range opts {
 		if i == d.sel {
-			b.WriteString(youStyle.Render("❯ " + o + "  "))
+			b.WriteString(youStyle.Render(glyphUser + o + "  "))
 		} else {
 			b.WriteString(dimStyle.Render("  " + o + "  "))
 		}

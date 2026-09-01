@@ -37,12 +37,14 @@ var execNow = map[string]bool{
 
 // completions splits val into an untouched head and candidates for its last
 // token: slash commands, /model or /effort arguments, $skills, or filesystem
-// paths. nil efforts uses the default /effort candidates.
+// paths. A newline (ctrl+j or pasted text) also starts a fresh token, so
+// $skills and @files complete on later lines too. nil efforts uses the
+// default /effort candidates.
 func completions(val string, models, providers, skillCands, efforts []cand) (head string, cands []cand) {
 	if efforts == nil {
 		efforts = effortCands
 	}
-	i := strings.LastIndexByte(val, ' ')
+	i := strings.LastIndexAny(val, " \n")
 	head, token := val[:i+1], val[i+1:]
 	fields := strings.Fields(head)
 	switch {

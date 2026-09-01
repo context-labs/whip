@@ -25,12 +25,16 @@ type SubModel struct {
 	Model        string // model id sent to the API
 	ContextLimit int    // provider-advertised context window (0 = unknown)
 	MaxTokens    int    // output cap (0 = inherit the parent's)
+	Effort       string // reasoning-effort override ("" = inherit the parent's)
 }
 
 // newSub builds a fresh subagent. Route precedence: the explicit override o
 // (a per-task model pick) → the agent's TaskDefault (config taskModel) → the
 // parent's own client and model.
 func (a *Agent) newSub(o SubModel) *Agent {
+	// Capture the requested effort before o is replaced by a default route —
+	// a per-task effort can be set with or without a model override.
+	effort := o.Effort
 	if o.Client == nil {
 		o = a.TaskDefault
 	}
@@ -52,7 +56,12 @@ func (a *Agent) newSub(o SubModel) *Agent {
 	}
 	sub := NewWithServices(o.Client, o.Model, o.MaxTokens, subagentPrompt(wd), a.Services)
 	sub.WorkingDir = wd
-	sub.Effort = a.Effort
+	// A per-task effort override wins; otherwise inherit the parent's effort.
+	if effort != "" {
+		sub.Effort = effort
+	} else {
+		sub.Effort = a.Effort
+	}
 	sub.ContextLimit = o.ContextLimit
 	sub.Tools = tools.AllWithServices(a.Services)
 	a.mu.Lock()
@@ -83,8 +92,8 @@ func (a *Agent) resolveSub(model, provider string) (SubModel, error) {
 func taskTool(parent *Agent) tools.Tool {
 	return tools.Tool{
 		Def: llm.NewTool("subagent",
-			"Launch a subagent to handle a self-contained task with its own fresh context. It has the same tools as you (bash, read, write, edit) and returns only its final report. Use it for context-heavy exploration or work that can be described completely up front. To investigate several things in parallel, emit MULTIPLE subagent calls in one message — they run concurrently and all reports come back together in one turn. background=true is for fire-and-forget tasks you check on later: it runs concurrently while you keep working and the report arrives automatically as a message when it finishes (do NOT poll; subagent_steer can send mid-course corrections). Subagents run on a cheap fast model by default; set model only when the task needs a specific/stronger one.",
-			`{"type":"object","properties":{"description":{"type":"string","description":"Short 3-8 word summary of the task"},"prompt":{"type":"string","description":"Complete instructions for the subagent; it cannot ask follow-up questions"},"background":{"type":"boolean","description":"Run concurrently and get notified on completion (default false = block until done)"},"model":{"type":"string","description":"Optional model to run the subagent on (a configured model name or catalog id); omit for the default"},"provider":{"type":"string","description":"Optional provider for the model override; omit for its default routing"},"worktree":{"type":"boolean","description":"Run the subagent in its own git worktree so its file edits stay isolated from yours and from other subagents (default: the session's worktreeSubagents setting). Use true for parallel EDITING subagents; leave false for read-only/exploration tasks (worktree is wasted) or when the subagent needs the parent's uncommitted changes."}},"required":["prompt"]}`),
+			"Launch a subagent to handle a self-contained task with its own fresh context. It has the same tools as you (bash, read, write, edit) and returns only its final report. Use it for context-heavy exploration or work that can be described completely up front. To investigate several things in parallel, emit MULTIPLE subagent calls in one message — they run concurrently and all reports come back together in one turn. background=true is for fire-and-forget tasks you check on later: it runs concurrently while you keep working and the report arrives automatically as a message when it finishes (do NOT poll; subagent_steer can send mid-course corrections). Subagents run on a cheap fast model by default; set model (and optionally effort) only when the task needs a specific or stronger reasoning pass.",
+			`{"type":"object","properties":{"description":{"type":"string","description":"Short 3-8 word summary of the task"},"prompt":{"type":"string","description":"Complete instructions for the subagent; it cannot ask follow-up questions"},"background":{"type":"boolean","description":"Run concurrently and get notified on completion (default false = block until done)"},"model":{"type":"string","description":"Optional model to run the subagent on (a configured model name or catalog id); omit for the default"},"provider":{"type":"string","description":"Optional provider for the model override; omit for its default routing"},"effort":{"type":"string","description":"Optional reasoning effort for THIS subagent (e.g. \"low\", \"medium\", \"high\", \"xhigh\"); omit to inherit yours. Raise it for a deep-reasoning verification pass on a stronger model."},"worktree":{"type":"boolean","description":"Run the subagent in its own git worktree so its file edits stay isolated from yours and from other subagents (default: the session's worktreeSubagents setting). Use true for parallel EDITING subagents; leave false for read-only/exploration tasks (worktree is wasted) or when the subagent needs the parent's uncommitted changes."}},"required":["prompt"]}`),
 		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
 			var a struct {
 				Description string `json:"description"`
@@ -92,6 +101,7 @@ func taskTool(parent *Agent) tools.Tool {
 				Background  bool   `json:"background"`
 				Model       string `json:"model"`
 				Provider    string `json:"provider"`
+				Effort      string `json:"effort"`
 				Worktree    *bool  `json:"worktree"`
 			}
 			if err := json.Unmarshal(args, &a); err != nil {
@@ -106,6 +116,9 @@ func taskTool(parent *Agent) tools.Tool {
 				//nolint:nilerr // tool contract: failures are tool output the model reads, never loop aborts
 				return "Error: model override: " + err.Error(), nil
 			}
+			// A per-task effort rides on the resolved route (works with or
+			// without a model override; newSub preserves it across defaulting).
+			o.Effort = a.Effort
 
 			// Resolve worktree isolation: per-call override wins, else the
 			// session default. Only meaningful for background subagents (a

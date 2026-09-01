@@ -1,12 +1,17 @@
 package tui
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/mcp"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // TestStartupReportSkillsAndWarnings: the report names loaded skills, flags a
@@ -58,6 +63,84 @@ func TestStartupReportMCP(t *testing.T) {
 	out := m.blocks[0].text
 	if !strings.Contains(out, "mcp:") || !strings.Contains(out, "off ○") || !strings.Contains(out, "invalid ✗") {
 		t.Errorf("bad mcp line:\n%s", out)
+	}
+}
+
+// TestStartupReportMCPReadyAndQuiet: a REAL streamable-HTTP MCP server (the
+// sdk handler behind httptest) connects to ready; the normal report lists it
+// with its tool count (a no-warning report — the dim path), while the quiet
+// opencode-mode report drops the healthy roster and surfaces only failures.
+func TestStartupReportMCPReadyAndQuiet(t *testing.T) {
+	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "ok"}, nil)
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name:        "ping",
+		Description: "pong",
+		InputSchema: map[string]any{"type": "object"},
+	}, func(ctx context.Context, req *sdkmcp.CallToolRequest, in struct{}) (*sdkmcp.CallToolResult, any, error) {
+		return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "pong"}}}, nil, nil
+	})
+	hs := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return srv }, nil))
+	defer hs.Close()
+
+	mgr := mcp.NewManager(map[string]mcp.ServerConfig{
+		"ok":      {URL: hs.URL},
+		"invalid": {}, // no command, no URL: fails validation at birth
+	})
+	mgr.Start(context.Background())
+	defer mgr.Close()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		sts := mgr.Statuses()
+		if len(sts) == 2 && sts[1].Status == mcp.StatusReady {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server never became ready: %+v", sts)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("HOME", t.TempDir()) // no skills: the mcp line stands alone
+
+	// quiet (opencode mode): healthy roster suppressed, failure surfaced
+	mdMu.Lock()
+	sl, sk := mdLight, mdKnown
+	mdLight, mdKnown = true, true // skip the unknown-background notice
+	mdMu.Unlock()
+	t.Cleanup(func() { mdMu.Lock(); mdLight, mdKnown = sl, sk; mdMu.Unlock() })
+	m := tasksModel("http://unused")
+	m.uiMode = opencodeMode
+	m.mcpMgr = mgr
+	m.startupReport()
+	out := m.blocks[0].text
+	if !strings.Contains(out, "invalid ✗") || strings.Contains(out, "ok ✓") {
+		t.Errorf("quiet report should list only failures:\n%s", out)
+	}
+
+	// normal mode: the full roster, ready server with its tool count
+	m2 := tasksModel("http://unused")
+	m2.mcpMgr = mgr
+	m2.startupReport()
+	out2 := m2.blocks[0].text
+	if !strings.Contains(out2, "ok ✓ (1 tools)") || !strings.Contains(out2, "invalid ✗") {
+		t.Errorf("full report should list every server:\n%s", out2)
+	}
+
+	// a manager with nothing failed renders a no-warning (dim) report, and a
+	// server that has not settled yet shows the connecting glyph
+	mgr2 := mcp.NewManager(map[string]mcp.ServerConfig{
+		"ok":      {URL: hs.URL},
+		"pending": {Command: []string{"true"}}, // never Started: stays connecting
+	})
+	defer mgr2.Close()
+	m3 := tasksModel("http://unused")
+	m3.mcpMgr = mgr2
+	m3.startupReport()
+	out3 := m3.blocks[0].text
+	if !strings.Contains(out3, "pending ◌") {
+		t.Errorf("unsettled server should show ◌:\n%s", out3)
 	}
 }
 

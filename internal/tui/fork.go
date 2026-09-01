@@ -281,5 +281,6 @@ func (m *model) rename(title string) {
 		m.append(errStyle.Render("rename failed: " + err.Error()))
 		return
 	}
+	m.sessTitle = title
 	m.append(dimStyle.Render("✎ session renamed: " + title))
 }

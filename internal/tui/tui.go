@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -51,6 +52,15 @@ var (
 	// thinkingStyle renders reasoning tokens: dim and italic so they're
 	// visually distinct from the answer.
 	thinkingStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"}).Italic(true)
+)
+
+// Marker glyphs prefixing user and assistant turns. Package-level so the
+// opencode render mode can swap them (❯→┃, ●→▣) in one place; both defaults
+// and both opencode glyphs are 2 cells wide, so no layout math changes. See
+// applyOpencodeMode / applyDefaultTheme in opencode.go.
+var (
+	glyphUser      = "❯ "
+	glyphAssistant = "● "
 )
 
 // messages sent from the agent goroutine
@@ -133,10 +143,11 @@ type model struct {
 	blocks []block // finalized transcript (raw; rendered at the current width)
 	// msgBlock[i] is the block index rendering agent.Messages[i] (-1: none) —
 	// rewind live-scroll uses it to jump to a message's transcript position.
-	msgBlock []int
-	follow   bool // auto-scroll to bottom on new content
-	width    int
-	height   int
+	msgBlock  []int
+	follow    bool // auto-scroll to bottom on new content
+	width     int  // content width: full terminal width, minus the opencode sidebar when it shows
+	height    int
+	termWidth int // full terminal width (opencode mode places the sidebar in the reserved columns)
 
 	busy    bool
 	current string // in-flight partial assistant line
@@ -169,7 +180,8 @@ type model struct {
 	now      func() time.Time   // test seam; defaults to time.Now
 	chdir    func(string) error // production owns one TUI cwd; tests opt in explicitly
 
-	turnStart time.Time // when the in-flight turn began; zero when idle (busy line shows elapsed)
+	turnStart  time.Time // when the in-flight turn began; zero when idle (busy line shows elapsed)
+	thinkStart time.Time // opencode mode: when the current reasoning segment began (collapsed to "+ Thought: {dur}")
 
 	queue      []string // messages typed while busy, sent after the turn ends
 	queueSel   int      // selected queued message, -1 = none (not navigating)
@@ -193,12 +205,21 @@ type model struct {
 	// absolute screen row (viewTop + inputBodyOff), -1 when hidden.
 	inputBodyOff int
 	inputTop     int
-	inputLines   []string // the input box's rendered lines, ANSI-stripped
-	vpLead       int      // top blank rows viewportView last dropped (selection row mapping)
-	viewTop      int      // screen row of the view's first line (View tracks it; mouse Y is absolute)
-	viewH        int      // height of the last rendered view
-	themeHow     string   // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
-	compactModel string   // config model name for compaction summaries; "" = the built-in default
+	inputLines   []string    // the input box's rendered lines, ANSI-stripped
+	vpLead       int         // top blank rows viewportView last dropped (selection row mapping)
+	viewTop      int         // screen row of the view's first line (View tracks it; mouse Y is absolute)
+	viewH        int         // height of the last rendered view
+	themeHow     string      // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
+	uiMode       string      // "" = default whip look; "opencode" = opencode render mode (see opencode.go)
+	sessTitle    string      // cached session title for the opencode sidebar (from the store; updated on title/rename)
+	msgActions   *msgActions // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
+	hoverIdx     int         // opencode mode: block index under the mouse (hover highlight); -1 = none
+	ocThink      string      // opencode mode: reasoning text accumulated for the expandable "+ Thought" block
+	toast        string      // opencode mode: top-right toast text; "" = none
+	toastAt      time.Time   // when the current toast was shown (stale clears are ignored)
+	leaderAt     time.Time   // opencode mode: when ctrl+x armed the leader chord; zero = not pending
+	sidebarHide  bool        // opencode mode: ctrl+x b hides the sidebar
+	compactModel string      // config model name for compaction summaries; "" = the built-in default
 	compactProv  string
 	// updateLatest is a pending newer release tag ("" when none), picked up
 	// from update.Pending at startup; the notice it renders is durable, so a
@@ -348,7 +369,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	}
 	m := &model{
 		cfg: cfg, agent: ag, modelName: mn, provName: pn, sysPrompt: sysPrompt,
-		input: ti, spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true, saved: 1,
+		input: ti, spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true, saved: 1, hoverIdx: -1,
 		catalogs: config.LoadCatalogs(), mouseOn: mouseOn, now: time.Now, showThinking: showThinking,
 		chdir:        os.Chdir,
 		compactModel: cfg.CompactModel, compactProv: cfg.CompactProvider,
@@ -416,6 +437,13 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// this launch if its 1 RTT beats startup (first-run trust prompt), else
 	// next launch — the record is durable either way.
 	m.updateLatest = update.Pending(Version)
+	// Resolve the theme BEFORE applyUIMode/startupReport: opencode mode bakes
+	// theme-resolved colors into the input styles, and startupReport's
+	// unknown-background notice must reflect the final detection result.
+	m.themeHow = m.applyTheme(cfg.Theme)
+	if cfg.UIMode == opencodeMode {
+		m.applyUIMode(opencodeMode) // set the mode BEFORE startupReport so it renders opencode-clean
+	}
 	m.startupReport()
 
 	// Inline rendering (no alt-screen): the transcript lives in the normal
@@ -432,6 +460,9 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// 0 and the whole layout collapses). Instead we keep the real TTY as the
 	// output and enable click/wheel reporting directly on it.
 	opts := []tea.ProgramOption{}
+	if cfg.UIMode == opencodeMode {
+		opts = append(opts, tea.WithAltScreen()) // opencode mode owns the whole screen
+	}
 	// Bottom-anchor the inline view: move the cursor to the terminal's last
 	// row before bubbletea's first paint, so the view's screen position is
 	// knowable (viewTop = height - viewH). Without this the view starts
@@ -441,10 +472,12 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	fmt.Fprint(os.Stdout, "\x1b[9999;1H")
 	if m.mouseOn {
 		enableClickWheelMouse(os.Stdout)
+		if cfg.UIMode == opencodeMode {
+			// all-motion tracking (?1003, a superset of ?1002) so passive mouse
+			// moves drive opencode's hover highlight on message cards
+			fmt.Fprint(os.Stdout, "\x1b[?1003h")
+		}
 	}
-	// pick the glamour style that matches the pick/detection resolution;
-	// keep how detection resolved so /report can name the source
-	m.themeHow = m.applyTheme(cfg.Theme)
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
 	}
@@ -550,6 +583,15 @@ func (m *model) replacementBlocked() string {
 // servers — plus degraded-mode notices. Skipped on resume (the transcript
 // already carries the past).
 func (m *model) startupReport() {
+	// opencode mode keeps the startup clean (quiet): the routine roster lines
+	// are suppressed, but actionable items — skill-scan warnings, failed MCP
+	// servers, the update notice — must still surface, never silently drop.
+	quiet := m.uiMode == opencodeMode
+	if quiet && !ocThemeKnown() {
+		// an unknown background means the panels render with no fill — zero
+		// contrast — so say why and how to fix it instead of failing silently
+		m.append(dimStyle.Render("◐ terminal background unknown — panels have no contrast; run /theme light (or dark) once to fix (mosh blocks background detection)"))
+	}
 	sk, problems := skills.ScanDetailed(skills.DefaultDirs()...)
 	var b strings.Builder
 	var warned bool
@@ -557,7 +599,7 @@ func (m *model) startupReport() {
 	line := func(format string, args ...any) {
 		fmt.Fprintf(&b, format+"\n", args...)
 	}
-	if len(sk) > 0 {
+	if len(sk) > 0 && !quiet {
 		line("skills: %d loaded", len(sk))
 	}
 	for _, s := range sk {
@@ -572,19 +614,23 @@ func (m *model) startupReport() {
 	}
 	if m.mcpMgr != nil {
 		sts := m.mcpMgr.Statuses()
-		var parts []string
+		var parts, failed []string
 		for _, st := range sts {
 			switch st.Status {
 			case mcp.StatusReady:
 				parts = append(parts, fmt.Sprintf("%s ✓ (%d tools)", st.Name, st.Tools))
 			case mcp.StatusFailed:
 				parts = append(parts, st.Name+" ✗")
+				failed = append(failed, st.Name+" ✗")
 				warned = true
 			case mcp.StatusDisabled:
 				parts = append(parts, st.Name+" ○")
 			default:
 				parts = append(parts, st.Name+" ◌")
 			}
+		}
+		if quiet {
+			parts = failed // quiet startup: only broken servers are worth a line
 		}
 		if len(parts) > 0 {
 			line("mcp: %s", strings.Join(parts, " · "))
@@ -626,7 +672,7 @@ func enableClickWheelMouse(w *os.File) {
 // disableClickWheelMouse releases the mouse reporting enableClickWheelMouse
 // set, plus ?1000 defensively (an older whip or a downgrade may have left it).
 func disableClickWheelMouse(w *os.File) {
-	fmt.Fprint(w, "\x1b[?1002l\x1b[?1000l\x1b[?1006l")
+	fmt.Fprint(w, "\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l")
 }
 
 // (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whip — tmux's
@@ -849,6 +895,7 @@ func (m *model) resume(id string) error {
 	if slices.Contains(m.effortsFor(), effort) {
 		m.agent.Effort = effort
 	}
+	m.sessTitle = meta.Title
 	m.saved = len(m.agent.Messages)
 	// Add this session's user messages to recall, skipping any already present
 	// from the global cross-session seed (resume runs after that seed).
@@ -936,7 +983,7 @@ func (m *model) seedTranscript(msgs []llm.Message, base int) {
 		switch msg.Role {
 		case "user":
 			bi = len(m.blocks)
-			m.blocks = append(m.blocks, block{kind: blockText, text: youStyle.Render("❯ ") + linkifyFilePaths(msg.TextContent(), realFileExists)})
+			m.blocks = append(m.blocks, block{kind: blockUser, text: linkifyFilePaths(msg.TextContent(), realFileExists)})
 		case "assistant":
 			if strings.TrimSpace(msg.TextContent()) != "" {
 				bi = len(m.blocks)
@@ -1045,6 +1092,9 @@ func (m *model) setTheme(theme string) {
 	}
 	how := m.applyTheme(theme)
 	m.themeHow = how // explicit picks return "" — detection source no longer applies
+	if m.uiMode == opencodeMode {
+		m.applyUIMode(opencodeMode) // refresh opencode styles (input box fill) for the new scheme
+	}
 	m.cfg.Theme = theme
 	if theme == "auto" {
 		m.cfg.Theme = "" // auto persists as "" (omitted = auto-detect)
@@ -1230,6 +1280,9 @@ const (
 	blockTool                        // raw tool result: collapsed preview, expandable
 	blockToolRun                     // a running tool call: verb line, collapses on completion
 	blockToolQueued                  // a tool call still streaming from the model; replaced by blockToolRun on start
+	blockUser                        // a user turn: opencode mode renders a bordered card, else the "❯ " prefix
+	blockOCMeta                      // opencode meta line (▣ attribution): pre-indented, rendered verbatim (no wrap, which would trim the indent)
+	blockThought                     // opencode collapsed reasoning: "+ Thought: dur" header (in live), the reasoning text behind expand (in text)
 )
 
 // toolPreviewLines is how many lines of a tool result show when collapsed.
@@ -1266,6 +1319,8 @@ type block struct {
 	// refreshVP); used to map a mouse click to the block under it.
 	y0, y1 int
 	// cache of the last render: valid while !stale and width matches.
+	hover bool // opencode mode: pointer is over this block (user cards highlight)
+
 	rendered string
 	lines    int
 	width    int
@@ -1289,13 +1344,37 @@ func (b *block) renderAt(width int) string {
 // blocks get their marker + indent here so a resize re-renders everything).
 func (b block) render(width int) string {
 	switch b.kind {
+	case blockUser:
+		if ocActive {
+			return opencodeUserCard(b.text, width, b.hover)
+		}
+		return wrap(youStyle.Render(glyphUser)+b.text, width)
+	case blockOCMeta:
+		return b.text // pre-indented; verbatim so wrap() can't trim the indent
+	case blockThought:
+		// collapsed: opencode's "+ Thought: {dur}" line; expanded (click/ctrl+e):
+		// the reasoning text underneath, muted italic like whip's thinking style
+		head := "   " + lipgloss.NewStyle().Foreground(ocWarnCol()).Render("+ Thought: "+b.live)
+		if !b.expanded {
+			return head
+		}
+		body := lipgloss.NewStyle().Foreground(ocMutedCol()).Italic(true).Render(strings.TrimSpace(b.text))
+		return head + "\n" + wrap(body, width)
 	case blockAssistant:
+		if ocActive {
+			// opencode assistant messages carry no bullet: the body is indented 3.
+			w := width - 3
+			if w <= 0 {
+				w = 80
+			}
+			return indentLines(renderMarkdown(b.text, w), 3)
+		}
 		w := width - 2 // body indents under the "● " marker
 		if w <= 0 {
 			w = 80 // no terminal size yet: sane default
 		}
 		body := indentLines(renderMarkdown(b.text, w), 2)
-		return botStyle.Render("● ") + strings.TrimPrefix(body, "  ")
+		return botStyle.Render(glyphAssistant) + strings.TrimPrefix(body, "  ")
 	case blockTool:
 		// A result carrying a fenced diff (write/edit) renders claude-style:
 		// "⎿ Added N lines, removed M lines" over a colored, line-numbered
@@ -1304,6 +1383,11 @@ func (b block) render(width int) string {
 			return renderDiffResult(diff, rest, b.expanded, width)
 		}
 		lines := strings.Split(strings.TrimRight(b.text, "\n"), "\n")
+		if ocActive {
+			// opencode tucks results behind the tool row: a muted one-line hint
+			// collapsed, the full body only when expanded
+			return ocToolResult(lines, b.expanded, strings.HasPrefix(b.text, "Error"), b.hover, width)
+		}
 		lines[0] = "⎿ " + lines[0] // tie the result to its header row above
 		style := dimStyle
 		if strings.HasPrefix(b.text, "Error") {
@@ -1334,7 +1418,7 @@ func (b block) render(width int) string {
 
 // expand toggles a tool block and returns whether it changed.
 func (b *block) toggle() bool {
-	if b.kind != blockTool && b.kind != blockToolRun {
+	if b.kind != blockTool && b.kind != blockToolRun && b.kind != blockThought {
 		return false
 	}
 	b.expanded = !b.expanded
@@ -1433,6 +1517,16 @@ func (m *model) viewportView() string {
 	if m.sel != nil {
 		s = m.highlightSelection(s) // content space, pre-trim
 	}
+	if m.uiMode == opencodeMode {
+		m.vpLead = 0
+		if len(m.blocks) == 0 { // empty transcript: opencode's centered-logo home screen
+			return opencodeHome(m.vp.Width, m.vp.Height)
+		}
+		// Full-height viewport: keep the pad so the transcript is bottom-anchored
+		// (blanks above, content near the prompt) and the prompt/status sit at the
+		// bottom of the screen, like opencode's session layout.
+		return s
+	}
 	lines := strings.Split(s, "\n")
 	// Drop leading pad rows by count: the content starts after the pad, but
 	// the view is scrolled (YOffset) and bottom-anchored, so the number of pad
@@ -1455,7 +1549,38 @@ func (m *model) viewportView() string {
 }
 
 func (m *model) Init() tea.Cmd {
+	if inTmuxEnv() {
+		// live theme tracking: tmux knows the outer terminal's light/dark
+		// (#{client_theme}, via the 996/2031 protocol) — poll it so an OS
+		// appearance flip mid-session is picked up without a restart
+		return tea.Batch(textarea.Blink, themePollTick())
+	}
 	return textarea.Blink
+}
+
+// themePollMsg fires the periodic client-theme poll; themeSyncMsg carries its
+// result back from the tmux subprocess.
+type (
+	themePollMsg struct{}
+	themeSyncMsg struct {
+		light, ok bool
+	}
+)
+
+// themePollTick schedules the next client-theme poll.
+func themePollTick() tea.Cmd {
+	return tea.Tick(10*time.Second, themePollFire)
+}
+
+func themePollFire(time.Time) tea.Msg { return themePollMsg{} }
+
+// pollClientTheme asks tmux for the outer terminal's current theme.
+func pollClientTheme() tea.Msg {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{client_theme}").Output()
+	s := strings.TrimSpace(string(out))
+	return themeSyncMsg{light: s == "light", ok: err == nil && (s == "light" || s == "dark")}
 }
 
 func onOff(b bool) string {
@@ -1516,7 +1641,13 @@ func cwd() string {
 // so a wrong pick is diagnosable).
 //
 // tuiRunning and bgCache are declared above Run (see the note there).
-type bgResult struct{ light, valid bool }
+// r/g/b hold the OSC 11 reply's actual color when hasRGB — the opencode mode
+// derives its panel shades relative to the REAL background from these.
+type bgResult struct {
+	light, valid bool
+	r, g, b      int
+	hasRGB       bool
+}
 
 // inTmuxEnv reports whether whip runs inside tmux/screen, where the terminal
 // can't be queried directly.
@@ -1571,10 +1702,10 @@ func detectColorScheme() string {
 	inTmux := inTmuxEnv()
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err == nil {
-		if light, ok := queryTerminalBackground(tty, inTmux); ok {
+		if r := queryTerminalBackground(tty, inTmux); r.valid {
 			_ = tty.Close()
-			setScheme(light)
-			bgCache = bgResult{light: light, valid: true}
+			setScheme(r.light)
+			bgCache = r // keeps the reply's RGB: opencode mode derives panel shades from it
 			if inTmux {
 				return "terminal query (inside tmux)"
 			}
@@ -1671,11 +1802,20 @@ func (m *model) growInput() {
 	}
 	val := m.input.Value()
 	ti := newInput()
-	ti.SetWidth(m.input.Width() + 2) // Width() is content width; SetWidth takes total
+	// carry the CURRENT mode's chrome over: newInput bakes whip's defaults
+	// ("┃ " prompt, whip placeholder, plain styles), which in opencode mode
+	// would draw a double bar, revert the element-bg fills, and — since the
+	// prompt eats 2 content cells — widen the box row past the frame
+	ti.Prompt = m.input.Prompt
+	ti.Placeholder = m.input.Placeholder
+	ti.FocusedStyle = m.input.FocusedStyle
+	ti.BlurredStyle = m.input.BlurredStyle
+	ti.SetWidth(m.input.Width() + lipgloss.Width(ti.Prompt)) // Width() is content width; SetWidth takes total
 	ti.SetHeight(h)
 	ti.SetValue(val)
 	ti.CursorEnd()
 	m.input = ti
+	m.input.Focus() // re-snapshot the style pointer at the COPIED struct (see applyUIMode)
 }
 
 // layout gives the viewport whatever height the chrome doesn't need,
@@ -1690,13 +1830,18 @@ func (m *model) layout() {
 	// that many rows above the pointer (the off-by-two drag-select bug: the
 	// status line + its blank were never budgeted).
 	chrome := 6 + m.input.Height()
+	if m.uiMode == opencodeMode {
+		// drops the header row and the tips line + its blank (-3); the prompt
+		// panel adds paddingTop, a blank, the model/mode row, and the ▀ tail (+4).
+		chrome++
+	}
 	if m.iactive != nil {
 		// input box is hidden while a command has the terminal; drop its height
 		// and the leading blank line View inserts before it.
 		chrome -= m.input.Height()
 	}
-	if m.busy {
-		chrome += 2 // blank line above the spinner + the spinner line itself
+	if m.busy && m.uiMode != opencodeMode {
+		chrome += 2 // blank line above the spinner + the spinner line itself (opencode mode: status bar spinner instead)
 	}
 	if m.current != "" {
 		chrome += lipgloss.Height(m.currentView()) + 1 // + its blank separator
@@ -1704,11 +1849,19 @@ func (m *model) layout() {
 	if m.curThink != "" {
 		chrome += lipgloss.Height(m.thinkView()) + 1
 	}
+	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
+		chrome += 2 // the live "+ Thinking…" line + its blank separator (must match viewBody)
+	}
 	if m.iactive != nil {
 		chrome += lipgloss.Height(m.interactiveView()) + 1
 	}
-	if m.menu != nil {
-		chrome += min(len(m.menu.cands), menuRows) + 1
+	if m.permDialog != nil {
+		chrome += lipgloss.Height(m.permView()) + 1 // viewBody emits "\n"+permView(); unbudgeted it clips the alt-screen frame and shifts mouse rows
+	}
+	if m.menu != nil && m.uiMode != opencodeMode {
+		// measure the actual render (descriptions can word-wrap). opencode mode
+		// takes no rows at all: the menu overlays the frame from View()
+		chrome += lipgloss.Height(m.menuView()) + 1
 	}
 	if len(m.queue) > 0 {
 		chrome += len(m.queue) + 1
@@ -1777,15 +1930,60 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		resized := msg.Width != m.width // width change → re-wrap the whole transcript
-		m.width, m.height = msg.Width, msg.Height
+		m.termWidth = msg.Width
+		w := msg.Width
+		if m.uiMode == opencodeMode {
+			w -= opencodeLeftMargin // opencode's main column has a left margin
+			if msg.Width >= sidebarMinWidth && !m.sidebarHide {
+				w -= sidebarWidth + opencodeRightGap // reserve the sidebar and the gap before it
+			}
+		}
+		resized := w != m.width // width change → re-wrap the whole transcript
+		m.width, m.height = w, msg.Height
 		// re-anchor the view position: after a resize (and on the first size
 		// at startup) assume the view sits at the bottom — the next View()
 		// computes viewTop = height - viewH from this sentinel.
 		m.viewTop = 1 << 30
-		m.input.SetWidth(msg.Width - 2)
+		m.input.SetWidth(w - 2)
 		if resized {
 			m.refreshVP() // every block re-renders at the new width (floored at minRenderWidth)
+		}
+		return m, nil
+
+	case themePollMsg:
+		if m.cfg.Theme != "" { // explicit pick: nothing to track, keep the tick alive
+			return m, themePollTick()
+		}
+		return m, tea.Batch(pollClientTheme, themePollTick())
+
+	case themeSyncMsg:
+		if !msg.ok || m.cfg.Theme != "" {
+			return m, nil
+		}
+		mdMu.Lock()
+		same := mdKnown && mdLight == msg.light
+		mdMu.Unlock()
+		if same {
+			return m, nil
+		}
+		// the outer terminal flipped (OS appearance change): follow it live
+		SetLightTheme(msg.light)
+		lipgloss.SetHasDarkBackground(!msg.light)
+		bgCache = bgResult{light: msg.light, valid: true} // no RGB from the theme report
+		if m.uiMode == opencodeMode {
+			m.applyUIMode(opencodeMode) // re-bake input styles/spinner for the new scheme
+		}
+		m.refreshVP()
+		word := "dark"
+		if msg.light {
+			word = "light"
+		}
+		m.append(dimStyle.Render("◐ theme: auto → " + word + " (terminal appearance changed)"))
+		return m, nil
+
+	case toastClearMsg:
+		if msg.at.Equal(m.toastAt) { // a newer toast reset the timer: ignore the stale clear
+			m.toast = ""
 		}
 		return m, nil
 
@@ -1802,6 +2000,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if meta.Title == first {
 					_ = m.store.SetTitle(m.sessionID, msg.title)
+					m.sessTitle = msg.title
 					m.append(dimStyle.Render("◎ session titled: " + msg.title))
 				}
 			}
@@ -1828,12 +2027,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Shift {
 			return m, nil
 		}
+		if m.msgActions != nil {
+			// modal: any click closes the Message Actions dialog
+			if msg.Action == tea.MouseActionPress {
+				m.msgActions = nil
+			}
+			return m, nil
+		}
 		if handled, cmd := m.handleMouseSelect(msg); handled {
 			return m, cmd
 		}
+		// opencode mode: passive motion (no button) drives the hover highlight
+		if ocActive && msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonNone {
+			m.updateHover(msg.X, msg.Y)
+			return m, nil
+		}
 		// clicking the ⚡ control in the header cycles reasoning effort
-		// (mouse Y is an absolute screen row; the header is the view's top row)
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft &&
+		// (mouse Y is an absolute screen row; the header is the view's top
+		// row — opencode mode has no header, so the branch must not fire)
+		if m.uiMode != opencodeMode &&
+			msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft &&
 			msg.Y == m.viewTop && msg.X >= m.effortX {
 			m.setEffort(nextEffort(m.effortsFor(), m.agent.Effort))
 			return m, nil
@@ -1904,6 +2117,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case thinkMsg:
 		if m.showThinking {
+			if m.uiMode == opencodeMode {
+				if m.thinkStart.IsZero() { // collapse reasoning to "+ Thought: {dur}" at flush
+					m.thinkStart = m.nowFn()
+				}
+				m.ocThink += string(msg) // keep the text: the collapsed block expands to it
+				return m, nil            // suppress the live reasoning render
+			}
 			m.flushCurrent() // thinking renders above the answer
 			m.curThink += string(msg)
 			if i := strings.LastIndexByte(m.curThink, '\n'); i >= 0 {
@@ -1921,6 +2141,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// place — appending per delta would stack one row per fragment.
 		// toolStartMsg swaps it for the live running row (matched by id).
 		row := dimStyle.Render("⋯ " + msg.name + m.batchSuffix(msg.name, msg.id) + " " + queuedSubject(msg.name, msg.args))
+		if ocActive {
+			row = ocToolPending(msg.name, msg.args)
+		}
 		for i := len(m.blocks) - 1; i >= 0; i-- {
 			if m.blocks[i].kind == blockToolQueued && m.blocks[i].toolID == msg.id {
 				m.blocks[i].text, m.blocks[i].stale = row, true
@@ -1935,6 +2158,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i := range m.blocks {
 			if b := &m.blocks[i]; b.kind == blockToolQueued && b.toolName == msg.name && b.toolID != msg.id {
 				b.text = dimStyle.Render("⋯ " + b.toolName + m.batchSuffix(b.toolName, b.toolID) + " " + queuedSubject(b.toolName, b.toolArgs))
+				if ocActive {
+					b.text = ocToolPending(b.toolName, b.toolArgs)
+				}
 				b.stale = true
 			}
 		}
@@ -1974,6 +2200,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// command being run is always fully visible). On toolEndMsg the same
 		// block collapses in place to one line.
 		row := toolStyle.Render("⚒ "+toolVerb(msg.name)+suffix+" ") + dimStyle.Render(args)
+		if ocActive {
+			row = ocToolPending(msg.name, msg.args)
+		}
 		m.blocks = append(m.blocks, block{kind: blockToolRun, text: row, toolID: msg.id, toolRunning: true, toolName: msg.name, toolArgs: msg.args})
 		m.refreshVP()
 		return m, nil
@@ -1996,11 +2225,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case toolEndMsg:
-		// store the raw result; render collapses to a preview (ctrl+e /
-		// click expands) and re-wraps on resize
-		m.appendRaw(blockTool, msg.result)
 		// collapse the matching running row in place: full args+result when
 		// expanded, one dim line (red on failure) otherwise
+		hdr := -1
 		for i := len(m.blocks) - 1; i >= 0; i-- {
 			b := &m.blocks[i]
 			if b.kind == blockToolRun && b.toolRunning && b.toolID == msg.id {
@@ -2011,9 +2238,35 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// "Bash(cmd)") — the result renders in the blockTool below it
 				b.text = toolHeaderRow(msg.name, b.toolArgs, b.toolFailed)
 				b.stale = true
+				hdr = i
 				break
 			}
 		}
+		// store the raw result DIRECTLY UNDER its call row (render collapses it
+		// to a preview; ctrl+e / click expands). Appending at the end instead
+		// orphaned results from their headers whenever a parallel batch was in
+		// flight (three Subagent rows, then three detached result hints).
+		result := block{kind: blockTool, text: msg.result}
+		if hdr >= 0 && hdr+1 < len(m.blocks) {
+			m.blocks = append(m.blocks[:hdr+1], append([]block{result}, m.blocks[hdr+1:]...)...)
+			// the mid-slice insert shifted every index past hdr: renumber the
+			// cached block indexes or rewind scrolls to (and Message Actions
+			// copies from) the wrong block
+			for i := range m.msgBlock {
+				if m.msgBlock[i] > hdr {
+					m.msgBlock[i]++
+				}
+			}
+			if m.hoverIdx > hdr {
+				m.hoverIdx++
+			}
+			if m.msgActions != nil && m.msgActions.block > hdr {
+				m.msgActions.block++
+			}
+		} else {
+			m.blocks = append(m.blocks, result)
+		}
+		m.follow = true
 		m.refreshVP()
 		return m, nil
 
@@ -2080,7 +2333,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case steeredMsg:
 		m.flushThink()
 		m.flushCurrent()
-		m.append(youStyle.Render("❯ ") + linkifyFilePaths(string(msg), realFileExists) + dimStyle.Render("  (steered)"))
+		m.append(youStyle.Render(glyphUser) + linkifyFilePaths(string(msg), realFileExists) + dimStyle.Render("  (steered)"))
 		return m, nil
 
 	case shellDoneMsg:
@@ -2152,6 +2405,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		m.cancel = nil
 		m.interrupt1 = false
+		if m.uiMode == opencodeMode && msg.err == nil && !m.turnStart.IsZero() {
+			m.appendRaw(blockOCMeta, m.opencodeAttribution(m.nowFn().Sub(m.turnStart))) // ▣ mode · model · duration
+		}
 		m.turnStart = time.Time{}
 		m.maybeTitle()
 		// Cancellation arrives wrapped from the in-flight http request
@@ -2392,6 +2648,9 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.permKey(msg)
 		return m, nil
 	}
+	if m.msgActions != nil {
+		return m.msgActionsKey(msg)
+	}
 	if m.palette != nil {
 		return m.paletteKey(msg)
 	}
@@ -2439,6 +2698,25 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// an open task detail view owns the keyboard until esc backs out of it
 	if m.taskVP != nil {
 		return m.taskViewKey(msg)
+	}
+	// opencode leader chords: ctrl+x arms a 2s window, the next key dispatches
+	// (ctrl+x m model list, l sessions, n new, b sidebar, t theme, c compact,
+	// g rewind, y copy last assistant message); esc clears the pending chord.
+	// Sits BELOW the task-pane dispatch: ctrl+x there cancels the task.
+	if m.uiMode == opencodeMode {
+		if !m.leaderAt.IsZero() && m.nowFn().Sub(m.leaderAt) < 2*time.Second {
+			m.leaderAt = time.Time{}
+			if msg.String() == "esc" {
+				return m, nil
+			}
+			if mod, cmd, ok := m.ocLeaderChord(msg.String()); ok {
+				return mod, cmd
+			}
+			// unknown chord key: fall through as a normal keypress
+		} else if msg.String() == "ctrl+x" {
+			m.leaderAt = m.nowFn()
+			return m, nil
+		}
 	}
 	// Paste collapse (opt-in via config collapsePaste): a multi-line bracketed
 	// paste lands as a [Pasted ~N lines] placeholder in the input instead of
@@ -3215,7 +3493,7 @@ func (m *model) refreshMenu() {
 		return // previewing a frozen candidate; nothing to re-filter
 	}
 	val := m.input.Value()
-	token := val[strings.LastIndexByte(val, ' ')+1:]
+	token := val[strings.LastIndexAny(val, " \n")+1:]
 	if strings.HasPrefix(val, "/") || strings.HasPrefix(token, "@") || strings.HasPrefix(token, "$") {
 		head, cands := completions(val, m.modelCands(), m.providerCands(), m.skillCands(), effortCandsFor(m.effortsFor()))
 		if len(cands) > 0 {
@@ -3445,6 +3723,18 @@ func (m *model) setThinking(on bool) {
 }
 
 func (m *model) flushThink() {
+	if m.uiMode == opencodeMode {
+		if !m.thinkStart.IsZero() { // collapse the reasoning segment to one line (expandable to the text)
+			m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: fmtShortDur(m.nowFn().Sub(m.thinkStart))})
+			m.follow = true
+			m.refreshVP()
+			m.thinkStart = time.Time{}
+			m.ocThink = ""
+		}
+		m.curThink = ""
+		m.inThink = false
+		return
+	}
 	cur := strings.TrimRight(m.curThink, " \n")
 	m.curThink = ""
 	if cur != "" {
@@ -3644,7 +3934,7 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 		}
 		send(turnDoneMsg{final: final, err: err, at: userMsgIdx, snap: preSnap, clean: workspaceClean()})
 	}()
-	m.append(youStyle.Render("❯ ") + linkifyFilePaths(text, realFileExists))
+	m.appendRaw(blockUser, linkifyFilePaths(text, realFileExists))
 	if authored {
 		// map the message index to its block for rewind live-scroll
 		for len(m.msgBlock) <= userMsgIdx {
@@ -3796,6 +4086,9 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		// rather than tea.EnableMouseCellMotion.
 		if m.mouseOn {
 			enableClickWheelMouse(os.Stdout)
+			if m.uiMode == opencodeMode {
+				fmt.Fprint(os.Stdout, "\x1b[?1003h") // hover needs all-motion; ?1002 alone downgraded it
+			}
 		} else {
 			disableClickWheelMouse(os.Stdout)
 		}
@@ -4096,7 +4389,7 @@ const menuRows = 8
 func (m *model) currentView() string {
 	s := m.current
 	if !m.inMsg {
-		s = botStyle.Render("● ") + s
+		s = botStyle.Render(glyphAssistant) + s
 	}
 	return wrap(s, m.width) // streamed mid-flight: plain text; markdown renders on flush
 }
@@ -4112,9 +4405,40 @@ func (m *model) currentView() string {
 func (m *model) View() string {
 	m.syncInputPlaceholder()
 	v := m.viewBody()
+	if m.uiMode == opencodeMode {
+		// opencode's main-column left margin only — the main area stays on the
+		// terminal's native background so whip keeps light/dark/auto (no forced
+		// backdrop; only the panels below carry a subtle contrast shade).
+		v = lipgloss.NewStyle().PaddingLeft(opencodeLeftMargin).Render(v)
+	}
+	if m.sidebarVisible() {
+		gap := strings.Repeat(" ", opencodeRightGap) // breathing room between the panels
+		v = lipgloss.JoinHorizontal(lipgloss.Top, v, gap, m.sidebarView(lipgloss.Height(v)))
+	}
+	if m.uiMode == opencodeMode {
+		switch { // floating dialogs over the dimmed session, opencode-style
+		case m.palette != nil:
+			v = m.ocOverlay(v) // Commands
+		case m.msgActions != nil:
+			v = m.ocOverlayRows(v, m.ocMsgActionRows())
+		case m.mpicker != nil:
+			v = m.ocOverlayRows(v, m.ocModelDialogRows())
+		case m.picker != nil:
+			v = m.ocOverlayRows(v, m.ocSessionDialogRows())
+		case m.menu != nil:
+			v = m.ocMenuOverlay(v) // completion popup floats above the input, no reflow
+		}
+		if m.toast != "" {
+			v = m.ocSpliceToast(v) // top-right toast, over everything
+		}
+	}
 	if m.height > 0 {
 		m.viewH = lipgloss.Height(v)
-		m.viewTop = max(min(m.viewTop, m.height-m.viewH), 0)
+		if m.uiMode == opencodeMode {
+			m.viewTop = 0 // altscreen: the view is drawn from row 0, so mouse Y maps directly
+		} else {
+			m.viewTop = max(min(m.viewTop, m.height-m.viewH), 0)
+		}
 	}
 	// Record the input box's absolute screen rows for drag-select. The input is
 	// hidden during interactive bash (iactive), so there's nothing to select.
@@ -4123,6 +4447,9 @@ func (m *model) View() string {
 		m.inputLines = nil
 	} else {
 		m.inputTop = m.viewTop + m.inputBodyOff
+		if m.uiMode == opencodeMode {
+			m.inputTop++ // the opencode prompt box opens with a padding row above the input
+		}
 		iv := m.input.View()
 		if m.namePrompt != nil && m.namePrompt.mask {
 			iv = m.namePrompt.label + " ┃ " + m.namePrompt.maskedValue(m.input.Value())
@@ -4170,16 +4497,22 @@ func (m *model) viewBody() string {
 	m.effortX = max(m.width-len(right)-1, 0) // ⚡ renders 2 cells wide
 	left = truncLine(left, max(m.width-len(right)-2, 0))
 	pad := max(m.width-len(left)-len(right)-1, 1)
-	b.WriteString(dimStyle.Render(left+strings.Repeat(" ", pad)) + toolStyle.Render(right) + "\n")
-	if m.palette != nil {
+	if m.uiMode != opencodeMode { // opencode has no top header bar
+		b.WriteString(dimStyle.Render(left+strings.Repeat(" ", pad)) + toolStyle.Render(right) + "\n")
+	}
+	if m.palette != nil && m.uiMode != opencodeMode {
+		// opencode mode renders the session as usual and View() overlays the
+		// Commands dialog on top of the dimmed frame (ocOverlay)
 		b.WriteString(m.paletteView())
 		return b.String()
 	}
-	if m.picker != nil {
+	if m.picker != nil && m.uiMode != opencodeMode { // opencode mode: floating Sessions dialog via View overlay
 		b.WriteString(m.pickerView())
 		return b.String()
 	}
-	if m.mpicker != nil {
+	if m.mpicker != nil && m.uiMode == opencodeMode {
+		// floating Select-model dialog via View overlay
+	} else if m.mpicker != nil {
 		b.WriteString(m.modelPickerView())
 		return b.String()
 	}
@@ -4189,11 +4522,18 @@ func (m *model) viewBody() string {
 	}
 	// One compact hint up top — the full roster lives behind the ctrl+p palette
 	// and the /help command. The bottom hint covers the busy/interactive states.
-	tips := "`ctrl+p` commands"
-	b.WriteString(dimStyle.Render(tips) + "\n\n")
+	if m.uiMode != opencodeMode { // opencode keeps the top clean; the hint lives in the prompt row
+		tips := "`ctrl+p` commands"
+		b.WriteString(dimStyle.Render(tips) + "\n\n")
+	}
 	b.WriteString(m.viewportView() + "\n") // selection highlight paints inside
 	if m.curThink != "" {
 		b.WriteString("\n" + m.thinkView() + "\n")
+	}
+	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
+		// reasoning is streaming: opencode shows a transient "Thinking" line
+		// where the collapsed "+ Thought: {dur}" will land on flush
+		b.WriteString("\n   " + lipgloss.NewStyle().Foreground(ocWarnCol()).Render("+ Thinking…") + "\n")
 	}
 	if m.current != "" {
 		b.WriteString("\n" + m.currentView() + "\n")
@@ -4204,7 +4544,7 @@ func (m *model) viewBody() string {
 	if m.permDialog != nil {
 		b.WriteString("\n" + m.permView() + "\n")
 	}
-	if m.busy {
+	if m.busy && m.uiMode != opencodeMode { // opencode mode: the status bar carries the spinner + esc hint
 		hint := " thinking… (enter queues · /theme /mouse /effort run now · esc interrupts · ctrl+c ctrl+c interrupts)"
 		if m.iactive != nil {
 			hint = " bash (interactive) — type to respond · ctrl+c ctrl+c to cancel"
@@ -4222,7 +4562,7 @@ func (m *model) viewBody() string {
 		for i, q := range m.queue {
 			// one line per queued message: truncate (never wrap) so long
 			// messages don't crowd out the transcript
-			line := ansi.Truncate(youStyle.Render(" ❯ ")+q, m.width, "…")
+			line := ansi.Truncate(youStyle.Render(" "+glyphUser)+q, m.width, "…")
 			if i == m.queueSel {
 				line = ansi.Truncate(botStyle.Render(" → ")+q+dimStyle.Render("  (del to remove)"), m.width, "…")
 			}
@@ -4247,6 +4587,10 @@ func (m *model) viewBody() string {
 			} else {
 				b.WriteString(m.highlightInput(m.input.View()))
 			}
+		} else if m.uiMode == opencodeMode {
+			// highlight BEFORE the box chrome is added, so the reverse-video
+			// ranges land on the same raw lines inputPoint hit-tests
+			b.WriteString(m.opencodePrompt(m.highlightInput(m.input.View()), m.width))
 		} else {
 			b.WriteString(m.highlightInput(m.input.View()))
 		}
@@ -4260,7 +4604,9 @@ func (m *model) viewBody() string {
 	} else if m.esc1 && m.rew == nil && m.namePrompt == nil {
 		b.WriteString("\n" + dimStyle.Render("esc again: rewind the conversation"))
 	}
-	if m.menu != nil {
+	if m.menu != nil && m.uiMode != opencodeMode {
+		// opencode mode: View() overlays the menu ABOVE the input instead —
+		// drawn on top of the frame, so nothing reflows while typing
 		b.WriteString("\n" + m.menuView())
 	}
 	// the persistent background-subagent strip sits just below the input box
@@ -4299,6 +4645,9 @@ func (m *model) syncInputPlaceholder() {
 // the header's data but stays put while the transcript scrolls, so the four
 // facts are always visible no matter where the viewport sits.
 func (m *model) statusView() string {
+	if m.uiMode == opencodeMode {
+		return m.opencodeStatus()
+	}
 	model := m.modelName
 	if e := effortLabel(m.agent.Effort); e != "off" {
 		model += " (" + e + ")"
@@ -4375,8 +4724,8 @@ func (m *model) pickerView() string {
 		}
 		rows = append(rows, wrap(botStyle.Render("  → ")+line, m.width))
 		prev := p.previews[meta.ID]
-		rows = append(rows, previewBlock(youStyle.Render("❯ "), prev[0], m.width)...)
-		rows = append(rows, previewBlock(botStyle.Render("● "), prev[1], m.width)...)
+		rows = append(rows, previewBlock(youStyle.Render(glyphUser), prev[0], m.width)...)
+		rows = append(rows, previewBlock(botStyle.Render(glyphAssistant), prev[1], m.width)...)
 	}
 	rows = append(rows, dimStyle.Render(fmt.Sprintf("  (%d/%d) ↑ older · ↓ newer · enter resume · esc cancel", p.idx+1, len(p.metas))))
 	// pad so the footer stays at the bottom of the screen
@@ -4440,15 +4789,54 @@ func (m *model) menuView() string {
 	for _, c := range m.menu.cands[start:end] {
 		nameW = max(nameW, len(c.Text))
 	}
+	if m.uiMode == opencodeMode {
+		// opencode's autocomplete popup: a panel with the selected row in the
+		// primary fill. Long descriptions word-wrap onto a second line (capped
+		// at two — the menu stays scannable) instead of being chopped.
+		bg := ocPanelBg()
+		text := lipgloss.NewStyle().Foreground(ocTextCol()).Background(bg)
+		muted := lipgloss.NewStyle().Foreground(ocMutedCol()).Background(bg)
+		sel := lipgloss.NewStyle().Foreground(ocSelFg()).Background(ocSelBg())
+		descW := max(m.width-nameW-6, 8)
+		indent := strings.Repeat(" ", nameW+4)
+		var rows []string
+		for i := start; i < end; i++ {
+			c := m.menu.cands[i]
+			name := fmt.Sprintf("%-*s", nameW, c.Text)
+			descLines := strings.Split(wrap(c.Desc, descW), "\n")
+			if len(descLines) > 2 {
+				descLines = descLines[:2]
+				descLines[1] = truncLine(descLines[1], descW-2) + " …"
+			}
+			for j, d := range descLines {
+				switch {
+				case i == m.menu.idx && j == 0:
+					rows = append(rows, ocPadTo(sel.Render("  "+name+"  "+d), m.width, ocSelBg()))
+				case i == m.menu.idx:
+					rows = append(rows, ocPadTo(sel.Render("  "+indent+d), m.width, ocSelBg()))
+				case j == 0:
+					rows = append(rows, ocPadTo(text.Render("  "+name)+muted.Render("  "+d), m.width, bg))
+				default:
+					rows = append(rows, ocPadTo(muted.Render("  "+indent+d), m.width, bg))
+				}
+			}
+		}
+		rows = append(rows, ocPadTo(muted.Render(fmt.Sprintf("  %d/%d", m.menu.idx+1, len(m.menu.cands))), m.width, bg))
+		return strings.Join(rows, "\n")
+	}
 	var b strings.Builder
 	for i := start; i < end; i++ {
 		c := m.menu.cands[i]
 		line := fmt.Sprintf("%-*s  ", nameW, c.Text)
+		var row string
 		if i == m.menu.idx {
-			b.WriteString(botStyle.Render("→ "+line) + dimStyle.Render(c.Desc))
+			row = botStyle.Render("→ "+line) + dimStyle.Render(c.Desc)
 		} else {
-			b.WriteString("  " + line + dimStyle.Render(c.Desc))
+			row = "  " + line + dimStyle.Render(c.Desc)
 		}
+		// clamp to the content width: an untruncated description widens the
+		// whole frame (in opencode mode it shoved the sidebar off-screen)
+		b.WriteString(ansi.Truncate(row, max(m.width, 8), "…"))
 		b.WriteByte('\n')
 	}
 	b.WriteString(dimStyle.Render(fmt.Sprintf("  (%d/%d)", m.menu.idx+1, len(m.menu.cands))))

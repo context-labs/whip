@@ -60,7 +60,7 @@ func (m *model) startShell(text string, echo bool) {
 	if echo {
 		m.flushThink()
 		m.flushCurrent() // don't split the in-flight assistant line with the echo
-		m.append(youStyle.Render("❯ ") + text)
+		m.append(youStyle.Render(glyphUser) + text)
 	}
 	if m.store != nil {
 		if err := m.ensureSession(); err != nil {

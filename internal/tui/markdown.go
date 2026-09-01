@@ -165,6 +165,14 @@ func unregisterChromaStyle() {
 	delete(chromaStyles.Registry, "charm")
 }
 
+// invalidateMDRenderer drops the cached markdown renderer so the next render
+// rebuilds it — used when the UI mode toggles (opencode markdown style differs).
+func invalidateMDRenderer() {
+	mdMu.Lock()
+	mdRendererC, mdAtWidth = nil, 0
+	mdMu.Unlock()
+}
+
 // mdStyle picks the glamour style for the detected background. The light
 // variant gets a higher-contrast inline-code treatment: stock Light uses
 // salmon (203) on near-white (254), which is nearly unreadable — dark red on
@@ -179,6 +187,9 @@ func unregisterChromaStyle() {
 // glamour's default cell padding wastes ~4 columns per cell, which is the
 // difference between a readable table and wrapped mush at narrow widths.
 func mdStyle() glamouransi.StyleConfig {
+	if ocActive && mdKnown { // unknown bg → fall through to neutralStyle (no light/dark assumption)
+		return opencodeMDStyle(mdLight)
+	}
 	var st glamouransi.StyleConfig
 	switch {
 	case !mdKnown:
@@ -190,6 +201,41 @@ func mdStyle() glamouransi.StyleConfig {
 	default:
 		st = styles.DarkStyleConfig
 	}
+	st.Table.ColumnSeparator = new("│")
+	st.Table.CenterSeparator = new("┼")
+	st.Table.RowSeparator = new("─")
+	zero := uint(0)
+	st.Table.Margin = &zero
+	return st
+}
+
+// opencodeMDStyle renders assistant markdown in opencode's palette (both
+// theme variants), so the body text and inline styles match opencode
+// pixel-for-pixel. Document.Margin is left at glamour's default 2 because the
+// assistant indent math (indentLines) accounts for it.
+func opencodeMDStyle(light bool) glamouransi.StyleConfig {
+	pick := func(dark, lt string) *string {
+		s := dark
+		if light {
+			s = lt
+		}
+		return &s
+	}
+	st := styles.DarkStyleConfig
+	if light {
+		st = styles.LightStyleConfig
+	}
+	st.Document.Color = pick("#eeeeee", "#1a1a1a") // markdownText (no background: the main area stays terminal-native)
+	st.Heading.Color = pick("#9d7cd8", "#d68c27")  // markdownHeading (accent)
+	st.H1.Color = pick("#9d7cd8", "#d68c27")
+	st.H1.BackgroundColor = nil
+	st.Code.Color = pick("#7fd88f", "#3d9a57") // markdownCode (green)
+	st.Code.BackgroundColor = pick("#1e1e1e", "#f5f5f5")
+	st.Link.Color = pick("#fab283", "#3b7dd8")     // markdownLink
+	st.LinkText.Color = pick("#56b6c2", "#318795") // markdownLinkText (cyan)
+	st.Strong.Color = pick("#f5a742", "#d68c27")   // markdownStrong (orange)
+	st.Emph.Color = pick("#e5c07b", "#b0851f")     // markdownEmph (yellow)
+	st.Item.Color = pick("#fab283", "#3b7dd8")     // markdownListItem
 	st.Table.ColumnSeparator = new("│")
 	st.Table.CenterSeparator = new("┼")
 	st.Table.RowSeparator = new("─")
@@ -280,7 +326,13 @@ func sanitizeView(s string) string {
 	s = bareSGR.Replace(s)
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
-		lines[i] = selfTerminate(padStripRE.ReplaceAllString(l, "$1"))
+		if !ocActive {
+			// opencode mode: styled trailing spaces ARE the panel fills (user
+			// cards) — stripping them collapses a full-width panel to a chip.
+			// Markdown got its own padding stripped at render time either way.
+			l = padStripRE.ReplaceAllString(l, "$1")
+		}
+		lines[i] = selfTerminate(l)
 	}
 	return strings.Join(lines, "\n")
 }

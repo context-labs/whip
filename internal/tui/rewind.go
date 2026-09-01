@@ -286,7 +286,7 @@ func (m *model) rewindView() string {
 		e := r.entries[row]
 		b.WriteString("\n")
 		if row == r.sel {
-			b.WriteString(youStyle.Render("❯ " + e.text))
+			b.WriteString(youStyle.Render(glyphUser + e.text))
 		} else if e.future {
 			b.WriteString(dimStyle.Render("  " + e.text + " (rewound)"))
 		} else {
