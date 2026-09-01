@@ -644,13 +644,15 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 	})
 
 	t.Run("begin terminal and denied", func(t *testing.T) {
-		st, rootID, agentID := actorFailureFixture(t)
-		exec(t, st, `UPDATE agents SET status='stopped' WHERE id=?`, agentID)
-		if _, err := st.Begin(ctx, admission(rootID, agentID, "terminal-agent")); !errors.Is(err, capability.ErrDenied) {
-			t.Fatalf("terminal agent error=%v", err)
+		for _, status := range []string{"stopped", "succeeded"} {
+			st, rootID, agentID := actorFailureFixture(t)
+			exec(t, st, `UPDATE agents SET status=? WHERE id=?`, status, agentID)
+			if _, err := st.Begin(ctx, admission(rootID, agentID, "terminal-agent-"+status)); !errors.Is(err, capability.ErrDenied) {
+				t.Fatalf("%s agent error=%v", status, err)
+			}
 		}
 
-		st, rootID, agentID = actorFailureFixture(t)
+		st, rootID, agentID := actorFailureFixture(t)
 		value := admission(rootID, agentID, "unsupported-operation")
 		value.Request.Operation = "missing"
 		if _, err := st.Begin(ctx, value); !errors.Is(err, capability.ErrDenied) {

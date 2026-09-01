@@ -376,16 +376,20 @@ func (d *Dispatcher) execute(ctx context.Context, registration Registration, adm
 	var err error
 	switch admission.Mutation {
 	case MutationPath:
-		_, release, err = workspace.LockPath(ctx, admission.CanonicalPath)
+		var canonicalPath string
+		canonicalPath, release, err = workspace.LockPath(ctx, admission.CanonicalPath)
+		if err == nil && canonicalPath != admission.CanonicalPath {
+			err = ErrStaleAdmission
+		}
 	case MutationWorkspace:
 		release, err = workspace.LockAll(ctx)
+	}
+	if release != nil {
+		defer release()
 	}
 	if err != nil {
 		completion := Completion{Admission: admission, LeaseID: ticket.LeaseID, Status: StatusFailed, Error: err.Error()}
 		return Response{}, errors.Join(err, d.ledger.Finish(context.WithoutCancel(ctx), completion))
-	}
-	if release != nil {
-		defer release()
 	}
 	output, handlerErr := registration.Handler(ctx, Call{
 		Request: admission.Request, Arguments: admission.Request.Arguments,

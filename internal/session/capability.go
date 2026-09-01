@@ -393,7 +393,7 @@ func validateCapabilityAgent(ctx context.Context, tx *sql.Tx, rootID, agentID st
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM agents WHERE root_id=? AND id=?`, rootID, agentID).Scan(&status); err != nil {
 		return capability.ErrDenied
 	}
-	if slices.Contains([]string{"stopped", "failed", "cancelled", "interrupted", "deleted"}, status) {
+	if isTerminalAgentStatus(status) {
 		return capability.ErrDenied
 	}
 	return nil

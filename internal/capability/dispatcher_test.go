@@ -18,6 +18,7 @@ type testLedger struct {
 	pending   Admission
 	events    []string
 	completed Completion
+	onDecide  func() error
 }
 
 type permissionApprover func(context.Context, PermissionPrompt) (Decision, error)
@@ -63,6 +64,11 @@ func (l *testLedger) Decide(_ context.Context, admission Admission, _ string, de
 	l.events = append(l.events, "decide")
 	if !decision.Allow {
 		return Ticket{}, ErrDenied
+	}
+	if l.onDecide != nil {
+		if err := l.onDecide(); err != nil {
+			return Ticket{}, err
+		}
 	}
 	return Ticket{OperationID: admission.Request.OperationID, LeaseID: "lease"}, nil
 }
@@ -157,6 +163,48 @@ func TestDispatcherRejectsChangedCanonicalPermissionRequest(t *testing.T) {
 	ledger.pending.CanonicalPath = filepath.Join(root, "other")
 	if _, err := dispatcher.Decide(context.Background(), "permission", Decision{Allow: true, PrincipalID: "human"}); !errors.Is(err, ErrStaleAdmission) {
 		t.Fatalf("changed admission error = %v", err)
+	}
+}
+
+func TestDispatcherRejectsCanonicalPathChangeAfterApproval(t *testing.T) {
+	root := t.TempDir()
+	allowed := filepath.Join(root, "allowed")
+	redirected := filepath.Join(root, "redirected")
+	for _, dir := range []string{allowed, redirected} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ledger := &testLedger{root: root, onDecide: func() error {
+		return os.Symlink(redirected, filepath.Join(allowed, "target"))
+	}}
+	dispatcher := NewDispatcher(ledger, NewWorkspaces(), nil)
+	runs := 0
+	if err := dispatcher.Register(Registration{
+		Operation: "write", Mutation: MutationPath, Permission: true,
+		Path: func(json.RawMessage) (string, error) { return filepath.Join("allowed", "target", "file"), nil },
+		Handler: func(_ context.Context, call Call) (string, error) {
+			runs++
+			return "unexpected", os.WriteFile(call.CanonicalPath, []byte("changed"), 0o600)
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{RootID: "root", AgentID: "agent", CapabilityID: "writer", OperationID: "operation", TraceID: "trace", Operation: "write"}
+	if _, err := dispatcher.Dispatch(context.Background(), request); err == nil {
+		t.Fatal("permission should remain pending")
+	}
+	if _, err := dispatcher.Decide(context.Background(), "permission", Decision{Allow: true, PrincipalID: "human"}); !errors.Is(err, ErrStaleAdmission) {
+		t.Fatalf("changed path error = %v, want stale admission", err)
+	}
+	if runs != 0 {
+		t.Fatalf("handler ran %d times after the canonical path changed", runs)
+	}
+	if _, err := os.Stat(filepath.Join(redirected, "file")); !os.IsNotExist(err) {
+		t.Fatalf("changed path wrote outside its admitted target: %v", err)
+	}
+	if ledger.completed.Status != StatusFailed || ledger.completed.Error != ErrStaleAdmission.Error() {
+		t.Fatalf("completion = %+v", ledger.completed)
 	}
 }
 
