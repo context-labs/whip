@@ -1,5 +1,0 @@
-# Session transcript
-
-## System
-
-sys

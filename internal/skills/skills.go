@@ -34,7 +34,7 @@ type ScanProblem struct {
 }
 
 // DefaultDirs returns whip's skill locations: project .agents/skills, then
-// user ~/.whip/skills.
+// user ~/.whip/skills and ~/.agents/skills.
 func DefaultDirs() []string {
 	var dirs []string
 	if wd, err := os.Getwd(); err == nil {
@@ -42,6 +42,7 @@ func DefaultDirs() []string {
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		dirs = append(dirs, filepath.Join(home, ".whip", "skills"))
+		dirs = append(dirs, filepath.Join(home, ".agents", "skills"))
 	}
 	return dirs
 }

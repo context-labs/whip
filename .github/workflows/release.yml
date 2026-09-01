@@ -124,9 +124,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            artifacts/whip-* \
-            artifacts/SHA256SUMS \
-            install.sh \
-            --title "${{ github.ref_name }}" \
-            --generate-notes
+          # Idempotent: a release may already exist for this tag (manually
+          # created ahead of the tag push, or a re-run after a partial
+          # failure). Reuse it and just (re)upload the assets.
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" \
+              artifacts/whip-* \
+              artifacts/SHA256SUMS \
+              install.sh \
+              --clobber
+          else
+            gh release create "${{ github.ref_name }}" \
+              artifacts/whip-* \
+              artifacts/SHA256SUMS \
+              install.sh \
+              --title "${{ github.ref_name }}" \
+              --generate-notes
+          fi

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -644,7 +645,7 @@ func TestCompactUsesCompactModel(t *testing.T) {
 func TestCompactTooLittleHistory(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
 	ag.Messages = append(ag.Messages, llm.Message{Role: "user", Content: "hi"})
-	if _, _, err := ag.compact(context.Background()); err == nil {
+	if _, _, _, err := ag.compact(context.Background()); err == nil {
 		t.Fatal("expected error compacting a tiny history")
 	}
 }
@@ -670,7 +671,7 @@ func TestCompactKeepsToolCallPair(t *testing.T) {
 		}
 	}
 	before := len(ag.Messages)
-	if _, _, err := ag.compact(context.Background()); err != nil {
+	if _, _, _, err := ag.compact(context.Background()); err != nil {
 		t.Fatalf("compact: %v", err)
 	}
 	if len(ag.Messages) >= before {
@@ -890,7 +891,7 @@ func TestManualCompactFiresEvent(t *testing.T) {
 	var gotSummary string
 	ev := Events{
 		OnCompact:   func(took, kept int) { fired = true },
-		OnCompacted: func(summary string, cutoff int) { gotSummary = summary },
+		OnCompacted: func(summary string, cutoff int, info CompactInfo) { gotSummary = summary },
 	}
 	if err := ag.ManualCompact(context.Background(), ev); err != nil {
 		t.Fatalf("manual compact: %v", err)
@@ -930,5 +931,114 @@ func TestTruncateField(t *testing.T) {
 	}
 	if got := truncateField("abcdefghij", 5); got != "abcd…" {
 		t.Errorf("truncation: %q", got)
+	}
+}
+
+// A compaction must announce itself (start), and its result must carry which
+// model wrote the summary plus that call's usage — the UI renders both in the
+// transcript. Proven here on the proactive path with a tiny context limit so
+// the first request crosses the threshold.
+func TestCompactionEventsCarryModelAndUsage(t *testing.T) {
+	var startFiredBeforeSummary atomic.Bool
+	var sawSummaryCall atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		json.NewDecoder(r.Body).Decode(&req)
+		if !req.Stream { // the compaction summary call
+			sawSummaryCall.Store(true)
+			if !startFiredBeforeSummary.Load() {
+				t.Error("OnCompactStart must fire before the summary call runs")
+			}
+			w.Write([]byte(`{"choices":[{"message":{"content":"folded summary"}}],` +
+				`"usage":{"prompt_tokens":1500,"completion_tokens":120}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"}}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	ag := New(llm.New(srv.URL, "k"), "summarizer-model", 100, "sys")
+	ag.ContextLimit = 400     // tiny limit…
+	ag.CompactThreshold = 0.1 // …so any history crosses 40 estimated tokens
+	for i := range 8 {
+		ag.Messages = append(ag.Messages,
+			llm.Message{Role: "user", Content: fmt.Sprintf("question %d about the thing", i)},
+			llm.Message{Role: "assistant", Content: fmt.Sprintf("answer %d about the thing", i)},
+		)
+	}
+	var starts, dones int
+	var startTook, startEst int
+	var doneInfo CompactInfo
+	final, err := ag.Turn(context.Background(), "keep going", Events{
+		OnCompactStart: func(took, est int) {
+			starts++
+			startTook, startEst = took, est
+			startFiredBeforeSummary.Store(true)
+		},
+		OnCompacted: func(sum string, cutoff int, info CompactInfo) {
+			dones++
+			doneInfo = info
+		},
+	})
+	if err != nil {
+		t.Fatalf("turn: %v", err)
+	}
+	if final != "done" {
+		t.Fatalf("final: %q", final)
+	}
+	if !sawSummaryCall.Load() {
+		t.Fatal("no summary call ran — the tiny limit should have forced a proactive compaction")
+	}
+	if starts != 1 || dones != 1 {
+		t.Fatalf("start/done should each fire exactly once, got %d/%d", starts, dones)
+	}
+	if startTook != len(ag.Messages) { // post-compaction length: the count the UI prints
+		if startTook < len(ag.Messages) {
+			t.Fatalf("start should report the pre-compaction count, got %d (post %d)", startTook, len(ag.Messages))
+		}
+	}
+	if startEst <= 0 {
+		t.Fatalf("start should carry a positive token estimate, got %d", startEst)
+	}
+	if doneInfo.Model != "summarizer-model" {
+		t.Fatalf("done should name the model that wrote the summary, got %q", doneInfo.Model)
+	}
+	if doneInfo.Usage.PromptTokens != 1500 || doneInfo.Usage.CompletionTokens != 120 {
+		t.Fatalf("done should carry the summary call's usage, got %+v", doneInfo.Usage)
+	}
+}
+
+// A dedicated compaction route (CompactClient/CompactModel) labels the result
+// with the route's host so the transcript can tell the cheap summarizer apart
+// from the conversation's own model.
+func TestCompactionInfoLabelsDedicatedRoute(t *testing.T) {
+	main := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("summary call must not hit the conversation's provider")
+	}))
+	defer main.Close()
+	sum := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"choices":[{"message":{"content":"sim"}}]}`))
+	}))
+	defer sum.Close()
+
+	ag := New(llm.New(main.URL, "k"), "conversation-model", 100, "sys")
+	ag.CompactClient = llm.New(sum.URL, "k")
+	ag.CompactModel = "summary-model"
+	for i := range 8 {
+		ag.Messages = append(ag.Messages,
+			llm.Message{Role: "user", Content: fmt.Sprintf("q%d", i)},
+			llm.Message{Role: "assistant", Content: fmt.Sprintf("a%d", i)},
+		)
+	}
+	_, _, info, err := ag.compact(context.Background())
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	host := strings.TrimPrefix(sum.URL, "http://")
+	want := "summary-model @ " + host
+	if info.Model != want {
+		t.Fatalf("dedicated route should be labeled %q, got %q", want, info.Model)
 	}
 }

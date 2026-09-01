@@ -3,6 +3,7 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -12,6 +13,36 @@ func writeSkill(t *testing.T, dir, name, content string) {
 	p := filepath.Join(dir, name)
 	os.MkdirAll(p, 0o755)
 	os.WriteFile(filepath.Join(p, "SKILL.md"), []byte(content), 0o644)
+}
+
+func TestDefaultDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	project := t.TempDir()
+	t.Chdir(project)
+
+	want := []string{
+		filepath.Join(project, ".agents", "skills"),
+		filepath.Join(home, ".whip", "skills"),
+		filepath.Join(home, ".agents", "skills"),
+	}
+	if got := DefaultDirs(); !slices.Equal(got, want) {
+		t.Fatalf("DefaultDirs() = %q, want %q", got, want)
+	}
+
+	writeSkill(
+		t,
+		filepath.Join(home, ".agents", "skills"),
+		"global-agent",
+		"---\nname: global-agent\ndescription: user-level agent skill\n---\n",
+	)
+	for _, skill := range Scan(DefaultDirs()...) {
+		if skill.Name == "global-agent" {
+			return
+		}
+	}
+	t.Fatal("global-agent was not scanned from ~/.agents/skills")
 }
 
 func TestScanAndPromptBlock(t *testing.T) {
@@ -49,24 +80,5 @@ func TestScanAndPromptBlock(t *testing.T) {
 	long := Skill{Name: "x", Description: strings.Repeat("d", 400), Path: "p"}
 	if b := PromptBlock([]Skill{long}); !strings.Contains(b, strings.Repeat("d", 400)) {
 		t.Fatalf("spec-legal description must not be truncated")
-	}
-}
-
-// DefaultDirs: project .agents/skills (from the cwd) then user ~/.whip/skills.
-func TestDefaultDirs(t *testing.T) {
-	wd := t.TempDir()
-	home := t.TempDir()
-	t.Chdir(wd)
-	t.Setenv("HOME", home)
-
-	dirs := DefaultDirs()
-	if len(dirs) != 2 {
-		t.Fatalf("DefaultDirs() = %v", dirs)
-	}
-	if dirs[0] != filepath.Join(wd, ".agents", "skills") {
-		t.Fatalf("project dir: %q", dirs[0])
-	}
-	if dirs[1] != filepath.Join(home, ".whip", "skills") {
-		t.Fatalf("user dir: %q", dirs[1])
 	}
 }

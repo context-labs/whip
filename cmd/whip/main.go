@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
@@ -166,6 +167,14 @@ func main() {
 	// this install has never launched — and the marker keeps a subcommand's
 	// Load (whip auth/run/mcp/…) from permanently consuming the first run.
 	firstRun := !config.Exists() && !config.SetupDone()
+
+	// `whip up <words...>`: flag.Parse stops at "up", so flags go before it
+	// (whip -m kimi up …) and the prompt may start with "-" untouched.
+	initialPrompt := ""
+	if flag.NArg() > 0 && flag.Arg(0) == "up" {
+		initialPrompt = strings.Join(flag.Args()[1:], " ")
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whip:", err)
@@ -188,7 +197,7 @@ func main() {
 	// notice still shows on the next launch.
 	go update.Check(version)
 	tui.Version = version // /report names the build in the bug-report bundle
-	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, systemPrompt(cwd(), time.Now()), *resumeFlag, *cautiousFlag, firstRun)
+	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, systemPrompt(cwd(), time.Now()), *resumeFlag, *cautiousFlag, firstRun, initialPrompt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whip:", err)
 		os.Exit(1)

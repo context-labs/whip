@@ -71,7 +71,7 @@ parallel tool calls and background subagents).
 
 ## Skills & subagents
 
-- [x] Skills: scan `.agents/skills/*/SKILL.md` (project) and `~/.whip/skills/` (user), inject name+description into the system prompt as an `<available_skills>` block; the model reads a SKILL.md with its own read tool when relevant (pi's approach — no skill tool needed, `packages/coding-agent/src/core/skills.ts`)
+- [x] Skills: scan `.agents/skills/*/SKILL.md` (project), `~/.whip/skills/`, and `~/.agents/skills/` (user), inject name+description into the system prompt as an `<available_skills>` block; the model reads a SKILL.md with its own read tool when relevant (pi's approach — no skill tool needed, `packages/coding-agent/src/core/skills.ts`)
 - [x] Subagents: a `subagent` tool (né `task`) that runs a self-contained prompt in a fresh agent with the same tools (minus `subagent` — no recursion) and returns its final report; several calls in one message run concurrently (foreground fan-out), the report is capped at 50KB before it lands in the parent's context, transcript rows show the task description (batch-numbered `1/N`), and background task ids are description slugs (`survey-context-in-pi-3`, not `sub-1`)
 - [x] `$skill-name` invocation (codex-style) with live completion dropdown; skills re-indexed every turn and every `$` keystroke, so new skills load without restarting the harness
 - [ ] Custom agent definitions (`.agents/*.md` with model/tools/prompt frontmatter; opencode agents config `packages/core/src/config/agent.ts`)
@@ -133,6 +133,7 @@ Improvement plan with per-item checkboxes: [`.ai-docs/plans/mcp-polish/`](../.ai
 ## CLI surface
 
 - [x] Non-interactive one-shot mode: `whip run "prompt"` — reads piped stdin too, `--format json` emits the raw event stream for scripting (opencode `cli/cmd/run.ts`)
+- [x] Interactive start-with-prompt: `whip up <words...>` joins argv after `up` and submits it as the TUI's first turn (claude's positional-prompt UX) — Init-kickoff msg so the turn starts only once `m.prog` exists. Plan: [`.ai-docs/plans/whip-up/`](../.ai-docs/plans/whip-up/README.md)
 - [x] ACP agent mode: `whip acp` serves the Agent Client Protocol over stdio (v1, via `github.com/coder/acp-go-sdk`) so editors like Zed drive whip as a subprocess agent — initialize/session new+load+list/prompt (busy-error mid-turn)/cancel/set_mode, streaming chunks + tool cards (with diffs) + plan/usage/title updates, permission prompts bridged from `tools.Gate` in `ask` mode, sessions persisted to the same SQLite store the TUI resumes. Plan: [`.ai-docs/plans/acp/`](../.ai-docs/plans/acp/README.md)
 - [x] `whip sessions` list subcommand
 - [x] Env markers in child processes (`WHIP=1`, `WHIP_SESSION_ID`) so scripts can detect they run under the agent (opencode sets `AGENT=1`, `OPENCODE_PID`)

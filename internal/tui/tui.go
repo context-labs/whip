@@ -86,9 +86,17 @@ type goalFromContextMsg struct {
 type compactMsg struct {
 	took, kept int // messages removed / kept after compaction
 	summary    string
-	cutoff     int // index in the pre-compaction history the summary replaces
-	rawTail    int // index in that history where the prior raw tail begins
+	cutoff     int               // index in the pre-compaction history the summary replaces
+	rawTail    int               // index in that history where the prior raw tail begins
+	info       agent.CompactInfo // which model wrote the summary + its spend
 	err        error
+}
+
+// compactStartMsg announces a compaction the moment folding begins: the
+// summary call can take seconds, so the transcript shows "compacting…" while
+// it runs instead of looking hung.
+type compactStartMsg struct {
+	took, est int // pre-compaction message count / estimated tokens
 }
 type turnDoneMsg struct {
 	final string
@@ -259,7 +267,14 @@ type model struct {
 	// infAuth holds the in-flight inference-net device login across the
 	// team → project → create prompts.
 	infAuth *inferenceNetPending
+
+	// initialPrompt (whip up <words>) is submitted as the first turn from
+	// Init — late enough that m.prog exists for the turn goroutine's p.Send.
+	initialPrompt string
 }
+
+// initialPromptMsg is Init's one-shot kickoff of a `whip up` first turn.
+type initialPromptMsg struct{}
 
 // picker is the /resume session browser. metas is newest-first; the list is
 // rendered oldest-at-top so newest sits at the bottom.
@@ -314,7 +329,9 @@ var (
 // was active on exit ("" if nothing was said). firstRun reports the config
 // file did not exist at startup (the caller checks config.Exists before
 // config.Load creates it) and triggers the one-time setup wizard.
-func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool) (string, error) {
+// initialPrompt (`whip up <words>`) is submitted as the first turn once the
+// UI is up — after any resume replay, matching `whip run`'s order.
+func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool, initialPrompt string) (string, error) {
 	// One shared stdin reader for the pre-TUI prompts: a bufio.Reader reads
 	// ahead, so separate readers for the trust gate and the setup wizard would
 	// lose buffered answers (a pasted "y\n2\n…\n" answers both).
@@ -378,7 +395,8 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		chdir:        os.Chdir,
 		sidebarHide:  sidebarHide,
 		compactModel: cfg.CompactModel, compactProv: cfg.CompactProvider,
-		skillScan: func() []skills.Skill { return skills.Scan(skills.DefaultDirs()...) },
+		skillScan:     func() []skills.Skill { return skills.Scan(skills.DefaultDirs()...) },
+		initialPrompt: initialPrompt,
 	}
 	m.applyCompactModel()
 	m.applyTaskModel()
@@ -1554,13 +1572,18 @@ func (m *model) viewportView() string {
 }
 
 func (m *model) Init() tea.Cmd {
+	cmds := []tea.Cmd{textarea.Blink}
 	if inTmuxEnv() {
 		// live theme tracking: tmux knows the outer terminal's light/dark
 		// (#{client_theme}, via the 996/2031 protocol) — poll it so an OS
 		// appearance flip mid-session is picked up without a restart
-		return tea.Batch(textarea.Blink, themePollTick())
+		cmds = append(cmds, themePollTick())
 	}
-	return textarea.Blink
+	if m.initialPrompt != "" {
+		// Batch blink with the kickoff; the turn's p.Send is nil-safe in headless tests.
+		cmds = append(cmds, func() tea.Msg { return initialPromptMsg{} })
+	}
+	return tea.Batch(cmds...)
 }
 
 // themePollMsg fires the periodic client-theme poll; themeSyncMsg carries its
@@ -1927,6 +1950,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case initialPromptMsg:
+		if m.initialPrompt == "" || m.busy {
+			return m, nil
+		}
+		text := m.initialPrompt
+		m.initialPrompt = "" // one-shot: no re-submit on replays
+		m.hist = append(m.hist, text)
+		m.histIdx = len(m.hist)
+		return m.submit(text)
+
 	case cfgSyncTick:
 		return m.cfgSync()
 
@@ -2374,13 +2407,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case compactStartMsg:
+		m.flushThink()
+		m.flushCurrent()
+		m.append(dimStyle.Render(fmt.Sprintf("◎ compacting %d msgs (est. %s) with %s…",
+			msg.took, fmtTok(msg.est), m.compactModelLabel())))
+		return m, nil
+
 	case compactMsg:
 		// compaction lands between turns: record it as an event and note it
 		// inline. The raw message log stays on disk — Load derives the
 		// compacted view from the event, so a bad summary is inspectable and
-		// retryable (/compact retry). A live turn fires two compactMsgs per
-		// compaction (OnCompact's counts, then OnCompacted's summary+cutoff);
-		// only the one carrying the summary records/notes.
+		// retryable (/compact retry).
 		m.flushThink()
 		m.flushCurrent()
 		switch {
@@ -2390,17 +2428,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// counts-only path (no summary means no event was produced);
 			// nothing to record
 		default:
+			recorded := false
 			if m.store != nil && m.sessionID != "" {
 				// the agent's cutoff is in compacted coordinates; store the raw
 				// seq so Load never double-folds a summary
 				if err := m.store.RecordCompaction(m.sessionID, m.rawCutoff(msg.cutoff, msg.rawTail), msg.summary); err != nil {
 					config.LogEvent("session.compact", "record failed: "+err.Error())
+				} else {
+					recorded = true
 				}
 			}
-			m.append(dimStyle.Render(fmt.Sprintf("◎ compacted — summarized %d msgs, %d kept · raw history preserved", msg.took, msg.kept)))
-			m.future = nil   // compaction rewrote history; stale redo entries would resurrect it
-			m.msgBlock = nil // indices no longer match; rebuilt as blocks stream in
-			m.persist()      // append the new (compacted) rows; raw rows stay
+			m.append(m.compactResultLine(msg))
+			if recorded {
+				m.future = nil   // compaction rewrote history; stale redo entries would resurrect it
+				m.msgBlock = nil // indices no longer match; rebuilt as blocks stream in
+				m.persist()      // append the new (compacted) rows; raw rows stay
+			}
 		}
 		return m, nil
 
@@ -3885,6 +3928,8 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 	}
 
 	go func() {
+		var compactTook, compactKept int
+		var compactInfo agent.CompactInfo
 		events := agent.Events{
 			OnText:  onText,
 			OnThink: onThink,
@@ -3905,8 +3950,16 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 				flush()
 				send(steeredMsg(s))
 			},
+			OnCompactStart: func(took, est int) { send(compactStartMsg{took, est}) },
+			OnCompact:      func(took, kept int) { compactTook, compactKept = took, kept },
+			OnCompacted: func(_ string, _ int, info agent.CompactInfo) {
+				compactInfo = info
+			},
 			OnCompaction: func(sum string, cutoff int, before []llm.Message) {
-				send(compactMsg{summary: sum, cutoff: cutoff, rawTail: agent.CompactionRawTailStart(before, cutoff)})
+				send(compactMsg{
+					took: compactTook, kept: compactKept, summary: sum, cutoff: cutoff,
+					rawTail: agent.CompactionRawTailStart(before, cutoff), info: compactInfo,
+				})
 			},
 			OnUsage: func(u llm.Usage) { send(usageMsg(u)) },
 			// The decay pass rewrote n prefix messages in agent.Messages; drop
@@ -4019,23 +4072,26 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.busy = true
-		m.append(dimStyle.Render("◎ compacting…"))
+		took := len(m.agent.Messages)
+		m.append(dimStyle.Render(fmt.Sprintf("◎ compacting %d msgs (est. %s) with %s…",
+			took, fmtTok(agent.EstimateTokens(m.agent.Messages)), m.compactModelLabel())))
 		p := m.prog
 		ag := m.agent // capture the current conversation for the summary call
 		ctx, cancel := context.WithCancel(context.Background())
 		m.cancel = cancel
 		go func() {
-			took := len(ag.Messages)
 			var summary string
 			var cutoff int
 			var rawTail int
+			var info agent.CompactInfo
 			err := ag.ManualCompact(ctx, agent.Events{
 				OnCompaction: func(s string, c int, before []llm.Message) {
 					summary, cutoff, rawTail = s, c, agent.CompactionRawTailStart(before, c)
 				},
+				OnCompacted: func(_ string, _ int, ci agent.CompactInfo) { info = ci },
 			})
 			if p != nil { // nil in headless tests; compaction still ran
-				p.Send(compactMsg{took: took - len(ag.Messages), kept: len(ag.Messages), summary: summary, cutoff: cutoff, rawTail: rawTail, err: err})
+				p.Send(compactMsg{took: took - len(ag.Messages), kept: len(ag.Messages), summary: summary, cutoff: cutoff, rawTail: rawTail, info: info, err: err})
 				p.Send(turnDoneMsg{}) // clear busy state
 			}
 		}()

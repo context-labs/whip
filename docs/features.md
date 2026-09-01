@@ -136,6 +136,17 @@ Token bookkeeping: `llm.Usage` (prompt/completion/cached) is read off the
 terminal stream chunk (`stream_options: include_usage`) and folded into session
 totals via `AddUsage`. Compaction and subagent calls count too.
 
+Every compaction is visible in the transcript as a pair of notes. The moment
+folding begins, `OnCompactStart` renders `◎ compacting N msgs (est. X tok) with
+<model>…` so the UI never looks hung during the summary call. When it
+completes, `OnCompacted` renders `◎ compacted — summarized N msgs, M kept ·
+<model> · $cost (in/out tok) · raw history preserved` — the counts come from
+`OnCompact`, the model and spend from `CompactInfo` (a dedicated compaction
+route is labeled `<id> @ <host>`), and the cost is priced off the provider
+catalog (hidden when the model has no advertised price). The result note
+renders even with no session store; the `raw history preserved` suffix appears
+only once the event is actually recorded.
+
 ### Provider prompt-prefix caching
 
 To cut time-to-first-token on the many sequential turns of an agent loop,
@@ -171,9 +182,16 @@ threshold ←/→.
 Tests: `agent_test.go` — `TestTurnAutoCompactsOnContextLimit`,
 `TestCompactDoesNotLoopOnRepeatedContextLimit`, `TestCompactKeepsToolCallPair`,
 `TestProactiveCompactAtFiftyPercent`, `TestCompactThresholdExplicitOverride`,
-`TestUsageAccumulates`; `compact_cmd_test.go` —
+`TestCompactionEventsCarryModelAndUsage` (start fires before the summary call;
+done carries the model + usage, proven with a tiny context limit),
+`TestCompactionInfoLabelsDedicatedRoute`, `TestUsageAccumulates`;
+`compact_cmd_test.go` —
 `TestCompactModelEmptyResolvesDefault`, `TestCompactModelDefaultFallsBack`,
-`TestCompactThresholdFor`, `TestSetCompactPct`; `palette_test.go` —
+`TestCompactThresholdFor`, `TestSetCompactPct`; `compact_vis_test.go` —
+`TestCompactionVisibleInTranscript` (the start+result notes render through the
+Update loop with a small compaction limit),
+`TestCompactionNotesRenderInOrder`, `TestCompactionResultShowsRealCounts`;
+`palette_test.go` —
 `TestPaletteCompactPanelAppliesInPlace`,
 `TestPaletteCompactPanelDefaultRowRestores`, `TestPaletteCompactionLevelSteps`.
 
@@ -824,12 +842,12 @@ auto-installing servers.
 
 ## Skills
 
-`internal/skills/skills.go` — scans `.agents/skills/*/SKILL.md` (project) and
-`~/.whip/skills/` (user) for a name+description frontmatter block, injected
-into the system prompt as an `<available_skills>` catalog in the Agent Skills
-spec format (`<skill><name>/<description>/<location>`, XML-escaped). The model
-reads a SKILL.md with its own read tool when relevant. Skills re-index every
-turn, so new ones load without restarting.
+`internal/skills/skills.go` — scans `.agents/skills/*/SKILL.md` (project),
+`~/.whip/skills/`, and `~/.agents/skills/` (user) for a name+description
+frontmatter block, injected into the system prompt as an `<available_skills>`
+catalog in the Agent Skills spec format (`<skill><name>/<description>/<location>`,
+XML-escaped). The model reads a SKILL.md with its own read tool when relevant.
+Skills re-index every turn, so new ones load without restarting.
 
 **Spec compliance** (agentskills.io, matching pi's `core/skills.ts`): name
 validated (≤64 chars, lowercase a-z/0-9/hyphens, no leading/trailing/double
@@ -977,6 +995,31 @@ environment quirk, not a rod/whip bug; verified on real Chrome.
 
 The browser-use CLI-over-MCP escape hatch remains available via config for
 anyone wanting the Python ecosystem (§4 option B).
+
+## `whip up <prompt>` — start the TUI with a first-turn prompt from argv
+
+`whip up <words...>` (`cmd/whip/main.go`) joins every argv token after `up`
+with spaces and opens the interactive TUI with that text submitted as the
+first user turn — the exact typed-submission path (`submitTurn`,
+`Authored: true`), so it lands in up-arrow input history and the transcript.
+Flags still work because Go's `flag` package stops parsing at `up`
+(`whip -m kimi up do the thing`), and the prompt itself may start with `-`
+untouched — the `up` handler never re-parses its args.
+
+The prompt rides the `model.initialPrompt` field into the session; `Init()`
+emits a one-shot `initialPromptMsg` (batched with the textarea blink) and
+`Update` submits it. Kicking off from `Init` — not from `Run` before
+`tea.NewProgram` — is the load-bearing choice: the turn goroutine's event
+callbacks `p.Send` through `m.prog`, which only exists once the program is
+constructed. Combined with `--resume` the replayed history renders first and
+the prompt fires as the next turn, matching `whip run`'s
+prompt-after-resume order.
+
+Tests: `internal/tui/up_test.go` — `TestInitialPromptSubmitsFirstTurn` (Init
+kickoff → busy turn, authored user message, history entry, one-shot
+consumption), `TestNoInitialPromptNoKickoff` (bare blink Init, empty msg is
+a no-op), `TestInitialPromptMsgIgnoredWhileBusy` (a replayed msg can't
+double-submit mid-turn).
 
 ## ACP agent mode
 

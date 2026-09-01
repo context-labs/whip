@@ -101,6 +101,7 @@ Key invariants:
 | `~/.whip/memory.md` | durable memory the model maintains | Markdown checkboxes |
 | `~/.whip/browser/extension/` | the Chrome extension for `browser.mode=extension` | unpacked extension |
 | `.agents/skills/` (repo) | project skills injected into sessions | Markdown `SKILL.md` |
+| `~/.agents/skills/` | user skills injected into sessions | Markdown `SKILL.md` |
 | `.mcp.json` (repo) | claude-style MCP servers | JSON |
 
 Everything is a file you can diff, grep, back up, or delete. There is no
