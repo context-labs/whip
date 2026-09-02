@@ -82,6 +82,7 @@ func ocPadTo(content string, width int, bg lipgloss.TerminalColor) string {
 //   - \x1b[39m default-foreground (closes a fg-only style) — the bg survives,
 //     but when it directly precedes \x1b[49m / \x1b[0m the pair still ends the
 //     fill; re-opening after it keeps the row continuous in every terminal.
+//
 // Re-opening the bg after all three keeps the fill continuous to the right
 // edge regardless of which reset variant a nested style emitted.
 func ocOnBg(ln string, bg lipgloss.TerminalColor) string {
