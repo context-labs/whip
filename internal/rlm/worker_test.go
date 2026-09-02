@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math"
 	"math/big"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -86,6 +88,14 @@ func TestWorkerRunFramesAndProtocolFailures(t *testing.T) {
 }
 
 func TestWorkerMainParsesLimitsAndRunsProtocol(t *testing.T) {
+	oldMemoryLimit := debug.SetMemoryLimit(-1)
+	t.Cleanup(func() { debug.SetMemoryLimit(oldMemoryLimit) })
+	if err := applySoftMemoryLimit(math.MaxUint64); err == nil {
+		t.Fatal("oversized soft memory limit succeeded")
+	}
+	if err := applySoftMemoryLimit(math.MaxInt64); err != nil {
+		t.Fatalf("valid soft memory limit: %v", err)
+	}
 	if err := WorkerMain([]string{"-steps", "bad"}, strings.NewReader(""), &bytes.Buffer{}); err == nil {
 		t.Fatal("public worker entrypoint accepted an invalid flag")
 	}

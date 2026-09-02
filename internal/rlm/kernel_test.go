@@ -209,6 +209,11 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 	t.Run("memory", func(t *testing.T) {
 		limits := DefaultLimits()
 		limits.MemoryBytes = 32 << 20
+		if raceEnabled {
+			// ThreadSanitizer's baseline exceeds the production stress limit;
+			// parent-side RSS enforcement still bounds this race-build worker.
+			limits.MemoryBytes = defaultMemoryBytes
+		}
 		limits.Steps = ^uint64(0)
 		limits.Wall = 3 * time.Second
 		kernel := testKernel(t, limits, nil)

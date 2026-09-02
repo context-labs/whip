@@ -9,6 +9,7 @@ import (
 	"io"
 	"maps"
 	"math"
+	"runtime/debug"
 	"strings"
 
 	"go.starlark.net/starlark"
@@ -27,7 +28,18 @@ const (
 // WorkerMain runs the authority-free side of the RLM protocol. It is public
 // so the hidden whip entrypoint and subprocess tests use the identical path.
 func WorkerMain(args []string, input io.Reader, output io.Writer) error {
+	if raceEnabled {
+		return workerMain(args, input, output, applySoftMemoryLimit)
+	}
 	return workerMain(args, input, output, applyMemoryLimit)
+}
+
+func applySoftMemoryLimit(bytes uint64) error {
+	if bytes > math.MaxInt64 {
+		return errors.New("RLM memory limit is too large")
+	}
+	debug.SetMemoryLimit(int64(bytes))
+	return nil
 }
 
 func workerMain(args []string, input io.Reader, output io.Writer, limitMemory func(uint64) error) error {

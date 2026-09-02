@@ -310,6 +310,10 @@ func (kernel *Kernel) start() (err error) {
 	kernel.worker = process
 	go func() {
 		_ = command.Wait()
+		// A crashed worker may have descendants in its dedicated group. Reap the
+		// group before publishing completion so no caller can observe done while
+		// an orphan remains alive.
+		_ = killProcessGroup(command.Process.Pid)
 		close(process.done)
 		kernel.mu.Lock()
 		if kernel.worker == process {
