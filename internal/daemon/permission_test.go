@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -50,5 +52,58 @@ func TestCapabilityAuthorityRoutesThroughRootActor(t *testing.T) {
 		ID: "stale-child", Issuer: capability.Reference{ID: "child-read", Generation: 1}, AgentID: "grandchild", Operations: []string{"read"},
 	}); err == nil {
 		t.Fatal("actor accepted a stale capability reference")
+	}
+}
+
+func TestDirectPermissionControlsStayRootScoped(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	otherRootID := createRoot(t, store)
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := value.Open(otherRootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcher := capability.NewDispatcher(store, store.Workspaces(), nil)
+	if err := dispatcher.Register(capability.Registration{
+		Operation: "write", Mutation: capability.MutationPath, Permission: true,
+		Path:    func(json.RawMessage) (string, error) { return "permission.txt", nil },
+		Handler: func(context.Context, capability.Call) (string, error) { return "ok", nil },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = dispatcher.Dispatch(t.Context(), capability.Request{
+		RootID: rootID, AgentID: root.AgentID(), CapabilityID: root.authority.Files.ID,
+		CapabilityGeneration: root.authority.Files.Generation, OperationID: "direct-permission", Operation: "write",
+		Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+	})
+	var pending *capability.PermissionPendingError
+	if !errors.As(err, &pending) {
+		t.Fatalf("permission admission = %v", err)
+	}
+	if inspected, err := root.InspectPermission(t.Context(), pending.PermissionID); err != nil || inspected.Request.OperationID != "direct-permission" {
+		t.Fatalf("permission inspection = %+v, %v", inspected, err)
+	}
+	if _, err := other.InspectPermission(t.Context(), pending.PermissionID); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("cross-root inspection = %v", err)
+	}
+	if _, err := other.DecidePermission(t.Context(), pending.PermissionID, capability.Decision{Allow: true}); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("cross-root decision = %v", err)
+	}
+	if _, err := root.DecidePermission(t.Context(), "missing", capability.Decision{Allow: true}); err == nil {
+		t.Fatal("missing permission was decided")
+	}
+	if _, err := root.DecidePermission(t.Context(), pending.PermissionID, capability.Decision{PrincipalID: "tester", Reason: "not approved"}); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("denied permission = %v", err)
 	}
 }

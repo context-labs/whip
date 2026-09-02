@@ -1413,6 +1413,39 @@ func TestActorPersistsTaskRecordsBeforeConcurrentFailure(t *testing.T) {
 	}
 }
 
+func TestSupervisorCoalescesCompatibleStreamEvents(t *testing.T) {
+	supervisor := newSupervisor()
+	t.Cleanup(supervisor.stop)
+	supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+		kind: "stream.text", event: StreamEvent{ID: "turn", Text: "hello "},
+	}})
+	supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+		kind: "stream.text", event: StreamEvent{ID: "turn", Text: "world"},
+	}})
+	if events := supervisor.take(); len(events) != 1 || events[0].stream.event.Text != "hello world" {
+		t.Fatalf("coalesced text events = %+v", events)
+	}
+	supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+		kind: "stream.tool.call", event: StreamEvent{ID: "tool", Args: `{"partial":`},
+	}})
+	supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+		kind: "stream.tool.call", event: StreamEvent{ID: "tool", Args: `{"complete":true}`},
+	}})
+	if events := supervisor.take(); len(events) != 1 || events[0].stream.event.Args != `{"complete":true}` {
+		t.Fatalf("coalesced tool events = %+v", events)
+	}
+	large := strings.Repeat("x", 32<<10)
+	supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+		kind: "stream.reasoning", event: StreamEvent{ID: "turn", Text: large},
+	}})
+	supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+		kind: "stream.reasoning", event: StreamEvent{ID: "turn", Text: "overflow"},
+	}})
+	if events := supervisor.take(); len(events) != 2 {
+		t.Fatalf("oversized stream events were coalesced: %d", len(events))
+	}
+}
+
 func TestNewRejectsSecondDaemonOwner(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	factory := func(context.Context, session.Meta, []llm.Message) (Components, error) {

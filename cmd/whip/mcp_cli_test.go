@@ -72,6 +72,28 @@ func TestMCPCLIAddListRemove(t *testing.T) {
 	}
 }
 
+func TestMCPServeStopsCleanlyOnStdinEOF(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	t.Chdir(t.TempDir())
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	oldInput := os.Stdin
+	os.Stdin = reader
+	t.Cleanup(func() {
+		os.Stdin = oldInput
+		_ = reader.Close()
+	})
+	if err := mcpServe("test-version"); err != nil {
+		t.Fatalf("mcp serve EOF = %v", err)
+	}
+}
+
 func TestMCPCLIBlockedServer(t *testing.T) {
 	wd := importFixture(t, `, "mcpImport": { "codex": { "exclude": ["node_repl"] } }`)
 	chdir(t, wd)

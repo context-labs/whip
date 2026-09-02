@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -79,31 +78,6 @@ func (r permRules) coveredBy(req tools.GateRequest) bool {
 		rule = req.Command // path rules are exact
 	}
 	return r[ruleKey(req.Tool, rule)]
-}
-
-// installPermGate wires this session's tools to the modal. Called once at startup.
-func (m *model) installPermGate() {
-	m.perms = loadPermRules()
-	m.toolGate = func(ctx context.Context, req tools.GateRequest) (tools.GateDecision, string) {
-		m.permsMu.Lock()
-		covered := m.perms.coveredBy(req)
-		m.permsMu.Unlock()
-		if covered {
-			return tools.GateAllowOnce, ""
-		}
-		if m.prog == nil {
-			return tools.GateAllowOnce, "" // headless: no one to ask
-		}
-		reply := make(chan permAnswer, 1)
-		m.prog.Send(permRequest{req: req, reply: reply}) //nolint:uilock // background: the calling tool goroutine, which blocks on reply — never the event loop
-		select {
-		case ans := <-reply:
-			return ans.decision, ans.redirect
-		case <-ctx.Done():
-			return tools.GateReject, "the permission prompt was cancelled"
-		}
-	}
-	m.bindToolServices(m.agent)
 }
 
 // permKey handles keys while the dialog is open. Returns (handled).

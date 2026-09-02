@@ -75,6 +75,38 @@ func TestAgentRunnerWorkspaceSnapshotsUseRootManagedProcesses(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSnapshotsIgnoreNonGitDirectoriesAndInvalidReferences(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID, err := store.Create(t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := store.EnsureClassicAuthority(t.Context(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := tools.NewServices()
+	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+		t.Fatal(err)
+	}
+	meta, _, err := store.Load(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &agentRunner{agent: agent.NewWithServices(llm.New("http://unused.invalid", ""), "model", 100, "system", services)}
+	runner.agent.WorkingDir = meta.CWD
+	if ref := runner.CaptureWorkspace(t.Context()); ref != "" {
+		t.Fatalf("non-git snapshot ref = %q", ref)
+	}
+	if runner.WorkspaceClean(t.Context()) {
+		t.Fatal("non-git workspace reported git-clean")
+	}
+	if restored, err := runner.RestoreWorkspace(t.Context(), "missing"); err == nil || restored != 0 {
+		t.Fatalf("invalid restore = %d, %v", restored, err)
+	}
+	runner.DropWorkspaceSnapshot(t.Context(), "")
+}
+
 func daemonGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	command := exec.CommandContext(context.Background(), "git", args...)

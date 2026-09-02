@@ -163,3 +163,38 @@ func TestProtocolRedactsTerminalInputFromDurableState(t *testing.T) {
 		t.Fatal("terminal secret leaked in snapshot")
 	}
 }
+
+func TestInteractiveInputBackpressureAndResultFormatting(t *testing.T) {
+	runner := newDaemonInteractiveRunner(func(string, StreamEvent) {})
+	runner.id = "terminal-1"
+	runner.keys = make(chan []byte, 1)
+	input := []byte("first")
+	if err := runner.Send("terminal-1", input); err != nil {
+		t.Fatal(err)
+	}
+	input[0] = 'X'
+	if got := string(<-runner.keys); got != "first" {
+		t.Fatalf("terminal input alias = %q", got)
+	}
+	if err := runner.Send("terminal-1", []byte("queued")); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Send("terminal-1", []byte("overflow")); err == nil {
+		t.Fatal("full terminal input buffer accepted bytes")
+	}
+	if err := runner.Send("stale", []byte("x")); err == nil {
+		t.Fatal("stale terminal accepted bytes")
+	}
+	for _, test := range []struct {
+		result bashrun.Result
+		want   string
+	}{
+		{result: bashrun.Result{}, want: "(no output)"},
+		{result: bashrun.Result{Output: "ok"}, want: "ok"},
+		{result: bashrun.Result{Output: "bad", Exit: "exit 1"}, want: "bad\n(exit 1)"},
+	} {
+		if got := interactiveResult(test.result); got != test.want {
+			t.Fatalf("interactive result = %q, want %q", got, test.want)
+		}
+	}
+}

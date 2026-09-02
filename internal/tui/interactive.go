@@ -58,10 +58,6 @@ type interactiveRunner struct {
 	keys chan []byte
 }
 
-func newInteractiveRunner(prog *tea.Program) *interactiveRunner {
-	return &interactiveRunner{prog: prog}
-}
-
 // Run implements tools.InteractiveRunner. It blocks the agent goroutine until
 // the command finishes, the inactivity timeout fires, or ctx is cancelled.
 func (r *interactiveRunner) Run(ctx context.Context, opts bashrun.Options) string {

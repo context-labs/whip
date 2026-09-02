@@ -601,6 +601,7 @@ func (s *Store) RewindHistory(ctx context.Context, id string, from int) ([]llm.M
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = rows.Close() }()
 	var history []llm.Message
 	for rows.Next() {
 		var data string

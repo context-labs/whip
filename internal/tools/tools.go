@@ -174,9 +174,7 @@ func (s *Services) SetProcessEnvironment(values map[string]string) {
 	if s.processEnv == nil {
 		s.processEnv = make(map[string]string)
 	}
-	for key, value := range values {
-		s.processEnv[key] = value
-	}
+	maps.Copy(s.processEnv, values)
 	s.mu.Unlock()
 }
 

@@ -232,6 +232,7 @@ func (s *Store) readSnapshotPresentation(ctx context.Context, tx *sql.Tx, rootID
 	if err != nil {
 		return err
 	}
+	defer func() { _ = rows.Close() }()
 	type pendingEvent struct {
 		event     SnapshotEvent
 		inline    []byte
@@ -241,13 +242,11 @@ func (s *Store) readSnapshotPresentation(ctx context.Context, tx *sql.Tx, rootID
 	for rows.Next() {
 		var item pendingEvent
 		if err := rows.Scan(&item.event.Seq, &item.event.Kind, &item.inline, &item.reference); err != nil {
-			_ = rows.Close()
 			return err
 		}
 		pending = append(pending, item)
 	}
 	if err := rows.Err(); err != nil {
-		_ = rows.Close()
 		return err
 	}
 	if err := rows.Close(); err != nil {
@@ -428,6 +427,7 @@ func (s *Store) readSnapshotPermissions(ctx context.Context, tx *sql.Tx, rootID 
 	if err != nil {
 		return err
 	}
+	defer func() { _ = rows.Close() }()
 	type pendingPermission struct {
 		permission PermissionSnapshot
 		inline     []byte
@@ -438,13 +438,11 @@ func (s *Store) readSnapshotPermissions(ctx context.Context, tx *sql.Tx, rootID 
 		var item pendingPermission
 		if err := rows.Scan(&item.permission.ID, &item.permission.AgentID, &item.permission.OperationID,
 			&item.permission.Status, &item.inline, &item.reference); err != nil {
-			_ = rows.Close()
 			return err
 		}
 		pending = append(pending, item)
 	}
 	if err := rows.Err(); err != nil {
-		_ = rows.Close()
 		return err
 	}
 	if err := rows.Close(); err != nil {

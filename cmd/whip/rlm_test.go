@@ -441,6 +441,14 @@ func TestRLMLimitsUseContractDefaultsAndOverrides(t *testing.T) {
 	if defaults.Steps != 1_000_000 || defaults.HostRequests != 1_024 || defaults.Wall != 30*time.Second || defaults.MaxWorkers != 4 {
 		t.Fatalf("defaults = %+v", defaults)
 	}
+	overrides := rlmLimits(config.RLMConfig{
+		Steps: 9, HostRequests: 8, WallMillis: 7, MemoryMiB: 6,
+		OutputBytes: 5, FrameBytes: 4, MaxWorkers: 3,
+	})
+	if overrides.Steps != 9 || overrides.HostRequests != 8 || overrides.Wall != 7*time.Millisecond ||
+		overrides.MemoryBytes != 6<<20 || overrides.OutputBytes != 5 || overrides.FrameBytes != 4 || overrides.MaxWorkers != 3 {
+		t.Fatalf("overrides = %+v", overrides)
+	}
 }
 
 func TestConfiguredSessionModeDefaultsRLMAndDisablesToClassic(t *testing.T) {
@@ -452,5 +460,33 @@ func TestConfiguredSessionModeDefaultsRLMAndDisablesToClassic(t *testing.T) {
 	cfg.RLM.Enabled = &disabled
 	if got := configuredSessionMode(cfg); got != session.ModeClassic {
 		t.Fatalf("disabled mode = %s", got)
+	}
+}
+
+func TestDaemonToolServicesHonorOptionalRuntimeConfiguration(t *testing.T) {
+	enabled := true
+	for _, mode := range []string{"", "dedicated", "headless", "extension"} {
+		cfg := config.Default()
+		cfg.Browser.Enabled = &enabled
+		cfg.Browser.Mode = mode
+		cfg.Browser.CDPURL = "http://127.0.0.1:9222"
+		cfg.Computer.Enabled = &enabled
+		services := daemonToolServices(cfg, session.Meta{ID: "root"}, "model")
+		if services.Browser() == nil || services.ComputerPolicy() == nil || services.Diagnostics() == nil {
+			t.Fatalf("mode %q omitted configured services", mode)
+		}
+		if got := services.ProcessOptions().Env["WHIP_CDP_URL"]; got != cfg.Browser.CDPURL {
+			t.Fatalf("mode %q CDP environment = %q", mode, got)
+		}
+		services.Close()
+	}
+	disabled := false
+	cfg := config.Default()
+	cfg.Browser.Enabled = &disabled
+	cfg.Computer.Enabled = &disabled
+	services := daemonToolServices(cfg, session.Meta{ID: "root"}, "model")
+	defer services.Close()
+	if services.Browser() != nil || services.ComputerPolicy() != nil || services.Diagnostics() == nil {
+		t.Fatal("disabled optional services were constructed")
 	}
 }

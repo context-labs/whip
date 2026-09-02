@@ -416,6 +416,36 @@ func TestSlowOutboundClientClosesWithoutStoppingDaemon(t *testing.T) {
 	_ = server.Close()
 }
 
+func TestOutboundQueueOverflowClosesConnection(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{MaxOutbound: 1, MaxOutboundBytes: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverSide, clientSide := net.Pipe()
+	connection := &serverConn{server: server, conn: serverSide, out: make(chan []byte, 1)}
+	if !connection.send(rpcMessage{Result: "first"}) {
+		t.Fatal("empty outbound queue rejected a frame")
+	}
+	if connection.send(rpcMessage{Result: "second"}) {
+		t.Fatal("full outbound queue accepted a frame")
+	}
+	connection.mu.Lock()
+	closed := connection.closed
+	connection.mu.Unlock()
+	if !closed || connection.outBytes == 0 {
+		t.Fatalf("overflow state closed=%t bytes=%d", closed, connection.outBytes)
+	}
+	_ = clientSide.Close()
+	_ = server.Close()
+}
+
 func TestSnapshotStreamsActorConsistentBoundedChunks(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)

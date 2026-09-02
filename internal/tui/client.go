@@ -141,7 +141,7 @@ type Client struct {
 
 // Run starts the presentation-only TUI. Agent loops, persistence, schedulers,
 // providers, permissions, and child processes remain in the daemon.
-func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, _ bool, firstRun bool, initialPrompt string) (string, error) {
+func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, _, firstRun bool, initialPrompt string) (string, error) {
 	stdin := bufio.NewReader(os.Stdin)
 	if trusted, err := checkTrust(stdin); err != nil {
 		return "", err
@@ -718,7 +718,7 @@ func waitClientUpdate(client *Client) bubbletea.Cmd {
 	return func() bubbletea.Msg {
 		update, ok := <-client.Updates()
 		if !ok {
-			return clientUpdateMsg{ClientUpdate: ClientUpdate{State: ClientDisconnected, StateChanged: true, Err: netClosedError{}}, closed: true}
+			return clientUpdateMsg{ClientUpdate{State: ClientDisconnected, StateChanged: true, Err: netClosedError{}}, true}
 		}
 		return clientUpdateMsg{ClientUpdate: update}
 	}
@@ -1190,8 +1190,8 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 		if strings.HasPrefix(text, "/") {
 			return m.thinCommand(text)
 		}
-		if strings.HasPrefix(text, "!") {
-			return m.submitClientAction("shell.run", map[string]any{"command": strings.TrimSpace(strings.TrimPrefix(text, "!"))}, text)
+		if command, ok := strings.CutPrefix(text, "!"); ok {
+			return m.submitClientAction("shell.run", map[string]any{"command": strings.TrimSpace(command)}, text)
 		}
 		return m.submitClientAction("submit", map[string]string{"text": text}, text)
 	}
@@ -1362,9 +1362,8 @@ func (m *model) openThinPalette() {
 }
 
 func (m *model) openThinThemePalette() {
-	var items []paletteItem
+	items := make([]paletteItem, 0, 3)
 	for _, theme := range []string{"auto", "light", "dark"} {
-		theme := theme
 		items = append(items, paletteItem{
 			title: "Theme: " + theme, category: "Display",
 			dynDesc: func(*model) string { return "switch terminal colors to " + theme },

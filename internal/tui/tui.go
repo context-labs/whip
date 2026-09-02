@@ -2,14 +2,12 @@
 package tui
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -35,7 +33,6 @@ import (
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/tools"
-	"github.com/context-labs/whip/internal/update"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
@@ -335,230 +332,6 @@ var (
 	tuiRunning bool
 	bgCache    bgResult
 )
-
-// Run starts the interactive session. It returns the id of the session that
-// was active on exit ("" if nothing was said). firstRun reports the config
-// file did not exist at startup (the caller checks config.Exists before
-// config.Load creates it) and triggers the one-time setup wizard.
-// initialPrompt (`whip up <words>`) is submitted as the first turn once the
-// UI is up — after any resume replay, matching `whip run`'s order.
-// runEmbedded is retained temporarily as a rendering-test harness while the
-// daemon-backed client absorbs the remaining presentation adapters. The
-// exported production entrypoint is Run in client.go.
-func runEmbedded(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool, initialPrompt string) (string, error) {
-	// One shared stdin reader for the pre-TUI prompts: a bufio.Reader reads
-	// ahead, so separate readers for the trust gate and the setup wizard would
-	// lose buffered answers (a pasted "y\n2\n…\n" answers both).
-	stdinR := bufio.NewReader(os.Stdin)
-
-	// Trust gate first: before whip reads a single file, ask whether this
-	// folder's contents may steer the model. Persisted per absolute path in
-	// ~/.whip/trusted.json (claude-code's per-project trust dialog).
-	if ok, err := checkTrust(stdinR); err != nil {
-		return "", err
-	} else if !ok {
-		return "", errors.New("folder not trusted")
-	}
-
-	// First run only: the setup wizard (provider, thinking display, MCP
-	// imports) before the TUI takes the terminal. Skipped silently when stdin
-	// isn't a terminal — headless launches keep the defaults.
-	if firstRun {
-		if err := setupWizard(cfg, stdinR); err != nil {
-			return "", err
-		}
-	}
-
-	ag, mn, pn, err := buildAgentWithRefresh(cfg, modelName, provName, sysPrompt)
-	if err != nil {
-		return "", err
-	}
-
-	ti := newInput()
-
-	// Reasoning effort: an explicit cfg.DefaultEffort is honored as-is; "" (no
-	// config / pre-feature file) resolves model-aware — "low" when the model
-	// advertises it, else the lowest supported level, else off (no parameter) —
-	// so a non-reasoning model never opens on an effort it can't accept.
-	ag.Effort = DefaultEffortFor(config.LoadCatalogs(), pn, ag.Model, cfg.DefaultEffort)
-	// Mouse capture ON by default so the wheel scrolls the transcript viewport
-	// and ⚡/tool clicks work — with button-motion reporting (?1002) so a left
-	// drag becomes whip's own selection (select.go): enabling click reporting
-	// alone makes most terminals (Ghostty, kitty) suppress their native
-	// drag-selection without sending the drag to anyone. With capture off,
-	// tmux's WheelUpPane binding sees mouse_any_flag=0 and runs 'copy-mode -e',
-	// scrolling tmux's own scrollback instead of the transcript. Inside tmux,
-	// tmux forwards the drag to whip (mouse_any_flag is set), so whip's own
-	// selection handles drag-to-copy there too. Explicit config wins.
-	mouseOn := true
-	if cfg.Mouse != nil {
-		mouseOn = *cfg.Mouse
-	}
-	showThinking := true // default on; "thinking": false in config opts out
-	if cfg.Thinking != nil {
-		showThinking = *cfg.Thinking
-	}
-	sidebarHide := false // default shown (when the terminal is wide enough); "sidebar": false opts out at startup
-	if cfg.Sidebar != nil {
-		sidebarHide = !*cfg.Sidebar
-	}
-	m := &model{
-		cfg: cfg, agent: ag, modelName: mn, provName: pn, sysPrompt: sysPrompt,
-		input: ti, spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true, saved: 1, hoverIdx: -1,
-		catalogs: config.LoadCatalogs(), mouseOn: mouseOn, now: time.Now, showThinking: showThinking,
-		chdir:        os.Chdir,
-		sidebarHide:  sidebarHide,
-		compactModel: cfg.CompactModel, compactProv: cfg.CompactProvider,
-		skillScan:     func() []skills.Skill { return skills.Scan(skills.DefaultDirs()...) },
-		initialPrompt: initialPrompt,
-	}
-	m.applyCompactModel()
-	m.applyTaskModel()
-	m.agent.CompactThreshold = compactThresholdFor(cfg)
-	m.wireTasks() // redraw the UI when background subagents start/settle
-
-	// MCP: merge whip's own config with imported claude (.mcp.json) and codex
-	// (~/.codex/config.toml) servers — gated by the mcpImport policy, whose
-	// blocked entries stay visible in /mcp — then kick concurrent connects in
-	// the background. Tool calls block on that server's first settle only, so a
-	// slow/hung server never delays startup. Discovery problems (a broken
-	// .mcp.json) land as a transcript note, not a startup failure.
-	if wd, wdErr := os.Getwd(); wdErr == nil {
-		disc := mcp.LoadMergedFiltered(wd, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-		merged, mcpErrs := disc.Merged, disc.Errs
-		if len(merged) > 0 || len(disc.Blocked) > 0 || len(mcpErrs) > 0 {
-			m.mcpMgr = mcp.NewManager(merged)
-			m.mcpMgr.SetBlocked(disc.Blocked)
-			m.mcpMgr.SetOnChange(m.mcpOnChange())
-			ag.SetMCPTools(m.mcpMgr.Tools())
-			for src, derr := range mcpErrs {
-				m.append(errStyle.Render(fmt.Sprintf("mcp: %s: %s", src, derr)))
-			}
-		}
-		// LSP: build the diagnostics manager (built-ins merged under the
-		// config's "lsp" block) and install it for write/edit tool output.
-		// Servers spawn lazily on first covered file touch; a missing binary
-		// is remembered as broken, so this never blocks startup.
-		m.lspMgr = lsp.NewManager(lsp.FromConfigMap(cfg.LSPServers))
-		m.bindToolServices(m.agent)
-	}
-	// Permission prompts are opt-in (--cautious); without it tools run free.
-	if cautious {
-		m.installPermGate()
-	}
-	dir, err := config.Dir()
-	if err != nil {
-		return "", fmt.Errorf("session directory: %w", err)
-	}
-	st, err := session.Open(dir + "/sessions.db")
-	if err != nil {
-		return "", fmt.Errorf("session store: %w", err)
-	}
-	m.store = st
-	defer func() { _ = st.Close() }()
-	// Seed input recall with user messages from ALL sessions (every folder),
-	// so ↑ cycles global history rather than only the current session.
-	if hist, herr := st.UserHistory(500); herr == nil && len(hist) > 0 {
-		for _, h := range slices.Backward(hist) {
-			m.hist = append(m.hist, h)
-		}
-		m.histIdx = len(m.hist)
-	}
-	if resumeID != "" {
-		if err := m.resume(resumeID); err != nil {
-			return "", err
-		}
-	}
-	// Pick up whatever the update check recorded: a notice from an earlier
-	// launch always shows; one discovered by main's background check shows
-	// this launch if its 1 RTT beats startup (first-run trust prompt), else
-	// next launch — the record is durable either way.
-	m.updateLatest = update.Pending(Version)
-	// Resolve the theme BEFORE applyUIMode/startupReport: opencode mode bakes
-	// theme-resolved colors into the input styles, and startupReport's
-	// unknown-background notice must reflect the final detection result.
-	m.themeHow = m.applyTheme(cfg.Theme)
-	if cfg.UIMode == opencodeMode {
-		m.applyUIMode(opencodeMode) // set the mode BEFORE startupReport so it renders opencode-clean
-	}
-	m.startupReport()
-
-	// Inline rendering (no alt-screen): the transcript lives in the normal
-	// terminal scrollback, so terminal scrollback owns history. Mouse capture
-	// is ON with click+wheel+button-motion (?1000/?1002): the wheel scrolls
-	// the viewport (capture off → tmux eats it into copy-mode), ⚡ clicks
-	// work, and a left drag paints whip's own selection and copies on release
-	// (select.go) — terminals hand the drag to the app once any mouse mode is
-	// on, so native selection isn't available anyway.
-	//
-	// We do NOT use tea.WithMouseCellMotion + an output filter: piping the
-	// program output through a non-TTY makes bubbletea skip terminal-size
-	// detection (ttyOutput becomes nil → no WindowSizeMsg → width/height stay
-	// 0 and the whole layout collapses). Instead we keep the real TTY as the
-	// output and enable click/wheel reporting directly on it.
-	opts := []tea.ProgramOption{}
-	if cfg.UIMode == opencodeMode {
-		opts = append(opts, tea.WithAltScreen()) // opencode mode owns the whole screen
-	}
-	// Bottom-anchor the inline view: move the cursor to the terminal's last
-	// row before bubbletea's first paint, so the view's screen position is
-	// knowable (viewTop = height - viewH). Without this the view starts
-	// wherever the shell prompt left the cursor, and mouse events — which are
-	// ABSOLUTE screen coordinates — map a few rows off (drag-select landing
-	// two lines above the pointer).
-	fmt.Fprint(os.Stdout, "\x1b[9999;1H")
-	if m.mouseOn {
-		enableClickWheelMouse(os.Stdout)
-		if cfg.UIMode == opencodeMode {
-			// all-motion tracking (?1003, a superset of ?1002) so passive mouse
-			// moves drive opencode's hover highlight on message cards
-			fmt.Fprint(os.Stdout, "\x1b[?1003h")
-		}
-	}
-	if m.cfgExtra == nil {
-		m.cfgExtra = map[string]string{}
-	}
-	if dir, err := config.Dir(); err == nil { // watcher baseline: only later saves sync
-		if fi, err := os.Stat(filepath.Join(dir, "config.json")); err == nil {
-			m.cfgMod = fi.ModTime()
-		}
-	}
-	p := tea.NewProgram(m, opts...)
-	m.prog = p
-	// install the interactive bash runner so the agent's bash tool can hand
-	// sudo/ssh-style prompts to the user with a 15s inactivity timeout.
-	m.irunner = newInteractiveRunner(p)
-	m.bindToolServices(m.agent)
-	go m.fetchCatalogs(false)
-	go func() { p.Send(cfgSyncTick{}) }() // start the config watcher
-	// From here the terminal belongs to bubbletea: theme re-detections must
-	// not run raw tty queries (see detectColorScheme) or they kill its input
-	// reader with a spurious EOF.
-	tuiRunning = true
-	_, err = p.Run()
-	tuiRunning = false
-	processes := m.agent.Services.ProcessOptions()
-	m.agent.Close()
-	m.agent.Services.Close()
-	// The UI has exited (quit, /quit, or a signal). We enabled click/wheel mouse
-	// reporting directly on the TTY (bubbletea doesn't manage it), so release it.
-	if m.mouseOn {
-		disableClickWheelMouse(os.Stdout)
-	}
-	// Shut MCP servers down first (graceful: stdin close → SIGTERM → SIGKILL)
-	// so a clean stdio server never becomes a KillAll target.
-	if m.mcpMgr != nil {
-		m.mcpMgr.Close()
-	}
-	// LSP servers get the same courtesy (shutdown/exit, then SIGKILL).
-	if m.lspMgr != nil {
-		m.lspMgr.Close()
-	}
-	if processes.Processes != nil && processes.RootID != "" {
-		_ = processes.Processes.StopRoot(processes.RootID)
-	}
-	return m.sessionID, err
-}
 
 func (m *model) bindToolServices(a *agent.Agent) {
 	if a == nil || a.Services == nil {

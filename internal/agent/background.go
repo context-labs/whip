@@ -260,6 +260,14 @@ func (r *taskRegistry) Get(id string) (BackgroundTask, bool) {
 	return *t, true
 }
 
+func (r *taskRegistry) setSubMessages(id string, messages []llm.Message) {
+	r.mu.Lock()
+	if task := r.tasks[id]; task != nil {
+		task.SubMessages = messages
+	}
+	r.mu.Unlock()
+}
+
 // ClearSettled drops every done/error/cancelled task, keeping the running
 // ones. The TUI calls this when a new turn starts: settled tasks have already
 // reported into the transcript, so the dock strip makes room instead of
@@ -439,7 +447,7 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 	if !a.launch("background task "+id, func() {
 		defer func() {
 			if value := recover(); value != nil {
-				t.SubMessages = t.sub.MessagesSnapshot()
+				a.bg.setSubMessages(id, t.sub.MessagesSnapshot())
 				if t.runtime != nil {
 					_ = t.runtime.FinishSubagent(context.Background(), id, TaskError)
 				}
@@ -468,7 +476,7 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		}
 		// Snapshot the transcript BEFORE settle: settle fires OnRecord (which
 		// persists SubMessages), so it must be populated first.
-		t.SubMessages = t.sub.MessagesSnapshot()
+		a.bg.setSubMessages(id, t.sub.MessagesSnapshot())
 		if t.runtime != nil {
 			if finishErr := t.runtime.FinishSubagent(context.Background(), id, status); finishErr != nil {
 				status, text = TaskError, finishErr.Error()

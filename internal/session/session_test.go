@@ -632,8 +632,10 @@ func TestRewindHistoryAtomicallyDropsDerivedTail(t *testing.T) {
 	id, _ := st.Create(t.TempDir(), "m", "p")
 	history := []llm.Message{
 		{Role: "system", Content: "system"},
-		{Role: "user", Content: "q1"}, {Role: "assistant", Content: "a1"},
-		{Role: "user", Content: "q2"}, {Role: "assistant", Content: "a2"},
+		{Role: "user", Content: "q1"},
+		{Role: "assistant", Content: "a1"},
+		{Role: "user", Content: "q2"},
+		{Role: "assistant", Content: "a2"},
 	}
 	if err := st.Save(id, 1, history, "m", "p"); err != nil {
 		t.Fatal(err)

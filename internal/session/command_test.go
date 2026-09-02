@@ -177,6 +177,26 @@ func TestCommandAdmissionRejectsInvalidScopesAndMissingRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.AdmitControlCommand(ctx, CommandAdmission{
+		ClientID: "control", CommandID: "wrong-scope", Scope: CommandScopeDaemon, RequestDigest: "wrong",
+	}); err == nil {
+		t.Fatal("daemon-scoped control command was accepted")
+	}
+	control := CommandAdmission{
+		ClientID: "control", CommandID: "valid", Scope: CommandScopeRoot, RootID: rootID,
+		AgentID: authority.AgentID, Kind: "goal.set", RequestDigest: "control-digest",
+	}
+	createdControl, err := st.AdmitControlCommand(ctx, control)
+	if err != nil || !createdControl.New || createdControl.Command.IngressSeq >= 0 {
+		t.Fatalf("control admission = %+v, %v", createdControl, err)
+	}
+	if retry, err := st.AdmitControlCommand(ctx, control); err != nil || retry.New || retry.Command.IngressSeq != createdControl.Command.IngressSeq {
+		t.Fatalf("control retry = %+v, %v", retry, err)
+	}
+	control.RequestDigest = "conflict"
+	if _, err := st.AdmitControlCommand(ctx, control); !errors.Is(err, ErrCommandConflict) {
+		t.Fatalf("control conflict = %v", err)
+	}
 	if _, err := st.AdmitCommand(ctx, CommandAdmission{
 		ClientID: "root-client", CommandID: "root", Scope: CommandScopeRoot, RootID: rootID,
 		AgentID: authority.AgentID, Kind: "submit", RequestDigest: "root", Payload: RuntimePayload{Data: []byte("work")},
@@ -212,6 +232,12 @@ func TestCommandAPIsReturnClosedStoreErrors(t *testing.T) {
 	ctx := context.Background()
 	if _, err := st.AdmitCommand(ctx, CommandAdmission{ClientID: "c", CommandID: "id", RequestDigest: "d", Scope: CommandScopeDaemon}); err == nil {
 		t.Fatal("closed store admitted command")
+	}
+	if _, err := st.AdmitControlCommand(ctx, CommandAdmission{
+		ClientID: "c", CommandID: "control", RequestDigest: "d", Scope: CommandScopeRoot,
+		RootID: "root", AgentID: "agent", Kind: "goal.set",
+	}); err == nil {
+		t.Fatal("closed store admitted control command")
 	}
 	if _, err := st.LoadCommand(ctx, "c", "id"); err == nil {
 		t.Fatal("closed store loaded command")

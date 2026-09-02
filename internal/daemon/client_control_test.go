@@ -4,14 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/lsp"
+	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 func clientCommand(t *testing.T, root *Session, clientID, commandID, operation string, payload any) CommandResult {
@@ -47,6 +56,9 @@ func TestClientControlCommandsAreActorOwnedAndIdempotent(t *testing.T) {
 	root, err := value.Open(rootID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got := root.rawCompactionCutoff(4, 0); got != 4 {
+		t.Fatalf("empty-history raw cutoff = %d", got)
 	}
 
 	goal := clientCommand(t, root, "tui", "goal", "goal.set", map[string]string{"args": "ship it"})
@@ -155,6 +167,10 @@ func TestClientCancelStopsOnlyCurrentTurn(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("turn did not start")
 	}
+	model := clientCommand(t, root, "tui", "model-during-turn", "session.model", map[string]string{"args": "other provider"})
+	if model.Status != "failed" || !strings.Contains(model.Error, "root operation") {
+		t.Fatalf("model command during turn = %+v", model)
+	}
 	cancelled := clientCommand(t, root, "tui", "cancel", "cancel", map[string]string{})
 	if cancelled.Status != "succeeded" {
 		t.Fatalf("cancel command = %+v", cancelled)
@@ -230,6 +246,28 @@ func TestShellCommandLeavesActorResponsiveAndQueuesTurns(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("shell worker did not start")
 	}
+	retry, err := root.ClientCommand(t.Context(), session.CommandAdmission{
+		ClientID: "tui", CommandID: "shell", RequestDigest: digest,
+		Payload: session.RuntimePayload{Data: payload, MediaType: "application/json", Source: "shell.run"},
+	}, "shell.run", payload)
+	if err != nil || retry.Status != "queued" && retry.Status != "running" {
+		t.Fatalf("in-flight shell retry = %+v, %v", retry, err)
+	}
+	for i, test := range []struct {
+		operation string
+		payload   any
+	}{
+		{"shell.run", map[string]string{"command": "true"}},
+		{"history.compact", map[string]string{}},
+		{"goal.from-context", map[string]string{"args": "2"}},
+		{"history.rewind", map[string]string{"args": "1"}},
+		{"history.clear", map[string]string{}},
+	} {
+		result := clientCommand(t, root, "tui", fmt.Sprintf("busy-%d", i), test.operation, test.payload)
+		if result.Status != "failed" || !strings.Contains(result.Error, "running") {
+			t.Fatalf("busy %s = %+v", test.operation, result)
+		}
+	}
 
 	snapshotCtx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
 	defer cancel()
@@ -284,8 +322,10 @@ func TestExplicitCompactionRunsOffActorAndRecordsDurableSummary(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	if err := store.Save(rootID, 0, []llm.Message{
-		{Role: "user", Content: "one"}, {Role: "assistant", Content: "two"},
-		{Role: "user", Content: "three"}, {Role: "assistant", Content: "four"},
+		{Role: "user", Content: "one"},
+		{Role: "assistant", Content: "two"},
+		{Role: "user", Content: "three"},
+		{Role: "assistant", Content: "four"},
 	}, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
@@ -313,6 +353,9 @@ func TestExplicitCompactionRunsOffActorAndRecordsDurableSummary(t *testing.T) {
 	if err != nil || meta.UsageIn != 30 || meta.UsageOut != 5 {
 		t.Fatalf("compaction usage = %+v, %v", meta, err)
 	}
+	if got := root.rawCompactionCutoff(3, 0); got != 3 {
+		t.Fatalf("nested raw cutoff = %d", got)
+	}
 }
 
 type snapshottingHistoryRunner struct {
@@ -332,6 +375,7 @@ func (r *snapshottingHistoryRunner) WorkspaceClean(context.Context) bool { retur
 func (r *snapshottingHistoryRunner) DropWorkspaceSnapshot(context.Context, string) {
 	r.drops.Add(1)
 }
+
 func (r *snapshottingHistoryRunner) RestoreWorkspace(context.Context, string) (int, error) {
 	r.restores.Add(1)
 	return 1, nil
@@ -342,7 +386,8 @@ func TestClearHistoryAtomicallyDropsDerivedStateAndReleasesSnapshots(t *testing.
 	rootID := createRoot(t, store)
 	if err := store.Save(rootID, 1, []llm.Message{
 		{Role: "system", Content: "system"},
-		{Role: "user", Content: "question"}, {Role: "assistant", Content: "answer"},
+		{Role: "user", Content: "question"},
+		{Role: "assistant", Content: "answer"},
 	}, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
@@ -426,6 +471,7 @@ func TestGoalFromContextRunsOnceOffActorAndStartsGoal(t *testing.T) {
 		t.Fatalf("formulated goal turns = %d", runner.calls.Load())
 	}
 }
+
 func (r *snapshottingHistoryRunner) ReplaceHistory(history []llm.Message) {
 	r.replaced = append([]llm.Message(nil), history...)
 }
@@ -518,5 +564,616 @@ func TestGoalRunUsesOneControlCommandAndStartsTheGoalTurn(t *testing.T) {
 			t.Fatalf("completed goal = %q", meta.Goal)
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+type controlSurfaceRunner struct {
+	*fakeRunner
+	workingDirectory string
+	effort           string
+	terminalID       string
+	terminalInput    string
+	replaced         []llm.Message
+}
+
+func (r *controlSurfaceRunner) ResolveWorkingDirectory(path string) (string, error) {
+	if path == "bad" {
+		return "", errors.New("invalid workspace")
+	}
+	if path != "." {
+		return filepath.Join(r.workingDirectory, path), nil
+	}
+	return r.workingDirectory, nil
+}
+
+func (r *controlSurfaceRunner) SetWorkingDirectory(path string) { r.workingDirectory = path }
+func (r *controlSurfaceRunner) ReplaceHistory(history []llm.Message) {
+	r.replaced = append([]llm.Message(nil), history...)
+}
+
+func (r *controlSurfaceRunner) StartTask(prompt string) (string, error) {
+	if strings.TrimSpace(prompt) == "" {
+		return "", errors.New("task prompt required")
+	}
+	return "task-1", nil
+}
+
+func (r *controlSurfaceRunner) SendTerminalInput(id string, input []byte) error {
+	r.terminalID, r.terminalInput = id, string(input)
+	return nil
+}
+func (r *controlSurfaceRunner) SetEffort(effort string) { r.effort = effort }
+
+type controlSurfaceMCP struct {
+	fakeCloser
+	actions []string
+}
+
+func (m *controlSurfaceMCP) Statuses() []mcp.Server {
+	return []mcp.Server{{Name: "alpha", Status: mcp.StatusReady, Tools: 2}}
+}
+func (m *controlSurfaceMCP) Reconnect(name string) bool { return m.record("reconnect", name) }
+func (m *controlSurfaceMCP) Enable(name string) bool    { return m.record("enable", name) }
+func (m *controlSurfaceMCP) Disable(name string) bool   { return m.record("disable", name) }
+func (m *controlSurfaceMCP) record(action, name string) bool {
+	if name != "alpha" {
+		return false
+	}
+	m.actions = append(m.actions, action)
+	return true
+}
+
+func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
+	mcpManager := &controlSurfaceMCP{}
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: runner, MCP: mcpManager}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := root.AdmitChild(t.Context(), root.AgentID(), "child", "exec-child"); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		id        string
+		operation string
+		args      string
+		contains  string
+	}{
+		{"workspace-inspect", "workspace.inspect", "", runner.workingDirectory},
+		{"workspace-set", "workspace.set", "nested", "nested"},
+		{"effort", "session.effort", "high", "high"},
+		{"model", "session.model", "", "model @ provider"},
+		{"same-model", "session.model", "model provider", "model @ provider"},
+		{"fork", "session.fork", "control fork", ""},
+		{"agents", "agents.list", "", "child"},
+		{"task", "agent.start", "inspect the daemon", "task-1"},
+		{"budget", "budget.cap", root.AgentID() + " tokens 100", `"Limit":100`},
+		{"context", "context.inspect", "", rootID},
+		{"terminal", "terminal.input", "", "input delivered"},
+		{"mcp-list", "mcp.control", "list", "alpha"},
+		{"mcp-reconnect", "mcp.control", "alpha reconnect", "alpha: reconnect"},
+		{"mcp-enable", "mcp.control", "alpha enable", "alpha: enable"},
+		{"mcp-disable", "mcp.control", "alpha disable", "alpha: disable"},
+		{"lsp", "lsp.control", "status", "[]"},
+		{"browser", "browser.control", "status", "disabled"},
+		{"computer", "computer.control", "status", "disabled"},
+		{"stop-child", "agent.control", "stop child", "stopped"},
+		{"delete-child", "agent.delete", "child", "deleted"},
+		{"clear-goal", "goal.set", "clear", ""},
+	}
+	for _, test := range tests {
+		payload := map[string]any{"args": test.args}
+		if test.operation == "terminal.input" {
+			payload = map[string]any{"id": "terminal-7", "bytes": []byte("yes\n")}
+		}
+		result := clientCommand(t, root, "tui", test.id, test.operation, payload)
+		if result.Status != "succeeded" || !strings.Contains(result.Output, test.contains) {
+			t.Fatalf("%s = %+v, want output containing %q", test.operation, result, test.contains)
+		}
+	}
+	if runner.effort != "high" || runner.terminalID != "terminal-7" || runner.terminalInput != "yes\n" {
+		t.Fatalf("runner controls effort=%q terminal=%q %q", runner.effort, runner.terminalID, runner.terminalInput)
+	}
+	if strings.Join(mcpManager.actions, ",") != "reconnect,enable,disable" {
+		t.Fatalf("MCP actions = %v", mcpManager.actions)
+	}
+	meta, _, err := store.Load(rootID)
+	if err != nil || meta.CWD != runner.workingDirectory || meta.Effort != "high" {
+		t.Fatalf("durable controls meta=%+v err=%v", meta, err)
+	}
+}
+
+func TestClientControlRejectsInvalidActionsDurably(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: runner, MCP: &controlSurfaceMCP{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		operation string
+		args      string
+	}{
+		{"workspace.set", "bad"},
+		{"shell.run", ""},
+		{"history.compact", ""},
+		{"goal.from-context", "1"},
+		{"goal.from-context", "2"},
+		{"history.rewind", "not-a-number"},
+		{"session.rename", ""},
+		{"session.open", "missing"},
+		{"schedule.manage", "cancel nope"},
+		{"schedule.manage", "@every nope prompt"},
+		{"schedule.manage", "invalid"},
+		{"agent.start", ""},
+		{"agent.control", ""},
+		{"budget.cap", "missing"},
+		{"budget.cap", root.AgentID() + " tokens nope"},
+		{"capability.revoke", "missing"},
+		{"terminal.input", ""},
+		{"mcp.control", "missing reconnect"},
+		{"mcp.control", "alpha explode"},
+		{"unsupported", ""},
+	}
+	for i, test := range tests {
+		result := clientCommand(t, root, "tui", fmt.Sprintf("invalid-%d", i), test.operation, map[string]string{"args": test.args})
+		if result.Status != "failed" || result.Error == "" {
+			t.Fatalf("%s %q = %+v", test.operation, test.args, result)
+		}
+	}
+	for i, operation := range []string{"shell.run", "goal.from-context", "history.rewind"} {
+		raw := json.RawMessage(`{`)
+		result, err := root.ClientCommand(t.Context(), session.CommandAdmission{
+			ClientID: "tui", CommandID: fmt.Sprintf("malformed-%d", i), RequestDigest: "malformed-payload",
+			Payload: session.RuntimePayload{Data: raw, MediaType: "application/json", Source: operation},
+		}, operation, raw)
+		if err != nil || result.Status != "failed" {
+			t.Fatalf("malformed %s = %+v err=%v", operation, result, err)
+		}
+	}
+	raw := json.RawMessage(`{`)
+	result, err := root.ClientCommand(t.Context(), session.CommandAdmission{
+		ClientID: "tui", CommandID: "malformed-generic", RequestDigest: "malformed-generic",
+		Payload: session.RuntimePayload{Data: raw, MediaType: "application/json", Source: "workspace.inspect"},
+	}, "workspace.inspect", raw)
+	if err != nil || result.Status != "failed" || !strings.Contains(result.Error, "invalid client action payload") {
+		t.Fatalf("malformed generic action = %+v err=%v", result, err)
+	}
+}
+
+func TestClientControlReportsUnsupportedRunnerCapabilities(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		operation string
+		payload   map[string]any
+	}{
+		{"shell.run", map[string]any{"command": "true"}},
+		{"history.compact", map[string]any{}},
+		{"goal.from-context", map[string]any{"args": "2"}},
+		{"history.rewind", map[string]any{"args": "1"}},
+		{"workspace.set", map[string]any{"args": "."}},
+		{"history.clear", map[string]any{}},
+		{"agent.start", map[string]any{"args": "work"}},
+		{"terminal.input", map[string]any{"id": "terminal", "bytes": []byte("x")}},
+	}
+	for i, test := range tests {
+		result := clientCommand(t, root, "tui", fmt.Sprintf("unsupported-%d", i), test.operation, test.payload)
+		if result.Status != "failed" || result.Error == "" {
+			t.Fatalf("%s = %+v", test.operation, result)
+		}
+	}
+	if result := clientCommand(t, root, "tui", "idle-cancel", "cancel", map[string]any{}); result.Status != "succeeded" || result.Output != "already idle" {
+		t.Fatalf("idle cancel = %+v", result)
+	}
+	if result := clientCommand(t, root, "tui", "workspace-fallback", "workspace.inspect", map[string]any{}); result.Output != root.meta.CWD {
+		t.Fatalf("workspace fallback = %+v", result)
+	}
+	if result := clientCommand(t, root, "tui", "mcp-fallback", "mcp.control", map[string]any{}); result.Output != "[]" {
+		t.Fatalf("MCP fallback = %+v", result)
+	}
+}
+
+type failingAsyncRunner struct{ *fakeRunner }
+
+func (r *failingAsyncRunner) RunShell(context.Context, string) (string, error) {
+	return "partial", errors.New("shell failed")
+}
+
+func (r *failingAsyncRunner) CompactNow(context.Context) (clientCompaction, error) {
+	return clientCompaction{}, errors.New("compact failed")
+}
+
+func (r *failingAsyncRunner) FormGoal(context.Context, int) (string, llm.Usage, error) {
+	return "", llm.Usage{}, errors.New("goal failed")
+}
+func (r *failingAsyncRunner) ReplaceHistory([]llm.Message) {}
+func (r *failingAsyncRunner) CaptureWorkspace(context.Context) string {
+	return ""
+}
+func (r *failingAsyncRunner) WorkspaceClean(context.Context) bool { return false }
+func (r *failingAsyncRunner) DropWorkspaceSnapshot(context.Context, string) {
+}
+
+func (r *failingAsyncRunner) RestoreWorkspace(context.Context, string) (int, error) {
+	return 0, errors.New("restore failed")
+}
+
+func TestAsyncClientControlFailuresSettleDurably(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	if err := store.SetSnapshot(rootID, 1, "snapshot-ref"); err != nil {
+		t.Fatal(err)
+	}
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &failingAsyncRunner{fakeRunner: &fakeRunner{}}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		operation string
+		payload   map[string]string
+		want      string
+	}{
+		{"shell.run", map[string]string{"command": "false"}, "shell failed"},
+		{"history.compact", map[string]string{}, "compact failed"},
+		{"goal.from-context", map[string]string{"args": "2"}, "goal failed"},
+		{"history.rewind", map[string]string{"args": "1"}, "restore failed"},
+	}
+	for i, test := range tests {
+		result := clientCommand(t, root, "tui", fmt.Sprintf("async-failure-%d", i), test.operation, test.payload)
+		if result.Status != "failed" || !strings.Contains(result.Error, test.want) {
+			t.Fatalf("%s = %+v", test.operation, result)
+		}
+		retry := clientCommand(t, root, "tui", fmt.Sprintf("async-failure-%d", i), test.operation, test.payload)
+		if retry != result {
+			t.Fatalf("%s retry=%+v want=%+v", test.operation, retry, result)
+		}
+	}
+}
+
+type replaceBlockedRunner struct{ *fakeRunner }
+
+func (*replaceBlockedRunner) CanReplace() error { return errors.New("child task is running") }
+
+func TestModelReplacementRejectsUnsafeFactories(t *testing.T) {
+	tests := []struct {
+		name         string
+		initial      Runner
+		replacement  func() (Components, error)
+		clearFactory bool
+		want         string
+	}{
+		{name: "missing factory", initial: &fakeRunner{}, clearFactory: true, want: "cannot be rebuilt"},
+		{name: "active child", initial: &replaceBlockedRunner{fakeRunner: &fakeRunner{}}, want: "child task is running"},
+		{name: "factory error", initial: &fakeRunner{}, replacement: func() (Components, error) {
+			return Components{}, errors.New("factory failed")
+		}, want: "factory failed"},
+		{name: "nil runner", initial: &fakeRunner{}, replacement: func() (Components, error) {
+			return Components{MCP: &fakeCloser{}, Runtime: &fakeCloser{}}, nil
+		}, want: "no replacement runner"},
+		{name: "runner bind", initial: &fakeRunner{}, replacement: func() (Components, error) {
+			return Components{Runner: &bindErrorRunner{err: errors.New("runner bind failed")}}, nil
+		}, want: "runner bind failed"},
+		{name: "component bind", initial: &fakeRunner{}, replacement: func() (Components, error) {
+			return Components{Runner: &fakeRunner{}, Bind: func(*Session) error { return errors.New("component bind failed") }}, nil
+		}, want: "component bind failed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+			rootID := createRoot(t, store)
+			calls := 0
+			value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+				calls++
+				if calls == 1 || test.replacement == nil {
+					return Components{Runner: test.initial}, nil
+				}
+				return test.replacement()
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = value.Close() })
+			root, err := value.Open(rootID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.clearFactory {
+				root.factory = nil
+			}
+			result := clientCommand(t, root, "tui", "replace", "session.model", map[string]string{"args": "other provider"})
+			if result.Status != "failed" || !strings.Contains(result.Error, test.want) {
+				t.Fatalf("replacement = %+v, want %q", result, test.want)
+			}
+		})
+	}
+}
+
+func TestProductionAgentRunnerControlAdapters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"formed goal"}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}`)
+	}))
+	defer server.Close()
+
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	authority, err := store.EnsureClassicAuthority(t.Context(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	services := tools.NewServices()
+	services.SetBrowser(browser.NewManager(browser.ModeLive), false)
+	services.SetComputerPolicy(computer.NewPolicy(nil, nil, false))
+	services.SetDiagnostics(lsp.NewManager(nil))
+	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
+		t.Fatal(err)
+	}
+	meta, _, err := store.Load(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentValue := agent.NewWithServices(llm.New(server.URL, "key"), "model", 100, "system", services)
+	agentValue.WorkingDir = meta.CWD
+	runner := &agentRunner{agent: agentValue}
+
+	if path, err := runner.ResolveWorkingDirectory("."); err != nil || !filepath.IsAbs(path) {
+		t.Fatalf("resolved workspace=%q err=%v", path, err)
+	}
+	runner.SetWorkingDirectory(agentValue.WorkingDir)
+	if output, err := runner.RunShell(t.Context(), "printf adapter"); err != nil || output != "adapter" {
+		t.Fatalf("shell output=%q err=%v", output, err)
+	}
+	runner.ReplaceHistory([]llm.Message{{Role: "user", Content: "question"}, {Role: "assistant", Content: "answer"}})
+	goal, usage, err := runner.FormGoal(t.Context(), 2)
+	if err != nil || goal != "formed goal" || usage.PromptTokens != 7 || usage.CompletionTokens != 2 {
+		t.Fatalf("goal=%q usage=%+v err=%v", goal, usage, err)
+	}
+	if err := runner.CanReplace(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.StartTask(""); err == nil {
+		t.Fatal("empty task was accepted")
+	}
+	if _, err := runner.StartTask("-m model"); err == nil {
+		t.Fatal("incomplete model override was accepted")
+	}
+	if _, err := runner.StartTask("-m other do work"); err == nil {
+		t.Fatal("unresolvable model override was accepted")
+	}
+	agentValue.ResolveModel = func(model, provider string) (agent.SubModel, error) {
+		if model == "broken" {
+			return agent.SubModel{}, errors.New("route unavailable")
+		}
+		if provider == "" {
+			t.Fatal("provider override was not forwarded")
+		}
+		return agent.SubModel{Client: llm.New(server.URL, "key"), Model: model}, nil
+	}
+	if _, err := runner.StartTask("-m broken@provider do work"); err == nil || !strings.Contains(err.Error(), "route unavailable") {
+		t.Fatalf("resolver failure = %v", err)
+	}
+	id, err := runner.StartTask("-m other@provider one two three four five six seven eight nine")
+	if err != nil || id == "" {
+		t.Fatalf("started task=%q err=%v", id, err)
+	}
+	startedTask, ok := agentValue.Tasks().Get(id)
+	if !ok {
+		t.Fatalf("started task %q was not registered", id)
+	}
+	select {
+	case <-startedTask.Done:
+	case <-time.After(time.Second):
+		t.Fatal("started task did not settle")
+	}
+	queued := agentValue.RegisterBackground("queued", "queued", agent.SubModel{})
+	if err := runner.CanReplace(); err == nil || !strings.Contains(err.Error(), "child task") {
+		t.Fatalf("replace with queued child = %v", err)
+	}
+	agentValue.Tasks().Cancel(queued.ID)
+	agentValue.LaunchBackground(queued, "")
+	select {
+	case <-queued.Done:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled task did not settle")
+	}
+	w, err := agentValue.StartWait(agent.WaitTaskSpec{Command: "sleep 10", Until: "never", Timeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.CanReplace(); err == nil || !strings.Contains(err.Error(), "wait") {
+		t.Fatalf("replace with active wait = %v", err)
+	}
+	if !agentValue.Waits().CancelWait(w.ID) {
+		t.Fatal("active wait was not cancelled")
+	}
+	if runner.browserManager() == nil || runner.lspManager() == nil || runner.computerPolicy() == nil {
+		t.Fatal("configured services were absent from the production adapter")
+	}
+	controlSession := &Session{runner: runner}
+	if output, err := controlSession.clientBrowser("status"); err != nil || output == "" {
+		t.Fatalf("browser status=%q err=%v", output, err)
+	}
+	if output, err := controlSession.clientBrowser("driver chromedp"); err != nil || output != browser.DriverChromedp {
+		t.Fatalf("browser driver=%q err=%v", output, err)
+	}
+	if _, err := controlSession.clientBrowser("invalid"); err == nil {
+		t.Fatal("invalid browser driver was accepted")
+	}
+	if output, err := controlSession.clientComputer("allow Terminal"); err != nil || output != "Terminal: allow" {
+		t.Fatalf("computer allow=%q err=%v", output, err)
+	}
+	if output, err := controlSession.clientComputer("deny Preview"); err != nil || output != "Preview: deny" {
+		t.Fatalf("computer deny=%q err=%v", output, err)
+	}
+	if _, err := controlSession.clientComputer("allow"); err == nil {
+		t.Fatal("invalid computer action was accepted")
+	}
+	lspPayload := json.RawMessage(`{"args":"status"}`)
+	if output, err := controlSession.applyClientCommand(t.Context(), "lsp.control", lspPayload); err != nil || !strings.Contains(output, "[") {
+		t.Fatalf("LSP status=%q err=%v", output, err)
+	}
+	if _, err := controlSession.applyClientCommand(t.Context(), "lsp.control", json.RawMessage(`{"args":"restart"}`)); err == nil {
+		t.Fatal("invalid LSP action was accepted")
+	}
+	emptyRunner := &agentRunner{agent: &agent.Agent{}}
+	if emptyRunner.browserManager() != nil || emptyRunner.lspManager() != nil || emptyRunner.computerPolicy() != nil {
+		t.Fatal("agent without services exposed optional managers")
+	}
+	if _, err := runner.CompactNow(t.Context()); err == nil {
+		t.Fatal("short history unexpectedly compacted")
+	}
+	emptyHistory := &agentRunner{agent: agent.New(llm.New(server.URL, "key"), "model", 100, "system")}
+	if _, _, err := emptyHistory.FormGoal(t.Context(), 2); err == nil {
+		t.Fatal("goal formulation accepted an empty conversation")
+	}
+	runner.SetEffort("max")
+	if agentValue.Effort != "max" {
+		t.Fatalf("effort=%q", agentValue.Effort)
+	}
+	if err := runner.SendTerminalInput("missing", []byte("x")); err == nil {
+		t.Fatal("terminal input succeeded before the daemon bridge was bound")
+	}
+	runner.interactive = newDaemonInteractiveRunner(func(string, StreamEvent) {})
+	if err := runner.SendTerminalInput("stale", []byte("x")); err == nil {
+		t.Fatal("stale terminal input was accepted")
+	}
+	runner.Close()
+}
+
+func TestClientAgentControlMapsTaskIDsToDurableChildren(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}}
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: runner}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := root.AdmitChild(t.Context(), root.AgentID(), "child-agent", "exec-child"); err != nil {
+		t.Fatal(err)
+	}
+	root.children["task-9"] = &liveSubagent{agentID: "child-agent", executionID: "exec-child", running: true}
+	result := clientCommand(t, root, "tui", "stop-mapped-child", "agent.control", map[string]string{"args": "task-9"})
+	if result.Status != "succeeded" || result.Output != "stopped" || root.children["task-9"].running {
+		t.Fatalf("mapped child stop = %+v child=%+v", result, root.children["task-9"])
+	}
+	retry := clientCommand(t, root, "tui", "stop-terminal-child", "agent.control", map[string]string{"args": "child-agent"})
+	if retry.Status != "succeeded" || retry.Output != "stopped" {
+		t.Fatalf("terminal child retry = %+v", retry)
+	}
+	if err := root.completeClientCommand(nil); err == nil {
+		t.Fatal("nil client completion was accepted")
+	}
+}
+
+type recoveringCompactionRunner struct{ *snapshottingHistoryRunner }
+
+func (*recoveringCompactionRunner) CompactNow(context.Context) (clientCompaction, error) {
+	return clientCompaction{}, nil
+}
+
+func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	meta, _, err := store.Load(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := store.EnsureClassicAuthority(t.Context(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
+	root := newSession(store, meta, authority, Components{Runner: runner})
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		operation string
+		payload   string
+	}{
+		{"goal.set", `{"args":"persist"}`},
+		{"workspace.set", `{"args":"."}`},
+		{"session.effort", `{"args":"high"}`},
+		{"session.rename", `{"args":"title"}`},
+		{"history.clear", `{}`},
+		{"schedule.manage", `{"args":"list"}`},
+		{"session.list", `{}`},
+		{"context.inspect", `{}`},
+		{"budget.cap", fmt.Sprintf(`{"args":%q}`, root.AgentID()+" tokens 1")},
+	} {
+		if _, err := root.applyClientCommand(t.Context(), test.operation, json.RawMessage(test.payload)); err == nil {
+			t.Fatalf("closed store accepted %s", test.operation)
+		}
+	}
+	compactionRunner := &recoveringCompactionRunner{snapshottingHistoryRunner: &snapshottingHistoryRunner{fakeRunner: &fakeRunner{}}}
+	root.runner = compactionRunner
+	root.clientBusy = true
+	completion := &clientCommandCompletion{
+		clientID: "tui", commandID: "compact", operation: "history.compact", reply: make(chan clientCommandReply, 1),
+		compact: &clientCompaction{summary: "summary", cutoff: 2, before: []llm.Message{{Role: "system"}, {Role: "user", Content: "question"}}},
+	}
+	if err := root.completeClientCommand(completion); err == nil || len(compactionRunner.replaced) != 1 {
+		t.Fatalf("compaction recovery err=%v history=%+v", err, compactionRunner.replaced)
+	}
+	root.clientBusy = true
+	completion = &clientCommandCompletion{
+		clientID: "tui", commandID: "rewind", operation: "history.rewind", reply: make(chan clientCommandReply, 1),
+		rewind: &clientRewind{cut: 1},
+	}
+	if err := root.completeClientCommand(completion); err == nil {
+		t.Fatal("rewind completion ignored the closed store")
+	}
+	root.clientBusy = true
+	completion = &clientCommandCompletion{
+		clientID: "tui", commandID: "goal", operation: "goal.from-context", reply: make(chan clientCommandReply, 1),
+		goal: &clientGoal{text: "goal"},
+	}
+	if err := root.completeClientCommand(completion); err == nil {
+		t.Fatal("goal completion ignored the closed store")
 	}
 }
