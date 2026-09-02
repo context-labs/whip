@@ -612,8 +612,7 @@ func (s *Store) appendStatePayload(current RuntimeValue, suffix RuntimePayload) 
 		if !utf8.Valid(data) || !utf8.Valid(suffix.Data) {
 			return RuntimePayload{}, fmt.Errorf("%w: text append requires UTF-8", ErrStateAppend)
 		}
-		result := make([]byte, 0, len(data)+len(suffix.Data))
-		result = append(result, data...)
+		result := append([]byte(nil), data...)
 		result = append(result, suffix.Data...)
 		return RuntimePayload{Data: result, MediaType: mediaType, Source: source}, nil
 	case "application/json":
