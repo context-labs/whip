@@ -184,6 +184,9 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 		if components.MCP != nil {
 			err = errors.Join(err, safeClose("mcp", components.MCP.Close))
 		}
+		if components.Runtime != nil {
+			err = errors.Join(err, safeClose("runtime", components.Runtime.Close))
+		}
 		err = errors.Join(err, d.store.Processes().StopRoot(meta.ID))
 		if root != nil {
 			root.supervisor.stop()
@@ -196,6 +199,11 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	root = newSession(d.store, meta, authority, components)
 	if binder, ok := components.Runner.(interface{ bind(*Session) error }); ok {
 		if err := binder.bind(root); err != nil {
+			return nil, err
+		}
+	}
+	if components.Bind != nil {
+		if err := components.Bind(root); err != nil {
 			return nil, err
 		}
 	}

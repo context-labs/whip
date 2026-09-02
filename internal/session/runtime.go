@@ -308,6 +308,17 @@ func (s *Store) ConsumeInbox(ctx context.Context, rootID, agentID string, seq in
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	eventSeq, err := s.consumeInboxTx(ctx, tx, rootID, agentID, seq, now())
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return eventSeq, nil
+}
+
+func (s *Store) consumeInboxTx(ctx context.Context, tx *sql.Tx, rootID, agentID string, seq int64, stamp string) (int64, error) {
 	result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='consumed' WHERE root_id=? AND agent_id=? AND seq=? AND status IN ('queued','running')`, rootID, agentID, seq)
 	if err != nil {
 		return 0, err
@@ -318,14 +329,7 @@ func (s *Store) ConsumeInbox(ctx context.Context, rootID, agentID string, seq in
 		}
 		return 0, ErrInboxTerminal
 	}
-	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "inbox.consumed", actorEvent{AgentID: agentID, InboxSeq: seq, Status: "consumed"}, now())
-	if err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return eventSeq, nil
+	return s.insertActorEventTx(ctx, tx, rootID, "inbox.consumed", actorEvent{AgentID: agentID, InboxSeq: seq, Status: "consumed"}, stamp)
 }
 
 func classicTurnID(agentID string, inboxSeq int64) string {
@@ -1406,6 +1410,9 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	if err := s.settleInterruptedOperationReservations(ctx, tx, "", ""); err != nil {
 		return err
 	}
+	if err := settleInterruptedBudgetReservations(ctx, tx); err != nil {
+		return err
+	}
 	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE status IN ('queued','running','waiting')`, stamp); err != nil { //nolint:gosec // table comes from the static allowlist above
 			return err
@@ -1424,6 +1431,16 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+func settleInterruptedBudgetReservations(ctx context.Context, tx *sql.Tx) error {
+	stamp := now()
+	if _, err := tx.ExecContext(ctx, `UPDATE budgets SET used_value=used_value+reserved_value,reserved_value=0,updated_at=?
+		WHERE kind NOT IN (?,?,?)`, stamp, BudgetActiveOperations, BudgetActiveChildren, BudgetConcurrentChildTurns); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=0,updated_at=? WHERE kind=?`, stamp, BudgetActiveOperations)
+	return err
 }
 
 func recordOrphanContent(ctx context.Context, s *Store) error {

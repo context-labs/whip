@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -542,6 +543,17 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 	return response.Output, err
 }
 
+// Invoke routes a named built-in operation through the same dispatcher,
+// authority, permission, budget, mutation-ordering, and trace path used by
+// Classic tools. RLM host modules use this seam instead of concrete handlers.
+func (s *Services) Invoke(ctx context.Context, operation string, arguments json.RawMessage) (string, error) {
+	spec, ok := classicSpec(operation)
+	if !ok {
+		return "", fmt.Errorf("unknown classic operation %q", operation)
+	}
+	return s.run(ctx, operation, arguments, spec.build(s).Run)
+}
+
 func randomID() (string, error) {
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
@@ -750,6 +762,8 @@ func readTool() Tool {
 				Path   string `json:"path"`
 				Offset int    `json:"offset"`
 				Limit  int    `json:"limit"`
+				Mode   string `json:"_rlm_mode"`
+				Query  string `json:"query"`
 			}
 			if err := json.Unmarshal(args, &a); err != nil {
 				return "", err
@@ -757,6 +771,30 @@ func readTool() Tool {
 			actualPath := a.Path
 			if call, ok := dispatchCall(ctx); ok {
 				actualPath = call.CanonicalPath
+			}
+			switch a.Mode {
+			case "list":
+				entries, err := os.ReadDir(actualPath)
+				if err != nil {
+					return "", err
+				}
+				var output strings.Builder
+				for _, entry := range entries[:min(len(entries), 2_000)] {
+					name := entry.Name()
+					if entry.IsDir() {
+						name += "/"
+					}
+					output.WriteString(name + "\n")
+				}
+				return truncate(output.String()), nil
+			case "search":
+				if a.Query == "" {
+					return "", errors.New("query is required")
+				}
+				return searchFiles(actualPath, a.Query)
+			case "":
+			default:
+				return "", fmt.Errorf("unknown internal read mode %q", a.Mode)
 			}
 			data, err := os.ReadFile(actualPath) //nolint:gosec // dispatched paths are canonical and capability-authorized
 			if err != nil {
@@ -779,6 +817,52 @@ func readTool() Tool {
 			return truncate(b.String()), nil
 		},
 	}
+}
+
+func searchFiles(root, query string) (string, error) {
+	const maxScanned = 8 << 20
+	var output strings.Builder
+	var scanned, matches int
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if path != root && entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !entry.Type().IsRegular() || scanned >= maxScanned || matches >= 100 {
+			return nil
+		}
+		remaining := maxScanned - scanned
+		file, err := os.Open(path) //nolint:gosec // root is dispatcher-canonical and WalkDir does not follow symlinks
+		if err != nil {
+			return nil //nolint:nilerr // an unreadable search entry does not invalidate other matches
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, int64(remaining)))
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil {
+			return nil //nolint:nilerr // an unreadable search entry does not invalidate other matches
+		}
+		scanned += len(data)
+		relative, _ := filepath.Rel(root, path)
+		for index, line := range strings.Split(string(data), "\n") {
+			if strings.Contains(line, query) {
+				fmt.Fprintf(&output, "%s:%d:%s\n", relative, index+1, line)
+				matches++
+				if matches >= 100 {
+					break
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return truncate(output.String()), nil
 }
 
 func writeTool(services *Services) Tool {

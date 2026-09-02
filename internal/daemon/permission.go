@@ -22,6 +22,17 @@ func (s *Session) DecidePermission(ctx context.Context, permissionID string, dec
 	return ticket, err
 }
 
+func (s *Session) InspectPermission(ctx context.Context, permissionID string) (admission capability.Admission, err error) {
+	err = s.routeControl(ctx, func(actorCtx context.Context) error {
+		admission, err = s.store.Pending(actorCtx, permissionID)
+		if err == nil && admission.Request.RootID != s.meta.ID {
+			return capability.ErrDenied
+		}
+		return err
+	})
+	return admission, err
+}
+
 func (s *Session) InspectCapability(ctx context.Context, callerAgentID, capabilityID string) (record sessionstore.CapabilityRecord, err error) {
 	err = s.routeControl(ctx, func(actorCtx context.Context) error {
 		record, err = s.store.InspectCapability(actorCtx, s.meta.ID, callerAgentID, capabilityID)

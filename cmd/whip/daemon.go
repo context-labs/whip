@@ -16,6 +16,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tui"
 )
@@ -56,7 +57,8 @@ func runDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	store, err := session.Open(filepath.Join(dir, "sessions.db"))
+	defaultMode := configuredSessionMode(cfg)
+	store, err := session.OpenWithDefaultMode(filepath.Join(dir, "sessions.db"), defaultMode)
 	if err != nil {
 		return err
 	}
@@ -65,6 +67,8 @@ func runDaemon(ctx context.Context, args []string) error {
 		_ = store.Close()
 		return err
 	}
+	limits := rlmLimits(cfg.RLM)
+	kernels := rlm.NewManager(limits.MaxWorkers)
 	factory := func(_ context.Context, meta session.Meta, history []llm.Message) (daemon.Components, error) {
 		prov, model, apiID, err := cfg.Resolve(meta.Model, meta.Provider)
 		if err != nil {
@@ -76,10 +80,46 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		client := llm.New(prov.BaseURL, key)
 		client.MaxRetries = cfg.MaxRetries
-		ag := agent.New(client, apiID, model.MaxTokens, systemPrompt(meta.CWD, time.Now()))
+		catalogs := config.LoadCatalogs()
+		catalog, hasCatalog := catalogs[meta.Provider]
+		contextLimit := model.ContextWindow()
+		if hasCatalog {
+			if value := catalog.ContextLength(apiID); value > 0 {
+				contextLimit = value
+			}
+		}
+		maxOutput := model.MaxOut
+		if maxOutput <= 0 && hasCatalog {
+			maxOutput = catalog.MaxCompletionTokens(apiID)
+		}
+		if maxOutput <= 0 {
+			maxOutput = contextLimit
+		}
+		prompt := systemPrompt(meta.CWD, time.Now())
+		if meta.Mode == session.ModeRLM {
+			prompt = rlm.BuildPrompt(meta.CWD, nil)
+		}
+		ag := agent.New(client, apiID, maxOutput, prompt)
 		ag.ModelName, ag.Provider = meta.Model, meta.Provider
-		ag.ContextLimit = model.ContextWindow()
-		ag.Effort = tui.DefaultEffortFor(config.LoadCatalogs(), meta.Provider, apiID, cfg.DefaultEffort)
+		ag.ContextLimit = contextLimit
+		ag.Effort = tui.DefaultEffortFor(catalogs, meta.Provider, apiID, cfg.DefaultEffort)
+		if meta.Mode == session.ModeRLM {
+			ag.Messages = append(ag.Messages[:1], rlm.FocusedHistory(history)...)
+			host := newDaemonRLMHost(ag, history)
+			if hasCatalog {
+				input, output, cacheRead, _ := catalog.Pricing(apiID)
+				host.SetPricing(input, output, cacheRead)
+			}
+			kernel, err := rlm.NewKernel(rlm.KernelOptions{Limits: limits, Manager: kernels, Host: host})
+			if err != nil {
+				return daemon.Components{}, err
+			}
+			ag.SetExclusiveTool(rlm.Tool(kernel), "rlm")
+			return daemon.Components{
+				Runner: daemon.NewAgentRunner(ag), Runtime: daemonRLMRuntime{host: host, kernel: kernel},
+				Bind: host.Bind,
+			}, nil
+		}
 		if len(history) > 1 {
 			ag.Messages = append(ag.Messages[:1], history[1:]...)
 		}
@@ -123,4 +163,37 @@ func runDaemon(ctx context.Context, args []string) error {
 		_ = store.SetDaemonStatus(context.Background(), generation, "stopping")
 		return server.Close()
 	}
+}
+
+func configuredSessionMode(cfg *config.Config) session.Mode {
+	if cfg != nil && cfg.RLMEnabled() {
+		return session.ModeRLM
+	}
+	return session.ModeClassic
+}
+
+func rlmLimits(value config.RLMConfig) rlm.Limits {
+	limits := rlm.DefaultLimits()
+	if value.Steps > 0 {
+		limits.Steps = value.Steps
+	}
+	if value.HostRequests > 0 {
+		limits.HostRequests = value.HostRequests
+	}
+	if value.WallMillis > 0 {
+		limits.Wall = time.Duration(value.WallMillis) * time.Millisecond
+	}
+	if value.MemoryMiB > 0 {
+		limits.MemoryBytes = uint64(value.MemoryMiB) << 20
+	}
+	if value.OutputBytes > 0 {
+		limits.OutputBytes = value.OutputBytes
+	}
+	if value.FrameBytes > 0 {
+		limits.FrameBytes = value.FrameBytes
+	}
+	if value.MaxWorkers > 0 {
+		limits.MaxWorkers = value.MaxWorkers
+	}
+	return limits
 }

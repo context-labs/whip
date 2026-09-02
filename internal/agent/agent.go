@@ -93,6 +93,9 @@ type Agent struct {
 	TopP        *float64
 	Tools       []tools.Tool
 	Messages    []llm.Message
+	// TransformInput may replace oversized root input with durable handle
+	// metadata before it enters model context.
+	TransformInput func(context.Context, string) (string, error)
 
 	// ContextLimit is the model's context window in tokens, as advertised by
 	// the provider's GET /models (0 when unadvertised — proactive compaction
@@ -165,9 +168,11 @@ type Agent struct {
 	// toolsMu guards mcpTools: the MCP manager's OnChange can fire (server
 	// settled) while a Turn is streaming, and Turn reads the tool set per
 	// request.
-	toolsMu  sync.Mutex
-	mcpTools []tools.Tool
-	Services *tools.Services
+	toolsMu        sync.Mutex
+	mcpTools       []tools.Tool
+	exclusiveTools bool
+	toolClientID   string
+	Services       *tools.Services
 
 	// BrowserDisabled, when true, keeps browser_exec out of the tool set
 	// (config browser.enabled=false) even when the manager hook exists.
@@ -453,12 +458,34 @@ func (a *Agent) MessagesSnapshot() []llm.Message {
 	return append([]llm.Message(nil), a.Messages...)
 }
 
+// SetSystemPrompt replaces the first system message without racing readers.
+func (a *Agent) SetSystemPrompt(prompt string) {
+	a.msgsMu.Lock()
+	defer a.msgsMu.Unlock()
+	if len(a.Messages) > 0 && a.Messages[0].Role == "system" {
+		a.Messages[0].Content = prompt
+	}
+}
+
 // SetMCPTools swaps in the current MCP tool set (called by the MCP manager's
 // OnChange whenever a server settles). MCP tools live separately from
 // a.Tools so a settle mid-turn never mutates the slice a Turn is reading.
 func (a *Agent) SetMCPTools(ts []tools.Tool) {
 	a.toolsMu.Lock()
-	a.mcpTools = ts
+	if !a.exclusiveTools {
+		a.mcpTools = ts
+	}
+	a.toolsMu.Unlock()
+}
+
+// SetExclusiveTool switches an agent to a single model-facing capability.
+// Later MCP discovery cannot widen this closed tool surface.
+func (a *Agent) SetExclusiveTool(tool tools.Tool, clientID string) {
+	a.toolsMu.Lock()
+	a.Tools = []tools.Tool{tool}
+	a.mcpTools = nil
+	a.exclusiveTools = true
+	a.toolClientID = clientID
 	a.toolsMu.Unlock()
 }
 
@@ -518,9 +545,21 @@ func (a *Agent) TurnWithImages(ctx context.Context, input string, parts []llm.Co
 
 func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, ev Events) (string, error) {
 	var err error
-	ctx, err = tools.WithTurnIdentity(ctx, "classic")
+	a.toolsMu.Lock()
+	clientID := a.toolClientID
+	a.toolsMu.Unlock()
+	if clientID == "" {
+		clientID = "classic"
+	}
+	ctx, err = tools.WithTurnIdentity(ctx, clientID)
 	if err != nil {
 		return "", err
+	}
+	if a.TransformInput != nil {
+		input, err = a.TransformInput(ctx, input)
+		if err != nil {
+			return "", err
+		}
 	}
 	// Decay old tool output before the new user message lands: the pass only
 	// prunes history outside the hot window, and running it pre-append keeps

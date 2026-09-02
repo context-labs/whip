@@ -221,8 +221,17 @@ func (s *Store) StartChildTurn(ctx context.Context, rootID, callerAgentID, execu
 }
 
 func (s *Store) FinishChildTurn(ctx context.Context, rootID, callerAgentID, executionID, status string) (int64, error) {
+	return s.FinishChildTurnWithInbox(ctx, rootID, callerAgentID, executionID, status, nil)
+}
+
+// FinishChildTurnWithInbox atomically terminalizes a successful child turn
+// and acknowledges the durable messages incorporated into that turn.
+func (s *Store) FinishChildTurnWithInbox(ctx context.Context, rootID, callerAgentID, executionID, status string, acknowledged []int64) (int64, error) {
 	if status != "succeeded" && status != "failed" && status != "cancelled" && status != "interrupted" {
 		return 0, errors.New("child turn completion requires a terminal status")
+	}
+	if status != "succeeded" && len(acknowledged) > 0 {
+		return 0, errors.New("only a successful child turn may acknowledge inbox messages")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -249,6 +258,19 @@ func (s *Store) FinishChildTurn(ctx context.Context, rootID, callerAgentID, exec
 	}
 	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
 		return 0, err
+	}
+	seen := make(map[int64]struct{}, len(acknowledged))
+	for _, seq := range acknowledged {
+		if seq < 1 {
+			return 0, errors.New("acknowledged child inbox sequence must be positive")
+		}
+		if _, duplicate := seen[seq]; duplicate {
+			return 0, errors.New("acknowledged child inbox sequences must be unique")
+		}
+		seen[seq] = struct{}{}
+		if _, err := s.consumeInboxTx(ctx, tx, rootID, childID, seq, stamp); err != nil {
+			return 0, err
+		}
 	}
 	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "child.turn."+status, actorEvent{AgentID: childID, ChildExecutionID: executionID, Status: status}, stamp)
 	if err != nil {

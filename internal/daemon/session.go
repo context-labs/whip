@@ -31,6 +31,8 @@ type Closeable interface{ Close() }
 type Components struct {
 	Runner        Runner
 	MCP           Closeable
+	Runtime       Closeable
+	Bind          func(*Session) error
 	GoalMaxRounds int
 }
 
@@ -296,6 +298,7 @@ type Session struct {
 	authority  capability.ClassicAuthority
 	runner     Runner
 	mcp        Closeable
+	runtime    Closeable
 	supervisor *supervisor
 	mailbox    chan inboxReady
 	done       chan struct{}
@@ -317,6 +320,9 @@ type Session struct {
 	offered      []sessionstore.InboxItem
 	accepted     []sessionstore.InboxItem
 	children     map[string]*liveSubagent
+
+	pricingMu sync.RWMutex
+	pricing   modelPricing
 }
 
 func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority capability.ClassicAuthority, components Components) *Session {
@@ -325,14 +331,17 @@ func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority cap
 		goalMax = config.DefaultGoalMaxRounds
 	}
 	return &Session{
-		store: store, meta: meta, authority: authority, runner: components.Runner, mcp: components.MCP,
+		store: store, meta: meta, authority: authority, runner: components.Runner, mcp: components.MCP, runtime: components.Runtime,
 		supervisor: newSupervisor(), mailbox: make(chan inboxReady, 1), done: make(chan struct{}),
 		receipts: make(map[int64][]*Receipt), goalMax: goalMax, children: make(map[string]*liveSubagent),
 	}
 }
 
-func (s *Session) ID() string            { return s.meta.ID }
-func (s *Session) Done() <-chan struct{} { return s.done }
+func (s *Session) ID() string               { return s.meta.ID }
+func (s *Session) AgentID() string          { return s.authority.AgentID }
+func (s *Session) Mode() sessionstore.Mode  { return s.meta.Mode }
+func (s *Session) WorkingDirectory() string { return s.meta.CWD }
+func (s *Session) Done() <-chan struct{}    { return s.done }
 
 func (s *Session) Err() error {
 	s.waitMu.Lock()
@@ -495,6 +504,9 @@ func (s *Session) run() {
 	cleanupErr := safeClose("runner", s.runner.Close)
 	if s.mcp != nil {
 		cleanupErr = errors.Join(cleanupErr, safeClose("mcp", s.mcp.Close))
+	}
+	if s.runtime != nil {
+		cleanupErr = errors.Join(cleanupErr, safeClose("runtime", s.runtime.Close))
 	}
 	cleanupErr = errors.Join(cleanupErr, s.store.Processes().StopRoot(s.meta.ID))
 	s.supervisor.wait()

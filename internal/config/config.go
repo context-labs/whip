@@ -163,21 +163,22 @@ const DefaultCompactPct = 50
 
 // Config is the root of ~/.whip/config.json (JSONC: comments allowed).
 type Config struct {
-	DefaultModel    string `json:"defaultModel"`
-	DefaultProvider string `json:"defaultProvider,omitempty"` // override the model's first provider
-	DefaultEffort   string `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
-	CompactModel    string `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
-	CompactProvider string `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
-	CompactPct      int    `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
-	TaskModel       string `json:"taskModel,omitempty"`       // model subagents (the task tool) run on; "" = the built-in default
-	TaskProvider    string `json:"taskProvider,omitempty"`    // provider for the subagent model; "" = the model's default routing
-	Theme           string `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
-	UIMode          string `json:"uiMode,omitempty"`          // "" (default whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo)
-	Sidebar         *bool  `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
-	Mouse           *bool  `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
-	Thinking        *bool  `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
-	CollapsePaste   *bool  `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
-	GoalMaxRounds   int    `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
+	DefaultModel    string    `json:"defaultModel"`
+	DefaultProvider string    `json:"defaultProvider,omitempty"` // override the model's first provider
+	DefaultEffort   string    `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
+	CompactModel    string    `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
+	CompactProvider string    `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
+	CompactPct      int       `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
+	TaskModel       string    `json:"taskModel,omitempty"`       // model subagents (the task tool) run on; "" = the built-in default
+	TaskProvider    string    `json:"taskProvider,omitempty"`    // provider for the subagent model; "" = the model's default routing
+	Theme           string    `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
+	UIMode          string    `json:"uiMode,omitempty"`          // "" (default whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo)
+	Sidebar         *bool     `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
+	Mouse           *bool     `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
+	Thinking        *bool     `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
+	CollapsePaste   *bool     `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
+	GoalMaxRounds   int       `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
+	RLM             RLMConfig `json:"rlm,omitzero"`
 	// WorktreeSubagents defaults background subagents to run in their own git
 	// worktree so their file edits stay isolated from the parent's tree and
 	// from each other. The subagent tool's per-call `worktree` arg overrides this.
@@ -203,6 +204,21 @@ type Config struct {
 	// computer_exec may drive.
 	Computer ComputerConfig `json:"computer,omitzero"`
 }
+
+// RLMConfig controls the disposable Starlark worker. Zero limit values use
+// the runtime defaults documented by the RLM contract.
+type RLMConfig struct {
+	Enabled      *bool  `json:"enabled,omitempty"`
+	Steps        uint64 `json:"steps,omitempty"`
+	HostRequests int    `json:"hostRequests,omitempty"`
+	WallMillis   int    `json:"wallMillis,omitempty"`
+	MemoryMiB    int    `json:"memoryMiB,omitempty"`
+	OutputBytes  int    `json:"outputBytes,omitempty"`
+	FrameBytes   int    `json:"frameBytes,omitempty"`
+	MaxWorkers   int    `json:"maxWorkers,omitempty"`
+}
+
+func (c Config) RLMEnabled() bool { return c.RLM.Enabled == nil || *c.RLM.Enabled }
 
 // ComputerConfig gates computer_exec per app (codex's per-bundle-id model).
 type ComputerConfig struct {

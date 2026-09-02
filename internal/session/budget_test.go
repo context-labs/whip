@@ -429,6 +429,13 @@ func TestRecoveryReleasesDescendantOperationAndChildReservations(t *testing.T) {
 	if _, err := store.Begin(context.Background(), admission); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.ReserveBudget(context.Background(), rootID, authority.AgentID, []capability.Reservation{
+		{Kind: string(BudgetTokens), Amount: 3},
+		{Kind: string(BudgetCost), Amount: 2},
+		{Kind: string(BudgetActiveOperations), Amount: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -440,13 +447,16 @@ func TestRecoveryReleasesDescendantOperationAndChildReservations(t *testing.T) {
 	if err := store.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range []BudgetKind{BudgetTokens, BudgetActiveChildren, BudgetConcurrentChildTurns} {
+	for _, kind := range []BudgetKind{BudgetTokens, BudgetCost, BudgetActiveOperations, BudgetActiveChildren, BudgetConcurrentChildTurns} {
 		got := budgetState(t, store, rootID, authority.AgentID, kind)
 		if got.Reserved != 0 {
 			t.Errorf("recovered %q=%+v", kind, got)
 		}
-		if kind == BudgetTokens && got.Used != 4 {
+		if kind == BudgetTokens && got.Used != 7 {
 			t.Errorf("recovered cumulative usage=%+v", got)
+		}
+		if kind == BudgetCost && got.Used != 2 {
+			t.Errorf("recovered monetary usage=%+v", got)
 		}
 	}
 	var operationStatus, executionStatus string

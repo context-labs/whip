@@ -19,6 +19,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/termenv v0.16.0
 	github.com/zalando/go-keyring v0.2.8
+	go.starlark.net v0.0.0-20260828210309-6dd8f160a37f
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0

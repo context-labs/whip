@@ -27,6 +27,28 @@ func TestLoadSaveDefaults(t *testing.T) {
 	}
 }
 
+func TestRLMDefaultsEnabledAndCanBeDisabled(t *testing.T) {
+	if !Default().RLMEnabled() {
+		t.Fatal("RLM should default on")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".whip"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := `{"defaultModel":"m","rlm":{"enabled":false,"steps":99,"maxWorkers":2},"providers":{"p":{"baseUrl":"https://example.test","api":"openai-completions"}},"models":{"m":{"providers":["p"]}}}`
+	if err := os.WriteFile(filepath.Join(home, ".whip", "config.json"), []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RLMEnabled() || cfg.RLM.Steps != 99 || cfg.RLM.MaxWorkers != 2 {
+		t.Fatalf("RLM config = %+v", cfg.RLM)
+	}
+}
+
 func TestLoadRejectsBadJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

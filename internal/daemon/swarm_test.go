@@ -133,6 +133,128 @@ func TestDaemonBackgroundSubagentIsDurableAndSteerable(t *testing.T) {
 	}
 }
 
+func TestRootReceivesQueuedPeerMessagesDuringTurn(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	runner := &fakeRunner{turn: func(ctx context.Context, _ string, _ bool) (string, error) {
+		close(started)
+		select {
+		case <-release:
+			return "done", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}}
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: runner}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	root, err := owner.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	childID := root.AgentID() + ":messenger"
+	if err := root.AdmitChild(context.Background(), root.AgentID(), childID, "exec-messenger"); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := root.Submit(context.Background(), "hold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("root turn did not start")
+	}
+	if _, err := root.SendAgentMessage(context.Background(), childID, root.AgentID(), session.AgentMessage{Delivery: session.DeliveryQueued, Body: "evidence ready"}); err != nil {
+		t.Fatal(err)
+	}
+	messages, err := root.ReceiveAgentMessages(context.Background(), root.AgentID(), 8)
+	if err != nil || len(messages) != 1 || messages[0].SenderAgentID != childID || messages[0].Body != "evidence ready" {
+		t.Fatalf("received messages = %+v, %v", messages, err)
+	}
+	if messages, err := root.ReceiveAgentMessages(context.Background(), root.AgentID(), 8); err != nil || len(messages) != 0 {
+		t.Fatalf("message replay = %+v, %v", messages, err)
+	}
+	if _, err := root.ReceiveAgentMessages(context.Background(), childID, 8); !errors.Is(err, session.ErrAgentAccess) {
+		t.Fatalf("child polled root inbox: %v", err)
+	}
+	close(release)
+	if completion := waitReceipt(t, receipt); completion.Err != nil {
+		t.Fatal(completion.Err)
+	}
+}
+
+func TestDurableChildConsumesQueuedInboxWhenStarted(t *testing.T) {
+	var calls atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var call llm.Request
+		if err := json.NewDecoder(request.Body).Decode(&call); err != nil {
+			t.Error(err)
+			return
+		}
+		calls.Add(1)
+		found := slices.ContainsFunc(call.Messages, func(message llm.Message) bool {
+			return strings.Contains(message.Content, "queued evidence")
+		})
+		content := "first pass"
+		if found {
+			content = "saw queued evidence"
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q},\"finish_reason\":\"stop\"}]}\n\n", content)
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer provider.Close()
+
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	root, err := owner.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := agent.New(llm.New(provider.URL, "key"), "model", 100, "child")
+	t.Cleanup(child.Close)
+	if err := root.AdmitRLMSubagent(context.Background(), "reader", child, []string{"read"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	childID := root.AgentID() + ":reader"
+	if _, err := root.SendAgentMessage(context.Background(), root.AgentID(), childID, session.AgentMessage{Delivery: session.DeliveryQueued, Body: "queued evidence"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := root.StartSubagent(context.Background(), "reader"); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := store.LoadQueuedInbox(context.Background(), rootID, childID, 0, 10)
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("in-flight durable inbox = %+v, %v", queued, err)
+	}
+	output, err := child.Turn(context.Background(), "begin", agent.Events{})
+	if err != nil || output != "saw queued evidence" || calls.Load() != 2 {
+		t.Fatalf("child output = %q, calls=%d, err=%v", output, calls.Load(), err)
+	}
+	if err := root.FinishSubagent(context.Background(), "reader", agent.TaskDone); err != nil {
+		t.Fatal(err)
+	}
+	queued, err = store.LoadQueuedInbox(context.Background(), rootID, childID, 0, 10)
+	if err != nil || len(queued) != 0 {
+		t.Fatalf("committed child inbox = %+v, %v", queued, err)
+	}
+	root.ReleaseSubagent("reader")
+}
+
 func TestDaemonSubagentRespectsParentTokenBudget(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
