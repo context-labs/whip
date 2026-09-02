@@ -56,16 +56,32 @@ func checkTrust(r *bufio.Reader) (trustOutcome, error) {
 	// Neither → defer to the in-TUI prompt.
 	in := r
 	out := io.Writer(os.Stderr)
+	// tty, when non-nil, is the writable /dev/tty we fell back to; its Close
+	// error is checked (CodeQL: a writable handle's failed close can mean lost
+	// output — here, the prompt the user is supposed to read).
+	var tty *os.File
 	if st, err := trustStdin().Stat(); err != nil || st.Mode()&os.ModeCharDevice == 0 {
-		tty, terr := trustDevTTY()
+		var terr error
+		tty, terr = trustDevTTY()
 		if terr != nil {
 			return trustDeferred, nil
 		}
-		defer tty.Close()
 		in = bufio.NewReader(tty)
 		out = tty
 	}
+	outcome, err := askTrust(in, out, wd)
+	if tty != nil {
+		if cerr := tty.Close(); cerr != nil && err == nil {
+			err = cerr // surface a failed close; the prompt may not have flushed
+		}
+	}
+	return outcome, err
+}
 
+// askTrust renders the folder-trust dialog on out, reads one line from in, and
+// maps the answer to an outcome. Enter/"y"/"yes" records trust; anything else
+// (or a read error) declines.
+func askTrust(in *bufio.Reader, out io.Writer, wd string) (trustOutcome, error) {
 	fmt.Fprintf(out, "\nDo you trust the files in this folder?\n%s\n\n", wd)
 	fmt.Fprintln(out, "whip may read files in this folder. Reading untrusted files may lead whip to behave in unexpected ways.")
 	fmt.Fprintln(out, "")

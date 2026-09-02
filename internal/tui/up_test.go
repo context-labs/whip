@@ -116,16 +116,31 @@ func TestDeferredTrustOpensPromptAndHolds(t *testing.T) {
 
 	cmd := m.Init()
 	if cmd == nil {
-		t.Fatal("Init with a pending trust gate must open the prompt")
+		t.Fatal("Init with a pending trust gate must emit the open-trust msg")
 	}
-	// Run the batched cmds: none should kick off a turn; one opens the prompt.
+	// Run the batched cmds: none should kick off a turn; one asks Update to open
+	// the trust prompt. Init must NOT mutate the model (tea.Batch runs cmds on
+	// goroutines that would race the first WindowSizeMsg/View).
+	if m.namePrompt != nil {
+		t.Fatal("Init must not open the prompt itself — that's Update's job")
+	}
+	var sawOpen bool
 	if batch, is := cmd().(tea.BatchMsg); is {
 		for _, c := range batch {
-			if _, is := c().(initialPromptMsg); is {
+			switch c().(type) {
+			case initialPromptMsg:
 				t.Fatal("a pending trust gate must not emit the initial-prompt kickoff")
+			case trustOpenMsg:
+				sawOpen = true
 			}
 		}
 	}
+	if !sawOpen {
+		t.Fatal("Init should emit a trustOpenMsg for the deferred gate")
+	}
+	// Drive the open through Update (the UI thread) as the loop would.
+	tm, _ := m.Update(trustOpenMsg{})
+	m = tm.(*model)
 	if m.namePrompt == nil {
 		t.Fatal("the deferred trust gate should open the inline trust prompt")
 	}

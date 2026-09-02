@@ -280,6 +280,11 @@ type model struct {
 // initialPromptMsg is Init's one-shot kickoff of a `whip up` first turn.
 type initialPromptMsg struct{}
 
+// trustOpenMsg is Init's one-shot signal to open the in-TUI trust prompt. It's
+// a msg (not a cmd that mutates) so openTrustPrompt runs on the Update thread,
+// not a tea.Batch cmd goroutine racing the first WindowSizeMsg/View.
+type trustOpenMsg struct{}
+
 // trustAnswerMsg carries the in-TUI trust-gate answer back through Update so
 // it can return tea.Quit on decline (a namePrompt onOK callback can't).
 type trustAnswerMsg struct{ approved bool }
@@ -1459,11 +1464,13 @@ func (m *model) Init() tea.Cmd {
 		cmds = append(cmds, themePollTick())
 	}
 	if m.trustPending != "" {
-		// Deferred trust gate (non-TTY stdin): ask the question inline instead
-		// of kicking off a turn. The `whip up` prompt sits in heldPrompt until
-		// the answer lands. Side-effecting open runs as a cmd so m.prog and the
-		// first render exist before the prompt takes over the input box.
-		cmds = append(cmds, func() tea.Msg { m.openTrustPrompt(); return nil })
+		// Deferred trust gate (no terminal): ask the question inline instead of
+		// kicking off a turn. The `whip up` prompt sits in heldPrompt until the
+		// answer lands. We emit a msg rather than mutating here — tea.Batch runs
+		// cmds on their own goroutines, and openTrustPrompt touches m.blocks /
+		// m.vp / m.input, which would race the first WindowSizeMsg/View. Update
+		// handles it on the UI thread (the initialPromptMsg pattern).
+		cmds = append(cmds, func() tea.Msg { return trustOpenMsg{} })
 	} else if m.initialPrompt != "" {
 		// Batch blink with the kickoff; the turn's p.Send is nil-safe in headless tests.
 		cmds = append(cmds, func() tea.Msg { return initialPromptMsg{} })
@@ -1844,6 +1851,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hist = append(m.hist, text)
 		m.histIdx = len(m.hist)
 		return m.submit(text)
+
+	case trustOpenMsg:
+		// One-shot: consume so a replayed Init can't reopen over the gate.
+		if m.trustPending == "" {
+			return m, nil
+		}
+		m.openTrustPrompt()
+		return m, nil
 
 	case trustAnswerMsg:
 		dir := m.trustPending
