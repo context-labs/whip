@@ -80,6 +80,7 @@ func TestCtrlAGoesToLineStart(t *testing.T) {
 // off) reports shift+enter as a plain CR and whip can never see it. Pin the
 // escape sequence and that Run pushes/pops it.
 func TestKeyboardEnhancementEscapes(t *testing.T) {
+	t.Setenv("TMUX", "") // exercise the non-tmux path deterministically
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -96,6 +97,26 @@ func TestKeyboardEnhancementEscapes(t *testing.T) {
 	}
 	if !strings.Contains(got, "\x1b[<u") {
 		t.Errorf("must pop the keyboard stack \\x1b[<u, got %q", got)
+	}
+}
+
+// Inside tmux the kitty push/pop must be DCS-passthrough-wrapped so it reaches
+// the outer terminal (a pane's bare escape is interpreted by tmux itself).
+func TestTmuxPassthrough(t *testing.T) {
+	t.Setenv("TMUX", "/tmp/tmux-1000/default,1,0")
+	got := tmuxPassthrough("\x1b[>3u")
+	want := "\x1bPtmux;\x1b\x1b[>3u\x1b\\"
+	if got != want {
+		t.Errorf("tmux passthrough = %q, want %q", got, want)
+	}
+}
+
+// Outside tmux (no TMUX, no tmux/screen TERM) the sequence is unchanged.
+func TestTmuxPassthroughOutsideTmux(t *testing.T) {
+	t.Setenv("TMUX", "")
+	t.Setenv("TERM", "xterm-256color")
+	if got := tmuxPassthrough("\x1b[>3u"); got != "\x1b[>3u" {
+		t.Errorf("outside tmux the sequence passes through unchanged, got %q", got)
 	}
 }
 
