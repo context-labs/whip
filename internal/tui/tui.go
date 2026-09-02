@@ -511,6 +511,12 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// Written before p.Run(): the kitty stack survives the alt-screen entry,
 	// and the matching pop on exit restores the terminal's prior flags.
 	enableKeyboardEnhancement(os.Stdout)
+	// Inside tmux the kitty push does NOT reach the pane's key handling —
+	// tmux gates modifier-key translation on its own extended-keys option
+	// (off = shift+enter arrives as plain CR, indistinguishable from enter).
+	// Enable it on this pane (with the csi-u format whip's isShiftEnterSeq
+	// matches) and restore the prior value on exit.
+	tmuxExtKeysRestore := tmuxEnableExtendedKeys()
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
 	}
@@ -541,6 +547,10 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	}
 	// Pop the keyboard-enhancement flags pushed at startup.
 	disableKeyboardEnhancement(os.Stdout)
+	// Restore tmux's extended-keys on this pane to whatever it was before.
+	if tmuxExtKeysRestore != nil {
+		tmuxExtKeysRestore()
+	}
 	// Shut MCP servers down first (graceful: stdin close → SIGTERM → SIGKILL)
 	// so a clean stdio server never becomes a KillAll target.
 	if m.mcpMgr != nil {
@@ -693,6 +703,43 @@ func tmuxPassthrough(seq string) string {
 		return seq
 	}
 	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
+}
+
+// tmuxEnableExtendedKeys turns on tmux's extended-keys (csi-u format) for
+// whip's own pane and returns a restore func. tmux gates modifier-key
+// translation on this option: with it off (the user's config here),
+// shift+enter arrives as plain CR and whip cannot tell it from enter. This is
+// pane-scoped, so it never touches the user's global/server setting; the
+// restore func puts back whatever value the pane had. Returns nil outside
+// tmux or when tmux can't be reached.
+func tmuxEnableExtendedKeys() func() {
+	if !inTmuxEnv() {
+		return nil
+	}
+	read := func(opt string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{"+opt+"}").Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+	set := func(opt, val string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		// -p scopes to the current pane (this process's TMUX_PANE). Best-effort:
+		// a failure just means shift+enter stays a plain CR in this tmux.
+		_ = exec.CommandContext(ctx, "tmux", "set", "-p", opt, val).Run()
+	}
+	prevKeys := read("extended-keys")
+	prevFormat := read("extended-keys-format")
+	set("extended-keys", "on")
+	set("extended-keys-format", "csi-u")
+	return func() {
+		set("extended-keys", prevKeys)
+		set("extended-keys-format", prevFormat)
+	}
 }
 
 // (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whip — tmux's
