@@ -14,6 +14,7 @@ import (
 
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
+	"github.com/context-labs/whip/internal/workflow"
 )
 
 // Events receives streaming callbacks during a turn. All fields are optional.
@@ -153,6 +154,11 @@ type Agent struct {
 	toolsMu  sync.Mutex
 	mcpTools []tools.Tool
 
+	// wfMu guards wf: the workflow run manager is created lazily on the first
+	// workflow tool call (possibly from a tool worker goroutine).
+	wfMu sync.Mutex
+	wf   *workflow.Manager
+
 	// BrowserDisabled, when true, keeps browser_exec out of the tool set
 	// (config browser.enabled=false) even when the manager hook exists.
 	BrowserDisabled bool
@@ -291,6 +297,7 @@ func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *
 		a.Tools = append(a.Tools, tools.ComputerExec())
 	}
 	a.Tools = append(a.Tools, taskTool(a), taskSteerTool(a))
+	a.Tools = append(a.Tools, workflowTool(a))
 	a.Tools = append(a.Tools, todoTool(a))
 	a.Tools = append(a.Tools, waitTool(a))
 	a.Tools = append(a.Tools, memoryTools(a)...)
