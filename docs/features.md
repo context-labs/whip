@@ -147,6 +147,36 @@ catalog (hidden when the model has no advertised price). The result note
 renders even with no session store; the `raw history preserved` suffix appears
 only once the event is actually recorded.
 
+### Delegation nudges (proactive + context-pressure)
+
+Two mechanisms steer the model toward the `subagent` tool, modeled on how
+opencode and Claude Code drive delegation (their `task.txt` / sub-agent docs —
+delegation frequency is a prompt-engineering problem, not a capability one).
+
+- **Proactive guidance** lives in the base system prompt
+  (`cmd/whip/main.go` `systemPrompt`): a Guidelines line tells the model to
+  route multi-file exploration, codebase questions, and independent parallel
+  work to subagents (whose context absorbs the bulk and returns only the
+  distilled report), and to fire independent investigations as parallel
+  subagent calls in one message — while not delegating a lookup it already
+  knows the file for.
+- **Context-pressure nudge**: once the estimated token count crosses 35% of
+  the advertised context window (`nudgeThreshold`, below the 50% compaction
+  threshold so delegation can still *prevent* the fold), `Turn` appends an
+  ephemeral trailing system message each round (`contextPressureNudge`,
+  `internal/agent/agent.go`) telling the model current usage and to hand the
+  next big investigation to a subagent before doing more inline bulk reading.
+  Like the todo block, the nudge is re-derived per round and never persisted
+  to `a.Messages`, so it can't fossilize in the transcript after compaction
+  shrinks usage back down. It no-ops when the provider advertises no context
+  limit. The message pushes what the model controls (delegation), not a
+  compaction warning (which it doesn't control).
+
+Tests: `TestContextPressureNudge` (off without a limit, quiet below the
+threshold, fires above it naming subagent delegation),
+`TestContextPressureNudgeIsEphemeralPerRound` (rides the streamed request,
+never persisted into `a.Messages`).
+
 ### Provider prompt-prefix caching
 
 To cut time-to-first-token on the many sequential turns of an agent loop,

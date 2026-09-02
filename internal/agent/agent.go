@@ -432,6 +432,12 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			msgs = append(append([]llm.Message(nil), a.Messages...),
 				llm.Message{Role: "system", Content: block})
 		}
+		if nudge := a.contextPressureNudge(); nudge != "" {
+			// Same ephemeral-append pattern as todoBlock: re-derived each round,
+			// never persisted, so it appears exactly while pressure is high.
+			msgs = append(append([]llm.Message(nil), msgs...),
+				llm.Message{Role: "system", Content: nudge})
+		}
 		// Surface transient-request retries through the event hook so the UI
 		// shows "retrying" instead of looking hung. Set/restored per call: the
 		// client may outlive this turn's Events.
@@ -651,6 +657,31 @@ func (a *Agent) threshold() float64 {
 		return a.CompactThreshold
 	}
 	return defaultCompactThreshold
+}
+
+// nudgeThreshold is the fraction of ContextLimit at which Turn starts
+// reminding the model to delegate bulk work to subagents instead of pulling
+// it into the main context. It sits below the compaction threshold so the
+// nudge lands while delegation can still prevent the fold, not after it.
+// 35% is early enough to matter, late enough not to nag on short turns.
+const nudgeThreshold = 0.35
+
+// contextPressureNudge returns the ephemeral "delegate before you bloat"
+// reminder, or "" when context pressure is low (or the provider advertised
+// no limit). Turn appends it as a trailing system message each round it
+// applies — never persisted, so it can't fossilize in the transcript after
+// compaction shrinks things back down. The message is deliberately not a
+// compaction warning: the model doesn't control when compaction fires, only
+// how much it hoards — so it pushes the behavior the model *does* control.
+func (a *Agent) contextPressureNudge() string {
+	if a.ContextLimit == 0 {
+		return ""
+	}
+	pct := 100 * EstimateTokens(a.Messages) / a.ContextLimit
+	if pct < int(nudgeThreshold*100) {
+		return ""
+	}
+	return fmt.Sprintf("Context usage is at ~%d%% of the window and old turns will be folded into a summary at %.0f%%. Before doing more bulk reading or exploration inline, delegate it to a subagent — its context absorbs the file contents and search results, and only the distilled report lands here. Finish the current step, then hand the next big investigation off (parallel subagent calls in one message for independent questions; background:true for work you don't need to block on).", pct, a.threshold()*100)
 }
 
 // maybeCompact folds old turns into a summary once the estimated token count

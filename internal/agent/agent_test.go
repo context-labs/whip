@@ -589,6 +589,73 @@ func TestCompactThresholdExplicitOverride(t *testing.T) {
 	}
 }
 
+func TestContextPressureNudge(t *testing.T) {
+	// no advertised limit: nudge disabled regardless of size
+	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	ag.Messages = append(ag.Messages, llm.Message{Role: "user", Content: strings.Repeat("x", 4000)})
+	if n := ag.contextPressureNudge(); n != "" {
+		t.Fatalf("no context limit should mean no nudge, got %q", n)
+	}
+
+	// below the 35% nudge threshold: quiet
+	ag2 := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	ag2.ContextLimit = 10000 // 35% = 3500 estimated tokens
+	ag2.Messages = append(ag2.Messages, llm.Message{Role: "user", Content: strings.Repeat("x", 1200)})
+	if n := ag2.contextPressureNudge(); n != "" {
+		t.Fatalf("below nudge threshold should stay quiet, got %q", n)
+	}
+
+	// above the threshold: nudge fires and names subagent delegation
+	ag3 := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	ag3.ContextLimit = 1000 // 35% = 350 estimated tokens
+	ag3.Messages = append(ag3.Messages, llm.Message{Role: "user", Content: strings.Repeat("x", 1800)})
+	n := ag3.contextPressureNudge()
+	if n == "" {
+		t.Fatal("expected a nudge above the threshold")
+	}
+	if !strings.Contains(n, "subagent") {
+		t.Fatalf("nudge should push subagent delegation, got %q", n)
+	}
+	if !strings.Contains(n, "%") {
+		t.Fatalf("nudge should report current usage, got %q", n)
+	}
+}
+
+func TestContextPressureNudgeIsEphemeralPerRound(t *testing.T) {
+	// the nudge rides each streamed request as a trailing system message but is
+	// never appended to a.Messages — resume and compaction see a clean history
+	var sawNudge atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		json.NewDecoder(r.Body).Decode(&req)
+		for _, m := range req.Messages {
+			if m.Role == "system" && strings.Contains(m.Content, "delegate it to a subagent") {
+				sawNudge.Store(true)
+			}
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"}}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag.ContextLimit = 1000
+	// seed history over the 35% nudge threshold but under the 50% compact one
+	ag.Messages = append(ag.Messages, llm.Message{Role: "user", Content: strings.Repeat("x", 1500)})
+	if _, err := ag.Turn(context.Background(), "hi", Events{}); err != nil {
+		t.Fatal(err)
+	}
+	if !sawNudge.Load() {
+		t.Fatal("the request should have carried the delegation nudge")
+	}
+	for _, m := range ag.Messages {
+		if strings.Contains(m.TextContent(), "delegate it to a subagent") {
+			t.Fatal("nudge must not be persisted into the conversation")
+		}
+	}
+}
+
 func TestNoProactiveCompactBelowThresholdOrWithoutLimit(t *testing.T) {
 	srv := textServer(t, func(n int, req llm.Request) string { return "done" })
 	defer srv.Close()
