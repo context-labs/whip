@@ -855,18 +855,23 @@ func TestOpencodePrompt(t *testing.T) {
 	t.Cleanup(func() { mdMu.Lock(); mdLight, mdKnown = sl, sk; mdMu.Unlock() })
 
 	mdMu.Lock()
-	mdLight, mdKnown = false, true // known dark: full chrome with ▀ shadow
+	mdLight, mdKnown = false, true // known dark
 	mdMu.Unlock()
 	got := m.opencodePrompt("type here", 40)
-	if !strings.Contains(got, "┃") || !strings.Contains(got, "╹") || !strings.Contains(got, "▀") {
-		t.Fatal("prompt chrome missing ┃/╹/▀")
+	if !strings.Contains(got, "┃") {
+		t.Fatal("prompt chrome missing ┃")
+	}
+	// Straight box: the ╹ tail / ▀ shadow read as an extra slab with a black
+	// notch at bottom-left (issue #100) — they must be gone in every theme.
+	if strings.Contains(got, "╹") || strings.Contains(got, "▀") {
+		t.Fatalf("prompt should have a straight bottom edge, no ╹/▀ chrome: %q", got)
 	}
 
 	mdMu.Lock()
-	mdKnown = false // unknown bg: the ▀ shadow must be skipped (it would render as a black bar on a light terminal)
+	mdKnown = false
 	mdMu.Unlock()
-	if unk := m.opencodePrompt("type here", 40); strings.Contains(unk, "▀") || !strings.Contains(unk, "╹") {
-		t.Fatalf("unknown-theme prompt should keep ╹ but drop ▀: %q", unk)
+	if unk := m.opencodePrompt("type here", 40); strings.Contains(unk, "▀") || strings.Contains(unk, "╹") {
+		t.Fatalf("unknown-theme prompt should also have a straight bottom edge: %q", unk)
 	}
 	if !strings.Contains(got, "kimi") && !strings.Contains(got, "Off") {
 		// meta row present (mode label at minimum)
@@ -1003,7 +1008,7 @@ func TestOpencodePromptRowsKeepFillAcrossResets(t *testing.T) {
 		t.Fatal("element bg resolved to no sequence under a known theme")
 	}
 	rows := strings.Split(out, "\n")
-	for i, ln := range rows[:len(rows)-1] { // the ╹/▀ tail row is chrome, not a fill row
+	for i, ln := range rows { // straight box: every row is a fill row
 		if w := lipgloss.Width(ln); w != m.width {
 			t.Fatalf("prompt row %d is %d cells, want %d (a wrap or a short row breaks the frame): %q", i, w, m.width, ln)
 		}

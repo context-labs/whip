@@ -361,16 +361,11 @@ func (m *model) opencodePrompt(inner string, width int) string {
 	muted := lipgloss.NewStyle().Foreground(ocMutedCol()).Background(ocElementBg())
 	meta := agent.Render(m.ocModeLabel()) + muted.Render(" · ") + txt.Render(m.modelName) + muted.Render("  "+m.provName)
 	b.WriteString(fill(bar+elem.Render("  ")+meta) + "\n")
-	// Soft bottom edge: a ╹ tail then a ▀ line the SAME color as the box fill, so
-	// it reads as the box's rounded bottom rather than a bright bar. When the
-	// terminal background is unknown there is no box fill to match — skip the ▀
-	// glyphs (they'd render in the default fg: a solid black bar on a light
-	// terminal) and keep just the bar tail so the row count stays stable.
-	b.WriteString(lipgloss.NewStyle().Foreground(ocAgentCol()).Render("╹"))
-	if ocThemeKnown() {
-		shadow := lipgloss.NewStyle().Foreground(ocElementBg())
-		b.WriteString(shadow.Render(strings.Repeat("▀", max(width-1, 0))))
-	}
+	// Straight bottom edge: one last filled box row so the fill runs all the
+	// way to the bottom of the box — no ╹ tail, no ▀ shadow (the half-block
+	// shadow read as a solid extra slab with a black notch at bottom-left on
+	// real terminals, issue #100).
+	b.WriteString(fill(bar))
 	return b.String()
 }
 
