@@ -970,6 +970,55 @@ func TestOpencodePromptClampsWideLines(t *testing.T) {
 	}
 }
 
+// TestOpencodePromptRowsKeepFillAcrossResets (issue #100): the textarea's
+// placeholder/cursor styles close with a full \x1b[0m mid-row, which drops the
+// box's element background. On a real terminal the trailing fill pad then
+// re-anchors to the content instead of the box edge, so the row paints its
+// fill only as far as the text — the prompt box fragments into disconnected
+// gray chips instead of one continuous filled box. Every box row must keep the
+// element background open across the row: open with it, re-open it after every
+// mid-row reset, and only let the very last reset (at the row's right edge)
+// close it.
+func TestOpencodePromptRowsKeepFillAcrossResets(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)         // render the real SGR sequences
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) }) // restore: leaking TrueColor breaks later tests
+	mdMu.Lock()
+	sl, sk := mdLight, mdKnown
+	mdMu.Unlock()
+	t.Cleanup(func() { mdMu.Lock(); mdLight, mdKnown = sl, sk; mdMu.Unlock() })
+	mdMu.Lock()
+	mdLight, mdKnown = false, true // known dark: full panel fills
+	mdMu.Unlock()
+
+	m := compactCmdModel()
+	m.applyUIMode(opencodeMode)
+	t.Cleanup(func() { m.applyUIMode("") })
+	m.Update(mkWinSize(115, 24))
+	m.input.Placeholder = whipPlaceholder
+
+	out := m.opencodePrompt(m.highlightInput(m.input.View()), m.width)
+	bg := bgSeqOf(ocElementBg())
+	if bg == "" {
+		t.Fatal("element bg resolved to no sequence under a known theme")
+	}
+	rows := strings.Split(out, "\n")
+	for i, ln := range rows[:len(rows)-1] { // the ╹/▀ tail row is chrome, not a fill row
+		if w := lipgloss.Width(ln); w != m.width {
+			t.Fatalf("prompt row %d is %d cells, want %d (a wrap or a short row breaks the frame): %q", i, w, m.width, ln)
+		}
+		if !strings.HasPrefix(ln, bg) {
+			t.Fatalf("prompt row %d does not open with the element bg — the renderer can drop its fill: %q", i, ln)
+		}
+		// Every \x1b[0m except the row's final one must re-open the bg, or the
+		// fill breaks before the right edge.
+		body := strings.TrimSuffix(ln, "\x1b[0m") // drop the closing reset at the edge
+		if rest := strings.ReplaceAll(body, "\x1b[0m"+bg, ""); strings.Contains(rest, "\x1b[0m") {
+			t.Fatalf("prompt row %d has a mid-row reset that drops the bg (fill fragments): %q", i, ln)
+		}
+	}
+}
+
 // TestGrowInputKeepsModeChrome: growInput rebuilds the textarea; the rebuild
 // must carry the current mode's prompt/placeholder/styles or opencode mode
 // reverts to whip's "┃ " prompt (a double bar that widens the box row).
