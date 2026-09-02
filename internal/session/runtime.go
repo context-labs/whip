@@ -181,6 +181,7 @@ type ClassicTurnCommit struct {
 	Model             string
 	Provider          string
 	Error             string
+	Outcome           RuntimePayload
 }
 
 type ClassicCompaction struct {
@@ -355,6 +356,9 @@ func (s *Store) StartClassicTurn(ctx context.Context, rootID, agentID string, in
 		classicTurnID(agentID, inboxSeq), rootID, agentID, stamp, stamp); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE commands SET status='running',updated_at=? WHERE root_id=? AND ingress_seq=? AND status='queued'`, stamp, rootID, inboxSeq); err != nil {
+		return err
+	}
 	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{AgentID: agentID, InboxSeq: inboxSeq, Status: "running"}, stamp); err != nil {
 		return err
 	}
@@ -378,6 +382,10 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 	}
 	if commit.ClearGoal && commit.GoalContinuation != "" {
 		return errors.New("classic turn cannot clear and continue a goal")
+	}
+	commandOutcome, err := s.prepareRuntimeValue(commit.Outcome, ContentGrant{RootID: commit.RootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return err
 	}
 	var goalValue preparedRuntimeValue
 	if commit.GoalContinuation != "" {
@@ -421,6 +429,20 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 				return err
 			}
 			return ErrInboxTerminal
+		}
+	}
+	if err := insertRuntimeValue(ctx, tx, commandOutcome, stamp); err != nil {
+		return err
+	}
+	for seq := range seen {
+		outcome := preparedRuntimeValue{}
+		if seq == commit.InboxSeq {
+			outcome = commandOutcome
+		}
+		inline, reference := runtimeValueColumns(outcome.RuntimeValue)
+		if _, err := tx.ExecContext(ctx, `UPDATE commands SET status=?,outcome_inline=?,outcome_ref=?,updated_at=?
+			WHERE root_id=? AND ingress_seq=? AND status IN ('queued','running','waiting')`, status, inline, reference, stamp, commit.RootID, seq); err != nil {
+			return err
 		}
 	}
 	var messageSeq int
@@ -903,6 +925,9 @@ func (s *Store) insertActorEventTx(ctx context.Context, tx *sql.Tx, rootID, kind
 	inline, reference := runtimeValueColumns(prepared.RuntimeValue)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO events(root_id,seq,kind,payload_inline,payload_ref,created_at) VALUES(?,?,?,?,?,?)`,
 		rootID, seq, kind, inline, reference, stamp); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE root_id=? AND seq<=?`, rootID, seq-EventRetention); err != nil {
 		return 0, err
 	}
 	return seq, nil

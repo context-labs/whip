@@ -25,6 +25,7 @@ type rootEntry struct {
 type Daemon struct {
 	store   *session.Store
 	factory Factory
+	control *Control
 	ctx     context.Context
 	cancel  context.CancelFunc
 
@@ -49,7 +50,9 @@ func New(store *session.Store, factory Factory) (*Daemon, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Daemon{store: store, factory: factory, ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}, nil
+	daemon := &Daemon{store: store, factory: factory, ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
+	daemon.control = newControl(ctx, store)
+	return daemon, nil
 }
 
 // Open returns the existing live root or constructs it without holding the
@@ -113,6 +116,21 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 		}()
 	}
 	return d.opened(entry)
+}
+
+// ResumeActive reconstructs detached roots that own durable schedules or
+// subscriptions. It is called after the protocol server owns the process.
+func (d *Daemon) ResumeActive(ctx context.Context) error {
+	rootIDs, err := d.store.ActiveRootIDs(ctx)
+	if err != nil {
+		return err
+	}
+	for _, rootID := range rootIDs {
+		if _, err := d.Open(rootID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (d *Daemon) tombstone(rootID string, entry *rootEntry, root *Session) {
@@ -241,6 +259,7 @@ func (d *Daemon) Close() error {
 			}
 		}
 		d.wg.Wait()
+		<-d.control.done
 		d.err = d.store.Close()
 	})
 	return d.err

@@ -3,8 +3,24 @@ package daemon
 import (
 	"context"
 
+	"github.com/context-labs/whip/internal/capability"
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
+
+func (s *Session) DecidePermission(ctx context.Context, permissionID string, decision capability.Decision) (ticket capability.Ticket, err error) {
+	err = s.routeControl(ctx, func(actorCtx context.Context) error {
+		admission, err := s.store.Pending(actorCtx, permissionID)
+		if err != nil {
+			return err
+		}
+		if admission.Request.RootID != s.meta.ID {
+			return capability.ErrDenied
+		}
+		ticket, err = s.store.Decide(actorCtx, admission, permissionID, decision)
+		return err
+	})
+	return ticket, err
+}
 
 func (s *Session) InspectCapability(ctx context.Context, callerAgentID, capabilityID string) (record sessionstore.CapabilityRecord, err error) {
 	err = s.routeControl(ctx, func(actorCtx context.Context) error {

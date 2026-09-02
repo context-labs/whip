@@ -353,6 +353,48 @@ func (s *Session) Steer(ctx context.Context, text string) (*Receipt, error) {
 	return s.enqueue(ctx, "steer", text, true)
 }
 
+// AdmitCommand binds one stable protocol command to the root actor's durable
+// inbox. Matching retries attach to the existing sequence or terminal result.
+func (s *Session) AdmitCommand(ctx context.Context, admission sessionstore.CommandAdmission) (result sessionstore.CommandAdmissionResult, receipt *Receipt, err error) {
+	admission.Scope = sessionstore.CommandScopeRoot
+	admission.RootID = s.meta.ID
+	admission.AgentID = s.authority.AgentID
+	err = s.routeControl(ctx, func(actorCtx context.Context) error {
+		var admitErr error
+		result, admitErr = s.store.AdmitCommand(actorCtx, admission)
+		if admitErr != nil {
+			return admitErr
+		}
+		receipt = newReceipt(result.Command.IngressSeq)
+		switch result.Command.Status {
+		case "queued", "running", "waiting":
+			s.register(receipt)
+		case "succeeded":
+			output, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.meta.ID, result.Command.Outcome)
+			receipt.finish(Completion{Sequence: result.Command.IngressSeq, Output: string(output), Err: resolveErr})
+		default:
+			receipt.finish(Completion{Sequence: result.Command.IngressSeq, Err: fmt.Errorf("command is %s", result.Command.Status)})
+		}
+		return nil
+	})
+	if err != nil {
+		return sessionstore.CommandAdmissionResult{}, nil, err
+	}
+	if result.New {
+		s.notify()
+	}
+	return result, receipt, nil
+}
+
+func (s *Session) Snapshot(ctx context.Context) (snapshot sessionstore.RootSnapshot, err error) {
+	err = s.routeControl(ctx, func(actorCtx context.Context) error {
+		var snapshotErr error
+		snapshot, snapshotErr = s.store.SnapshotRoot(actorCtx, s.meta.ID)
+		return snapshotErr
+	})
+	return snapshot, err
+}
+
 func (s *Session) enqueueWake(kind, text string) {
 	if _, err := s.enqueue(context.Background(), kind, text, false); err != nil && !errors.Is(err, ErrStopped) {
 		s.supervisor.report(kind+" wake", err)
@@ -712,6 +754,7 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 		AcknowledgedInbox: acknowledged, Messages: completion.journal.Messages, Compactions: compactions,
 		ClearGoal: clearGoal, GoalContinuation: goalContinuation,
 		Model: s.meta.Model, Provider: s.meta.Provider, Error: errorText,
+		Outcome: sessionstore.RuntimePayload{Data: []byte(completion.output), MediaType: "text/plain", Source: "command outcome"},
 	}); err != nil {
 		return err
 	}

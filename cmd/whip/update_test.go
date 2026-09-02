@@ -24,6 +24,10 @@ func stubShell(t *testing.T, exitCode string) (argsFile string) {
 
 func TestUpdateCLIRunsInstaller(t *testing.T) {
 	argsFile := stubShell(t, "0")
+	previousRestart := restartDaemonAfterUpdate
+	restarted := false
+	restartDaemonAfterUpdate = func() error { restarted = true; return nil }
+	t.Cleanup(func() { restartDaemonAfterUpdate = previousRestart })
 
 	var err error
 	out := captureStdout(t, func() { err = updateCLI() })
@@ -32,6 +36,9 @@ func TestUpdateCLIRunsInstaller(t *testing.T) {
 	}
 	if !strings.Contains(out, "whip updated") {
 		t.Errorf("success message missing:\n%s", out)
+	}
+	if !restarted {
+		t.Fatal("successful update did not request daemon restart")
 	}
 	args, rerr := os.ReadFile(argsFile)
 	if rerr != nil {

@@ -11,7 +11,7 @@ import (
 	"modernc.org/sqlite"
 )
 
-const currentSchemaVersion = 1
+const currentSchemaVersion = 2
 
 var sessionColumns = []struct{ name, definition string }{
 	{"goal", "goal TEXT NOT NULL DEFAULT ''"},
@@ -196,12 +196,30 @@ CREATE TABLE IF NOT EXISTS content_orphans (
 	digest TEXT PRIMARY KEY, size INTEGER NOT NULL, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL
 );`
 
+const protocolSchema = `
+CREATE UNIQUE INDEX IF NOT EXISTS commands_root_ingress ON commands(root_id,ingress_seq)
+	WHERE scope='root' AND ingress_seq>0;
+CREATE UNIQUE INDEX IF NOT EXISTS commands_daemon_ingress ON commands(ingress_seq)
+	WHERE scope='daemon' AND ingress_seq>0;
+CREATE TABLE IF NOT EXISTS daemon_state (
+	id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL CHECK(generation>=0),
+	build_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS client_identities (
+	client_id TEXT PRIMARY KEY, kind TEXT NOT NULL, public_key BLOB NOT NULL,
+	paired_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+	CHECK(length(public_key)=32)
+);`
+
 type migration struct {
 	version int
 	apply   func(context.Context, *sql.Conn) error
 }
 
-var migrations = []migration{{version: 1, apply: migrateVersionOne}}
+var migrations = []migration{
+	{version: 1, apply: migrateVersionOne},
+	{version: 2, apply: migrateVersionTwo},
+}
 
 func migrate(ctx context.Context, db *sql.DB, path string) error {
 	conn, err := db.Conn(ctx)
@@ -276,6 +294,11 @@ func migrateVersionOne(ctx context.Context, conn *sql.Conn) error {
 		return err
 	}
 	_, err = conn.ExecContext(ctx, runtimeSchema)
+	return err
+}
+
+func migrateVersionTwo(ctx context.Context, conn *sql.Conn) error {
+	_, err := conn.ExecContext(ctx, protocolSchema)
 	return err
 }
 
