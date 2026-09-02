@@ -1010,11 +1010,52 @@ func TestOpencodePromptRowsKeepFillAcrossResets(t *testing.T) {
 		if !strings.HasPrefix(ln, bg) {
 			t.Fatalf("prompt row %d does not open with the element bg — the renderer can drop its fill: %q", i, ln)
 		}
-		// Every \x1b[0m except the row's final one must re-open the bg, or the
-		// fill breaks before the right edge.
+		// Every mid-row reset — full (\x1b[0m) or targeted (\x1b[39m fg /
+		// \x1b[49m bg, which the textarea's fg-only placeholder/cursor styles
+		// emit) — must re-open the bg, or the fill breaks before the right edge.
 		body := strings.TrimSuffix(ln, "\x1b[0m") // drop the closing reset at the edge
-		if rest := strings.ReplaceAll(body, "\x1b[0m"+bg, ""); strings.Contains(rest, "\x1b[0m") {
-			t.Fatalf("prompt row %d has a mid-row reset that drops the bg (fill fragments): %q", i, ln)
+		for _, rst := range []string{"\x1b[0m", "\x1b[39m", "\x1b[49m"} {
+			if rest := strings.ReplaceAll(body, rst+bg, ""); strings.Contains(rest, rst) {
+				t.Fatalf("prompt row %d has a mid-row reset %q that drops the bg (fill fragments): %q", i, rst, ln)
+			}
+		}
+	}
+}
+
+// TestOpencodePromptTargetedResets: the textarea's placeholder and cursor-line
+// styles are foreground-ONLY, so lipgloss closes them with targeted resets
+// (\x1b[39m / \x1b[49m) rather than a full \x1b[0m. ocOnBg must re-open the box
+// background after those too — this is the exact byte pattern the live
+// terminal emitted in issue #100, which the \x1b[0m-only fix left fragmented.
+func TestOpencodePromptTargetedResets(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
+	mdMu.Lock()
+	sl, sk := mdLight, mdKnown
+	mdMu.Unlock()
+	t.Cleanup(func() { mdMu.Lock(); mdLight, mdKnown = sl, sk; mdMu.Unlock() })
+	mdMu.Lock()
+	mdLight, mdKnown = false, true // known dark: real element-bg fill
+	mdMu.Unlock()
+
+	bg := ocElementBg()
+	seq := bgSeqOf(bg)
+	if seq == "" {
+		t.Skip("unknown theme: no box fill to keep continuous")
+	}
+	// bar closes with targeted fg reset, placeholder with targeted fg reset, and
+	// a default-bg boundary — the shape the real render produces at runtime.
+	row := "\x1b[38;2;92;156;245m" + seq + "┃\x1b[39m" +
+		"  \x1b[38;5;245mAsk whip anything…\x1b[39m" + "\x1b[49m"
+	out := ocOnBg(row, bg)
+	if !strings.HasPrefix(out, seq) {
+		t.Fatalf("row does not open with the element bg: %q", out)
+	}
+	body := strings.TrimSuffix(out, "\x1b[0m")
+	for _, rst := range []string{"\x1b[0m", "\x1b[39m", "\x1b[49m"} {
+		if rest := strings.ReplaceAll(body, rst+seq, ""); strings.Contains(rest, rst) {
+			t.Fatalf("reset %q left un-anchored — bg drops mid-row: %q", rst, out)
 		}
 	}
 }

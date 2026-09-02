@@ -73,15 +73,28 @@ func ocPadTo(content string, width int, bg lipgloss.TerminalColor) string {
 }
 
 // ocOnBg lays a pre-styled line ONTO the box background: the line's inner
-// styles close with full resets, which drop back to the terminal-default
-// background and punch bright chips through the panel. Re-open the box bg at
-// the start and after every reset.
+// styles close with resets that drop back to the terminal-default background
+// and punch bright chips through the panel. Re-open the box bg at the start
+// and after every reset. Three reset forms occur mid-row (issue #100):
+//   - \x1b[0m  full reset (lipgloss closes a bg-carrying style) — drops the bg
+//   - \x1b[49m default-background (lipgloss closes a fg-only style like the
+//     textarea placeholder) — drops the bg explicitly
+//   - \x1b[39m default-foreground (closes a fg-only style) — the bg survives,
+//     but when it directly precedes \x1b[49m / \x1b[0m the pair still ends the
+//     fill; re-opening after it keeps the row continuous in every terminal.
+// Re-opening the bg after all three keeps the fill continuous to the right
+// edge regardless of which reset variant a nested style emitted.
 func ocOnBg(ln string, bg lipgloss.TerminalColor) string {
 	seq := bgSeqOf(bg)
 	if seq == "" || ln == "" {
 		return ln
 	}
-	return seq + strings.ReplaceAll(ln, "\x1b[0m", "\x1b[0m"+seq) + "\x1b[0m"
+	r := strings.NewReplacer(
+		"\x1b[0m", "\x1b[0m"+seq,
+		"\x1b[49m", "\x1b[49m"+seq,
+		"\x1b[39m", "\x1b[39m"+seq,
+	)
+	return seq + r.Replace(ln) + "\x1b[0m"
 }
 
 // bgSeqOf extracts the raw SGR sequence that opens the given background
