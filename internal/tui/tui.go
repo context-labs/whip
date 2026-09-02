@@ -267,10 +267,22 @@ type model struct {
 	// initialPrompt (whip up <words>) is submitted as the first turn from
 	// Init — late enough that m.prog exists for the turn goroutine's p.Send.
 	initialPrompt string
+
+	// trustPending is the cwd when checkTrust deferred (non-TTY stdin): the
+	// trust question moves into the TUI as an inline prompt. While set, Init
+	// holds the initialPrompt (in heldPrompt) instead of kicking off the turn.
+	trustPending string
+	// heldPrompt is the `whip up` prompt parked while the in-TUI trust gate is
+	// open; approved trust submits it, declined trust exits without it.
+	heldPrompt string
 }
 
 // initialPromptMsg is Init's one-shot kickoff of a `whip up` first turn.
 type initialPromptMsg struct{}
+
+// trustAnswerMsg carries the in-TUI trust-gate answer back through Update so
+// it can return tea.Quit on decline (a namePrompt onOK callback can't).
+type trustAnswerMsg struct{ approved bool }
 
 // picker is the /resume session browser. metas is newest-first; the list is
 // rendered oldest-at-top so newest sits at the bottom.
@@ -335,11 +347,22 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 
 	// Trust gate first: before whip reads a single file, ask whether this
 	// folder's contents may steer the model. Persisted per absolute path in
-	// ~/.whip/trusted.json (claude-code's per-project trust dialog).
-	if ok, err := checkTrust(stdinR); err != nil {
+	// ~/.whip/trusted.json (claude-code's per-project trust dialog). When stdin
+	// isn't a terminal the pre-TUI prompt can't render, so checkTrust defers:
+	// the TUI opens and asks the question inline (model.trustPending) instead
+	// of dying here with a prompt nobody can answer.
+	var deferredTrustDir string
+	switch outcome, err := checkTrust(stdinR); {
+	case err != nil:
 		return "", err
-	} else if !ok {
+	case outcome == trustDenied:
 		return "", errors.New("folder not trusted")
+	case outcome == trustDeferred:
+		wd, wdErr := os.Getwd()
+		if wdErr != nil {
+			return "", wdErr
+		}
+		deferredTrustDir = wd
 	}
 
 	// First run only: the setup wizard (provider, thinking display, MCP
@@ -392,6 +415,12 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		compactModel: cfg.CompactModel, compactProv: cfg.CompactProvider,
 		skillScan:     func() []skills.Skill { return skills.Scan(skills.DefaultDirs()...) },
 		initialPrompt: initialPrompt,
+	}
+	// A deferred trust gate (non-TTY stdin) parks the `whip up` prompt until
+	// the user answers the in-TUI trust question; Init opens that prompt.
+	if deferredTrustDir != "" {
+		m.trustPending = deferredTrustDir
+		m.heldPrompt, m.initialPrompt = m.initialPrompt, ""
 	}
 	m.applyCompactModel()
 	m.applyTaskModel()
@@ -1429,7 +1458,13 @@ func (m *model) Init() tea.Cmd {
 		// appearance flip mid-session is picked up without a restart
 		cmds = append(cmds, themePollTick())
 	}
-	if m.initialPrompt != "" {
+	if m.trustPending != "" {
+		// Deferred trust gate (non-TTY stdin): ask the question inline instead
+		// of kicking off a turn. The `whip up` prompt sits in heldPrompt until
+		// the answer lands. Side-effecting open runs as a cmd so m.prog and the
+		// first render exist before the prompt takes over the input box.
+		cmds = append(cmds, func() tea.Msg { m.openTrustPrompt(); return nil })
+	} else if m.initialPrompt != "" {
 		// Batch blink with the kickoff; the turn's p.Send is nil-safe in headless tests.
 		cmds = append(cmds, func() tea.Msg { return initialPromptMsg{} })
 	}
@@ -1806,6 +1841,25 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		text := m.initialPrompt
 		m.initialPrompt = "" // one-shot: no re-submit on replays
+		m.hist = append(m.hist, text)
+		m.histIdx = len(m.hist)
+		return m.submit(text)
+
+	case trustAnswerMsg:
+		dir := m.trustPending
+		m.trustPending = ""
+		if !msg.approved {
+			m.heldPrompt = "" // declined: don't run the prompt in an untrusted folder
+			return m, tea.Quit
+		}
+		if err := config.Trust(dir); err != nil {
+			m.append(errStyle.Render("trust: " + err.Error()))
+		}
+		if m.heldPrompt == "" || m.busy {
+			return m, nil
+		}
+		text := m.heldPrompt
+		m.heldPrompt = ""
 		m.hist = append(m.hist, text)
 		m.histIdx = len(m.hist)
 		return m.submit(text)
@@ -2682,7 +2736,12 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case m.namePrompt != nil: // cancel the inline fork/rename/auth prompt
 			masked := m.namePrompt.mask
+			onCancel := m.namePrompt.onCancel
 			m.closeNamePrompt()
+			if onCancel != nil { // e.g. the trust gate treats Esc as decline
+				onCancel()
+				return m, nil
+			}
 			if masked { // the draft stash must not record a key into history
 				m.escClr = false
 				return m, nil

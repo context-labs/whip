@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -101,5 +102,97 @@ func TestInitialPromptMsgIgnoredWhileBusy(t *testing.T) {
 	}
 	if m.initialPrompt != "queued behind a turn" {
 		t.Fatal("a swallowed kickoff should leave the prompt untouched")
+	}
+}
+
+// A deferred trust gate (non-TTY stdin) makes Init open the inline trust
+// prompt and hold the `whip up` prompt instead of kicking off a turn.
+func TestDeferredTrustOpensPromptAndHolds(t *testing.T) {
+	m := busyQueueModel()
+	m.busy = false
+	m.cancel = nil
+	m.trustPending = "/untrusted/dir"
+	m.heldPrompt = "fix the flaky test"
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("Init with a pending trust gate must open the prompt")
+	}
+	// Run the batched cmds: none should kick off a turn; one opens the prompt.
+	if batch, is := cmd().(tea.BatchMsg); is {
+		for _, c := range batch {
+			if _, is := c().(initialPromptMsg); is {
+				t.Fatal("a pending trust gate must not emit the initial-prompt kickoff")
+			}
+		}
+	}
+	if m.namePrompt == nil {
+		t.Fatal("the deferred trust gate should open the inline trust prompt")
+	}
+	if m.heldPrompt != "fix the flaky test" {
+		t.Fatal("the up prompt should be held while the trust gate is open")
+	}
+	if len(m.agent.MessagesSnapshot()) != 0 {
+		t.Fatal("no turn should start before trust is granted")
+	}
+}
+
+// Approving the in-TUI trust gate records trust and submits the held prompt
+// as the first turn.
+func TestTrustApprovedSubmitsHeldPrompt(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	dir := t.TempDir()
+	m := busyQueueModel()
+	m.busy = false
+	m.cancel = nil
+	m.agent = &agent.Agent{Client: stubLLM()}
+	m.agent.Messages = []llm.Message{{Role: "system", Content: "sys"}}
+	m.trustPending = dir
+	m.heldPrompt = "fix the flaky test"
+
+	tm, _ := m.Update(trustAnswerMsg{approved: true})
+	m = tm.(*model)
+
+	if !m.busy {
+		t.Fatal("approval should submit the held prompt as a turn")
+	}
+	if m.heldPrompt != "" || m.trustPending != "" {
+		t.Fatal("the gate and held prompt should be consumed on approval")
+	}
+	if !config.Trusted(dir) {
+		t.Fatal("approval should record the folder as trusted")
+	}
+	if !hasUserMsg(t, m, "fix the flaky test") {
+		t.Fatalf("the held prompt should reach the model, got %+v", m.agent.MessagesSnapshot())
+	}
+}
+
+// Declining the in-TUI trust gate drops the held prompt and quits.
+func TestTrustDeclinedQuits(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	dir := t.TempDir()
+	m := busyQueueModel()
+	m.busy = false
+	m.cancel = nil
+	m.trustPending = dir
+	m.heldPrompt = "fix the flaky test"
+
+	tm, cmd := m.Update(trustAnswerMsg{approved: false})
+	m = tm.(*model)
+
+	if cmd == nil {
+		t.Fatal("declining the trust gate should quit")
+	}
+	if _, is := cmd().(tea.QuitMsg); !is {
+		t.Fatalf("declining should return tea.Quit, got %T", cmd())
+	}
+	if config.Trusted(dir) {
+		t.Fatal("declining must not trust the folder")
+	}
+	if m.heldPrompt != "" {
+		t.Fatal("declining should drop the held prompt")
+	}
+	if len(m.agent.MessagesSnapshot()) != 0 {
+		t.Fatal("declining must not start a turn")
 	}
 }
