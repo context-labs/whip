@@ -23,11 +23,12 @@ func (m *model) exportCommand(arg string) {
 	if path == "" {
 		path = "whip-transcript-" + m.sessionID + ".md"
 	}
-	if m.agent == nil || len(m.agent.Messages) == 0 {
+	messages := m.displayMessages()
+	if len(messages) == 0 {
 		m.append(dimStyle.Render("(nothing to export yet)"))
 		return
 	}
-	if err := exportTranscript(path, m.agent.Messages); err != nil {
+	if err := exportTranscript(path, messages); err != nil {
 		m.append(errStyle.Render("export failed: " + err.Error()))
 		return
 	}

@@ -263,9 +263,18 @@ func (c *Client) EnrollIdentity(ctx context.Context, private ed25519.PrivateKey,
 	return result, nil
 }
 
+func (c *Client) IdentityStatus(ctx context.Context) (IdentityStatusResult, error) {
+	var result IdentityStatusResult
+	err := c.Call(ctx, "identity.status", struct{}{}, &result)
+	return result, err
+}
+
 func (c *Client) DecidePermission(ctx context.Context, private ed25519.PrivateKey, decision PermissionDecision) (PermissionDecisionResult, error) {
 	if len(private) != ed25519.PrivateKeySize {
 		return PermissionDecisionResult{}, errors.New("permission decision requires an Ed25519 private key")
+	}
+	if decision.CommandID == "" || decision.RootID == "" || decision.PermissionID == "" {
+		return PermissionDecisionResult{}, errors.New("permission decision requires command, root, and permission identities")
 	}
 	c.mu.Lock()
 	nonce := append([]byte(nil), c.nonce...)

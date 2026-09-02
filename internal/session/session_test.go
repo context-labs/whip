@@ -623,6 +623,50 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRewindHistoryAtomicallyDropsDerivedTail(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	id, _ := st.Create(t.TempDir(), "m", "p")
+	history := []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "q1"}, {Role: "assistant", Content: "a1"},
+		{Role: "user", Content: "q2"}, {Role: "assistant", Content: "a2"},
+	}
+	if err := st.Save(id, 1, history, "m", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSnapshot(id, 1, "keep"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSnapshot(id, 3, "drop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordCompaction(id, 2, "summary"); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshots, err := st.WorkspaceSnapshotsFrom(t.Context(), id, 3)
+	if err != nil || len(snapshots) != 1 || snapshots[0].Seq != 3 || snapshots[0].Ref != "drop" {
+		t.Fatalf("workspace tail = %+v, %v", snapshots, err)
+	}
+	restored, err := st.RewindHistory(t.Context(), id, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 2 || restored[0].Content != "q1" || restored[1].Content != "a1" {
+		t.Fatalf("restored history = %+v", restored)
+	}
+	if snapshots := st.Snapshots(id); len(snapshots) != 1 || snapshots[1] != "keep" {
+		t.Fatalf("remaining snapshots = %v", snapshots)
+	}
+	if compactions := st.Compactions(id); len(compactions) != 0 {
+		t.Fatalf("remaining compactions = %+v", compactions)
+	}
+}
+
 func TestScheduleRoundTrip(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
 	if err != nil {

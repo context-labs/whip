@@ -22,7 +22,7 @@ var effortCands = []cand{
 // model: the provider-advertised levels if known (each prefixed by off), else
 // the defaults.
 func (m *model) effortsFor() []string {
-	return effortsIn(m.catalogs, m.provName, m.agent.Model)
+	return effortsIn(m.catalogs, m.provName, m.displayModelID())
 }
 
 // effortsIn returns the effort cycle for a model id on a provider, using the

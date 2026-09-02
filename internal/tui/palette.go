@@ -967,7 +967,7 @@ func (m *model) paletteChrome(s string) string {
 func paletteState(m *model, it paletteItem) string {
 	switch it.title {
 	case "Reasoning effort":
-		return dimStyle.Render("  [" + effortLabel(m.agent.Effort) + "]")
+		return dimStyle.Render("  [" + effortLabel(m.displayEffort()) + "]")
 	case "Thinking tokens":
 		return dimStyle.Render("  [" + onOff(m.showThinking) + "]")
 	case "Mouse capture":

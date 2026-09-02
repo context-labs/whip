@@ -122,6 +122,13 @@ func (s *Store) SetGoal(id, goal string) error {
 	return err
 }
 
+// SetWorkingDirectory stores the root's current directory. Dispatcher
+// resolution still confines it to the canonical workspace.
+func (s *Store) SetWorkingDirectory(id, cwd string) error {
+	_, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET cwd=? WHERE id=?`, cwd, id)
+	return err
+}
+
 // SetTodos stores the session's todowrite plan as JSON ("" clears it). The
 // plan is a whole-list snapshot: the model rewrites it in full each call, so
 // this is a plain overwrite, not a merge.
@@ -143,6 +150,14 @@ func (s *Store) Todos(id string) string {
 // default and stamps it on the next save.
 func (s *Store) SetEffort(id, effort string) error {
 	_, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET effort=? WHERE id=?`, effort, id)
+	return err
+}
+
+func (s *Store) SetModelProvider(id, model, provider string) error {
+	if model == "" || provider == "" {
+		return errors.New("session model and provider are required")
+	}
+	_, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET model=?,provider=?,updated_at=? WHERE id=?`, model, provider, now(), id)
 	return err
 }
 
@@ -457,7 +472,14 @@ func answerDanglingToolCalls(msgs []llm.Message) []llm.Message {
 
 // Recent returns up to n sessions, newest first.
 func (s *Store) Recent(n int) ([]Meta, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, mode, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, updated_at FROM sessions
+	return s.RecentContext(context.Background(), n)
+}
+
+func (s *Store) RecentContext(ctx context.Context, n int) ([]Meta, error) {
+	if n < 1 || n > 500 {
+		return nil, errors.New("recent sessions limit must be between 1 and 500")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, title, model, provider, cwd, goal, mode, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, updated_at FROM sessions
 		WHERE EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)
 		ORDER BY updated_at DESC LIMIT ?`, n)
 	if err != nil {
@@ -550,6 +572,85 @@ func (s *Store) DeleteFrom(id string, from int) error {
 	}
 	_, err = s.db.ExecContext(context.Background(), `DELETE FROM snapshots WHERE session_id=? AND seq>=?`, id, from)
 	return err
+}
+
+// RewindHistory atomically drops a conversation tail and every derived row
+// whose indexing depended on it. The returned history is the authoritative
+// non-system transcript to install in an idle runner after the commit.
+func (s *Store) RewindHistory(ctx context.Context, id string, from int) ([]llm.Message, error) {
+	if id == "" || from < 1 {
+		return nil, errors.New("history rewind requires a session and positive conversation index")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, statement := range []string{
+		`DELETE FROM messages WHERE session_id=? AND seq>=?`,
+		`DELETE FROM snapshots WHERE session_id=? AND seq>=?`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement, id, from); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM compactions WHERE session_id=?`, id); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT content FROM messages WHERE session_id=? ORDER BY seq`, id)
+	if err != nil {
+		return nil, err
+	}
+	var history []llm.Message
+	for rows.Next() {
+		var data string
+		if err := rows.Scan(&data); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		var message llm.Message
+		if err := json.Unmarshal([]byte(data), &message); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		history = append(history, message)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return history, nil
+}
+
+type WorkspaceSnapshot struct {
+	Seq int
+	Ref string
+}
+
+// WorkspaceSnapshotsFrom returns the pinned working-tree states discarded by
+// a rewind, oldest first. Callers read these before RewindHistory deletes the
+// rows so they can restore the earliest state and release every pin.
+func (s *Store) WorkspaceSnapshotsFrom(ctx context.Context, id string, from int) ([]WorkspaceSnapshot, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT seq,ref FROM snapshots WHERE session_id=? AND seq>=? ORDER BY seq`, id, from)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var snapshots []WorkspaceSnapshot
+	for rows.Next() {
+		var snapshot WorkspaceSnapshot
+		if err := rows.Scan(&snapshot.Seq, &snapshot.Ref); err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, rows.Err()
 }
 
 // SetSnapshot records the workspace snapshot ref for the turn starting at
@@ -698,6 +799,11 @@ func (s *Store) Compactions(id string) []Compaction {
 // the bad event before re-compacting from the raw log).
 func (s *Store) DeleteCompaction(id string, seq int) error {
 	_, err := s.db.ExecContext(context.Background(), `DELETE FROM compactions WHERE session_id=? AND seq=?`, id, seq)
+	return err
+}
+
+func (s *Store) ClearCompactions(id string) error {
+	_, err := s.db.ExecContext(context.Background(), `DELETE FROM compactions WHERE session_id=?`, id)
 	return err
 }
 

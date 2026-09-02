@@ -13,11 +13,16 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/lsp"
+	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/tui"
 )
 
@@ -99,10 +104,41 @@ func runDaemon(ctx context.Context, args []string) error {
 		if meta.Mode == session.ModeRLM {
 			prompt = rlm.BuildPrompt(meta.CWD, nil)
 		}
-		ag := agent.New(client, apiID, maxOutput, prompt)
+		services := daemonToolServices(cfg, meta, apiID)
+		ag := agent.NewWithServices(client, apiID, maxOutput, prompt, services)
 		ag.ModelName, ag.Provider = meta.Model, meta.Provider
+		ag.WorkingDir = meta.CWD
 		ag.ContextLimit = contextLimit
-		ag.Effort = tui.DefaultEffortFor(catalogs, meta.Provider, apiID, cfg.DefaultEffort)
+		ag.Effort = meta.Effort
+		if ag.Effort == "" {
+			ag.Effort = tui.DefaultEffortFor(catalogs, meta.Provider, apiID, cfg.DefaultEffort)
+		}
+		configSnapshot := cfg.Snapshot()
+		ag.ResolveModel = func(model, provider string) (agent.SubModel, error) {
+			return tui.SubModelFor(configSnapshot, model, provider)
+		}
+		if taskDefault, taskErr := tui.TaskDefaultFor(configSnapshot); taskErr == nil {
+			ag.TaskDefault = taskDefault
+		}
+		ag.BrowserDisabled = cfg.Browser.Enabled != nil && !*cfg.Browser.Enabled
+		ag.ComputerDisabled = cfg.Computer.Enabled != nil && !*cfg.Computer.Enabled
+		if ag.BrowserDisabled || ag.ComputerDisabled {
+			filtered := ag.Tools[:0]
+			for _, tool := range ag.Tools {
+				name := tool.Def.Function.Name
+				if ag.BrowserDisabled && name == "browser_exec" || ag.ComputerDisabled && name == "computer_exec" {
+					continue
+				}
+				filtered = append(filtered, tool)
+			}
+			ag.Tools = filtered
+		}
+		var mcpManager *mcp.Manager
+		discovery := mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
+		if len(discovery.Merged) > 0 || len(discovery.Blocked) > 0 {
+			mcpManager = mcp.NewManager(discovery.Merged)
+			mcpManager.SetBlocked(discovery.Blocked)
+		}
 		if meta.Mode == session.ModeRLM {
 			ag.Messages = append(ag.Messages[:1], rlm.FocusedHistory(history)...)
 			host := newDaemonRLMHost(ag, history)
@@ -112,18 +148,30 @@ func runDaemon(ctx context.Context, args []string) error {
 			}
 			kernel, err := rlm.NewKernel(rlm.KernelOptions{Limits: limits, Manager: kernels, Host: host})
 			if err != nil {
+				if mcpManager != nil {
+					mcpManager.Close()
+				}
+				services.Close()
 				return daemon.Components{}, err
 			}
 			ag.SetExclusiveTool(rlm.Tool(kernel), "rlm")
-			return daemon.Components{
+			components := daemon.Components{
 				Runner: daemon.NewAgentRunner(ag), Runtime: daemonRLMRuntime{host: host, kernel: kernel},
 				Bind: host.Bind,
-			}, nil
+			}
+			if mcpManager != nil {
+				components.MCP = mcpManager
+			}
+			return components, nil
 		}
 		if len(history) > 1 {
 			ag.Messages = append(ag.Messages[:1], history[1:]...)
 		}
-		return daemon.Components{Runner: daemon.NewAgentRunner(ag)}, nil
+		components := daemon.Components{Runner: daemon.NewAgentRunner(ag)}
+		if mcpManager != nil {
+			components.MCP = mcpManager
+		}
+		return components, nil
 	}
 	ownerDaemon, err := daemon.New(store, factory)
 	if err != nil {
@@ -163,6 +211,32 @@ func runDaemon(ctx context.Context, args []string) error {
 		_ = store.SetDaemonStatus(context.Background(), generation, "stopping")
 		return server.Close()
 	}
+}
+
+func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string) *tools.Services {
+	services := tools.NewServices()
+	services.SetProcessMarkers(meta.ID, apiID)
+	if cfg.Browser.CDPURL != "" {
+		services.SetProcessEnvironment(map[string]string{"WHIP_CDP_URL": cfg.Browser.CDPURL})
+	}
+	if cfg.Browser.Enabled == nil || *cfg.Browser.Enabled {
+		mode := browser.ModeLive
+		switch cfg.Browser.Mode {
+		case "dedicated":
+			mode = browser.ModeDedicated
+		case "headless":
+			mode = browser.ModeHeadless
+		case "extension":
+			mode = browser.ModeExtension
+		}
+		services.SetBrowser(browser.NewManager(mode), cfg.Browser.AllowPrivateURLs)
+	}
+	if cfg.Computer.Enabled == nil || *cfg.Computer.Enabled {
+		defaultDeny := cfg.Computer.DefaultDeny != nil && *cfg.Computer.DefaultDeny
+		services.SetComputerPolicy(computer.NewPolicy(cfg.Computer.Allow, cfg.Computer.Deny, defaultDeny))
+	}
+	services.SetDiagnostics(lsp.NewManager(lsp.FromConfigMap(cfg.LSPServers)))
+	return services
 }
 
 func configuredSessionMode(cfg *config.Config) session.Mode {

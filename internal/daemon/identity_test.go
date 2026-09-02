@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
@@ -43,12 +44,18 @@ func TestHumanEnrollmentIsExplicitAuthenticatedAndAutomationSafe(t *testing.T) {
 
 	first := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "human-1", ClientKind: "tui"})
 	defer first.Close()
+	if status, err := first.IdentityStatus(context.Background()); err != nil || status.Paired || !status.EnrollmentOpen {
+		t.Fatalf("initial identity status = %+v, %v", status, err)
+	}
 	_, firstKey, _ := ed25519.GenerateKey(rand.Reader)
 	if _, err := first.EnrollIdentity(context.Background(), firstKey, false, "", nil); err == nil || !strings.Contains(err.Error(), "TTY") {
 		t.Fatalf("non-TTY first enrollment = %v", err)
 	}
 	if result, err := first.EnrollIdentity(context.Background(), firstKey, true, "", nil); err != nil || result.ClientID != "human-1" {
 		t.Fatalf("first enrollment = %+v, %v", result, err)
+	}
+	if status, err := first.IdentityStatus(context.Background()); err != nil || !status.Paired || status.EnrollmentOpen {
+		t.Fatalf("paired identity status = %+v, %v", status, err)
 	}
 
 	second := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "human-2", ClientKind: "acp"})
@@ -109,7 +116,7 @@ func TestPermissionDecisionsRequireConnectionBoundHumanSignature(t *testing.T) {
 	bot := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "bot-decision", ClientKind: "automation"})
 	defer bot.Close()
 	_, botKey, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := bot.DecidePermission(context.Background(), botKey, PermissionDecision{RootID: rootID, PermissionID: pending.PermissionID, Allow: true}); err == nil || !strings.Contains(err.Error(), "paired human") {
+	if _, err := bot.DecidePermission(context.Background(), botKey, PermissionDecision{CommandID: "bot", RootID: rootID, PermissionID: pending.PermissionID, Allow: true}); err == nil || !strings.Contains(err.Error(), "paired human") {
 		t.Fatalf("automation decision = %v", err)
 	}
 
@@ -119,19 +126,86 @@ func TestPermissionDecisionsRequireConnectionBoundHumanSignature(t *testing.T) {
 	if _, err := human.EnrollIdentity(context.Background(), humanKey, true, "", nil); err != nil {
 		t.Fatal(err)
 	}
-	wrongRoot := PermissionDecision{RootID: otherRootID, PermissionID: pending.PermissionID, Allow: true}
+	wrongRoot := PermissionDecision{CommandID: "wrong-root", RootID: otherRootID, PermissionID: pending.PermissionID, Allow: true}
 	if _, err := human.DecidePermission(context.Background(), humanKey, wrongRoot); !errors.Is(err, capability.ErrDenied) && (err == nil || !strings.Contains(err.Error(), capability.ErrDenied.Error())) {
 		t.Fatalf("wrong-root decision = %v", err)
 	}
-	result, err := human.DecidePermission(context.Background(), humanKey, PermissionDecision{RootID: rootID, PermissionID: pending.PermissionID, Allow: true})
+	decision := PermissionDecision{CommandID: "approve", RootID: rootID, PermissionID: pending.PermissionID, Allow: true}
+	result, err := human.DecidePermission(context.Background(), humanKey, decision)
 	if err != nil || result.OperationID != "pending-operation" || result.LeaseID == "" {
 		t.Fatalf("signed decision = %+v, %v", result, err)
 	}
-	if _, err := human.DecidePermission(context.Background(), humanKey, PermissionDecision{RootID: rootID, PermissionID: pending.PermissionID, Allow: true}); err == nil {
+	if retry, err := human.DecidePermission(context.Background(), humanKey, decision); err != nil || retry.OperationID != result.OperationID || retry.LeaseID != result.LeaseID {
+		t.Fatalf("idempotent permission retry = %+v, %v", retry, err)
+	}
+	if _, err := human.DecidePermission(context.Background(), humanKey, PermissionDecision{CommandID: "stale", RootID: rootID, PermissionID: pending.PermissionID, Allow: true}); err == nil {
 		t.Fatal("stale permission decision was not authoritative")
 	}
 	if _, err := os.Stat(filepath.Join(root.meta.CWD, "approved.txt")); !os.IsNotExist(err) {
 		t.Fatalf("test decision unexpectedly bypassed operation ownership: %v", err)
+	}
+}
+
+func TestRootSnapshotIsACompleteAuthoritativeClientView(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetBlackboard(t.Context(), rootID, root.authority.AgentID, "evidence", session.RuntimePayload{Data: []byte("bounded")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddSchedule(rootID, "@every 1h", "inspect", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	dispatcher := capability.NewDispatcher(store, store.Workspaces(), nil)
+	const secretArgument = "snapshot-must-not-contain-this"
+	if err := dispatcher.Register(capability.Registration{
+		Operation: "write", Mutation: capability.MutationPath, Permission: true,
+		Path:    func(json.RawMessage) (string, error) { return "approved.txt", nil },
+		Handler: func(context.Context, capability.Call) (string, error) { return "ok", nil },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = dispatcher.Dispatch(t.Context(), capability.Request{
+		RootID: rootID, AgentID: root.authority.AgentID, CapabilityID: root.authority.Files.ID,
+		CapabilityGeneration: root.authority.Files.Generation, OperationID: "snapshot-operation", Operation: "write",
+		Arguments: json.RawMessage(`{"secret":"` + secretArgument + `"}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+	})
+	var pending *capability.PermissionPendingError
+	if !errors.As(err, &pending) {
+		t.Fatalf("permission admission = %v", err)
+	}
+
+	snapshot, err := root.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Blackboard) != 1 || len(snapshot.Budgets) == 0 || len(snapshot.Capabilities) == 0 || len(snapshot.Schedules) != 1 || len(snapshot.Permissions) != 1 {
+		t.Fatalf("incomplete snapshot: blackboard=%d budgets=%d capabilities=%d schedules=%d permissions=%d",
+			len(snapshot.Blackboard), len(snapshot.Budgets), len(snapshot.Capabilities), len(snapshot.Schedules), len(snapshot.Permissions))
+	}
+	permission := snapshot.Permissions[0]
+	if permission.ID != pending.PermissionID || permission.OperationID != "snapshot-operation" || permission.Operation != "write" || permission.CanonicalPath == "" || permission.RequestDigest == "" {
+		t.Fatalf("permission snapshot = %+v", permission)
+	}
+	if len(snapshot.Agents) != 1 || snapshot.Agents[0].LifecyclePhase != "blocked" || snapshot.Agents[0].BlockingReason != "permission" {
+		t.Fatalf("agent presentation state = %+v", snapshot.Agents)
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), secretArgument) || strings.Contains(string(raw), "Arguments") {
+		t.Fatalf("snapshot leaked raw permission arguments: %s", raw)
 	}
 }
 

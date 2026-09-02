@@ -52,7 +52,8 @@ type escArmMsg struct{} // disarms the idle double-esc window
 
 func (m *model) rewindEntries() []rewindEntry {
 	var out []rewindEntry
-	for i, msg := range m.agent.Messages {
+	messages := m.displayMessages()
+	for i, msg := range messages {
 		if msg.Role == "user" && msg.Authored {
 			out = append(out, rewindEntry{cut: i, text: oneLine(msg.TextContent()), when: msg.SentAt})
 		}
@@ -60,7 +61,7 @@ func (m *model) rewindEntries() []rewindEntry {
 	for i, msg := range m.future {
 		if msg.Role == "user" && msg.Authored {
 			out = append(out, rewindEntry{
-				cut: len(m.agent.Messages) + i, text: oneLine(msg.TextContent()), when: msg.SentAt, future: true,
+				cut: len(messages) + i, text: oneLine(msg.TextContent()), when: msg.SentAt, future: true,
 			})
 		}
 	}
@@ -177,6 +178,14 @@ func (m *model) rewindKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scrollToMsg(sel().cut)
 	case tea.KeyEnter:
 		e := sel()
+		if m.client != nil {
+			m.rew = nil
+			if messages := m.displayMessages(); e.cut >= 0 && e.cut < len(messages) {
+				m.input.SetValue(messages[e.cut].TextContent())
+				m.input.CursorEnd()
+			}
+			return m.submitClientAction("history.rewind", map[string]string{"args": strconv.Itoa(e.cut)}, "")
+		}
 		text := m.applyRewind(e.cut)
 		m.rew = nil
 		if !e.future {
@@ -188,6 +197,15 @@ func (m *model) rewindKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if string(msg.Runes) == "f" {
 			e := sel()
 			m.rew = nil
+			if m.client != nil {
+				suggestion := strings.TrimSpace(m.sessTitle)
+				if suggestion == "" {
+					suggestion = "session"
+				}
+				m.openClientNamePrompt("⑂ fork name:", suggestion+" (fork)", "session.fork", e.cut)
+				m.append(dimStyle.Render("⑂ forking from the selected message — name the copy (enter) or esc"))
+				return m, nil
+			}
 			m.openForkPrompt(e.cut, true) // the copy keeps the selected message
 			return m, nil
 		}
@@ -257,6 +275,13 @@ func (m *model) applyRewind(cut int) string {
 
 // messageAt reads conversation index i across the live/redo boundary.
 func (m *model) messageAt(i int) llm.Message {
+	if m.client != nil {
+		messages := m.displayMessages()
+		if i >= 0 && i < len(messages) {
+			return messages[i]
+		}
+		return llm.Message{}
+	}
 	if i < len(m.agent.Messages) {
 		return m.agent.Messages[i]
 	}
@@ -305,7 +330,11 @@ func (m *model) rewindView() string {
 // the chat's size when the turn ended, which is how the user watches context
 // grow turn over turn. ok is false when the turn recorded no usage at all.
 func (m *model) turnUsage(cut int) (sum, last llm.Usage, ok bool) {
-	for i := cut + 1; i < len(m.agent.Messages)+len(m.future); i++ {
+	length := len(m.displayMessages())
+	if m.client == nil {
+		length += len(m.future)
+	}
+	for i := cut + 1; i < length; i++ {
 		msg := m.messageAt(i)
 		if msg.Role == "user" {
 			break // the turn ends where the next submission begins
@@ -385,7 +414,11 @@ func fmtTurn(u llm.Usage) string {
 // message's usage at its own recorded model's advertised rates.
 func (m *model) turnCost(cut int) (float64, bool) {
 	total := 0.0
-	for i := cut + 1; i < len(m.agent.Messages)+len(m.future); i++ {
+	length := len(m.displayMessages())
+	if m.client == nil {
+		length += len(m.future)
+	}
+	for i := cut + 1; i < length; i++ {
 		msg := m.messageAt(i)
 		if msg.Role == "user" {
 			break

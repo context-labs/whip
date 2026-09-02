@@ -378,6 +378,7 @@ func TestClassicTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t
 	if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: first.InboxSeq,
 		AcknowledgedInbox: []int64{steer.InboxSeq}, Messages: history,
+		WorkspaceSeq: 5, WorkspaceRef: "snapshot-commit",
 		Model: "new-model", Provider: "new-provider",
 	}); err != nil {
 		t.Fatal(err)
@@ -392,6 +393,9 @@ func TestClassicTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t
 	}
 	if len(restored) != 7 || restored[0].Content != "stale" || restored[4].Content != "work" || restored[6].Content != "done" {
 		t.Fatalf("restored history=%+v", restored)
+	}
+	if snapshots := st.Snapshots(rootID); len(snapshots) != 1 || snapshots[5] != "snapshot-commit" {
+		t.Fatalf("workspace snapshot was not committed with the turn: %v", snapshots)
 	}
 	var activeInbox, activeTurns int
 	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM inbox WHERE root_id=? AND status!='consumed'`, rootID).Scan(&activeInbox); err != nil {
@@ -517,10 +521,14 @@ func TestClassicTurnCommitRollsBackAsOneTransition(t *testing.T) {
 	want := errors.New("commit fault")
 	err = st.commitClassicTurn(context.Background(), ClassicTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
-		Messages: []llm.Message{{Role: "user", Content: "work"}}, GoalContinuation: "continue", Model: "model", Provider: "provider",
+		Messages: []llm.Message{{Role: "user", Content: "work"}}, WorkspaceSeq: 1, WorkspaceRef: "rolled-back-snapshot",
+		GoalContinuation: "continue", Model: "model", Provider: "provider",
 	}, func() error { return want })
 	if !errors.Is(err, want) {
 		t.Fatalf("commit error=%v", err)
+	}
+	if snapshots := st.Snapshots(rootID); len(snapshots) != 0 {
+		t.Fatalf("rolled-back turn left a workspace snapshot row: %v", snapshots)
 	}
 	var inboxStatus, turnStatus string
 	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`, rootID, authority.AgentID, item.InboxSeq).Scan(&inboxStatus); err != nil {

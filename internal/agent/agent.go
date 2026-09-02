@@ -458,6 +458,24 @@ func (a *Agent) MessagesSnapshot() []llm.Message {
 	return append([]llm.Message(nil), a.Messages...)
 }
 
+// ReplaceHistory swaps the non-system conversation while the daemon root is
+// idle. The primary system prompt remains owned by the configured runner.
+func (a *Agent) ReplaceHistory(history []llm.Message) {
+	a.msgsMu.Lock()
+	defer a.msgsMu.Unlock()
+	var system []llm.Message
+	if len(a.Messages) > 0 && a.Messages[0].Role == "system" {
+		system = append(system, a.Messages[0])
+	}
+	a.Messages = append(system, history...)
+}
+
+// CompactNow runs one explicit compaction outside a model turn. The daemon
+// serializes it with the root and records the returned durable compaction.
+func (a *Agent) CompactNow(ctx context.Context) (string, int, CompactInfo, error) {
+	return a.compact(ctx)
+}
+
 // SetSystemPrompt replaces the first system message without racing readers.
 func (a *Agent) SetSystemPrompt(prompt string) {
 	a.msgsMu.Lock()

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,6 +104,22 @@ func (s *Server) enrollIdentity(connection *serverConn, params EnrollIdentityPar
 	}
 	nonce, err := connection.rotateNonce()
 	return IdentityResult{ClientID: identity.ClientID, Kind: identity.Kind, Nonce: nonce}, err
+}
+
+func (s *Server) identityStatus(connection *serverConn) (IdentityStatusResult, error) {
+	result := IdentityStatusResult{ClientID: connection.client.ClientID, Kind: connection.client.ClientKind}
+	identity, err := s.daemon.store.LoadClientIdentity(s.ctx, connection.client.ClientID)
+	if err == nil {
+		result.Paired = identity.Kind == connection.client.ClientKind
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return IdentityStatusResult{}, err
+	}
+	count, err := s.daemon.store.HumanIdentityCount(s.ctx)
+	if err != nil {
+		return IdentityStatusResult{}, err
+	}
+	result.EnrollmentOpen = count == 0 && connection.client.ClientKind != "automation"
+	return result, nil
 }
 
 func (s *Server) verifyPrivileged(connection *serverConn, method string, unsigned any, signature []byte) error {

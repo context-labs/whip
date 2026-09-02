@@ -96,7 +96,7 @@ func (m *model) applyAuthResult(res authResultMsg) {
 	}
 	// If the current session routes through openrouter, rebuild the agent so
 	// the new key takes effect on the very next turn.
-	if m.provName == "openrouter" && m.modelName != "" && m.replacementBlocked() == "" {
+	if m.agent != nil && m.provName == "openrouter" && m.modelName != "" && m.replacementBlocked() == "" {
 		if ag, _, _, err := buildAgent(m.cfg, m.modelName, m.provName, m.sysPrompt, m.agent.Services); err == nil {
 			ag.Effort = m.agent.Effort
 			ag.WorkingDir = m.agent.WorkingDir

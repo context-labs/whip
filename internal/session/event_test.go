@@ -85,6 +85,42 @@ func TestRootSnapshotAndActiveRootDiscovery(t *testing.T) {
 	}
 }
 
+func TestRootSnapshotCarriesOnlyTheUncommittedPresentationTail(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rootID, err := st.Create(t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	large := []byte(strings.Repeat("stream", 2_000))
+	if _, err := st.AppendRootEvent(context.Background(), rootID, "stream.text", RuntimePayload{Data: large}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := st.SnapshotRoot(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Presentation) != 1 || snapshot.Presentation[0].Kind != "stream.text" || string(snapshot.Presentation[0].Payload) != string(large) {
+		t.Fatalf("presentation tail = %+v", snapshot.Presentation)
+	}
+	if _, err := st.AppendRootEvent(context.Background(), rootID, "turn.succeeded", RuntimePayload{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendRootEvent(context.Background(), rootID, "stream.notice", RuntimePayload{Data: []byte(`{"text":"next"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = st.SnapshotRoot(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Presentation) != 1 || snapshot.Presentation[0].Kind != "stream.notice" {
+		t.Fatalf("presentation after terminal turn = %+v", snapshot.Presentation)
+	}
+}
+
 func TestReplayAndSnapshotRejectInvalidCoordinates(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {

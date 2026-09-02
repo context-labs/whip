@@ -4,6 +4,7 @@ package tui
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -133,11 +134,20 @@ type menu struct {
 }
 
 type model struct {
-	cfg       *config.Config
-	agent     *agent.Agent
-	modelName string
-	provName  string
-	sysPrompt string
+	cfg              *config.Config
+	agent            *agent.Agent // embedded test harness only; production state lives in the daemon
+	client           *Client
+	clientView       clientPresentation
+	clientState      ClientState
+	clientErr        error
+	clientCursor     int64
+	clientInFlight   int
+	clientPromptOp   string
+	clientPromptCut  int
+	clientTerminalID string
+	modelName        string
+	provName         string
+	sysPrompt        string
 	// cfgExtra pins scalar settings this session explicitly changed (theme,
 	// effort, …): the config watcher applies file values only for keys not
 	// pinned here, so a local pick this session survives another session's
@@ -175,10 +185,11 @@ type model struct {
 	cancel       context.CancelFunc
 	prog         *tea.Program
 
-	store     *session.Store
-	sessionID string
-	saved     int            // messages already persisted (index into agent.Messages)
-	snapshots map[int]string // workspace snapshot ref per turn-start index (mirrors the snapshots table)
+	store       *session.Store
+	sessionID   string
+	sessionMode session.Mode
+	saved       int            // messages already persisted (index into agent.Messages)
+	snapshots   map[int]string // workspace snapshot ref per turn-start index (mirrors the snapshots table)
 
 	hist     []string           // submitted inputs, for up/down recall
 	pasteBuf string             // held paste text for the [Pasted ~N lines] placeholder (config collapsePaste)
@@ -331,7 +342,10 @@ var (
 // config.Load creates it) and triggers the one-time setup wizard.
 // initialPrompt (`whip up <words>`) is submitted as the first turn once the
 // UI is up — after any resume replay, matching `whip run`'s order.
-func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool, initialPrompt string) (string, error) {
+// runEmbedded is retained temporarily as a rendering-test harness while the
+// daemon-backed client absorbs the remaining presentation adapters. The
+// exported production entrypoint is Run in client.go.
+func runEmbedded(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool, initialPrompt string) (string, error) {
 	// One shared stdin reader for the pre-TUI prompts: a bufio.Reader reads
 	// ahead, so separate readers for the trust gate and the setup wizard would
 	// lose buffered answers (a pasted "y\n2\n…\n" answers both).
@@ -516,8 +530,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	m.irunner = newInteractiveRunner(p)
 	m.bindToolServices(m.agent)
 	go m.fetchCatalogs(false)
-	go func() { p.Send(cfgSyncTick{}) }()     // start the config watcher
-	go func() { p.Send(scheduleTickMsg{}) }() // start the wakeup channel
+	go func() { p.Send(cfgSyncTick{}) }() // start the config watcher
 	// From here the terminal belongs to bubbletea: theme re-detections must
 	// not run raw tty queries (see detectColorScheme) or they kill its input
 	// reader with a spurious EOF.
@@ -1573,13 +1586,16 @@ func (m *model) viewportView() string {
 
 func (m *model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textarea.Blink}
+	if m.client != nil {
+		cmds = append(cmds, waitClientUpdate(m.client))
+	}
 	if inTmuxEnv() {
 		// live theme tracking: tmux knows the outer terminal's light/dark
 		// (#{client_theme}, via the 996/2031 protocol) — poll it so an OS
 		// appearance flip mid-session is picked up without a restart
 		cmds = append(cmds, themePollTick())
 	}
-	if m.initialPrompt != "" {
+	if m.initialPrompt != "" && m.client == nil {
 		// Batch blink with the kickoff; the turn's p.Send is nil-safe in headless tests.
 		cmds = append(cmds, func() tea.Msg { return initialPromptMsg{} })
 	}
@@ -1950,6 +1966,131 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case clientUpdateMsg:
+		if msg.StateChanged {
+			m.clientState, m.clientErr = msg.State, msg.Err
+			if msg.State == ClientLive {
+				m.clientErr = nil
+				if m.initialPrompt != "" {
+					text := m.initialPrompt
+					m.initialPrompt = ""
+					_, command := m.submitClientAction("submit", map[string]string{"text": text}, text)
+					return m, tea.Batch(waitClientUpdate(m.client), command)
+				}
+			}
+		}
+		if msg.Snapshot != nil {
+			m.applyClientSnapshot(*msg.Snapshot)
+		}
+		if msg.Event != nil {
+			m.clientCursor = max(m.clientCursor, msg.Event.Seq)
+			if handled, command := m.applyClientStream(msg.Event.Kind, msg.Event.Payload); handled {
+				return m, tea.Batch(waitClientUpdate(m.client), command)
+			}
+			return m, tea.Batch(waitClientUpdate(m.client), m.requestClientSnapshot())
+		}
+		if msg.closed {
+			return m, nil
+		}
+		return m, waitClientUpdate(m.client)
+
+	case clientSnapshotMsg:
+		if msg.err != nil {
+			m.clientErr = msg.err
+		} else {
+			m.applyClientSnapshot(msg.snapshot)
+		}
+		return m, nil
+
+	case clientCommandMsg:
+		m.clientInFlight = max(m.clientInFlight-1, 0)
+		m.busy = m.clientInFlight > 0
+		m.interrupt1 = false
+		if m.clientInFlight == 0 {
+			m.turnStart = time.Time{}
+		}
+		succeeded := msg.err == nil && msg.result.Error == "" && msg.result.Status == "succeeded"
+		if succeeded && msg.action.Operation == "session.list" {
+			var metas []session.Meta
+			if err := json.Unmarshal([]byte(msg.result.Output), &metas); err != nil {
+				m.append(errStyle.Render("session list: " + err.Error()))
+			} else if len(metas) == 0 {
+				m.append(dimStyle.Render("(no previous sessions)"))
+			} else {
+				m.picker = &picker{metas: metas, previews: map[string][2]string{}}
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "agents.list" {
+			var agents []session.RuntimeAgent
+			if err := json.Unmarshal([]byte(msg.result.Output), &agents); err != nil {
+				m.append(errStyle.Render("subagents: " + err.Error()))
+			} else if len(agents) == 0 {
+				m.append(dimStyle.Render("(no background subagents)"))
+			} else {
+				for _, runtimeAgent := range agents {
+					if runtimeAgent.ParentID != "" {
+						m.append(dimStyle.Render(runtimeAgentLine(runtimeAgent)))
+					}
+				}
+			}
+			if m.clientState == ClientLive {
+				return m, m.requestClientSnapshot()
+			}
+			return m, nil
+		}
+		switch {
+		case msg.err != nil:
+			m.append(errStyle.Render(msg.action.Operation + ": " + msg.err.Error()))
+		case msg.result.Error != "":
+			m.append(errStyle.Render(msg.action.Operation + ": " + msg.result.Error))
+		case msg.result.Status == "interrupted":
+			m.append(dimStyle.Render("(interrupted — effect may be uncertain; retry creates a new command)"))
+		case msg.action.Operation != "submit" && msg.action.Operation != "steer" && msg.action.Operation != "session.open" && msg.result.Output != "":
+			m.append(dimStyle.Render(msg.result.Output))
+		}
+		if succeeded && (msg.action.Operation == "session.fork" || msg.action.Operation == "session.open") {
+			m.clientState = ClientSnapshotting
+			if err := m.client.SwitchRoot(msg.result.Output); err != nil {
+				m.clientErr = err
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "session.rename" {
+			m.sessTitle = msg.result.Output
+		}
+		if m.clientState == ClientLive {
+			return m, m.requestClientSnapshot()
+		}
+		return m, nil
+
+	case clientPermissionMsg:
+		m.clientInFlight = max(m.clientInFlight-1, 0)
+		m.busy = m.clientInFlight > 0
+		if m.permDialog != nil && m.permDialog.daemon != nil && m.permDialog.daemon.ID == msg.permissionID {
+			m.permDialog.deciding = false
+			if msg.err == nil {
+				m.permDialog = nil
+			}
+		}
+		if msg.err != nil {
+			m.append(errStyle.Render("permission: " + msg.err.Error()))
+		} else {
+			m.append(dimStyle.Render("permission decision acknowledged for operation " + msg.result.OperationID))
+		}
+		if m.clientState == ClientLive {
+			return m, m.requestClientSnapshot()
+		}
+		return m, nil
+
+	case clientTerminalMsg:
+		if msg.err != nil {
+			m.append(errStyle.Render("terminal input: " + msg.err.Error()))
+		} else if msg.result.Error != "" {
+			m.append(errStyle.Render("terminal input: " + msg.result.Error))
+		}
+		return m, nil
+
 	case initialPromptMsg:
 		if m.initialPrompt == "" || m.busy {
 			return m, nil
@@ -2086,7 +2227,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.uiMode != opencodeMode &&
 			msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft &&
 			msg.Y == m.viewTop && msg.X >= m.effortX {
-			m.setEffort(nextEffort(m.effortsFor(), m.agent.Effort))
+			next := nextEffort(m.effortsFor(), m.displayEffort())
+			if m.client != nil {
+				return m.submitClientAction("session.effort", map[string]string{"args": next}, "")
+			}
+			m.setEffort(next)
 			return m, nil
 		}
 		if m.taskVP != nil {
@@ -2101,7 +2246,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.picker == nil && m.mpicker == nil && m.palette == nil {
 			// dock rows sit just above the input box: click selects/opens,
 			// wheel scrolls the selection through the strip
-			if top, n := m.dockTop(), len(m.dockTasks()); n > 0 && msg.Y >= top && msg.Y < top+n {
+			if top, n := m.dockTop(), m.dockCount(); n > 0 && msg.Y >= top && msg.Y < top+n {
 				if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 					m.tasksFocus = true
 					if msg.Button == tea.MouseButtonWheelUp {
@@ -2118,6 +2263,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.tasksFocus = true
 					m.taskSel = min(sel, n-1)
+					if m.client != nil {
+						return m, nil
+					}
 					// re-fetch: the list can change between the hitbox check
 					// above and this open (settled tasks age out)
 					if tasks := m.dockTasks(); len(tasks) > 0 {
@@ -2676,8 +2824,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
 
-	case scheduleTickMsg:
-		return m, tea.Batch(scheduleTick(), m.fireDueSchedules())
 	}
 
 	var cmd tea.Cmd
@@ -2686,6 +2832,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.client != nil {
+		return m.thinKey(msg)
+	}
 	// interactive passthrough: forward keystrokes to the child's PTY instead
 	// of editing the input box. ctrl+c ctrl+c breaks out (cancel), esc forwards
 	// a single esc to the child (many prompts use esc to cancel).
@@ -3195,11 +3344,11 @@ func (m *model) busyStats() string {
 	d := max(m.nowFn().Sub(m.turnStart), 0)
 	elapsed := d.Round(time.Second)
 	stats := fmt.Sprintf(" %d:%02d", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
-	if u := m.agent.Usage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
+	if u := m.displayUsage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
 		stats += fmt.Sprintf(" · %s tok", fmtTok(u.PromptTokens+u.CompletionTokens))
 	}
-	if m.agent.ContextLimit > 0 {
-		stats += fmt.Sprintf(" · %d%%", agent.EstimateTokens(m.agent.Messages)*100/m.agent.ContextLimit)
+	if limit := m.displayContextLimit(); limit > 0 {
+		stats += fmt.Sprintf(" · %d%%", agent.EstimateTokens(m.displayMessages())*100/limit)
 	}
 	return stats
 }
@@ -3265,11 +3414,11 @@ func (m *model) sessionCost() (float64, bool) {
 	if !ok {
 		return 0, false
 	}
-	in, out, cacheRead, ok := cat.Pricing(m.agent.Model)
+	in, out, cacheRead, ok := cat.Pricing(m.displayModelID())
 	if !ok {
 		return 0, false
 	}
-	return llm.SessionCost(m.agent.Usage(), in, out, cacheRead), true
+	return llm.SessionCost(m.displayUsage(), in, out, cacheRead), true
 }
 
 // compactThresholdFor converts the config's compactPct preference into the
@@ -3387,6 +3536,17 @@ func (m *model) wireWaits() {
 // runningTasks counts background subagents still in flight (for the header badge).
 func (m *model) runningTasks() int {
 	n := 0
+	if m.client != nil {
+		for _, runtimeAgent := range m.clientView.agents {
+			if runtimeAgent.ParentID != "" && runtimeAgent.LifecyclePhase == "running" {
+				n++
+			}
+		}
+		return n
+	}
+	if m.agent == nil {
+		return 0
+	}
 	for _, t := range m.agent.Tasks().List() {
 		if t.Status == agent.TaskRunning {
 			n++
@@ -3397,6 +3557,17 @@ func (m *model) runningTasks() int {
 
 // tasksView renders the background-subagent list for /tasks.
 func (m *model) tasksView() string {
+	if m.client != nil {
+		children := m.runtimeChildren()
+		if len(children) == 0 {
+			return dimStyle.Render("(no background subagents)")
+		}
+		var lines []string
+		for _, child := range children {
+			lines = append(lines, runtimeAgentLine(child))
+		}
+		return strings.Join(lines, "\n")
+	}
 	tasks := m.agent.Tasks().List()
 	if len(tasks) == 0 {
 		return dimStyle.Render("(no background subagents)")
@@ -3485,6 +3656,9 @@ func (m *model) pickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		id := p.metas[p.idx].ID
 		m.picker = nil
+		if m.client != nil {
+			return m.submitClientAction("session.open", map[string]string{"args": id}, "")
+		}
 		if err := m.resume(id); err != nil {
 			m.append(errStyle.Render(err.Error()))
 		}
@@ -3493,6 +3667,9 @@ func (m *model) pickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (p *picker) loadPreview(store *session.Store) {
+	if store == nil {
+		return
+	}
 	id := p.metas[p.idx].ID
 	if _, ok := p.previews[id]; !ok {
 		u, a := store.LastExchange(id)
@@ -4527,6 +4704,14 @@ func (m *model) View() string {
 func (m *model) viewBody() string {
 	var b strings.Builder
 	left := fmt.Sprintf(" whip · %s @ %s · %s", m.modelName, m.provName, cwd())
+	if m.client != nil {
+		if m.sessionMode != "" {
+			left += " · " + string(m.sessionMode)
+		}
+		if m.clientState != ClientLive {
+			left += " · " + m.clientState.String()
+		}
+	}
 	if m.goal != "" {
 		left += " · ◎ " + truncLine(m.goal, 40)
 	}
@@ -4535,7 +4720,7 @@ func (m *model) viewBody() string {
 	}
 	// session token usage, provider-reported: in (cached of it) / out, then
 	// the share of the advertised context window the conversation occupies
-	u := m.agent.Usage()
+	u := m.displayUsage()
 	if u.PromptTokens > 0 || u.CompletionTokens > 0 {
 		left += fmt.Sprintf(" · ⣿ %s in", fmtTok(u.PromptTokens))
 		if c := u.Cached(); c > 0 {
@@ -4543,15 +4728,15 @@ func (m *model) viewBody() string {
 		}
 		left += fmt.Sprintf(" · %s out", fmtTok(u.CompletionTokens))
 	}
-	if m.agent.ContextLimit > 0 {
-		left += fmt.Sprintf(" · %d%% ctx", agent.EstimateTokens(m.agent.Messages)*100/m.agent.ContextLimit)
+	if limit := m.displayContextLimit(); limit > 0 {
+		left += fmt.Sprintf(" · %d%% ctx", agent.EstimateTokens(m.displayMessages())*100/limit)
 	}
 	// running background subagents get a badge; /tasks lists them
 	if n := m.runningTasks(); n > 0 {
 		left += fmt.Sprintf(" · ⚙ %d sub", n)
 	}
 	// right-aligned clickable effort control; ◌ marks thinking display
-	right := "⚡ " + effortLabel(m.agent.Effort) + " "
+	right := "⚡ " + effortLabel(m.displayEffort()) + " "
 	if m.showThinking {
 		right = "◌ on  " + right
 	}
@@ -4694,7 +4879,7 @@ func (m *model) syncInputPlaceholder() {
 	switch {
 	case !m.busy:
 		m.input.Placeholder = inputPlaceholder
-	case m.agent != nil && m.agent.WaitingOnSubagents():
+	case m.client == nil && m.agent != nil && m.agent.WaitingOnSubagents():
 		m.input.Placeholder = "waiting on subagents — type to steer this turn"
 	default:
 		m.input.Placeholder = "busy — type to queue (sent when the turn ends)"
@@ -4710,10 +4895,10 @@ func (m *model) statusView() string {
 		return m.opencodeStatus()
 	}
 	model := m.modelName
-	if e := effortLabel(m.agent.Effort); e != "off" {
+	if e := effortLabel(m.displayEffort()); e != "off" {
 		model += " (" + e + ")"
 	}
-	u := m.agent.Usage()
+	u := m.displayUsage()
 	spend := fmtUsage(u)
 	if cost, ok := m.sessionCost(); ok {
 		spend += " · " + fmtCost(cost)
@@ -4779,6 +4964,9 @@ func (m *model) pickerView() string {
 			title = "(untitled)"
 		}
 		line := fmt.Sprintf("%s  %s · %s · %s @ %s", meta.ID, title, ago(meta.UpdatedAt), meta.Model, meta.Provider)
+		if meta.Mode != "" {
+			line += " · " + string(meta.Mode)
+		}
 		if i != p.idx {
 			rows = append(rows, wrap("    "+line, m.width))
 			continue

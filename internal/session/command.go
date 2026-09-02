@@ -109,6 +109,65 @@ func (s *Store) AdmitCommand(ctx context.Context, admission CommandAdmission) (C
 	return result, nil
 }
 
+// AdmitControlCommand durably admits a root-scoped command that executes on
+// the actor itself instead of becoming model input. Matching retries observe
+// the existing command; only a newly inserted row may execute its action.
+func (s *Store) AdmitControlCommand(ctx context.Context, admission CommandAdmission) (CommandAdmissionResult, error) {
+	if err := validateCommandAdmission(admission); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	if admission.Scope != CommandScopeRoot {
+		return CommandAdmissionResult{}, errors.New("control command must be root scoped")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if existing, found, err := loadCommandTx(ctx, tx, admission.ClientID, admission.CommandID); err != nil {
+		return CommandAdmissionResult{}, err
+	} else if found {
+		if existing.Scope != admission.Scope || existing.RootID != admission.RootID || existing.RequestDigest != admission.RequestDigest {
+			return CommandAdmissionResult{}, ErrCommandConflict
+		}
+		return CommandAdmissionResult{Command: existing}, nil
+	}
+	commandValue, err := s.prepareRuntimeValue(admission.Payload, ContentGrant{RootID: admission.RootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	stamp := now()
+	if err := insertRuntimeValue(ctx, tx, commandValue, stamp); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	eventSeq, err := s.insertActorEventTx(ctx, tx, admission.RootID, "command.control.queued", actorEvent{
+		AgentID: admission.AgentID, Status: "queued", CommandClientID: admission.ClientID, CommandID: admission.CommandID,
+	}, stamp)
+	if err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	// Positive root ingress values are reserved for model-input commands and
+	// equal their inbox sequence. Actor-local controls use a separate negative
+	// sequence so they cannot collide with that durable correlation.
+	var ingressSeq int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(ingress_seq),0)-1 FROM commands WHERE root_id=? AND ingress_seq<0`, admission.RootID).Scan(&ingressSeq); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	inline, reference := runtimeValueColumns(commandValue.RuntimeValue)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,payload_inline,payload_ref,ingress_seq,created_at,updated_at)
+		VALUES(?,?,?,?,?,'queued',?,?,?,?,?)`, admission.ClientID, admission.CommandID, admission.Scope, admission.RootID,
+		admission.RequestDigest, inline, reference, ingressSeq, stamp, stamp); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CommandAdmissionResult{}, err
+	}
+	return CommandAdmissionResult{Command: CommandRecord{
+		ClientID: admission.ClientID, CommandID: admission.CommandID, Scope: admission.Scope, RootID: admission.RootID,
+		RequestDigest: admission.RequestDigest, Status: "queued", IngressSeq: ingressSeq,
+	}, EventSeq: eventSeq, New: true}, nil
+}
+
 func (s *Store) LoadCommand(ctx context.Context, clientID, commandID string) (CommandRecord, error) {
 	record, found, err := loadCommand(ctx, s.db, clientID, commandID)
 	if err != nil {

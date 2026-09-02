@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -39,6 +40,8 @@ type permDialog struct {
 	sel       int  // 0=allow once, 1=allow always, 2=reject
 	rejecting bool // typing the redirect message
 	rejectIn  string
+	daemon    *session.PermissionSnapshot
+	deciding  bool
 }
 
 // permRules is the saved "allow always" set, persisted to
@@ -183,6 +186,9 @@ func (m *model) permView() string {
 	if d == nil {
 		return ""
 	}
+	if d.daemon != nil {
+		return m.daemonPermView(d)
+	}
 	var b strings.Builder
 	title := "Allow " + d.req.Tool + "?"
 	if d.req.Tool == "bash" {
@@ -207,6 +213,57 @@ func (m *model) permView() string {
 			b.WriteString(youStyle.Render(glyphUser + o + "  "))
 		} else {
 			b.WriteString(dimStyle.Render("  " + o + "  "))
+		}
+	}
+	return b.String()
+}
+
+func (m *model) applyClientPermissions(permissions []session.PermissionSnapshot) {
+	if m.permDialog != nil && m.permDialog.daemon == nil {
+		return
+	}
+	if m.permDialog != nil {
+		for i := range permissions {
+			if permissions[i].ID == m.permDialog.daemon.ID {
+				permission := permissions[i]
+				m.permDialog.daemon = &permission
+				return
+			}
+		}
+		m.permDialog = nil
+	}
+	if len(permissions) > 0 {
+		permission := permissions[0]
+		m.permDialog = &permDialog{daemon: &permission}
+	}
+}
+
+func (m *model) daemonPermView(dialog *permDialog) string {
+	permission := dialog.daemon
+	var b strings.Builder
+	b.WriteString(youStyle.Render("⚠ Allow " + permission.Operation + "?"))
+	detail := permission.CanonicalPath
+	if detail == "" {
+		detail = "request " + permission.RequestDigest
+	}
+	b.WriteString("\n  " + ansi_Truncate(detail, m.width-4))
+	b.WriteString(dimStyle.Render("\n  agent " + permission.AgentID + " · permission " + permission.ID))
+	if dialog.deciding {
+		b.WriteString(dimStyle.Render("\n  sending signed decision…"))
+		return b.String()
+	}
+	if dialog.rejecting {
+		b.WriteString("\n" + youStyle.Render("  reject with message: ") + dialog.rejectIn + "█")
+		b.WriteString(dimStyle.Render("\n  enter sends · esc back"))
+		return b.String()
+	}
+	options := []string{"allow once (a)", "reject (r)"}
+	b.WriteString("\n  ")
+	for i, option := range options {
+		if i == dialog.sel {
+			b.WriteString(youStyle.Render(glyphUser + option + "  "))
+		} else {
+			b.WriteString(dimStyle.Render("  " + option + "  "))
 		}
 	}
 	return b.String()

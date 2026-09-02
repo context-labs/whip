@@ -196,7 +196,7 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	if components.Runner == nil {
 		return nil, errors.New("root factory returned no runner")
 	}
-	root = newSession(d.store, meta, authority, components)
+	root = newSession(d.store, meta, authority, components, d.factory)
 	if binder, ok := components.Runner.(interface{ bind(*Session) error }); ok {
 		if err := binder.bind(root); err != nil {
 			return nil, err
@@ -207,12 +207,21 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 			return nil, err
 		}
 	}
+	configureMCP(root, components)
+	root.supervisor.startActor(root.run)
+	root.startScheduler()
+	root.notify()
+	started = true
+	return root, nil
+}
+
+func configureMCP(root *Session, components Components) {
 	if manager, ok := components.MCP.(interface {
 		SetProcessOptions(*capability.ProcessManager, string, string, map[string]string)
 		SetOnChange(func())
 		Tools() []tools.Tool
 	}); ok {
-		manager.SetProcessOptions(d.store.Processes(), meta.ID, meta.CWD, nil)
+		manager.SetProcessOptions(root.store.Processes(), root.meta.ID, root.meta.CWD, nil)
 		if runner, ok := components.Runner.(*agentRunner); ok {
 			updateTools := func() { runner.agent.SetMCPTools(manager.Tools()) }
 			manager.SetOnChange(updateTools)
@@ -227,11 +236,6 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	if lifecycle, ok := components.MCP.(interface{ Start(context.Context) }); ok {
 		lifecycle.Start(root.supervisor.ctx)
 	}
-	root.supervisor.startActor(root.run)
-	root.startScheduler()
-	root.notify()
-	started = true
-	return root, nil
 }
 
 // Close stops roots outside the registry lock, then closes the shared store.

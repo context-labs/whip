@@ -237,10 +237,10 @@ func (m *model) sidebarView(height int) string {
 
 	// Context: tokens used, share of the window, spend.
 	b.WriteString(head.Render("Context") + "\n")
-	u := m.agent.Usage()
+	u := m.displayUsage()
 	b.WriteString(dim.Render(fmtTok(u.PromptTokens+u.CompletionTokens)+" tokens") + "\n")
-	if m.agent.ContextLimit > 0 {
-		pct := agent.EstimateTokens(m.agent.Messages) * 100 / m.agent.ContextLimit
+	if limit := m.displayContextLimit(); limit > 0 {
+		pct := agent.EstimateTokens(m.displayMessages()) * 100 / limit
 		b.WriteString(dim.Render(fmt.Sprintf("%d%% used", pct)) + "\n")
 	}
 	if cost, ok := m.sessionCost(); ok {
@@ -408,10 +408,10 @@ func (m *model) opencodeStatus() string {
 	txt := lipgloss.NewStyle().Foreground(ocTextCol())
 	// right side: "{tokens} ({pct})  " muted, then "ctrl+p" in text, " commands" muted.
 	rightRaw := ""
-	if u := m.agent.Usage(); u.PromptTokens+u.CompletionTokens > 0 {
+	if u := m.displayUsage(); u.PromptTokens+u.CompletionTokens > 0 {
 		rightRaw = strings.ToUpper(fmtTok(u.PromptTokens + u.CompletionTokens)) // opencode uses uppercase (15.8K)
-		if m.agent.ContextLimit > 0 {
-			rightRaw += fmt.Sprintf(" (%d%%)", agent.EstimateTokens(m.agent.Messages)*100/m.agent.ContextLimit)
+		if limit := m.displayContextLimit(); limit > 0 {
+			rightRaw += fmt.Sprintf(" (%d%%)", agent.EstimateTokens(m.displayMessages())*100/limit)
 		}
 		rightRaw += "  "
 	}
@@ -1025,7 +1025,7 @@ func fmtShortDur(d time.Duration) string {
 // ocModeLabel is the left segment of the prompt meta row. whip has no named
 // agents like opencode's "Build"; its closest analog is the reasoning effort.
 func (m *model) ocModeLabel() string {
-	eff := m.agent.Effort
+	eff := m.displayEffort()
 	if eff == "" {
 		eff = "off"
 	}

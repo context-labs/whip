@@ -149,6 +149,12 @@ func (s *Services) SetDiagnostics(diagnostics Diagnostics) {
 	s.mu.Unlock()
 }
 
+func (s *Services) Diagnostics() Diagnostics {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.diagnostics
+}
+
 func (s *Services) SetGate(gate Gate) {
 	s.mu.Lock()
 	s.gate = gate
@@ -158,6 +164,19 @@ func (s *Services) SetGate(gate Gate) {
 func (s *Services) SetProcessMarkers(sessionID, model string) {
 	s.mu.Lock()
 	s.processEnv = bashrun.Markers(sessionID, model)
+	s.mu.Unlock()
+}
+
+// SetProcessEnvironment adds explicit child-process values without mutating
+// the daemon's process-global environment.
+func (s *Services) SetProcessEnvironment(values map[string]string) {
+	s.mu.Lock()
+	if s.processEnv == nil {
+		s.processEnv = make(map[string]string)
+	}
+	for key, value := range values {
+		s.processEnv[key] = value
+	}
 	s.mu.Unlock()
 }
 

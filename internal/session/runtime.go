@@ -76,10 +76,14 @@ type ContentGrant struct {
 }
 
 type RuntimeAgent struct {
-	ID       string
-	RootID   string
-	ParentID string
-	Status   string
+	ID              string
+	RootID          string
+	ParentID        string
+	Status          string
+	LifecyclePhase  string
+	BlockingReason  string
+	TerminalCause   string
+	AllowedControls []string
 }
 
 type RuntimeCommand struct {
@@ -176,6 +180,8 @@ type ClassicTurnCommit struct {
 	AcknowledgedInbox []int64
 	Messages          []llm.Message
 	Compactions       []ClassicCompaction
+	WorkspaceSeq      int
+	WorkspaceRef      string
 	ClearGoal         bool
 	GoalContinuation  string
 	Model             string
@@ -387,6 +393,9 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 	if commit.ClearGoal && commit.GoalContinuation != "" {
 		return errors.New("classic turn cannot clear and continue a goal")
 	}
+	if commit.WorkspaceRef != "" && commit.WorkspaceSeq < 1 {
+		return errors.New("classic turn workspace snapshot requires a positive conversation index")
+	}
 	commandOutcome, err := s.prepareRuntimeValue(commit.Outcome, ContentGrant{RootID: commit.RootID, Scope: ContentGrantRoot})
 	if err != nil {
 		return err
@@ -498,6 +507,12 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 		compactionSeq++
 		if _, err := tx.ExecContext(ctx, `INSERT INTO compactions(session_id,seq,cutoff,summary,created_at) VALUES(?,?,?,?,?)`,
 			commit.RootID, compactionSeq, rawCutoff, compaction.Summary, stamp); err != nil {
+			return err
+		}
+	}
+	if commit.WorkspaceRef != "" {
+		if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO snapshots(session_id,seq,ref,created_at) VALUES(?,?,?,?)`,
+			commit.RootID, commit.WorkspaceSeq, commit.WorkspaceRef, stamp); err != nil {
 			return err
 		}
 	}
@@ -1149,6 +1164,13 @@ func (s *Store) FinishCommand(ctx context.Context, clientID, commandID, status s
 			return RuntimeValue{}, err
 		}
 		return RuntimeValue{}, errors.New("command became terminal before outcome commit")
+	}
+	if scope == CommandScopeRoot {
+		if _, err := s.insertActorEventTx(ctx, tx, rootID.String, "command."+status, actorEvent{
+			Status: status, CommandClientID: clientID, CommandID: commandID,
+		}, stamp); err != nil {
+			return RuntimeValue{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return RuntimeValue{}, err

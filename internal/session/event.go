@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -31,12 +32,48 @@ type EventEnvelope struct {
 }
 
 type RootSnapshot struct {
-	RootID   string
-	Cursor   int64
-	Meta     Meta
-	Messages []llm.Message
-	Agents   []RuntimeAgent
-	Inbox    []InboxItem
+	RootID       string
+	Cursor       int64
+	Meta         Meta
+	Messages     []llm.Message
+	Presentation []SnapshotEvent
+	Agents       []RuntimeAgent
+	Inbox        []InboxItem
+	Blackboard   []StateValue
+	Budgets      []SnapshotBudget
+	Capabilities []CapabilityRecord
+	Schedules    []Schedule
+	Permissions  []PermissionSnapshot
+}
+
+// SnapshotEvent is presentation-only state that has been durably observed but
+// not yet folded into the authoritative conversation history. It lets a
+// reconnecting client rebuild an in-progress response without replaying events
+// at or before the snapshot cursor.
+type SnapshotEvent struct {
+	Seq     int64
+	Kind    string
+	Payload []byte
+}
+
+type SnapshotBudget struct {
+	AgentID string
+	State   BudgetState
+}
+
+// PermissionSnapshot intentionally omits raw tool arguments. A reconnecting
+// client gets enough immutable provenance to make a decision without copying
+// credentials or other sensitive arguments into the protocol snapshot.
+type PermissionSnapshot struct {
+	ID                   string
+	AgentID              string
+	OperationID          string
+	Operation            string
+	CanonicalPath        string
+	RequestDigest        string
+	CapabilityID         string
+	CapabilityGeneration int64
+	Status               string
 }
 
 // ReplayEvents returns retained envelopes strictly after cursor. A cursor
@@ -92,6 +129,40 @@ func (s *Store) ResolveRuntimeValue(ctx context.Context, rootID string, value Ru
 	return data, err
 }
 
+// AppendRootEvent appends an opaque, bounded client event. Daemon root
+// actors call it after worker callbacks cross the supervisor mailbox.
+func (s *Store) AppendRootEvent(ctx context.Context, rootID, kind string, payload RuntimePayload) (int64, error) {
+	if rootID == "" || kind == "" {
+		return 0, errors.New("root event requires root and kind")
+	}
+	prepared, err := s.prepareRuntimeValue(payload, ContentGrant{RootID: rootID, Scope: ContentGrantRoot})
+	if err != nil {
+		return 0, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	stamp := now()
+	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
+		return 0, err
+	}
+	var seq int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM events WHERE root_id=?`, rootID).Scan(&seq); err != nil {
+		return 0, err
+	}
+	inline, reference := runtimeValueColumns(prepared.RuntimeValue)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events(root_id,seq,kind,payload_inline,payload_ref,created_at) VALUES(?,?,?,?,?,?)`,
+		rootID, seq, kind, inline, reference, stamp); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE root_id=? AND seq<=?`, rootID, seq-EventRetention); err != nil {
+		return 0, err
+	}
+	return seq, tx.Commit()
+}
+
 // SnapshotRoot reads the reconnect baseline and its final event cursor from
 // one SQLite read transaction. Callers serialize this with the root actor.
 func (s *Store) SnapshotRoot(ctx context.Context, rootID string) (RootSnapshot, error) {
@@ -125,13 +196,71 @@ func (s *Store) SnapshotRoot(ctx context.Context, rootID string) (RootSnapshot, 
 	if err := readSnapshotMessages(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
+	if err := s.readSnapshotPresentation(ctx, tx, rootID, &snapshot); err != nil {
+		return RootSnapshot{}, err
+	}
 	if err := readSnapshotAgents(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
 	if err := readSnapshotInbox(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
+	if err := readSnapshotBlackboard(ctx, tx, rootID, &snapshot); err != nil {
+		return RootSnapshot{}, err
+	}
+	if err := readSnapshotBudgets(ctx, tx, rootID, &snapshot); err != nil {
+		return RootSnapshot{}, err
+	}
+	if err := readSnapshotCapabilities(ctx, tx, rootID, &snapshot); err != nil {
+		return RootSnapshot{}, err
+	}
+	if err := readSnapshotSchedules(ctx, tx, rootID, &snapshot); err != nil {
+		return RootSnapshot{}, err
+	}
+	if err := s.readSnapshotPermissions(ctx, tx, rootID, &snapshot); err != nil {
+		return RootSnapshot{}, err
+	}
+	deriveSnapshotAgentState(&snapshot)
 	return snapshot, tx.Commit()
+}
+
+func (s *Store) readSnapshotPresentation(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
+	rows, err := tx.QueryContext(ctx, `SELECT seq,kind,payload_inline,payload_ref FROM events
+		WHERE root_id=? AND kind LIKE 'stream.%' AND seq>COALESCE((
+			SELECT MAX(seq) FROM events WHERE root_id=? AND kind IN ('turn.succeeded','turn.failed')
+		),0) ORDER BY seq`, rootID, rootID)
+	if err != nil {
+		return err
+	}
+	type pendingEvent struct {
+		event     SnapshotEvent
+		inline    []byte
+		reference sql.NullString
+	}
+	var pending []pendingEvent
+	for rows.Next() {
+		var item pendingEvent
+		if err := rows.Scan(&item.event.Seq, &item.event.Kind, &item.inline, &item.reference); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		pending = append(pending, item)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range pending {
+		item.event.Payload, err = s.readRuntimeValueTx(ctx, tx, item.inline, item.reference)
+		if err != nil {
+			return err
+		}
+		snapshot.Presentation = append(snapshot.Presentation, item.event)
+	}
+	return nil
 }
 
 func readSnapshotMessages(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
@@ -193,6 +322,194 @@ func readSnapshotInbox(ctx context.Context, tx *sql.Tx, rootID string, snapshot 
 		snapshot.Inbox = append(snapshot.Inbox, item)
 	}
 	return rows.Err()
+}
+
+func readSnapshotBlackboard(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
+	rows, err := tx.QueryContext(ctx, stateSelect(`FROM blackboard s LEFT JOIN content_references r ON r.id=s.payload_ref
+		WHERE s.root_id=? ORDER BY s.key`), InlineValueLimit+1, rootID)
+	if err != nil {
+		return err
+	}
+	snapshot.Blackboard, err = scanStateRows(rows)
+	return err
+}
+
+func readSnapshotBudgets(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
+	rows, err := tx.QueryContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value
+		FROM budgets WHERE root_id=? ORDER BY agent_id,kind`, rootID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var agentID string
+		var row budgetRow
+		if err := rows.Scan(&agentID, &row.kind, &row.limit, &row.used, &row.reserved); err != nil {
+			return err
+		}
+		snapshot.Budgets = append(snapshot.Budgets, SnapshotBudget{AgentID: agentID, State: budgetStateFromRow(row)})
+	}
+	return rows.Err()
+}
+
+func readSnapshotCapabilities(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
+	rows, err := tx.QueryContext(ctx, `SELECT id,root_id,agent_id,issuer_agent_id,operations,scopes,generation,status,created_at,updated_at
+		FROM capabilities WHERE root_id=? ORDER BY agent_id,id`, rootID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var record CapabilityRecord
+		var operationsJSON, scopesJSON []byte
+		var createdAt, updatedAt string
+		if err := rows.Scan(&record.ID, &record.RootID, &record.AgentID, &record.IssuerAgentID, &operationsJSON, &scopesJSON,
+			&record.Generation, &record.Status, &createdAt, &updatedAt); err != nil {
+			return err
+		}
+		var scopes storedCapabilityScopes
+		if err := json.Unmarshal(operationsJSON, &record.Operations); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(scopesJSON, &scopes); err != nil {
+			return err
+		}
+		record.Scopes = scopes.Paths
+		if scopes.ExpiresAt != "" {
+			record.ExpiresAt, err = time.Parse(time.RFC3339Nano, scopes.ExpiresAt)
+			if err != nil {
+				return err
+			}
+		}
+		record.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+		if err != nil {
+			return err
+		}
+		record.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+		if err != nil {
+			return err
+		}
+		snapshot.Capabilities = append(snapshot.Capabilities, record)
+	}
+	return rows.Err()
+}
+
+func readSnapshotSchedules(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
+	rows, err := tx.QueryContext(ctx, `SELECT id,schedule,prompt,anchor,last_fire FROM schedules WHERE session_id=? ORDER BY id`, rootID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var schedule Schedule
+		var anchor, lastFire string
+		if err := rows.Scan(&schedule.ID, &schedule.Schedule, &schedule.Prompt, &anchor, &lastFire); err != nil {
+			return err
+		}
+		schedule.Anchor, err = time.Parse(time.RFC3339, anchor)
+		if err != nil {
+			return err
+		}
+		if lastFire != "" {
+			schedule.LastFire, err = time.Parse(time.RFC3339, lastFire)
+			if err != nil {
+				return err
+			}
+		}
+		snapshot.Schedules = append(snapshot.Schedules, schedule)
+	}
+	return rows.Err()
+}
+
+func (s *Store) readSnapshotPermissions(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
+	rows, err := tx.QueryContext(ctx, `SELECT p.id,p.agent_id,p.operation_id,p.status,o.payload_inline,o.payload_ref
+		FROM permission_requests p JOIN operations o ON o.root_id=p.root_id AND o.id=p.operation_id
+		WHERE p.root_id=? AND p.status='pending' ORDER BY p.created_at,p.id`, rootID)
+	if err != nil {
+		return err
+	}
+	type pendingPermission struct {
+		permission PermissionSnapshot
+		inline     []byte
+		reference  sql.NullString
+	}
+	var pending []pendingPermission
+	for rows.Next() {
+		var item pendingPermission
+		if err := rows.Scan(&item.permission.ID, &item.permission.AgentID, &item.permission.OperationID,
+			&item.permission.Status, &item.inline, &item.reference); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		pending = append(pending, item)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range pending {
+		payload, err := s.readRuntimeValueTx(ctx, tx, item.inline, item.reference)
+		if err != nil {
+			return err
+		}
+		var admission capability.Admission
+		if err := json.Unmarshal(payload, &admission); err != nil {
+			return err
+		}
+		item.permission.Operation = admission.Request.Operation
+		item.permission.CanonicalPath = admission.CanonicalPath
+		item.permission.RequestDigest = admission.RequestDigest
+		item.permission.CapabilityID = admission.Request.CapabilityID
+		item.permission.CapabilityGeneration = admission.Request.CapabilityGeneration
+		snapshot.Permissions = append(snapshot.Permissions, item.permission)
+	}
+	return nil
+}
+
+func deriveSnapshotAgentState(snapshot *RootSnapshot) {
+	blocked := make(map[string]string)
+	active := make(map[string]bool)
+	for _, permission := range snapshot.Permissions {
+		blocked[permission.AgentID] = "permission"
+	}
+	for _, item := range snapshot.Inbox {
+		active[item.AgentID] = true
+		if blocked[item.AgentID] == "" && strings.Contains(item.Kind, "message") {
+			blocked[item.AgentID] = "peer"
+		}
+	}
+	for i := range snapshot.Agents {
+		agent := &snapshot.Agents[i]
+		switch {
+		case isTerminalAgentStatus(agent.Status):
+			agent.LifecyclePhase = "terminal"
+			agent.TerminalCause = agent.Status
+			if agent.ParentID != "" && agent.Status != "deleted" {
+				agent.AllowedControls = []string{"agent.delete"}
+			}
+		case blocked[agent.ID] != "":
+			agent.LifecyclePhase = "blocked"
+			agent.BlockingReason = blocked[agent.ID]
+		case agent.Status == "running" || active[agent.ID]:
+			agent.LifecyclePhase = "running"
+		default:
+			agent.LifecyclePhase = "idle"
+		}
+		if agent.LifecyclePhase == "terminal" {
+			continue
+		}
+		if agent.ParentID == "" {
+			agent.AllowedControls = []string{"budget.cap", "capability.revoke"}
+			if active[agent.ID] {
+				agent.AllowedControls = append([]string{"cancel"}, agent.AllowedControls...)
+			}
+		} else {
+			agent.AllowedControls = []string{"agent.stop", "budget.cap", "capability.revoke"}
+		}
+	}
 }
 
 // ActiveRootIDs finds detached roots whose durable schedulers or

@@ -342,6 +342,9 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		}
 		result, err := s.enrollIdentity(connection, params)
 		return result, rpcFromError(err)
+	case "identity.status":
+		result, err := s.identityStatus(connection)
+		return result, rpcFromError(err)
 	case "permission.decide":
 		var params PermissionDecisionParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -354,7 +357,18 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		if err != nil {
 			return nil, rpcFromError(err)
 		}
-		ticket, err := root.DecidePermission(s.ctx, params.Decision.PermissionID, capability.Decision{
+		payload, err := json.Marshal(params.Decision)
+		if err != nil {
+			return nil, rpcFromError(err)
+		}
+		digest, err := requestDigest(string(session.CommandScopeRoot), params.Decision.RootID, "permission.decide", payload)
+		if err != nil {
+			return nil, rpcFromError(err)
+		}
+		ticket, err := root.DecidePermissionCommand(s.ctx, session.CommandAdmission{
+			ClientID: connection.client.ClientID, CommandID: params.Decision.CommandID, RequestDigest: digest,
+			Payload: session.RuntimePayload{Data: payload, MediaType: "application/json", Source: "permission decision"},
+		}, params.Decision.PermissionID, capability.Decision{
 			Allow: params.Decision.Allow, PrincipalID: connection.client.ClientID, Reason: params.Decision.Reason,
 		})
 		if err != nil {
@@ -410,18 +424,35 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 	if params.Scope != string(session.CommandScopeRoot) {
 		return CommandResult{}, errors.New("command scope must be daemon or root")
 	}
+	root, err := s.daemon.Open(params.RootID)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	if params.Operation != "submit" && params.Operation != "steer" {
+		if !isClientOperation(params.Operation) {
+			return CommandResult{}, fmt.Errorf("unsupported root command %q", params.Operation)
+		}
+		storedPayload := params.Payload
+		if params.Operation == "terminal.input" {
+			var input clientActionPayload
+			if err := json.Unmarshal(params.Payload, &input); err != nil {
+				return CommandResult{}, errors.New("invalid terminal input payload")
+			}
+			storedPayload, _ = json.Marshal(struct {
+				ID       string `json:"id"`
+				Redacted bool   `json:"redacted"`
+			}{ID: input.ID, Redacted: true})
+		}
+		return root.ClientCommand(s.ctx, session.CommandAdmission{
+			ClientID: connection.client.ClientID, CommandID: params.CommandID, Kind: params.Operation, RequestDigest: digest,
+			Payload: session.RuntimePayload{Data: storedPayload, MediaType: "application/json", Source: params.Operation},
+		}, params.Operation, params.Payload)
+	}
 	var payload struct {
 		Text string `json:"text"`
 	}
 	if err := json.Unmarshal(params.Payload, &payload); err != nil || payload.Text == "" {
 		return CommandResult{}, errors.New("root command requires non-empty text")
-	}
-	if params.Operation != "submit" && params.Operation != "steer" {
-		return CommandResult{}, fmt.Errorf("unsupported root command %q", params.Operation)
-	}
-	root, err := s.daemon.Open(params.RootID)
-	if err != nil {
-		return CommandResult{}, err
 	}
 	admission, receipt, err := root.AdmitCommand(s.ctx, session.CommandAdmission{
 		ClientID: connection.client.ClientID, CommandID: params.CommandID, Kind: params.Operation, RequestDigest: digest,

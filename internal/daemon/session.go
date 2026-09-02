@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime/debug"
@@ -37,9 +38,11 @@ type Components struct {
 }
 
 type agentRunner struct {
-	agent *agent.Agent
-	mu    sync.Mutex
-	turn  turnJournal
+	agent       *agent.Agent
+	mu          sync.Mutex
+	turn        turnJournal
+	emit        func(string, StreamEvent)
+	interactive *daemonInteractiveRunner
 }
 
 // NewAgentRunner adapts the production Classic agent to a daemon root.
@@ -48,7 +51,22 @@ func NewAgentRunner(value *agent.Agent) Runner { return &agentRunner{agent: valu
 func (r *agentRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
 	boundary := len(r.agent.MessagesSnapshot())
 	journal := turnJournal{}
+	emit := r.emit
 	events := agent.Events{OnStart: started, OnSteer: accepted}
+	if emit != nil {
+		events.OnText = func(text string) { emit("stream.text", StreamEvent{Text: text}) }
+		events.OnThink = func(text string) { emit("stream.reasoning", StreamEvent{Text: text}) }
+		events.OnToolCall = func(id, name, args string) { emit("stream.tool.call", StreamEvent{ID: id, Name: name, Args: args}) }
+		events.OnToolStart = func(id, name, args string) { emit("stream.tool.started", StreamEvent{ID: id, Name: name, Args: args}) }
+		events.OnToolOutput = func(id, text string) { emit("stream.tool.output", StreamEvent{ID: id, Text: text}) }
+		events.OnToolEnd = func(id, name, result string) {
+			emit("stream.tool.completed", StreamEvent{ID: id, Name: name, Result: result})
+		}
+		events.OnCompactStart = func(_, _ int) { emit("stream.notice", StreamEvent{Text: "compacting context…"}) }
+		events.OnRetry = func(event llm.RetryEvent) {
+			emit("stream.notice", StreamEvent{Text: fmt.Sprintf("request failed (%v); retrying in %s", event.Err, event.Delay)})
+		}
+	}
 	events.OnCompaction = func(summary string, cutoff int, before []llm.Message) {
 		journal.Messages = append(journal.Messages, before[boundary:]...)
 		journal.Compactions = append(journal.Compactions, turnCompaction{
@@ -84,6 +102,9 @@ func (r *agentRunner) turnJournal() turnJournal {
 func (r *agentRunner) Close() {
 	r.agent.SetSteerIngress(nil)
 	r.agent.Close()
+	if r.agent.Services != nil {
+		r.agent.Services.Close()
+	}
 }
 
 func (r *agentRunner) bind(root *Session) error {
@@ -94,6 +115,11 @@ func (r *agentRunner) bind(root *Session) error {
 		return err
 	}
 	r.agent.SetSessionID(root.meta.ID)
+	r.emit = func(kind string, event StreamEvent) {
+		root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{kind: kind, event: event}})
+	}
+	r.interactive = newDaemonInteractiveRunner(r.emit)
+	r.agent.Services.SetInteractive(r.interactive)
 	r.agent.Tasks().SetSessionID(root.meta.ID)
 	tasks, err := root.store.LoadTasks(root.meta.ID)
 	if err != nil {
@@ -178,13 +204,17 @@ const (
 	workerTaskRecord    = "task.record"
 	workerScheduleTick  = "schedule.tick"
 	workerControl       = "control"
+	workerClientCommand = "client.command"
+	workerStream        = "stream"
 )
 
 type workerCompletion struct {
-	sequence int64
-	output   string
-	err      error
-	journal  turnJournal
+	sequence     int64
+	output       string
+	err          error
+	journal      turnJournal
+	workspaceSeq int
+	workspaceRef string
 }
 
 type turnCompaction struct {
@@ -210,6 +240,13 @@ type workerEnvelope struct {
 	control    func(context.Context) error
 	reply      chan error
 	at         time.Time
+	client     *clientCommandCompletion
+	stream     *streamEnvelope
+}
+
+type streamEnvelope struct {
+	kind  string
+	event StreamEvent
 }
 
 type supervisor struct {
@@ -263,6 +300,23 @@ func (s *supervisor) report(kind string, err error) {
 
 func (s *supervisor) post(event workerEnvelope) {
 	s.mu.Lock()
+	if event.kind == workerStream && event.stream != nil && len(s.events) > 0 {
+		last := &s.events[len(s.events)-1]
+		if last.kind == workerStream && last.stream != nil && last.stream.kind == event.stream.kind && last.stream.event.ID == event.stream.event.ID {
+			switch event.stream.kind {
+			case "stream.text", "stream.reasoning", "stream.terminal.output":
+				if len(last.stream.event.Text)+len(event.stream.event.Text) <= 32<<10 {
+					last.stream.event.Text += event.stream.event.Text
+					s.mu.Unlock()
+					return
+				}
+			case "stream.tool.call", "stream.tool.output":
+				last.stream.event = event.stream.event
+				s.mu.Unlock()
+				return
+			}
+		}
+	}
 	s.events = append(s.events, event)
 	s.mu.Unlock()
 	select {
@@ -299,6 +353,7 @@ type Session struct {
 	runner     Runner
 	mcp        Closeable
 	runtime    Closeable
+	factory    Factory
 	supervisor *supervisor
 	mailbox    chan inboxReady
 	done       chan struct{}
@@ -317,6 +372,8 @@ type Session struct {
 	pending      []sessionstore.InboxItem
 	running      *sessionstore.InboxItem
 	turnStarted  bool
+	turnCancel   context.CancelFunc
+	clientBusy   bool
 	offered      []sessionstore.InboxItem
 	accepted     []sessionstore.InboxItem
 	children     map[string]*liveSubagent
@@ -325,16 +382,20 @@ type Session struct {
 	pricing   modelPricing
 }
 
-func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority capability.ClassicAuthority, components Components) *Session {
+func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority capability.ClassicAuthority, components Components, factories ...Factory) *Session {
 	goalMax := components.GoalMaxRounds
 	if goalMax <= 0 {
 		goalMax = config.DefaultGoalMaxRounds
 	}
-	return &Session{
+	root := &Session{
 		store: store, meta: meta, authority: authority, runner: components.Runner, mcp: components.MCP, runtime: components.Runtime,
 		supervisor: newSupervisor(), mailbox: make(chan inboxReady, 1), done: make(chan struct{}),
 		receipts: make(map[int64][]*Receipt), goalMax: goalMax, children: make(map[string]*liveSubagent),
 	}
+	if len(factories) > 0 {
+		root.factory = factories[0]
+	}
+	return root
 }
 
 func (s *Session) ID() string               { return s.meta.ID }
@@ -584,6 +645,14 @@ func (s *Session) actor() error {
 						err = event.control(s.supervisor.ctx)
 					}
 					event.reply <- err
+				case workerClientCommand:
+					if err := s.completeClientCommand(event.client); err != nil {
+						return err
+					}
+				case workerStream:
+					if err := s.recordStreamEvent(event.stream); err != nil {
+						return err
+					}
 				case workerTurnStarted:
 					s.turnStarted = true
 				case workerSteerAccepted:
@@ -639,6 +708,14 @@ func (s *Session) flushPendingEvents() error {
 			event.reply <- ErrStopped
 			continue
 		}
+		if event.kind == workerClientCommand && event.client != nil {
+			event.client.reply <- clientCommandReply{err: ErrStopped}
+			continue
+		}
+		if event.kind == workerStream {
+			flushErr = errors.Join(flushErr, s.recordStreamEvent(event.stream))
+			continue
+		}
 		if event.kind != workerTaskRecord || event.task == nil {
 			continue
 		}
@@ -650,6 +727,20 @@ func (s *Session) flushPendingEvents() error {
 		}
 	}
 	return flushErr
+}
+
+func (s *Session) recordStreamEvent(stream *streamEnvelope) error {
+	if stream == nil || stream.kind == "" {
+		return errors.New("worker stream event is incomplete")
+	}
+	payload, err := json.Marshal(stream.event)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.AppendRootEvent(s.supervisor.ctx, s.meta.ID, stream.kind, sessionstore.RuntimePayload{
+		Data: payload, MediaType: "application/json", Source: stream.kind,
+	})
+	return err
 }
 
 func (s *Session) loadInbox() error {
@@ -672,6 +763,9 @@ func (s *Session) loadInbox() error {
 }
 
 func (s *Session) dispatch() error {
+	if s.clientBusy {
+		return nil
+	}
 	for len(s.pending) > 0 {
 		item := s.pending[0]
 		if s.running != nil {
@@ -701,9 +795,16 @@ func (s *Session) dispatch() error {
 		if err := s.store.StartClassicTurn(s.supervisor.ctx, s.meta.ID, s.authority.AgentID, item.Seq); err != nil {
 			return err
 		}
-		if err := s.supervisor.launch(workerTurn, func(ctx context.Context) workerCompletion {
+		turnCtx, turnCancel := context.WithCancel(s.supervisor.ctx)
+		s.turnCancel = turnCancel
+		if err := s.supervisor.launch(workerTurn, func(context.Context) workerCompletion {
+			workspaceRef := ""
+			workspace, snapshotsWorkspace := s.runner.(workspaceSnapshotRunner)
+			if snapshotsWorkspace {
+				workspaceRef = workspace.CaptureWorkspace(turnCtx)
+			}
 			var once sync.Once
-			output, err := s.runner.Turn(ctx, text, authored,
+			output, err := s.runner.Turn(turnCtx, text, authored,
 				func() { once.Do(func() { s.supervisor.post(workerEnvelope{kind: workerTurnStarted}) }) },
 				func(string) { s.supervisor.post(workerEnvelope{kind: workerSteerAccepted}) })
 			journal := turnJournal{}
@@ -712,7 +813,14 @@ func (s *Session) dispatch() error {
 			} else if history := s.runner.History(); historyLength <= len(history) {
 				journal.Messages = append(journal.Messages, history[historyLength:]...)
 			}
-			return workerCompletion{sequence: item.Seq, output: output, err: err, journal: journal}
+			if workspaceRef != "" && workspace.WorkspaceClean(turnCtx) {
+				workspace.DropWorkspaceSnapshot(turnCtx, workspaceRef)
+				workspaceRef = ""
+			}
+			return workerCompletion{
+				sequence: item.Seq, output: output, err: err, journal: journal,
+				workspaceSeq: historyLength, workspaceRef: workspaceRef,
+			}
 		}); err != nil {
 			return err
 		}
@@ -764,6 +872,7 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 	if err := s.store.CommitClassicTurn(s.supervisor.ctx, sessionstore.ClassicTurnCommit{
 		RootID: s.meta.ID, AgentID: s.authority.AgentID, InboxSeq: current.Seq,
 		AcknowledgedInbox: acknowledged, Messages: completion.journal.Messages, Compactions: compactions,
+		WorkspaceSeq: completion.workspaceSeq, WorkspaceRef: completion.workspaceRef,
 		ClearGoal: clearGoal, GoalContinuation: goalContinuation,
 		Model: s.meta.Model, Provider: s.meta.Provider, Error: errorText,
 		Outcome: sessionstore.RuntimePayload{Data: []byte(completion.output), MediaType: "text/plain", Source: "command outcome"},
@@ -784,6 +893,10 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 	}
 	s.running = nil
 	s.turnStarted = false
+	if s.turnCancel != nil {
+		s.turnCancel()
+		s.turnCancel = nil
+	}
 	s.offered = nil
 	s.accepted = nil
 	s.settle(current.Seq, Completion{Sequence: current.Seq, Output: completion.output, Err: completion.err})

@@ -658,6 +658,97 @@ func TestToolPanicReentersRootSupervisor(t *testing.T) {
 	}
 }
 
+func TestAgentStreamEventsAreDurableOrderedAndSnapshotRestorable(t *testing.T) {
+	firstChunk := make(chan struct{})
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"hel"}}]}`+"\n\n")
+		w.(http.Flusher).Flush()
+		close(firstChunk)
+		<-release
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	agentValue := agent.New(llm.New(server.URL, "key"), "model", 100, "system")
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: NewAgentRunner(agentValue)}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := root.Submit(t.Context(), "answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-firstChunk:
+	case <-time.After(time.Second):
+		t.Fatal("provider did not send its first stream chunk")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	var streamSequence int64
+	for streamSequence == 0 && time.Now().Before(deadline) {
+		events, _, replayErr := store.ReplayEvents(t.Context(), rootID, 0, session.MaxEventReplay)
+		if replayErr != nil {
+			t.Fatal(replayErr)
+		}
+		for _, event := range events {
+			if event.Kind == "stream.text" {
+				streamSequence = event.Seq
+			}
+		}
+		if streamSequence == 0 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if streamSequence == 0 {
+		t.Fatal("stream event did not cross the actor mailbox")
+	}
+	snapshot, err := root.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Presentation) != 1 || snapshot.Presentation[0].Seq != streamSequence {
+		t.Fatalf("in-progress presentation = %+v", snapshot.Presentation)
+	}
+	var streamed StreamEvent
+	if err := json.Unmarshal(snapshot.Presentation[0].Payload, &streamed); err != nil || streamed.Text != "hel" {
+		t.Fatalf("snapshot stream = %+v, %v", streamed, err)
+	}
+
+	close(release)
+	if completion := waitReceipt(t, receipt); completion.Err != nil || completion.Output != "hello" {
+		t.Fatalf("turn completion = %+v", completion)
+	}
+	events, _, err := store.ReplayEvents(t.Context(), rootID, 0, session.MaxEventReplay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var terminalSequence int64
+	for _, event := range events {
+		if event.Kind == "turn.succeeded" {
+			terminalSequence = event.Seq
+		}
+	}
+	if terminalSequence <= streamSequence {
+		t.Fatalf("stream seq=%d terminal seq=%d events=%+v", streamSequence, terminalSequence, events)
+	}
+	snapshot, err = root.Snapshot(t.Context())
+	if err != nil || len(snapshot.Presentation) != 0 {
+		t.Fatalf("settled presentation = %+v, %v", snapshot.Presentation, err)
+	}
+}
+
 func TestOpenBindsMCPProcessesAndTools(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)

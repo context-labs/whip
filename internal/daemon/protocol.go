@@ -84,6 +84,14 @@ type ProtocolEvent struct {
 	Payload []byte `json:"payload,omitempty"`
 }
 
+type StreamEvent struct {
+	ID     string `json:"id,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Text   string `json:"text,omitempty"`
+	Args   string `json:"args,omitempty"`
+	Result string `json:"result,omitempty"`
+}
+
 type ReplayResult struct {
 	Events  []ProtocolEvent `json:"events"`
 	Latest  int64           `json:"latest"`
@@ -140,10 +148,18 @@ type ContentHandle struct {
 }
 
 type PermissionDecision struct {
+	CommandID    string `json:"command_id"`
 	RootID       string `json:"root_id"`
 	PermissionID string `json:"permission_id"`
 	Allow        bool   `json:"allow"`
 	Reason       string `json:"reason,omitempty"`
+}
+
+type IdentityStatusResult struct {
+	ClientID       string `json:"client_id"`
+	Kind           string `json:"kind"`
+	Paired         bool   `json:"paired"`
+	EnrollmentOpen bool   `json:"enrollment_open"`
 }
 
 type PermissionDecisionParams struct {
