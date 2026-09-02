@@ -658,19 +658,25 @@ func disableClickWheelMouse(w *os.File) {
 
 // Keyboard enhancement: without it, shift+enter is indistinguishable from
 // enter (both send CR) — which is exactly Ruslan's "shift+enter still not
-// working". whip pushes the kitty progressive-enhancement flags
-// (disambiguate + report event types) so terminals that support it (kitty,
-// foot, Ghostty, WezTerm, tmux with extended-keys on, xterm with
-// modifyOtherKeys) report shift+enter as \x1b[13;2u / \x1b[27;2;13~, and
-// bubbletea surfaces it as an unknown CSI the matcher in isShiftEnterSeq
-// recognizes. Terminals without support ignore the push silently.
+// working". whip pushes the kitty progressive-enhancement DISAMBIGUATE flag
+// (0x1) so terminals that support it (kitty, foot, Ghostty, WezTerm, tmux
+// with extended-keys on, xterm with modifyOtherKeys) report shift+enter as
+// \x1b[13;2u / \x1b[27;2;13~, and bubbletea surfaces it as an unknown CSI the
+// matcher in isShiftEnterSeq recognizes. Terminals without support ignore the
+// push silently.
+//
+// ONLY 0x1, never 0x1|0x2: flag 0x2 (report event types) makes some
+// terminals report ctrl+letter as CSI-u (CSI 97;5u) instead of the plain
+// control byte — bubbletea v1.3.10 can't decode that, so ctrl+a/ctrl+e
+// die. Disambiguate alone leaves ctrl+letter untouched while reporting
+// shift+enter distinctly.
 //
 // The push happens BEFORE p.Run() so it survives the alt-screen entry (the
 // kitty stack is independent of ?1049); the pop restores the terminal's
 // prior flags on exit. Inside tmux the escape must reach the OUTER terminal,
 // so it's wrapped in DCS passthrough the same way the OSC 11 theme query is.
 func enableKeyboardEnhancement(w *os.File) {
-	fmt.Fprint(w, tmuxPassthrough("\x1b[>3u"))
+	fmt.Fprint(w, tmuxPassthrough("\x1b[>1u"))
 }
 
 // disableKeyboardEnhancement pops the flags enableKeyboardEnhancement pushed.

@@ -92,8 +92,8 @@ func TestKeyboardEnhancementEscapes(t *testing.T) {
 	_ = r.SetReadDeadline(time.Now().Add(2 * time.Second))
 	n, _ := r.Read(buf)
 	got := string(buf[:n])
-	if !strings.Contains(got, "\x1b[>3u") {
-		t.Errorf("must push kitty disambiguate+event flags \\x1b[>3u, got %q", got)
+	if !strings.Contains(got, "\x1b[>1u") {
+		t.Errorf("must push kitty disambiguate flag \\x1b[>1u, got %q", got)
 	}
 	if !strings.Contains(got, "\x1b[<u") {
 		t.Errorf("must pop the keyboard stack \\x1b[<u, got %q", got)
@@ -104,8 +104,8 @@ func TestKeyboardEnhancementEscapes(t *testing.T) {
 // the outer terminal (a pane's bare escape is interpreted by tmux itself).
 func TestTmuxPassthrough(t *testing.T) {
 	t.Setenv("TMUX", "/tmp/tmux-1000/default,1,0")
-	got := tmuxPassthrough("\x1b[>3u")
-	want := "\x1bPtmux;\x1b\x1b[>3u\x1b\\"
+	got := tmuxPassthrough("\x1b[>1u")
+	want := "\x1bPtmux;\x1b\x1b[>1u\x1b\\"
 	if got != want {
 		t.Errorf("tmux passthrough = %q, want %q", got, want)
 	}
@@ -115,7 +115,7 @@ func TestTmuxPassthrough(t *testing.T) {
 func TestTmuxPassthroughOutsideTmux(t *testing.T) {
 	t.Setenv("TMUX", "")
 	t.Setenv("TERM", "xterm-256color")
-	if got := tmuxPassthrough("\x1b[>3u"); got != "\x1b[>3u" {
+	if got := tmuxPassthrough("\x1b[>1u"); got != "\x1b[>1u" {
 		t.Errorf("outside tmux the sequence passes through unchanged, got %q", got)
 	}
 }
