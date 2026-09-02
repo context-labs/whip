@@ -400,9 +400,21 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 	if commit.WorkspaceRef != "" && commit.WorkspaceSeq < 1 {
 		return errors.New("classic turn workspace snapshot requires a positive conversation index")
 	}
-	commandOutcome, err := s.prepareRuntimeValue(commit.Outcome, ContentGrant{RootID: commit.RootID, Scope: ContentGrantRoot})
-	if err != nil {
+	var outcomeCommandCount int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM commands
+		WHERE root_id=? AND scope='root' AND ingress_seq=? AND ingress_seq>0`, commit.RootID, commit.InboxSeq).Scan(&outcomeCommandCount); err != nil {
 		return err
+	}
+	if outcomeCommandCount > 1 {
+		return errors.New("classic turn inbox has ambiguous commands")
+	}
+	var commandOutcome preparedRuntimeValue
+	if outcomeCommandCount == 1 {
+		var err error
+		commandOutcome, err = s.prepareRuntimeValue(commit.Outcome, ContentGrant{RootID: commit.RootID, Scope: ContentGrantRoot})
+		if err != nil {
+			return err
+		}
 	}
 	var goalValue preparedRuntimeValue
 	if commit.GoalContinuation != "" {
@@ -456,10 +468,29 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 		if seq == commit.InboxSeq {
 			outcome = commandOutcome
 		}
-		inline, reference := runtimeValueColumns(outcome.RuntimeValue)
-		if _, err := tx.ExecContext(ctx, `UPDATE commands SET status=?,outcome_inline=?,outcome_ref=?,updated_at=?
-			WHERE root_id=? AND ingress_seq=? AND status IN ('queued','running','waiting')`, status, inline, reference, stamp, commit.RootID, seq); err != nil {
+		var commandCount int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM commands
+			WHERE root_id=? AND scope='root' AND ingress_seq=? AND ingress_seq>0`, commit.RootID, seq).Scan(&commandCount); err != nil {
 			return err
+		}
+		if commandCount == 0 {
+			continue // internal inbox items do not have an originating client command
+		}
+		if commandCount != 1 {
+			return errors.New("classic turn inbox has ambiguous commands")
+		}
+		inline, reference := runtimeValueColumns(outcome.RuntimeValue)
+		result, err := tx.ExecContext(ctx, `UPDATE commands SET status=?,outcome_inline=?,outcome_ref=?,updated_at=?
+			WHERE root_id=? AND scope='root' AND ingress_seq=? AND ingress_seq>0 AND status IN ('queued','running','waiting')`,
+			status, inline, reference, stamp, commit.RootID, seq)
+		if err != nil {
+			return err
+		}
+		if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+			if err != nil {
+				return err
+			}
+			return errors.New("classic turn command is not running")
 		}
 	}
 	var messageSeq int

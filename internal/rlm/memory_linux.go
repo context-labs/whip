@@ -14,12 +14,20 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Go reserves virtual address ranges well beyond its resident heap. Keep a
+// fixed VM allowance for the runtime while the parent process enforces the
+// advertised MemoryBytes limit against RSS every 10ms.
+const workerVirtualMemoryOverhead = uint64(4 << 30)
+
 func applyMemoryLimit(bytes uint64) error {
 	if bytes > math.MaxInt64 {
 		return errors.New("RLM memory limit is too large")
 	}
 	debug.SetMemoryLimit(int64(bytes))
-	addressSpace := max(bytes*4, uint64(1<<30))
+	addressSpace := bytes + workerVirtualMemoryOverhead
+	if addressSpace < bytes || addressSpace > math.MaxInt64 {
+		return errors.New("RLM address-space limit is too large")
+	}
 	limit := &unix.Rlimit{Cur: addressSpace, Max: addressSpace}
 	return unix.Setrlimit(unix.RLIMIT_AS, limit)
 }

@@ -155,6 +155,10 @@ func TestProcessValidation(t *testing.T) {
 		{"name", "root", os.Args[0], withEnv(valid, map[string]string{"BAD=NAME": "x"})},
 		{"name-prefix", "root", os.Args[0], withEnv(valid, map[string]string{"1BAD": "x"})},
 		{"value", "root", os.Args[0], withEnv(valid, map[string]string{"GOOD": "bad\x00value"})},
+		{"path-override", "root", os.Args[0], withEnv(valid, map[string]string{"PATH": "/tmp"})},
+		{"loader-override", "root", os.Args[0], withEnv(valid, map[string]string{"LD_PRELOAD": "/tmp/inject.so"})},
+		{"shell-override", "root", os.Args[0], withEnv(valid, map[string]string{"BASH_ENV": "/tmp/inject.sh"})},
+		{"git-override", "root", os.Args[0], withEnv(valid, map[string]string{"GIT_SSH_COMMAND": "inject"})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := m.Start(context.Background(), tc.root, tc.cmd, nil, tc.opts); err == nil {

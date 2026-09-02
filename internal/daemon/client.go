@@ -21,6 +21,11 @@ type callResponse struct {
 	err    error
 }
 
+const (
+	clientPingInterval = 30 * time.Second
+	clientPingTimeout  = 10 * time.Second
+)
+
 // Client is one initialized JSON-RPC connection to the local daemon.
 type Client struct {
 	conn net.Conn
@@ -108,6 +113,7 @@ func NewClient(ctx context.Context, conn net.Conn, initialize InitializeParams) 
 	client.nonce = append([]byte(nil), client.init.Nonce...)
 	_ = conn.SetDeadline(time.Time{})
 	go client.readLoop(reader)
+	go client.heartbeat(context.WithoutCancel(ctx))
 	return client, nil
 }
 
@@ -394,6 +400,28 @@ func (c *Client) readLoop(reader *bufio.Reader) {
 		}
 		raw, err := json.Marshal(message.Result)
 		response <- callResponse{result: raw, err: err}
+	}
+}
+
+func (c *Client) heartbeat(parent context.Context) {
+	ticker := time.NewTicker(clientPingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(parent, clientPingTimeout)
+			var result struct {
+				Generation int64 `json:"generation"`
+			}
+			err := c.Call(ctx, "daemon.ping", struct{}{}, &result)
+			cancel()
+			if err != nil {
+				c.close(fmt.Errorf("daemon heartbeat: %w", err))
+				return
+			}
+		}
 	}
 }
 

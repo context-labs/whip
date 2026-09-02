@@ -8,6 +8,7 @@ import (
 	"errors"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -409,6 +410,39 @@ func TestClassicTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t
 	}
 }
 
+func TestClassicTurnInternalInboxDoesNotPersistACommandOutcome(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rootID, _ := st.Create(t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	item, err := st.EnqueueInbox(context.Background(), InboxEnqueue{
+		RootID: rootID, AgentID: authority.AgentID, Kind: "schedule", Payload: RuntimePayload{Data: []byte("run")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
+		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
+		Outcome: RuntimePayload{Data: bytes.Repeat([]byte("outcome"), 2048), MediaType: "text/plain", Source: "command outcome"},
+		Model:   "model", Provider: "provider",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var references int
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM content_references WHERE source='command outcome'`).Scan(&references); err != nil || references != 0 {
+		t.Fatalf("internal outcome references=%d err=%v", references, err)
+	}
+	if bodies, err := st.content.Bodies(); err != nil || len(bodies) != 0 {
+		t.Fatalf("internal outcome bodies=%+v err=%v", bodies, err)
+	}
+}
+
 func TestClassicTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
@@ -498,7 +532,7 @@ func TestClassicTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
 		t.Fatalf("raw compaction coordinates=%+v", events)
 	}
 	_, restored, err := st.Load(rootID)
-	if err != nil || len(restored) != 8 || restored[0].Content != "q1" || restored[2].Content != "q3" || restored[7].Content != "a5" {
+	if err != nil || len(restored) != 7 || !strings.Contains(restored[0].Content, "summary q5") || restored[1].Content != "q3" || restored[6].Content != "a5" {
 		t.Fatalf("restored compaction=%+v err=%v", restored, err)
 	}
 }

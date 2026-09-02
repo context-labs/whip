@@ -142,8 +142,13 @@ func TestStoreRejectsMalformedFilesystemState(t *testing.T) {
 	if err := os.WriteFile(st.path(body.Digest), []byte("corrupt"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Put(payload); err == nil || !strings.Contains(err.Error(), "does not match its digest") {
-		t.Fatalf("Put accepted a corrupt existing body: %v", err)
+	healed, err := st.Put(payload)
+	if err != nil || healed != body {
+		t.Fatalf("Put did not heal a corrupt existing body: %+v, %v", healed, err)
+	}
+	got, err := st.Read(body.Digest, 0, len(payload))
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("healed body = %q, %v", got, err)
 	}
 }
 

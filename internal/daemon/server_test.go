@@ -375,6 +375,62 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 	}
 }
 
+func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{MaxConnections: 1, ClientIdleTimeout: 25 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	defer func() { _ = server.Close(); <-served }()
+
+	idle, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, _ := json.Marshal(InitializeParams{ProtocolMajor: 1, ClientKind: "test", ClientID: "idle"})
+	if err := writeProtocolMessage(idle, rpcMessage{ID: json.RawMessage("1"), Method: "initialize", Params: params}); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(idle)
+	if _, err := readProtocolFrame(reader); err != nil {
+		t.Fatal(err)
+	}
+	_ = idle.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := readProtocolFrame(reader); err == nil {
+		t.Fatal("initialized idle connection never expired")
+	}
+	_ = idle.Close()
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
+		if dialErr == nil {
+			client, clientErr := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: 1, ClientKind: "test", ClientID: "replacement"})
+			if clientErr == nil {
+				_ = client.Close()
+				break
+			}
+			_ = conn.Close()
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expired connection did not release its slot")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func TestSlowOutboundClientClosesWithoutStoppingDaemon(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
@@ -388,7 +444,7 @@ func TestSlowOutboundClientClosesWithoutStoppingDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	serverSide, slowSide := net.Pipe()
-	connection := &serverConn{server: server, conn: serverSide, out: make(chan []byte, 1)}
+	connection := &serverConn{server: server, conn: serverSide, out: make(chan []byte, 1), done: make(chan struct{})}
 	server.wg.Go(connection.writeLoop)
 	for i := range 10 {
 		connection.notify("event", map[string]any{"sequence": i, "payload": strings.Repeat("x", 128)})
@@ -431,7 +487,7 @@ func TestOutboundQueueOverflowClosesConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	serverSide, clientSide := net.Pipe()
-	connection := &serverConn{server: server, conn: serverSide, out: make(chan []byte, 1)}
+	connection := &serverConn{server: server, conn: serverSide, out: make(chan []byte, 1), done: make(chan struct{})}
 	if !connection.send(rpcMessage{Result: "first"}) {
 		t.Fatal("empty outbound queue rejected a frame")
 	}

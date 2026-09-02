@@ -255,6 +255,16 @@ func TestPrivateStateGetLargeAppendAndErrorCases(t *testing.T) {
 	if _, err := store.AppendPrivateState(ctx, rootID, "child", "utf8", RuntimePayload{Data: []byte{0xff}}); !errors.Is(err, ErrStateAppend) {
 		t.Fatalf("invalid UTF-8 append error=%v", err)
 	}
+	if _, err := store.appendStatePayload(RuntimeValue{
+		ReferenceID: "oversized", Digest: strings.Repeat("0", 64), Size: maxStateValueBytes + 1,
+	}, RuntimePayload{Data: []byte("x")}); !errors.Is(err, ErrStateAppend) {
+		t.Fatalf("oversized stored append error=%v", err)
+	}
+	if _, err := store.appendStatePayload(RuntimeValue{
+		ReferenceID: "full", Digest: strings.Repeat("0", 64), Size: maxStateValueBytes, MediaType: "text/plain",
+	}, RuntimePayload{Data: []byte("y")}); !errors.Is(err, ErrStateAppend) {
+		t.Fatalf("oversized result append error=%v", err)
+	}
 	if _, err := store.SetPrivateState(ctx, rootID, "child", "version", RuntimePayload{Data: []byte("x")}); err != nil {
 		t.Fatal(err)
 	}
@@ -359,6 +369,13 @@ func TestBlackboardSubscriptionLifecycleAndCorruptRows(t *testing.T) {
 	recreated, err := store.CreateBlackboardSubscription(ctx, rootID, "watcher", "topic")
 	if err != nil || recreated.ID == subscription.ID || recreated.Cursor != 2 {
 		t.Fatalf("recreated subscription=%+v err=%v", recreated, err)
+	}
+	items, err = store.LoadQueuedInbox(ctx, rootID, "watcher", items[0].Seq, 10)
+	if err != nil || len(items) != 1 || items[0].Kind != "subscription" {
+		t.Fatalf("recreated subscription catch-up=%+v err=%v", items, err)
+	}
+	if err := json.Unmarshal(items[0].Payload.Inline, &wake); err != nil || wake.SubscriptionID != recreated.ID || wake.Version != 2 || wake.AuthorAgentID != "author" {
+		t.Fatalf("recreated subscription wake=%+v err=%v", wake, err)
 	}
 
 	if _, err := store.db.ExecContext(ctx, `INSERT INTO subscriptions(id,root_id,agent_id,key,cursor,status,created_at,updated_at) VALUES('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',?,?,?,'bad','active',?,?)`, rootID, "watcher", "corrupt", now(), now()); err != nil {

@@ -381,6 +381,9 @@ func (m *ProcessManager) environment(overrides map[string]string) ([]string, err
 		if !validEnvironmentName(name) {
 			return nil, fmt.Errorf("invalid environment name %q", name)
 		}
+		if unsafeEnvironmentOverride(name) {
+			return nil, fmt.Errorf("unsafe environment override %q", name)
+		}
 		if strings.IndexByte(value, 0) >= 0 {
 			return nil, fmt.Errorf("environment value for %q contains NUL", name)
 		}
@@ -392,6 +395,16 @@ func (m *ProcessManager) environment(overrides map[string]string) ([]string, err
 	}
 	sort.Strings(env)
 	return env, nil
+}
+
+func unsafeEnvironmentOverride(name string) bool {
+	upper := strings.ToUpper(name)
+	switch upper {
+	case "PATH", "ENV", "BASH_ENV", "SHELLOPTS", "BASHOPTS",
+		"PYTHONHOME", "PYTHONPATH", "NODE_OPTIONS", "RUBYOPT", "PERL5OPT":
+		return true
+	}
+	return strings.HasPrefix(upper, "LD_") || strings.HasPrefix(upper, "DYLD_") || strings.HasPrefix(upper, "GIT_")
 }
 
 // ChildEnvironment returns the same allowlisted environment used by managed

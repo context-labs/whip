@@ -242,6 +242,7 @@ func runDaemon(ctx context.Context, args []string) error {
 
 func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string) *tools.Services {
 	services := tools.NewServices()
+	services.SetExternalPermissions(true)
 	services.SetProcessMarkers(meta.ID, apiID)
 	if cfg.Browser.CDPURL != "" {
 		services.SetProcessEnvironment(map[string]string{"WHIP_CDP_URL": cfg.Browser.CDPURL})

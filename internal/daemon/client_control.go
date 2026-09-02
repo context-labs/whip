@@ -170,6 +170,7 @@ func (r *agentRunner) ConfigureRun(system string, maxTurns int, headless bool) {
 	r.agent.MaxTurns = maxTurns
 	if headless {
 		r.agent.ComputerDisabled = true
+		r.DenyToolPermissions()
 	}
 }
 
@@ -182,6 +183,7 @@ func (r *agentRunner) CallTool(ctx context.Context, name string, arguments json.
 }
 
 func (r *agentRunner) DenyToolPermissions() {
+	r.agent.Services.SetExternalPermissions(false)
 	r.agent.Services.SetGate(func(context.Context, tools.GateRequest) (tools.GateDecision, string) {
 		return tools.GateReject, "this automation client cannot approve side effects"
 	})

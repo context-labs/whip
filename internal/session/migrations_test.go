@@ -180,11 +180,12 @@ func assertHistoricalStore(t *testing.T, st *Store, shape historicalShape) {
 	if meta.Mode != ModeClassic {
 		t.Fatalf("migrated session mode = %q", meta.Mode)
 	}
-	if len(msgs) != 2 || msgs[0].Content != "preserve  bytes" {
+	if shape.compactions {
+		if len(msgs) != 1 || !strings.Contains(msgs[0].Content, "summary") {
+			t.Fatalf("visible compaction history changed: %+v", msgs)
+		}
+	} else if len(msgs) != 2 || msgs[0].Content != "preserve  bytes" || msgs[1].Content != "answer" {
 		t.Fatalf("history changed: %+v", msgs)
-	}
-	if shape.compactions && !strings.Contains(msgs[1].Content, "summary") || !shape.compactions && msgs[1].Content != "answer" {
-		t.Fatalf("visible compaction history changed: %+v", msgs)
 	}
 	if shape.goal && meta.Goal != "legacy goal" || !shape.goal && meta.Goal != "" {
 		t.Fatalf("goal = %q", meta.Goal)

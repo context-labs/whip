@@ -63,6 +63,14 @@ must prove possession of its key before it can make a human permission
 decision. Approval resumes only the exact persisted request after authority,
 scope, budget, path, and digest are revalidated.
 
+This is an owner-only, same-user trust boundary, not a sandbox against another
+hostile process already running as that user or against an adversarial trusted
+workspace. Interactive clients receive signed permission prompts by default;
+headless `run` and MCP clients explicitly deny effects that require a human
+decision. Process groups, cancellation, and resource limits provide operational
+containment, but cannot guarantee that a deliberately daemonized descendant is
+terminated after it escapes the original process group.
+
 The Starlark worker is a re-execution of the `whip` binary in hidden kernel
 mode. It receives an allowlisted environment, closed unintended descriptors,
 no daemon/client credentials, and no ambient filesystem, process, network,

@@ -1240,7 +1240,9 @@ func (m *model) thinInteractiveKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbl
 		return m, nil
 	}
 	return m, func() bubbletea.Msg {
-		result, commandErr := m.client.Command(context.Background(), action)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		result, commandErr := m.client.Command(ctx, action)
 		return clientTerminalMsg{action: action, result: result, err: commandErr}
 	}
 }

@@ -117,6 +117,9 @@ func (s *Services) CheckGate(ctx context.Context, tool, command string) string {
 	gate := s.gate
 	s.mu.RUnlock()
 	if gate == nil {
+		// Direct embedded callers historically run under the local user's
+		// authority. Production daemon services select external prompts, while
+		// headless clients install an explicit rejecting gate.
 		return ""
 	}
 	decision, redirect := gate(ctx, GateRequest{Tool: tool, Command: command, Rule: CommandRule(command)})
@@ -177,6 +180,8 @@ func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPromp
 	gate := s.gate
 	s.mu.RUnlock()
 	if gate == nil {
+		// See CheckGate: nil is the direct-embedding policy, not the daemon
+		// default.
 		return capability.Decision{Allow: true, PrincipalID: "local-client"}, nil
 	}
 	decision, reason := gate(ctx, GateRequest{Tool: prompt.Operation, Command: command, Rule: CommandRule(command)})

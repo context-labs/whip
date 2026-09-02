@@ -410,8 +410,11 @@ func applyCompaction(db *sql.DB, sessionID string, msgs []llm.Message) []llm.Mes
 		}
 	}
 	out := make([]llm.Message, 0, len(msgs))
-	out = append(out, msgs[0])
-	start := 1
+	start := 0
+	if hasSystem {
+		out = append(out, msgs[0])
+		start = 1
+	}
 	out = append(out, llm.Message{Role: "system", Content: "Summary of the conversation so far:\n\n" + summary})
 	// keep the last derived summary before the fold (a second compaction's
 	// saved row — it summarizes history the new summary doesn't reach)

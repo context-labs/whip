@@ -14,6 +14,8 @@ import (
 
 const MaxReadSize = 64 << 10
 
+var errContentMismatch = errors.New("content body does not match its digest")
+
 type Body struct {
 	Digest string
 	Size   int64
@@ -37,10 +39,12 @@ func (s *Store) Put(data []byte) (Body, error) { return s.put(data, nil) }
 func (s *Store) put(data []byte, hook func(string) error) (Body, error) {
 	sum := sha256.Sum256(data)
 	body := Body{Digest: hex.EncodeToString(sum[:]), Size: int64(len(data))}
-	if ok, err := s.verify(body); err != nil || ok {
+	if ok, err := s.verify(body); ok {
 		if err == nil {
 			err = syncDir(s.dir)
 		}
+		return body, err
+	} else if err != nil && !errors.Is(err, errContentMismatch) {
 		return body, err
 	}
 
@@ -180,7 +184,7 @@ func (s *Store) verify(want Body) (bool, error) {
 		return false, err
 	}
 	if n != want.Size || hex.EncodeToString(h.Sum(nil)) != want.Digest {
-		return false, fmt.Errorf("content body %s does not match its digest", want.Digest)
+		return false, fmt.Errorf("%w: %s", errContentMismatch, want.Digest)
 	}
 	return true, nil
 }

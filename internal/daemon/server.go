@@ -18,13 +18,17 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-const initializationTimeout = 5 * time.Second
+const (
+	initializationTimeout = 5 * time.Second
+	clientIdleTimeout     = 90 * time.Second
+)
 
 type ServerOptions struct {
 	BuildID               string
 	Generation            int64
 	RuntimeDir            string
 	InitializationTimeout time.Duration
+	ClientIdleTimeout     time.Duration
 	MaxConnections        int
 	MaxInFlight           int
 	MaxOutbound           int
@@ -63,6 +67,7 @@ type serverConn struct {
 	nonce     []byte
 	restart   int64
 	snapshots map[string][]SnapshotChunk
+	done      chan struct{}
 	closed    bool
 	once      sync.Once
 }
@@ -85,6 +90,9 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 	}
 	if options.InitializationTimeout <= 0 {
 		options.InitializationTimeout = initializationTimeout
+	}
+	if options.ClientIdleTimeout <= 0 {
+		options.ClientIdleTimeout = clientIdleTimeout
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
@@ -177,6 +185,7 @@ func (s *Server) serveConn(raw net.Conn) {
 	connection := &serverConn{
 		server: s, conn: raw, id: hex.EncodeToString(nonce[:16]), out: make(chan []byte, s.options.MaxOutbound),
 		inFlight: make(chan struct{}, s.options.MaxInFlight), nonce: nonce, snapshots: make(map[string][]SnapshotChunk),
+		done: make(chan struct{}),
 	}
 	defer connection.close()
 	_ = raw.SetReadDeadline(time.Now().Add(s.options.InitializationTimeout))
@@ -216,6 +225,7 @@ func (s *Server) serveConn(raw net.Conn) {
 		}
 	}
 	for {
+		_ = raw.SetReadDeadline(time.Now().Add(s.options.ClientIdleTimeout))
 		frame, err := readProtocolFrame(reader)
 		if err != nil {
 			return
@@ -648,6 +658,8 @@ func (s *Server) pumpEvents(connection *serverConn, rootID string, cursor int64)
 		select {
 		case <-s.ctx.Done():
 			return
+		case <-connection.done:
+			return
 		case <-ticker.C:
 		}
 	}
@@ -657,6 +669,8 @@ func (c *serverConn) writeLoop() {
 	for {
 		select {
 		case <-c.server.ctx.Done():
+			return
+		case <-c.done:
 			return
 		case frame := <-c.out:
 			c.mu.Lock()
@@ -717,6 +731,9 @@ func (c *serverConn) close() {
 		c.mu.Lock()
 		c.closed = true
 		c.mu.Unlock()
+		if c.done != nil {
+			close(c.done)
+		}
 		_ = c.conn.Close()
 		c.server.uploads.abortClient(c.id)
 	})

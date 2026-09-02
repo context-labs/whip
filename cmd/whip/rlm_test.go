@@ -511,6 +511,9 @@ func TestDaemonToolServicesHonorOptionalRuntimeConfiguration(t *testing.T) {
 		if services.Browser() == nil || services.ComputerPolicy() == nil || services.Diagnostics() == nil {
 			t.Fatalf("mode %q omitted configured services", mode)
 		}
+		if !services.ExternalPermissionsEnabled() {
+			t.Fatalf("mode %q did not default to authenticated permission prompts", mode)
+		}
 		if got := services.ProcessOptions().Env["WHIP_CDP_URL"]; got != cfg.Browser.CDPURL {
 			t.Fatalf("mode %q CDP environment = %q", mode, got)
 		}
@@ -524,5 +527,8 @@ func TestDaemonToolServicesHonorOptionalRuntimeConfiguration(t *testing.T) {
 	defer services.Close()
 	if services.Browser() != nil || services.ComputerPolicy() != nil || services.Diagnostics() == nil {
 		t.Fatal("disabled optional services were constructed")
+	}
+	if !services.ExternalPermissionsEnabled() {
+		t.Fatal("daemon services did not default to authenticated permission prompts")
 	}
 }

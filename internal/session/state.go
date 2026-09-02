@@ -14,7 +14,10 @@ import (
 	"unicode/utf8"
 )
 
-const maxStateKeyBytes = 256
+const (
+	maxStateKeyBytes   = 256
+	maxStateValueBytes = 64 << 20
+)
 
 var (
 	ErrStateNotFound        = errors.New("state value not found")
@@ -319,7 +322,9 @@ func (s *Store) CreateBlackboardSubscription(ctx context.Context, rootID, caller
 		return BlackboardSubscription{}, err
 	}
 	var cursor int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT version FROM blackboard WHERE root_id=? AND key=?),0)`, rootID, key).Scan(&cursor); err != nil {
+	var authorAgentID string
+	err = tx.QueryRowContext(ctx, `SELECT version,author_agent_id FROM blackboard WHERE root_id=? AND key=?`, rootID, key).Scan(&cursor, &authorAgentID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return BlackboardSubscription{}, err
 	}
 	id, err := runtimeID()
@@ -329,13 +334,18 @@ func (s *Store) CreateBlackboardSubscription(ctx context.Context, rootID, caller
 	stamp := now()
 	subscription := BlackboardSubscription{ID: id, RootID: rootID, AgentID: callerAgentID, Key: key, Cursor: cursor, Status: "active"}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO subscriptions(id,root_id,agent_id,key,cursor,status,created_at,updated_at) VALUES(?,?,?,?,?,'active',?,?)`,
-		id, rootID, callerAgentID, key, cursor, stamp, stamp); err != nil {
+		id, rootID, callerAgentID, key, 0, stamp, stamp); err != nil {
 		return BlackboardSubscription{}, err
 	}
 	if _, err := s.insertActorEventTx(ctx, tx, rootID, "subscription.created", actorEvent{
 		AgentID: callerAgentID, SubscriptionID: id, Key: key, Version: cursor, Attempt: "accepted",
 	}, stamp); err != nil {
 		return BlackboardSubscription{}, err
+	}
+	if cursor > 0 {
+		if err := s.enqueueSubscriptionWakesTx(ctx, tx, rootID, authorAgentID, key, cursor); err != nil {
+			return BlackboardSubscription{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return BlackboardSubscription{}, err
@@ -574,6 +584,13 @@ func validSubscriptionID(id string) bool {
 }
 
 func (s *Store) appendStatePayload(current RuntimeValue, suffix RuntimePayload) (RuntimePayload, error) {
+	currentSize := current.Size
+	if current.ReferenceID == "" {
+		currentSize = int64(len(current.Inline))
+	}
+	if currentSize < 0 || currentSize > maxStateValueBytes || int64(len(suffix.Data)) > maxStateValueBytes-currentSize {
+		return RuntimePayload{}, fmt.Errorf("%w: append result exceeds %d bytes", ErrStateAppend, maxStateValueBytes)
+	}
 	data := current.Inline
 	if current.ReferenceID != "" {
 		var err error
@@ -614,6 +631,9 @@ func (s *Store) appendStatePayload(current RuntimeValue, suffix RuntimePayload) 
 		}
 		result := append([]byte(nil), data...)
 		result = append(result, suffix.Data...)
+		if len(result) > maxStateValueBytes {
+			return RuntimePayload{}, fmt.Errorf("%w: append result exceeds %d bytes", ErrStateAppend, maxStateValueBytes)
+		}
 		return RuntimePayload{Data: result, MediaType: mediaType, Source: source}, nil
 	case "application/json":
 		items, ok := decodeJSONArray(data)
@@ -624,6 +644,9 @@ func (s *Store) appendStatePayload(current RuntimeValue, suffix RuntimePayload) 
 		result, err := json.Marshal(items)
 		if err != nil {
 			return RuntimePayload{}, err
+		}
+		if len(result) > maxStateValueBytes {
+			return RuntimePayload{}, fmt.Errorf("%w: append result exceeds %d bytes", ErrStateAppend, maxStateValueBytes)
 		}
 		return RuntimePayload{Data: result, MediaType: mediaType, Source: source}, nil
 	default:

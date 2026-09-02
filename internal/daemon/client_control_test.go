@@ -1004,6 +1004,15 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 	if output, err := runner.RunShell(t.Context(), "printf adapter"); err != nil || output != "adapter" {
 		t.Fatalf("shell output=%q err=%v", output, err)
 	}
+	services.SetExternalPermissions(true)
+	runner.ConfigureRun("", 3, true)
+	if services.ExternalPermissionsEnabled() || !agentValue.ComputerDisabled || agentValue.MaxTurns != 3 {
+		t.Fatalf("headless run policy external=%v computerDisabled=%v maxTurns=%d",
+			services.ExternalPermissionsEnabled(), agentValue.ComputerDisabled, agentValue.MaxTurns)
+	}
+	if _, err := runner.RunShell(t.Context(), "printf denied"); err == nil || !strings.Contains(err.Error(), "Permission denied") {
+		t.Fatalf("headless shell should be denied, got %v", err)
+	}
 	runner.ReplaceHistory([]llm.Message{{Role: "user", Content: "question"}, {Role: "assistant", Content: "answer"}})
 	goal, usage, err := runner.FormGoal(t.Context(), 2)
 	if err != nil || goal != "formed goal" || usage.PromptTokens != 7 || usage.CompletionTokens != 2 {

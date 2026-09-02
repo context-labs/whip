@@ -656,18 +656,18 @@ func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// the raw log is [q1, first-gen summary, q2, a2]; folding at 3 keeps the
-	// head slot, the new summary, the prior summary, and the raw tail
-	if len(got) != 4 {
+	// The raw log is [q1, first-gen summary, q2, a2]. Folding at 3 replaces
+	// the raw prefix, keeps the prior derived summary, and retains the raw tail.
+	if len(got) != 3 {
 		t.Fatalf("compacted view: %d msgs %+v", len(got), got)
 	}
-	if !strings.Contains(got[1].Content, "second gen") {
-		t.Fatalf("the newest summary should come first: %q", got[1].Content)
+	if !strings.Contains(got[0].Content, "second gen") {
+		t.Fatalf("the newest summary should come first: %q", got[0].Content)
 	}
-	if !strings.Contains(got[2].Content, "first gen") {
-		t.Fatalf("the prior summary must be kept: %q", got[2].Content)
+	if !strings.Contains(got[1].Content, "first gen") {
+		t.Fatalf("the prior summary must be kept: %q", got[1].Content)
 	}
-	if got[3].Content != "a2" {
-		t.Fatalf("raw tail lost: %+v", got[3:])
+	if got[2].Content != "a2" {
+		t.Fatalf("raw tail lost: %+v", got[2:])
 	}
 }

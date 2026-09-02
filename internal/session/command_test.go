@@ -88,6 +88,13 @@ func TestClassicTurnCommitsProtocolCommandOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	control, err := st.AdmitControlCommand(context.Background(), CommandAdmission{
+		ClientID: "client", CommandID: "control", Scope: CommandScopeRoot,
+		RootID: rootID, AgentID: authority.AgentID, Kind: "goal.set", RequestDigest: "control-digest",
+	})
+	if err != nil || control.Command.IngressSeq >= 0 {
+		t.Fatalf("control command = %+v, %v", control, err)
+	}
 	result, err := st.AdmitCommand(context.Background(), CommandAdmission{
 		ClientID: "client", CommandID: "command", Scope: CommandScopeRoot,
 		RootID: rootID, AgentID: authority.AgentID, Kind: "submit", RequestDigest: "digest",
@@ -115,6 +122,10 @@ func TestClassicTurnCommitsProtocolCommandOutcome(t *testing.T) {
 	}
 	if record.Status != "succeeded" || record.Outcome.ReferenceID == "" || record.Outcome.Size != int64(len(outcome)) {
 		t.Fatalf("terminal command = %+v", record)
+	}
+	controlRecord, err := st.LoadCommand(context.Background(), "client", "control")
+	if err != nil || controlRecord.Status != "queued" || len(controlRecord.Outcome.Inline) != 0 || controlRecord.Outcome.ReferenceID != "" {
+		t.Fatalf("turn commit changed control command = %+v, %v", controlRecord, err)
 	}
 	got, _, err := st.ReadContent(context.Background(), record.Outcome.ReferenceID, rootID, authority.AgentID, 0, MaxContentRead)
 	if err != nil || !bytes.Equal(got, outcome) {
