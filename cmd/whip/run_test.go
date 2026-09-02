@@ -39,6 +39,7 @@ func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
 		"rlm": {"enabled": false},
+		"mcpImport": {"claude": {"enabled": false}, "codex": {"enabled": false}},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)

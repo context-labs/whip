@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -160,5 +161,72 @@ func TestCLIChooser(t *testing.T) {
 				t.Fatalf("choice=%q err=%v", got, err)
 			}
 		})
+	}
+}
+
+func TestAuthInferenceNetDeviceLoginAndKeyRotation(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/device/code", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"device_code":"device","user_code":"CODE","expires_in":30,"interval":1}`)
+	})
+	mux.HandleFunc("/api/auth/device/token", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"access_token":"session-token"}`)
+	})
+	mux.HandleFunc("/api/auth/get-session", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"user":{"email":"dev@example.com","id":"user-1"}}`)
+	})
+	mux.HandleFunc("/api/auth/organization/list", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `[{"id":"user-1","name":"Personal","slug":"personal"}]`)
+	})
+	mux.HandleFunc("/api/auth/organization/set-active", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{}`)
+	})
+	mux.HandleFunc("/api/rest/projects", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `[{"id":"project-1","name":"Primary"}]`)
+	})
+	mux.HandleFunc("/api/rest/api-keys", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"id":"key-1","key":"machine-secret"}`)
+	})
+	mux.HandleFunc("/api/rest/api-keys/key-1", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{}`)
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	defer inferencenet.SetURLsForTest(server.URL, server.URL, server.URL)()
+	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // openBrowser reports false without launching an app
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.WriteString("\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = writer.Close()
+	previousInput := os.Stdin
+	os.Stdin = reader
+	defer func() {
+		os.Stdin = previousInput
+		_ = reader.Close()
+	}()
+
+	if err := authCLI([]string{"inference-net", "login"}); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := inferencenet.LoadAuth()
+	if err != nil || auth.ProjectID != "project-1" || auth.MachineKey != "machine-secret" {
+		t.Fatalf("device auth = %+v, %v", auth, err)
+	}
+	if err := authCLI([]string{"inference-net", "key", "rotate"}); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := inferencenet.LoadAuth()
+	if err != nil || rotated.MachineKeyID != "key-1" || rotated.MachineKey == "" {
+		t.Fatalf("rotated auth = %+v, %v", rotated, err)
+	}
+	cfg, err := config.Load()
+	if err != nil || cfg.Providers[config.InferenceNetProvider].BaseURL == "" {
+		t.Fatalf("inference provider = %+v, %v", cfg.Providers[config.InferenceNetProvider], err)
 	}
 }

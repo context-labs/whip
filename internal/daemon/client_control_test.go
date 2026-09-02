@@ -760,6 +760,49 @@ func TestClientControlRejectsInvalidActionsDurably(t *testing.T) {
 	}
 }
 
+func TestProtocolClientCommandsFailClosedWithoutOptionalRunnerCapabilities(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, test := range []struct {
+		operation string
+		payload   any
+	}{
+		{"permission.mode", map[string]bool{"external_permissions": true}},
+		{"tool.configure", map[string]bool{"deny_permissions": true}},
+		{"tool.schema", struct{}{}},
+		{"run.configure", map[string]int{"max_turns": -1}},
+		{"run.configure", struct{}{}},
+		{"workspace.set", map[string]string{"args": "nested"}},
+		{"history.clear", struct{}{}},
+		{"agent.start", map[string]string{"args": "work"}},
+	} {
+		result := clientCommand(t, root, "client", fmt.Sprintf("unsupported-%d", i), test.operation, test.payload)
+		if result.Status != "failed" || result.Error == "" {
+			t.Fatalf("%s = %+v", test.operation, result)
+		}
+	}
+	for i, raw := range []json.RawMessage{json.RawMessage(`{`), json.RawMessage(`{}`), json.RawMessage(`{"tool":"read","arguments":{}}`)} {
+		result, err := root.ClientCommand(t.Context(), session.CommandAdmission{
+			ClientID: "client", CommandID: fmt.Sprintf("tool-invalid-%d", i), RequestDigest: fmt.Sprintf("tool-invalid-%d", i),
+			Payload: session.RuntimePayload{Data: raw, MediaType: "application/json", Source: "tool.call"},
+		}, "tool.call", raw)
+		if err != nil || result.Status != "failed" || result.Error == "" {
+			t.Fatalf("tool call %q = %+v, %v", raw, result, err)
+		}
+	}
+}
+
 func TestClientControlReportsUnsupportedRunnerCapabilities(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)

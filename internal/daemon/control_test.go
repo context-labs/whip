@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -77,5 +78,54 @@ func TestControlRouteHonorsCallerAndDaemonCancellation(t *testing.T) {
 	closed := &Control{ctx: daemonContext, requests: make(chan controlRequest), done: make(chan struct{})}
 	if err := closed.route(context.Background(), func(context.Context) error { return nil }); !errors.Is(err, ErrClosed) {
 		t.Fatalf("daemon cancellation = %v", err)
+	}
+}
+
+func TestControlListsDeletesAndCheckpointsWithDurableOutcomes(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = value.Close() }()
+	rootID := createRoot(t, store)
+	if err := store.Save(rootID, 1, []llm.Message{{Role: "user", Content: "listed"}, {Role: "assistant", Content: "yes"}}, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	admission := func(id string) session.CommandAdmission {
+		return session.CommandAdmission{ClientID: "client", CommandID: id, RequestDigest: id}
+	}
+	listed, err := value.control.ListSessions(t.Context(), admission("list"), 10)
+	if err != nil || listed.Status != "succeeded" || !strings.Contains(string(listed.Outcome.Inline), rootID) {
+		t.Fatalf("list = %+v, %v", listed, err)
+	}
+	if retry, err := value.control.ListSessions(t.Context(), admission("list"), 10); err != nil || retry.Status != "succeeded" {
+		t.Fatalf("list retry = %+v, %v", retry, err)
+	}
+
+	removeErr := errors.New("session is busy")
+	failed, err := value.control.DeleteSession(t.Context(), admission("delete-failed"), rootID, func(context.Context, string) error {
+		return removeErr
+	})
+	if !errors.Is(err, removeErr) || failed.Status != "failed" || string(failed.Outcome.Inline) != removeErr.Error() {
+		t.Fatalf("failed delete = %+v, %v", failed, err)
+	}
+	if retry, err := value.control.DeleteSession(t.Context(), admission("delete-failed"), rootID, func(context.Context, string) error {
+		t.Fatal("terminal delete retry executed removal")
+		return nil
+	}); err != nil || retry.Status != "failed" {
+		t.Fatalf("failed delete retry = %+v, %v", retry, err)
+	}
+	deleted, err := value.control.DeleteSession(t.Context(), admission("delete"), rootID, func(ctx context.Context, id string) error {
+		return store.DeleteSession(ctx, id)
+	})
+	if err != nil || deleted.Status != "succeeded" || string(deleted.Outcome.Inline) != rootID {
+		t.Fatalf("delete = %+v, %v", deleted, err)
+	}
+	checkpoint, err := value.control.Checkpoint(t.Context(), admission("checkpoint"), 7)
+	if err != nil || checkpoint.Status != "succeeded" || !strings.Contains(string(checkpoint.Outcome.Inline), `"generation":7`) {
+		t.Fatalf("checkpoint = %+v, %v", checkpoint, err)
 	}
 }

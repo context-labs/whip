@@ -25,6 +25,8 @@ type fakeACPBackend struct {
 	mu       sync.Mutex
 	next     int
 	paired   bool
+	newErr   error
+	listErr  error
 	roots    map[string]*fakeRoot
 	attached map[string]map[string]mcp.ServerConfig
 	private  ed25519.PrivateKey
@@ -57,6 +59,9 @@ func newFakeBackend(t *testing.T, paired bool) *fakeACPBackend {
 }
 
 func (b *fakeACPBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+	if b.newErr != nil {
+		return nil, b.newErr
+	}
 	b.mu.Lock()
 	b.next++
 	id := fmt.Sprintf("root-%d", b.next)
@@ -100,6 +105,9 @@ func (b *fakeACPBackend) client(ctx context.Context, root *fakeRoot) (*daemon.Ro
 }
 
 func (b *fakeACPBackend) ListSessions(context.Context, int) ([]session.Meta, error) {
+	if b.listErr != nil {
+		return nil, b.listErr
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	out := make([]session.Meta, 0, len(b.roots))
@@ -598,4 +606,115 @@ func TestFakeConnectionImplementsRootProtocol(t *testing.T) {
 	backend := newFakeBackend(t, true)
 	root := &fakeRoot{id: "root", cancel: make(chan struct{}, 1), permission: make(chan bool, 1)}
 	var _ daemon.RootConnection = newFakeConnection(backend, root)
+}
+
+func TestBridgeRejectsUnsupportedAndInvalidProtocolRequests(t *testing.T) {
+	bridge := NewBridge("test", nil, false, map[string]mcp.ServerConfig{
+		"base": {URL: "https://base.invalid"},
+	})
+	unsupported := map[string]func() error{
+		"authenticate": func() error { _, err := bridge.Authenticate(t.Context(), acpsdk.AuthenticateRequest{}); return err },
+		"logout":       func() error { _, err := bridge.Logout(t.Context(), acpsdk.LogoutRequest{}); return err },
+		"resume":       func() error { _, err := bridge.ResumeSession(t.Context(), acpsdk.ResumeSessionRequest{}); return err },
+		"config": func() error {
+			_, err := bridge.SetSessionConfigOption(t.Context(), acpsdk.SetSessionConfigOptionRequest{})
+			return err
+		},
+	}
+	for name, call := range unsupported {
+		err := call()
+		if err == nil {
+			t.Errorf("%s unexpectedly succeeded", name)
+		}
+	}
+	if _, err := bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{}); err == nil {
+		t.Fatal("session without cwd succeeded")
+	}
+	if _, err := bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: t.TempDir()}); err == nil {
+		t.Fatal("session without backend succeeded")
+	}
+	if _, err := bridge.LoadSession(t.Context(), acpsdk.LoadSessionRequest{}); err == nil {
+		t.Fatal("load without backend succeeded")
+	}
+	if _, err := bridge.ListSessions(t.Context(), acpsdk.ListSessionsRequest{}); err == nil {
+		t.Fatal("list without backend succeeded")
+	}
+	if _, err := bridge.CloseSession(t.Context(), acpsdk.CloseSessionRequest{SessionId: "missing"}); err == nil {
+		t.Fatal("close of unknown session succeeded")
+	}
+	if err := bridge.Cancel(t.Context(), acpsdk.CancelNotification{SessionId: "missing"}); err != nil {
+		t.Fatal(err)
+	}
+
+	merged := bridge.mergeMCPServers([]acpsdk.McpServer{
+		{Stdio: &acpsdk.McpServerStdio{Name: "stdio", Command: "server", Args: []string{"--stdio"}, Env: []acpsdk.EnvVariable{{Name: "TOKEN", Value: "secret"}}}},
+		{Http: &acpsdk.McpServerHttpInline{Name: "http", Type: "http", Url: "https://client.invalid", Headers: []acpsdk.HttpHeader{{Name: "Authorization", Value: "Bearer token"}}}},
+		{Http: &acpsdk.McpServerHttpInline{Name: "base", Type: "http", Url: "https://shadow.invalid"}},
+		{Stdio: &acpsdk.McpServerStdio{Command: "nameless"}},
+		{},
+	})
+	if len(merged) != 3 || strings.Join(merged["stdio"].Command, " ") != "server --stdio" || merged["stdio"].Env["TOKEN"] != "secret" {
+		t.Fatalf("stdio merge = %#v", merged)
+	}
+	if merged["http"].Headers["Authorization"] != "Bearer token" || merged["base"].URL != "https://base.invalid" {
+		t.Fatalf("http/base merge = %#v", merged)
+	}
+}
+
+func TestBridgeSessionRequestErrorsRemainSessionScoped(t *testing.T) {
+	backend := newFakeBackend(t, true)
+	fixture := newACPFixture(t, backend, nil)
+	fixture.initialize(t)
+	if _, err := fixture.bridge.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: "missing", ModeId: ModeAsk}); err == nil {
+		t.Fatal("mode change for unknown session succeeded")
+	}
+	if _, err := fixture.bridge.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: "missing"}); err == nil {
+		t.Fatal("prompt for unknown session succeeded")
+	}
+	id := fixture.newSession(t)
+	if _, err := fixture.bridge.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: id, ModeId: "dangerous"}); err == nil {
+		t.Fatal("unknown mode succeeded")
+	}
+	s := fixture.bridge.getSession(id)
+	s.turnCh <- struct{}{}
+	if _, err := fixture.bridge.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: id}); err == nil {
+		t.Fatal("concurrent prompt succeeded")
+	}
+	<-s.turnCh
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	if _, err := fixture.bridge.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: id}); err == nil {
+		t.Fatal("prompt on closed session succeeded")
+	}
+	s.mu.Lock()
+	s.closed = false
+	s.mu.Unlock()
+
+	other := t.TempDir()
+	listed, err := fixture.bridge.ListSessions(t.Context(), acpsdk.ListSessionsRequest{Cwd: &other})
+	if err != nil || len(listed.Sessions) != 0 {
+		t.Fatalf("filtered sessions = %+v, %v", listed, err)
+	}
+	if _, err := fixture.bridge.LoadSession(t.Context(), acpsdk.LoadSessionRequest{SessionId: "missing"}); err == nil {
+		t.Fatal("missing session loaded")
+	}
+	if _, err := fixture.bridge.LoadSession(t.Context(), acpsdk.LoadSessionRequest{SessionId: id, Cwd: other}); err == nil {
+		t.Fatal("active session loaded twice")
+	}
+	if _, err := fixture.bridge.CloseSession(t.Context(), acpsdk.CloseSessionRequest{SessionId: id}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.bridge.CloseSession(t.Context(), acpsdk.CloseSessionRequest{SessionId: id}); err == nil {
+		t.Fatal("session closed twice")
+	}
+
+	backend.newErr = errors.New("create failed")
+	if _, err := fixture.bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: t.TempDir()}); err == nil {
+		t.Fatal("backend creation error was hidden")
+	}
+	backend.listErr = errors.New("list failed")
+	if _, err := fixture.bridge.ListSessions(t.Context(), acpsdk.ListSessionsRequest{}); err == nil {
+		t.Fatal("backend list error was hidden")
+	}
 }
