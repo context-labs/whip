@@ -64,7 +64,9 @@ func checkTrust(r *bufio.Reader) (trustOutcome, error) {
 		var terr error
 		tty, terr = trustDevTTY()
 		if terr != nil {
-			return trustDeferred, nil
+			// No controlling terminal: that's the signal to ask in the TUI, not
+			// an error to report. The terr is deliberately swallowed.
+			return trustDeferred, nil //nolint:nilerr // a missing /dev/tty means "defer to the in-TUI gate", by design
 		}
 		in = bufio.NewReader(tty)
 		out = tty
