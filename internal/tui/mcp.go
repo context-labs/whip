@@ -84,6 +84,29 @@ func (m *model) mcpSetEnabled(name string, enabled bool) {
 	m.append(m.mcpStatusView())
 }
 
+// mcpStart runs MCP discovery for wd, builds the manager, and kicks the
+// concurrent connects — the wiring Run does at startup. It's also the deferred
+// trust gate's approval path: while trustPending, Run skips this entirely
+// (discovery would read the untrusted folder's .mcp.json and Start would
+// exec-spawn its stdio servers before the user answers), and the
+// trustAnswerMsg{approved:true} handler calls it instead.
+func (m *model) mcpStart(wd string) {
+	if m.mcpMgr != nil || m.cfg == nil {
+		return // already running (palette toggle built it first): don't double-start
+	}
+	disc := mcp.LoadMergedFiltered(wd, mcp.FromConfigMap(m.cfg.MCPServers), mcp.ImportPolicyFrom(m.cfg.MCPImport))
+	if len(disc.Merged) > 0 || len(disc.Blocked) > 0 || len(disc.Errs) > 0 {
+		m.mcpMgr = mcp.NewManager(disc.Merged)
+		m.mcpMgr.SetBlocked(disc.Blocked)
+		m.mcpMgr.SetOnChange(m.mcpOnChange())
+		m.mcpMgr.Start(context.Background())
+		m.agent.SetMCPTools(m.mcpMgr.Tools())
+		for src, derr := range disc.Errs {
+			m.append(errStyle.Render(fmt.Sprintf("mcp: %s: %s", src, derr)))
+		}
+	}
+}
+
 // mcpOnChange returns the manager's OnChange callback — the single
 // implementation shared by Run (startup) and mcpSetImport (lazy manager). It
 // pushes the current tool set into the current agent, then notifies the UI.

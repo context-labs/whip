@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -179,6 +181,71 @@ func TestTrustApprovedSubmitsHeldPrompt(t *testing.T) {
 	}
 	if !hasUserMsg(t, m, "fix the flaky test") {
 		t.Fatalf("the held prompt should reach the model, got %+v", m.agent.MessagesSnapshot())
+	}
+}
+
+// Approving the in-TUI trust gate starts the MCP servers startup held back
+// while the folder was untrusted (discovery reads .mcp.json; Start execs its
+// stdio servers — both must wait for the answer).
+func TestTrustApprovalStartsDeferredMCP(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"mcpServers":{"demo":{"command":"echo","args":["hi"]}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := busyQueueModel()
+	m.busy = false
+	m.cancel = nil
+	m.cfg = &config.Config{} // mcpStart reads cfg.MCPServers/MCPImport
+	m.trustPending = dir
+	if m.mcpMgr != nil {
+		t.Fatal("fixture slip: MCP must be off while the trust gate is open")
+	}
+
+	tm, _ := m.Update(trustAnswerMsg{approved: true})
+	m = tm.(*model)
+
+	if m.mcpMgr == nil {
+		t.Fatal("approval should run the deferred MCP discovery and start")
+	}
+}
+
+// The [y/N] label must be honest: a bare Enter — the textarea's default key —
+// declines (fails closed). Only an explicit y/yes approves.
+func TestTrustPromptEnterDeclines(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	dir := t.TempDir()
+	m := busyQueueModel()
+	m.busy = false
+	m.cancel = nil
+	m.trustPending = dir
+	m.heldPrompt = "fix the flaky test"
+
+	tm, _ := m.Update(trustOpenMsg{})
+	m = tm.(*model)
+	if m.namePrompt == nil {
+		t.Fatal("the deferred gate should open the inline trust prompt")
+	}
+
+	// Bare Enter commits an empty answer. The namePrompt callback routes the
+	// decline through a detached prog.Send (nil in headless tests — so this
+	// asserts the observable decision: the folder must NOT be trusted), and
+	// Update applies it like the loop would.
+	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = tm.(*model)
+	if config.Trusted(dir) {
+		t.Fatal("a bare Enter must not trust the folder — the label says [y/N]")
+	}
+	tm, cmd := m.Update(trustAnswerMsg{approved: false})
+	m = tm.(*model)
+	if m.heldPrompt != "" {
+		t.Fatal("a declined gate drops the held prompt")
+	}
+	if cmd == nil {
+		t.Fatal("a bare Enter should decline, which quits the TUI")
+	}
+	if _, is := cmd().(tea.QuitMsg); !is {
+		t.Fatalf("declining should return tea.Quit, got %T", cmd())
 	}
 }
 

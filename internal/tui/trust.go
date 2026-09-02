@@ -119,9 +119,12 @@ func (m *model) openTrustPrompt() {
 		go m.prog.Send(trustAnswerMsg{approved: approved})
 	}
 	m.append(dimStyle.Render("◎ trust " + dir + "? whip may read its files and, with approval, run code here. (y/n — esc declines)"))
+	// The label says [y/N]: a bare Enter — the textarea's default key — must
+	// decline, fail-closed. (The terminal prompt above is the opposite default,
+	// [Y/n]: Enter approves. Different prompts, honest labels.)
 	m.openNamePrompt("trust this folder? [y/N]:", "", func(value string) {
 		a := strings.ToLower(strings.TrimSpace(value))
-		send(a == "" || a == "y" || a == "yes")
+		send(a == "y" || a == "yes")
 	})
 	m.namePrompt.mask = false
 	m.namePrompt.onCancel = func() { send(false) } // esc = decline

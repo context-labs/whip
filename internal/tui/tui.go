@@ -438,18 +438,18 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// the background. Tool calls block on that server's first settle only, so a
 	// slow/hung server never delays startup. Discovery problems (a broken
 	// .mcp.json) land as a transcript note, not a startup failure.
+	//
+	// While the trust gate is deferred (trustPending), MCP stays OFF entirely —
+	// even whip's own config: discovery reads the untrusted folder's .mcp.json
+	// and Start exec-spawns its stdio servers, which is exactly the arbitrary
+	// code execution the gate exists to prevent (the pre-TUI gate used to
+	// hard-fail before any of this ran). Approval runs m.mcpStart(); a decline
+	// quits, so nothing is lost. The deferred startupReport just shows no MCP
+	// line — servers start AFTER the report, and the on-change redraw shows
+	// them settling in /mcp.
 	if wd, wdErr := os.Getwd(); wdErr == nil {
-		disc := mcp.LoadMergedFiltered(wd, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-		merged, mcpErrs := disc.Merged, disc.Errs
-		if len(merged) > 0 || len(disc.Blocked) > 0 || len(mcpErrs) > 0 {
-			m.mcpMgr = mcp.NewManager(merged)
-			m.mcpMgr.SetBlocked(disc.Blocked)
-			m.mcpMgr.SetOnChange(m.mcpOnChange())
-			m.mcpMgr.Start(context.Background())
-			ag.SetMCPTools(m.mcpMgr.Tools())
-			for src, derr := range mcpErrs {
-				m.append(errStyle.Render(fmt.Sprintf("mcp: %s: %s", src, derr)))
-			}
+		if m.trustPending == "" {
+			m.mcpStart(wd)
 		}
 		// LSP: build the diagnostics manager (built-ins merged under the
 		// config's "lsp" block) and install it for write/edit tool output.
@@ -1870,6 +1870,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := config.Trust(dir); err != nil {
 			m.append(errStyle.Render("trust: " + err.Error()))
 		}
+		// MCP was held back while the gate was open (startup discovery would
+		// read, and Start would exec, the then-untrusted folder's .mcp.json).
+		// Trust granted: start it now.
+		m.mcpStart(dir)
 		if m.heldPrompt == "" || m.busy {
 			return m, nil
 		}
