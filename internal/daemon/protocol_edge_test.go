@@ -39,6 +39,7 @@ func TestClientValidationAndCancellationPaths(t *testing.T) {
 		_, _ = readProtocolFrame(reader)
 		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 1}})
 		_, _ = readProtocolFrame(reader)
+		_, _ = readProtocolFrame(reader)
 		<-time.After(50 * time.Millisecond)
 		_ = serverSide.Close()
 	}()
@@ -57,14 +58,14 @@ func TestClientValidationAndCancellationPaths(t *testing.T) {
 	if err := client.Call(ctx, "blocked", struct{}{}, nil); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("cancelled call = %v", err)
 	}
-	_ = client.Close()
+	go client.heartbeat(context.Background(), time.Millisecond, 5*time.Millisecond)
 	select {
 	case <-client.Done():
-	default:
-		t.Fatal("closed client did not close Done")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("failed heartbeat did not close the client")
 	}
-	if client.Err() == nil {
-		t.Fatal("closed client has no terminal error")
+	if err := client.Err(); err == nil || !strings.Contains(err.Error(), "daemon heartbeat") {
+		t.Fatalf("heartbeat error = %v", err)
 	}
 	if err := client.Call(context.Background(), "after.close", struct{}{}, nil); err == nil {
 		t.Fatal("closed client accepted a call")

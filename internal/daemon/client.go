@@ -113,7 +113,7 @@ func NewClient(ctx context.Context, conn net.Conn, initialize InitializeParams) 
 	client.nonce = append([]byte(nil), client.init.Nonce...)
 	_ = conn.SetDeadline(time.Time{})
 	go client.readLoop(reader)
-	go client.heartbeat(context.WithoutCancel(ctx))
+	go client.heartbeat(context.WithoutCancel(ctx), clientPingInterval, clientPingTimeout)
 	return client, nil
 }
 
@@ -403,15 +403,15 @@ func (c *Client) readLoop(reader *bufio.Reader) {
 	}
 }
 
-func (c *Client) heartbeat(parent context.Context) {
-	ticker := time.NewTicker(clientPingInterval)
+func (c *Client) heartbeat(parent context.Context, interval, timeout time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-c.done:
 			return
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(parent, clientPingTimeout)
+			ctx, cancel := context.WithTimeout(parent, timeout)
 			var result struct {
 				Generation int64 `json:"generation"`
 			}
