@@ -33,6 +33,7 @@ type daemonRLMHost struct {
 	handle   *rlm.ContextHandle
 	children map[string]*rlmChild
 	pricing  [3]float64
+	system   string
 }
 
 type rlmChild struct {
@@ -104,6 +105,15 @@ func (runtime daemonRLMRuntime) Close() {
 	runtime.kernel.Close()
 }
 
+func (runtime daemonRLMRuntime) ConfigureRun(system string) {
+	runtime.host.mu.Lock()
+	runtime.host.system = system
+	runtime.host.mu.Unlock()
+	if system != "" {
+		runtime.host.agent.SetSystemPrompt(system)
+	}
+}
+
 func (host *daemonRLMHost) bound() (*daemon.Session, error) {
 	host.mu.Lock()
 	defer host.mu.Unlock()
@@ -134,8 +144,12 @@ func (host *daemonRLMHost) focusInput(ctx context.Context, input string) (string
 		host.mu.Lock()
 		host.handle = handle
 		host.history = nil
+		system := host.system
 		host.mu.Unlock()
-		host.agent.SetSystemPrompt(rlm.BuildPrompt(root.WorkingDirectory(), handle))
+		if system == "" {
+			system = rlm.BuildPrompt(root.WorkingDirectory(), handle)
+		}
+		host.agent.SetSystemPrompt(system)
 	}
 	if len(input) <= session.InlineValueLimit {
 		return input, nil

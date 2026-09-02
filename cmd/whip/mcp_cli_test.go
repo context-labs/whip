@@ -75,6 +75,7 @@ func TestMCPCLIAddListRemove(t *testing.T) {
 func TestMCPServeStopsCleanlyOnStdinEOF(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
+	useTestDaemon(t)
 	t.Chdir(t.TempDir())
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -301,6 +302,7 @@ func TestMCPServeHelperProcess(t *testing.T) {
 	if os.Getenv("WHIP_MCP_SERVE_HELPER") != "1" {
 		t.Skip("helper process, run only by TestMCPTestCLIReady")
 	}
+	useTestDaemon(t)
 	if err := mcpCLI([]string{"serve"}, "helper"); err != nil {
 		fmt.Fprintln(os.Stderr, "serve:", err)
 	}

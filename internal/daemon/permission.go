@@ -39,7 +39,12 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 			decisionErr = capability.ErrDenied
 		}
 		if decisionErr == nil {
-			ticket, decisionErr = s.store.Decide(actorCtx, admission, permissionID, decision)
+			if runner, ok := s.runner.(clientPermissionRunner); ok && runner.ExternalPermissionsEnabled() {
+				decisionErr = runner.ResolvePermission(permissionID, decision)
+				ticket.OperationID = admission.Request.OperationID
+			} else {
+				ticket, decisionErr = s.store.Decide(actorCtx, admission, permissionID, decision)
+			}
 		}
 		status := "succeeded"
 		var outcome []byte

@@ -18,6 +18,23 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
+type permissionModeRunner struct {
+	*fakeRunner
+	external bool
+}
+
+func (r *permissionModeRunner) SetExternalPermissions(enabled bool) {
+	r.external = enabled
+}
+
+func (r *permissionModeRunner) ExternalPermissionsEnabled() bool {
+	return r.external
+}
+
+func (*permissionModeRunner) ResolvePermission(string, capability.Decision) error {
+	return nil
+}
+
 func TestHumanEnrollmentIsExplicitAuthenticatedAndAutomationSafe(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
@@ -143,6 +160,59 @@ func TestPermissionDecisionsRequireConnectionBoundHumanSignature(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root.meta.CWD, "approved.txt")); !os.IsNotExist(err) {
 		t.Fatalf("test decision unexpectedly bypassed operation ownership: %v", err)
+	}
+}
+
+func TestAutomaticPermissionModeRequiresConnectionBoundHumanSignature(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	runner := &permissionModeRunner{fakeRunner: &fakeRunner{}}
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: runner}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{Generation: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	payload, _ := json.Marshal(map[string]bool{"external_permissions": false})
+	command := CommandParams{
+		CommandID: "automatic", Scope: string(session.CommandScopeRoot), RootID: rootID,
+		Operation: "permission.mode", Payload: payload,
+	}
+
+	automation := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "automatic-bot", ClientKind: "automation"})
+	defer automation.Close()
+	if _, err := automation.Command(context.Background(), command); err == nil || !strings.Contains(err.Error(), "signed paired-human") {
+		t.Fatalf("unsigned automatic mode = %v", err)
+	}
+
+	human := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "automatic-human", ClientKind: "acp"})
+	defer human.Close()
+	_, humanKey, _ := ed25519.GenerateKey(rand.Reader)
+	if _, err := human.EnrollIdentity(context.Background(), humanKey, true, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	_, wrongKey, _ := ed25519.GenerateKey(rand.Reader)
+	if _, err := human.SetPermissionMode(context.Background(), wrongKey, command); err == nil || !strings.Contains(err.Error(), "signature") {
+		t.Fatalf("wrong automatic signer = %v", err)
+	}
+	command.CommandID = "automatic-signed"
+	result, err := human.SetPermissionMode(context.Background(), humanKey, command)
+	if err != nil || result.Status != "succeeded" || runner.external {
+		t.Fatalf("signed automatic mode = %+v, external=%v, err=%v", result, runner.external, err)
+	}
+
+	payload, _ = json.Marshal(map[string]bool{"external_permissions": true})
+	result, err = automation.Command(context.Background(), CommandParams{
+		CommandID: "ask", Scope: string(session.CommandScopeRoot), RootID: rootID,
+		Operation: "permission.mode", Payload: payload,
+	})
+	if err != nil || result.Status != "succeeded" || !runner.external {
+		t.Fatalf("safe ask mode = %+v, external=%v, err=%v", result, runner.external, err)
 	}
 }
 

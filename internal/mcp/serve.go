@@ -2,13 +2,21 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/context-labs/whip/internal/tools"
+	"github.com/context-labs/whip/internal/llm"
 )
+
+// ToolProvider is the dispatcher-backed surface exposed over MCP. Production
+// uses a daemon adapter; tests may use bound in-process services.
+type ToolProvider interface {
+	ToolDefinitions(context.Context) ([]llm.Tool, error)
+	CallTool(context.Context, string, json.RawMessage) (string, error)
+}
 
 // Serve runs whip's built-in tools as an MCP server over stdio — the other
 // direction of the integration: any MCP-capable harness (claude-code, codex,
@@ -18,20 +26,24 @@ import (
 //
 // registered as a stdio server. The `task` tool is excluded (no subagent
 // recursion over MCP). Callers use the raw llm definitions verbatim.
-func Serve(ctx context.Context, version string, services *tools.Services) error {
-	if services == nil || services.ProcessOptions().Processes == nil {
-		return errors.New("mcp serve requires scoped tool services")
+func Serve(ctx context.Context, version string, provider ToolProvider) error {
+	if provider == nil {
+		return errors.New("mcp serve requires a tool provider")
 	}
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "whip", Version: version}, nil)
-	for _, t := range tools.AllWithServices(services) {
+	definitions, err := provider.ToolDefinitions(ctx)
+	if err != nil {
+		return fmt.Errorf("mcp serve schemas: %w", err)
+	}
+	for _, definition := range definitions {
 		srv.AddTool(&sdkmcp.Tool{
-			Name:        t.Def.Function.Name,
-			Description: t.Def.Function.Description,
+			Name:        definition.Function.Name,
+			Description: definition.Function.Description,
 			// The defs carry a JSON-schema string; the SDK wants any value
 			// that marshals to a schema, and json.RawMessage marshals verbatim.
-			InputSchema: t.Def.Function.Parameters,
+			InputSchema: definition.Function.Parameters,
 		}, func(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
-			out, err := t.Run(ctx, req.Params.Arguments)
+			out, err := provider.CallTool(ctx, definition.Function.Name, req.Params.Arguments)
 			isError := err != nil
 			if err != nil {
 				out = "Error: " + err.Error() // errors are tool output, not protocol failures

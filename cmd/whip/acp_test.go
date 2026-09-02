@@ -5,6 +5,8 @@ package main
 // serves stdio and isn't unit-testable; its helpers are.
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
 )
 
 // acpCLI's config prologue runs before the serve loop: a broken config, an
@@ -79,6 +82,16 @@ func TestAcpCLIServeExitsOnEOF(t *testing.T) {
 		"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`)
+	useTestDaemon(t)
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousCredentials := loadACPClientCredentials
+	loadACPClientCredentials = func() (daemon.ClientCredentials, error) {
+		return daemon.ClientCredentials{ClientID: "acp-test", PrivateKey: private}, nil
+	}
+	t.Cleanup(func() { loadACPClientCredentials = previousCredentials })
 
 	// stdin/stdout become the ends of two pipes: the test acts as the ACP
 	// client on the other side.

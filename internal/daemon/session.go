@@ -49,6 +49,14 @@ type agentRunner struct {
 func NewAgentRunner(value *agent.Agent) Runner { return &agentRunner{agent: value} }
 
 func (r *agentRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
+	return r.runTurn(ctx, input, nil, authored, started, accepted)
+}
+
+func (r *agentRunner) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
+	return r.runTurn(ctx, input, parts, true, started, accepted)
+}
+
+func (r *agentRunner) runTurn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, started func(), accepted func(string)) (string, error) {
 	boundary := len(r.agent.MessagesSnapshot())
 	journal := turnJournal{}
 	emit := r.emit
@@ -66,6 +74,10 @@ func (r *agentRunner) Turn(ctx context.Context, input string, authored bool, sta
 		events.OnRetry = func(event llm.RetryEvent) {
 			emit("stream.notice", StreamEvent{Text: fmt.Sprintf("request failed (%v); retrying in %s", event.Err, event.Delay)})
 		}
+		events.OnUsage = func(usage llm.Usage) {
+			payload, _ := json.Marshal(UsageEvent{Used: usage.PromptTokens, Size: r.agent.ContextLimit})
+			emit("stream.usage", StreamEvent{Result: string(payload)})
+		}
 	}
 	events.OnCompaction = func(summary string, cutoff int, before []llm.Message) {
 		journal.Messages = append(journal.Messages, before[boundary:]...)
@@ -76,7 +88,9 @@ func (r *agentRunner) Turn(ctx context.Context, input string, authored bool, sta
 	}
 	var output string
 	var err error
-	if authored {
+	if len(parts) > 0 {
+		output, err = r.agent.TurnParts(ctx, input, parts, events)
+	} else if authored {
 		output, err = r.agent.TurnAuthored(ctx, input, events)
 	} else {
 		output, err = r.agent.Turn(ctx, input, events)
@@ -89,6 +103,10 @@ func (r *agentRunner) Turn(ctx context.Context, input string, authored bool, sta
 	r.turn = journal
 	r.mu.Unlock()
 	return output, err
+}
+
+type contentRunner interface {
+	TurnParts(context.Context, string, []llm.ContentPart, func(), func(string)) (string, error)
 }
 
 func (r *agentRunner) Steer(text string) bool { return r.agent.DeliverSteer(text) }
@@ -131,6 +149,14 @@ func (r *agentRunner) bind(root *Session) error {
 	}
 	r.agent.ResumeTaskIDs(ids)
 	r.agent.SetSteerIngress(func(text string) { root.enqueueWake("steer", text) })
+	r.agent.SetOnTodos(func(items []agent.Todo) {
+		plan := PlanEvent{Items: make([]PlanItem, 0, len(items))}
+		for _, item := range items {
+			plan.Items = append(plan.Items, PlanItem{Content: item.Content, Status: item.Status})
+		}
+		payload, _ := json.Marshal(plan)
+		r.emit("stream.plan", StreamEvent{Result: string(payload)})
+	})
 	r.agent.SetLauncher(root.supervisor.launchWorker)
 	r.agent.SetSubagentRuntime(root)
 	r.agent.Waits().OnWake = func(text string) { root.enqueueWake("wait", text) }
@@ -783,14 +809,14 @@ func (s *Session) dispatch() error {
 			s.pending = s.pending[1:]
 			continue
 		}
-		text, err := s.inboxText(item)
+		text, parts, err := s.inboxInput(item)
 		if err != nil {
 			return err
 		}
 		s.pending = s.pending[1:]
 		s.running = &item
 		s.turnStarted = false
-		authored := item.Kind == "submit"
+		authored := item.Kind == "submit" || item.Kind == "submit.parts"
 		historyLength := len(s.runner.History())
 		if err := s.store.StartClassicTurn(s.supervisor.ctx, s.meta.ID, s.authority.AgentID, item.Seq); err != nil {
 			return err
@@ -804,9 +830,19 @@ func (s *Session) dispatch() error {
 				workspaceRef = workspace.CaptureWorkspace(turnCtx)
 			}
 			var once sync.Once
-			output, err := s.runner.Turn(turnCtx, text, authored,
-				func() { once.Do(func() { s.supervisor.post(workerEnvelope{kind: workerTurnStarted}) }) },
-				func(string) { s.supervisor.post(workerEnvelope{kind: workerSteerAccepted}) })
+			started := func() { once.Do(func() { s.supervisor.post(workerEnvelope{kind: workerTurnStarted}) }) }
+			accepted := func(string) { s.supervisor.post(workerEnvelope{kind: workerSteerAccepted}) }
+			var output string
+			var err error
+			if len(parts) > 0 {
+				if runner, ok := s.runner.(contentRunner); ok {
+					output, err = runner.TurnParts(turnCtx, text, parts, started, accepted)
+				} else {
+					err = errors.New("session runner does not support content parts")
+				}
+			} else {
+				output, err = s.runner.Turn(turnCtx, text, authored, started, accepted)
+			}
 			journal := turnJournal{}
 			if source, ok := s.runner.(turnJournaler); ok {
 				journal = source.turnJournal()
@@ -834,11 +870,29 @@ func isImmediateWake(kind string) bool {
 }
 
 func (s *Session) inboxText(item sessionstore.InboxItem) (string, error) {
+	text, _, err := s.inboxInput(item)
+	return text, err
+}
+
+func (s *Session) inboxInput(item sessionstore.InboxItem) (string, []llm.ContentPart, error) {
+	var data []byte
 	if item.Payload.ReferenceID == "" {
-		return string(item.Payload.Inline), nil
+		data = item.Payload.Inline
+	} else {
+		var err error
+		data, _, err = s.store.ReadContent(s.supervisor.ctx, item.Payload.ReferenceID, s.meta.ID, s.authority.AgentID, 0, sessionstore.MaxContentRead)
+		if err != nil {
+			return "", nil, err
+		}
 	}
-	data, _, err := s.store.ReadContent(s.supervisor.ctx, item.Payload.ReferenceID, s.meta.ID, s.authority.AgentID, 0, sessionstore.MaxContentRead)
-	return string(data), err
+	if item.Kind != "submit.parts" {
+		return string(data), nil, nil
+	}
+	var payload SubmitPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return "", nil, errors.New("invalid content-parts submission")
+	}
+	return payload.Text, payload.Parts, nil
 }
 
 func (s *Session) completeTurn(completion workerCompletion) error {

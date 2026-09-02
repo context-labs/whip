@@ -46,26 +46,71 @@ type Diagnostics interface {
 }
 
 type Services struct {
-	mu               sync.RWMutex
-	interactive      InteractiveRunner
-	diagnostics      Diagnostics
-	gate             Gate
-	dispatcher       *capability.Dispatcher
-	authority        capability.ClassicAuthority
-	processes        *capability.ProcessManager
-	workspace        *capability.Workspace
-	processCwd       string
-	processEnv       map[string]string
-	browser          *browser.Manager
-	allowPrivateURLs bool
-	screenshotSink   func([][]byte)
-	computerPolicy   *computer.Policy
-	computerApprover func(string) bool
-	computerHelper   *computer.Helper
-	appGenerations   map[string]int
+	mu                  sync.RWMutex
+	interactive         InteractiveRunner
+	diagnostics         Diagnostics
+	gate                Gate
+	dispatcher          *capability.Dispatcher
+	authority           capability.ClassicAuthority
+	processes           *capability.ProcessManager
+	workspace           *capability.Workspace
+	processCwd          string
+	processEnv          map[string]string
+	browser             *browser.Manager
+	allowPrivateURLs    bool
+	screenshotSink      func([][]byte)
+	computerPolicy      *computer.Policy
+	computerApprover    func(string) bool
+	computerHelper      *computer.Helper
+	appGenerations      map[string]int
+	externalPermissions bool
+	permissionWaiters   map[string]chan capability.Decision
+	permissionEarly     map[string]capability.Decision
 }
 
 func NewServices() *Services { return &Services{} }
+
+// SetExternalPermissions makes dispatcher admissions wait for an authenticated
+// daemon decision instead of consulting an in-process consent callback.
+func (s *Services) SetExternalPermissions(enabled bool) {
+	s.mu.Lock()
+	s.externalPermissions = enabled
+	if enabled && s.permissionWaiters == nil {
+		s.permissionWaiters = make(map[string]chan capability.Decision)
+		s.permissionEarly = make(map[string]capability.Decision)
+	}
+	s.mu.Unlock()
+}
+
+// ExternalPermissionsEnabled reports whether admissions are delegated to an
+// authenticated daemon client instead of the in-process consent callback.
+func (s *Services) ExternalPermissionsEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.externalPermissions
+}
+
+// ResolvePermission delivers one authenticated decision to the dispatcher
+// call waiting on that permission ID.
+func (s *Services) ResolvePermission(permissionID string, decision capability.Decision) error {
+	if permissionID == "" || decision.PrincipalID == "" {
+		return errors.New("permission and principal identities are required")
+	}
+	s.mu.Lock()
+	if !s.externalPermissions {
+		s.mu.Unlock()
+		return errors.New("external permissions are not enabled")
+	}
+	if waiter := s.permissionWaiters[permissionID]; waiter != nil {
+		delete(s.permissionWaiters, permissionID)
+		s.mu.Unlock()
+		waiter <- decision
+		return nil
+	}
+	s.permissionEarly[permissionID] = decision
+	s.mu.Unlock()
+	return nil
+}
 
 func (s *Services) SetBrowser(manager *browser.Manager, allowPrivateURLs bool) {
 	s.mu.Lock()
@@ -364,6 +409,17 @@ func AllWithServices(services *Services) []Tool {
 		}
 	}
 	return toolset
+}
+
+// ToolDefinitions returns the public built-in schemas without exposing
+// concrete handlers to protocol adapters.
+func (s *Services) ToolDefinitions(context.Context) ([]llm.Tool, error) {
+	return Defs(AllWithServices(s)), nil
+}
+
+// CallTool routes one public built-in through the bound dispatcher.
+func (s *Services) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error) {
+	return s.Invoke(ctx, name, arguments)
 }
 
 type classicToolSpec struct {

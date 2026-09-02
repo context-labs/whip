@@ -22,11 +22,19 @@ import (
 )
 
 type clientActionPayload struct {
-	Args    string `json:"args,omitempty"`
-	Command string `json:"command,omitempty"`
-	Cut     int    `json:"cut,omitempty"`
-	ID      string `json:"id,omitempty"`
-	Bytes   []byte `json:"bytes,omitempty"`
+	Args                string                      `json:"args,omitempty"`
+	Command             string                      `json:"command,omitempty"`
+	Cut                 int                         `json:"cut,omitempty"`
+	ID                  string                      `json:"id,omitempty"`
+	Bytes               []byte                      `json:"bytes,omitempty"`
+	System              string                      `json:"system,omitempty"`
+	MaxTurns            int                         `json:"max_turns,omitempty"`
+	Headless            bool                        `json:"headless,omitempty"`
+	Tool                string                      `json:"tool,omitempty"`
+	Arguments           json.RawMessage             `json:"arguments,omitempty"`
+	DenyPermissions     bool                        `json:"deny_permissions,omitempty"`
+	ExternalPermissions bool                        `json:"external_permissions,omitempty"`
+	Servers             map[string]mcp.ServerConfig `json:"servers,omitempty"`
 }
 
 type clientCommandReply struct {
@@ -69,10 +77,11 @@ type clientGoal struct {
 func isClientOperation(operation string) bool {
 	switch operation {
 	case "cancel", "goal.set", "goal.run", "goal.from-context", "schedule.manage", "session.fork", "workspace.inspect", "workspace.set",
-		"session.effort", "session.model", "session.list", "session.open", "session.rename",
+		"session.effort", "session.model", "session.list", "session.open", "session.rename", "run.configure",
 		"history.clear", "history.rewind", "history.compact",
 		"agents.list", "agent.start", "agent.control", "agent.delete", "budget.cap", "capability.revoke", "shell.run",
-		"context.inspect", "mcp.control", "lsp.control", "browser.control", "computer.control", "terminal.input":
+		"context.inspect", "mcp.control", "lsp.control", "browser.control", "computer.control", "terminal.input",
+		"tool.configure", "tool.schema", "tool.call", "permission.mode", "mcp.attach":
 		return true
 	default:
 		return false
@@ -113,6 +122,26 @@ type clientReplaceRunner interface {
 	CanReplace() error
 }
 
+type clientRunRunner interface {
+	ConfigureRun(system string, maxTurns int, headless bool)
+}
+
+type clientRunRuntime interface {
+	ConfigureRun(string)
+}
+
+type clientToolRunner interface {
+	ToolDefinitions(context.Context) ([]llm.Tool, error)
+	CallTool(context.Context, string, json.RawMessage) (string, error)
+	DenyToolPermissions()
+}
+
+type clientPermissionRunner interface {
+	SetExternalPermissions(bool)
+	ExternalPermissionsEnabled() bool
+	ResolvePermission(string, capability.Decision) error
+}
+
 type clientMCPManager interface {
 	Statuses() []mcp.Server
 	Reconnect(string) bool
@@ -133,6 +162,42 @@ func (r *agentRunner) RunShell(ctx context.Context, command string) (string, err
 }
 
 func (r *agentRunner) ReplaceHistory(history []llm.Message) { r.agent.ReplaceHistory(history) }
+
+func (r *agentRunner) ConfigureRun(system string, maxTurns int, headless bool) {
+	if system != "" {
+		r.agent.SetSystemPrompt(system)
+	}
+	r.agent.MaxTurns = maxTurns
+	if headless {
+		r.agent.ComputerDisabled = true
+	}
+}
+
+func (r *agentRunner) ToolDefinitions(ctx context.Context) ([]llm.Tool, error) {
+	return r.agent.Services.ToolDefinitions(ctx)
+}
+
+func (r *agentRunner) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error) {
+	return r.agent.Services.CallTool(ctx, name, arguments)
+}
+
+func (r *agentRunner) DenyToolPermissions() {
+	r.agent.Services.SetGate(func(context.Context, tools.GateRequest) (tools.GateDecision, string) {
+		return tools.GateReject, "this automation client cannot approve side effects"
+	})
+}
+
+func (r *agentRunner) SetExternalPermissions(enabled bool) {
+	r.agent.Services.SetExternalPermissions(enabled)
+}
+
+func (r *agentRunner) ExternalPermissionsEnabled() bool {
+	return r.agent.Services.ExternalPermissionsEnabled()
+}
+
+func (r *agentRunner) ResolvePermission(permissionID string, decision capability.Decision) error {
+	return r.agent.Services.ResolvePermission(permissionID, decision)
+}
 
 func (r *agentRunner) StartTask(arguments string) (string, error) {
 	prompt := strings.TrimSpace(arguments)
@@ -261,6 +326,41 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 				result.Error = string(body)
 			} else {
 				result.Output = string(body)
+			}
+			return nil
+		}
+		if operation == "permission.mode" && s.running != nil {
+			return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("permission mode cannot change while a turn is running"), &result)
+		}
+		if operation == "tool.call" {
+			if s.clientBusy || s.running != nil {
+				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("another root operation is already running"), &result)
+			}
+			var action clientActionPayload
+			if err := json.Unmarshal(payload, &action); err != nil || action.Tool == "" {
+				if err == nil {
+					err = errors.New("tool name is required")
+				}
+				return s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result)
+			}
+			runner, ok := s.runner.(clientToolRunner)
+			if !ok {
+				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support tool calls"), &result)
+			}
+			asyncReply = make(chan clientCommandReply, 1)
+			s.clientBusy = true
+			result.Status = "running"
+			launched := s.supervisor.launchWorker("client tool call", func() {
+				output, callErr := runner.CallTool(s.supervisor.ctx, action.Tool, action.Arguments)
+				s.supervisor.post(workerEnvelope{kind: workerClientCommand, client: &clientCommandCompletion{
+					clientID: admission.ClientID, commandID: admission.CommandID, operation: operation,
+					ingress: admitted.Command.IngressSeq, output: output, err: callErr, reply: asyncReply,
+				}})
+			})
+			if !launched {
+				s.clientBusy = false
+				asyncReply = nil
+				return s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result)
 			}
 			return nil
 		}
@@ -522,6 +622,51 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 	}
 	switch operation {
+	case "mcp.attach":
+		manager := mcp.NewManager(payload.Servers)
+		previous := s.mcp
+		s.mcp = manager
+		configureMCP(s, Components{MCP: manager})
+		if previous != nil {
+			_ = safeClose("previous mcp", previous.Close)
+		}
+		return "configured", nil
+	case "permission.mode":
+		runner, ok := s.runner.(clientPermissionRunner)
+		if !ok {
+			return "", errors.New("session runner does not support external permissions")
+		}
+		runner.SetExternalPermissions(payload.ExternalPermissions)
+		return "configured", nil
+	case "tool.configure":
+		runner, ok := s.runner.(clientToolRunner)
+		if !ok {
+			return "", errors.New("session runner does not support tool configuration")
+		}
+		if payload.DenyPermissions {
+			runner.DenyToolPermissions()
+		}
+		return "configured", nil
+	case "tool.schema":
+		runner, ok := s.runner.(clientToolRunner)
+		if !ok {
+			return "", errors.New("session runner does not support tool schemas")
+		}
+		definitions, err := runner.ToolDefinitions(ctx)
+		return marshalClientOutput(definitions, err)
+	case "run.configure":
+		if payload.MaxTurns < 0 {
+			return "", errors.New("max turns cannot be negative")
+		}
+		runner, ok := s.runner.(clientRunRunner)
+		if !ok {
+			return "", errors.New("session runner does not support run configuration")
+		}
+		runner.ConfigureRun(payload.System, payload.MaxTurns, payload.Headless)
+		if runtime, ok := s.runtime.(clientRunRuntime); ok {
+			runtime.ConfigureRun(payload.System)
+		}
+		return "configured", nil
 	case "cancel":
 		if s.turnCancel == nil {
 			return "already idle", nil

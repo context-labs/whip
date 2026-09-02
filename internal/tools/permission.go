@@ -138,6 +138,29 @@ func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPromp
 		Command string `json:"command"`
 		Path    string `json:"path"`
 	}
+	s.mu.Lock()
+	if s.externalPermissions {
+		if decision, ok := s.permissionEarly[prompt.ID]; ok {
+			delete(s.permissionEarly, prompt.ID)
+			s.mu.Unlock()
+			return decision, nil
+		}
+		waiter := make(chan capability.Decision, 1)
+		s.permissionWaiters[prompt.ID] = waiter
+		s.mu.Unlock()
+		select {
+		case decision := <-waiter:
+			return decision, nil
+		case <-ctx.Done():
+			s.mu.Lock()
+			if s.permissionWaiters[prompt.ID] == waiter {
+				delete(s.permissionWaiters, prompt.ID)
+			}
+			s.mu.Unlock()
+			return capability.Decision{}, ctx.Err()
+		}
+	}
+	s.mu.Unlock()
 	if err := json.Unmarshal(prompt.Arguments, &args); err != nil {
 		return capability.Decision{}, err
 	}

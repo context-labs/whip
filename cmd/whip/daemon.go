@@ -75,6 +75,14 @@ func runDaemon(ctx context.Context, args []string) error {
 	limits := rlmLimits(cfg.RLM)
 	kernels := rlm.NewManager(limits.MaxWorkers)
 	factory := func(_ context.Context, meta session.Meta, history []llm.Message) (daemon.Components, error) {
+		if meta.Model == "mcp" && meta.Provider == "local" {
+			services := daemonToolServices(cfg, meta, "mcp")
+			ag := agent.NewWithServices(llm.New("", ""), "mcp", 1, "", services)
+			ag.ModelName, ag.Provider = meta.Model, meta.Provider
+			ag.WorkingDir = meta.CWD
+			ag.ComputerDisabled = true
+			return daemon.Components{Runner: daemon.NewAgentRunner(ag)}, nil
+		}
 		prov, model, apiID, err := cfg.Resolve(meta.Model, meta.Provider)
 		if err != nil {
 			return daemon.Components{}, err

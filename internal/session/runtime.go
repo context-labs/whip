@@ -171,6 +171,10 @@ type actorEvent struct {
 	Reserved         int64   `json:"reserved,omitempty"`
 	CapabilityID     string  `json:"capability_id,omitempty"`
 	Generation       int64   `json:"generation,omitempty"`
+	PermissionID     string  `json:"permission_id,omitempty"`
+	Operation        string  `json:"operation,omitempty"`
+	CanonicalPath    string  `json:"canonical_path,omitempty"`
+	RequestDigest    string  `json:"request_digest,omitempty"`
 }
 
 type ClassicTurnCommit struct {

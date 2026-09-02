@@ -28,6 +28,7 @@ type Client struct {
 	self InitializeParams
 
 	writeMu sync.Mutex
+	authMu  sync.Mutex
 	mu      sync.Mutex
 	nextID  int64
 	nonce   []byte
@@ -237,6 +238,8 @@ func (c *Client) Upload(ctx context.Context, begin UploadBeginParams, data []byt
 }
 
 func (c *Client) EnrollIdentity(ctx context.Context, private ed25519.PrivateKey, ttyConfirmed bool, authorizedBy string, authorizer ed25519.PrivateKey) (IdentityResult, error) {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
 	if len(private) != ed25519.PrivateKeySize {
 		return IdentityResult{}, errors.New("identity enrollment requires an Ed25519 private key")
 	}
@@ -270,6 +273,8 @@ func (c *Client) IdentityStatus(ctx context.Context) (IdentityStatusResult, erro
 }
 
 func (c *Client) DecidePermission(ctx context.Context, private ed25519.PrivateKey, decision PermissionDecision) (PermissionDecisionResult, error) {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
 	if len(private) != ed25519.PrivateKeySize {
 		return PermissionDecisionResult{}, errors.New("permission decision requires an Ed25519 private key")
 	}
@@ -292,6 +297,33 @@ func (c *Client) DecidePermission(ctx context.Context, private ed25519.PrivateKe
 	c.nonce = append([]byte(nil), result.Nonce...)
 	c.mu.Unlock()
 	return result, nil
+}
+
+func (c *Client) SetPermissionMode(ctx context.Context, private ed25519.PrivateKey, command CommandParams) (CommandResult, error) {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if len(private) != ed25519.PrivateKeySize {
+		return CommandResult{}, errors.New("automatic permission mode requires an Ed25519 private key")
+	}
+	if command.CommandID == "" || command.RootID == "" || command.Scope != string(session.CommandScopeRoot) || command.Operation != "permission.mode" {
+		return CommandResult{}, errors.New("automatic permission mode requires a root command identity")
+	}
+	c.mu.Lock()
+	nonce := append([]byte(nil), c.nonce...)
+	c.mu.Unlock()
+	message, err := authorizationMessage("permission.mode", c.init.Generation, nonce, command)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	params := PermissionModeParams{Command: command, Signature: ed25519.Sign(private, message)}
+	var result PermissionModeResult
+	if err := c.Call(ctx, "permission.mode", params, &result); err != nil {
+		return CommandResult{}, err
+	}
+	c.mu.Lock()
+	c.nonce = append([]byte(nil), result.Nonce...)
+	c.mu.Unlock()
+	return result.Command, nil
 }
 
 func (c *Client) RequestRestart(ctx context.Context, generation int64) error {

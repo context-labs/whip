@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,7 +40,7 @@ type Server struct {
 	listener net.Listener
 
 	mu        sync.Mutex
-	clients   map[string]*serverConn
+	clients   map[*serverConn]struct{}
 	slots     chan struct{}
 	lifeMu    sync.Mutex
 	wg        sync.WaitGroup
@@ -51,11 +52,13 @@ type Server struct {
 type serverConn struct {
 	server   *Server
 	conn     net.Conn
+	id       string
 	client   InitializeParams
 	out      chan []byte
 	inFlight chan struct{}
 
 	mu        sync.Mutex
+	authMu    sync.Mutex
 	outBytes  int64
 	nonce     []byte
 	restart   int64
@@ -86,7 +89,7 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
 		daemon: value, options: options, ctx: ctx, cancel: cancel,
-		clients: make(map[string]*serverConn), slots: make(chan struct{}, options.MaxConnections),
+		clients: make(map[*serverConn]struct{}), slots: make(chan struct{}, options.MaxConnections),
 		uploads: newUploadManager(value.store, options.RuntimeDir),
 	}, nil
 }
@@ -151,7 +154,7 @@ func (s *Server) Close() error {
 		s.lifeMu.Unlock()
 		s.mu.Lock()
 		connections := make([]*serverConn, 0, len(s.clients))
-		for _, connection := range s.clients {
+		for connection := range s.clients {
 			connections = append(connections, connection)
 		}
 		s.mu.Unlock()
@@ -172,7 +175,7 @@ func (s *Server) serveConn(raw net.Conn) {
 		return
 	}
 	connection := &serverConn{
-		server: s, conn: raw, out: make(chan []byte, s.options.MaxOutbound),
+		server: s, conn: raw, id: hex.EncodeToString(nonce[:16]), out: make(chan []byte, s.options.MaxOutbound),
 		inFlight: make(chan struct{}, s.options.MaxInFlight), nonce: nonce, snapshots: make(map[string][]SnapshotChunk),
 	}
 	defer connection.close()
@@ -268,19 +271,14 @@ func (s *Server) register(connection *serverConn, initialize InitializeParams) e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.clients[initialize.ClientID] != nil {
-		return errors.New("client ID is already connected")
-	}
 	connection.client = initialize
-	s.clients[initialize.ClientID] = connection
+	s.clients[connection] = struct{}{}
 	return nil
 }
 
 func (s *Server) unregister(connection *serverConn) {
 	s.mu.Lock()
-	if s.clients[connection.client.ClientID] == connection {
-		delete(s.clients, connection.client.ClientID)
-	}
+	delete(s.clients, connection)
 	s.mu.Unlock()
 }
 
@@ -321,21 +319,23 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid upload metadata")
 		}
-		return map[string]bool{"accepted": true}, rpcFromError(s.uploads.begin(connection.client.ClientID, params))
+		return map[string]bool{"accepted": true}, rpcFromError(s.uploads.begin(connection.id, params))
 	case "upload.chunk":
 		var params UploadChunkParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid upload chunk")
 		}
-		return map[string]bool{"accepted": true}, rpcFromError(s.uploads.chunk(connection.client.ClientID, params))
+		return map[string]bool{"accepted": true}, rpcFromError(s.uploads.chunk(connection.id, params))
 	case "upload.finish":
 		var params UploadFinishParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid upload completion")
 		}
-		result, err := s.uploads.finish(s.ctx, connection.client.ClientID, params.UploadID)
+		result, err := s.uploads.finish(s.ctx, connection.id, params.UploadID)
 		return result, rpcFromError(err)
 	case "identity.enroll":
+		connection.authMu.Lock()
+		defer connection.authMu.Unlock()
 		var params EnrollIdentityParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid identity enrollment")
@@ -346,6 +346,8 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		result, err := s.identityStatus(connection)
 		return result, rpcFromError(err)
 	case "permission.decide":
+		connection.authMu.Lock()
+		defer connection.authMu.Unlock()
 		var params PermissionDecisionParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid permission decision")
@@ -376,12 +378,32 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		}
 		nonce, err := connection.rotateNonce()
 		return PermissionDecisionResult{OperationID: ticket.OperationID, LeaseID: ticket.LeaseID, Nonce: nonce}, rpcFromError(err)
+	case "permission.mode":
+		connection.authMu.Lock()
+		defer connection.authMu.Unlock()
+		var params PermissionModeParams
+		if err := json.Unmarshal(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, "invalid permission mode")
+		}
+		if err := s.verifyPrivileged(connection, request.Method, params.Command, params.Signature); err != nil {
+			return nil, rpcFromError(err)
+		}
+		result, err := s.commandAuthorized(connection, params.Command, true)
+		if err != nil {
+			return nil, rpcFromError(err)
+		}
+		nonce, err := connection.rotateNonce()
+		return PermissionModeResult{Command: result, Nonce: nonce}, rpcFromError(err)
 	default:
 		return nil, rpcFailure(-32601, "method not found")
 	}
 }
 
 func (s *Server) command(connection *serverConn, params CommandParams) (CommandResult, error) {
+	return s.commandAuthorized(connection, params, false)
+}
+
+func (s *Server) commandAuthorized(connection *serverConn, params CommandParams, automaticPermissionAuthorized bool) (CommandResult, error) {
 	if params.CommandID == "" || params.Operation == "" {
 		return CommandResult{}, errors.New("command ID and operation are required")
 	}
@@ -390,7 +412,7 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 		return CommandResult{}, err
 	}
 	if params.Scope == string(session.CommandScopeDaemon) {
-		if params.Operation != "session.create" && params.Operation != "daemon.checkpoint" {
+		if params.Operation != "session.create" && params.Operation != "session.list" && params.Operation != "session.delete" && params.Operation != "daemon.checkpoint" {
 			return CommandResult{}, fmt.Errorf("unsupported daemon command %q", params.Operation)
 		}
 		if params.Operation == "daemon.checkpoint" {
@@ -407,14 +429,40 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 			}
 			return CommandResult{CommandID: params.CommandID, IngressSeq: record.IngressSeq, Status: record.Status, Output: string(output)}, err
 		}
+		admission := session.CommandAdmission{
+			ClientID: connection.client.ClientID, CommandID: params.CommandID, RequestDigest: digest,
+			Payload: session.RuntimePayload{Data: params.Payload, MediaType: "application/json", Source: params.Operation},
+		}
+		if params.Operation == "session.list" {
+			var payload struct {
+				Limit int `json:"limit"`
+			}
+			if len(params.Payload) > 0 {
+				if err := json.Unmarshal(params.Payload, &payload); err != nil {
+					return CommandResult{}, errors.New("invalid session list payload")
+				}
+			}
+			if payload.Limit == 0 {
+				payload.Limit = 50
+			}
+			record, err := s.daemon.control.ListSessions(s.ctx, admission, payload.Limit)
+			return s.commandRecordResult(record, err)
+		}
+		if params.Operation == "session.delete" {
+			var payload struct {
+				RootID string `json:"root_id"`
+			}
+			if err := json.Unmarshal(params.Payload, &payload); err != nil || payload.RootID == "" {
+				return CommandResult{}, errors.New("invalid session delete payload")
+			}
+			record, err := s.daemon.control.DeleteSession(s.ctx, admission, payload.RootID, s.daemon.DeleteSession)
+			return s.commandRecordResult(record, err)
+		}
 		var create CreateSession
 		if err := json.Unmarshal(params.Payload, &create); err != nil {
 			return CommandResult{}, errors.New("invalid session creation payload")
 		}
-		record, err := s.daemon.control.CreateSession(s.ctx, session.CommandAdmission{
-			ClientID: connection.client.ClientID, CommandID: params.CommandID, RequestDigest: digest,
-			Payload: session.RuntimePayload{Data: params.Payload, MediaType: "application/json", Source: params.Operation},
-		}, create)
+		record, err := s.daemon.control.CreateSession(s.ctx, admission, create)
 		if err != nil {
 			return CommandResult{}, err
 		}
@@ -428,12 +476,24 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 	if err != nil {
 		return CommandResult{}, err
 	}
+	if params.Operation == "permission.mode" {
+		var mode struct {
+			External bool `json:"external_permissions"`
+		}
+		if err := json.Unmarshal(params.Payload, &mode); err != nil {
+			return CommandResult{}, errors.New("invalid permission mode payload")
+		}
+		if !mode.External && !automaticPermissionAuthorized {
+			return CommandResult{}, errors.New("automatic permissions require a signed paired-human request")
+		}
+	}
 	if params.Operation != "submit" && params.Operation != "steer" {
 		if !isClientOperation(params.Operation) {
 			return CommandResult{}, fmt.Errorf("unsupported root command %q", params.Operation)
 		}
 		storedPayload := params.Payload
-		if params.Operation == "terminal.input" {
+		switch params.Operation {
+		case "terminal.input":
 			var input clientActionPayload
 			if err := json.Unmarshal(params.Payload, &input); err != nil {
 				return CommandResult{}, errors.New("invalid terminal input payload")
@@ -442,21 +502,41 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 				ID       string `json:"id"`
 				Redacted bool   `json:"redacted"`
 			}{ID: input.ID, Redacted: true})
+		case "mcp.attach":
+			var input struct {
+				Servers map[string]json.RawMessage `json:"servers"`
+			}
+			if err := json.Unmarshal(params.Payload, &input); err != nil {
+				return CommandResult{}, errors.New("invalid MCP attachment payload")
+			}
+			names := make([]string, 0, len(input.Servers))
+			for name := range input.Servers {
+				names = append(names, name)
+			}
+			slices.Sort(names)
+			storedPayload, _ = json.Marshal(struct {
+				Names    []string `json:"names"`
+				Redacted bool     `json:"redacted"`
+			}{Names: names, Redacted: true})
 		}
 		return root.ClientCommand(s.ctx, session.CommandAdmission{
 			ClientID: connection.client.ClientID, CommandID: params.CommandID, Kind: params.Operation, RequestDigest: digest,
 			Payload: session.RuntimePayload{Data: storedPayload, MediaType: "application/json", Source: params.Operation},
 		}, params.Operation, params.Payload)
 	}
-	var payload struct {
-		Text string `json:"text"`
+	var payload SubmitPayload
+	if err := json.Unmarshal(params.Payload, &payload); err != nil || payload.Text == "" && len(payload.Parts) == 0 {
+		return CommandResult{}, errors.New("root command requires non-empty content")
 	}
-	if err := json.Unmarshal(params.Payload, &payload); err != nil || payload.Text == "" {
-		return CommandResult{}, errors.New("root command requires non-empty text")
+	commandKind := params.Operation
+	commandPayload := session.RuntimePayload{Data: []byte(payload.Text), MediaType: "text/plain", Source: params.Operation}
+	if len(payload.Parts) > 0 {
+		commandKind = params.Operation + ".parts"
+		commandPayload = session.RuntimePayload{Data: params.Payload, MediaType: "application/json", Source: commandKind}
 	}
 	admission, receipt, err := root.AdmitCommand(s.ctx, session.CommandAdmission{
-		ClientID: connection.client.ClientID, CommandID: params.CommandID, Kind: params.Operation, RequestDigest: digest,
-		Payload: session.RuntimePayload{Data: []byte(payload.Text), MediaType: "text/plain", Source: params.Operation},
+		ClientID: connection.client.ClientID, CommandID: params.CommandID, Kind: commandKind, RequestDigest: digest,
+		Payload: commandPayload,
 	})
 	if err != nil {
 		return CommandResult{}, err
@@ -478,6 +558,18 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 		result.Status = "succeeded"
 	}
 	return result, nil
+}
+
+func (s *Server) commandRecordResult(record session.CommandRecord, actionErr error) (CommandResult, error) {
+	output, resolveErr := s.daemon.store.ResolveRuntimeValue(s.ctx, "", record.Outcome)
+	result := CommandResult{
+		CommandID: record.CommandID, IngressSeq: record.IngressSeq,
+		Status: record.Status, Output: string(output),
+	}
+	if actionErr != nil {
+		result.Error = actionErr.Error()
+	}
+	return result, errors.Join(actionErr, resolveErr)
 }
 
 func (s *Server) replay(params ReplayParams) (ReplayResult, error) {
@@ -626,7 +718,7 @@ func (c *serverConn) close() {
 		c.closed = true
 		c.mu.Unlock()
 		_ = c.conn.Close()
-		c.server.uploads.abortClient(c.client.ClientID)
+		c.server.uploads.abortClient(c.id)
 	})
 }
 

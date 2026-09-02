@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/capability"
 )
@@ -74,5 +75,56 @@ func TestPermissionGateIsScopedToServices(t *testing.T) {
 	}
 	if got := denied.CheckGate(context.Background(), "bash", "pwd"); got != "Permission denied: not this session" {
 		t.Fatalf("denied services result = %q", got)
+	}
+}
+
+func TestExternalPermissionsWaitForAuthenticatedDaemonDecision(t *testing.T) {
+	services := NewServices()
+	services.SetExternalPermissions(true)
+	if !services.ExternalPermissionsEnabled() {
+		t.Fatal("external permission mode was not enabled")
+	}
+
+	decisionCh := make(chan capability.Decision, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		decision, err := services.Decide(t.Context(), capability.PermissionPrompt{ID: "pending"})
+		decisionCh <- decision
+		errCh <- err
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		services.mu.RLock()
+		waiting := services.permissionWaiters["pending"] != nil
+		services.mu.RUnlock()
+		if waiting {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("permission decision did not begin waiting")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	want := capability.Decision{Allow: true, PrincipalID: "paired-human", Reason: "approved"}
+	if err := services.ResolvePermission("pending", want); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := <-decisionCh, <-errCh; err != nil || got != want {
+		t.Fatalf("external decision = %+v, %v", got, err)
+	}
+
+	early := capability.Decision{PrincipalID: "paired-human", Reason: "rejected"}
+	if err := services.ResolvePermission("early", early); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := services.Decide(t.Context(), capability.PermissionPrompt{ID: "early"}); err != nil || got != early {
+		t.Fatalf("early external decision = %+v, %v", got, err)
+	}
+	services.SetExternalPermissions(false)
+	if services.ExternalPermissionsEnabled() {
+		t.Fatal("external permission mode was not disabled")
+	}
+	if err := services.ResolvePermission("disabled", want); err == nil {
+		t.Fatal("disabled external permissions accepted a decision")
 	}
 }

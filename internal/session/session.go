@@ -488,6 +488,77 @@ func (s *Store) RecentContext(ctx context.Context, n int) ([]Meta, error) {
 	return scanMetas(rows)
 }
 
+// DeleteSession removes one root and any persisted subagent transcript rows.
+// The daemon stops the live root before calling this method. Runtime content
+// objects are immutable and may remain as unreferenced diagnostic orphans.
+func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
+	if rootID == "" {
+		return errors.New("session ID is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?)`, rootID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+
+	// The runtime schema deliberately has no cascading deletes: ordinary
+	// session history is durable. Ephemeral cleanup is the one explicit path
+	// that removes a complete ownership tree, so keep the dependency order
+	// visible here.
+	rootDeletes := []string{
+		`DELETE FROM blackboard_history WHERE root_id=?`,
+		`DELETE FROM blackboard WHERE root_id=?`,
+		`DELETE FROM leases WHERE root_id=?`,
+		`DELETE FROM permission_requests WHERE root_id=?`,
+		`DELETE FROM subscriptions WHERE root_id=?`,
+		`DELETE FROM operations WHERE root_id=?`,
+		`DELETE FROM usage_charges WHERE root_id=?`,
+		`DELETE FROM budgets WHERE root_id=?`,
+		`DELETE FROM capabilities WHERE root_id=?`,
+		`DELETE FROM agent_state WHERE root_id=?`,
+		`DELETE FROM inbox WHERE root_id=?`,
+		`DELETE FROM child_executions WHERE root_id=?`,
+		`DELETE FROM turns WHERE root_id=?`,
+		`DELETE FROM content_grants WHERE root_id=?`,
+		`DELETE FROM events WHERE root_id=?`,
+		`DELETE FROM commands WHERE root_id=?`,
+	}
+	for _, query := range rootDeletes {
+		if _, err := tx.ExecContext(ctx, query, rootID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agents WHERE root_id=?`, rootID); err != nil {
+		return err
+	}
+	sessionDeletes := []string{
+		`DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
+		`DELETE FROM tasks WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
+		`DELETE FROM snapshots WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
+		`DELETE FROM schedules WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
+		`DELETE FROM compactions WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
+	}
+	for _, query := range sessionDeletes {
+		if _, err := tx.ExecContext(ctx, query, rootID, rootID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET forked_from='' WHERE forked_from=? AND task_id=''`, rootID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id=? OR (forked_from=? AND task_id<>'')`, rootID, rootID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // UserHistory returns user-message contents across ALL sessions (every folder),
 // newest first and de-duplicated, for up-arrow input recall. Order is by the
 // session's last activity then the message's position within it, so the most

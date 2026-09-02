@@ -221,6 +221,15 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 			admission.Request.OperationID, "pending", request, stamp, stamp); err != nil {
 			return capability.Ticket{}, err
 		}
+		if _, err := s.insertActorEventTx(ctx, tx, admission.Request.RootID, "permission.pending", actorEvent{
+			AgentID: admission.Request.AgentID, OperationID: admission.Request.OperationID,
+			PermissionID: ticket.PermissionID, Operation: admission.Request.Operation,
+			CanonicalPath: admission.CanonicalPath, RequestDigest: admission.RequestDigest,
+			CapabilityID: admission.Request.CapabilityID, Generation: admission.Request.CapabilityGeneration,
+			Status: "pending",
+		}, stamp); err != nil {
+			return capability.Ticket{}, err
+		}
 	} else if err := insertCapabilityLease(ctx, tx, ticket.LeaseID, admission, stamp); err != nil {
 		return capability.Ticket{}, err
 	}

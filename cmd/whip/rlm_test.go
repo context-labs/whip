@@ -189,6 +189,9 @@ func TestDaemonRLMHostUsesDispatcherAndDurableHandles(t *testing.T) {
 	if strings.Contains(focused, "middle-secret") || !strings.Contains(focused, "context handle") || len(focused) >= len(large) {
 		t.Fatalf("large input was not focused: %d of %d bytes", len(focused), len(large))
 	}
+	if prompt := agent.MessagesSnapshot()[0].Content; !strings.Contains(prompt, "rlm_exec") || !strings.Contains(prompt, host.handle.ReferenceID) {
+		t.Fatalf("default RLM prompt lost its runtime contract or history handle: %q", prompt)
+	}
 	if root.Mode() != session.ModeRLM || root.AgentID() == "" {
 		t.Fatalf("root identity: mode=%s agent=%q", root.Mode(), root.AgentID())
 	}

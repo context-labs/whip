@@ -59,6 +59,77 @@ func TestTaskRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDeleteSessionRemovesOwnedTree(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	rootID, err := st.Create(t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AdmitChild(context.Background(), ChildAdmission{
+		RootID: rootID, ParentAgentID: authority.AgentID, ChildAgentID: "child", ExecutionID: "child-exec",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.StoreContent(context.Background(), ContentGrant{RootID: rootID, Scope: ContentGrantRoot}, RuntimePayload{
+		Data: []byte("owned content"), MediaType: "text/plain", Source: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordClassicTaskTranscript(context.Background(), rootID, authority.AgentID, Task{
+		ID: "task-1", Status: "done", StartedAt: time.Now(), EndedAt: time.Now(),
+	}, []llm.Message{{Role: "assistant", Content: "subagent output"}}, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	userFork, err := st.Fork(rootID, 0, "keep this fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherID, err := st.Create(t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.DeleteSession(context.Background(), rootID); err != nil {
+		t.Fatal(err)
+	}
+	var ownedSessions, ownedAgents, ownedGrants, ownedTasks int
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sessions WHERE id=? OR (forked_from=? AND task_id<>'')`, rootID, rootID).Scan(&ownedSessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM agents WHERE root_id=?`, rootID).Scan(&ownedAgents); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM content_grants WHERE root_id=?`, rootID).Scan(&ownedGrants); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM tasks WHERE session_id=?`, rootID).Scan(&ownedTasks); err != nil {
+		t.Fatal(err)
+	}
+	if ownedSessions != 0 || ownedAgents != 0 || ownedGrants != 0 || ownedTasks != 0 {
+		t.Fatalf("owned rows remain: sessions=%d agents=%d grants=%d tasks=%d", ownedSessions, ownedAgents, ownedGrants, ownedTasks)
+	}
+	if _, _, err := st.Load(otherID); err != nil {
+		t.Fatalf("unrelated session was affected: %v", err)
+	}
+	if meta, _, err := st.Load(userFork); err != nil {
+		t.Fatalf("user-created fork was affected: %v", err)
+	} else if meta.ForkedFrom != "" {
+		t.Fatalf("surviving fork retained deleted parent %q", meta.ForkedFrom)
+	}
+	if err := st.DeleteSession(context.Background(), rootID); err != nil {
+		t.Fatalf("repeated delete should be idempotent: %v", err)
+	}
+}
+
 func TestStoreRoundTrip(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
 	if err != nil {

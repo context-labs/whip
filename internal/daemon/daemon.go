@@ -133,6 +133,31 @@ func (d *Daemon) ResumeActive(ctx context.Context) error {
 	return nil
 }
 
+// DeleteSession stops an opened root before removing its durable ownership
+// tree. It is idempotent so a retried daemon command can safely finish after a
+// disconnect or crash at the cleanup boundary.
+func (d *Daemon) DeleteSession(ctx context.Context, rootID string) error {
+	d.mu.Lock()
+	entry := d.roots[rootID]
+	d.mu.Unlock()
+	if entry != nil {
+		select {
+		case <-entry.ready:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if root := d.entryRoot(entry); root != nil {
+			root.Stop()
+		}
+		d.mu.Lock()
+		if d.roots[rootID] == entry {
+			delete(d.roots, rootID)
+		}
+		d.mu.Unlock()
+	}
+	return d.store.DeleteSession(ctx, rootID)
+}
+
 func (d *Daemon) tombstone(rootID string, entry *rootEntry, root *Session) {
 	<-root.Done()
 	d.mu.Lock()

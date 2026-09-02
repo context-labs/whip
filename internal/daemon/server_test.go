@@ -103,7 +103,7 @@ func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
 	}
 }
 
-func TestProtocolRejectsDuplicateClientAndOversizedFrame(t *testing.T) {
+func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t *testing.T) {
 	if _, err := NewServer(nil, ServerOptions{}); err == nil {
 		t.Fatal("nil daemon server was created")
 	}
@@ -132,11 +132,13 @@ func TestProtocolRejectsDuplicateClientAndOversizedFrame(t *testing.T) {
 	}
 	secondServer, secondClient := net.Pipe()
 	go server.serveConn(secondServer)
-	if _, err := NewClient(context.Background(), secondClient, InitializeParams{
+	second, err := NewClient(context.Background(), secondClient, InitializeParams{
 		ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "duplicate",
-	}); err == nil || !strings.Contains(err.Error(), "already connected") {
-		t.Fatalf("duplicate client error = %v", err)
+	})
+	if err != nil {
+		t.Fatalf("same principal should support concurrent connections: %v", err)
 	}
+	defer second.Close()
 
 	reader := bufio.NewReaderSize(strings.NewReader(strings.Repeat("x", MaxFrameSize)+"\n"), MaxFrameSize)
 	if _, err := readProtocolFrame(reader); !errors.Is(err, ErrFrameTooLarge) {
@@ -507,7 +509,7 @@ func TestServerCommandValidation(t *testing.T) {
 			t.Fatalf("invalid command was accepted: %+v", params)
 		}
 	}
-	for _, method := range []string{"command", "events.replay", "snapshot", "snapshot.chunk", "upload.begin", "upload.chunk", "upload.finish", "identity.enroll", "permission.decide"} {
+	for _, method := range []string{"command", "events.replay", "snapshot", "snapshot.chunk", "upload.begin", "upload.chunk", "upload.finish", "identity.enroll", "permission.decide", "permission.mode"} {
 		if _, failure := server.handle(connection, rpcMessage{Method: method, Params: json.RawMessage(`{`)}); failure == nil {
 			t.Fatalf("invalid %s params were accepted", method)
 		}

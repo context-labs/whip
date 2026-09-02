@@ -38,12 +38,14 @@ func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 }
 
 // runCapture swaps stdout/stdin for the duration of runCLI and returns what
@@ -237,10 +239,12 @@ func TestRunMaxTurns(t *testing.T) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600)
+	useTestDaemon(t)
 
 	out, err := runCapture(t, "", "-max-turns", "2", "-no-session", "loop forever")
 	if err != nil {
@@ -263,10 +267,12 @@ func TestRunTimeout(t *testing.T) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600)
+	useTestDaemon(t)
 
 	_, err := runCapture(t, "", "-timeout", "200ms", "-no-session", "hi")
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
@@ -404,12 +410,14 @@ func TestRunJSONToolEvents(t *testing.T) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 
 	out, err := runCapture(t, "", "-format", "json", "-max-turns", "2", "-quiet", "-no-session", "read it")
 	if err != nil {
@@ -455,6 +463,7 @@ func TestRunJSONReasoning(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 
 	out, err := runCapture(t, "", "--format", "json", "go")
 	if err != nil {

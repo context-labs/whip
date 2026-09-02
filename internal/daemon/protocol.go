@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/context-labs/whip/internal/llm"
 )
 
 const (
@@ -92,6 +94,28 @@ type StreamEvent struct {
 	Result string `json:"result,omitempty"`
 }
 
+// SubmitPayload is the durable user input accepted by root submit commands.
+// Parts are optional and carry ACP image/context content without giving the
+// protocol adapter direct access to an agent.
+type SubmitPayload struct {
+	Text  string            `json:"text"`
+	Parts []llm.ContentPart `json:"parts,omitempty"`
+}
+
+type UsageEvent struct {
+	Used int `json:"used"`
+	Size int `json:"size"`
+}
+
+type PlanItem struct {
+	Content string `json:"content"`
+	Status  string `json:"status"`
+}
+
+type PlanEvent struct {
+	Items []PlanItem `json:"items"`
+}
+
 type ReplayResult struct {
 	Events  []ProtocolEvent `json:"events"`
 	Latest  int64           `json:"latest"`
@@ -171,6 +195,16 @@ type PermissionDecisionResult struct {
 	OperationID string `json:"operation_id"`
 	LeaseID     string `json:"lease_id"`
 	Nonce       []byte `json:"nonce"`
+}
+
+type PermissionModeParams struct {
+	Command   CommandParams `json:"command"`
+	Signature []byte        `json:"signature"`
+}
+
+type PermissionModeResult struct {
+	Command CommandResult `json:"command"`
+	Nonce   []byte        `json:"nonce"`
 }
 
 type RestartNotice struct {
