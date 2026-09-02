@@ -25,3 +25,44 @@ func TestIsShiftEnterSeq(t *testing.T) {
 		}
 	}
 }
+
+// ctrl+e with no tool result blocks falls through to the textarea, where
+// bubbles binds it to cursor-to-line-end — readline behavior users expect
+// while typing (Ruslan: "ctrl-e/a"). With a tool block present, ctrl+e keeps
+// its whip binding (expand/collapse the most recent tool result).
+func TestCtrlEFallsThroughToTextarea(t *testing.T) {
+	m := compactCmdModel()
+	m.input.SetValue("hello world")
+	m.input.CursorStart()
+
+	// no tool blocks: ctrl+e is line-end, not a no-op
+	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyCtrlE})
+	m = tm.(*model)
+	if got := m.input.LineInfo().CharOffset; got != len("hello world") {
+		t.Fatalf("ctrl+e with no tool blocks should go to line end, char offset = %d", got)
+	}
+
+	// a tool result block reclaims ctrl+e for expand/collapse
+	m.blocks = append(m.blocks, block{kind: blockTool, text: "ran a thing"})
+	m.input.CursorStart()
+	tm, _ = m.key(tea.KeyMsg{Type: tea.KeyCtrlE})
+	m = tm.(*model)
+	if !m.blocks[len(m.blocks)-1].expanded {
+		t.Fatal("ctrl+e with a tool block should expand it")
+	}
+	if got := m.input.LineInfo().CharOffset; got != 0 {
+		t.Fatalf("ctrl+e consumed by the block toggle must not move the cursor, offset = %d", got)
+	}
+}
+
+// ctrl+a was never intercepted: it reaches the textarea's LineStart binding.
+func TestCtrlAGoesToLineStart(t *testing.T) {
+	m := compactCmdModel()
+	m.input.SetValue("hello world")
+	m.input.CursorEnd()
+	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyCtrlA})
+	m = tm.(*model)
+	if got := m.input.LineInfo().CharOffset; got != 0 {
+		t.Fatalf("ctrl+a should go to line start, char offset = %d", got)
+	}
+}

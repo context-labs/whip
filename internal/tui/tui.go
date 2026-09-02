@@ -247,11 +247,13 @@ type model struct {
 	perms      permRules   // saved allow-always rules
 	permDialog *permDialog // open permission modal; the turn is paused on it
 
-	tasksFocus bool      // the tasks dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
-	taskSel    int       // selected row in the dock (index into newest-first tasks)
-	dockSkip   int       // non-task rows at the dock's top (focused hint) — click math skips them
-	taskVP     *taskView // open per-task detail view; nil when on the main thread
-	dockRows   int       // rendered dock height; layout() maintains it for click math
+	tasksFocus  bool      // the tasks dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
+	taskSel     int       // selected row in the dock (index into newest-first tasks)
+	taskExpanded bool     // selected dock row renders its recent activity inline (space/click toggles)
+	dockSkip    int       // non-task rows at the dock's top (focused hint) — click math skips them
+	dockOffsets []int     // screen-row offset of each task row within the strip (expanded rows shift rows below)
+	taskVP      *taskView // open per-task detail view; nil when on the main thread
+	dockRows    int       // rendered dock height; layout() maintains it for click math
 
 	rew    *rewindState  // open rewind picker (double-esc while idle)
 	esc1   bool          // first idle esc pressed; second opens the rewind picker
@@ -496,13 +498,13 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// ABSOLUTE screen coordinates — map a few rows off (drag-select landing
 	// two lines above the pointer).
 	fmt.Fprint(os.Stdout, "\x1b[9999;1H")
-	if m.mouseOn {
+	if m.mouseOn && cfg.UIMode != opencodeMode {
+		// Inline mode only: enable mouse reporting now (no alt screen will
+		// reset it). Opencode mode enables it from Init() AFTER the alt
+		// screen is up — entering ?1049 clears the terminal's mouse-tracking
+		// modes, so an enable written here never survived startup (only
+		// re-toggling /mouse at runtime brought it back).
 		enableClickWheelMouse(os.Stdout)
-		if cfg.UIMode == opencodeMode {
-			// all-motion tracking (?1003, a superset of ?1002) so passive mouse
-			// moves drive opencode's hover highlight on message cards
-			fmt.Fprint(os.Stdout, "\x1b[?1003h")
-		}
 	}
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
@@ -1421,8 +1423,16 @@ func (m *model) viewportView() string {
 	return strings.Join(lines[:last+1], "\n")
 }
 
+// mouseInitMsg is sent once from Init (opencode mode) to enable mouse
+// reporting AFTER bubbletea has entered the alt screen — writing the enable
+// before p.Run() is clobbered by the ?1049h alt-screen entry.
+type mouseInitMsg struct{}
+
 func (m *model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textarea.Blink}
+	if m.mouseOn && m.uiMode == opencodeMode {
+		cmds = append(cmds, func() tea.Msg { return mouseInitMsg{} })
+	}
 	if inTmuxEnv() {
 		// live theme tracking: tmux knows the outer terminal's light/dark
 		// (#{client_theme}, via the 996/2031 protocol) — poll it so an OS
@@ -1800,6 +1810,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case mouseInitMsg:
+		// Alt screen is up by now (Init commands run after the renderer
+		// starts) — the mouse enable finally sticks.
+		enableClickWheelMouse(os.Stdout)
+		// all-motion tracking (?1003, a superset of ?1002) so passive mouse
+		// moves drive opencode's hover highlight on message cards
+		fmt.Fprint(os.Stdout, "\x1b[?1003h")
+		return m, nil
+
 	case initialPromptMsg:
 		if m.initialPrompt == "" || m.busy {
 			return m, nil
@@ -1949,11 +1968,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.picker == nil && m.mpicker == nil && m.palette == nil {
-			// dock rows sit just above the input box: click selects/opens,
-			// wheel scrolls the selection through the strip
-			if top, n := m.dockTop(), len(m.dockTasks()); n > 0 && msg.Y >= top && msg.Y < top+n {
+			// dock rows sit just above the input box: click selects/expands,
+			// wheel scrolls the selection through the strip. An expanded row
+			// shifts the rows below it, so hit-testing goes through dockOffsets
+			// (recorded by tasksDock during render), not a flat 1-row-per-task.
+			if top, n := m.dockTop(), len(m.dockTasks()); n > 0 && msg.Y >= top && msg.Y < top+m.dockRows-m.dockSkip {
 				if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 					m.tasksFocus = true
+					m.taskExpanded = false
 					if msg.Button == tea.MouseButtonWheelUp {
 						m.taskSel = max(m.taskSel-1, 0)
 					} else {
@@ -1962,17 +1984,21 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-					sel := m.taskSel
-					if m.tasksFocus {
-						sel = msg.Y - top
+					if m.tasksFocus && len(m.dockOffsets) > 0 {
+						row := msg.Y - top
+						// find the last task row whose offset is at/above the click
+						sel := m.taskSel
+						for i, off := range m.dockOffsets {
+							if off <= row {
+								sel = i
+							}
+						}
+						m.taskSel = min(sel, n-1)
+						m.taskExpanded = !m.taskExpanded
+						return m, nil
 					}
 					m.tasksFocus = true
-					m.taskSel = min(sel, n-1)
-					// re-fetch: the list can change between the hitbox check
-					// above and this open (settled tasks age out)
-					if tasks := m.dockTasks(); len(tasks) > 0 {
-						m.openTask(tasks[min(m.taskSel, len(tasks)-1)].ID)
-					}
+					m.taskExpanded = false
 					return m, nil
 				}
 			}
@@ -2647,6 +2673,7 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.tasksFocus = !m.tasksFocus
+		m.taskExpanded = false
 		m.clampTaskSel()
 		return m, nil
 	case tea.KeyCtrlC:
@@ -2743,7 +2770,10 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, pasteImageCmd
 
 	case tea.KeyCtrlE:
-		// expand/collapse the most recent tool result block
+		// expand/collapse the most recent tool result block. With no tool
+		// block to toggle, fall through to the textarea — bubbles binds
+		// ctrl+e to cursor-to-line-end and users expect readline behavior
+		// while typing (Ruslan).
 		for i := len(m.blocks) - 1; i >= 0; i-- {
 			if m.blocks[i].kind == blockTool {
 				m.blocks[i].toggle()
@@ -2751,7 +2781,11 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		return m, nil
+		m.tasksFocus = false
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.refreshMenu()
+		return m, cmd
 
 	case tea.KeyCtrlO:
 		// toggle rendering of reasoning/thinking tokens
@@ -2782,6 +2816,7 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.tasksFocus {
 			m.taskSel = min(m.taskSel+1, len(m.dockTasks())-1)
+			m.taskExpanded = false // the expansion belongs to the row it was opened on
 			return m, nil
 		}
 		// while busy with a queue and an empty input, ↓ moves the queue
@@ -2819,6 +2854,19 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.KeySpace:
+		if m.tasksFocus && m.menu == nil {
+			// expand/collapse the selected task inline: its recent activity
+			// (journal tail) or report renders under the row
+			m.taskExpanded = !m.taskExpanded
+			return m, nil
+		}
+		// not in the dock: space is a typed character — fall through
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.refreshMenu()
+		return m, cmd
+
 	case tea.KeyUp, tea.KeyCtrlP:
 		if m.menu != nil {
 			m.menu.idx = (m.menu.idx + len(m.menu.cands) - 1) % len(m.menu.cands)
@@ -2827,9 +2875,11 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.tasksFocus {
 			if m.taskSel == 0 { // the dock sits below the input: ↑ off its top row hands focus back
 				m.tasksFocus = false
+				m.taskExpanded = false
 				return m, nil
 			}
 			m.taskSel--
+			m.taskExpanded = false
 			return m, nil
 		}
 		// while busy with a queue and an empty input, ↑ selects queued messages
@@ -4478,22 +4528,26 @@ func (m *model) viewBody() string {
 	// View can convert it to an absolute screen row for drag-select hit-testing.
 	m.inputBodyOff = strings.Count(b.String(), "\n")
 	if m.iactive == nil {
+		// The input view is sanitized per line like the transcript: bubbles'
+		// cursor-line rendering splits styled lines into pieces, and an
+		// un-closed piece bleeds its style into everything below (the status
+		// line going the wrong color after a large paste + ctrl+j).
 		if m.namePrompt != nil {
 			b.WriteString(m.namePrompt.label + " ")
 			if m.namePrompt.mask {
 				// Secrets never echo: render the mask instead of the input's
 				// live view (which would show the key in the clear). The "┃ "
 				// prompt matches how the textarea renders its own first line.
-				b.WriteString(m.highlightInput("┃ " + m.namePrompt.maskedValue(m.input.Value())))
+				b.WriteString(m.highlightInput(sanitizeInputView("┃ " + m.namePrompt.maskedValue(m.input.Value()))))
 			} else {
-				b.WriteString(m.highlightInput(m.input.View()))
+				b.WriteString(m.highlightInput(sanitizeInputView(m.input.View())))
 			}
 		} else if m.uiMode == opencodeMode {
 			// highlight BEFORE the box chrome is added, so the reverse-video
 			// ranges land on the same raw lines inputPoint hit-tests
-			b.WriteString(m.opencodePrompt(m.highlightInput(m.input.View()), m.width))
+			b.WriteString(m.opencodePrompt(m.highlightInput(sanitizeInputView(m.input.View())), m.width))
 		} else {
-			b.WriteString(m.highlightInput(m.input.View()))
+			b.WriteString(m.highlightInput(sanitizeInputView(m.input.View())))
 		}
 	}
 	if m.quit1 {

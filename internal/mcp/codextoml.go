@@ -75,6 +75,20 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 		c.Env = mergeInto(c.Env, tables[table+".env"])
 		c.Env = mergeInto(c.Env, tables[table+".environment"])
 		c.Headers = mergeInto(c.Headers, tables[table+".headers"])
+		// codex's literal-name header table (auth values verbatim) plus its
+		// env-var-name header table (names resolved at connect time as
+		// $VAR references — same lazy secret flow as whip-native configs).
+		c.Headers = mergeInto(c.Headers, tables[table+".http_headers"])
+		if m := tables[table+".env_http_headers"]; len(m) > 0 {
+			if c.Headers == nil {
+				c.Headers = map[string]string{}
+			}
+			for k, v := range m {
+				if s, ok := v.(string); ok && s != "" {
+					c.Headers[k] = "$" + s
+				}
+			}
+		}
 		for k, v := range kv {
 			switch k {
 			case "command":
@@ -92,15 +106,41 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 					return nil, fmt.Errorf("codex config %s: args must be an array of strings", table)
 				}
 				args = a
-			case "env", "environment", "headers":
+			case "env", "environment", "headers", "http_headers", "env_http_headers":
 				m, ok := v.(map[string]any)
 				if !ok {
 					return nil, fmt.Errorf("codex config %s: %s must be an inline table", table, k)
 				}
-				if k == "headers" {
+				switch k {
+				case "headers", "http_headers":
 					c.Headers = mergeInto(c.Headers, m)
-				} else {
+				case "env_http_headers":
+					// header name → env var holding the value: keep a $VAR
+					// reference so resolution happens at connect, not import
+					for hk, hv := range m {
+						if s, ok := hv.(string); ok && s != "" {
+							if c.Headers == nil {
+								c.Headers = map[string]string{}
+							}
+							c.Headers[hk] = "$" + s
+						}
+					}
+				default:
 					c.Env = mergeInto(c.Env, m)
+				}
+			case "bearer_token_env_var":
+				// codex's Authorization shortcut: the var NAME, resolved at
+				// request time. Imported as a $VAR header reference so whip
+				// resolves it at connect (never baked, never persisted).
+				s, ok := v.(string)
+				if !ok {
+					return nil, fmt.Errorf("codex config %s: bearer_token_env_var must be a string", table)
+				}
+				if s != "" && c.Headers == nil {
+					c.Headers = map[string]string{}
+				}
+				if s != "" {
+					c.Headers["Authorization"] = "Bearer $" + s
 				}
 			case "url":
 				s, ok := v.(string)
@@ -137,11 +177,14 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 				c.ToolTimeout = n
 			}
 			// Unknown keys are ignored: codex's config has many fields whip
-			// doesn't model (bearer_token_env_var, http_headers, ...).
+			// doesn't model (experimental_use_rmcp_client, ...).
 		}
 		c.Command = append(c.Command, args...)
-		c.Env = expandEnvMap(c.Env)
-		c.Headers = expandEnvMap(c.Headers)
+		// "$VAR" references in env/headers stay REFERENCES: they resolve at
+		// connect time via config.ResolveSecret (defaultTransport). Expanding
+		// here would bake a var that's missing at import time into an empty
+		// literal (the customer.io "failed to auth" report) and persist the
+		// resolved secret into ~/.whip/config.json on `whip mcp import`.
 		out[name] = c
 	}
 	return out, nil

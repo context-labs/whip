@@ -336,3 +336,18 @@ func sanitizeView(s string) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// sanitizeInputView is sanitizeView's conservative cousin for the input box:
+// close each styled line (bubbles' cursor-line rendering splits styled lines
+// into pieces, and an un-closed piece bleeds its style into the status line —
+// seen after pasting a large body, where the ctrl+j SetValue churn can leave
+// the textarea's memoized wrap mid-frame) but never touch trailing padding:
+// the input region relies on styled tails for opencode's prompt-box fill and
+// the drag-selection highlight, and padStripRE would eat both.
+func sanitizeInputView(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = selfTerminate(l)
+	}
+	return strings.Join(lines, "\n")
+}

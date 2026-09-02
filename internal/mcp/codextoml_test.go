@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/config"
 )
 
 // TestParseTOMLValue pins the value grammar directly: escapes, literal vs
@@ -152,5 +154,103 @@ func TestLoadCodex(t *testing.T) {
 	}
 	if _, err := LoadCodex(filepath.Join(t.TempDir(), "missing.toml")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("missing file = %v, want os.ErrNotExist", err)
+	}
+}
+
+// TestParseCodexAuthFields pins the codex auth-key mappings: bearer_token_env_var
+// becomes an Authorization header holding a $VAR REFERENCE (resolved at
+// connect, never baked at import — the customer.io failure), http_headers
+// carries literals, env_http_headers maps header names to $VAR references.
+func TestParseCodexAuthFields(t *testing.T) {
+	t.Setenv("CIO_TEST_TOKEN", "cio-live-token")
+	cfgs, err := ParseCodex([]byte(`
+[mcp_servers.customerio]
+url = "https://mcp.customer.io/mcp"
+bearer_token_env_var = "CIO_TEST_TOKEN"
+
+[mcp_servers.mixed]
+url = "https://mcp.example.com/mcp"
+http_headers = { X-Team = "eng" }
+env_http_headers = { X-Api-Key = "CIO_TEST_TOKEN" }
+
+[mcp_servers.mixedsub]
+url = "https://sub.example.com/mcp"
+[mcp_servers.mixedsub.http_headers]
+X-Region = "us"
+[mcp_servers.mixedsub.env_http_headers]
+Authorization = "CIO_TEST_TOKEN"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cio := cfgs["customerio"]
+	if got := cio.Headers["Authorization"]; got != "Bearer $CIO_TEST_TOKEN" {
+		t.Fatalf("bearer_token_env_var should import as a reference, got %q", got)
+	}
+	// and the reference resolves at connect time
+	hv, err := config.ResolveHeader(cio.Headers["Authorization"])
+	if err != nil || hv != "Bearer cio-live-token" {
+		t.Errorf("connect-time resolution = %q, %v", hv, err)
+	}
+	mixed := cfgs["mixed"]
+	if mixed.Headers["X-Team"] != "eng" || mixed.Headers["X-Api-Key"] != "$CIO_TEST_TOKEN" {
+		t.Errorf("inline http_headers/env_http_headers = %v", mixed.Headers)
+	}
+	sub := cfgs["mixedsub"]
+	if sub.Headers["X-Region"] != "us" || sub.Headers["Authorization"] != "$CIO_TEST_TOKEN" {
+		t.Errorf("sub-table http_headers/env_http_headers = %v", sub.Headers)
+	}
+}
+
+// TestParseCodexPreservesReferences is the regression test for "customerio
+// MCP failed to auth after importing from codex": references must NOT be
+// expanded at parse time, so a var that's unset during import (but set when
+// the server actually runs) still resolves — and `whip mcp import` persists
+// the reference, not a resolved/empty literal.
+func TestParseCodexPreservesReferences(t *testing.T) {
+	os.Unsetenv("WHIP_IMPORT_LATE_VAR")
+	doc := []byte(`
+[mcp_servers.stdio]
+command = "srv"
+env = { API_KEY = "$WHIP_IMPORT_LATE_VAR", REGION = "us1" }
+
+[mcp_servers.remote]
+url = "https://mcp.example.com/mcp"
+headers = { Authorization = "Bearer ${WHIP_IMPORT_LATE_VAR:-none}" }
+`)
+	cfgs, err := ParseCodex(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfgs["stdio"].Env["API_KEY"] != "$WHIP_IMPORT_LATE_VAR" {
+		t.Errorf("env ref baked at parse: %q", cfgs["stdio"].Env["API_KEY"])
+	}
+	if cfgs["remote"].Headers["Authorization"] != "Bearer ${WHIP_IMPORT_LATE_VAR:-none}" {
+		t.Errorf("header ref baked at parse: %q", cfgs["remote"].Headers["Authorization"])
+	}
+	// spawn-time: still unset → entry dropped (child inherits any ambient var
+	// instead of a masking empty value)
+	env, err := config.ResolveEnvMap(cfgs["stdio"].Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := env["API_KEY"]; ok || env["REGION"] != "us1" {
+		t.Errorf("spawn env = %v", env)
+	}
+	// once the var exists (exported after import), resolution works
+	t.Setenv("WHIP_IMPORT_LATE_VAR", "late-value")
+	env, err = config.ResolveEnvMap(cfgs["stdio"].Env)
+	if err != nil || env["API_KEY"] != "late-value" {
+		t.Errorf("late resolution = %v, %v", env, err)
+	}
+	if hv, err := config.ResolveHeader(cfgs["remote"].Headers["Authorization"]); err != nil || hv != "Bearer late-value" {
+		t.Errorf("header resolution = %q, %v", hv, err)
+	}
+}
+
+// TestParseCodexBearerTokenEnvVarInvalid pins the type error.
+func TestParseCodexBearerTokenEnvVarInvalid(t *testing.T) {
+	if _, err := ParseCodex([]byte("[mcp_servers.x]\nurl = \"http://x\"\nbearer_token_env_var = 42\n")); err == nil {
+		t.Error("non-string bearer_token_env_var should error")
 	}
 }
