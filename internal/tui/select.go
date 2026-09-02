@@ -91,6 +91,9 @@ func (m *model) inputPoint(x, y int, clamp bool) (selPos, bool) {
 	if m.uiMode == opencodeMode {
 		x -= m.vpXOff() + 3 // the box chrome shifts the raw input right: margin + "┃  "
 	}
+	if m.uiMode == grokMode {
+		x -= m.vpXOff() + 3 // the box chrome shifts the raw input right: margin + "│ " + the ❯ prompt offset
+	}
 	row := y - m.inputTop
 	if !clamp && (row < 0 || row >= len(m.inputLines)) {
 		return selPos{}, false

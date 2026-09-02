@@ -903,19 +903,23 @@ func (m *model) msgActionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // vpTopRows is the number of chrome rows above the transcript viewport —
-// mouse row math must match viewBody exactly (opencode mode drops the header
-// and tips lines).
+// mouse row math must match viewBody exactly (the full-screen modes drop the
+// header and tips lines).
 func (m *model) vpTopRows() int {
-	if m.uiMode == opencodeMode {
+	if m.uiMode == opencodeMode || m.uiMode == grokMode {
 		return 0
 	}
 	return 3
 }
 
-// vpXOff is the columns the main body is shifted right (opencode's left margin).
+// vpXOff is the columns the main body is shifted right (opencode's left
+// margin; grok's content margin).
 func (m *model) vpXOff() int {
 	if m.uiMode == opencodeMode {
 		return opencodeLeftMargin
+	}
+	if m.uiMode == grokMode {
+		return grokMargin
 	}
 	return 0
 }
@@ -1034,12 +1038,27 @@ func (m *model) ocModeLabel() string {
 
 // applyUIMode points the live render state at the given UI mode. opencode mode
 // is purely structural — it does not touch whip's theme, colors, glyphs, or
-// spinner — so this only records the flag.
+// spinner — so this only records the flag. grok mode (see grok.go) is its own
+// full-screen theme: the rounded prompt box, braille wordmark, ◆ tool rows,
+// and the GrokNight/GrokDay palette.
 func (m *model) applyUIMode(mode string) {
 	invalidateMDRenderer() // opencode markdown style differs; rebuild on mode change
-	if mode == opencodeMode {
+	if mode == grokMode {
+		m.uiMode = grokMode
+		ocActive = false
+		gkActive = true
+		m.spin = spinner.New(spinner.WithSpinner(gkBraille))
+		m.spin.Style = lipgloss.NewStyle().Foreground(gkThinkingCol())
+		m.applyGrokInputStyles() // the "❯ " prefix and "Build anything" placeholder
+		if tuiRunning && m.mouseOn {
+			// a runtime toggle INTO grok mode must arm all-motion tracking
+			// itself — Run's ?1003h only covers sessions that start here
+			fmt.Fprint(os.Stdout, "\x1b[?1003h")
+		}
+	} else if mode == opencodeMode {
 		m.uiMode = opencodeMode
 		ocActive = true
+		gkActive = false
 		m.spin = spinner.New(spinner.WithSpinner(ocKnightRider))
 		m.spin.Style = lipgloss.NewStyle().Foreground(ocAgentCol())
 		m.input.Prompt = "" // opencodePrompt supplies the ┃ bar per line
@@ -1062,6 +1081,7 @@ func (m *model) applyUIMode(mode string) {
 	} else {
 		m.uiMode = ""
 		ocActive = false
+		gkActive = false
 		m.spin = spinner.New(spinner.WithSpinner(spinner.Dot))
 		m.input.Prompt = "┃ "
 		m.input.Placeholder = whipPlaceholder
@@ -1090,7 +1110,7 @@ func (m *model) applyUIMode(mode string) {
 // returns the bubbletea command that enters/exits the alternate screen so the
 // full-screen state tracks the mode.
 func (m *model) setUIMode(mode string) tea.Cmd {
-	if mode != opencodeMode {
+	if mode != opencodeMode && mode != grokMode {
 		mode = ""
 	}
 	// a mid-stream toggle must not strand reasoning in the old mode's fields:
@@ -1118,7 +1138,7 @@ func (m *model) setUIMode(mode string) tea.Cmd {
 	}
 	m.refreshVP()
 	m.append(dimStyle.Render("◐ ui mode: " + uiModeLabel(mode)))
-	if mode == opencodeMode {
+	if mode == opencodeMode || mode == grokMode {
 		return tea.EnterAltScreen
 	}
 	return tea.ExitAltScreen
@@ -1126,8 +1146,11 @@ func (m *model) setUIMode(mode string) tea.Cmd {
 
 // uiModeLabel is the display name for a UI mode value.
 func uiModeLabel(mode string) string {
-	if mode == opencodeMode {
+	switch mode {
+	case opencodeMode:
 		return "opencode"
+	case grokMode:
+		return "grok"
 	}
 	return "default"
 }

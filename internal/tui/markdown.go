@@ -190,6 +190,9 @@ func mdStyle() glamouransi.StyleConfig {
 	if ocActive && mdKnown { // unknown bg → fall through to neutralStyle (no light/dark assumption)
 		return opencodeMDStyle(mdLight)
 	}
+	if gkActive && mdKnown { // grok mode: GrokNight/GrokDay markdown, flush-left (no document margin)
+		return grokMDStyle(mdLight)
+	}
 	var st glamouransi.StyleConfig
 	switch {
 	case !mdKnown:
@@ -240,6 +243,48 @@ func opencodeMDStyle(light bool) glamouransi.StyleConfig {
 	st.Table.CenterSeparator = new("┼")
 	st.Table.RowSeparator = new("─")
 	zero := uint(0)
+	st.Table.Margin = &zero
+	return st
+}
+
+// grokMDStyle renders assistant markdown in Grok Build's palette (GrokNight
+// dark / GrokDay light), so the body text and inline styles match grok's
+// md_* theme fields pixel-for-pixel. The heading ramp follows grok's md_heading
+// colors (teal h1, blue h2, purple h3, then the grays). Document.Margin is
+// zeroed: grok assistant messages render flush-left in the content column.
+func grokMDStyle(light bool) glamouransi.StyleConfig {
+	pick := func(dark, lt string) *string {
+		s := dark
+		if light {
+			s = lt
+		}
+		return &s
+	}
+	st := styles.DarkStyleConfig
+	if light {
+		st = styles.LightStyleConfig
+	}
+	st.Document.Color = pick("#c8c8c8", "#444444")       // md_text
+	st.Heading.Color = pick("#7aa2f7", "#2f64d2")        // h2 (blue) is grok's default heading tint
+	st.H1.Color = pick("#1abc9c", "#0a8e70")             // teal
+	st.H2.Color = pick("#7aa2f7", "#2f64d2")             // blue
+	st.H3.Color = pick("#9d7cd8", "#6c3eb2")             // purple
+	st.H4.Color = pick("#787878", "#626262")             // bright gray
+	st.H5.Color = pick("#6c6c6c", "#767676")             // medium gray
+	st.H6.Color = pick("#5a5a5a", "#8e8e8e")             // medium gray, unbold
+	st.Code.Color = pick("#3a95ab", "#0f87a2")           // md_code
+	st.Code.BackgroundColor = pick("#1c1c1c", "#e4e4e4") // md_code_bg
+	st.Link.Color = pick("#7aa6da", "#2f64d2")           // link_fg
+	st.LinkText.Color = pick("#7aa6da", "#2f64d2")
+	st.Strong.Color = pick("#e1e1e1", "#262626") // text_primary
+	st.Emph.Color = pick("#c8c8c8", "#444444")
+	st.Item.Color = pick("#787878", "#626262")           // md list bullets: gray_bright
+	st.HorizontalRule.Color = pick("#585858", "#a5a5a5") // gray_dim
+	st.Table.ColumnSeparator = new("│")
+	st.Table.CenterSeparator = new("┼")
+	st.Table.RowSeparator = new("─")
+	zero := uint(0)
+	st.Document.Margin = &zero // flush-left: no glamour document indent
 	st.Table.Margin = &zero
 	return st
 }
@@ -295,6 +340,9 @@ func mdRenderer(width int) *glamour.TermRenderer {
 	unregisterChromaStyle()
 	st := mdStyle()
 	margin := uint(2)
+	if gkActive {
+		margin = 0 // grok assistant body renders flush-left
+	}
 	st.Document.Margin = &margin
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStyles(st),
@@ -326,10 +374,10 @@ func sanitizeView(s string) string {
 	s = bareSGR.Replace(s)
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
-		if !ocActive {
-			// opencode mode: styled trailing spaces ARE the panel fills (user
-			// cards) — stripping them collapses a full-width panel to a chip.
-			// Markdown got its own padding stripped at render time either way.
+		if !ocActive && !gkActive {
+			// the full-screen modes: styled trailing spaces ARE the panel fills
+			// (user cards / bands) — stripping them collapses a full-width panel
+			// to a chip. Markdown got its own padding stripped at render time.
 			l = padStripRE.ReplaceAllString(l, "$1")
 		}
 		lines[i] = selfTerminate(l)

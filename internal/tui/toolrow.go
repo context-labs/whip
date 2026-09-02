@@ -95,8 +95,12 @@ func queuedSubject(name, args string) string {
 }
 
 // toolHeaderRow renders the completed call's header: "● Update(path)"
-// (opencode mode: an indent-3 icon row, see ocToolRow).
+// (opencode mode: an indent-3 icon row, see ocToolRow; grok mode: a ◆ verb
+// row, see grokToolRow).
 func toolHeaderRow(name, args string, failed bool) string {
+	if gkActive {
+		return grokToolRow(name, args, failed)
+	}
 	if ocActive {
 		return ocToolRow(name, args, failed)
 	}

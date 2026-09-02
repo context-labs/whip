@@ -388,14 +388,18 @@ func (m *model) paletteItems() []paletteItem {
 		{
 			title: "UI mode", category: "Display",
 			dynDesc: func(m *model) string {
-				return "current: " + uiModeLabel(m.uiMode) + " — opencode reproduces opencode's TUI look"
+				return "current: " + uiModeLabel(m.uiMode) + " — opencode and grok reproduce those TUIs' look"
 			},
-			dynHint: func(m *model) string { return "opencode / default" },
+			dynHint: func(m *model) string { return "default → opencode → grok" },
 			run: func(m *model) (tea.Model, tea.Cmd) {
-				if m.uiMode == opencodeMode {
+				switch m.uiMode {
+				case "":
+					return m, m.setUIMode(opencodeMode)
+				case opencodeMode:
+					return m, m.setUIMode(grokMode)
+				default: // grok wraps back to default
 					return m, m.setUIMode("")
 				}
-				return m, m.setUIMode(opencodeMode)
 			},
 		},
 		{

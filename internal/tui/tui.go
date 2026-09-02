@@ -216,7 +216,7 @@ type model struct {
 	viewTop      int         // screen row of the view's first line (View tracks it; mouse Y is absolute)
 	viewH        int         // height of the last rendered view
 	themeHow     string      // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
-	uiMode       string      // "" = default whip look; "opencode" = opencode render mode (see opencode.go)
+	uiMode       string      // "" = default whip look; "opencode" = opencode render mode (opencode.go); "grok" = Grok Build render mode (grok.go)
 	sessTitle    string      // cached session title for the opencode sidebar (from the store; updated on title/rename)
 	msgActions   *msgActions // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
 	hoverIdx     int         // opencode mode: block index under the mouse (hover highlight); -1 = none
@@ -467,8 +467,8 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// theme-resolved colors into the input styles, and startupReport's
 	// unknown-background notice must reflect the final detection result.
 	m.themeHow = m.applyTheme(cfg.Theme)
-	if cfg.UIMode == opencodeMode {
-		m.applyUIMode(opencodeMode) // set the mode BEFORE startupReport so it renders opencode-clean
+	if cfg.UIMode == opencodeMode || cfg.UIMode == grokMode {
+		m.applyUIMode(cfg.UIMode) // set the mode BEFORE startupReport so it renders clean
 	}
 	m.startupReport()
 
@@ -486,8 +486,8 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// 0 and the whole layout collapses). Instead we keep the real TTY as the
 	// output and enable click/wheel reporting directly on it.
 	opts := []tea.ProgramOption{}
-	if cfg.UIMode == opencodeMode {
-		opts = append(opts, tea.WithAltScreen()) // opencode mode owns the whole screen
+	if cfg.UIMode == opencodeMode || cfg.UIMode == grokMode {
+		opts = append(opts, tea.WithAltScreen()) // the full-screen modes own the whole screen
 	}
 	// Bottom-anchor the inline view: move the cursor to the terminal's last
 	// row before bubbletea's first paint, so the view's screen position is
@@ -498,9 +498,9 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	fmt.Fprint(os.Stdout, "\x1b[9999;1H")
 	if m.mouseOn {
 		enableClickWheelMouse(os.Stdout)
-		if cfg.UIMode == opencodeMode {
+		if cfg.UIMode == opencodeMode || cfg.UIMode == grokMode {
 			// all-motion tracking (?1003, a superset of ?1002) so passive mouse
-			// moves drive opencode's hover highlight on message cards
+			// moves drive the hover highlight on message cards
 			fmt.Fprint(os.Stdout, "\x1b[?1003h")
 		}
 	}
@@ -555,10 +555,10 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 // servers — plus degraded-mode notices. Skipped on resume (the transcript
 // already carries the past).
 func (m *model) startupReport() {
-	// opencode mode keeps the startup clean (quiet): the routine roster lines
-	// are suppressed, but actionable items — skill-scan warnings, failed MCP
-	// servers, the update notice — must still surface, never silently drop.
-	quiet := m.uiMode == opencodeMode
+	// The full-screen modes keep the startup clean (quiet): the routine roster
+	// lines are suppressed, but actionable items — skill-scan warnings, failed
+	// MCP servers, the update notice — must still surface, never silently drop.
+	quiet := m.uiMode == opencodeMode || m.uiMode == grokMode
 	if quiet && !ocThemeKnown() {
 		// an unknown background means the panels render with no fill — zero
 		// contrast — so say why and how to fix it instead of failing silently
@@ -969,8 +969,8 @@ func (m *model) setTheme(theme string) {
 	}
 	how := m.applyTheme(theme)
 	m.themeHow = how // explicit picks return "" — detection source no longer applies
-	if m.uiMode == opencodeMode {
-		m.applyUIMode(opencodeMode) // refresh opencode styles (input box fill) for the new scheme
+	if m.uiMode == opencodeMode || m.uiMode == grokMode {
+		m.applyUIMode(m.uiMode) // refresh the mode's styles (input box fill) for the new scheme
 	}
 	m.cfg.Theme = theme
 	if theme == "auto" {
@@ -1218,6 +1218,9 @@ func (b *block) renderAt(width int) string {
 func (b block) render(width int) string {
 	switch b.kind {
 	case blockUser:
+		if gkActive {
+			return grokUserCard(b.text, width, b.hover)
+		}
 		if ocActive {
 			return opencodeUserCard(b.text, width, b.hover)
 		}
@@ -1225,6 +1228,19 @@ func (b block) render(width int) string {
 	case blockOCMeta:
 		return b.text // pre-indented; verbatim so wrap() can't trim the indent
 	case blockThought:
+		if gkActive {
+			// grok's collapsed reasoning: a bold "Thought" + muted " for Xs";
+			// expanded (click/ctrl+e): the reasoning text, dim italic
+			head := lipgloss.NewStyle().Foreground(gkMutedCol()).Bold(true).Render("Thought")
+			if b.live != "" {
+				head += lipgloss.NewStyle().Foreground(gkMutedCol()).Render(" for " + b.live)
+			}
+			if !b.expanded {
+				return head
+			}
+			body := lipgloss.NewStyle().Foreground(gkMutedCol()).Italic(true).Render(strings.TrimSpace(b.text))
+			return head + "\n" + wrap(body, width)
+		}
 		// collapsed: opencode's "+ Thought: {dur}" line; expanded (click/ctrl+e):
 		// the reasoning text underneath, muted italic like whip's thinking style
 		head := "   " + lipgloss.NewStyle().Foreground(ocWarnCol()).Render("+ Thought: "+b.live)
@@ -1234,6 +1250,15 @@ func (b block) render(width int) string {
 		body := lipgloss.NewStyle().Foreground(ocMutedCol()).Italic(true).Render(strings.TrimSpace(b.text))
 		return head + "\n" + wrap(body, width)
 	case blockAssistant:
+		if gkActive {
+			// grok assistant messages carry no bullet and no indent: the markdown
+			// body renders flush-left in the content column
+			w := width
+			if w <= 0 {
+				w = 80
+			}
+			return renderMarkdown(b.text, w)
+		}
 		if ocActive {
 			// opencode assistant messages carry no bullet: the body is indented 3.
 			w := width - 3
@@ -1256,6 +1281,11 @@ func (b block) render(width int) string {
 			return renderDiffResult(diff, rest, b.expanded, width)
 		}
 		lines := strings.Split(strings.TrimRight(b.text, "\n"), "\n")
+		if gkActive {
+			// grok tucks results behind the tool row: a muted one-line hint
+			// collapsed, the full body only when expanded
+			return grokToolResult(lines, b.expanded, strings.HasPrefix(b.text, "Error"), b.hover, width)
+		}
 		if ocActive {
 			// opencode tucks results behind the tool row: a muted one-line hint
 			// collapsed, the full body only when expanded
@@ -1398,6 +1428,14 @@ func (m *model) viewportView() string {
 		// Full-height viewport: keep the pad so the transcript is bottom-anchored
 		// (blanks above, content near the prompt) and the prompt/status sit at the
 		// bottom of the screen, like opencode's session layout.
+		return s
+	}
+	if m.uiMode == grokMode {
+		m.vpLead = 0
+		if len(m.blocks) == 0 { // empty transcript: grok's centered-braille home screen
+			return grokHome(m.vp.Width, m.vp.Height)
+		}
+		// Full-height viewport, bottom-anchored like the session layout.
 		return s
 	}
 	lines := strings.Split(s, "\n")
@@ -1713,13 +1751,18 @@ func (m *model) layout() {
 		// panel adds paddingTop, a blank, the model/mode row, and the ▀ tail (+4).
 		chrome++
 	}
+	if m.uiMode == grokMode {
+		// drops the header row and the tips line + its blank (-3); the prompt
+		// box adds the ╭─╮ top border and the ╰─╯ bottom border/info row (+2).
+		chrome--
+	}
 	if m.iactive != nil {
 		// input box is hidden while a command has the terminal; drop its height
 		// and the leading blank line View inserts before it.
 		chrome -= m.input.Height()
 	}
-	if m.busy && m.uiMode != opencodeMode {
-		chrome += 2 // blank line above the spinner + the spinner line itself (opencode mode: status bar spinner instead)
+	if m.busy && m.uiMode != opencodeMode && m.uiMode != grokMode {
+		chrome += 2 // blank line above the spinner + the spinner line itself (the full-screen modes put the spinner in the status bar instead)
 	}
 	if m.current != "" {
 		chrome += lipgloss.Height(m.currentView()) + 1 // + its blank separator
@@ -1727,8 +1770,8 @@ func (m *model) layout() {
 	if m.curThink != "" {
 		chrome += lipgloss.Height(m.thinkView()) + 1
 	}
-	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
-		chrome += 2 // the live "+ Thinking…" line + its blank separator (must match viewBody)
+	if (m.uiMode == opencodeMode || m.uiMode == grokMode) && m.busy && !m.thinkStart.IsZero() {
+		chrome += 2 // the live "Thinking…" line + its blank separator (must match viewBody)
 	}
 	if m.iactive != nil {
 		chrome += lipgloss.Height(m.interactiveView()) + 1
@@ -1736,9 +1779,9 @@ func (m *model) layout() {
 	if m.permDialog != nil {
 		chrome += lipgloss.Height(m.permView()) + 1 // viewBody emits "\n"+permView(); unbudgeted it clips the alt-screen frame and shifts mouse rows
 	}
-	if m.menu != nil && m.uiMode != opencodeMode {
-		// measure the actual render (descriptions can word-wrap). opencode mode
-		// takes no rows at all: the menu overlays the frame from View()
+	if m.menu != nil && m.uiMode != opencodeMode && m.uiMode != grokMode {
+		// measure the actual render (descriptions can word-wrap). the full-screen
+		// modes take no rows at all: the menu overlays the frame from View()
 		chrome += lipgloss.Height(m.menuView()) + 1
 	}
 	if len(m.queue) > 0 {
@@ -1826,6 +1869,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				w -= sidebarWidth + opencodeRightGap // reserve the sidebar and the gap before it
 			}
 		}
+		if m.uiMode == grokMode {
+			w -= 2 * grokMargin // grok's content column carries a 2-cell margin on each side
+		}
 		resized := w != m.width // width change → re-wrap the whole transcript
 		m.width, m.height = w, msg.Height
 		// re-anchor the view position: after a resize (and on the first size
@@ -1858,8 +1904,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		SetLightTheme(msg.light)
 		lipgloss.SetHasDarkBackground(!msg.light)
 		bgCache = bgResult{light: msg.light, valid: true} // no RGB from the theme report
-		if m.uiMode == opencodeMode {
-			m.applyUIMode(opencodeMode) // re-bake input styles/spinner for the new scheme
+		if m.uiMode == opencodeMode || m.uiMode == grokMode {
+			m.applyUIMode(m.uiMode) // re-bake input styles/spinner for the new scheme
 		}
 		m.refreshVP()
 		word := "dark"
@@ -1925,15 +1971,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if handled, cmd := m.handleMouseSelect(msg); handled {
 			return m, cmd
 		}
-		// opencode mode: passive motion (no button) drives the hover highlight
-		if ocActive && msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonNone {
+		// the full-screen modes: passive motion (no button) drives the hover highlight
+		if (ocActive || gkActive) && msg.Action == tea.MouseActionMotion && msg.Button == tea.MouseButtonNone {
 			m.updateHover(msg.X, msg.Y)
 			return m, nil
 		}
 		// clicking the ⚡ control in the header cycles reasoning effort
 		// (mouse Y is an absolute screen row; the header is the view's top
-		// row — opencode mode has no header, so the branch must not fire)
-		if m.uiMode != opencodeMode &&
+		// row — the full-screen modes have no header, so the branch must not fire)
+		if m.uiMode != opencodeMode && m.uiMode != grokMode &&
 			msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft &&
 			msg.Y == m.viewTop && msg.X >= m.effortX {
 			m.setEffort(nextEffort(m.effortsFor(), m.agent.Effort))
@@ -2005,8 +2051,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case thinkMsg:
 		if m.showThinking {
-			if m.uiMode == opencodeMode {
-				if m.thinkStart.IsZero() { // collapse reasoning to "+ Thought: {dur}" at flush
+			if m.uiMode == opencodeMode || m.uiMode == grokMode {
+				if m.thinkStart.IsZero() { // collapse reasoning to a "Thought" block at flush
 					m.thinkStart = m.nowFn()
 				}
 				m.ocThink += string(msg) // keep the text: the collapsed block expands to it
@@ -2029,7 +2075,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// place — appending per delta would stack one row per fragment.
 		// toolStartMsg swaps it for the live running row (matched by id).
 		row := dimStyle.Render("⋯ " + msg.name + m.batchSuffix(msg.name, msg.id) + " " + queuedSubject(msg.name, msg.args))
-		if ocActive {
+		if gkActive {
+			row = grokToolPending(msg.name, msg.args)
+		} else if ocActive {
 			row = ocToolPending(msg.name, msg.args)
 		}
 		for i := len(m.blocks) - 1; i >= 0; i-- {
@@ -2046,7 +2094,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i := range m.blocks {
 			if b := &m.blocks[i]; b.kind == blockToolQueued && b.toolName == msg.name && b.toolID != msg.id {
 				b.text = dimStyle.Render("⋯ " + b.toolName + m.batchSuffix(b.toolName, b.toolID) + " " + queuedSubject(b.toolName, b.toolArgs))
-				if ocActive {
+				if gkActive {
+					b.text = grokToolPending(b.toolName, b.toolArgs)
+				} else if ocActive {
 					b.text = ocToolPending(b.toolName, b.toolArgs)
 				}
 				b.stale = true
@@ -2088,7 +2138,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// command being run is always fully visible). On toolEndMsg the same
 		// block collapses in place to one line.
 		row := toolStyle.Render("⚒ "+toolVerb(msg.name)+suffix+" ") + dimStyle.Render(args)
-		if ocActive {
+		if gkActive {
+			row = grokToolPending(msg.name, msg.args)
+		} else if ocActive {
 			row = ocToolPending(msg.name, msg.args)
 		}
 		m.blocks = append(m.blocks, block{kind: blockToolRun, text: row, toolID: msg.id, toolRunning: true, toolName: msg.name, toolArgs: msg.args})
@@ -2307,6 +2359,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.interrupt1 = false
 		if m.uiMode == opencodeMode && msg.err == nil && !m.turnStart.IsZero() {
 			m.appendRaw(blockOCMeta, m.opencodeAttribution(m.nowFn().Sub(m.turnStart))) // ▣ mode · model · duration
+		}
+		if m.uiMode == grokMode && msg.err == nil && !m.turnStart.IsZero() {
+			m.appendRaw(blockOCMeta, m.grokAttribution(m.nowFn().Sub(m.turnStart))) // model · duration
 		}
 		m.turnStart = time.Time{}
 		m.maybeTitle()
@@ -3623,9 +3678,13 @@ func (m *model) setThinking(on bool) {
 }
 
 func (m *model) flushThink() {
-	if m.uiMode == opencodeMode {
+	if m.uiMode == opencodeMode || m.uiMode == grokMode {
 		if !m.thinkStart.IsZero() { // collapse the reasoning segment to one line (expandable to the text)
-			m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: fmtShortDur(m.nowFn().Sub(m.thinkStart))})
+			dur := fmtShortDur(m.nowFn().Sub(m.thinkStart))
+			if m.uiMode == grokMode {
+				dur = fmtGrokDur(m.nowFn().Sub(m.thinkStart)) // grok renders "0.2s"/"1m5s"
+			}
+			m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: dur})
 			m.follow = true
 			m.refreshVP()
 			m.thinkStart = time.Time{}
@@ -3987,7 +4046,7 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		// rather than tea.EnableMouseCellMotion.
 		if m.mouseOn {
 			enableClickWheelMouse(os.Stdout)
-			if m.uiMode == opencodeMode {
+			if m.uiMode == opencodeMode || m.uiMode == grokMode {
 				fmt.Fprint(os.Stdout, "\x1b[?1003h") // hover needs all-motion; ?1002 alone downgraded it
 			}
 		} else {
@@ -4312,6 +4371,12 @@ func (m *model) View() string {
 		// backdrop; only the panels below carry a subtle contrast shade).
 		v = lipgloss.NewStyle().PaddingLeft(opencodeLeftMargin).Render(v)
 	}
+	if m.uiMode == grokMode {
+		// grok's content column carries a 2-cell left margin (H_MARGIN); the
+		// main area stays on the terminal's native background (the rounded
+		// prompt box and the bands below carry the contrast shade).
+		v = lipgloss.NewStyle().PaddingLeft(grokMargin).Render(v)
+	}
 	if m.sidebarVisible() {
 		gap := strings.Repeat(" ", opencodeRightGap) // breathing room between the panels
 		v = lipgloss.JoinHorizontal(lipgloss.Top, v, gap, m.sidebarView(lipgloss.Height(v)))
@@ -4333,9 +4398,26 @@ func (m *model) View() string {
 			v = m.ocSpliceToast(v) // top-right toast, over everything
 		}
 	}
+	if m.uiMode == grokMode {
+		switch { // floating dialogs over the dimmed session, grok-style
+		case m.palette != nil:
+			v = m.gkOverlay(v) // Commands
+		case m.msgActions != nil:
+			v = m.ocOverlayRows(v, m.gkMsgActionRows())
+		case m.mpicker != nil:
+			v = m.ocOverlayRows(v, m.gkModelDialogRows())
+		case m.picker != nil:
+			v = m.ocOverlayRows(v, m.gkSessionDialogRows())
+		case m.menu != nil:
+			v = m.gkMenuOverlay(v) // completion popup floats above the input, no reflow
+		}
+		if m.toast != "" {
+			v = m.gkSpliceToast(v) // top-right toast, over everything
+		}
+	}
 	if m.height > 0 {
 		m.viewH = lipgloss.Height(v)
-		if m.uiMode == opencodeMode {
+		if m.uiMode == opencodeMode || m.uiMode == grokMode {
 			m.viewTop = 0 // altscreen: the view is drawn from row 0, so mouse Y maps directly
 		} else {
 			m.viewTop = max(min(m.viewTop, m.height-m.viewH), 0)
@@ -4350,6 +4432,9 @@ func (m *model) View() string {
 		m.inputTop = m.viewTop + m.inputBodyOff
 		if m.uiMode == opencodeMode {
 			m.inputTop++ // the opencode prompt box opens with a padding row above the input
+		}
+		if m.uiMode == grokMode {
+			m.inputTop++ // the grok prompt box opens with the ╭─╮ top border above the input
 		}
 		iv := m.input.View()
 		if m.namePrompt != nil && m.namePrompt.mask {
@@ -4398,20 +4483,20 @@ func (m *model) viewBody() string {
 	m.effortX = max(m.width-len(right)-1, 0) // ⚡ renders 2 cells wide
 	left = truncLine(left, max(m.width-len(right)-2, 0))
 	pad := max(m.width-len(left)-len(right)-1, 1)
-	if m.uiMode != opencodeMode { // opencode has no top header bar
+	if m.uiMode != opencodeMode && m.uiMode != grokMode { // the full-screen modes have no top header bar
 		b.WriteString(dimStyle.Render(left+strings.Repeat(" ", pad)) + toolStyle.Render(right) + "\n")
 	}
-	if m.palette != nil && m.uiMode != opencodeMode {
-		// opencode mode renders the session as usual and View() overlays the
-		// Commands dialog on top of the dimmed frame (ocOverlay)
+	if m.palette != nil && m.uiMode != opencodeMode && m.uiMode != grokMode {
+		// the full-screen modes render the session as usual and View() overlays
+		// the Commands dialog on top of the dimmed frame (ocOverlay / gkOverlay)
 		b.WriteString(m.paletteView())
 		return b.String()
 	}
-	if m.picker != nil && m.uiMode != opencodeMode { // opencode mode: floating Sessions dialog via View overlay
+	if m.picker != nil && m.uiMode != opencodeMode && m.uiMode != grokMode { // full-screen modes: floating Sessions dialog via View overlay
 		b.WriteString(m.pickerView())
 		return b.String()
 	}
-	if m.mpicker != nil && m.uiMode == opencodeMode {
+	if m.mpicker != nil && (m.uiMode == opencodeMode || m.uiMode == grokMode) {
 		// floating Select-model dialog via View overlay
 	} else if m.mpicker != nil {
 		b.WriteString(m.modelPickerView())
@@ -4423,7 +4508,7 @@ func (m *model) viewBody() string {
 	}
 	// One compact hint up top — the full roster lives behind the ctrl+p palette
 	// and the /help command. The bottom hint covers the busy/interactive states.
-	if m.uiMode != opencodeMode { // opencode keeps the top clean; the hint lives in the prompt row
+	if m.uiMode != opencodeMode && m.uiMode != grokMode { // the full-screen modes keep the top clean
 		tips := "`ctrl+p` commands"
 		b.WriteString(dimStyle.Render(tips) + "\n\n")
 	}
@@ -4436,6 +4521,11 @@ func (m *model) viewBody() string {
 		// where the collapsed "+ Thought: {dur}" will land on flush
 		b.WriteString("\n   " + lipgloss.NewStyle().Foreground(ocWarnCol()).Render("+ Thinking…") + "\n")
 	}
+	if m.uiMode == grokMode && m.busy && !m.thinkStart.IsZero() {
+		// reasoning is streaming: grok shows a transient "Thinking…" line where
+		// the collapsed "Thought for {dur}" will land on flush
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(gkThinkingCol()).Render("Thinking…") + "\n")
+	}
 	if m.current != "" {
 		b.WriteString("\n" + m.currentView() + "\n")
 	}
@@ -4445,7 +4535,7 @@ func (m *model) viewBody() string {
 	if m.permDialog != nil {
 		b.WriteString("\n" + m.permView() + "\n")
 	}
-	if m.busy && m.uiMode != opencodeMode { // opencode mode: the status bar carries the spinner + esc hint
+	if m.busy && m.uiMode != opencodeMode && m.uiMode != grokMode { // the full-screen modes: the status bar carries the spinner + esc hint
 		hint := " thinking… (enter queues · /theme /mouse /effort run now · esc interrupts · ctrl+c ctrl+c interrupts)"
 		if m.iactive != nil {
 			hint = " bash (interactive) — type to respond · ctrl+c ctrl+c to cancel"
@@ -4492,6 +4582,9 @@ func (m *model) viewBody() string {
 			// highlight BEFORE the box chrome is added, so the reverse-video
 			// ranges land on the same raw lines inputPoint hit-tests
 			b.WriteString(m.opencodePrompt(m.highlightInput(m.input.View()), m.width))
+		} else if m.uiMode == grokMode {
+			// highlight BEFORE the box chrome is added (same reasoning as opencode)
+			b.WriteString(m.grokPrompt(m.highlightInput(m.input.View()), m.width))
 		} else {
 			b.WriteString(m.highlightInput(m.input.View()))
 		}
@@ -4505,8 +4598,8 @@ func (m *model) viewBody() string {
 	} else if m.esc1 && m.rew == nil && m.namePrompt == nil {
 		b.WriteString("\n" + dimStyle.Render("esc again: rewind the conversation"))
 	}
-	if m.menu != nil && m.uiMode != opencodeMode {
-		// opencode mode: View() overlays the menu ABOVE the input instead —
+	if m.menu != nil && m.uiMode != opencodeMode && m.uiMode != grokMode {
+		// the full-screen modes: View() overlays the menu ABOVE the input instead —
 		// drawn on top of the frame, so nothing reflows while typing
 		b.WriteString("\n" + m.menuView())
 	}
@@ -4531,9 +4624,15 @@ func (m *model) syncInputPlaceholder() {
 	if m.input.Value() != "" {
 		return // placeholder is hidden once the user is typing
 	}
+	idle := inputPlaceholder
+	if m.uiMode == grokMode {
+		idle = "Build anything" // grok's prompt placeholder
+	} else if m.uiMode == opencodeMode {
+		idle = m.input.Placeholder // opencode's random-example placeholder (set by applyUIMode); keep it
+	}
 	switch {
 	case !m.busy:
-		m.input.Placeholder = inputPlaceholder
+		m.input.Placeholder = idle
 	case m.agent != nil && m.agent.WaitingOnSubagents():
 		m.input.Placeholder = "waiting on subagents — type to steer this turn"
 	default:
@@ -4548,6 +4647,9 @@ func (m *model) syncInputPlaceholder() {
 func (m *model) statusView() string {
 	if m.uiMode == opencodeMode {
 		return m.opencodeStatus()
+	}
+	if m.uiMode == grokMode {
+		return m.grokStatus()
 	}
 	model := m.modelName
 	if e := effortLabel(m.agent.Effort); e != "off" {
@@ -4723,6 +4825,43 @@ func (m *model) menuView() string {
 			}
 		}
 		rows = append(rows, ocPadTo(muted.Render(fmt.Sprintf("  %d/%d", m.menu.idx+1, len(m.menu.cands))), m.width, bg))
+		return strings.Join(rows, "\n")
+	}
+	if m.uiMode == grokMode {
+		// grok's slash/command dropdown: a panel on the band background with the
+		// selected row carrying the ▏ selection bar + bg_visual fill (no primary
+		// inversion). Long descriptions wrap to a second line (capped at two).
+		bg := gkBandBg()
+		selBg := gkSelBg()
+		text := lipgloss.NewStyle().Foreground(gkTextCol()).Background(bg)
+		muted := lipgloss.NewStyle().Foreground(gkMutedCol()).Background(bg)
+		selTxt := lipgloss.NewStyle().Foreground(gkTextCol()).Background(selBg)
+		selBar := lipgloss.NewStyle().Foreground(gkSystemCol()).Background(selBg)
+		descW := max(m.width-nameW-7, 8)
+		indent := strings.Repeat(" ", nameW+4)
+		var rows []string
+		for i := start; i < end; i++ {
+			c := m.menu.cands[i]
+			name := fmt.Sprintf("%-*s", nameW, c.Text)
+			descLines := strings.Split(wrap(c.Desc, descW), "\n")
+			if len(descLines) > 2 {
+				descLines = descLines[:2]
+				descLines[1] = truncLine(descLines[1], descW-2) + " …"
+			}
+			for j, d := range descLines {
+				switch {
+				case i == m.menu.idx && j == 0:
+					rows = append(rows, gkPadTo(selBar.Render("▏")+selTxt.Render(" "+name+"  "+d), m.width, selBg))
+				case i == m.menu.idx:
+					rows = append(rows, gkPadTo(selBar.Render("▏")+selTxt.Render(" "+indent+d), m.width, selBg))
+				case j == 0:
+					rows = append(rows, gkPadTo(text.Render("  "+name)+muted.Render("  "+d), m.width, bg))
+				default:
+					rows = append(rows, gkPadTo(muted.Render("  "+indent+d), m.width, bg))
+				}
+			}
+		}
+		rows = append(rows, gkPadTo(muted.Render(fmt.Sprintf("  %d/%d", m.menu.idx+1, len(m.menu.cands))), m.width, bg))
 		return strings.Join(rows, "\n")
 	}
 	var b strings.Builder
