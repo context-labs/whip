@@ -332,7 +332,7 @@ func TestBackgroundTaskSubscriberSeesToolEvents(t *testing.T) {
 
 	var mu sync.Mutex
 	var seq []string
-	_, _, ok := ag.Tasks().SubscribeWithJournal(task.ID, Events{
+	journal, _, ok := ag.Tasks().SubscribeWithJournal(task.ID, Events{
 		OnText:      func(s string) { mu.Lock(); seq = append(seq, "text:"+s); mu.Unlock() },
 		OnToolStart: func(_, n, _ string) { mu.Lock(); seq = append(seq, "start:"+n); mu.Unlock() },
 		OnToolEnd:   func(_, n, r string) { mu.Lock(); seq = append(seq, "end:"+n+":"+r); mu.Unlock() },
@@ -347,6 +347,16 @@ func TestBackgroundTaskSubscriberSeesToolEvents(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	for _, event := range journal {
+		switch event.Kind {
+		case 0:
+			seq = append(seq, "text:"+event.S)
+		case 1:
+			seq = append(seq, "start:"+event.S)
+		case 2:
+			seq = append(seq, "end:"+event.S+":"+event.S2)
+		}
+	}
 	joined := strings.Join(seq, "|")
 	for _, want := range []string{"start:read", "end:read:", "text:final report"} {
 		if !strings.Contains(joined, want) {
