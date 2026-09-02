@@ -967,6 +967,136 @@ func TestOpenCanonicalizesAliasesAndReportsStoppedRoots(t *testing.T) {
 	}
 }
 
+func TestResumeActiveOpensDurableRootsAndReportsFailures(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "active.db"))
+	rootID := createRoot(t, store)
+	if _, err := store.AddSchedule(rootID, "@every 1h", "wake", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var opened atomic.Int32
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		opened.Add(1)
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := value.ResumeActive(context.Background()); err != nil || opened.Load() != 1 {
+		t.Fatalf("resume active = %v, opened=%d", err, opened.Load())
+	}
+	if err := value.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	failingStore := openStore(t, filepath.Join(t.TempDir(), "failing.db"))
+	failingRootID := createRoot(t, failingStore)
+	if _, err := failingStore.AddSchedule(failingRootID, "@every 1h", "wake", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	factoryErr := errors.New("factory failed")
+	failing, err := New(failingStore, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{}, factoryErr
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := failing.ResumeActive(context.Background()); !errors.Is(err, factoryErr) {
+		t.Fatalf("resume factory error = %v", err)
+	}
+	_ = failing.Close()
+
+	closedStore := openStore(t, filepath.Join(t.TempDir(), "closed-active.db"))
+	closed, err := New(closedStore, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closedStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := closed.ResumeActive(context.Background()); err == nil {
+		t.Fatal("closed store resumed active roots")
+	}
+	_ = closed.Close()
+}
+
+func TestSupervisorReportsWorkerPanics(t *testing.T) {
+	supervisor := newSupervisor()
+	want := errors.New("background failed")
+	supervisor.report("background", want)
+	if events := supervisor.take(); len(events) != 1 || !errors.Is(events[0].err, want) {
+		t.Fatalf("reported events = %+v", events)
+	}
+	if !supervisor.launchWorker("panic worker", func() { panic("boom") }) {
+		t.Fatal("worker did not launch")
+	}
+	supervisor.wait()
+	events := supervisor.take()
+	if len(events) != 1 || events[0].err == nil || !strings.Contains(events[0].err.Error(), "boom") {
+		t.Fatalf("panic events = %+v", events)
+	}
+	supervisor.stop()
+	if err := supervisor.launch("stopped", func(context.Context) workerCompletion { return workerCompletion{} }); !errors.Is(err, ErrStopped) {
+		t.Fatalf("stopped supervisor launch = %v", err)
+	}
+	if supervisor.launchWorker("stopped", func() {}) {
+		t.Fatal("stopped supervisor launched work")
+	}
+}
+
+func TestSessionWakeAndReferencedInboxFailuresAreReported(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	meta, _, err := store.Load(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	large := strings.Repeat("x", session.InlineValueLimit+1)
+	sequence, err := store.EnqueueInbox(context.Background(), session.InboxEnqueue{
+		RootID: rootID, AgentID: authority.AgentID, Kind: "submit", Payload: session.RuntimePayload{Data: []byte(large)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.LoadQueuedInbox(context.Background(), rootID, authority.AgentID, 0, 1)
+	if err != nil || len(items) != 1 || items[0].Seq != sequence.InboxSeq {
+		t.Fatalf("referenced inbox = %+v, %v", items, err)
+	}
+	root := newSession(store, meta, authority, Components{Runner: &fakeRunner{}})
+	text, err := root.inboxText(items[0])
+	if err != nil || text != large {
+		t.Fatalf("resolved inbox = %d bytes, %v", len(text), err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	root.enqueueWake("wait", "wake")
+	events := root.supervisor.take()
+	if len(events) != 1 || events[0].err == nil {
+		t.Fatalf("failed wake events = %+v", events)
+	}
+}
+
+func TestAgentRunnerSteerAndSafeCloseEdges(t *testing.T) {
+	agentValue := agent.New(llm.New("http://unused", "key"), "model", 1, "system")
+	runner := NewAgentRunner(agentValue)
+	if runner.Steer("idle") {
+		t.Fatal("idle agent accepted a boundary steer")
+	}
+	if err := safeClose("normal", func() {}); err != nil {
+		t.Fatal(err)
+	}
+	if err := safeClose("panic", func() { panic("close exploded") }); err == nil || !strings.Contains(err.Error(), "close exploded") {
+		t.Fatalf("panic close = %v", err)
+	}
+	runner.Close()
+}
+
 func TestFactoryPanicSettlesOpenAndClose(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)

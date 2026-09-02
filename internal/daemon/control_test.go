@@ -64,3 +64,18 @@ func TestControlSessionCreationIsIdempotent(t *testing.T) {
 		t.Fatalf("conflicting retry = %v", err)
 	}
 }
+
+func TestControlRouteHonorsCallerAndDaemonCancellation(t *testing.T) {
+	caller, cancelCaller := context.WithCancel(context.Background())
+	cancelCaller()
+	idle := &Control{ctx: context.Background(), requests: make(chan controlRequest), done: make(chan struct{})}
+	if err := idle.route(caller, func(context.Context) error { return nil }); !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation = %v", err)
+	}
+	daemonContext, cancelDaemon := context.WithCancel(context.Background())
+	cancelDaemon()
+	closed := &Control{ctx: daemonContext, requests: make(chan controlRequest), done: make(chan struct{})}
+	if err := closed.route(context.Background(), func(context.Context) error { return nil }); !errors.Is(err, ErrClosed) {
+		t.Fatalf("daemon cancellation = %v", err)
+	}
+}

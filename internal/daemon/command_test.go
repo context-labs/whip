@@ -36,6 +36,11 @@ func TestProtocolCommandRetryAttachesToOneRootExecution(t *testing.T) {
 	if got := waitReceipt(t, receipt); got.Err != nil || got.Output != "prompt" {
 		t.Fatalf("first completion = %+v", got)
 	}
+	select {
+	case <-receipt.Done():
+	default:
+		t.Fatal("completed receipt did not close Done")
+	}
 	retry, retryReceipt, err := root.AdmitCommand(context.Background(), command)
 	if err != nil || retry.New || retry.Command.IngressSeq != first.Command.IngressSeq {
 		t.Fatalf("retry admission = %+v, %v", retry, err)
@@ -45,6 +50,12 @@ func TestProtocolCommandRetryAttachesToOneRootExecution(t *testing.T) {
 	}
 	if runner.calls.Load() != 1 {
 		t.Fatalf("runner calls = %d, want 1", runner.calls.Load())
+	}
+	if root.ID() != rootID {
+		t.Fatalf("root ID = %q", root.ID())
+	}
+	if meta, history, err := root.History(); err != nil || meta.ID != rootID || len(history) != 2 {
+		t.Fatalf("root history = %+v, %d, %v", meta, len(history), err)
 	}
 	conflict := command
 	conflict.RequestDigest = "different"

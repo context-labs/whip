@@ -3,6 +3,7 @@ package session
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -138,5 +139,84 @@ func TestDaemonCommandAdmissionHasIndependentSequence(t *testing.T) {
 		if !result.New || result.Command.IngressSeq != int64(i+1) {
 			t.Fatalf("daemon admission %d = %+v", i, result)
 		}
+	}
+}
+
+func TestCommandAdmissionRejectsInvalidScopesAndMissingRecords(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	for _, admission := range []CommandAdmission{
+		{},
+		{ClientID: "c", CommandID: "id", RequestDigest: "d", Scope: CommandScopeRoot},
+		{ClientID: "c", CommandID: "id", RequestDigest: "d", Scope: CommandScopeDaemon, RootID: "root"},
+		{ClientID: "c", CommandID: "id", RequestDigest: "d", Scope: "invalid"},
+		{ClientID: "c", CommandID: "id", RequestDigest: "d", Scope: CommandScopeDaemon, Payload: RuntimePayload{Data: make([]byte, InlineValueLimit+1)}},
+	} {
+		if _, err := st.AdmitCommand(ctx, admission); err == nil {
+			t.Fatalf("invalid admission was accepted: %+v", admission)
+		}
+	}
+	if _, err := st.LoadCommand(ctx, "missing", "missing"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing command = %v", err)
+	}
+	if _, err := st.CreateSessionForCommand(ctx, "c", "id", "", "", ""); err == nil {
+		t.Fatal("incomplete session creation was accepted")
+	}
+	if _, err := st.CreateSessionForCommand(ctx, "c", "id", "/tmp", "m", "p"); err == nil {
+		t.Fatal("unadmitted session command was executed")
+	}
+	rootID, err := st.Create(t.TempDir(), "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := st.EnsureClassicAuthority(ctx, rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AdmitCommand(ctx, CommandAdmission{
+		ClientID: "root-client", CommandID: "root", Scope: CommandScopeRoot, RootID: rootID,
+		AgentID: authority.AgentID, Kind: "submit", RequestDigest: "root", Payload: RuntimePayload{Data: []byte("work")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateSessionForCommand(ctx, "root-client", "root", "/tmp", "m", "p"); err == nil {
+		t.Fatal("root command created a session")
+	}
+	if _, err := st.AdmitCommand(ctx, CommandAdmission{
+		ClientID: "daemon", CommandID: "create", Scope: CommandScopeDaemon, RequestDigest: "create",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := st.CreateSessionForCommand(ctx, "daemon", "create", "/tmp", "m", "p")
+	if err != nil || created.Status != "succeeded" {
+		t.Fatalf("create session command = %+v, %v", created, err)
+	}
+	retry, err := st.CreateSessionForCommand(ctx, "daemon", "create", "/tmp", "m", "p")
+	if err != nil || string(retry.Outcome.Inline) != string(created.Outcome.Inline) {
+		t.Fatalf("create session retry = %+v, %v", retry, err)
+	}
+}
+
+func TestCommandAPIsReturnClosedStoreErrors(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := st.AdmitCommand(ctx, CommandAdmission{ClientID: "c", CommandID: "id", RequestDigest: "d", Scope: CommandScopeDaemon}); err == nil {
+		t.Fatal("closed store admitted command")
+	}
+	if _, err := st.LoadCommand(ctx, "c", "id"); err == nil {
+		t.Fatal("closed store loaded command")
+	}
+	if _, err := st.CreateSessionForCommand(ctx, "c", "id", "/tmp", "m", "p"); err == nil {
+		t.Fatal("closed store created session")
 	}
 }

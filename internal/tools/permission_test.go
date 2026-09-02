@@ -51,6 +51,17 @@ func TestDispatcherPermissionUsesCanonicalPath(t *testing.T) {
 	}
 }
 
+func TestLocalHumanPermissionBypassesGate(t *testing.T) {
+	services := NewServices()
+	services.SetGate(func(context.Context, GateRequest) (GateDecision, string) {
+		return GateReject, "should not run"
+	})
+	decision, err := services.Decide(WithLocalHuman(context.Background()), capability.PermissionPrompt{})
+	if err != nil || !decision.Allow || decision.PrincipalID != "local-human" {
+		t.Fatalf("local human decision = %+v, %v", decision, err)
+	}
+}
+
 func TestPermissionGateIsScopedToServices(t *testing.T) {
 	allowed := NewServices()
 	denied := NewServices()

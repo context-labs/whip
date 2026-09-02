@@ -4,9 +4,14 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -53,6 +58,81 @@ func TestEnsureClientStartsDaemonAcrossStaleSocket(t *testing.T) {
 	}
 	if err := <-running.served; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEnsureClientReportsLaunchAndContextFailures(t *testing.T) {
+	paths, err := Paths(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	launchErr := errors.New("launch failed")
+	if _, err := EnsureClient(context.Background(), paths, InitializeParams{}, nil); err == nil {
+		t.Fatal("missing daemon without launcher succeeded")
+	}
+	if _, err := EnsureClient(context.Background(), paths, InitializeParams{}, func() error { return launchErr }); !errors.Is(err, launchErr) {
+		t.Fatalf("launch failure = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := EnsureClient(ctx, paths, InitializeParams{}, func() error { return ErrDaemonOwned }); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled autostart = %v", err)
+	}
+}
+
+func TestLaunchDaemonProcessUsesOwnerOnlyLog(t *testing.T) {
+	paths, err := Paths(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := launchDaemonProcess(paths, "/usr/bin/true"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(paths.Home, "daemon.log"))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("daemon log mode = %v, %v", info, err)
+	}
+}
+
+func TestSelfLaunchAndRestartUseCurrentExecutable(t *testing.T) {
+	previousExecutable, previousReplace := selfExecutable, replaceProcess
+	selfExecutable = func() (string, error) { return "/usr/bin/true", nil }
+	var replaced bool
+
+	replaceProcess = func(path string, args, _ []string) error {
+		replaced = path == "/usr/bin/true" && len(args) == 2 && args[1] == "_daemon"
+		return errors.New("exec stopped for test")
+	}
+	t.Cleanup(func() { selfExecutable, replaceProcess = previousExecutable, previousReplace })
+	paths, err := Paths(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := LaunchSelfDaemon(paths); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestartSelfDaemon(); err == nil || !replaced {
+		t.Fatalf("restart replacement = %v, called=%t", err, replaced)
+	}
+}
+
+func TestSelfLaunchAndRestartReportExecutableFailures(t *testing.T) {
+	previousExecutable := selfExecutable
+	want := errors.New("executable unavailable")
+	selfExecutable = func() (string, error) { return "", want }
+	t.Cleanup(func() { selfExecutable = previousExecutable })
+	paths, err := Paths(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := LaunchSelfDaemon(paths); !errors.Is(err, want) {
+		t.Fatalf("launch executable error = %v", err)
+	}
+	if err := RestartSelfDaemon(); !errors.Is(err, want) {
+		t.Fatalf("restart executable error = %v", err)
+	}
+	if err := launchDaemonProcess(paths, filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing daemon executable launched")
 	}
 }
 
@@ -110,6 +190,62 @@ func TestEnsureClientReplacesMismatchedBuildAndGeneration(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
+	}
+}
+
+func TestEnsureClientRejectsInvalidRestartNotice(t *testing.T) {
+	home := t.TempDir()
+	paths, err := Paths(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.Open(filepath.Join(home, "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]string{"build_id": "new"})
+	commandHash := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s", 4, "new")))
+	commandID := "checkpoint-" + hex.EncodeToString(commandHash[:8])
+	digest, err := requestDigest("daemon", "", "daemon.checkpoint", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AdmitCommand(context.Background(), session.CommandAdmission{
+		ClientID: "stable", CommandID: commandID, Scope: session.CommandScopeDaemon, RequestDigest: digest,
+		Payload: session.RuntimePayload{Data: payload},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishCommand(context.Background(), "stable", commandID, "succeeded", session.RuntimePayload{Data: []byte("invalid")}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{BuildID: "old", Generation: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- server.ListenAndServe(paths) }()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Lstat(paths.Socket); err == nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 1, BuildID: "new", ClientID: "stable", ClientKind: "test"}, func() error { return ErrDaemonOwned }); err == nil || !strings.Contains(err.Error(), "invalid restart notice") {
+		t.Fatalf("invalid restart notice = %v", err)
+	}
+	_ = server.Close()
+	if err := <-served; err != nil {
+		t.Fatal(err)
 	}
 }
 

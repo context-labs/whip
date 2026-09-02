@@ -20,10 +20,21 @@ import (
 	"github.com/context-labs/whip/internal/tui"
 )
 
+var restartDaemonBinary = daemon.RestartSelfDaemon
+
 func daemonCLI(args []string) error {
+	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runDaemon(signals, args)
+}
+
+func runDaemon(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("_daemon", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("hidden daemon mode does not accept arguments")
 	}
 	dir, err := config.Dir()
 	if err != nil {
@@ -93,8 +104,6 @@ func daemonCLI(args []string) error {
 		_ = server.Close()
 		_ = os.Remove(paths.Socket)
 	}()
-	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	served := make(chan error, 1)
 	go func() { served <- server.ListenAndServe(paths) }()
 	select {
@@ -109,8 +118,8 @@ func daemonCLI(args []string) error {
 		if err := owner.Close(); err != nil {
 			return err
 		}
-		return daemon.RestartSelfDaemon()
-	case <-signals.Done():
+		return restartDaemonBinary()
+	case <-ctx.Done():
 		_ = store.SetDaemonStatus(context.Background(), generation, "stopping")
 		return server.Close()
 	}

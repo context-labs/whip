@@ -50,6 +50,36 @@ func echoTool() tools.Tool {
 	}
 }
 
+func TestRunningWorkReflectsTaskAndWaitRegistries(t *testing.T) {
+	ag := New(llm.New("http://unused", "key"), "model", 1, "system")
+	if ag.HasRunningTasks() || ag.HasRunningWaits() {
+		t.Fatal("new agent reported running background work")
+	}
+	task := ag.RegisterBackground("coverage task", "wait", SubModel{})
+	if !ag.HasRunningTasks() {
+		t.Fatal("registered task was not reported running")
+	}
+	task.Status = TaskDone
+	if ag.HasRunningTasks() {
+		t.Fatal("completed task remained running")
+	}
+	task.cancel()
+
+	wait := &waitTask{ID: "wait-test", Done: make(chan struct{}), pollDone: make(chan struct{})}
+	registry := ag.Waits()
+	registry.mu.Lock()
+	registry.waits[wait.ID] = wait
+	registry.mu.Unlock()
+	if !ag.HasRunningWaits() {
+		t.Fatal("registered wait was not reported running")
+	}
+	wait.setStatus(WaitKilled)
+	if ag.HasRunningWaits() {
+		t.Fatal("cancelled wait remained running")
+	}
+	registry.stop()
+}
+
 func TestTurnLoop(t *testing.T) {
 	srv := loopServer(t)
 	defer srv.Close()

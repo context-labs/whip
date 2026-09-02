@@ -11,13 +11,22 @@ import (
 	"syscall"
 )
 
+var (
+	selfExecutable = os.Executable
+	replaceProcess = syscall.Exec
+)
+
 // LaunchSelfDaemon starts this executable's hidden daemon mode detached from
 // the client terminal. Readiness is established only by protocol initialize.
 func LaunchSelfDaemon(paths RuntimePaths) error {
-	executable, err := os.Executable()
+	executable, err := selfExecutable()
 	if err != nil {
 		return err
 	}
+	return launchDaemonProcess(paths, executable)
+}
+
+func launchDaemonProcess(paths RuntimePaths, executable string) error {
 	logPath := filepath.Join(paths.Home, "daemon.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // paths.Home is the validated owner-only whip runtime.
 	if err != nil {
@@ -41,9 +50,9 @@ func LaunchSelfDaemon(paths RuntimePaths) error {
 }
 
 func RestartSelfDaemon() error {
-	executable, err := os.Executable()
+	executable, err := selfExecutable()
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(executable, []string{executable, "_daemon"}, os.Environ())
+	return replaceProcess(executable, []string{executable, "_daemon"}, os.Environ())
 }

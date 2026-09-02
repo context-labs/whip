@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -19,6 +20,21 @@ func TestCatalogPricing(t *testing.T) {
 	}
 	if _, _, _, ok := cat.Pricing("missing"); ok {
 		t.Fatal("unknown model should report ok=false")
+	}
+}
+
+func TestCatalogEffortsNormalizesOffAndMissingModels(t *testing.T) {
+	catalog := Catalog{Models: []ModelInfoLite{
+		{ID: "reasoning", ReasoningEfforts: []string{"none", "low", "high"}},
+		{ID: "plain"},
+	}}
+	if got := catalog.Efforts("reasoning"); !slices.Equal(got, []string{"", "low", "high"}) {
+		t.Fatalf("reasoning efforts = %v", got)
+	}
+	for _, model := range []string{"plain", "missing"} {
+		if got := catalog.Efforts(model); !slices.Equal(got, []string{""}) {
+			t.Errorf("%s efforts = %v", model, got)
+		}
 	}
 }
 
