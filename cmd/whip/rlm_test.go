@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ func TestDaemonRLMHostUsesDispatcherAndDurableHandles(t *testing.T) {
 	childRelease := make(chan struct{})
 	releaseChild := sync.OnceFunc(func() { close(childRelease) })
 	defer releaseChild()
+	batchReady := make(chan struct{})
+	var batchCalls, inFlight, maxInFlight atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		var call llm.Request
 		if err := json.NewDecoder(request.Body).Decode(&call); err != nil {
@@ -43,6 +46,16 @@ func TestDaemonRLMHostUsesDispatcherAndDurableHandles(t *testing.T) {
 			fmt.Fprint(w, "data: [DONE]\n\n")
 			return
 		}
+		if strings.HasPrefix(call.Messages[0].Content, "batch-") {
+			active := inFlight.Add(1)
+			defer inFlight.Add(-1)
+			for observed := maxInFlight.Load(); active > observed && !maxInFlight.CompareAndSwap(observed, active); observed = maxInFlight.Load() {
+			}
+			if batchCalls.Add(1) == 2 {
+				close(batchReady)
+			}
+			<-batchReady
+		}
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"stateless done"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}`)
 	}))
 	defer provider.Close()
@@ -56,6 +69,13 @@ func TestDaemonRLMHostUsesDispatcherAndDurableHandles(t *testing.T) {
 		t.Fatal(err)
 	}
 	agent := agent.New(llm.New(provider.URL, "key"), "model", 100, "system")
+	temperature, topP := 0.2, 0.8
+	agent.ModelName, agent.Provider = "configured-model", "configured-provider"
+	agent.ContextLimit, agent.Effort = 16_384, "high"
+	agent.Temperature, agent.TopP = &temperature, &topP
+	agent.CompactThreshold = 0.7
+	agent.WorkingDir = workspace
+	agent.Services.SetScreenshotSink(func([][]byte) {})
 	host := newDaemonRLMHost(agent, []llm.Message{{Role: "system", Content: "system"}, {Role: "user", Content: "prior"}})
 	host.SetPricing(0.000001, 0.000002, 0.0000005)
 	owner, err := daemon.New(store, func(context.Context, session.Meta, []llm.Message) (daemon.Components, error) {
@@ -200,9 +220,12 @@ func TestDaemonRLMHostUsesDispatcherAndDurableHandles(t *testing.T) {
 	if err != nil || modelCall.(map[string]any)["output"] != "stateless done" {
 		t.Fatalf("stateless call = %#v, %v", modelCall, err)
 	}
-	batch, err := host.Call(ctx, "models", "batch", map[string]any{"prompts": []any{"one", float64(2), "three"}, "max_tokens": float64(16)})
+	batch, err := host.Call(ctx, "models", "batch", map[string]any{"prompts": []any{"batch-one", float64(2), "batch-three"}, "max_tokens": float64(16)})
 	if err != nil || len(batch.([]map[string]any)) != 3 || batch.([]map[string]any)[1]["error"] == nil {
 		t.Fatalf("stateless batch = %#v, %v", batch, err)
+	}
+	if maxInFlight.Load() != 2 {
+		t.Fatalf("stateless batch max in-flight calls = %d, want 2", maxInFlight.Load())
 	}
 	if relatives, err := root.ListAgentRelatives(ctx, root.AgentID()); err != nil || len(relatives.Children) != 0 {
 		t.Fatalf("stateless calls created agent rows: %+v, %v", relatives, err)
@@ -214,6 +237,16 @@ func TestDaemonRLMHostUsesDispatcherAndDurableHandles(t *testing.T) {
 	spawned, err := host.Call(ctx, "agents", "spawn", map[string]any{"id": "reader", "prompt": "work", "capabilities": []any{"read"}, "budgets": map[string]any{"tokens": float64(10_000)}})
 	if err != nil || spawned.(map[string]any)["status"] != "running" {
 		t.Fatalf("spawn = %#v, %v", spawned, err)
+	}
+	host.mu.Lock()
+	spawnedChild := host.children["reader"].agent
+	host.mu.Unlock()
+	if spawnedChild.ModelName != agent.ModelName || spawnedChild.Provider != agent.Provider || spawnedChild.ContextLimit != agent.ContextLimit || spawnedChild.Effort != agent.Effort ||
+		spawnedChild.Temperature != agent.Temperature || spawnedChild.TopP != agent.TopP || spawnedChild.CompactThreshold != agent.CompactThreshold || spawnedChild.WorkingDir != workspace {
+		t.Fatalf("spawned child did not inherit model runtime configuration: %+v", spawnedChild)
+	}
+	if spawnedChild.Client.CacheKey != rootID+"/reader" || !spawnedChild.Services.ScreenshotsEnabled() {
+		t.Fatalf("spawned child cache/screenshot routing = %q/%v", spawnedChild.Client.CacheKey, spawnedChild.Services.ScreenshotsEnabled())
 	}
 	if child, err := host.Call(ctx, "agents", "inspect", map[string]any{"id": "reader"}); err != nil || child.(map[string]any)["status"] != "running" || !slices.Equal(child.(map[string]any)["effective_capabilities"].([]string), []string{"read"}) {
 		t.Fatalf("running child inspection = %#v, %v", child, err)

@@ -9,6 +9,23 @@ Full exploration reports: [learnings/other-harnesses/opencode/](learnings/other-
 its tests) and [concurrency.md](concurrency.md) (the channel patterns behind
 parallel tool calls and background subagents).
 
+## RLM swarm runtime
+
+- [x] One auto-started local daemon is the sole owner of SQLite, agent loops,
+  schedules, integrations, permissions, and child processes; TUI, headless,
+  sessions, MCP serve, and ACP are reconnecting protocol clients.
+- [x] RLM is the default for new sessions and exposes only bounded
+  `rlm_exec`; `rlm.enabled: false` creates a Classic session with no kernel.
+- [x] Focused context handles, bounded Starlark workers, stateless model
+  batches, durable children, peer messages, private/blackboard state,
+  artifacts, schedules, capability delegation, hierarchical budgets, and
+  signed human permission decisions share one daemon dispatcher.
+- [x] Stable commands, ordered events, replay/snapshot replacement,
+  checkpointed daemon replacement, and conservative interrupted recovery.
+- [x] Real daemon/kernel release acceptance, deterministic and opt-in live
+  RLM-vs-Classic evaluation, and Linux/macOS runtime CI with the Swift driver
+  in the aggregate gate. See [rlm-runtime.md](rlm-runtime.md).
+
 ## Table of contents
 
 - [Input & editing](#input--editing)
@@ -23,6 +40,7 @@ parallel tool calls and background subagents).
 - [Theming & config](#theming--config)
 - [CLI surface](#cli-surface)
 - [Autonomy & durability](#autonomy--durability) (exo)
+- [RLM swarm runtime](#rlm-swarm-runtime)
 
 ## Input & editing
 
@@ -140,11 +158,9 @@ Improvement plan with per-item checkboxes: [`.ai-docs/plans/mcp-polish/`](../.ai
 
 ## Autonomy & durability
 
-From [exo](learnings/other-harnesses/exo.md). Triaged against whip's actual code:
-compaction today is destructive (`session.go` `DELETE FROM messages`), resume of a
-crashed turn can orphan a tool_call, and there is no plan-tracking tool at all.
-Ordered by value-per-line for a single-binary TUI — the first four are the ones
-worth doing now.
+From [exo](learnings/other-harnesses/exo.md). These durability features now
+run under the daemon's root actors and durable journal. The original triage is
+kept below as a record of what shipped.
 
 **Do now:**
 
@@ -162,8 +178,9 @@ worth doing now.
 
 - [x] Minimal scheduler + generic wakeup channel: `@every 10m` / `@at <rfc3339>` tasks firing machine-authored user-message turns; grid-anchored fires (slow runs don't drift), one-shot completion stays listed as (fired), fires defer while busy without drifting the grid. Cron syntax deliberately cut (two forms cover the use); the record-then-deliver outbox and `reportPrompt` routing remain future work if external channels land (exo `scheduler_runtime.rs`, `conversation_wakeup.rs`) — `internal/schedule` (parser, ~70 lines), `schedules` table in sessions.db, 5s ticker in the TUI, `/schedule @every|@at <prompt> | list | cancel <n>`, ⏰ transcript marker
 
-**Deliberately cut** (exo needs them because it's long-running and edits itself in production; a coding TUI doesn't):
+**Deliberately cut:**
 
 - ~~Full event-sourced store rewrite~~ — too big once compaction-as-event lands; keep custom-kind discipline inside the messages-table world instead
-- ~~`/events` introspection tool~~ — pays off with adapters/restarts whip doesn't have; cost already lives in the status line
+- ~~`/events` introspection tool~~ — the protocol journal is an internal
+  recovery/replay contract; a public raw-event UI has not justified its cost
 - ~~`rebuild_and_restart_whip` + SELF.md self-map~~ — a harness rebuilt by hand between sessions doesn't need to restart itself mid-conversation

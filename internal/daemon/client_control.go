@@ -329,8 +329,8 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 			}
 			return nil
 		}
-		if operation == "permission.mode" && s.running != nil {
-			return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("permission mode cannot change while a turn is running"), &result)
+		if operation == "permission.mode" && s.hasRunningAgent() {
+			return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("permission mode cannot change while an agent is running"), &result)
 		}
 		if operation == "tool.call" {
 			if s.clientBusy || s.running != nil {
@@ -637,6 +637,11 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 			return "", errors.New("session runner does not support external permissions")
 		}
 		runner.SetExternalPermissions(payload.ExternalPermissions)
+		for _, child := range s.children {
+			if child.agent != nil && child.agent.Services != nil {
+				child.agent.Services.SetExternalPermissions(payload.ExternalPermissions)
+			}
+		}
 		return "configured", nil
 	case "tool.configure":
 		runner, ok := s.runner.(clientToolRunner)

@@ -6,8 +6,8 @@ name: ci
 #
 # The work is split across jobs that run on separate runners, so wall-clock is
 # the slowest job rather than the sum of every step. `go` is a required status
-# check (repo ruleset), so it stays — as the gate that fails unless all three
-# parallel jobs succeeded. Add a new job to `go`'s `needs` when you add one,
+# check (repo ruleset), so it stays — as the gate that fails unless every
+# parallel job succeeded. Add a new job to `go`'s `needs` when you add one,
 # or its failures won't block a merge.
 on:
   pull_request:
@@ -149,12 +149,33 @@ jobs:
           GOOS=${TARGET%/*} GOARCH=${TARGET#*/} CGO_ENABLED=0 \
             go build -trimpath -o /dev/null ./cmd/whip
 
+  # Release-only behavior needs an actual Unix runtime, not a cross-compile.
+  # Run the same deterministic daemon/kernel acceptance on Linux and macOS so
+  # socket ownership, process-group termination, cell deadlines, and worker
+  # memory enforcement are proven on both shipped operating systems.
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Daemon lifecycle and socket ownership
+        run: go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState)$'
+      - name: RLM worker containment
+        run: go test -race ./internal/rlm -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup)$'
+
   # `go` is a required status check in the repo's ruleset, so the name has to
-  # survive the split. It is now the aggregate gate: green only when lint,
-  # test and build all passed. if: always() so a failed dependency reports as
-  # a failure here rather than a skip.
+  # survive the split. It is the aggregate gate: green only when lint, tests,
+  # builds, both runtime platforms, and the Swift driver all pass. if: always()
+  # makes a failed dependency report as a failure here rather than a skip.
   go:
-    needs: [lint, test, build]
+    needs: [lint, test, build, runtime, driver]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -163,9 +184,13 @@ jobs:
           echo "lint=${{ needs.lint.result }}"
           echo "test=${{ needs.test.result }}"
           echo "build=${{ needs.build.result }}"
+          echo "runtime=${{ needs.runtime.result }}"
+          echo "driver=${{ needs.driver.result }}"
           [ "${{ needs.lint.result }}" = success ] || exit 1
           [ "${{ needs.test.result }}" = success ] || exit 1
           [ "${{ needs.build.result }}" = success ] || exit 1
+          [ "${{ needs.runtime.result }}" = success ] || exit 1
+          [ "${{ needs.driver.result }}" = success ] || exit 1
 
   # The release pipeline builds the computer-use Swift driver on macOS and
   # go:embeds it — build it here too so a driver-breaking change fails the

@@ -1,0 +1,12 @@
+{
+  "records": 30000,
+  "needle_record": 24680,
+  "query": "migration_target=true",
+  "expected": "RLM_COMPARISON_RESULT_58391",
+  "filler": "ordinary migration inventory entry with no target marker",
+  "root_context_tokens": 16384,
+  "max_output_tokens": 2048,
+  "max_model_calls": 6,
+  "input_price": 0.000002,
+  "output_price": 0.000005
+}

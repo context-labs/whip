@@ -1,161 +1,132 @@
-# Concurrency: where Go channels earn their keep
+# Concurrency and ownership
 
-whip's agent runs concurrent work — parallel tool calls, background
-subagents, a streaming TUI — and the design leans on channels for the parts
-that are awkward in the reference harnesses (pi and opencode are TypeScript).
-This doc explains the two channel patterns and why they're idiomatic in Go.
+whip deliberately separates serialization, concurrency, and process lifetime.
+The daemon serializes decisions that must have one order, permits independent
+work to fan out, and owns every goroutine or child process that may outlive a
+client connection.
 
-References that motivated them:
+## Root actors: one durable order per session
 
-- pi `packages/agent/src/harness/tools/file-mutation-queue.ts` — per-path
-  promise-chain serialization.
-- pi `packages/agent/src/agent-loop.ts` `executeToolCallsParallel` — `Promise.all`
-  over a tool-call batch.
-- opencode `packages/core/src/background-job.ts` — a registry of `Deferred` /
-  `Scope` / token for background subagents.
+Each open root has one actor mailbox. User turns, steers, child/state changes,
+schedules, permission outcomes, control commands, and worker completions enter
+that mailbox. The actor performs durable transitions in ingress order without
+holding its queue while a model, tool, or database callback blocks.
 
-## 1. Per-path file-mutation lock = a 1-capacity channel
-
-The problem: the model can emit several tool calls in one turn (e.g. write
-`a.go`, edit `a.go`, write `b.go`). The writes to `a.go` must not interleave;
-the write to `b.go` should run in parallel.
-
-pi solves it with a `Map<path, Promise>` where each new call chains onto the
-previous promise (`currentQueue.then(next)`). It's correct but subtle — the
-registration step itself needs a promise chain to avoid a check-then-set race.
-
-In Go the whole thing is a buffered channel per path
-(`internal/agent/filelocks.go`):
-
-```go
-ch := make(chan struct{}, 1) // one per canonical path
-ch <- struct{}{}             // acquire — blocks while the buffer is full
-defer func() { <-ch }()      // release — drain the buffer
+```mermaid
+flowchart LR
+    C1["TUI commands"] --> I["durable command admission"]
+    C2["ACP / run commands"] --> I
+    W["workers and timers"] --> Q["root mailbox"]
+    I --> Q --> A["one root actor"] --> DB["atomic store transition"]
+    A --> E["ordered root events"]
 ```
 
-The buffer of 1 is the lock. First acquirer fills it and proceeds; later
-acquirers block on send until the holder receives. No explicit unlock, no
-registration race, no promise plumbing — the channel *is* the mutex, and the
-compiler checks direction. Two spellings of the same file share a lock via
-`filepath.Abs` + `filepath.Clean`. `bash` (side effects not attributable to a
-path) takes a single global channel.
+This gives one root deterministic command and event sequences. Roots have
+separate actors and can run concurrently. A panic or slow client for one root
+does not hold the daemon registry or stop another root.
 
-The batch itself is fanned out with a goroutine per call and a buffered results
-channel (`runTools` in `internal/agent/agent.go`); results land back in call
-order because the chat API matches tool results to call IDs. A `sync.WaitGroup`
-+ `close(outCh)` terminates the collector — the fan-out/fan-in idiom.
+Callbacks follow one rule: copy state while holding a mutex, release the
+mutex, then invoke user/provider/UI code. Blocking callbacks under an owner
+lock caused a historical TUI ABBA deadlock and are prohibited by tests and
+the custom `whipvet` analyzer.
 
-## 2. Background subagents = one channel close, many waiters
+## Stable commands and reconnecting clients
 
-the `subagent` tool with `background: true` launches a subagent that runs concurrently with
-the parent and reports back later. The registry (`internal/agent/background.go`)
-is opencode's `BackgroundJob` translated to channels.
+The protocol separates command identity from a socket connection. A client
+creates one stable command ID and reuses it after reconnect. Durable admission
+deduplicates the command and returns its recorded outcome; it does not execute
+the operation again.
 
-opencode tracks each job with a `Deferred<Info>` per waiter plus a closeable
-`Scope` and a token for settle-once. Go collapses the broadcast primitive to a
-single channel close:
+Client synchronization states are:
 
-```go
-type BackgroundTask struct {
-    // ...
-    Done chan struct{} // closed once on settle; <-Done() wakes every waiter
-}
-
-func (r *taskRegistry) settle(id string, s TaskStatus, report string) {
-    // record final state, then:
-    close(t.Done) // one close; all <-Done() receivers proceed together
-}
+```text
+disconnected -> reconnecting -> snapshotting -> live
 ```
 
-Closing a channel is the one operation that wakes **all** receivers at once, so
-the tool caller, the TUI's `OnChange` redraw, and `/subagents` all observe
-completion for free — there's no per-waiter state to manage. Cancellation is
-`context.WithCancel` on the subagent's turn; the result is delivered back into
-the parent as a **steered message** (channel close → `Steer`), so the model
-sees the report on the next loop boundary without polling.
+Commands are disabled before `live`. A reconnect first asks for events after
+the last per-root cursor. If retention has expired, the client replaces local
+behavioral state with a complete snapshot. Event sequences are strictly
+increasing, and stale or duplicate events are ignored. Outbound connections
+have bounded envelope/byte queues; a slow reader loses its connection, not the
+daemon or root actor.
 
-Persistence rides the same events: the registry's `OnRecord` hook runs on the
-worker goroutine at start and settle, and the TUI uses it to upsert the task
-into the session store. The trap is that a worker-goroutine callback must
-**never read UI-goroutine state** — an early version read `m.sessionID`
-directly and `-race` caught it. The fix is the one piece of shared state
-published atomically: the registry holds an `atomic.Pointer[string]` session
-id (`SetSessionID`, written by the UI goroutine at persist/resume/clear/fork),
-and `OnRecord` receives the id as an argument. No lock, no closure over `m`.
+The TUI and the generic `daemon.RootClient` implement the same state machine.
+Headless, sessions, MCP, and ACP clients build on the generic client where
+they need a root subscription.
 
-The second trap is a worker-goroutine callback that **blocks while touching
-the registry mutex**: `broadcast` used to walk subscribers under `r.mu`, and
-the TUI's task-view subscriber funnels events through `prog.Send`, which
-parks when the UI queue is backed up. The UI goroutine itself takes `r.mu`
-via `List`/`Get` to render the dock — worker holds `mu` waiting on the UI
-queue, UI waits on `mu`: an ABBA deadlock that froze the whole TUI (caught in
-the wild from a goroutine dump: UI parked in `List` ← `tasksDock` ← `Update`,
-worker parked in `prog.Send` ← `openTask`'s subscriber ← `broadcast`). Two
-rules now keep the cycle impossible:
+## Tool fan-out and mutation ordering
 
-1. `broadcast` snapshots the subscriber slice under `r.mu`, then runs
-   callbacks **after** unlocking — a parked subscriber can hold its own worker
-   goroutine, but never the registry mutex.
-2. The TUI's subscriber callbacks never block the worker: `sendTaskMsg` (and
-   the `OnChange` redraw) detach `prog.Send` into its own goroutine. The task
-   pane resyncs from the stored `Report` on the next paint, so a reordered
-   interim frame is cosmetic; stalling the subagent on the UI is not.
+Classic tool calls emitted in one model response run concurrently. Results are
+collected in call order because the provider protocol associates each result
+with its call ID.
 
-`TestBroadcastBlockingSubscriberCannotDeadlock` reproduces the original shape
-(a subscriber parked on an unbuffered channel stands in for the wedged
-`prog.Send`) and fails against the pre-fix `broadcast`.
+RLM `models.batch` also fans stateless model calls out concurrently and returns
+results in input order. Every call reserves and settles root token, cost,
+elapsed, and active-operation budget independently. `agents.spawn` is not a
+batch call: it creates a durable identity, capability grants, budgets, inbox,
+transcript, and lifecycle record.
 
-### What this buys over the TS versions
+All file mutations—Classic or RLM—share daemon-wide workspace coordination:
 
-- **No leak bookkeeping.** The channel semaphore and the Done-close both have
-  obvious owners and exits; there are no dangling promises or un-awaited
-  deferreds.
-- **Backpressure is the buffer size.** The results channel is sized to the
-  batch; the per-path lock's buffer is 1. The capacity is the contract.
-- **Race-checked.** `go test -race ./...` covers the fan-out, the lock, the
-  broadcast, and cancel. The equivalent TS relies on convention.
+- mutations to one canonical path serialize;
+- independent path mutations may proceed concurrently;
+- shell and unknown mutations take workspace-wide authority because their
+  side effects cannot be safely attributed to a path;
+- authorization and permission are revalidated immediately before execution.
 
-## 3. MCP server readiness = the same close-to-broadcast, with a generation guard
+The small channel idiom used for a per-path lock is a capacity-one semaphore:
 
-`internal/mcp/manager.go` reuses the pattern for server connections: each
-server has a `ready chan struct{}` closed **once** when its first connect
-settles (success or failure), so a tool call blocks only on its own server
-and `/mcp` never blocks at all. Two twists the task registry doesn't need:
+```go
+ch := make(chan struct{}, 1)
+ch <- struct{}{}
+defer func() { <-ch }()
+```
 
-- **Reconnects reuse the channel.** `ready` means "first attempt settled,"
-  not "connected"; after a reconnect, callers check the session under the
-  mutex instead of the channel. This keeps the close-once invariant
-  unbreakable (the first implementation re-closed on reconnect and panicked).
-- **Watchers carry a generation.** When a session drops, its watcher only
-  flips the server to failed if `s.gen` still matches the connect that
-  spawned it — opencode does the same check by client identity
-  (`mcp/index.ts:443`), and it's what makes `/mcp <name> reconnect` safe
-  against a stale close event arriving after the new session is up.
+## Background children and broadcasts
 
-Calls into a server serialize through a 1-capacity `calling` channel (many
-stdio servers are single-request-at-a-time), so "capacity is the contract"
-applies twice per server: one channel for readiness, one for in-flight calls.
+A background child owns a cancellation context and a `Done` channel. Closing
+that channel exactly once broadcasts settlement to every waiter. The runtime
+stores final state before the close, so an observer awakened by `Done` sees a
+complete result.
 
-## Process safety (not channels, but the same "don't leak" instinct)
+Durable RLM children add daemon records around that primitive. Admission
+checks ancestry, capabilities, depth, active-child, concurrent-turn, token,
+cost, and elapsed limits. Messages are queued in per-agent inboxes; blackboard
+subscriptions create durable wakeups; stopping a subtree terminalizes its
+turns, operations, leases, permissions, and reservations exactly once.
 
-`internal/tools/bashrun/bashrun.go` tracks every spawned child in a registry
-and `KillAll()` SIGKILLs the whole process group on exit, so an agent-started
-server never outlives whip. The non-interactive path closes its output pipes
-on process exit so a detached grandchild (`sleep 30 &`, nohup) can't hang the
-agent waiting on pipe EOF.
+## Kernel workers
 
-## 4. LSP diagnostic waiters = per-file channel closes
+One RLM kernel serializes its own cells because its Starlark globals persist
+between cells. Different RLM roots can own different kernels up to the
+daemon-wide `rlm.maxWorkers` semaphore. A cell has an independent cancellation
+context and step, host-request, wall, memory, output, and frame limits.
 
-`internal/lsp/manager.go` reuses close-to-broadcast for LSP push diagnostics:
-`write`/`edit` send `didOpen`/`didChange` with a document version, then wait
-on a channel registered under the file's path; the reader goroutine's
-`publishDiagnostics` handler closes all of that file's waiters (a stale push
-is harmless — the waiter re-checks the diagnostics cache and re-registers).
-This replaces opencode's poll-with-timeout `waitForDiagnostics`
-(`packages/opencode/src/lsp/client.ts`): no per-waiter goroutine, no polling
-interval, and the wait is bounded by the tool's ctx plus a 1.5s cap. Two
-twists the task registry doesn't need: the waiter list is keyed so a push
-for file A never wakes file B, and the loop breaks on the edited file's push
-plus one 50ms trailing wake (still deadline-bounded) for sibling frames —
-gopls fans pushes out across the whole package, so sibling errors land a
-tick after the edited file's.
+Kernel and shell processes start in their own managed process groups. On
+timeout, crash, root stop, or daemon shutdown, the owner cancels work, kills
+the group, waits for it, and releases reservations. A deliberately daemonized
+descendant that escapes its process group is outside the containment claim and
+therefore requires explicit shell authority.
+
+The kernel receives no ambient credentials or host access. Host calls are
+bound to the current cell and cancellation context; a dead worker cannot keep
+using the daemon after its cell is terminal.
+
+## Other close-to-broadcast uses
+
+- **MCP readiness:** one `ready` close marks the first connection attempt as
+  settled. Reconnect watchers carry a generation so an old close cannot mark
+  a replacement session failed. Calls to a server serialize through a
+  capacity-one channel.
+- **LSP diagnostics:** per-file wait channels close when matching published
+  diagnostics arrive; timeout prevents an editor server from parking a tool.
+- **Background tasks:** `Done` close wakes callers and views without a polling
+  goroutine per observer.
+
+## How this is verified
+
+`go test -race` covers concurrent roots, command retry, slow outbound clients,
+child settlement, messages, blackboard subscriptions, budget reservations,
+kernel cells, and process cleanup. `task acceptance` adds real daemon/kernel
+subprocesses and client cutover contracts. Hosted CI runs the Unix runtime
+subset on Linux and macOS; see [rlm-runtime.md](rlm-runtime.md#verification-and-evaluation).

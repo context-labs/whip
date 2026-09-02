@@ -491,6 +491,18 @@ func (s *Session) Snapshot(ctx context.Context) (snapshot sessionstore.RootSnaps
 	return snapshot, err
 }
 
+func (s *Session) hasRunningAgent() bool {
+	if s.running != nil {
+		return true
+	}
+	for _, child := range s.children {
+		if child.running {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Session) enqueueWake(kind, text string) {
 	if _, err := s.enqueue(context.Background(), kind, text, false); err != nil && !errors.Is(err, ErrStopped) {
 		s.supervisor.report(kind+" wake", err)

@@ -55,7 +55,7 @@ func (m *uploadManager) begin(clientID string, begin UploadBeginParams) error {
 	}
 	if err := file.Chmod(0o600); err != nil {
 		_ = file.Close()
-		_ = os.Remove(file.Name())
+		_ = os.Remove(file.Name()) //nolint:gosec // CreateTemp chose this path inside the daemon-owned upload directory.
 		return err
 	}
 	m.live[key] = &uploadState{begin: begin, file: file, hash: sha256.New()}
@@ -94,7 +94,9 @@ func (m *uploadManager) finish(ctx context.Context, clientID, uploadID string) (
 	if state == nil {
 		return ContentHandle{}, errors.New("upload is not active")
 	}
-	defer func() { _ = os.Remove(state.file.Name()) }()
+	defer func() {
+		_ = os.Remove(state.file.Name()) //nolint:gosec // The live state contains only the file returned by CreateTemp.
+	}()
 	if state.received != state.begin.Size {
 		_ = state.file.Close()
 		return ContentHandle{}, errors.New("upload is incomplete")

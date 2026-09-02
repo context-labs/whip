@@ -117,6 +117,25 @@ func runDaemon(ctx context.Context, args []string) error {
 		ag.ModelName, ag.Provider = meta.Model, meta.Provider
 		ag.WorkingDir = meta.CWD
 		ag.ContextLimit = contextLimit
+		ag.WorktreeSubagents = cfg.WorktreeSubagents != nil && *cfg.WorktreeSubagents
+		if model.SamplingParams != nil {
+			ag.Temperature, ag.TopP = model.SamplingParams.Temperature, model.SamplingParams.TopP
+		}
+		vision := model.Vision
+		if catalog, ok := catalogs[meta.Provider]; ok {
+			if advertised, found := catalog.SupportsVision(apiID); found {
+				vision = advertised
+			}
+		}
+		if vision {
+			services.SetScreenshotSink(func(images [][]byte) {
+				parts := make([]llm.ContentPart, 0, len(images))
+				for _, image := range images {
+					parts = append(parts, llm.ImagePart("jpg", image))
+				}
+				ag.SteerImages("browser/computer screenshots attached:", parts)
+			})
+		}
 		ag.Effort = meta.Effort
 		if ag.Effort == "" {
 			ag.Effort = tui.DefaultEffortFor(catalogs, meta.Provider, apiID, cfg.DefaultEffort)

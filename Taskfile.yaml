@@ -47,6 +47,15 @@ tasks:
     cmds:
       - go test ./...
 
+  acceptance:
+    desc: "Run the deterministic daemon, swarm, client, and RLM release acceptance suite"
+    cmds:
+      - go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState)$'
+      - go test -race ./internal/session ./internal/capability ./internal/daemon -run '^(TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked|TestStatePrivateIsolationBlackboardVisibilityAndHandles|TestSwarmSiblingMessageSharesAuthorizedEvidence|TestChildBudgetClampingDepthAndActiveChildLimits|TestBudgetKindsExhaustIndependently|TestCapabilityPermissionSurvivesDispatcherAndRevalidates|TestDispatcherRunsDirectAndPersistedPermissionThroughOnePath|TestDispatcherRejectsCanonicalPathChangeAfterApproval|TestWorkspaceBarrierSpansRoots|TestRecoveryInterruptsEveryNonterminalRuntimeRecord|TestSlowOutboundClientClosesWithoutStoppingDaemon|TestRootsRunConcurrentlyAndCallerCancellationDoesNotOwnWork|TestMCPLifecyclePanicFailsOnlyItsRoot|TestRootClientReconnectsStableCommandWithoutDuplicateEvent|TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution)$'
+      - go test -race ./internal/tui ./internal/acp ./cmd/whip -run '^(TestClientReconnectReplayAndSnapshotFallback|TestClientReattachesInFlightActionWithSameIdentityAfterDisconnect|TestDaemonBackedModelRendersWithoutAnAgent|TestBridgeDaemonCutoverMapsEventsAndContent|TestBridgePairedPermissionAndModes|TestBridgeConcurrentSessionsAndCloseDetach|TestRunDaemonClassicTurnStartsNoKernelProcess|TestRunTextOutput|TestSessionsCLI|TestMCPServeStopsCleanlyOnStdinEOF|TestACPDaemonBackendAndMCPToolsRoundTrip|TestDaemonRLMHostUsesDispatcherAndDurableHandles|TestConfiguredSessionModeDefaultsRLMAndDisablesToClassic)$'
+      - go test -race ./internal/rlm -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup|TestKernelDeniesAmbientAuthority|TestKernelStripsDaemonEnvironment|TestKernelReservationAndCrashRestart)$'
+      - go test -race ./evals/rlm -run '^TestDeterministicRLMClassicComparisonReport$'
+
   check:
     desc: "Format + vet + test (what the pre-commit hook runs, plus golangci-lint when installed)"
     cmds:
@@ -75,8 +84,8 @@ tasks:
       - go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   ci:
-    desc: "Run the full local CI gate: check + lint + vuln (what CI runs)"
-    deps: [check, lint, vuln]
+    desc: "Run the full local CI gate: check + lint + vuln + release acceptance"
+    deps: [check, lint, vuln, acceptance]
 
   hooks:
     desc: "Enable the repo's git hooks (sets core.hooksPath to scripts/git-hooks)"

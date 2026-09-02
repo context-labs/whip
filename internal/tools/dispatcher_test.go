@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -131,6 +133,49 @@ func TestClassicToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
 	}
 	if got, want := ledger.begins.Load(), int64(2*len(cases)+2); got != want {
 		t.Fatalf("dispatcher admissions = %d, want %d", got, want)
+	}
+}
+
+func TestAuthorityCloneKeepsHostIntegrationsAndPermissionMode(t *testing.T) {
+	root := t.TempDir()
+	store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	rootID, err := store.Create(root, "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := store.EnsureClassicAuthority(t.Context(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manager := browser.NewManager(browser.ModeHeadless)
+	policy := computer.NewPolicy([]string{"Finder"}, nil, true)
+	parent := NewServices()
+	parent.SetBrowser(manager, true)
+	parent.SetComputerPolicy(policy)
+	parent.SetComputerApprover(func(string) bool { return true })
+	parent.SetScreenshotSink(func([][]byte) {})
+	parent.SetExternalPermissions(true)
+	parent.noteGeneration("Finder", 7)
+
+	clone, err := parent.CloneForAuthority(store, store.Workspaces(), store.Processes(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloneBrowser, allowPrivate, screenshot := clone.browserConfig()
+	clonePolicy, approver := clone.computerApproval()
+	if cloneBrowser != manager || !allowPrivate || clonePolicy != policy || approver == nil {
+		t.Fatal("authority clone dropped host integrations")
+	}
+	if screenshot != nil || !clone.ExternalPermissionsEnabled() {
+		t.Fatal("authority clone copied an agent callback or lost external permission mode")
+	}
+	if clone.permissionWaiters == nil || clone.permissionEarly == nil || clone.generationFor("Finder") != 7 {
+		t.Fatal("authority clone did not initialize independent runtime state")
 	}
 }
 

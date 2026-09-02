@@ -137,6 +137,15 @@ func (s *Services) SetScreenshotSink(sink func([][]byte)) {
 	s.mu.Unlock()
 }
 
+// ScreenshotsEnabled reports whether browser/computer captures can be sent
+// back to the owning model. Authority clones intentionally do not copy the
+// callback because it steers one specific agent.
+func (s *Services) ScreenshotsEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.screenshotSink != nil
+}
+
 func (s *Services) screenshots() func([][]byte) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -544,12 +553,22 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.ClassicAuthority) (*Services, error) {
 	s.mu.RLock()
 	clone := &Services{
-		interactive: s.interactive,
-		diagnostics: s.diagnostics,
-		gate:        s.gate,
-		processEnv:  maps.Clone(s.processEnv),
+		interactive:         s.interactive,
+		diagnostics:         s.diagnostics,
+		gate:                s.gate,
+		processEnv:          maps.Clone(s.processEnv),
+		browser:             s.browser,
+		allowPrivateURLs:    s.allowPrivateURLs,
+		computerPolicy:      s.computerPolicy,
+		computerApprover:    s.computerApprover,
+		appGenerations:      maps.Clone(s.appGenerations),
+		externalPermissions: s.externalPermissions,
 	}
 	s.mu.RUnlock()
+	if clone.externalPermissions {
+		clone.permissionWaiters = make(map[string]chan capability.Decision)
+		clone.permissionEarly = make(map[string]capability.Decision)
+	}
 	if err := clone.BindDispatcher(ledger, workspaces, processes, authority); err != nil {
 		return nil, err
 	}

@@ -69,7 +69,11 @@ func (s *Session) admitSubagent(ctx context.Context, taskID string, child *agent
 	if err != nil {
 		return err
 	}
+	if runner, ok := s.runner.(clientPermissionRunner); ok {
+		services.SetExternalPermissions(runner.ExternalPermissionsEnabled())
+	}
 	var fileOperations, shellOperations []string
+	var browserRequested, computerRequested bool
 	for _, name := range requested {
 		switch name {
 		case "read":
@@ -80,8 +84,10 @@ func (s *Session) admitSubagent(ctx context.Context, taskID string, child *agent
 			shellOperations = append(shellOperations, "bash", "workspace_process")
 		case "browser":
 			shellOperations = append(shellOperations, "browser_exec")
+			browserRequested = true
 		case "computer":
 			shellOperations = append(shellOperations, "computer_exec")
+			computerRequested = true
 		default:
 			return fmt.Errorf("unknown child capability %q", name)
 		}
@@ -113,6 +119,12 @@ func (s *Session) admitSubagent(ctx context.Context, taskID string, child *agent
 		}
 		child.Services = services
 		child.Tools = tools.AllWithServices(services)
+		if browserRequested && !child.BrowserDisabled && services.Browser() != nil {
+			child.Tools = append(child.Tools, tools.BrowserExec(services))
+		}
+		if computerRequested && !child.ComputerDisabled && services.ComputerPolicy() != nil {
+			child.Tools = append(child.Tools, tools.ComputerExec(services))
+		}
 		child.SetModelCallBudget(subagentModelBudget{root: s, taskID: taskID})
 		s.children[taskID] = &liveSubagent{agent: child, agentID: agentID, executionID: executionID}
 		return nil

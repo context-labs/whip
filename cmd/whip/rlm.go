@@ -380,15 +380,18 @@ func (host *daemonRLMHost) models(ctx context.Context, root *daemon.Session, ope
 		if !ok || len(items) == 0 {
 			return nil, errors.New("prompts must be a non-empty list")
 		}
+		maxTokens := intArg(arguments, "max_tokens", 0)
 		results := make([]map[string]any, len(items))
+		var calls sync.WaitGroup
 		for index, item := range items {
 			prompt, ok := item.(string)
 			if !ok {
 				results[index] = map[string]any{"error": "prompt is not a string"}
 				continue
 			}
-			results[index] = call(prompt, intArg(arguments, "max_tokens", 0))
+			calls.Go(func() { results[index] = call(prompt, maxTokens) })
 		}
+		calls.Wait()
 		return results, nil
 	default:
 		return nil, fmt.Errorf("unknown models operation %q", operation)
@@ -407,9 +410,20 @@ func (host *daemonRLMHost) agents(ctx context.Context, root *daemon.Session, ope
 			id = "rlm-" + randomSuffix()
 		}
 		client := *host.agent.Client
+		if sessionID := host.agent.SessionIDValue(); sessionID != "" {
+			client.CacheKey = sessionID + "/" + id
+		}
 		child := agent.NewWithServices(&client, host.agent.Model, host.agent.MaxTokens, systemPrompt(root.WorkingDirectory(), time.Now()), host.services)
 		child.ModelName, child.Provider = host.agent.ModelName, host.agent.Provider
 		child.ContextLimit, child.Effort = host.agent.ContextLimit, host.agent.Effort
+		child.Temperature, child.TopP = host.agent.Temperature, host.agent.TopP
+		child.CompactClient, child.CompactModel = host.agent.CompactClient, host.agent.CompactModel
+		child.CompactThreshold = host.agent.CompactThreshold
+		child.WorkingDir = host.agent.WorkingDir
+		if child.WorkingDir == "" {
+			child.WorkingDir = root.WorkingDirectory()
+		}
+		child.BrowserDisabled, child.ComputerDisabled = host.agent.BrowserDisabled, host.agent.ComputerDisabled
 		capabilities, err := childCapabilities(arguments["capabilities"])
 		if err != nil {
 			return nil, err
@@ -420,6 +434,15 @@ func (host *daemonRLMHost) agents(ctx context.Context, root *daemon.Session, ope
 		}
 		if err := root.AdmitRLMSubagent(ctx, id, child, capabilities, budgets); err != nil {
 			return nil, err
+		}
+		if host.services.ScreenshotsEnabled() {
+			child.Services.SetScreenshotSink(func(images [][]byte) {
+				parts := make([]llm.ContentPart, 0, len(images))
+				for _, image := range images {
+					parts = append(parts, llm.ImagePart("jpg", image))
+				}
+				child.SteerImages("browser/computer screenshots attached:", parts)
+			})
 		}
 		if err := root.StartSubagent(ctx, id); err != nil {
 			root.StopSubagent(id)

@@ -16,8 +16,11 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 func TestDaemonBackgroundSubagentIsDurableAndSteerable(t *testing.T) {
@@ -253,6 +256,45 @@ func TestDurableChildConsumesQueuedInboxWhenStarted(t *testing.T) {
 		t.Fatalf("committed child inbox = %+v, %v", queued, err)
 	}
 	root.ReleaseSubagent("reader")
+}
+
+func TestDurableChildExposesOnlyDelegatedOptionalTools(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	parentServices := tools.NewServices()
+	parentServices.SetBrowser(browser.NewManager(browser.ModeHeadless), false)
+	parentServices.SetComputerPolicy(computer.NewPolicy(nil, nil, false))
+	t.Cleanup(parentServices.Close)
+	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	root, err := owner.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := agent.NewWithServices(llm.New("http://127.0.0.1:1", "key"), "model", 100, "child", parentServices)
+	if err := root.AdmitRLMSubagent(t.Context(), "operator", child, []string{"read", "browser", "computer"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tool := range child.Tools {
+		names = append(names, tool.Def.Function.Name)
+	}
+	for _, want := range []string{"read", "browser_exec", "computer_exec"} {
+		if !slices.Contains(names, want) {
+			t.Errorf("delegated child tools %v omit %q", names, want)
+		}
+	}
+	for _, denied := range []string{"subagent"} {
+		if slices.Contains(names, denied) {
+			t.Errorf("delegated child tools %v include %q", names, denied)
+		}
+	}
+	root.ReleaseSubagent("operator")
 }
 
 func TestDaemonSubagentRespectsParentTokenBudget(t *testing.T) {

@@ -40,7 +40,12 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 		}
 		if decisionErr == nil {
 			if runner, ok := s.runner.(clientPermissionRunner); ok && runner.ExternalPermissionsEnabled() {
-				decisionErr = runner.ResolvePermission(permissionID, decision)
+				resolver := s.permissionResolver(admission.Request.AgentID)
+				if resolver == nil || !resolver.ExternalPermissionsEnabled() {
+					decisionErr = errors.New("permission owner is not live in external permission mode")
+				} else {
+					decisionErr = resolver.ResolvePermission(permissionID, decision)
+				}
 				ticket.OperationID = admission.Request.OperationID
 			} else {
 				ticket, decisionErr = s.store.Decide(actorCtx, admission, permissionID, decision)
@@ -63,6 +68,19 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 		return errors.Join(decisionErr, finishErr)
 	})
 	return ticket, err
+}
+
+func (s *Session) permissionResolver(agentID string) clientPermissionRunner {
+	if agentID == s.authority.AgentID {
+		resolver, _ := s.runner.(clientPermissionRunner)
+		return resolver
+	}
+	for _, child := range s.children {
+		if child.agentID == agentID && child.agent != nil && child.agent.Services != nil {
+			return child.agent.Services
+		}
+	}
+	return nil
 }
 
 func (s *Session) DecidePermission(ctx context.Context, permissionID string, decision capability.Decision) (ticket capability.Ticket, err error) {

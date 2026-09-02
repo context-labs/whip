@@ -1,95 +1,114 @@
-# Tools
+# Tools and RLM modules
 
-The tools are the model's hands. whip keeps the set small and code-shaped:
-each tool is a function with a JSON schema, defined in `internal/tools`, run
-by the agent loop with per-path mutation locks (see
-[agent-loop.md](agent-loop.md#parallel-tool-calls)).
-
-## The set
+whip has two model-facing tool surfaces under one daemon owner. Classic
+sessions expose JSON tools. RLM sessions expose only `rlm_exec`, whose
+Starlark modules map to daemon-owned capabilities and root APIs. Neither a
+client nor a kernel invokes concrete handlers directly.
 
 ```mermaid
 flowchart TB
-    MODEL["model<br/>(emits tool calls)"] --> LOOP["agent loop<br/>runTools fan-out"]
-
-    subgraph core["core — internal/tools"]
-        BASH["bash<br/>shell commands, global lock,<br/>interactive PTY for sudo"]
-        READ["read<br/>file with line numbers"]
-        WRITE["write<br/>create/overwrite"]
-        EDIT["edit<br/>exact-string replacement"]
-        SUGGEST["suggest<br/>file completions"]
-    end
-
-    subgraph agents["agents & planning — internal/agent"]
-        TASK["task<br/>subagent, background: true<br/>for concurrent work"]
-        TODO["todowrite<br/>conversation-scoped plan,<br/>reinjected each round"]
-    end
-
-    subgraph reach["reach — internal/browser, internal/computer"]
-        BROWSER["browser_exec<br/>drive real Chrome"]
-        COMPUTER["computer_exec<br/>drive the macOS desktop"]
-    end
-
-    subgraph ext["external — internal/mcp"]
-        MCPT["mcp__server__tool<br/>any MCP server tool"]
-    end
-
-    LOOP --> core & agents & reach & ext
+    CLASSIC["Classic model: JSON tools"] --> AGENT["agent loop"]
+    RLM["RLM model: rlm_exec"] --> KERNEL["bounded Starlark worker"]
+    KERNEL --> HOST["typed RLM host modules"]
+    AGENT --> DISPATCH["capability dispatcher"]
+    HOST --> DISPATCH
+    HOST --> ROOT["root actor APIs"]
+    DISPATCH --> BUILTIN["built-in tools"]
+    ROOT --> STATE["state / agents / content / schedules"]
+    AGENT --> MCP["daemon-owned external MCP tools"]
 ```
 
-## Design rules
+## Shared execution rules
 
-1. **Few, composable tools beat many special cases.** There is no "search
-   the web" tool — there is `bash` and `curl`. There is no "rename symbol"
-   tool — there is `edit` plus LSP diagnostics that catch what the edit
-   broke. The model composes the primitives.
-2. **Reads are free, mutations are locked.** `read` and `suggest` never
-   block. `write`/`edit` serialize per canonical path; `bash` serializes
-   globally because its side effects can't be attributed to one file.
-3. **Failure is data.** Tool errors return as results the model can act on —
-   a failed `bash` includes exit code and stderr tail; a slow MCP server
-   fails fast with an actionable message instead of blocking the loop.
-4. **Schemas teach.** Each tool's JSON schema carries usage guidance (the
-   `bash` schema documents the per-path locking behavior so the model batches
-   independent calls and serializes same-file ones).
+1. **Authority is explicit.** The dispatcher validates the root and agent,
+   capability, workspace/path scope, budget, permission, operation state, and
+   canonical request digest. Permission approval triggers revalidation; it is
+   not authority by itself.
+2. **Large values become handles.** Runtime values over the inline limit are
+   stored content-addressed and returned as bounded previews plus references.
+3. **Mutations are ordered.** Same-path file mutations serialize; unrelated
+   paths may run concurrently. Shell requires separate authority and takes the
+   workspace-wide mutation side.
+4. **Failure is data.** Tool errors return bounded results the model can act
+   on. A failed integration does not kill an otherwise healthy daemon root.
+5. **The daemon owns lifetime.** Tool, MCP, browser, computer, LSP, shell, and
+   kernel processes are registered with the root/service owner and cleaned up
+   on stop or replacement.
 
-## bash
+## Classic tools
 
-Runs through `internal/tools/bashrun` so the agent can:
+The core definitions live in `internal/tools`; `internal/agent` adds planning
+and subagent operations.
 
-- **interrupt** — ctrl+c once interrupts the foreground command; twice quits
-  whip and kills agent-spawned child processes (process-group cleanup).
-- **authenticate** — `interactive: true` runs in a PTY so `sudo`/ssh-style
-  password prompts reach the user; whip forwards keystrokes and kills the
-  command after 15s of no input.
-- **suggest next steps** — the schema nudges the model toward batching
-  independent calls in one turn, which the loop then runs in parallel.
+| Tool | Purpose |
+| --- | --- |
+| `read` | line-numbered file reads; RLM list/search/read also reuse it |
+| `write` | create or overwrite a file |
+| `edit` | exact-string replacement with a rendered diff |
+| `bash` | bounded shell execution, optional interactive PTY, managed process group |
+| `todowrite` | conversation-scoped plan persisted with the root |
+| `subagent`, `subagent_*` | foreground/background child work, steering, inspection, cancellation |
+| `browser_exec` | Chrome automation through configured daemon-owned backend |
+| `computer_exec` | macOS accessibility/screenshot automation through the embedded helper |
+| `mcp__<server>__<tool>` | tools discovered from configured MCP servers |
 
-## Subagents (`subagent`)
+Classic tool calls in one provider response fan out concurrently. Results are
+appended in call order. Output over the shared tool limit is elided with a
+pointer to owner-only spilled output.
 
-A `subagent` call launches a fresh `Agent` with its own context — used for
-context-heavy exploration or self-contained work. With `background: true` it
-runs concurrently with the parent and reports back as a steered message when
-done; `/subagents` shows live status. The parent only ever receives the final
-report, which keeps the main conversation small.
+`bash` child processes receive `WHIP`, `WHIP_SESSION_ID`, `WHIP_MODEL`, and
+`WHIP_PID` markers. Interactive commands stream terminal events through the
+daemon protocol; client input is routed back by terminal ID.
+
+## RLM modules
+
+Starlark module operations accept keyword arguments. The exact registry is in
+`internal/rlm/modules.go`.
+
+| Module | Operations and semantics |
+| --- | --- |
+| `context` | `inspect`, `search`, `read` a supplied/history handle and return cited byte spans |
+| `files` | `list`, `search`, `read`, `write`, `patch`; maps to dispatcher-owned file tools |
+| `shell` | `run`; `read` resolves a handle-backed shell result |
+| `models` | `call` or concurrent `batch` for stateless model work; accounts usage but creates no child identity |
+| `agents` | `spawn`, `inspect`, `list`, `steer`, `stop`, `await` durable children with capabilities and budgets |
+| `messages` | `send`, `receive` durable peer/root inbox messages with evidence grants |
+| `state` | private and blackboard get/set/append/CAS/list/history plus subscriptions |
+| `artifacts` | `put`, `inspect`, `read` durable content with source metadata and spans |
+| `schedules` | `create`, `list`, `cancel` daemon-owned wakeups |
+| `permissions` | `request` explains the flow; `status` inspects it. No approval operation exists in the worker. |
+| `answer` | `submit(text=..., citations=...)` returns a grounded final value |
+
+Use `models.batch` for independent, stateless analysis. Use `agents.spawn`
+when work needs identity, tools, durable state, peer messaging, follow-ups, or
+lifecycle control. Treat Starlark globals as a small scratchpad; use `state`
+or `artifacts` for anything that must survive a worker crash.
 
 ## MCP tools
 
-External MCP servers contribute tools named `mcp__<server>__<tool>`. They
-connect lazily (a broken server never blocks startup) and auto-reconnect
-with backoff. `whip mcp serve` runs whip's own read/bash/edit/write as an
-MCP server for other harnesses — the interop works both ways.
-Config styles and management: README §MCP,
-[features.md](features.md#mcp).
+External MCP servers connect lazily and auto-reconnect with generation guards.
+Calls serialize per server, time out, and flatten structured/media results into
+bounded model-visible output. Server instructions join the system prompt and a
+live tool-list change updates future Classic turns.
+
+`whip mcp serve` is itself a thin stdio protocol client. It creates a
+daemon-owned local MCP root and forwards read/bash/edit/write requests as
+stable commands through the dispatcher. The stdio process does not open the
+session database, call a concrete tool handler, or approve permissions. A
+pending request is returned to the MCP caller instead of being decided by a
+non-human adapter.
+
+Configuration and lifecycle commands are documented in [README.md](README.md#mcp).
 
 ## LSP diagnostics
 
-After an `edit` or `write`, gopls diagnostics for the touched file are
-attached to the tool result, so the model sees "this edit broke three
-callers" immediately instead of on the next compile. See
-[features.md](features.md#lsp-diagnostics).
+After an `edit`, `write`, or corresponding RLM file mutation, diagnostics for
+the touched file and relevant siblings are attached to the result. LSP waits
+are bounded, so an unresponsive server cannot park the root.
 
 ## Read next
 
-- [browser-computer-use.md](browser-computer-use.md) — `browser_exec` and
-  `computer_exec` in depth
-- [agent-loop.md](agent-loop.md) — how calls are scheduled and locked
+- [rlm-runtime.md](rlm-runtime.md) — limits, handles, recovery, and evaluation
+- [agent-loop.md](agent-loop.md) — how model calls and tools cycle
+- [concurrency.md](concurrency.md) — actors, fan-out, ordering, and cleanup
+- [browser-computer-use.md](browser-computer-use.md) — browser and desktop tools

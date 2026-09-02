@@ -62,7 +62,8 @@ type Store struct {
 	daemonOwned atomic.Bool
 }
 
-// ponytail: U3 is in-process; U5 replaces this lease with the daemon socket/file lock.
+// AcquireDaemon is the in-process guard for one Daemon per Store. The runtime
+// also holds the cross-process socket/file lock before constructing the Store.
 func (s *Store) AcquireDaemon() bool { return s.daemonOwned.CompareAndSwap(false, true) }
 func (s *Store) ReleaseDaemon()      { s.daemonOwned.Store(false) }
 

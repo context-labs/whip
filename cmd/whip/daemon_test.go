@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -92,7 +93,14 @@ func TestRunDaemonRejectsInvalidArguments(t *testing.T) {
 
 func TestRunDaemonClassicTurnStartsNoKernelProcess(t *testing.T) {
 	var calls atomic.Int32
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	requests := make(chan llm.Request, 2)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var input llm.Request
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		requests <- input
 		call := calls.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		if call == 1 {
@@ -114,6 +122,7 @@ func TestRunDaemonClassicTurnStartsNoKernelProcess(t *testing.T) {
 		}},
 		"models": map[string]any{"test-model": map[string]any{
 			"providers": []string{"test-provider"}, "context": 4096, "maxOut": 128,
+			"samplingParams": map[string]any{"temperature": 0.25, "top_p": 0.75},
 		}},
 	})
 	if err != nil {
@@ -167,6 +176,12 @@ func TestRunDaemonClassicTurnStartsNoKernelProcess(t *testing.T) {
 	})
 	if err != nil || turn.Output != "classic done" || calls.Load() != 2 {
 		t.Fatalf("Classic turn = %+v, calls=%d, err=%v", turn, calls.Load(), err)
+	}
+	for range 2 {
+		request := <-requests
+		if request.Temperature == nil || *request.Temperature != 0.25 || request.TopP == nil || *request.TopP != 0.75 {
+			t.Fatalf("daemon sampling parameters = temperature %v, top_p %v", request.Temperature, request.TopP)
+		}
 	}
 	snapshot, err := client.Snapshot(context.Background(), created.Output)
 	if err != nil || snapshot.Meta.Mode != session.ModeClassic {

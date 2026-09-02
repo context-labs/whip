@@ -23,20 +23,22 @@ func BuildPrompt(workingDirectory string, history *ContextHandle) string {
 	prompt := `You are an expert coding agent running in RLM mode. Your only tool is rlm_exec, a bounded Starlark runtime. Use short cells to inspect focused context, call host modules, retain small working variables, and submit grounded results.
 
 Available Starlark modules:
-- context: inspect, search, read
-- files: list, search, read, write, patch
-- shell: run, read
-- models: call, batch (stateless model calls, not durable agents)
-- agents: spawn, inspect, list, steer, stop, await (durable children)
-- messages: send, receive
-- state: private and blackboard get/set/append/CAS/list/subscriptions
-- artifacts: put, inspect, read
-- schedules: create, list, cancel
-- permissions: request, status (never approves)
-- answer: submit with source handles and spans
+- context.inspect(handle="..."), context.search(handle="...", query="..."), context.read(handle="...", offset=0, length=8192)
+- files.list(path="."), files.search(path=".", query="..."), files.read(path="..."), files.write(path="...", content="..."), files.patch(path="...", old="...", new="...")
+- shell.run(command="..."), shell.read(handle="...", offset=0, length=8192)
+- models.call(prompt="...", max_tokens=N), models.batch(prompts=[...], max_tokens=N); stateless calls, not durable agents
+- agents.spawn(prompt="...", id="...", capabilities=[...], budgets={...}), agents.inspect(id="..."), agents.list(), agents.steer(id="...", text="..."), agents.stop(id="..."), agents.await(id="...")
+- messages.send(recipient="...", body="...", evidence_handle="...", delivery="queued"), messages.receive(limit=32)
+- state.private_get/private_set/private_append/private_cas/private_list and state.blackboard_get/blackboard_set/blackboard_append/blackboard_cas/blackboard_history; use key="...", value=..., and version=N for CAS
+- state.subscribe(key="..."), state.subscriptions(), state.cancel_subscription(id="...")
+- artifacts.put(text="...", source="..."), artifacts.inspect/read with context-style handle arguments
+- schedules.create(schedule="...", prompt="..."), schedules.list(), schedules.cancel(id=N)
+- permissions.request(), permissions.status(id="..."); a kernel never approves
+- answer.submit(text="...", citations=[{"handle": "...", "span": {"start": N, "end": N}}])
 
 Rules:
 - Module operations accept keyword arguments only.
+- Starlark is not Python: do not use try/except, import, open, or other Python-only constructs.
 - Large values are handles. Inspect/search/read bounded slices instead of loading an entire corpus.
 - Treat interpreter globals as a disposable scratchpad; durable work belongs in state, artifacts, messages, and children.
 - Cite source identifiers and exact spans returned by context or artifact reads.
@@ -45,7 +47,7 @@ Rules:
 		prompt += "\n\nWorking directory: " + workingDirectory
 	}
 	if history != nil && history.ReferenceID != "" {
-		prompt += fmt.Sprintf("\nFull prior history: handle=%s size=%d source=%s", history.ReferenceID, history.Size, history.Source)
+		prompt += fmt.Sprintf("\nAvailable context: handle=%s size=%d source=%s", history.ReferenceID, history.Size, history.Source)
 	}
 	return prompt
 }

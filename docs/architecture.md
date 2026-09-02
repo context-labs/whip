@@ -1,133 +1,157 @@
 # Architecture
 
-How a keystroke becomes a tool call. whip is a single Go binary with no
-framework between you and the code — each box below is one package under
-`internal/`.
+whip ships as one Go binary with three runtime roles: thin clients, one local
+daemon, and disposable RLM kernel workers. The process boundary matters more
+than the package boundary: only the daemon owns behavioral state and side
+effects.
 
 ## The moving parts
 
 ```mermaid
 flowchart TB
-    subgraph cmd["cmd/whip — main()"]
-        M[flag parsing, config load, wiring]
+    subgraph clients["protocol clients"]
+        TUI["tui: Bubble Tea presentation"]
+        RUN["whip run / sessions"]
+        ADAPTERS["MCP server / ACP adapter"]
     end
 
-    subgraph internal
-        TUI["tui<br/>bubbletea session, transcript,<br/>palette, status line"]
-        AGENT["agent<br/>Agent.Turn: the tool-use loop,<br/>compaction, subagents, todos"]
-        LLM["llm<br/>streaming OpenAI-compatible client,<br/>usage bookkeeping"]
-        TOOLS["tools<br/>bash, read, write, edit, suggest"]
-        CFG["config<br/>~/.whip/config.json, model catalog"]
-        SESS["session<br/>SQLite session store"]
-        MCP["mcp<br/>external MCP servers<br/>(3 config styles)"]
-        SKILLS["skills<br/>.agents/skills injection"]
-        LSP["lsp<br/>diagnostics after edits"]
-        MEM["memory<br/>markdown durable memory"]
-        BROWSER["browser<br/>Chrome via CDP / extension relay"]
-        COMPUTER["computer<br/>macOS desktop automation"]
-        SCHED["schedule<br/>@every / @at wakeups"]
+    RPC["daemon protocol: commands, events, replay, snapshots"]
+
+    subgraph owner["whip _daemon — sole runtime owner"]
+        DAEMON["daemon: root actors, command journal, scheduler"]
+        AGENT["agent: Classic loop or RLM root loop"]
+        RLM["rlm host: focused context, swarms, state"]
+        POLICY["capability dispatcher: identity, scope, budget, permission"]
+        STORE["session + content: SQLite metadata, immutable bodies"]
+        SERVICES["built-in tools / LSP / browser / computer"]
+        MCP["external MCP manager"]
     end
 
-    M --> TUI
-    TUI -->|user message, steers, interrupts| AGENT
-    AGENT -->|stream events, tool results| TUI
-    AGENT --> LLM
-    AGENT --> TOOLS
+    KERNEL["whip _kernel: bounded Starlark, no ambient authority"]
+    PROVIDER["OpenAI-compatible model provider"]
+
+    TUI <--> RPC
+    RUN <--> RPC
+    ADAPTERS <--> RPC
+    RPC <--> DAEMON
+    DAEMON <--> STORE
+    DAEMON --> AGENT
+    AGENT <--> PROVIDER
+    AGENT --> POLICY
     AGENT --> MCP
-    TOOLS --> LSP
-    TOOLS --> BROWSER
-    TOOLS --> COMPUTER
-    AGENT --> SESS
-    AGENT --> MEM
-    AGENT --> SKILLS
-    AGENT --> SCHED
-    AGENT --> CFG
-    LLM --> CFG
+    AGENT --> RLM <--> KERNEL
+    KERNEL -->|typed host requests| RLM
+    RLM --> POLICY --> SERVICES
 ```
 
-Dependencies point one way: `tui` owns the screen, `agent` owns the
-conversation, everything else is a leaf the agent calls. Nothing imports
-`tui` except `cmd/whip` — the loop is headless-testable, and `whip mcp serve`
-reuses the tools without a UI.
+The public clients do not open SQLite, construct an agent, call a provider,
+or invoke a concrete tool. They submit stable protocol commands and render
+authoritative events. The daemon owns one serialized actor mailbox per root,
+while different roots can progress concurrently.
+
+RLM and Classic differ only at the model-facing layer:
+
+- **RLM (default):** the model sees `rlm_exec`. A persistent but disposable
+  Starlark worker calls typed host modules; the daemon remains the source of
+  truth and the only authority.
+- **Classic:** `Agent.Turn` presents the familiar JSON tools directly. It
+  still uses the same daemon, command journal, dispatcher, store, process
+  manager, and event stream. It starts no kernel.
+
+See [rlm-runtime.md](rlm-runtime.md) for the module and operational contract.
 
 ## One turn, end to end
 
 ```mermaid
 sequenceDiagram
     actor You
-    participant TUI
-    participant Agent
-    participant LLM
-    participant Tools
-    participant DB as session (SQLite)
+    participant Client as TUI / run / ACP
+    participant Daemon
+    participant Root as root actor
+    participant Model
+    participant Kernel as RLM kernel (RLM only)
+    participant Policy as capability dispatcher
+    participant DB as journal + content
 
-    You->>TUI: type + enter
-    TUI->>Agent: Turn(user message)
-    Agent->>DB: append message
-    loop until model stops calling tools
-        Agent->>LLM: stream completion
-        LLM-->>TUI: tokens (live render)
-        LLM-->>Agent: tool calls
-        par per-path locked
-            Agent->>Tools: bash / read / write / edit
-            Tools-->>Agent: results (in call order)
-        end
-        Agent->>DB: append results
+    You->>Client: submit
+    Client->>Daemon: stable command id + last cursor
+    Daemon->>DB: admit once; assign ingress sequence
+    Daemon->>Root: enqueue command
+    Root->>Model: focused RLM or Classic request
+    opt RLM cell
+        Model->>Kernel: rlm_exec(Starlark)
+        Kernel->>Policy: bounded typed host calls
     end
-    Agent-->>TUI: turn done (usage, cost)
-    TUI-->>You: status line updates
+    opt Classic tool call
+        Model->>Policy: JSON tool request
+    end
+    Policy->>DB: validate, reserve, commit outcome
+    Root->>DB: commit turn + ordered events
+    Daemon-->>Client: stream events and stored command outcome
+    Client-->>You: render
 ```
 
 Key invariants:
 
-- **The loop is synchronous; concurrency is internal.** From the TUI's view a
-  turn is one call. Parallelism (fan-out tool calls, background subagents)
-  happens inside `agent` and reports back through typed events.
-  See [concurrency.md](concurrency.md).
-- **Steering happens at loop boundaries.** A message you send mid-turn is
-  queued and injected between iterations — never spliced into a half-streamed
-  completion.
-- **The provider is just an HTTP endpoint.** `llm` speaks OpenAI-compatible
-  chat completions with streaming; routing, discovery, and pricing live in
-  `config` + `~/.whip/models.json`. See [models-providers.md](models-providers.md).
+- **Admission precedes execution.** Stable command IDs make reconnect retries
+  idempotent; per-root ingress sequences define order.
+- **A client never owns a turn.** Closing the TUI or losing an ACP connection
+  does not cancel daemon work unless an explicit cancel command is admitted.
+- **One policy path owns built-in effects.** Classic built-ins and RLM file or
+  shell modules converge on the capability dispatcher, which revalidates
+  identity, grant, scope, path, budget, operation state, and any permission at
+  execution time. Durable state and child operations use root-actor APIs;
+  external MCP tools remain daemon-owned integrations.
+- **Large values are referenced.** SQLite holds metadata, grants, and small
+  values. Larger bodies are immutable content-addressed files and cross model,
+  worker, and protocol boundaries as bounded handles/excerpts.
+- **Recovery is conservative.** Committed results survive. Uncertain in-flight
+  effects become `interrupted` and are never automatically replayed.
+- **Rendering is replaceable.** Every client reaches `live` only after ordered
+  replay or an authoritative behavioral snapshot.
 
 ## Where things live on disk
 
 | Path | What | Format |
-|---|---|---|
-| `~/.whip/config.json` | providers, models, MCP, browser mode | JSON, hand-editable |
-| `~/.whip/sessions.db` | conversation history, tasks | SQLite |
-| `~/.whip/models.json` | provider `/models` catalog cache | JSON, 24h TTL |
-| `~/.whip/memory.md` | durable memory the model maintains | Markdown checkboxes |
-| `~/.whip/browser/extension/` | the Chrome extension for `browser.mode=extension` | unpacked extension |
-| `.agents/skills/` (repo) | project skills injected into sessions | Markdown `SKILL.md` |
-| `~/.agents/skills/` | user skills injected into sessions | Markdown `SKILL.md` |
-| `.mcp.json` (repo) | claude-style MCP servers | JSON |
+| --- | --- | --- |
+| `~/.whip/config.json` | provider, model, RLM, MCP, browser, and computer policy | JSON/JSONC |
+| `~/.whip/daemon.sock` | local owner-only protocol endpoint | Unix socket, `0600` |
+| `~/.whip/daemon.lock` | cross-process daemon ownership | advisory file lock |
+| `~/.whip/daemon.log` | detached daemon diagnostics | text, `0600` |
+| `~/.whip/sessions.db*` | durable runtime metadata and journal | SQLite WAL |
+| `~/.whip/artifacts/sha256/` | immutable large-value bodies | content-addressed files |
+| `~/.whip/models.json` | provider model-catalog cache | JSON |
+| `~/.whip/memory.md` | installation memory | Markdown checkboxes |
+| `.agents/skills/`, `~/.agents/skills/` | project and user skills | `SKILL.md` |
+| `.mcp.json` | project MCP servers | JSON |
 
-Everything is a file you can diff, grep, back up, or delete. There is no
-daemon, no hidden state directory schema, no lock file that outlives the
-process.
+`WHIP_HOME` replaces `~/.whip`, primarily for hermetic tests. If that path is
+too long for a Unix socket, the endpoint and lock move to an owner-specific,
+hashed directory under the system temp directory; durable data stays in
+`WHIP_HOME`.
 
 ## Package map
 
-| Package | One-liner |
-|---|---|
-| `internal/agent` | the tool-use loop: `Agent.Turn`, compaction, background subagents, todos |
-| `internal/llm` | streaming chat-completions client, usage/cost parsing |
-| `internal/tools` | bash, read, write, edit, suggest + tool schema definitions |
-| `internal/tui` | bubbletea session: transcript, input, palette, status line |
-| `internal/config` | config file, model catalog cache, provider resolution |
-| `internal/session` | SQLite persistence for conversations and tasks |
-| `internal/mcp` | MCP client: three config styles, lazy connect, auto-reconnect |
-| `internal/skills` | skill discovery and injection |
-| `internal/lsp` | gopls diagnostics surfaced to the model after edits |
-| `internal/browser` | Chrome automation: live attach, dedicated, headless, extension relay |
-| `internal/computer` | macOS computer-use: AX tree, screenshots, Chrome AppleScript |
-| `internal/memory` | markdown-file durable memory |
-| `internal/schedule` | `@every` / `@at` wakeups |
+| Package | Responsibility |
+| --- | --- |
+| `internal/daemon` | Unix protocol, auto-start/checkpoint replacement, root actors, reconnect/replay/snapshot clients, scheduler, service lifecycle |
+| `internal/session` | SQLite command/event/swarm/capability/budget/permission metadata and recovery transitions |
+| `internal/content` | immutable SHA-256 bodies outside SQLite |
+| `internal/capability` | shared admission dispatcher, workspace mutation ordering, and managed process ownership |
+| `internal/rlm` | bounded Starlark kernel/worker protocol, module registry, focused prompt/history helpers |
+| `internal/agent` | provider tool-use loop, compaction/decay, subagent machinery, todos |
+| `internal/tui` | presentation, input, reconnect state, event rendering, human permission UX |
+| `internal/llm` | OpenAI-compatible streaming/completion client and usage parsing |
+| `internal/tools` | concrete built-in tools and daemon-owned services |
+| `internal/mcp` | external MCP client manager and thin daemon-backed MCP server surface |
+| `internal/acp` | ACP translation over a reconnecting daemon root client |
+| `internal/lsp`, `internal/browser`, `internal/computer` | daemon-owned integration services |
+| `internal/skills`, `internal/memory`, `internal/schedule` | prompt inputs and durable scheduling helpers |
 
 ## Read next
 
-- [agent-loop.md](agent-loop.md) — the loop in detail
-- [concurrency.md](concurrency.md) — the channel patterns
+- [rlm-runtime.md](rlm-runtime.md) — modes, modules, limits, recovery, and operations
+- [agent-loop.md](agent-loop.md) — the Classic loop and RLM root loop
+- [concurrency.md](concurrency.md) — actor, channel, and process-lifetime rules
+- [tools.md](tools.md) — model-visible operations and shared dispatch
 - [features.md](features.md) — full feature map linked to code and tests
