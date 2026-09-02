@@ -2622,6 +2622,13 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// spraying the textarea; the real text is held in pasteBuf and swapped in
 	// at submit. Off by default — a paste you can't see is a paste you can't
 	// trust.
+	if msg.Paste {
+		if path, ok := pastedImagePath(string(msg.Runes)); ok {
+			// A macOS screenshot preview pastes a temporary file path. Copy it
+			// off the UI thread before the preview cleans the file up.
+			return m, func() tea.Msg { return pasteImageFileCmd(path) }
+		}
+	}
 	if msg.Paste && m.cfg != nil && m.cfg.CollapsePaste != nil && *m.cfg.CollapsePaste {
 		if n := strings.Count(string(msg.Runes), "\n"); n >= 2 {
 			m.pasteBuf = string(msg.Runes)
