@@ -508,6 +508,14 @@ relay: full device login + key mint, store round-trip, key validation),
 - **Mouse**: `/mouse` toggles capture; with capture off the terminal's native
   selection works, with it on shift-drag selects. `"mouse": false` in config
   disables capture at startup.
+- **Newline keys.** `ctrl+j` / `shift+enter` / `alt+enter` insert a newline
+  instead of submitting. At startup whip pushes the kitty keyboard-enhancement
+  flags (`CSI > 3 u`, DCS-passthrough-wrapped inside tmux) so terminals that
+  support it report shift+enter as a distinguishable CSI rather than a plain
+  CR — without the push, shift+enter IS enter in most terminals (and in tmux
+  without `extended-keys on`). bubbletea surfaces the sequence as an unknown
+  CSI and `isShiftEnterSeq` recognizes both its current `?CSI[bytes]?` render
+  and the legacy `unknown csi sequence:` form. The stack is popped on exit.
 - Queueing (enter while busy), steering (empty enter), history recall (↑/↓),
   `@file` mentions, `$skill` invocation, `/goal` loop, `/resume` session
   picker, `/effort` reasoning levels — see the roadmap for the full list.

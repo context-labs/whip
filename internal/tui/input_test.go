@@ -1,7 +1,10 @@
 package tui
 
 import (
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -17,8 +20,13 @@ func TestIsShiftEnterSeq(t *testing.T) {
 		"unknown csi sequence: 0x1b, '[', '2', '7', ';', '2', ';', '1', '3', '~'":      true,  // modifyOtherKeys
 		"unknown csi sequence: 0x1b, '[', 'five', 'seven', 'four', 'four', 'one', 'u'": true,  // kitty 57441u
 		"unknown csi sequence: 0x1b, '[', '1', ';', '2', 'A'":                          false, // shift+up
-		"a":     false,
-		"enter": false,
+		// current bubbletea v1.3.10 form: ?CSI[decimal byte values]?
+		"?CSI[49 51 59 50 117]?":          true,  // CSI 13;2u
+		"?CSI[50 55 59 50 59 49 51 126]?": true,  // CSI 27;2;13~
+		"?CSI[53 55 52 52 49 117]?":       true,  // CSI 57441u
+		"?CSI[49 59 50 65]?":              false, // shift+up (CSI 1;2A)
+		"a":                               false,
+		"enter":                           false,
 	} {
 		if got := isShiftEnterSeq(keyRunes(in)); got != want {
 			t.Errorf("isShiftEnterSeq(%q) = %v, want %v", in, got, want)
@@ -64,5 +72,44 @@ func TestCtrlAGoesToLineStart(t *testing.T) {
 	m = tm.(*model)
 	if got := m.input.LineInfo().CharOffset; got != 0 {
 		t.Fatalf("ctrl+a should go to line start, char offset = %d", got)
+	}
+}
+
+// Keyboard enhancement is what makes shift+enter distinguishable at all:
+// without the kitty flags push, the terminal (or tmux with extended-keys
+// off) reports shift+enter as a plain CR and whip can never see it. Pin the
+// escape sequence and that Run pushes/pops it.
+func TestKeyboardEnhancementEscapes(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	enableKeyboardEnhancement(w)
+	disableKeyboardEnhancement(w)
+	w.Close()
+	buf := make([]byte, 64)
+	_ = r.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _ := r.Read(buf)
+	got := string(buf[:n])
+	if !strings.Contains(got, "\x1b[>3u") {
+		t.Errorf("must push kitty disambiguate+event flags \\x1b[>3u, got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[<u") {
+		t.Errorf("must pop the keyboard stack \\x1b[<u, got %q", got)
+	}
+}
+
+// Run must push the enhancement before p.Run() (so the alt-screen entry can't
+// clobber it) and pop it after — a source-level pin guarding the wiring.
+func TestKeyboardEnhancementWiredIntoRun(t *testing.T) {
+	src, err := os.ReadFile("tui.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "enableKeyboardEnhancement(os.Stdout)") {
+		t.Error("Run must push keyboard enhancement at startup")
+	}
+	if !strings.Contains(string(src), "disableKeyboardEnhancement(os.Stdout)") {
+		t.Error("Run must pop keyboard enhancement on exit")
 	}
 }

@@ -506,6 +506,11 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		// re-toggling /mouse at runtime brought it back).
 		enableClickWheelMouse(os.Stdout)
 	}
+	// Push the kitty keyboard-enhancement flags so shift+enter arrives as a
+	// distinguishable CSI instead of a plain CR (see enableKeyboardEnhancement).
+	// Written before p.Run(): the kitty stack survives the alt-screen entry,
+	// and the matching pop on exit restores the terminal's prior flags.
+	enableKeyboardEnhancement(os.Stdout)
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
 	}
@@ -534,6 +539,8 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	if m.mouseOn {
 		disableClickWheelMouse(os.Stdout)
 	}
+	// Pop the keyboard-enhancement flags pushed at startup.
+	disableKeyboardEnhancement(os.Stdout)
 	// Shut MCP servers down first (graceful: stdin close → SIGTERM → SIGKILL)
 	// so a clean stdio server never becomes a KillAll target.
 	if m.mcpMgr != nil {
@@ -647,6 +654,39 @@ func enableClickWheelMouse(w *os.File) {
 // set, plus ?1000 defensively (an older whip or a downgrade may have left it).
 func disableClickWheelMouse(w *os.File) {
 	fmt.Fprint(w, "\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l")
+}
+
+// Keyboard enhancement: without it, shift+enter is indistinguishable from
+// enter (both send CR) — which is exactly Ruslan's "shift+enter still not
+// working". whip pushes the kitty progressive-enhancement flags
+// (disambiguate + report event types) so terminals that support it (kitty,
+// foot, Ghostty, WezTerm, tmux with extended-keys on, xterm with
+// modifyOtherKeys) report shift+enter as \x1b[13;2u / \x1b[27;2;13~, and
+// bubbletea surfaces it as an unknown CSI the matcher in isShiftEnterSeq
+// recognizes. Terminals without support ignore the push silently.
+//
+// The push happens BEFORE p.Run() so it survives the alt-screen entry (the
+// kitty stack is independent of ?1049); the pop restores the terminal's
+// prior flags on exit. Inside tmux the escape must reach the OUTER terminal,
+// so it's wrapped in DCS passthrough the same way the OSC 11 theme query is.
+func enableKeyboardEnhancement(w *os.File) {
+	fmt.Fprint(w, tmuxPassthrough("\x1b[>3u"))
+}
+
+// disableKeyboardEnhancement pops the flags enableKeyboardEnhancement pushed.
+func disableKeyboardEnhancement(w *os.File) {
+	fmt.Fprint(w, tmuxPassthrough("\x1b[<u"))
+}
+
+// tmuxPassthrough wraps an escape sequence in DCS passthrough when running
+// inside tmux (where the pane's own escape would be interpreted by tmux, not
+// forwarded to the outer terminal). Outside tmux the sequence is returned
+// unchanged.
+func tmuxPassthrough(seq string) string {
+	if !inTmuxEnv() {
+		return seq
+	}
+	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
 }
 
 // (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whip — tmux's
@@ -3069,20 +3109,23 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // shiftEnterRe matches the common shift+enter encodings bubbletea doesn't map
 // to a named key: CSI u (\x1b[13;2u), modifyOtherKeys (\x1b[27;2;13~), and
-// kitty's shifted CR (\x1b[57441u). KeyMsg.String() renders each byte of
-// unknown sequences quoted and comma-separated (digits as words), so we match
-// the rendered form loosely.
+// kitty's shifted CR (\x1b[57441u). Two rendered forms are matched: the
+// current bubbletea one (?CSI[decimal byte values]?) and the historical one
+// (unknown csi sequence: quoted bytes), so the binding survives either.
 var shiftEnterRe = regexp.MustCompile(
-	`'\[', '1', '3', ';', '2', 'u'` + // CSI 13;2u
-		`|'\[', '2', '7', ';', '2', ';', '1', '3', '~'` + // CSI 27;2;13~
-		`|'\[', 'five', 'seven', 'four', 'four', 'one', 'u'`,
-) // CSI 57441u
+	`\[49 51 59 50 117\]` + // ?CSI for CSI 13;2u
+		`|\[50 55 59 50 59 49 51 126\]` + // ?CSI for CSI 27;2;13~
+		`|\[53 55 52 52 49 117\]` + // ?CSI for CSI 57441u
+		`|'\[', '1', '3', ';', '2', 'u'` + // legacy: CSI 13;2u
+		`|'\[', '2', '7', ';', '2', ';', '1', '3', '~'` + // legacy: CSI 27;2;13~
+		`|'\[', 'five', 'seven', 'four', 'four', 'one', 'u'`, // legacy: CSI 57441u
+)
 
 // isShiftEnterSeq reports whether msg is a shift+enter sequence bubbletea
 // surfaced as an unknown/unmapped key.
 func isShiftEnterSeq(msg tea.KeyMsg) bool {
 	s := msg.String()
-	return strings.HasPrefix(s, "unknown csi sequence:") && shiftEnterRe.MatchString(s)
+	return (strings.HasPrefix(s, "?CSI[") || strings.HasPrefix(s, "unknown csi sequence:")) && shiftEnterRe.MatchString(s)
 }
 
 // nowFn returns the current time, honoring the test seam when set.
