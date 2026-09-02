@@ -34,5 +34,9 @@ func residentBytes(pid int) (uint64, error) {
 		return 0, syscall.EINVAL
 	}
 	pages, err := strconv.ParseUint(fields[1], 10, 64)
-	return pages * uint64(os.Getpagesize()), err
+	pageSize := os.Getpagesize()
+	if pageSize < 1 {
+		return 0, syscall.EINVAL
+	}
+	return pages * uint64(pageSize), err
 }
