@@ -770,8 +770,33 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 		calls = nil
 		msg.Content += "\n[response truncated by max_tokens; tool calls discarded]"
 	}
+	// Discard tool calls whose accumulated function.arguments never closed
+	// into a JSON object — a provider that emitted malformed arguments, or a
+	// stream that ended mid-call (a proxy closed the connection, no
+	// finish_reason). Strict providers validate incoming history and reject
+	// the whole request before the first token when an assistant tool_call
+	// carries malformed arguments, so persisting the call poisons the next
+	// turn. Drop just the malformed calls so valid siblings still execute,
+	// and note what was dropped — mirrors the max_tokens guard above.
+	kept := make([]ToolCall, 0, len(calls))
+	for _, tc := range calls {
+		if tc.Function.Arguments != "" && !validToolCallArgs(tc.Function.Arguments) {
+			msg.Content += fmt.Sprintf("\n[tool call %q discarded: arguments are invalid JSON]", tc.Function.Name)
+			continue
+		}
+		kept = append(kept, tc)
+	}
+	calls = kept
 	msg.ToolCalls = calls
 	return msg, usage, nil
+}
+
+// validToolCallArgs reports whether s is a JSON object — the shape providers
+// require for function.arguments. Empty arguments are treated as valid (a
+// no-argument call) and left for the tool layer to handle.
+func validToolCallArgs(s string) bool {
+	var obj map[string]any
+	return json.Unmarshal([]byte(s), &obj) == nil
 }
 
 // Complete sends a non-streaming chat request and returns the assistant text
