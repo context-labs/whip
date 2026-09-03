@@ -2788,6 +2788,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if isShiftEnterString(s.String()) {
 			return m.insertNewline()
 		}
+		// The kitty disambiguate flag whip pushes makes the terminal report
+		// EVERY modified ASCII key as CSI u (ctrl+a → CSI 97;5u, esc → CSI
+		// 27u), which bubbletea v1 can't decode — so outside tmux ctrl+a/e/c
+		// were all eaten. Decode those back into the KeyMsg bubbletea would
+		// have produced for the legacy byte. (tmux normalizes them itself.)
+		if k, ok := csiUKey(s.String()); ok {
+			m.sel = nil
+			return m.key(k)
+		}
 	}
 
 	var cmd tea.Cmd
@@ -3306,6 +3315,77 @@ func isShiftEnterSeq(msg tea.KeyMsg) bool {
 // binding actually fire.
 func isShiftEnterString(s string) bool {
 	return (strings.HasPrefix(s, "?CSI[") || strings.HasPrefix(s, "unknown csi sequence:")) && shiftEnterRe.MatchString(s)
+}
+
+// csiURe matches bubbletea's rendered unknown-CSI form ("?CSI[49 51 59 50
+// 117]?" — decimal byte values after ESC[) so the bytes can be recovered.
+var csiURe = regexp.MustCompile(`^\?CSI\[([0-9 ]+)\]\?$`)
+
+// csiUKey decodes a kitty/CSI-u key report — CSI <code>[:alt]* [; <mods>] u —
+// into the tea.KeyMsg bubbletea would have produced for the legacy encoding.
+// Only what the disambiguate flag can emit for ASCII keys: esc, and printable
+// keys with shift/alt/ctrl. Anything else reports false and stays dropped.
+func csiUKey(rendered string) (tea.KeyMsg, bool) {
+	mm := csiURe.FindStringSubmatch(rendered)
+	if mm == nil {
+		return tea.KeyMsg{}, false
+	}
+	var b []byte
+	for f := range strings.FieldsSeq(mm[1]) {
+		n, err := strconv.ParseUint(f, 10, 8)
+		if err != nil {
+			return tea.KeyMsg{}, false
+		}
+		b = append(b, byte(n))
+	}
+	if len(b) == 0 || b[len(b)-1] != 'u' {
+		return tea.KeyMsg{}, false
+	}
+	codeStr, modStr, _ := strings.Cut(string(b[:len(b)-1]), ";")
+	codeStr, _, _ = strings.Cut(codeStr, ":") // drop kitty alternate-key sub-params
+	code, err := strconv.Atoi(codeStr)
+	if err != nil {
+		return tea.KeyMsg{}, false
+	}
+	mods := 1
+	if modStr != "" {
+		modStr, _, _ = strings.Cut(modStr, ":") // drop event-type sub-param
+		if mods, err = strconv.Atoi(modStr); err != nil {
+			return tea.KeyMsg{}, false
+		}
+	}
+	mods--
+	shift, alt, ctrl := mods&1 != 0, mods&2 != 0, mods&4 != 0
+	switch {
+	case code == 27:
+		return tea.KeyMsg{Type: tea.KeyEsc, Alt: alt}, true
+	case code == 13 && !ctrl:
+		return tea.KeyMsg{Type: tea.KeyEnter, Alt: alt}, true
+	case code == 9 && !ctrl:
+		return tea.KeyMsg{Type: tea.KeyTab, Alt: alt}, true
+	case code == 127 && !ctrl:
+		return tea.KeyMsg{Type: tea.KeyBackspace, Alt: alt}, true
+	case code < 32 || code > 126:
+		return tea.KeyMsg{}, false
+	}
+	r := rune(code)
+	if ctrl {
+		if r >= 'a' && r <= 'z' {
+			r -= 'a' - 'A'
+		}
+		if r < '@' || r > '_' {
+			return tea.KeyMsg{}, false
+		}
+		// ctrl+letter is the C0 byte: bubbletea's KeyCtrlA..Z are 1..26.
+		return tea.KeyMsg{Type: tea.KeyType(r & 0x1f), Alt: alt}, true
+	}
+	if shift && r >= 'a' && r <= 'z' {
+		r -= 'a' - 'A'
+	}
+	if r == ' ' {
+		return tea.KeyMsg{Type: tea.KeySpace, Alt: alt}, true
+	}
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: alt}, true
 }
 
 // insertNewline splits the input at the cursor, the shared path for ctrl+j /
