@@ -428,7 +428,7 @@ func TestBackgroundTaskSubscriberSeesToolEvents(t *testing.T) {
 
 	var mu sync.Mutex
 	var seq []string
-	_, _, ok := ag.Tasks().SubscribeWithJournal(task.ID, Events{
+	replay, _, ok := ag.Tasks().SubscribeWithJournal(task.ID, Events{
 		OnText:      func(s string) { mu.Lock(); seq = append(seq, "text:"+s); mu.Unlock() },
 		OnToolStart: func(_, n, _ string) { mu.Lock(); seq = append(seq, "start:"+n); mu.Unlock() },
 		OnToolEnd:   func(_, n, r string) { mu.Lock(); seq = append(seq, "end:"+n+":"+r); mu.Unlock() },
@@ -436,6 +436,21 @@ func TestBackgroundTaskSubscriberSeesToolEvents(t *testing.T) {
 	if !ok {
 		t.Fatal("SubscribeWithJournal on a running task should report live")
 	}
+	// A subscriber sees the stream as journal replay + live events: whatever
+	// fired before the subscription attached is in replay (the sub may have
+	// already run its tool by now on a loaded CI box), the rest arrives live.
+	mu.Lock()
+	for _, e := range replay {
+		switch e.Kind {
+		case 0:
+			seq = append(seq, "text:"+e.S)
+		case 1:
+			seq = append(seq, "start:"+e.S)
+		case 2:
+			seq = append(seq, "end:"+e.S+":"+e.S2)
+		}
+	}
+	mu.Unlock()
 	select {
 	case <-task.Done:
 	case <-time.After(5 * time.Second):
