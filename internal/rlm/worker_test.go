@@ -8,6 +8,8 @@ import (
 	"math"
 	"math/big"
 	"runtime/debug"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -247,3 +249,118 @@ func TestRLMToolValidatesArgumentsAndRunsKernel(t *testing.T) {
 type errorWriter struct{}
 
 func (errorWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
+
+func TestWorkerSnapshotAndRestoreScratch(t *testing.T) {
+	w, _ := newUnitWorker("")
+	w.frameBytes = 8 << 20
+	w.installModules()
+	cells := []string{
+		"n = 42\nbig = 1 << 100\nf = 1.5\ns = \"héllo\\n\"\nb = bytes(\"raw\")\nlst = [1, \"two\", [3.0, None], {\"k\": (1, 2)}]\nalias = lst\ntup = (1, 2, 3)\nd = {\"a\": 1, 7: \"int key\", (1, 2): \"tuple key\"}\ndef add(a, b=2):\n    \"\"\"adds\"\"\"\n    return a + b\ndef make_adder(k):\n    def inner(x):\n        return x + k\n    return inner\nplus3 = make_adder(3)\nsq = lambda x: x * x\n",
+		"selfref = [1]\nselfref.append(selfref)\ndef uses_n():\n    return n\n",
+	}
+	for index, cell := range cells {
+		if result := w.evaluate(cell); result.Error != "" {
+			t.Fatalf("cell %d: %s", index, result.Error)
+		}
+	}
+	program, manifest := w.buildSnapshot()
+	for _, name := range []string{"n", "big", "f", "s", "b", "lst", "alias", "tup", "d", "add", "make_adder", "sq", "uses_n"} {
+		if !slices.Contains(manifest.Saved, name) {
+			t.Fatalf("%s missing from snapshot: %+v\n%s", name, manifest, program)
+		}
+	}
+	skipped := map[string]string{}
+	for _, item := range manifest.Skipped {
+		skipped[item.Name] = item.Reason
+	}
+	if skipped["plus3"] != "closure" || skipped["selfref"] != "self-referential value" || len(skipped) != 2 {
+		t.Fatalf("skipped = %+v", manifest.Skipped)
+	}
+	for module := range moduleRegistry {
+		if strings.Contains(program, module+" = ") {
+			t.Fatalf("host module %s entered the snapshot:\n%s", module, program)
+		}
+	}
+	if again, _ := w.buildSnapshot(); again != program {
+		t.Fatal("snapshot is not deterministic")
+	}
+
+	fresh, _ := newUnitWorker("")
+	fresh.frameBytes = 8 << 20
+	fresh.installModules()
+	report := fresh.applySnapshot(program)
+	if len(report.Failed) != 0 || len(report.Restored) != len(manifest.Saved) {
+		t.Fatalf("restore report = %+v", report)
+	}
+	check := fresh.evaluate(`n == 42 and big == 1 << 100 and f == 1.5 and s == "héllo\n" and b == bytes("raw") and lst == [1, "two", [3.0, None], {"k": (1, 2)}] and tup == (1, 2, 3) and d[7] == "int key" and d[(1, 2)] == "tuple key" and add(1) == 3 and sq(4) == 16 and uses_n() == 42 and type(tup) == "tuple" and type(b) == "bytes"`)
+	if check.Error != "" || check.Value != true {
+		t.Fatalf("restored values differ: %+v", check)
+	}
+	if aliasCheck := fresh.evaluate("lst.append(9)\nalias[-1]"); aliasCheck.Error != "" || aliasCheck.Value != int64(9) {
+		t.Fatalf("alias identity lost on restore: %+v", aliasCheck)
+	}
+	if hostCheck := fresh.evaluate("type(files.read)"); hostCheck.Error != "" || hostCheck.Value != "builtin_function_or_method" {
+		t.Fatalf("host modules missing after restore: %+v", hostCheck)
+	}
+}
+
+func TestWorkerRestoreIsolatesFailuresAndDeniesHostCalls(t *testing.T) {
+	w, _ := newUnitWorker("")
+	w.installModules()
+	report := w.applySnapshot("good = 1\nbad = undefined_name\ndef f(x=files.read(path=\"a\")):\n    return x\nalso = 2\n")
+	if !slices.Equal(report.Restored, []string{"good", "also"}) {
+		t.Fatalf("restored = %+v", report)
+	}
+	if len(report.Failed) != 2 || report.Failed[0].Name != "bad" || report.Failed[1].Name != "f" || !strings.Contains(report.Failed[1].Reason, "host calls are unavailable") {
+		t.Fatalf("failed = %+v", report.Failed)
+	}
+	if check := w.evaluate("good + also"); check.Error != "" || check.Value != int64(3) {
+		t.Fatalf("surviving bindings = %+v", check)
+	}
+	if check := w.evaluate("files.read(path='x')"); check.Error == "" || strings.Contains(check.Error, "unavailable while scratch") {
+		t.Fatalf("host calls stayed disabled after restore: %+v", check)
+	}
+}
+
+func TestWorkerSnapshotCapsAndNonFiniteFloats(t *testing.T) {
+	w, _ := newUnitWorker("")
+	w.installModules()
+	if result := w.evaluate("huge = 'x' * " + strconv.Itoa(snapshotVariableBytes+1) + "\nnan = float('nan')\nsmall = 1\n"); result.Error != "" {
+		t.Fatal(result.Error)
+	}
+	program, manifest := w.buildSnapshot()
+	skipped := map[string]string{}
+	for _, item := range manifest.Skipped {
+		skipped[item.Name] = item.Reason
+	}
+	if skipped["huge"] != "exceeds per-variable cap" || skipped["nan"] != "non-finite float" || !slices.Equal(manifest.Saved, []string{"small"}) {
+		t.Fatalf("manifest = %+v", manifest)
+	}
+	if strings.Contains(program, "huge") || manifest.Bytes != len(program) {
+		t.Fatalf("program = %q bytes=%d", program, manifest.Bytes)
+	}
+}
+
+// Each REPL chunk owns its global slots, so a helper keeps the binding it was
+// compiled against. A restore runs one program and unifies them.
+func TestWorkerCrossChunkBindingQuirkUnifiesOnRestore(t *testing.T) {
+	w, _ := newUnitWorker("")
+	w.installModules()
+	for _, cell := range []string{"n = 42\ndef get_n():\n    return n\n", "n = 50\n"} {
+		if result := w.evaluate(cell); result.Error != "" {
+			t.Fatal(result.Error)
+		}
+	}
+	if live := w.evaluate("get_n()"); live.Value != int64(42) {
+		t.Fatalf("live binding = %+v (quirk changed; update the doctrine)", live)
+	}
+	program, _ := w.buildSnapshot()
+	fresh, _ := newUnitWorker("")
+	fresh.installModules()
+	if report := fresh.applySnapshot(program); len(report.Failed) != 0 {
+		t.Fatalf("restore = %+v", report)
+	}
+	if restored := fresh.evaluate("get_n()"); restored.Value != int64(50) {
+		t.Fatalf("restored binding = %+v", restored)
+	}
+}

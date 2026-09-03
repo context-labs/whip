@@ -32,7 +32,8 @@ func completionTable() []cand {
 // sensibly with no arguments); others insert themselves for arguments.
 var execNow = map[string]bool{
 	"/clear": true, "/compact": true, "/computer-use": true, "/computer": true, "/context-doctor": true, "/effort": true, "/goal": true, "/goal-from-context": true, "/help": true,
-	"/mcp": true, "/model": true, "/mouse": true, "/pwd": true, "/quit": true, "/report": true, "/resume": true, "/subagents": true, "/tasks": true,
+	"/agents": true, "/mcp": true, "/model": true, "/mouse": true, "/pwd": true, "/quit": true, "/report": true, "/resume": true,
+	"/ui-mode": true,
 }
 
 // completions splits val into an untouched head and candidates for its last
@@ -41,6 +42,11 @@ var execNow = map[string]bool{
 // $skills and @files complete on later lines too. nil efforts uses the
 // default /effort candidates.
 func completions(val string, models, providers, skillCands, efforts []cand) (head string, cands []cand) {
+	root, _ := currentRoot()
+	return completionsAtRoot(root, val, models, providers, skillCands, efforts)
+}
+
+func completionsAtRoot(root, val string, models, providers, skillCands, efforts []cand) (head string, cands []cand) {
 	if efforts == nil {
 		efforts = effortCands
 	}
@@ -67,17 +73,17 @@ func completions(val string, models, providers, skillCands, efforts []cand) (hea
 		// dot) complete like paths; bare words fuzzy-match the recursive
 		// index so "@roadmap" finds docs/roadmap.md without the full path.
 		if q := token[1:]; isPathQuery(q) {
-			for _, c := range mentionPathMatches(q) {
+			for _, c := range mentionPathMatchesAtRoot(root, q) {
 				cands = append(cands, cand{"@" + c.Text, c.Desc})
 			}
 		} else {
-			for _, f := range fuzzyFiles(q, menuRows) {
+			for _, f := range fuzzyFilesAt(root, q, menuRows) {
 				cands = append(cands, cand{"@" + f, ""})
 			}
 		}
 	case strings.HasPrefix(val, "/"): // other slash-command args: nothing to complete
 	default:
-		cands = pathMatches(token)
+		cands = pathMatchesAtRoot(root, token)
 	}
 	sort.Slice(cands, func(a, b int) bool { return cands[a].Text < cands[b].Text })
 	return head, cands
@@ -129,11 +135,15 @@ func isPathQuery(q string) bool {
 // joined to the root and returned root-relative, with dirs keeping their
 // trailing slash.
 func mentionPathMatches(q string) []cand {
+	root, _ := currentRoot()
+	return mentionPathMatchesAtRoot(root, q)
+}
+
+func mentionPathMatchesAtRoot(root, q string) []cand {
 	if filepath.IsAbs(q) || q == "~" || strings.HasPrefix(q, "~/") {
 		return pathMatches(q)
 	}
-	root, err := currentRoot()
-	if err != nil {
+	if root == "" {
 		return nil
 	}
 	var out []cand
@@ -167,4 +177,21 @@ func pathMatches(prefix string) []cand {
 		}
 	}
 	return out
+}
+
+func pathMatchesAtRoot(root, prefix string) []cand {
+	if root == "" || filepath.IsAbs(prefix) || prefix == "~" || strings.HasPrefix(prefix, "~/") {
+		return pathMatches(prefix)
+	}
+	matches := pathMatches(filepath.Join(root, prefix))
+	for i := range matches {
+		directory := strings.HasSuffix(matches[i].Text, "/")
+		if relative, err := filepath.Rel(root, strings.TrimSuffix(matches[i].Text, "/")); err == nil {
+			matches[i].Text = filepath.ToSlash(relative)
+			if directory {
+				matches[i].Text += "/"
+			}
+		}
+	}
+	return matches
 }

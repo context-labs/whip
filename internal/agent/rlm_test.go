@@ -10,7 +10,10 @@ import (
 )
 
 func TestExclusiveToolSurfaceCannotBeWidenedByMCP(t *testing.T) {
-	agent := New(llm.New("https://example.test", "key"), "model", 100, "system")
+	agent := NewRuntime(llm.New("https://example.test", "key"), "model", 100, "system", tools.NewServices())
+	if len(agent.AllTools()) != 0 {
+		t.Fatal("runtime constructor chose a model-facing tool surface")
+	}
 	runtimeTool := tools.Tool{Def: llm.NewTool("rlm_exec", "runtime", `{}`), Run: func(context.Context, json.RawMessage) (string, error) { return "", nil }}
 	agent.SetExclusiveTool(runtimeTool, "rlm")
 	agent.SetMCPTools([]tools.Tool{{Def: llm.NewTool("ambient", "bad", `{}`)}})
@@ -19,8 +22,4 @@ func TestExclusiveToolSurfaceCannotBeWidenedByMCP(t *testing.T) {
 		t.Fatalf("exclusive tools = %#v", all)
 	}
 
-	classic := New(llm.New("https://example.test", "key"), "model", 100, "system")
-	if len(classic.AllTools()) < 2 {
-		t.Fatal("Classic tool surface unexpectedly empty")
-	}
 }

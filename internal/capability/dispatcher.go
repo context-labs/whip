@@ -62,8 +62,8 @@ type Reference struct {
 	Generation int64
 }
 
-// ClassicAuthority is the root agent's compatibility-tool authority.
-type ClassicAuthority struct {
+// Authority is one agent's dispatcher identity and capability references.
+type Authority struct {
 	RootID  string
 	AgentID string
 	Files   Reference

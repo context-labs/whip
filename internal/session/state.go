@@ -444,22 +444,23 @@ func (s *Store) enqueueSubscriptionWakesTx(ctx context.Context, tx *sql.Tx, root
 	if err := rows.Close(); err != nil {
 		return err
 	}
+	stamp := now()
 	for _, target := range targets {
-		payload, err := json.Marshal(BlackboardWake{SubscriptionID: target.id, Key: key, Version: version, AuthorAgentID: authorAgentID})
-		if err != nil {
-			return err
+		// The subscriber's own write is not news to it. Everyone else gets one
+		// runtime-authored message per subscription, replaced in place while
+		// it is still pending so a hot key cannot flood the mailbox.
+		if target.agentID != authorAgentID {
+			payload, err := json.Marshal(BlackboardWake{SubscriptionID: target.id, Key: key, Version: version, AuthorAgentID: authorAgentID})
+			if err != nil {
+				return err
+			}
+			if _, err := s.insertMailboxMessageTx(ctx, tx, rootID, authorAgentID, target.agentID, MailboxSend{
+				Kind: MessageKindStateChanged, Delivery: MessageDeliveryQueued, Subject: key, Body: string(payload), UpsertKey: target.id,
+			}, stamp); err != nil {
+				return err
+			}
 		}
-		prepared, err := s.prepareRuntimeValue(RuntimePayload{Data: payload, MediaType: "application/json", Source: "blackboard subscription wake"}, ContentGrant{
-			RootID: rootID, AgentID: target.agentID, Scope: ContentGrantAgent,
-		})
-		if err != nil {
-			return err
-		}
-		if _, err := s.enqueueInboxTx(ctx, tx, InboxEnqueue{RootID: rootID, AgentID: target.agentID, Kind: "subscription"}, prepared,
-			"subscription.wake.queued", actorEvent{SenderAgentID: authorAgentID, SubscriptionID: target.id, Key: key, Version: version}); err != nil {
-			return err
-		}
-		result, err := tx.ExecContext(ctx, `UPDATE subscriptions SET cursor=?,updated_at=? WHERE root_id=? AND id=? AND status='active' AND cursor<?`, version, now(), rootID, target.id, version)
+		result, err := tx.ExecContext(ctx, `UPDATE subscriptions SET cursor=?,updated_at=? WHERE root_id=? AND id=? AND status='active' AND cursor<?`, version, stamp, rootID, target.id, version)
 		if err != nil {
 			return err
 		}
@@ -471,6 +472,27 @@ func (s *Store) enqueueSubscriptionWakesTx(ctx context.Context, tx *sql.Tx, root
 		}
 	}
 	return nil
+}
+
+// SubscribedAgents lists live agents holding an active subscription on key,
+// so the daemon can wake them after a blackboard mutation commits.
+func (s *Store) SubscribedAgents(ctx context.Context, rootID, key string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT s.agent_id FROM subscriptions s JOIN agents a ON a.root_id=s.root_id AND a.id=s.agent_id
+		WHERE s.root_id=? AND s.key=? AND s.status='active'
+		AND a.status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded') ORDER BY s.agent_id`, rootID, key)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func loadActiveSubscriptionTx(ctx context.Context, tx *sql.Tx, rootID, agentID, key string) (BlackboardSubscription, error) {

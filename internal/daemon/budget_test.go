@@ -25,13 +25,13 @@ func TestBudgetCommandsRouteThroughRealSessionActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := root.AdmitChild(ctx, root.authority.AgentID, "parent", "exec-parent", session.BudgetLimit{Kind: session.BudgetTokens, Limit: 10}); err != nil {
+	if err := root.AdmitAgent(ctx, session.AgentAdmission{ParentAgentID: root.authority.AgentID, ChildAgentID: "parent", Name: "parent", Budgets: []session.BudgetLimit{{Kind: session.BudgetTokens, Limit: 10}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := root.AdmitChild(ctx, root.authority.AgentID, "unrelated", "exec-unrelated"); err != nil {
+	if err := root.AdmitAgent(ctx, session.AgentAdmission{ParentAgentID: root.authority.AgentID, ChildAgentID: "unrelated", Name: "unrelated"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := root.AdmitChild(ctx, "parent", "target", "exec-target", session.BudgetLimit{Kind: session.BudgetTokens, Limit: 8}); err != nil {
+	if err := root.AdmitAgent(ctx, session.AgentAdmission{ParentAgentID: "parent", ChildAgentID: "target", Name: "target", Budgets: []session.BudgetLimit{{Kind: session.BudgetTokens, Limit: 8}}}); err != nil {
 		t.Fatal(err)
 	}
 	state, err := root.CapBudget(ctx, "parent", "target", session.BudgetTokens, 4)

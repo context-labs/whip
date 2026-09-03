@@ -47,6 +47,16 @@ var fileRefRE = regexp.MustCompile(
 // handled after rendering instead. Extensionless and bare single-letter-ext
 // matches are ignored — prose, not file refs.
 func linkifyFilePaths(s string, exists func(string) bool) string {
+	return linkifyFilePathsWith(s, exists, absFileURI)
+}
+
+func linkifyFilePathsAt(s, root string) string {
+	return linkifyFilePathsWith(s, func(path string) bool { return realFileExistsAt(root, path) }, func(path, line string) string {
+		return absFileURIAt(root, path, line)
+	})
+}
+
+func linkifyFilePathsWith(s string, exists func(string) bool, uri func(string, string) string) string {
 	return replaceMatches(s, fileRefRE, func(m string, before byte) string {
 		// Skip markdown link internals, URL tails, code spans, quotes. A
 		// parenthesized path in prose — "(see tui.go)" — is not linkified:
@@ -60,7 +70,7 @@ func linkifyFilePaths(s string, exists func(string) bool) string {
 		if !isFileRef(path) || !exists(path) {
 			return m
 		}
-		return hyperlink(absFileURI(path, line), m)
+		return hyperlink(uri(path, line), m)
 	})
 }
 
@@ -114,12 +124,19 @@ func replaceMatches(s string, re *regexp.Regexp, fn func(m string, before byte) 
 // realFileExists stats path relative to the process working directory (whip
 // runs at the project root) and reports whether it is a regular file.
 func realFileExists(path string) bool {
+	return realFileExistsAt("", path)
+}
+
+func realFileExistsAt(root, path string) bool {
 	if !filepath.IsAbs(path) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return false
+		if root == "" {
+			var err error
+			root, err = os.Getwd()
+			if err != nil {
+				return false
+			}
 		}
-		path = filepath.Join(wd, path)
+		path = filepath.Join(root, path)
 	}
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
@@ -148,12 +165,19 @@ func isDigits(s string) bool {
 // URI path: handlers that understand it jump to the line, the rest still
 // open the file or its directory. Returns "" only when the CWD is unknown.
 func absFileURI(path, line string) string {
+	return absFileURIAt("", path, line)
+}
+
+func absFileURIAt(root, path, line string) string {
 	if !filepath.IsAbs(path) {
-		wd, err := os.Getwd()
-		if err != nil {
-			return ""
+		if root == "" {
+			var err error
+			root, err = os.Getwd()
+			if err != nil {
+				return ""
+			}
 		}
-		path = filepath.Join(wd, path)
+		path = filepath.Join(root, path)
 	}
 	if line != "" {
 		path += ":" + line
@@ -302,6 +326,10 @@ func gapOK(gap string) bool {
 // place. Hrefs that don't map to a clickable target (anchors, missing files)
 // keep glamour's plain output.
 func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
+	return hyperlinkGlamourLinksWith(s, exists, absFileURI)
+}
+
+func hyperlinkGlamourLinksWith(s string, exists func(string) bool, uri func(string, string) string) string {
 	atoms := parseLinkAtoms(s)
 	if len(atoms) == 0 {
 		return s
@@ -324,8 +352,8 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 			sb.WriteString(h.text)
 		}
 		hrefText := sb.String()
-		uri := targetURI(hrefText, exists)
-		if uri == "" {
+		target := targetURIWith(hrefText, exists, uri)
+		if target == "" {
 			continue // leave glamour's output untouched
 		}
 		if !g.hasLabel {
@@ -334,7 +362,7 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 			// click target is the whole URL, not a fragment.
 			var out strings.Builder
 			for _, h := range g.hrefs {
-				out.WriteString(hyperlink(uri, h.sgr+h.text+sgrReset))
+				out.WriteString(hyperlink(target, h.sgr+h.text+sgrReset))
 			}
 			repls = append(repls, repl{g.start, g.end, out.String()})
 			continue
@@ -344,7 +372,7 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 		for _, l := range g.labels {
 			label.WriteString(l.sgr + l.text + sgrReset)
 		}
-		repls = append(repls, repl{g.start, g.end, hyperlink(uri, label.String())})
+		repls = append(repls, repl{g.start, g.end, hyperlink(target, label.String())})
 	}
 
 	// Splice replacements back, copying untouched regions verbatim.
@@ -407,6 +435,10 @@ func scanAtom(s string, start int, sgr string) (end int, text string) {
 // preceding-byte skips apply (ESC from styling, hrefs already handled by
 // hyperlinkGlamourLinks).
 func linkifyRenderedFilePaths(s string, exists func(string) bool) string {
+	return linkifyRenderedFilePathsWith(s, exists, absFileURI)
+}
+
+func linkifyRenderedFilePathsWith(s string, exists func(string) bool, uri func(string, string) string) string {
 	return replaceMatches(s, fileRefRE, func(m string, before byte) string {
 		if before == 0x1b || strings.ContainsRune("([]/:;\"`m", rune(before)) {
 			// ESC or 'm': inside an SGR/OSC 8 sequence (an atom's text starts
@@ -418,7 +450,7 @@ func linkifyRenderedFilePaths(s string, exists func(string) bool) string {
 		if !exists(path) {
 			return m
 		}
-		return hyperlink(absFileURI(path, line), m)
+		return hyperlink(uri(path, line), m)
 	})
 }
 
@@ -426,6 +458,10 @@ func linkifyRenderedFilePaths(s string, exists func(string) bool) string {
 // through; existing local files become file://; anything else (anchors,
 // missing files) returns "" so the caller keeps the unlinked rendering.
 func targetURI(dest string, exists func(string) bool) string {
+	return targetURIWith(dest, exists, absFileURI)
+}
+
+func targetURIWith(dest string, exists func(string) bool, uri func(string, string) string) string {
 	low := strings.ToLower(dest)
 	if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") ||
 		strings.HasPrefix(low, "mailto:") || strings.HasPrefix(low, "file://") {
@@ -445,7 +481,7 @@ func targetURI(dest string, exists func(string) bool) string {
 	}
 	for _, c := range candidates {
 		if exists(c) {
-			return absFileURI(c, line)
+			return uri(c, line)
 		}
 	}
 	return ""

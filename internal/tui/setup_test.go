@@ -3,8 +3,6 @@ package tui
 import (
 	"bufio"
 	"bytes"
-	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -97,34 +95,11 @@ func TestWizardThinkingOff(t *testing.T) {
 	}
 }
 
-// TestWizardProviderOpenRouterBadKey pins that a rejected key doesn't wedge
-// install and doesn't register the provider.
-func TestWizardProviderOpenRouterBadKey(t *testing.T) {
-	orig := openRouterValidate
-	openRouterValidate = func(ctx context.Context, key string) (int, error) {
-		return 0, errors.New("401 unauthorized")
-	}
-	t.Cleanup(func() { openRouterValidate = orig })
-
-	saved := driveWizard(t, "2\nnot-a-real-key\n\nn\nn\n") //nolint:dupword // scripted answers, one per question
-	if _, ok := saved.Providers["openrouter"]; ok {
-		t.Fatal("a rejected key must not register the provider")
-	}
-}
-
-// TestWizardProviderOpenRouterGoodKey pins the happy path: a validated key
-// registers the provider (with the literal key) and the wizard continues.
-func TestWizardProviderOpenRouterGoodKey(t *testing.T) {
-	orig := openRouterValidate
-	openRouterValidate = func(ctx context.Context, key string) (int, error) {
-		return 42, nil
-	}
-	t.Cleanup(func() { openRouterValidate = orig })
-
+func TestWizardProviderOpenRouterStoresKeyWithoutConstructingProvider(t *testing.T) {
 	saved := driveWizard(t, "2\nsk-or-good\n\nn\nn\n") //nolint:dupword // scripted answers, one per question
 	p, ok := saved.Providers["openrouter"]
 	if !ok {
-		t.Fatal("a validated key should register openrouter")
+		t.Fatal("the key should register openrouter")
 	}
 	if p.APIKey != "sk-or-good" {
 		t.Fatalf("provider key = %q", p.APIKey)

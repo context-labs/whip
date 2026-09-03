@@ -79,7 +79,13 @@ type RuntimeAgent struct {
 	ID              string
 	RootID          string
 	ParentID        string
+	Name            string
+	Model           string
+	Provider        string
+	Effort          string
+	CWD             string
 	Status          string
+	PendingMail     int
 	LifecyclePhase  string
 	BlockingReason  string
 	TerminalCause   string
@@ -142,59 +148,74 @@ type ScheduleFireClaim struct {
 	TraceID          string
 }
 
-type actorEvent struct {
-	AgentID          string  `json:"agent_id,omitempty"`
-	SenderAgentID    string  `json:"sender_agent_id,omitempty"`
-	InboxSeq         int64   `json:"inbox_seq,omitempty"`
-	InboxKind        string  `json:"inbox_kind,omitempty"`
-	Delivery         string  `json:"delivery,omitempty"`
-	Status           string  `json:"status,omitempty"`
-	CommandClientID  string  `json:"command_client_id,omitempty"`
-	CommandID        string  `json:"command_id,omitempty"`
-	OperationID      string  `json:"operation_id,omitempty"`
-	TraceID          string  `json:"trace_id,omitempty"`
-	ScheduleID       int     `json:"schedule_id,omitempty"`
-	Slot             string  `json:"slot,omitempty"`
-	Error            string  `json:"error,omitempty"`
-	Acknowledged     []int64 `json:"acknowledged_inbox,omitempty"`
-	TaskID           string  `json:"task_id,omitempty"`
-	ChildExecutionID string  `json:"child_execution_id,omitempty"`
-	SubscriptionID   string  `json:"subscription_id,omitempty"`
-	Key              string  `json:"key,omitempty"`
-	Version          int64   `json:"version,omitempty"`
-	ExpectedVersion  int64   `json:"expected_version,omitempty"`
-	Attempt          string  `json:"attempt,omitempty"`
-	BudgetKind       string  `json:"budget_kind,omitempty"`
-	Amount           int64   `json:"amount,omitempty"`
-	Limit            int64   `json:"limit,omitempty"`
-	Used             int64   `json:"used,omitempty"`
-	Reserved         int64   `json:"reserved,omitempty"`
-	CapabilityID     string  `json:"capability_id,omitempty"`
-	Generation       int64   `json:"generation,omitempty"`
-	PermissionID     string  `json:"permission_id,omitempty"`
-	Operation        string  `json:"operation,omitempty"`
-	CanonicalPath    string  `json:"canonical_path,omitempty"`
-	RequestDigest    string  `json:"request_digest,omitempty"`
+// LifecycleEvent is the stable payload shared by durable actor events. Clients
+// can reduce ordinary lifecycle changes without replacing their whole root
+// snapshot after every event.
+type LifecycleEvent struct {
+	RootID          string  `json:"root_id,omitempty"`
+	AgentID         string  `json:"agent_id,omitempty"`
+	SenderAgentID   string  `json:"sender_agent_id,omitempty"`
+	InboxSeq        int64   `json:"inbox_seq,omitempty"`
+	InboxKind       string  `json:"inbox_kind,omitempty"`
+	Delivery        string  `json:"delivery,omitempty"`
+	MessageID       string  `json:"message_id,omitempty"`
+	Phase           string  `json:"phase,omitempty"`
+	Status          string  `json:"status,omitempty"`
+	TerminalCause   string  `json:"terminal_cause,omitempty"`
+	CommandClientID string  `json:"command_client_id,omitempty"`
+	CommandID       string  `json:"command_id,omitempty"`
+	OperationID     string  `json:"operation_id,omitempty"`
+	TraceID         string  `json:"trace_id,omitempty"`
+	ScheduleID      int     `json:"schedule_id,omitempty"`
+	Slot            string  `json:"slot,omitempty"`
+	Error           string  `json:"error,omitempty"`
+	Acknowledged    []int64 `json:"acknowledged_inbox,omitempty"`
+	SubscriptionID  string  `json:"subscription_id,omitempty"`
+	Key             string  `json:"key,omitempty"`
+	Version         int64   `json:"version,omitempty"`
+	ExpectedVersion int64   `json:"expected_version,omitempty"`
+	// Scratch restore outcome (kind scratch.restored).
+	Restored      []string      `json:"restored,omitempty"`
+	NotRestored   []ScratchSkip `json:"not_restored,omitempty"`
+	Attempt       string        `json:"attempt,omitempty"`
+	BudgetKind    string        `json:"budget_kind,omitempty"`
+	Amount        int64         `json:"amount,omitempty"`
+	Limit         int64         `json:"limit,omitempty"`
+	Used          int64         `json:"used,omitempty"`
+	Reserved      int64         `json:"reserved,omitempty"`
+	CapabilityID  string        `json:"capability_id,omitempty"`
+	Generation    int64         `json:"generation,omitempty"`
+	PermissionID  string        `json:"permission_id,omitempty"`
+	Operation     string        `json:"operation,omitempty"`
+	CanonicalPath string        `json:"canonical_path,omitempty"`
+	RequestDigest string        `json:"request_digest,omitempty"`
 }
 
-type ClassicTurnCommit struct {
-	RootID            string
-	AgentID           string
+type actorEvent = LifecycleEvent
+
+type RootTurnCommit struct {
+	RootID  string
+	AgentID string
+	// InboxSeq identifies an inbox-triggered turn; a mailbox-triggered turn
+	// has InboxSeq 0 and identifies itself with TurnID.
 	InboxSeq          int64
+	TurnID            string
 	AcknowledgedInbox []int64
+	DeliveredMessages []string
 	Messages          []llm.Message
-	Compactions       []ClassicCompaction
+	Compactions       []RootCompaction
 	WorkspaceSeq      int
 	WorkspaceRef      string
 	ClearGoal         bool
 	GoalContinuation  string
 	Model             string
 	Provider          string
+	Status            string
 	Error             string
 	Outcome           RuntimePayload
 }
 
-type ClassicCompaction struct {
+type RootCompaction struct {
 	Summary      string
 	Cutoff       int
 	RawTailStart int
@@ -284,6 +305,10 @@ func (s *Store) LoadQueuedInbox(ctx context.Context, rootID, agentID string, aft
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
+	return scanInboxRows(rows, rootID, agentID)
+}
+
+func scanInboxRows(rows *sql.Rows, rootID, agentID string) ([]InboxItem, error) {
 	var items []InboxItem
 	for rows.Next() {
 		item := InboxItem{RootID: rootID, AgentID: agentID}
@@ -342,13 +367,13 @@ func (s *Store) consumeInboxTx(ctx context.Context, tx *sql.Tx, rootID, agentID 
 	return s.insertActorEventTx(ctx, tx, rootID, "inbox.consumed", actorEvent{AgentID: agentID, InboxSeq: seq, Status: "consumed"}, stamp)
 }
 
-func classicTurnID(agentID string, inboxSeq int64) string {
+func rootTurnID(agentID string, inboxSeq int64) string {
 	return fmt.Sprintf("%s:turn:%d", agentID, inboxSeq)
 }
 
-func (s *Store) StartClassicTurn(ctx context.Context, rootID, agentID string, inboxSeq int64) error {
+func (s *Store) StartRootTurn(ctx context.Context, rootID, agentID string, inboxSeq int64) error {
 	if rootID == "" || agentID == "" || inboxSeq < 1 {
-		return errors.New("classic turn start requires a root, agent, and positive inbox sequence")
+		return errors.New("root turn start requires a root, agent, and positive inbox sequence")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -367,38 +392,75 @@ func (s *Store) StartClassicTurn(ctx context.Context, rootID, agentID string, in
 		return ErrInboxTerminal
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES(?,?,?,'running',?,?)`,
-		classicTurnID(agentID, inboxSeq), rootID, agentID, stamp, stamp); err != nil {
+		rootTurnID(agentID, inboxSeq), rootID, agentID, stamp, stamp); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE commands SET status='running',updated_at=? WHERE root_id=? AND ingress_seq=? AND status='queued'`, stamp, rootID, inboxSeq); err != nil {
 		return err
 	}
-	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{AgentID: agentID, InboxSeq: inboxSeq, Status: "running"}, stamp); err != nil {
+	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{
+		AgentID: agentID, InboxSeq: inboxSeq, Phase: "running", Status: "running",
+	}, stamp); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func (s *Store) CommitClassicTurn(ctx context.Context, commit ClassicTurnCommit) error {
-	return s.commitClassicTurn(ctx, commit, nil)
+// StartRootMailboxTurn records a root turn triggered by ready mail rather
+// than by a queued inbox row; nothing is claimed, the digest is the input.
+func (s *Store) StartRootMailboxTurn(ctx context.Context, rootID, agentID string) (string, error) {
+	if rootID == "" || agentID == "" {
+		return "", errors.New("root mailbox turn requires a root and agent")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	stamp := now()
+	turnID := fmt.Sprintf("%s:mail:%d", agentID, time.Now().UnixNano())
+	if _, err := tx.ExecContext(ctx, `INSERT INTO turns(id,root_id,agent_id,status,trigger,created_at,updated_at) VALUES(?,?,?,'running','mailbox',?,?)`,
+		turnID, rootID, agentID, stamp, stamp); err != nil {
+		return "", err
+	}
+	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{
+		AgentID: agentID, InboxKind: "mailbox", Phase: "running", Status: "running",
+	}, stamp); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return turnID, nil
 }
 
-func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit, beforeCommit func() error) error {
-	if commit.RootID == "" || commit.AgentID == "" || commit.InboxSeq < 1 {
-		return errors.New("classic turn commit requires a root, agent, and positive inbox sequence")
+func (s *Store) CommitRootTurn(ctx context.Context, commit RootTurnCommit) error {
+	return s.commitRootTurn(ctx, commit, nil)
+}
+
+func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, beforeCommit func() error) error {
+	if commit.RootID == "" || commit.AgentID == "" || (commit.InboxSeq < 1 && commit.TurnID == "") {
+		return errors.New("root turn commit requires a root, agent, and an inbox sequence or turn id")
 	}
-	seen := map[int64]bool{commit.InboxSeq: true}
+	turnID := commit.TurnID
+	if turnID == "" {
+		turnID = rootTurnID(commit.AgentID, commit.InboxSeq)
+	}
+	seen := map[int64]bool{}
+	if commit.InboxSeq > 0 {
+		seen[commit.InboxSeq] = true
+	}
 	for _, seq := range commit.AcknowledgedInbox {
 		if seq < 1 || seen[seq] {
-			return errors.New("classic turn acknowledged inbox sequences must be positive and unique")
+			return errors.New("root turn acknowledged inbox sequences must be positive and unique")
 		}
 		seen[seq] = true
 	}
 	if commit.ClearGoal && commit.GoalContinuation != "" {
-		return errors.New("classic turn cannot clear and continue a goal")
+		return errors.New("root turn cannot clear and continue a goal")
 	}
 	if commit.WorkspaceRef != "" && commit.WorkspaceSeq < 1 {
-		return errors.New("classic turn workspace snapshot requires a positive conversation index")
+		return errors.New("root turn workspace snapshot requires a positive conversation index")
 	}
 	var outcomeCommandCount int
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM commands
@@ -406,7 +468,7 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 		return err
 	}
 	if outcomeCommandCount > 1 {
-		return errors.New("classic turn inbox has ambiguous commands")
+		return errors.New("root turn inbox has ambiguous commands")
 	}
 	var commandOutcome preparedRuntimeValue
 	if outcomeCommandCount == 1 {
@@ -432,12 +494,19 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 	}
 	defer func() { _ = tx.Rollback() }()
 	stamp := now()
-	status, eventKind := "succeeded", "turn.succeeded"
-	if commit.Error != "" {
-		status, eventKind = "failed", "turn.failed"
+	status := commit.Status
+	if status == "" {
+		status = "succeeded"
+		if commit.Error != "" {
+			status = "failed"
+		}
 	}
+	if status != "succeeded" && status != "failed" && status != "cancelled" && status != "interrupted" {
+		return fmt.Errorf("invalid root turn status %q", status)
+	}
+	eventKind := "turn." + status
 	result, err := tx.ExecContext(ctx, `UPDATE turns SET status=?,updated_at=? WHERE id=? AND root_id=? AND agent_id=? AND status='running'`,
-		status, stamp, classicTurnID(commit.AgentID, commit.InboxSeq), commit.RootID, commit.AgentID)
+		status, stamp, turnID, commit.RootID, commit.AgentID)
 	if err != nil {
 		return err
 	}
@@ -445,7 +514,7 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 		if err != nil {
 			return err
 		}
-		return errors.New("classic turn is not running")
+		return errors.New("root turn is not running")
 	}
 	for seq := range seen {
 		result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='consumed' WHERE root_id=? AND agent_id=? AND seq=? AND status IN ('queued','running')`,
@@ -477,7 +546,7 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 			continue // internal inbox items do not have an originating client command
 		}
 		if commandCount != 1 {
-			return errors.New("classic turn inbox has ambiguous commands")
+			return errors.New("root turn inbox has ambiguous commands")
 		}
 		inline, reference := runtimeValueColumns(outcome.RuntimeValue)
 		result, err := tx.ExecContext(ctx, `UPDATE commands SET status=?,outcome_inline=?,outcome_ref=?,updated_at=?
@@ -490,7 +559,7 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 			if err != nil {
 				return err
 			}
-			return errors.New("classic turn command is not running")
+			return errors.New("root turn command is not running")
 		}
 	}
 	var messageSeq int
@@ -521,7 +590,7 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 	}
 	for _, compaction := range commit.Compactions {
 		if compaction.Cutoff < 1 || compaction.Summary == "" {
-			return errors.New("classic turn compaction requires a cutoff and summary")
+			return errors.New("root turn compaction requires a cutoff and summary")
 		}
 		if compactionSeq > 0 {
 			tailStart := compaction.RawTailStart
@@ -562,6 +631,11 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 		stamp, commit.Model, commit.Provider, title, commit.RootID); err != nil {
 		return err
 	}
+	if status == "succeeded" {
+		if err := s.markMessagesDeliveredTx(ctx, tx, commit.RootID, commit.AgentID, turnID, commit.DeliveredMessages, stamp); err != nil {
+			return err
+		}
+	}
 	if commit.ClearGoal {
 		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET goal='' WHERE id=?`, commit.RootID); err != nil {
 			return err
@@ -574,82 +648,19 @@ func (s *Store) commitClassicTurn(ctx context.Context, commit ClassicTurnCommit,
 			return err
 		}
 	}
-	acknowledged := append([]int64{commit.InboxSeq}, commit.AcknowledgedInbox...)
+	acknowledged := append([]int64(nil), commit.AcknowledgedInbox...)
+	if commit.InboxSeq > 0 {
+		acknowledged = append([]int64{commit.InboxSeq}, acknowledged...)
+	}
 	if _, err := s.insertActorEventTx(ctx, tx, commit.RootID, eventKind, actorEvent{
-		AgentID: commit.AgentID, InboxSeq: commit.InboxSeq, Status: status, Error: commit.Error, Acknowledged: acknowledged,
+		AgentID: commit.AgentID, InboxSeq: commit.InboxSeq, Phase: "idle", Status: status,
+		TerminalCause: status, Error: commit.Error, Acknowledged: acknowledged,
 	}, stamp); err != nil {
 		return err
 	}
 	if beforeCommit != nil {
 		if err := beforeCommit(); err != nil {
 			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func (s *Store) RecordClassicTask(ctx context.Context, rootID, agentID string, task Task) error {
-	return s.RecordClassicTaskTranscript(ctx, rootID, agentID, task, nil, "", "")
-}
-
-func (s *Store) RecordClassicTaskTranscript(ctx context.Context, rootID, agentID string, task Task, transcript []llm.Message, model, provider string) error {
-	if rootID == "" || agentID == "" || task.ID == "" {
-		return errors.New("classic task record requires a root, agent, and task")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	var agents int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM agents WHERE root_id=? AND id=?`, rootID, agentID).Scan(&agents); err != nil {
-		return err
-	}
-	if agents != 1 {
-		return errors.New("classic task agent is not in root")
-	}
-	ended := ""
-	if !task.EndedAt.IsZero() {
-		ended = task.EndedAt.UTC().Format(time.RFC3339)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO tasks
-		(session_id,task_id,description,prompt,status,report,started_at,ended_at) VALUES(?,?,?,?,?,?,?,?)`,
-		rootID, task.ID, task.Description, task.Prompt, task.Status, task.Report,
-		task.StartedAt.UTC().Format(time.RFC3339), ended); err != nil {
-		return err
-	}
-	if _, err := s.insertActorEventTx(ctx, tx, rootID, "task."+task.Status, actorEvent{
-		AgentID: agentID, TaskID: task.ID, Status: task.Status, Error: task.Report,
-	}, now()); err != nil {
-		return err
-	}
-	if task.Status != "running" && transcript != nil {
-		id := subagentSessionID(rootID, task.ID)
-		stamp := now()
-		if _, err := tx.ExecContext(ctx, `INSERT INTO sessions
-			(id,created_at,updated_at,cwd,model,provider,title,forked_from,task_id,mode)
-			VALUES(?,?,?,?,?,?,?,?,?,(SELECT mode FROM sessions WHERE id=?))
-			ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at,model=excluded.model,provider=excluded.provider`,
-			id, stamp, stamp, "", model, provider, "subagent "+task.ID, rootID, task.ID, rootID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE session_id=?`, id); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM compactions WHERE session_id=?`, id); err != nil {
-			return err
-		}
-		for i, message := range transcript {
-			if message.Role == "" {
-				continue
-			}
-			data, err := json.Marshal(message)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO messages(session_id,seq,role,content) VALUES(?,?,?,?)`, id, i, message.Role, string(data)); err != nil {
-				return err
-			}
 		}
 	}
 	return tx.Commit()
@@ -736,7 +747,7 @@ func (s *Store) ClaimScheduleFire(ctx context.Context, claim ScheduleFireClaim) 
 	return sequence, nil
 }
 
-func (s *Store) FailClassicRoot(ctx context.Context, rootID, reason string) (int64, error) {
+func (s *Store) FailRoot(ctx context.Context, rootID, reason string) (int64, error) {
 	if rootID == "" {
 		return 0, errors.New("root failure requires a root")
 	}
@@ -746,7 +757,10 @@ func (s *Store) FailClassicRoot(ctx context.Context, rootID, reason string) (int
 	}
 	defer func() { _ = tx.Rollback() }()
 	stamp := now()
-	agentID := "classic:" + rootID
+	agentID, err := rootAgentIDTx(ctx, tx, rootID)
+	if err != nil {
+		return 0, err
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE agents SET status='failed',updated_at=? WHERE root_id=? AND id=?
 		AND status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`, stamp, rootID, agentID)
 	if err != nil {
@@ -758,7 +772,7 @@ func (s *Store) FailClassicRoot(ctx context.Context, rootID, reason string) (int
 		}
 		return 0, ErrRootTerminal
 	}
-	if err := s.interruptClassicRootTx(ctx, tx, rootID, reason, stamp, false); err != nil {
+	if err := s.interruptRootTx(ctx, tx, rootID, reason, stamp, false); err != nil {
 		return 0, err
 	}
 	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "root.failed", actorEvent{AgentID: agentID, Status: "failed", Error: reason}, stamp)
@@ -771,7 +785,7 @@ func (s *Store) FailClassicRoot(ctx context.Context, rootID, reason string) (int
 	return eventSeq, nil
 }
 
-func (s *Store) InterruptClassicRoot(ctx context.Context, rootID, reason string) (int64, error) {
+func (s *Store) InterruptRoot(ctx context.Context, rootID, reason string) (int64, error) {
 	if rootID == "" {
 		return 0, errors.New("root interruption requires a root")
 	}
@@ -781,10 +795,14 @@ func (s *Store) InterruptClassicRoot(ctx context.Context, rootID, reason string)
 	}
 	defer func() { _ = tx.Rollback() }()
 	stamp := now()
-	if err := s.interruptClassicRootTx(ctx, tx, rootID, reason, stamp, true); err != nil {
+	if err := s.interruptRootTx(ctx, tx, rootID, reason, stamp, true); err != nil {
 		return 0, err
 	}
-	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "root.interrupted", actorEvent{AgentID: "classic:" + rootID, Status: "interrupted", Error: reason}, stamp)
+	agentID, err := rootAgentIDTx(ctx, tx, rootID)
+	if err != nil {
+		return 0, err
+	}
+	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "root.interrupted", actorEvent{AgentID: agentID, Status: "interrupted", Error: reason}, stamp)
 	if err != nil {
 		return 0, err
 	}
@@ -794,7 +812,7 @@ func (s *Store) InterruptClassicRoot(ctx context.Context, rootID, reason string)
 	return eventSeq, nil
 }
 
-func (s *Store) StopClassicRoot(ctx context.Context, rootID, reason string) (int64, error) {
+func (s *Store) StopRoot(ctx context.Context, rootID, reason string) (int64, error) {
 	if rootID == "" {
 		return 0, errors.New("root stop requires a root")
 	}
@@ -804,7 +822,10 @@ func (s *Store) StopClassicRoot(ctx context.Context, rootID, reason string) (int
 	}
 	defer func() { _ = tx.Rollback() }()
 	stamp := now()
-	agentID := "classic:" + rootID
+	agentID, err := rootAgentIDTx(ctx, tx, rootID)
+	if err != nil {
+		return 0, err
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE agents SET status='stopped',updated_at=? WHERE root_id=? AND id=?
 		AND status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`, stamp, rootID, agentID)
 	if err != nil {
@@ -816,7 +837,7 @@ func (s *Store) StopClassicRoot(ctx context.Context, rootID, reason string) (int
 		}
 		return 0, ErrRootTerminal
 	}
-	if err := s.interruptClassicRootTx(ctx, tx, rootID, reason, stamp, false); err != nil {
+	if err := s.interruptRootTx(ctx, tx, rootID, reason, stamp, false); err != nil {
 		return 0, err
 	}
 	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "root.stopped", actorEvent{AgentID: agentID, Status: "stopped", Error: reason}, stamp)
@@ -829,24 +850,37 @@ func (s *Store) StopClassicRoot(ctx context.Context, rootID, reason string) (int
 	return eventSeq, nil
 }
 
-func (s *Store) interruptClassicRootTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string, preserveSchedules bool) error {
+func rootAgentIDTx(ctx context.Context, tx *sql.Tx, rootID string) (string, error) {
+	var agentID string
+	err := tx.QueryRowContext(ctx, `SELECT id FROM agents WHERE root_id=? AND parent_id IS NULL ORDER BY created_at LIMIT 1`, rootID).Scan(&agentID)
+	return agentID, err
+}
+
+func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string, preserveSchedules bool) error {
 	if err := s.cancelPendingPermissionsTx(ctx, tx, rootID, "", "", "interrupted", "", reason); err != nil {
 		return err
 	}
 	if err := s.settleInterruptedOperationReservations(ctx, tx, rootID, ""); err != nil {
 		return err
 	}
-	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
+	if err := s.emitInterruptedTurnEventsTx(ctx, tx, rootID, reason, stamp); err != nil {
+		return err
+	}
+	for _, table := range []string{"commands", "turns", "operations", "leases"} {
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE root_id=? AND status IN ('queued','running','waiting')`, stamp, rootID); err != nil { //nolint:gosec // table comes from the static allowlist above
 			return err
 		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status='idle',updated_at=?
+		WHERE parent_id IS NOT NULL AND status='running'`, stamp); err != nil {
+		return err
 	}
 	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
 		return err
 	}
 	inboxWhere := `status IN ('queued','running')`
 	if preserveSchedules {
-		inboxWhere = `status='running' OR (status='queued' AND kind NOT IN ('schedule','subscription'))`
+		inboxWhere = `status='running'`
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE root_id=? AND (`+inboxWhere+`)`, rootID); err != nil {
 		return err
@@ -854,8 +888,54 @@ func (s *Store) interruptClassicRootTx(ctx context.Context, tx *sql.Tx, rootID, 
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE root_id=? AND status='pending'`, stamp, rootID); err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE tasks SET status='error',report=?,ended_at=? WHERE session_id=? AND status='running'`, reason, stamp, rootID)
-	return err
+	return nil
+}
+
+// emitInterruptedTurnEventsTx records a terminal turn event for every running
+// turn about to be marked interrupted, so reconnecting clients close the
+// in-progress presentation instead of showing a phantom turn. An empty rootID
+// covers every root (daemon restart).
+func (s *Store) emitInterruptedTurnEventsTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string) error {
+	query := `SELECT t.root_id,t.agent_id,COALESCE(a.parent_id,'') FROM turns t
+		JOIN agents a ON a.root_id=t.root_id AND a.id=t.agent_id WHERE t.status='running'`
+	args := []any{}
+	if rootID != "" {
+		query += ` AND t.root_id=?`
+		args = append(args, rootID)
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	type running struct{ root, agent, parent string }
+	var turns []running
+	for rows.Next() {
+		var value running
+		if err := rows.Scan(&value.root, &value.agent, &value.parent); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		turns = append(turns, value)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, turn := range turns {
+		kind := "turn.interrupted"
+		if turn.parent != "" {
+			kind = "agent.turn.interrupted"
+		}
+		if _, err := s.insertActorEventTx(ctx, tx, turn.root, kind, actorEvent{
+			AgentID: turn.agent, Phase: "idle", Status: "interrupted", TerminalCause: "interrupted", Error: reason,
+		}, stamp); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) settleInterruptedOperationReservations(ctx context.Context, tx *sql.Tx, rootID, targetAgentID string) error {
@@ -961,6 +1041,7 @@ func (s *Store) enqueueInboxTx(ctx context.Context, tx *sql.Tx, item InboxEnqueu
 }
 
 func (s *Store) insertActorEventTx(ctx context.Context, tx *sql.Tx, rootID, kind string, event actorEvent, stamp string) (int64, error) {
+	event.RootID = rootID
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return 0, err
@@ -1470,21 +1551,26 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	if err := settleInterruptedBudgetReservations(ctx, tx); err != nil {
 		return err
 	}
-	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
+	if err := s.emitInterruptedTurnEventsTx(ctx, tx, "", "interrupted by daemon restart", stamp); err != nil {
+		return err
+	}
+	for _, table := range []string{"commands", "turns", "operations", "leases"} {
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE status IN ('queued','running','waiting')`, stamp); err != nil { //nolint:gosec // table comes from the static allowlist above
 			return err
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status='idle',updated_at=? WHERE parent_id IS NOT NULL AND status='running'`, stamp); err != nil {
+		return err
+	}
 	if err := syncChildBudgetReservationsTx(ctx, tx, ""); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE status='running' OR (status='queued' AND kind NOT IN ('schedule','subscription'))`); err != nil {
+	// Only uncertain running input is interrupted; queued input (including
+	// human follow-ups) survives a restart and runs when the node reopens.
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE status='running'`); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE permission_requests SET status='interrupted',updated_at=? WHERE status='pending'`, stamp); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET status='error',report='interrupted by daemon restart',ended_at=? WHERE status='running'`, stamp); err != nil {
 		return err
 	}
 	return tx.Commit()

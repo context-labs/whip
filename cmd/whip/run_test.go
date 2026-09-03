@@ -313,7 +313,7 @@ func TestRunQuietJSON(t *testing.T) {
 
 func configDir() (string, error) { return os.Getenv("WHIP_HOME"), nil }
 
-func sessionOpen(dir string) (*session.Store, error) { return session.Open(dir + "/sessions.db") }
+func sessionOpen(dir string) (*session.Store, error) { return session.Open(runtimeDBPath(dir)) }
 
 // Bad flags, an unknown --format, and a missing prompt all fail before any
 // provider is contacted.
@@ -399,9 +399,9 @@ func TestRunJSONToolEvents(t *testing.T) {
 			fmt.Fprint(w, "data: [DONE]\n\n")
 			return
 		}
-		args, _ := json.Marshal(map[string]string{"path": target})
+		args, _ := json.Marshal(map[string]string{"code": fmt.Sprintf("files.read(path=%q)", target)})
 		call, _ := json.Marshal(string(args))
-		fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"read","arguments":%s}}]}}]}`+"\n\n", call)
+		fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"rlm_exec","arguments":%s}}]}}]}`+"\n\n", call)
 		fmt.Fprint(w, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`+"\n\n")
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
@@ -432,7 +432,7 @@ func TestRunJSONToolEvents(t *testing.T) {
 		}
 		seen[ev["type"]] = ev["name"] + ev["result"] + ev["error"] + ev["text"]
 	}
-	if seen["tool_start"] != "read" {
+	if seen["tool_start"] != "rlm_exec" {
 		t.Errorf("a tool call should emit tool_start for the tool, got %q", seen["tool_start"])
 	}
 	if !strings.Contains(seen["tool_end"], "file body") {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -173,11 +174,11 @@ func TestBlackboardCASRetainsHistoryAndAuditsStaleAttempt(t *testing.T) {
 func TestStateRejectsCrossRootTerminalAndInvalidInputs(t *testing.T) {
 	store, rootID, rootAgentID := newSwarmFixture(t)
 	admitTestChild(t, store, rootID, rootAgentID, "child")
-	otherRoot, err := store.Create(t.TempDir(), "model", "provider")
+	otherRoot, err := store.Create(SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherAuthority, err := store.EnsureClassicAuthority(context.Background(), otherRoot)
+	otherAuthority, err := store.EnsureAuthority(context.Background(), otherRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,12 +332,17 @@ func TestBlackboardSubscriptionLifecycleAndCorruptRows(t *testing.T) {
 	if err != nil || len(listed) != 1 || listed[0].Cursor != 1 {
 		t.Fatalf("subscriptions=%+v err=%v", listed, err)
 	}
-	items, err := store.LoadQueuedInbox(ctx, rootID, "watcher", 0, 10)
-	if err != nil || len(items) != 1 || items[0].Kind != "subscription" {
-		t.Fatalf("subscription inbox=%+v err=%v", items, err)
+	// Subscription changes are runtime-authored mailbox messages, not inbox rows.
+	mail, err := store.ListMailboxMessages(ctx, rootID, "watcher", "pending", "", 10)
+	if err != nil || len(mail) != 1 || mail[0].Kind != MessageKindStateChanged || mail[0].Subject != "topic" || mail[0].SenderAgentID != "author" {
+		t.Fatalf("subscription mail=%+v err=%v", mail, err)
+	}
+	read, err := store.ReadMailboxMessage(ctx, rootID, "watcher", mail[0].ID)
+	if err != nil {
+		t.Fatal(err)
 	}
 	var wake BlackboardWake
-	if err := json.Unmarshal(items[0].Payload.Inline, &wake); err != nil || wake.SubscriptionID != subscription.ID || wake.Key != "topic" || wake.Version != 1 || wake.AuthorAgentID != "author" {
+	if err := json.Unmarshal(read.Body.Inline, &wake); err != nil || wake.SubscriptionID != subscription.ID || wake.Key != "topic" || wake.Version != 1 || wake.AuthorAgentID != "author" {
 		t.Fatalf("subscription wake=%+v err=%v", wake, err)
 	}
 
@@ -362,20 +368,30 @@ func TestBlackboardSubscriptionLifecycleAndCorruptRows(t *testing.T) {
 	if _, err := store.SetBlackboard(ctx, rootID, "author", "topic", RuntimePayload{Data: []byte("second")}); err != nil {
 		t.Fatal(err)
 	}
-	items, err = store.LoadQueuedInbox(ctx, rootID, "watcher", 0, 10)
-	if err != nil || len(items) != 1 {
-		t.Fatalf("cancelled subscription inbox=%+v err=%v", items, err)
+	mail, err = store.ListMailboxMessages(ctx, rootID, "watcher", "pending", "", 10)
+	if err != nil || len(mail) != 1 {
+		t.Fatalf("cancelled subscription mail=%+v err=%v", mail, err)
 	}
 	recreated, err := store.CreateBlackboardSubscription(ctx, rootID, "watcher", "topic")
 	if err != nil || recreated.ID == subscription.ID || recreated.Cursor != 2 {
 		t.Fatalf("recreated subscription=%+v err=%v", recreated, err)
 	}
-	items, err = store.LoadQueuedInbox(ctx, rootID, "watcher", items[0].Seq, 10)
-	if err != nil || len(items) != 1 || items[0].Kind != "subscription" {
-		t.Fatalf("recreated subscription catch-up=%+v err=%v", items, err)
+	mail, err = store.ListMailboxMessages(ctx, rootID, "watcher", "pending", "", 10)
+	if err != nil || len(mail) != 2 {
+		t.Fatalf("recreated subscription catch-up=%+v err=%v", mail, err)
 	}
-	if err := json.Unmarshal(items[0].Payload.Inline, &wake); err != nil || wake.SubscriptionID != recreated.ID || wake.Version != 2 || wake.AuthorAgentID != "author" {
-		t.Fatalf("recreated subscription wake=%+v err=%v", wake, err)
+	var caughtUp bool
+	for _, candidate := range mail {
+		read, err := store.ReadMailboxMessage(ctx, rootID, "watcher", candidate.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(read.Body.Inline, &wake); err == nil && wake.SubscriptionID == recreated.ID && wake.Version == 2 && wake.AuthorAgentID == "author" {
+			caughtUp = true
+		}
+	}
+	if !caughtUp {
+		t.Fatalf("recreated subscription did not receive the catch-up message: %+v", mail)
 	}
 
 	if _, err := store.db.ExecContext(ctx, `INSERT INTO subscriptions(id,root_id,agent_id,key,cursor,status,created_at,updated_at) VALUES('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',?,?,?,'bad','active',?,?)`, rootID, "watcher", "corrupt", now(), now()); err != nil {
@@ -551,7 +567,7 @@ func TestStateStorageFailuresAreReturned(t *testing.T) {
 			_, err := store.SetBlackboard(ctx, rootID, "child", "key", RuntimePayload{Data: []byte("x")})
 			return err
 		}},
-		{"wake inbox", `CREATE TRIGGER fail_state BEFORE INSERT ON inbox BEGIN SELECT RAISE(ABORT,'test'); END`, func(t *testing.T, store *Store, rootID string) string {
+		{"wake message", `CREATE TRIGGER fail_state BEFORE INSERT ON agent_messages BEGIN SELECT RAISE(ABORT,'test'); END`, func(t *testing.T, store *Store, rootID string) string {
 			t.Helper()
 			if _, err := store.CreateBlackboardSubscription(ctx, rootID, "child", "key"); err != nil {
 				t.Fatal(err)
@@ -669,4 +685,73 @@ func snapshotStateFailure(t *testing.T, store *Store, rootID string) stateFailur
 		t.Fatal(err)
 	}
 	return snapshot
+}
+
+func TestAgentScratchSaveLoadAndDelete(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	rootID, err := store.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := store.EnsureAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if program, manifest, err := store.LoadAgentScratch(t.Context(), rootID, root.AgentID); err != nil || program != "" || manifest != nil {
+		t.Fatalf("empty load = %q %q %v", program, manifest, err)
+	}
+	if err := store.SaveAgentScratch(t.Context(), rootID, root.AgentID, "n = 1\n", []byte(`{"saved":["n"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveAgentScratch(t.Context(), rootID, root.AgentID, "n = 2\n", []byte(`{"saved":["n"],"bytes":6}`)); err != nil {
+		t.Fatal(err)
+	}
+	program, manifest, err := store.LoadAgentScratch(t.Context(), rootID, root.AgentID)
+	if err != nil || program != "n = 2\n" || string(manifest) != `{"saved":["n"],"bytes":6}` {
+		t.Fatalf("upserted load = %q %q %v", program, manifest, err)
+	}
+	if err := store.DeleteSession(t.Context(), rootID); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_scratch`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("scratch rows after delete = %d err=%v", count, err)
+	}
+}
+
+func TestRecordScratchRestoreAppendsEvent(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	rootID, err := store.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := store.EnsureAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq, err := store.RecordScratchRestore(t.Context(), rootID, root.AgentID, []string{"n", "greet"}, []ScratchSkip{{Name: "plus3", Reason: "closure"}})
+	if err != nil || seq == 0 {
+		t.Fatalf("record = %d, %v", seq, err)
+	}
+	var kind string
+	var payload []byte
+	if err := store.db.QueryRow(`SELECT kind, payload_inline FROM events WHERE root_id=? AND seq=?`, rootID, seq).Scan(&kind, &payload); err != nil {
+		t.Fatal(err)
+	}
+	var event LifecycleEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "scratch.restored" || event.AgentID != root.AgentID || event.Status != "restored" ||
+		len(event.Restored) != 2 || event.Restored[1] != "greet" || len(event.NotRestored) != 1 || event.NotRestored[0].Reason != "closure" {
+		t.Fatalf("event = %s %+v", kind, event)
+	}
 }

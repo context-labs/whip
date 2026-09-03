@@ -1,4 +1,4 @@
-// Package session persists chat histories in ~/.whip/sessions.db (SQLite).
+// Package session persists the recursive runtime under ~/.whip/runtime-v2.
 package session
 
 import (
@@ -22,22 +22,26 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 )
 
-type Mode string
+type SessionKind string
 
 const (
-	ModeClassic Mode = "classic"
-	ModeRLM     Mode = "rlm"
+	SessionKindAgent    SessionKind = "agent"
+	SessionKindToolHost SessionKind = "tool_host"
 )
+
+func (kind SessionKind) valid() bool {
+	return kind == SessionKindAgent || kind == SessionKindToolHost
+}
 
 // Meta is a session's bookkeeping row.
 type Meta struct {
 	ID          string
+	Kind        SessionKind
 	Title       string
 	Model       string
 	Provider    string
 	CWD         string
 	Goal        string
-	Mode        Mode
 	ForkedFrom  string   // source session id when created by /fork ("" = root)
 	ForkSeq     int      // conversation index the fork branched at
 	Tags        []string // freeform labels, for filtering /resume
@@ -47,15 +51,10 @@ type Meta struct {
 	UsageCached int      // of UsageIn, tokens served from the provider's prompt cache
 	UsageOut    int      // cumulative output tokens
 	UpdatedAt   time.Time
-	// TaskID is non-empty when this session is a subagent's persisted
-	// transcript (the value is the task id, e.g. "survey-context-3"); the
-	// parent session id is ForkedFrom. Empty for ordinary sessions.
-	TaskID string
 }
 
 type Store struct {
 	db          *sql.DB
-	defaultMode Mode
 	content     *contentstore.Store
 	workspaces  *capability.Workspaces
 	processes   *capability.ProcessManager
@@ -69,15 +68,6 @@ func (s *Store) ReleaseDaemon()      { s.daemonOwned.Store(false) }
 
 // Open opens (creating if needed) the sessions database at path.
 func Open(path string) (*Store, error) {
-	return OpenWithDefaultMode(path, ModeClassic)
-}
-
-// OpenWithDefaultMode sets the mode persisted by later Create calls. Existing
-// rows retain their stored mode; version-zero rows migrate to Classic.
-func OpenWithDefaultMode(path string, defaultMode Mode) (*Store, error) {
-	if defaultMode != ModeClassic && defaultMode != ModeRLM {
-		return nil, fmt.Errorf("invalid default session mode %q", defaultMode)
-	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
@@ -110,7 +100,7 @@ func OpenWithDefaultMode(path string, defaultMode Mode) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{
-		db: db, defaultMode: defaultMode, content: content,
+		db: db, content: content,
 		workspaces: capability.NewWorkspaces(), processes: capability.NewProcessManager(),
 	}
 	failed = false
@@ -171,121 +161,34 @@ func (s *Store) SetUsage(id string, in, cached, out int) error {
 	return err
 }
 
-// Task is one background subagent's persisted record. It deliberately
-// mirrors agent.BackgroundTask's exported fields without importing agent
-// (session is a leaf; the TUI converts between them).
-type Task struct {
-	ID          string
-	Description string
-	Prompt      string
-	Status      string // "running", "done", "error", "cancelled"
-	Report      string
-	StartedAt   time.Time
-	EndedAt     time.Time
-}
-
-// SaveTask upserts a background subagent's record for a session. Called on
-// start and on settle, so the final row holds the settled status/report.
-func (s *Store) SaveTask(sessionID string, t Task) error {
-	ended := ""
-	if !t.EndedAt.IsZero() {
-		ended = t.EndedAt.UTC().Format(time.RFC3339)
-	}
-	_, err := s.db.ExecContext(context.Background(), `INSERT OR REPLACE INTO tasks
-		(session_id, task_id, description, prompt, status, report, started_at, ended_at)
-		VALUES (?,?,?,?,?,?,?,?)`,
-		sessionID, t.ID, t.Description, t.Prompt, t.Status, t.Report,
-		t.StartedAt.UTC().Format(time.RFC3339), ended)
-	return err
-}
-
-// LoadTasks returns a session's persisted background subagents, oldest first.
-func (s *Store) LoadTasks(sessionID string) ([]Task, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT task_id, description, prompt, status, report, started_at, ended_at
-		FROM tasks WHERE session_id=? ORDER BY started_at`, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []Task
-	for rows.Next() {
-		var t Task
-		var started, ended string
-		if err := rows.Scan(&t.ID, &t.Description, &t.Prompt, &t.Status, &t.Report, &started, &ended); err != nil {
-			return nil, err
-		}
-		t.StartedAt, _ = time.Parse(time.RFC3339, started)
-		if ended != "" {
-			t.EndedAt, _ = time.Parse(time.RFC3339, ended)
-		}
-		out = append(out, t)
-	}
-	return out, rows.Err()
-}
-
 func (s *Store) Close() error { return errors.Join(s.processes.Close(), s.db.Close()) }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
 
-// SaveSubagentTranscript persists a background subagent's conversation as its
-// own attributed session row: id "task-<parentID>-<taskID>" (prefixed so it
-// never prefix-collides with the parent session's id in Load), forked_from
-// set to the parent session, task_id set to the task. Idempotent — re-saving
-// after a follow-up turn replaces the same row and rewrites the messages from
-// seq 0. Returns the session id, or "" when there's no parent to attribute to
-// (a headless run with no store never calls this).
-func (s *Store) SaveSubagentTranscript(parentID, taskID string, msgs []llm.Message, model, provider string) (string, error) {
-	if parentID == "" || taskID == "" {
-		return "", nil
-	}
-	id := subagentSessionID(parentID, taskID)
-	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO sessions
-		(id, created_at, updated_at, cwd, model, provider, title, forked_from, task_id, mode)
-		VALUES (?,?,?,?,?,?,?,?,?,(SELECT mode FROM sessions WHERE id=?))
-		ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, model=excluded.model, provider=excluded.provider`,
-		id, now(), now(), "", model, provider, "subagent "+taskID, parentID, taskID, parentID); err != nil {
-		return "", err
-	}
-	if err := s.Save(id, 0, msgs, model, provider); err != nil {
-		return "", err
-	}
-	// Re-save rewrites rows [0, len(msgs)); a follow-up turn that compacted
-	// the transcript writes FEWER rows than last time, and Save's per-seq
-	// INSERT OR REPLACE never touches the tail — without this sweep the stale
-	// rows at seq >= len(msgs) linger and reload as phantom trailing messages.
-	if _, err := s.db.ExecContext(context.Background(), `DELETE FROM messages WHERE session_id=? AND seq>=?`, id, len(msgs)); err != nil {
-		return "", err
-	}
-	return id, nil
-}
-
-// SubagentTranscript loads a subagent's persisted conversation by parent +
-// task id ("" when never persisted). Loads by exact id (loadMessages), not
-// Load's prefix scan: sibling task ids can share a stem, which would make the
-// prefix form ambiguous.
-func (s *Store) SubagentTranscript(parentID, taskID string) ([]llm.Message, error) {
-	if parentID == "" || taskID == "" {
-		return nil, nil
-	}
-	return s.loadMessages(subagentSessionID(parentID, taskID))
-}
-
-// subagentSessionID builds the attributed session id for a subagent's
-// transcript. The "task-" prefix guarantees it can't prefix-collide with the
-// parent session's hex id in Load's prefix match (a plain "<parent>/…" suffix
-// form would make resume(parentID) ambiguous).
-func subagentSessionID(parentID, taskID string) string {
-	return "task-" + parentID + "-" + taskID
-}
-
 // Create inserts a new session and returns its id.
-func (s *Store) Create(cwd, model, provider string) (string, error) {
+func (s *Store) Create(kind SessionKind, cwd, model, provider string) (string, error) {
+	if err := validateSessionIdentity(kind, cwd, model, provider); err != nil {
+		return "", err
+	}
 	b := make([]byte, 4)
 	rand.Read(b)
 	id := hex.EncodeToString(b)
-	_, err := s.db.ExecContext(context.Background(), `INSERT INTO sessions (id, created_at, updated_at, cwd, model, provider, mode) VALUES (?,?,?,?,?,?,?)`,
-		id, now(), now(), cwd, model, provider, s.defaultMode)
+	_, err := s.db.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider) VALUES (?,?,?,?,?,?,?)`,
+		id, kind, now(), now(), cwd, model, provider)
 	return id, err
+}
+
+func validateSessionIdentity(kind SessionKind, cwd, model, provider string) error {
+	if !kind.valid() || cwd == "" {
+		return errors.New("session creation requires a valid kind and cwd")
+	}
+	if kind == SessionKindAgent && (model == "" || provider == "") {
+		return errors.New("agent session requires model and provider")
+	}
+	if kind == SessionKindToolHost && (model != "" || provider != "") {
+		return errors.New("tool-host session cannot specify model or provider")
+	}
+	return nil
 }
 
 // Save persists msgs[from:] (the conversation without the system prompt) and
@@ -328,7 +231,7 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 
 // Load resolves idOrPrefix to a session and returns its metadata and messages.
 func (s *Store) Load(idOrPrefix string) (Meta, []llm.Message, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, mode, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, updated_at FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,effort,usage_in,usage_cached,usage_out,updated_at FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
 	if err != nil {
 		return Meta{}, nil, err
 	}
@@ -351,12 +254,8 @@ func (s *Store) Load(idOrPrefix string) (Meta, []llm.Message, error) {
 	return meta, msgs, nil
 }
 
-// loadMessages reads one session's full message log by EXACT id — the read
-// half of Load once the meta row is known. Split out so subagent transcripts
-// (whose ids are built deterministic by subagentSessionID, never typed by the
-// user) load by exact match instead of Load's prefix scan: a prefix query
-// over transcript ids goes "ambiguous" the moment two sibling task ids share
-// a stem (task-<parent>-foo-1 vs task-<parent>-foo-12).
+// loadMessages reads one root session's full message log by exact id after
+// Load has resolved any user-provided prefix.
 func (s *Store) loadMessages(id string) ([]llm.Message, error) {
 	// pre-size the slice: a long session is hundreds of rows; the COUNT is
 	// one index scan and avoids O(log n) reallocs while scanning
@@ -483,7 +382,7 @@ func (s *Store) RecentContext(ctx context.Context, n int) ([]Meta, error) {
 	if n < 1 || n > 500 {
 		return nil, errors.New("recent sessions limit must be between 1 and 500")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, title, model, provider, cwd, goal, mode, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, updated_at FROM sessions
+	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,effort,usage_in,usage_cached,usage_out,updated_at FROM sessions
 		WHERE EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)
 		ORDER BY updated_at DESC LIMIT ?`, n)
 	if err != nil {
@@ -492,7 +391,7 @@ func (s *Store) RecentContext(ctx context.Context, n int) ([]Meta, error) {
 	return scanMetas(rows)
 }
 
-// DeleteSession removes one root and any persisted subagent transcript rows.
+// DeleteSession removes one root and its persisted recursive agent tree.
 // The daemon stops the live root before calling this method. Runtime content
 // objects are immutable and may remain as unreferenced diagnostic orphans.
 func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
@@ -526,9 +425,9 @@ func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
 		`DELETE FROM usage_charges WHERE root_id=?`,
 		`DELETE FROM budgets WHERE root_id=?`,
 		`DELETE FROM capabilities WHERE root_id=?`,
+		`DELETE FROM agent_scratch WHERE root_id=?`,
 		`DELETE FROM agent_state WHERE root_id=?`,
 		`DELETE FROM inbox WHERE root_id=?`,
-		`DELETE FROM child_executions WHERE root_id=?`,
 		`DELETE FROM turns WHERE root_id=?`,
 		`DELETE FROM content_grants WHERE root_id=?`,
 		`DELETE FROM events WHERE root_id=?`,
@@ -543,21 +442,20 @@ func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
 		return err
 	}
 	sessionDeletes := []string{
-		`DELETE FROM messages WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
-		`DELETE FROM tasks WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
-		`DELETE FROM snapshots WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
-		`DELETE FROM schedules WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
-		`DELETE FROM compactions WHERE session_id IN (SELECT id FROM sessions WHERE id=? OR (forked_from=? AND task_id<>''))`,
+		`DELETE FROM messages WHERE session_id=?`,
+		`DELETE FROM snapshots WHERE session_id=?`,
+		`DELETE FROM schedules WHERE session_id=?`,
+		`DELETE FROM compactions WHERE session_id=?`,
 	}
 	for _, query := range sessionDeletes {
-		if _, err := tx.ExecContext(ctx, query, rootID, rootID); err != nil {
+		if _, err := tx.ExecContext(ctx, query, rootID); err != nil {
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET forked_from='' WHERE forked_from=? AND task_id=''`, rootID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET forked_from='' WHERE forked_from=?`, rootID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id=? OR (forked_from=? AND task_id<>'')`, rootID, rootID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id=?`, rootID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -914,6 +812,16 @@ func (s *Store) SetTitle(id, title string) error {
 	return err
 }
 
+// SetTitleIf preserves an explicit /rename that races automatic title work.
+func (s *Store) SetTitleIf(id, current, title string) (bool, error) {
+	result, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET title=? WHERE id=? AND title=?`, title, id, current)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	return changed == 1, err
+}
+
 // Fork copies a session's stored rows with seq <= uptoSeq (pass len(msgs)
 // for a full copy — one past the last row) into a new session titled title,
 // carrying over cwd/model/provider/goal, and returns the new id. seq equals
@@ -929,8 +837,8 @@ func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id, created_at, updated_at, cwd, model, provider, title, goal, forked_from, fork_seq, effort, mode)
-		SELECT ?, ?, ?, cwd, model, provider, ?, goal, ?, ?, effort, mode FROM sessions WHERE id=?`,
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort)
+		SELECT ?,kind,?,?,cwd,model,provider,?,goal,?,?,effort FROM sessions WHERE id=? AND kind='agent'`,
 		newID, now(), now(), title, srcID, uptoSeq, srcID); err != nil {
 		return "", err
 	}
@@ -963,7 +871,7 @@ func (s *Store) SetPinned(id string, pinned bool) error {
 // ForksOf lists sessions forked from id, newest first — the session tree's
 // children of one node.
 func (s *Store) ForksOf(id string) ([]Meta, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, mode, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, updated_at
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,effort,usage_in,usage_cached,usage_out,updated_at
 		FROM sessions WHERE forked_from=? ORDER BY updated_at DESC`, id)
 	if err != nil {
 		return nil, err
@@ -1025,9 +933,9 @@ func scanMetas(rows *sql.Rows) ([]Meta, error) {
 		var m Meta
 		var updated, tags string
 		var pinned int
-		if err := rows.Scan(&m.ID, &m.Title, &m.Model, &m.Provider, &m.CWD, &m.Goal, &m.Mode,
+		if err := rows.Scan(&m.ID, &m.Kind, &m.Title, &m.Model, &m.Provider, &m.CWD, &m.Goal,
 			&m.ForkedFrom, &m.ForkSeq, &tags, &pinned, &m.Effort,
-			&m.UsageIn, &m.UsageCached, &m.UsageOut, &m.TaskID, &updated); err != nil {
+			&m.UsageIn, &m.UsageCached, &m.UsageOut, &updated); err != nil {
 			return nil, err
 		}
 		if tags != "" {

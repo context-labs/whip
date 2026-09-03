@@ -80,7 +80,13 @@ type worker struct {
 	requests     int
 	nextRequest  uint64
 	cellOutput   strings.Builder
+	sources      map[string]scratchSource // top-level defs and lambdas, for snapshots
+	nextSource   int
+	restoring    bool
 }
+
+// cellFileOptions is the Starlark dialect for cells and scratch programs.
+var cellFileOptions = &syntax.FileOptions{While: true, TopLevelControl: true, GlobalReassign: true, Recursion: true}
 
 func (w *worker) installModules() {
 	for module, operations := range moduleRegistry {
@@ -120,10 +126,20 @@ func (w *worker) run() error {
 		if err != nil {
 			return err
 		}
-		if request.Type != "eval" || request.ID == 0 {
+		if request.ID == 0 {
 			return fmt.Errorf("unexpected RLM frame %q", request.Type)
 		}
-		result := w.evaluate(request.Code)
+		var result frame
+		switch request.Type {
+		case "eval":
+			result = w.evaluate(request.Code)
+		case "snapshot":
+			result = w.snapshot()
+		case "restore":
+			result = w.restore(request.Code)
+		default:
+			return fmt.Errorf("unexpected RLM frame %q", request.Type)
+		}
 		result.Type = "result"
 		result.ID = request.ID
 		if err := writeFrame(w.output, w.frameBytes, result); err != nil {
@@ -147,11 +163,11 @@ func (w *worker) evaluate(code string) frame {
 		w.cellOutput.WriteByte('\n')
 	}
 
-	options := &syntax.FileOptions{While: true, TopLevelControl: true, GlobalReassign: true, Recursion: true}
-	file, err := options.Parse("<rlm-cell>", code, 0)
+	file, err := cellFileOptions.Parse("<rlm-cell>", code, 0)
 	if err != nil {
 		return frame{Output: w.cellOutput.String(), Error: err.Error()}
 	}
+	statements := file.Stmts
 	var value starlark.Value = starlark.None
 	if count := len(file.Stmts); count > 0 {
 		if expression, ok := file.Stmts[count-1].(*syntax.ExprStmt); ok {
@@ -171,6 +187,7 @@ func (w *worker) evaluate(code string) frame {
 		result.Error = err.Error()
 		return result
 	}
+	w.recordSources(code, statements)
 	result.Value, err = starlarkToGo(value)
 	if err != nil {
 		result.Error = err.Error()
@@ -187,6 +204,9 @@ func (w *worker) evaluate(code string) frame {
 }
 
 func (w *worker) hostCall(module, operation string, arguments map[string]any) (starlark.Value, error) {
+	if w.restoring {
+		return nil, errors.New("host calls are unavailable while scratch is restored")
+	}
 	if err := validateModuleOperation(module, operation); err != nil {
 		return nil, err
 	}

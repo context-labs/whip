@@ -189,7 +189,7 @@ func (d *Daemon) entryRoot(entry *rootEntry) *Session {
 }
 
 func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err error) {
-	authority, err := d.store.EnsureClassicAuthority(d.ctx, meta.ID)
+	authority, err := d.store.EnsureAuthority(d.ctx, meta.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -222,6 +222,9 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 		return nil, errors.New("root factory returned no runner")
 	}
 	root = newSession(d.store, meta, authority, components, d.factory)
+	// Bind hooks may reconstruct durable child agents through actor-owned
+	// store operations, so the serialization boundary must exist first.
+	root.supervisor.startActor(root.run)
 	if binder, ok := components.Runner.(interface{ bind(*Session) error }); ok {
 		if err := binder.bind(root); err != nil {
 			return nil, err
@@ -233,7 +236,6 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 		}
 	}
 	configureMCP(root, components)
-	root.supervisor.startActor(root.run)
 	root.startScheduler()
 	root.notify()
 	started = true
@@ -247,7 +249,7 @@ func configureMCP(root *Session, components Components) {
 		Tools() []tools.Tool
 	}); ok {
 		manager.SetProcessOptions(root.store.Processes(), root.meta.ID, root.meta.CWD, nil)
-		if runner, ok := components.Runner.(*agentRunner); ok {
+		if runner, ok := components.Runner.(*AgentSession); ok {
 			updateTools := func() { runner.agent.SetMCPTools(manager.Tools()) }
 			manager.SetOnChange(updateTools)
 			updateTools()

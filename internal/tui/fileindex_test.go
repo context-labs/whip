@@ -3,7 +3,6 @@ package tui
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -93,32 +92,6 @@ func TestAtMentionFuzzyCompletion(t *testing.T) {
 	_, cs = completions("fix @docs/r", nil, nil, nil, nil)
 	if len(cs) != 1 || cs[0].Text != "@docs/roadmap.md" {
 		t.Fatalf("slash query: %v", texts(cs))
-	}
-}
-
-func TestExpandMentionsFuzzy(t *testing.T) {
-	dir := chdir(t)
-	write(t, dir, "docs/roadmap.md")
-
-	// resolveMentionPath stats against the real cwd, so run from the fixture
-	t.Chdir(dir)
-
-	out := expandMentions("see @roadmap")
-	abs := filepath.Join(dir, "docs", "roadmap.md")
-	if !strings.Contains(out, abs) {
-		t.Fatalf("fuzzy mention should resolve to %q: %q", abs, out)
-	}
-	// ambiguous bare word stays untouched
-	write(t, dir, "plans/roadmap.md")
-	fileIndex.Lock()
-	fileIndex.builtAt = time.Time{}
-	fileIndex.Unlock()
-	if got := expandMentions("see @roadmap"); got != "see @roadmap" {
-		t.Fatalf("ambiguous should be unchanged: %q", got)
-	}
-	// a partial path is never fuzzy-resolved
-	if got := expandMentions("see @docs/road"); got != "see @docs/road" {
-		t.Fatalf("partial path should be unchanged: %q", got)
 	}
 }
 

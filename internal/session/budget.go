@@ -23,7 +23,7 @@ const (
 	BudgetConcurrentChildTurns   BudgetKind = "concurrent_child_turns"
 	BudgetDepth                  BudgetKind = "depth"
 
-	DefaultRootTokens                 int64 = 1_000_000
+	DefaultRootTokens                 int64 = 100_000_000
 	DefaultRootCostMicros             int64 = 25_000_000
 	DefaultRootElapsedMillis          int64 = 4 * 60 * 60 * 1_000
 	DefaultRootDurableBytes           int64 = 1 << 30
@@ -32,7 +32,7 @@ const (
 	DefaultRootActiveOperations       int64 = 64
 	DefaultTreeActiveChildren         int64 = 8
 	DefaultTreeConcurrentChildTurns   int64 = 4
-	DefaultTreeDepth                  int64 = 4
+	DefaultTreeDepth                  int64 = 2
 )
 
 type BudgetLimit struct {

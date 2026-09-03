@@ -14,6 +14,7 @@ import (
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/session"
 )
 
 // mcpCLI implements `whip mcp <list|add|remove|serve|test|import>`.
@@ -148,7 +149,7 @@ func mcpServe(version string) error {
 	clientID := daemonClientID("mcp")
 	client, err := daemon.NewRootClient(daemon.RootClientOptions{
 		ClientID:  clientID,
-		Create:    &daemon.CreateSession{CWD: wd, Model: "mcp", Provider: "local"},
+		Create:    &daemon.CreateSession{Kind: session.SessionKindToolHost, CWD: wd},
 		Connector: daemonConnector("automation", clientID),
 	})
 	if err != nil {

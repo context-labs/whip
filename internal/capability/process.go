@@ -368,7 +368,7 @@ func allowedBaseEnvironment(name string) bool {
 	switch name {
 	case "HOME", "PATH", "SHELL", "USER", "LOGNAME",
 		"TMPDIR", "TMP", "TEMP", "LANG", "LANGUAGE",
-		"TERM", "COLORTERM", "NO_COLOR":
+		"TERM", "COLORTERM", "NO_COLOR", "WHIP_HOME":
 		return true
 	}
 	return strings.HasPrefix(name, "LC_")

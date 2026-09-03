@@ -52,7 +52,7 @@ func BrowserExec(services *Services) Tool {
 	if services == nil {
 		services = NewServices()
 	}
-	return classicTool(services, "browser_exec")
+	return hostTool(services, "browser_exec")
 }
 
 func browserExec(services *Services) Tool {

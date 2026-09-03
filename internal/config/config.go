@@ -149,13 +149,6 @@ func (m Model) ContextWindow() int {
 // conversation's model when it's not in the user's config.
 const DefaultCompactModel = "deepseek-v4-flash-0731"
 
-// DefaultTaskModel is the built-in subagent-model default: subagents are
-// high-volume, self-contained work, so they run on the same cheap fast route
-// compaction uses unless the user pins taskModel or the main model overrides
-// per task. Falls back to the conversation's model when it's not resolvable
-// (an openrouter-only config resolves it via a catalog suffix match first).
-const DefaultTaskModel = DefaultCompactModel
-
 // DefaultCompactPct is the built-in compaction threshold: compact once the
 // estimated context use crosses this percent of the model's context window.
 // 50% keeps compaction deterministic instead of letting the context bloat.
@@ -163,29 +156,23 @@ const DefaultCompactPct = 50
 
 // Config is the root of ~/.whip/config.json (JSONC: comments allowed).
 type Config struct {
-	DefaultModel    string    `json:"defaultModel"`
-	DefaultProvider string    `json:"defaultProvider,omitempty"` // override the model's first provider
-	DefaultEffort   string    `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
-	CompactModel    string    `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
-	CompactProvider string    `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
-	CompactPct      int       `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
-	TaskModel       string    `json:"taskModel,omitempty"`       // model subagents (the task tool) run on; "" = the built-in default
-	TaskProvider    string    `json:"taskProvider,omitempty"`    // provider for the subagent model; "" = the model's default routing
-	Theme           string    `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
-	UIMode          string    `json:"uiMode,omitempty"`          // "" (default whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo)
-	Sidebar         *bool     `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
-	Mouse           *bool     `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
-	Thinking        *bool     `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
-	CollapsePaste   *bool     `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
-	GoalMaxRounds   int       `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
-	RLM             RLMConfig `json:"rlm,omitzero"`
-	// WorktreeSubagents defaults background subagents to run in their own git
-	// worktree so their file edits stay isolated from the parent's tree and
-	// from each other. The subagent tool's per-call `worktree` arg overrides this.
-	WorktreeSubagents *bool               `json:"worktreeSubagents,omitempty"`
-	MaxRetries        int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
-	Providers         map[string]Provider `json:"providers"`
-	Models            map[string]Model    `json:"models"`
+	DefaultModel    string              `json:"defaultModel"`
+	DefaultProvider string              `json:"defaultProvider,omitempty"` // override the model's first provider
+	DefaultEffort   string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
+	CompactModel    string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
+	CompactProvider string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
+	CompactPct      int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
+	Theme           string              `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
+	UIMode          string              `json:"uiMode,omitempty"`          // "" (default whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo)
+	Sidebar         *bool               `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
+	Mouse           *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
+	Thinking        *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
+	CollapsePaste   *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
+	GoalMaxRounds   int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
+	RLM             RLMConfig           `json:"rlm,omitzero"`
+	MaxRetries      int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
+	Providers       map[string]Provider `json:"providers"`
+	Models          map[string]Model    `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: whip always wins per name.
@@ -208,7 +195,6 @@ type Config struct {
 // RLMConfig controls the disposable Starlark worker. Zero limit values use
 // the runtime defaults documented by the RLM contract.
 type RLMConfig struct {
-	Enabled      *bool  `json:"enabled,omitempty"`
 	Steps        uint64 `json:"steps,omitempty"`
 	HostRequests int    `json:"hostRequests,omitempty"`
 	WallMillis   int    `json:"wallMillis,omitempty"`
@@ -217,8 +203,6 @@ type RLMConfig struct {
 	FrameBytes   int    `json:"frameBytes,omitempty"`
 	MaxWorkers   int    `json:"maxWorkers,omitempty"`
 }
-
-func (c Config) RLMEnabled() bool { return c.RLM.Enabled == nil || *c.RLM.Enabled }
 
 // ComputerConfig gates computer_exec per app (codex's per-bundle-id model).
 type ComputerConfig struct {
@@ -243,6 +227,9 @@ type BrowserConfig struct {
 	// the user's real logged-in tab through the whip extension — the only
 	// way onto the default profile on Chrome ≥ 136).
 	Mode string `json:"mode,omitempty"`
+	// Driver selects the implementation used by browser sessions. Empty uses
+	// the built-in default (rod); supported values are "rod" and "chromedp".
+	Driver string `json:"driver,omitempty"`
 	// CDPURL attaches live mode to an explicit DevTools endpoint instead of
 	// the profile scan (http:// or ws://).
 	CDPURL string `json:"cdpUrl,omitempty"`
@@ -613,9 +600,8 @@ func (c *Config) resolveFromCatalog(model, provider string) (Model, string, erro
 	return m, h.prov, nil
 }
 
-// Snapshot returns a copy of the config safe to read from another goroutine
-// while the original keeps being mutated on the UI goroutine (the subagent
-// model resolver runs on tool workers). Maps are copied one level deep —
+// Snapshot returns an immutable copy suitable for model-resolution closures.
+// Maps are copied one level deep —
 // their struct values are plain data; nested slices are never mutated in
 // place, only replaced wholesale with the map entry.
 func (c *Config) Snapshot() *Config {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,23 +9,43 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 )
+
+func init() {
+	daemonKernelCommand = []string{os.Args[0], "-test.run=TestDaemonKernelWorker", "--"}
+}
+
+func TestDaemonKernelWorker(t *testing.T) {
+	separator := slices.Index(os.Args, "--")
+	if separator < 0 {
+		return
+	}
+	if err := rlm.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+}
 
 func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
 	t.Setenv("INFERENCE_API_KEY", "test-key")
+	legacyPath := filepath.Join(home, "sessions.db")
+	legacyBytes := []byte("legacy store must remain completely untouched")
+	if err := os.WriteFile(legacyPath, legacyBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(ctx, nil) }()
@@ -50,7 +71,7 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	if client.InitializeResult().Generation != 1 {
 		t.Fatalf("initial generation = %+v", client.InitializeResult())
 	}
-	badModel, _ := json.Marshal(map[string]string{"cwd": home, "model": "missing", "provider": "inference-net"})
+	badModel, _ := json.Marshal(map[string]string{"kind": string(session.SessionKindAgent), "cwd": home, "model": "missing", "provider": "inference-net"})
 	badCreated, err := client.Command(context.Background(), daemon.CommandParams{
 		CommandID: "bad-model", Scope: "daemon", Operation: "session.create", Payload: badModel,
 	})
@@ -61,7 +82,7 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 		t.Fatal("daemon factory accepted an unknown model")
 	}
 	payload, _ := json.Marshal(map[string]string{
-		"cwd": home, "model": "kimi-k3-fast", "provider": "inference-net",
+		"kind": string(session.SessionKindAgent), "cwd": home, "model": "kimi-k3-fast", "provider": "inference-net",
 	})
 	created, err := client.Command(context.Background(), daemon.CommandParams{
 		CommandID: "create", Scope: "daemon", Operation: "session.create", Payload: payload,
@@ -80,8 +101,30 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	if _, err := os.Stat(paths.Socket); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("daemon socket remains: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, "sessions.db")); err != nil {
+	if _, err := os.Stat(runtimeDBPath(home)); err != nil {
 		t.Fatalf("daemon database missing: %v", err)
+	}
+	after, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, legacyBytes) {
+		t.Fatalf("legacy database was read or modified: got %q", after)
+	}
+}
+
+func TestResolvedRuntimeEffortPreservesExplicitOffAndInheritance(t *testing.T) {
+	catalogs := map[string]config.Catalog{"provider": {
+		Models: []config.ModelInfoLite{{ID: "model", ReasoningEfforts: []string{"low", "high"}}},
+	}}
+	if got := resolvedRuntimeEffort(catalogs, "provider", "model", "off", "high"); got != "" {
+		t.Fatalf("explicit off resolved to %q", got)
+	}
+	if got := resolvedRuntimeEffort(catalogs, "provider", "model", "", "high"); got != "high" {
+		t.Fatalf("inherited effort resolved to %q", got)
+	}
+	if got := resolvedRuntimeEffort(catalogs, "provider", "model", "low", "high"); got != "low" {
+		t.Fatalf("session override resolved to %q", got)
 	}
 }
 
@@ -91,7 +134,7 @@ func TestRunDaemonRejectsInvalidArguments(t *testing.T) {
 	}
 }
 
-func TestRunDaemonClassicTurnStartsNoKernelProcess(t *testing.T) {
+func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 	var calls atomic.Int32
 	requests := make(chan llm.Request, 2)
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -106,7 +149,7 @@ func TestRunDaemonClassicTurnStartsNoKernelProcess(t *testing.T) {
 		if call == 1 {
 			fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"kernel-attempt","type":"function","function":{"name":"rlm_exec","arguments":"{\"code\":\"1\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\n")
 		} else {
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"classic done"},"finish_reason":"stop"}]}`+"\n\n")
+			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"rlm done"},"finish_reason":"stop"}]}`+"\n\n")
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
@@ -142,7 +185,7 @@ func TestRunDaemonClassicTurnStartsNoKernelProcess(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
-			ProtocolMajor: daemon.ProtocolMajor, BuildID: version, ClientID: "classic-zero-kernel", ClientKind: "test",
+			ProtocolMajor: daemon.ProtocolMajor, BuildID: version, ClientID: "rlm-only", ClientKind: "test",
 		})
 		if err == nil {
 			break
@@ -157,43 +200,38 @@ func TestRunDaemonClassicTurnStartsNoKernelProcess(t *testing.T) {
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
-			t.Error("Classic daemon did not stop")
+			t.Error("RLM daemon did not stop")
 		}
 	})
 	if err != nil {
 		t.Fatalf("daemon did not become ready: %v", err)
 	}
-	createPayload, _ := json.Marshal(map[string]string{"cwd": home, "model": "test-model", "provider": "test-provider"})
+	createPayload, _ := json.Marshal(map[string]string{"kind": string(session.SessionKindAgent), "cwd": home, "model": "test-model", "provider": "test-provider"})
 	created, err := client.Command(context.Background(), daemon.CommandParams{
-		CommandID: "classic-create", Scope: "daemon", Operation: "session.create", Payload: createPayload,
+		CommandID: "rlm-create", Scope: "daemon", Operation: "session.create", Payload: createPayload,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	turnPayload, _ := json.Marshal(map[string]string{"text": "try the runtime"})
 	turn, err := client.Command(context.Background(), daemon.CommandParams{
-		CommandID: "classic-turn", Scope: "root", RootID: created.Output, Operation: "submit", Payload: turnPayload,
+		CommandID: "rlm-turn", Scope: "root", RootID: created.Output, Operation: "submit", Payload: turnPayload,
 	})
-	if err != nil || turn.Output != "classic done" || calls.Load() != 2 {
-		t.Fatalf("Classic turn = %+v, calls=%d, err=%v", turn, calls.Load(), err)
+	if err != nil || turn.Output != "rlm done" || calls.Load() != 2 {
+		t.Fatalf("RLM turn = %+v, calls=%d, err=%v", turn, calls.Load(), err)
 	}
 	for range 2 {
 		request := <-requests
+		if len(request.Tools) != 1 || request.Tools[0].Function.Name != "rlm_exec" {
+			t.Fatalf("model-facing tools = %+v", request.Tools)
+		}
 		if request.Temperature == nil || *request.Temperature != 0.25 || request.TopP == nil || *request.TopP != 0.75 {
 			t.Fatalf("daemon sampling parameters = temperature %v, top_p %v", request.Temperature, request.TopP)
 		}
 	}
 	snapshot, err := client.Snapshot(context.Background(), created.Output)
-	if err != nil || snapshot.Meta.Mode != session.ModeClassic {
-		t.Fatalf("Classic snapshot = %+v, %v", snapshot.Meta, err)
-	}
-	output, processErr := exec.CommandContext(context.Background(), "pgrep", "-P", strconv.Itoa(os.Getpid()), "-f", "[_]kernel").CombinedOutput()
-	if processErr == nil || strings.TrimSpace(string(output)) != "" {
-		t.Fatalf("Classic mode launched a kernel process: %s", output)
-	}
-	var exitErr *exec.ExitError
-	if !errors.As(processErr, &exitErr) || exitErr.ExitCode() != 1 {
-		t.Fatalf("inspect child processes: %v", processErr)
+	if err != nil {
+		t.Fatalf("RLM snapshot = %+v, %v", snapshot.Meta, err)
 	}
 }
 
@@ -263,5 +301,50 @@ func TestRunDaemonCompletesCheckpointRestartHandoff(t *testing.T) {
 	}
 	if err := <-done; !errors.Is(err, restartErr) {
 		t.Fatalf("restart handoff = %v", err)
+	}
+}
+
+func TestRunDaemonCompletesCheckpointStop(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	paths, err := daemon.Paths(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runDaemon(context.Background(), nil) }()
+	var client *daemon.Client
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		client, err = daemon.DialClient(context.Background(), paths, daemon.InitializeParams{
+			ProtocolMajor: daemon.ProtocolMajor, ClientID: "stop-test", ClientKind: "automation",
+		})
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]string{"reason": "test"})
+	result, err := client.Command(context.Background(), daemon.CommandParams{
+		CommandID: "checkpoint-stop", Scope: "daemon", Operation: "daemon.checkpoint", Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var notice daemon.RestartNotice
+	if err := json.Unmarshal([]byte(result.Output), &notice); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RequestStop(context.Background(), notice.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("stop handoff = %v", err)
+	}
+	if _, err := os.Stat(paths.Socket); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("daemon socket remains after stop: %v", err)
 	}
 }

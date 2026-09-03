@@ -24,20 +24,121 @@ func (s *Store) Workspaces() *capability.Workspaces { return s.workspaces }
 
 func (s *Store) Processes() *capability.ProcessManager { return s.processes }
 
-// EnsureClassicAuthority installs the root Classic agent's initial grants once.
-func (s *Store) EnsureClassicAuthority(ctx context.Context, rootID string) (capability.ClassicAuthority, error) {
-	authority := capability.ClassicAuthority{
-		RootID: rootID, AgentID: "classic:" + rootID,
-		Files: capability.Reference{ID: "classic-files:" + rootID},
-		Shell: capability.Reference{ID: "classic-shell:" + rootID},
+// EnsureAuthority installs the root agent and its initial grants once.
+func (s *Store) EnsureAuthority(ctx context.Context, rootID string) (capability.Authority, error) {
+	authority := capability.Authority{
+		RootID: rootID, AgentID: rootID,
+		Files: capability.Reference{ID: "files:" + rootID},
+		Shell: capability.Reference{ID: "shell:" + rootID},
 	}
+	return s.ensureAuthority(ctx, rootID, authority)
+}
+
+// LoadAgentAuthority reconstructs the dispatcher identity and the semantic
+// capability names used by a retained recursive agent.
+func (s *Store) LoadAgentAuthority(ctx context.Context, rootID, agentID string) (capability.Authority, []string, error) {
+	if rootID == "" || agentID == "" {
+		return capability.Authority{}, nil, capability.ErrDenied
+	}
+	authority := capability.Authority{RootID: rootID, AgentID: agentID}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,operations,generation FROM capabilities
+		WHERE root_id=? AND agent_id=? AND status='active' ORDER BY id`, rootID, agentID)
+	if err != nil {
+		return capability.Authority{}, nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var names []string
+	for rows.Next() {
+		var id string
+		var raw []byte
+		var generation int64
+		if err := rows.Scan(&id, &raw, &generation); err != nil {
+			return capability.Authority{}, nil, err
+		}
+		var operations []string
+		if err := json.Unmarshal(raw, &operations); err != nil {
+			return capability.Authority{}, nil, err
+		}
+		for _, operation := range operations {
+			switch operation {
+			case "read":
+				if authority.Files.ID == "" {
+					authority.Files = capability.Reference{ID: id, Generation: generation}
+				}
+				if !slices.Contains(names, "read") {
+					names = append(names, "read")
+				}
+			case "write", "edit", "workspace.write":
+				if authority.Files.ID == "" {
+					authority.Files = capability.Reference{ID: id, Generation: generation}
+				}
+				if !slices.Contains(names, "write") {
+					names = append(names, "write")
+				}
+			case "bash", "workspace_process":
+				if authority.Shell.ID == "" {
+					authority.Shell = capability.Reference{ID: id, Generation: generation}
+				}
+				if !slices.Contains(names, "shell") {
+					names = append(names, "shell")
+				}
+			case "browser_exec":
+				if authority.Shell.ID == "" {
+					authority.Shell = capability.Reference{ID: id, Generation: generation}
+				}
+				if !slices.Contains(names, "browser") {
+					names = append(names, "browser")
+				}
+			case "computer_exec":
+				if authority.Shell.ID == "" {
+					authority.Shell = capability.Reference{ID: id, Generation: generation}
+				}
+				if !slices.Contains(names, "computer") {
+					names = append(names, "computer")
+				}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return capability.Authority{}, nil, err
+	}
+	slices.Sort(names)
+	return authority, names, nil
+}
+
+// AuthorizeCapability verifies the current generation, operation, expiry, and
+// optional path scope without starting an operation. It is used for daemon
+// input preparation that must inspect a file before a model turn exists.
+func (s *Store) AuthorizeCapability(ctx context.Context, rootID, agentID string, reference capability.Reference, operation, canonicalPath string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := validateCapabilityAgent(ctx, tx, rootID, agentID); err != nil {
+		return err
+	}
+	grant, err := loadCapabilityGrant(ctx, tx, rootID, agentID, reference.ID, reference.Generation)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(grant.operations, operation) {
+		return capability.ErrDenied
+	}
+	if canonicalPath != "" && !scopeContains(grant.scopes.Paths, canonicalPath) {
+		return capability.ErrDenied
+	}
+	return nil
+}
+
+func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority capability.Authority) (capability.Authority, error) {
 	root, err := s.WorkspaceRoot(ctx, rootID)
 	if err != nil {
-		return capability.ClassicAuthority{}, err
+		return capability.Authority{}, err
 	}
 	workspace, err := s.workspaces.Open(root)
 	if err != nil {
-		return capability.ClassicAuthority{}, err
+		return capability.Authority{}, err
 	}
 	fileOperations, _ := json.Marshal([]string{"read", "write", "edit", "workspace.write"})
 	fileScopes, _ := json.Marshal(storedCapabilityScopes{Paths: []string{workspace.Root()}})
@@ -46,20 +147,22 @@ func (s *Store) EnsureClassicAuthority(ctx context.Context, rootID string) (capa
 	stamp := now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return capability.ClassicAuthority{}, err
+		return capability.Authority{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at)
-		VALUES(?,?,NULL,'idle',?,?) ON CONFLICT(id) DO NOTHING`, authority.AgentID, rootID, stamp, stamp); err != nil {
-		return capability.ClassicAuthority{}, err
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,name,model,provider,effort,cwd,status,created_at,updated_at)
+		SELECT ?,id,NULL,'root',model,provider,effort,cwd,'idle',?,? FROM sessions WHERE id=?
+		ON CONFLICT(id) DO UPDATE SET name=CASE WHEN agents.name='' THEN 'root' ELSE agents.name END,
+		model=excluded.model,provider=excluded.provider,effort=excluded.effort,cwd=excluded.cwd`, authority.AgentID, stamp, stamp, rootID); err != nil {
+		return capability.Authority{}, err
 	}
 	var status string
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM agents WHERE id=? AND root_id=?`, authority.AgentID, rootID).Scan(&status); err != nil {
-		return capability.ClassicAuthority{}, err
+		return capability.Authority{}, err
 	}
 	switch status {
 	case "failed", "stopped", "cancelled", "interrupted", "deleted", "succeeded":
-		return capability.ClassicAuthority{}, ErrRootTerminal
+		return capability.Authority{}, ErrRootTerminal
 	}
 	for _, grant := range []struct {
 		id         string
@@ -71,22 +174,22 @@ func (s *Store) EnsureClassicAuthority(ctx context.Context, rootID string) (capa
 	} {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO capabilities(id,root_id,agent_id,operations,scopes,generation,status,created_at,updated_at)
 			VALUES(?,?,?,?,?,1,'active',?,?) ON CONFLICT(id) DO NOTHING`, grant.id, rootID, authority.AgentID, grant.operations, grant.scopes, stamp, stamp); err != nil {
-			return capability.ClassicAuthority{}, err
+			return capability.Authority{}, err
 		}
 	}
 	if err := insertDefaultRootBudgets(ctx, tx, rootID, stamp); err != nil {
-		return capability.ClassicAuthority{}, err
+		return capability.Authority{}, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT generation FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
 		authority.Files.ID, rootID, authority.AgentID).Scan(&authority.Files.Generation); err != nil {
-		return capability.ClassicAuthority{}, err
+		return capability.Authority{}, err
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT generation FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
 		authority.Shell.ID, rootID, authority.AgentID).Scan(&authority.Shell.Generation); err != nil {
-		return capability.ClassicAuthority{}, err
+		return capability.Authority{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return capability.ClassicAuthority{}, err
+		return capability.Authority{}, err
 	}
 	return authority, nil
 }

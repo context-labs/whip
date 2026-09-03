@@ -221,6 +221,12 @@ func (c *Client) Snapshot(ctx context.Context, rootID string) (session.RootSnaps
 	return snapshot, nil
 }
 
+func (c *Client) ValidateProvider(ctx context.Context, params ProviderValidateParams) (ProviderValidateResult, error) {
+	var result ProviderValidateResult
+	err := c.Call(ctx, "provider.validate", params, &result)
+	return result, err
+}
+
 func (c *Client) Upload(ctx context.Context, begin UploadBeginParams, data []byte) (ContentHandle, error) {
 	if int64(len(data)) != begin.Size {
 		return ContentHandle{}, errors.New("upload data size does not match metadata")
@@ -333,11 +339,19 @@ func (c *Client) SetPermissionMode(ctx context.Context, private ed25519.PrivateK
 }
 
 func (c *Client) RequestRestart(ctx context.Context, generation int64) error {
+	return c.requestLifecycle(ctx, "daemon.restart", generation)
+}
+
+func (c *Client) RequestStop(ctx context.Context, generation int64) error {
+	return c.requestLifecycle(ctx, "daemon.stop", generation)
+}
+
+func (c *Client) requestLifecycle(ctx context.Context, method string, generation int64) error {
 	params, err := json.Marshal(RestartParams{Generation: generation})
 	if err != nil {
 		return err
 	}
-	frame, err := marshalFrame(rpcMessage{Method: "daemon.restart", Params: params})
+	frame, err := marshalFrame(rpcMessage{Method: method, Params: params})
 	if err != nil {
 		return err
 	}

@@ -11,12 +11,10 @@ import (
 	"github.com/context-labs/whip/internal/tools"
 )
 
-// SessionID scopes the memory tools' per-session file. Set by the TUI once a
-// session exists; "" leaves only the installation scope. It also keys the
+// SetSessionID scopes session-owned data and keys the
 // provider prompt cache (Client.CacheKey): a stable session id lets the
 // provider reuse the cached conversation prefix across turns. The id is
-// stored atomically — the TUI sets it on the UI goroutine while the subagent
-// tool reads it on a worker goroutine.
+// stored atomically because runtime services may inspect it concurrently.
 func (a *Agent) SetSessionID(id string) {
 	a.sessionID.Store(&id)
 	if a.Client != nil {

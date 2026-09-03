@@ -59,9 +59,10 @@ func (c *Control) route(ctx context.Context, work func(context.Context) error) e
 }
 
 type CreateSession struct {
-	CWD      string `json:"cwd"`
-	Model    string `json:"model"`
-	Provider string `json:"provider"`
+	Kind     session.SessionKind `json:"kind"`
+	CWD      string              `json:"cwd"`
+	Model    string              `json:"model"`
+	Provider string              `json:"provider"`
 }
 
 func (c *Control) CreateSession(ctx context.Context, admission session.CommandAdmission, create CreateSession) (record session.CommandRecord, err error) {
@@ -78,7 +79,7 @@ func (c *Control) CreateSession(ctx context.Context, admission session.CommandAd
 		if !admitted.New {
 			return nil
 		}
-		record, err = c.store.CreateSessionForCommand(actorCtx, admission.ClientID, admission.CommandID, create.CWD, create.Model, create.Provider)
+		record, err = c.store.CreateSessionForCommand(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider)
 		if err != nil {
 			_, finishErr := c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "failed", session.RuntimePayload{Data: []byte(err.Error())})
 			return errors.Join(err, finishErr)

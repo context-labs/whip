@@ -44,7 +44,7 @@ func TestLSPDiagnosticsReachModel(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	ag.Services.SetDiagnostics(stubWaiter{block: "\n\n<diagnostics file=\"" + target + "\">\nERROR [2:3] undefined: foo\n</diagnostics>"})
 	bindTestAgent(t, ag, dir)
 	if _, err := ag.Turn(context.Background(), "write the file", Events{}); err != nil {

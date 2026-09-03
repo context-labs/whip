@@ -21,6 +21,10 @@ import (
 // (never WithEnvironmentConfig: an OSC background query mid-session can hang
 // over mosh/tmux — see detectColorScheme).
 func renderMarkdown(s string, width int) string {
+	return renderMarkdownAt(s, width, "")
+}
+
+func renderMarkdownAt(s string, width int, root string) string {
 	if strings.TrimSpace(s) == "" {
 		return s
 	}
@@ -30,8 +34,10 @@ func renderMarkdown(s string, width int) string {
 		return s
 	}
 	rendered := stripLinePadding(strings.Trim(out, "\n"))
-	linked := hyperlinkGlamourLinks(rendered, realFileExists)
-	linked = linkifyRenderedFilePaths(linked, realFileExists)
+	exists := func(path string) bool { return realFileExistsAt(root, path) }
+	uri := func(path, line string) string { return absFileURIAt(root, path, line) }
+	linked := hyperlinkGlamourLinksWith(rendered, exists, uri)
+	linked = linkifyRenderedFilePathsWith(linked, exists, uri)
 	return wrapWideLines(linked, width)
 }
 

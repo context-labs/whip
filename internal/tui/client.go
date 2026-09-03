@@ -9,10 +9,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -22,126 +21,51 @@ import (
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/update"
 )
 
-// ClientState is the synchronization state shared by every daemon-backed UI.
-type ClientState uint8
+type ClientState = daemon.RootClientState
 
 const (
-	ClientDisconnected ClientState = iota
-	ClientReconnecting
-	ClientSnapshotting
-	ClientLive
+	ClientDisconnected = daemon.RootDisconnected
+	ClientReconnecting = daemon.RootReconnecting
+	ClientSnapshotting = daemon.RootSnapshotting
+	ClientLive         = daemon.RootLive
 )
 
-func (s ClientState) String() string {
-	switch s {
-	case ClientDisconnected:
-		return "disconnected"
-	case ClientReconnecting:
-		return "reconnecting"
-	case ClientSnapshotting:
-		return "snapshotting"
-	case ClientLive:
-		return "live"
-	default:
-		return "unknown"
-	}
-}
+type Action = daemon.RootAction
+type ClientUpdate = daemon.RootUpdate
+type daemonConnection = daemon.RootConnection
+type clientConnector = daemon.RootConnector
+type ClientOptions = daemon.RootClientOptions
+type Client = daemon.RootClient
 
-// Action gives one user gesture one stable command identity. Callers retain
-// the value when a connection failure makes the outcome uncertain.
-type Action struct {
-	CommandID string
-	Operation string
-	RootID    string
-	Payload   json.RawMessage
-}
-
-// ClientUpdate carries immutable daemon state into the Bubble Tea loop.
-type ClientUpdate struct {
-	State        ClientState
-	StateChanged bool
-	Snapshot     *session.RootSnapshot
-	Event        *daemon.ProtocolEvent
-	Err          error
-}
+func NewClient(options ClientOptions) (*Client, error) { return daemon.NewRootClient(options) }
 
 // clientPresentation is the daemon-fed state needed to render a terminal. It
 // deliberately has no provider client, tool registry, scheduler, store, or
 // process handles.
 type clientPresentation struct {
-	modelID      string
-	effort       string
-	workingDir   string
-	contextLimit int
-	usage        llm.Usage
-	messages     []llm.Message
-	agents       []session.RuntimeAgent
-	inbox        []session.InboxItem
-	blackboard   []session.StateValue
-	budgets      []session.SnapshotBudget
-	capabilities []session.CapabilityRecord
-	schedules    []session.Schedule
-}
-
-type daemonConnection interface {
-	Command(context.Context, daemon.CommandParams) (daemon.CommandResult, error)
-	Replay(context.Context, daemon.ReplayParams) (daemon.ReplayResult, error)
-	Snapshot(context.Context, string) (session.RootSnapshot, error)
-	Events() <-chan daemon.ProtocolEvent
-	Done() <-chan struct{}
-	Err() error
-	Close() error
-}
-
-type clientConnector func(context.Context, map[string]int64) (daemonConnection, error)
-
-var errReconnectForRoot = errors.New("reconnect to subscribe to created root")
-
-// ClientOptions contains behavioral inputs only. Presentation state remains
-// in the Bubble Tea model and survives every reconnect or snapshot.
-type ClientOptions struct {
-	ClientID   string
-	PrivateKey ed25519.PrivateKey
-	RootID     string
-	Create     *daemon.CreateSession
-	Connector  clientConnector
-	RetryMin   time.Duration
-	RetryMax   time.Duration
-}
-
-// Client owns a reconnecting protocol connection, never agent execution.
-type Client struct {
-	clientID   string
-	privateKey ed25519.PrivateKey
-	create     *daemon.CreateSession
-	connect    clientConnector
-	retryMin   time.Duration
-	retryMax   time.Duration
-
-	ctx     context.Context
-	cancel  context.CancelFunc
-	done    chan struct{}
-	once    sync.Once
-	started atomic.Bool
-
-	mu      sync.RWMutex
-	state   ClientState
-	rootID  string
-	cursor  int64
-	conn    daemonConnection
-	changed chan struct{}
-
-	updates chan ClientUpdate
-	nextID  atomic.Uint64
+	modelID            string
+	effort             string
+	workingDir         string
+	contextLimit       int
+	usage              llm.Usage
+	messages           []llm.Message
+	agents             []session.RuntimeAgent
+	inbox              []session.InboxItem
+	blackboard         []session.StateValue
+	budgets            []session.SnapshotBudget
+	capabilities       []session.CapabilityRecord
+	schedules          []session.Schedule
+	permissions        []session.PermissionSnapshot
+	presentation       []session.SnapshotEvent
+	agentPresentations map[string][]session.SnapshotEvent
 }
 
 // Run starts the presentation-only TUI. Agent loops, persistence, schedulers,
 // providers, permissions, and child processes remain in the daemon.
-func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, _, firstRun bool, initialPrompt string) (string, error) {
+func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool, initialPrompt string) (string, error) {
 	stdin := bufio.NewReader(os.Stdin)
 	if trusted, err := checkTrust(stdin); err != nil {
 		return "", err
@@ -192,7 +116,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, _,
 	}
 	var create *daemon.CreateSession
 	if resumeID == "" {
-		create = &daemon.CreateSession{CWD: cwd(), Model: modelName, Provider: provName}
+		create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName}
 	}
 	client, err := NewClient(ClientOptions{
 		ClientID: credentials.ClientID, PrivateKey: credentials.PrivateKey,
@@ -217,12 +141,11 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, _,
 			messages: []llm.Message{{Role: "system", Content: sysPrompt}},
 		},
 		modelName: modelName, provName: provName, sysPrompt: sysPrompt,
-		input: newInput(), spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true, saved: 1, hoverIdx: -1,
+		input: newInput(), spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true, hoverIdx: -1,
 		catalogs: catalogs, mouseOn: mouseOn, now: time.Now, showThinking: showThinking,
-		chdir: os.Chdir, sidebarHide: cfg.Sidebar != nil && !*cfg.Sidebar,
-		compactModel: cfg.CompactModel, compactProv: cfg.CompactProvider,
-		skillScan:     func() []skills.Skill { return skills.Scan(skills.DefaultDirs()...) },
+		sidebarHide:   cfg.Sidebar != nil && !*cfg.Sidebar,
 		initialPrompt: initialPrompt, cfgExtra: map[string]string{},
+		agentMessages: map[string][]llm.Message{},
 	}
 	m.updateLatest = update.Pending(Version)
 	m.themeHow = m.applyTheme(cfg.Theme)
@@ -252,6 +175,13 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, _,
 	program := bubbletea.NewProgram(m, options...)
 	m.prog = program
 	client.Start()
+	permissionCtx, cancelPermission := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := configureInteractiveSession(permissionCtx, client, cautious); err != nil {
+		cancelPermission()
+		_ = client.Close()
+		return "", err
+	}
+	cancelPermission()
 	tuiRunning = true
 	_, runErr := program.Run()
 	tuiRunning = false
@@ -259,7 +189,42 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, _,
 	if m.mouseOn {
 		disableClickWheelMouse(os.Stdout)
 	}
-	return client.RootID(), errors.Join(runErr, closeErr)
+	rootID := client.RootID()
+	if resumeID == "" && !m.clientTouched {
+		rootID = ""
+	}
+	return rootID, errors.Join(runErr, closeErr)
+}
+
+func configureInteractiveSession(ctx context.Context, client *Client, cautious bool) error {
+	if err := client.WaitLive(ctx); err != nil {
+		return fmt.Errorf("connect to daemon: %w", err)
+	}
+	if cautious {
+		action, err := client.NewAction("permission.mode", map[string]bool{"external_permissions": true})
+		if err != nil {
+			return fmt.Errorf("configure cautious permission mode: %w", err)
+		}
+		result, err := client.SetPermissionMode(ctx, action, true)
+		if err != nil {
+			return fmt.Errorf("configure cautious permission mode: %w", err)
+		}
+		if result.Status != "succeeded" {
+			return fmt.Errorf("configure cautious permission mode: %s", result.Error)
+		}
+	}
+	action, err := client.NewAction("session.autotitle", map[string]bool{"enabled": true})
+	if err != nil {
+		return fmt.Errorf("configure automatic titles: %w", err)
+	}
+	result, err := client.Command(ctx, action)
+	if err != nil {
+		return fmt.Errorf("configure automatic titles: %w", err)
+	}
+	if result.Status != "succeeded" {
+		return fmt.Errorf("configure automatic titles: %s", result.Error)
+	}
+	return nil
 }
 
 type identityConnection interface {
@@ -296,397 +261,6 @@ func prepareTUIIdentity(connector clientConnector, credentials daemon.ClientCred
 		return "", fmt.Errorf("pair TUI identity: %w", err)
 	}
 	return "", nil
-}
-
-func NewClient(options ClientOptions) (*Client, error) {
-	if options.ClientID == "" || options.Connector == nil {
-		return nil, errors.New("TUI client requires an identity and connector")
-	}
-	if options.RootID == "" && options.Create == nil {
-		return nil, errors.New("TUI client requires a root or session template")
-	}
-	if options.RootID != "" && options.Create != nil {
-		return nil, errors.New("TUI client cannot resume and create simultaneously")
-	}
-	if options.RetryMin <= 0 {
-		options.RetryMin = 25 * time.Millisecond
-	}
-	if options.RetryMax < options.RetryMin {
-		options.RetryMax = time.Second
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	return &Client{
-		clientID: options.ClientID, privateKey: append(ed25519.PrivateKey(nil), options.PrivateKey...),
-		rootID: options.RootID, create: options.Create,
-		connect: options.Connector, retryMin: options.RetryMin, retryMax: options.RetryMax,
-		ctx: ctx, cancel: cancel, done: make(chan struct{}), state: ClientDisconnected,
-		changed: make(chan struct{}), updates: make(chan ClientUpdate, daemon.MaxOutboundEnvelopes),
-	}, nil
-}
-
-func (c *Client) Start() {
-	c.once.Do(func() {
-		c.started.Store(true)
-		go c.run()
-	})
-}
-
-func (c *Client) Close() error {
-	c.cancel()
-	select {
-	case <-c.done:
-		return nil
-	case <-time.After(5 * time.Second):
-		return errors.New("TUI client did not stop")
-	}
-}
-
-func (c *Client) Updates() <-chan ClientUpdate { return c.updates }
-
-func (c *Client) State() ClientState {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.state
-}
-
-func (c *Client) RootID() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.rootID
-}
-
-func (c *Client) Cursor() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.cursor
-}
-
-// SwitchRoot changes the subscribed session only after a successful daemon
-// action. Closing the current connection makes the run loop perform the full
-// replay-or-snapshot synchronization before enabling commands on the new root.
-func (c *Client) SwitchRoot(rootID string) error {
-	if strings.TrimSpace(rootID) == "" {
-		return errors.New("session root is required")
-	}
-	c.mu.Lock()
-	c.rootID, c.cursor, c.create = rootID, 0, nil
-	c.state = ClientSnapshotting
-	connection := c.conn
-	c.notifyLocked()
-	c.mu.Unlock()
-	c.emit(ClientUpdate{State: ClientSnapshotting, StateChanged: true})
-	if connection != nil {
-		return connection.Close()
-	}
-	return nil
-}
-
-func (c *Client) NewAction(operation string, payload any) (Action, error) {
-	if operation == "" {
-		return Action{}, errors.New("action operation is required")
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return Action{}, err
-	}
-	id := c.nextID.Add(1)
-	c.mu.RLock()
-	rootID := c.rootID
-	c.mu.RUnlock()
-	return Action{
-		CommandID: c.clientID + "-" + strconv.FormatUint(id, 10),
-		Operation: operation, RootID: rootID,
-		Payload: raw,
-	}, nil
-}
-
-func (c *Client) Command(ctx context.Context, action Action) (daemon.CommandResult, error) {
-	if action.CommandID == "" || action.Operation == "" || action.RootID == "" {
-		return daemon.CommandResult{}, errors.New("action identity and operation are required")
-	}
-	for {
-		c.mu.RLock()
-		state, connection := c.state, c.conn
-		c.mu.RUnlock()
-		if state != ClientLive || connection == nil {
-			if !c.started.Load() {
-				return daemon.CommandResult{}, fmt.Errorf("behavioral commands are disabled while client is %s", state)
-			}
-			if !c.waitForLive(ctx) {
-				if err := ctx.Err(); err != nil {
-					return daemon.CommandResult{}, err
-				}
-				return daemon.CommandResult{}, c.ctx.Err()
-			}
-			continue
-		}
-		result, err := connection.Command(ctx, daemon.CommandParams{
-			CommandID: action.CommandID, Scope: string(session.CommandScopeRoot), RootID: action.RootID,
-			Operation: action.Operation, Payload: action.Payload,
-		})
-		if err == nil {
-			return result, nil
-		}
-		if ctx.Err() != nil {
-			return daemon.CommandResult{}, ctx.Err()
-		}
-		select {
-		case <-connection.Done():
-			continue
-		default:
-			return daemon.CommandResult{}, err
-		}
-	}
-}
-
-type permissionConnection interface {
-	DecidePermission(context.Context, ed25519.PrivateKey, daemon.PermissionDecision) (daemon.PermissionDecisionResult, error)
-}
-
-func (c *Client) DecidePermission(ctx context.Context, action Action, permissionID string, allow bool, reason string) (daemon.PermissionDecisionResult, error) {
-	if action.CommandID == "" || action.Operation != "permission.decide" || action.RootID == "" || permissionID == "" {
-		return daemon.PermissionDecisionResult{}, errors.New("permission action requires stable command and permission identities")
-	}
-	if len(c.privateKey) != ed25519.PrivateKeySize {
-		return daemon.PermissionDecisionResult{}, errors.New("this TUI identity cannot approve permissions")
-	}
-	for {
-		c.mu.RLock()
-		state, connection := c.state, c.conn
-		c.mu.RUnlock()
-		if state != ClientLive || connection == nil {
-			if !c.started.Load() {
-				return daemon.PermissionDecisionResult{}, fmt.Errorf("permission decisions are disabled while client is %s", state)
-			}
-			if !c.waitForLive(ctx) {
-				if err := ctx.Err(); err != nil {
-					return daemon.PermissionDecisionResult{}, err
-				}
-				return daemon.PermissionDecisionResult{}, c.ctx.Err()
-			}
-			continue
-		}
-		privileged, ok := connection.(permissionConnection)
-		if !ok {
-			return daemon.PermissionDecisionResult{}, errors.New("this TUI identity cannot approve permissions")
-		}
-		result, err := privileged.DecidePermission(ctx, c.privateKey, daemon.PermissionDecision{
-			CommandID: action.CommandID, RootID: action.RootID, PermissionID: permissionID, Allow: allow, Reason: reason,
-		})
-		if err == nil {
-			return result, nil
-		}
-		if ctx.Err() != nil {
-			return daemon.PermissionDecisionResult{}, ctx.Err()
-		}
-		select {
-		case <-connection.Done():
-			continue
-		default:
-			return daemon.PermissionDecisionResult{}, err
-		}
-	}
-}
-
-func (c *Client) waitForLive(ctx context.Context) bool {
-	for {
-		c.mu.RLock()
-		live := c.state == ClientLive && c.conn != nil
-		changed := c.changed
-		c.mu.RUnlock()
-		if live {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-c.ctx.Done():
-			return false
-		case <-changed:
-		}
-	}
-}
-
-func (c *Client) Snapshot(ctx context.Context) (session.RootSnapshot, error) {
-	c.mu.RLock()
-	state, rootID, connection := c.state, c.rootID, c.conn
-	c.mu.RUnlock()
-	if state != ClientLive || connection == nil || rootID == "" {
-		return session.RootSnapshot{}, fmt.Errorf("snapshot unavailable while client is %s", state)
-	}
-	return connection.Snapshot(ctx, rootID)
-}
-
-func (c *Client) run() {
-	defer close(c.done)
-	defer close(c.updates)
-	delay := c.retryMin
-	for c.ctx.Err() == nil {
-		c.transition(ClientReconnecting, nil)
-		rootID, cursor := c.position()
-		cursors := map[string]int64{}
-		if rootID != "" {
-			cursors[rootID] = cursor
-		}
-		connection, err := c.connect(c.ctx, cursors)
-		if err != nil {
-			c.transition(ClientDisconnected, err)
-			if !c.retry(delay) {
-				return
-			}
-			delay = min(delay*2, c.retryMax)
-			continue
-		}
-		delay = c.retryMin
-		c.setConnection(connection)
-		if err := c.synchronize(connection); err != nil {
-			_ = connection.Close()
-			c.clearConnection(connection)
-			if errors.Is(err, errReconnectForRoot) {
-				continue
-			}
-			c.transition(ClientDisconnected, err)
-			continue
-		}
-		c.transition(ClientLive, nil)
-		if !c.consume(connection) {
-			return
-		}
-		c.clearConnection(connection)
-		c.transition(ClientDisconnected, connection.Err())
-	}
-}
-
-func (c *Client) synchronize(connection daemonConnection) error {
-	rootID, cursor := c.position()
-	if rootID == "" {
-		payload, err := json.Marshal(c.create)
-		if err != nil {
-			return err
-		}
-		result, err := connection.Command(c.ctx, daemon.CommandParams{
-			CommandID: c.clientID + "-session", Scope: string(session.CommandScopeDaemon),
-			Operation: "session.create", Payload: payload,
-		})
-		if err != nil {
-			return err
-		}
-		if result.Status != "succeeded" || result.Output == "" {
-			return fmt.Errorf("session creation is %s: %s", result.Status, result.Error)
-		}
-		rootID = result.Output
-		c.mu.Lock()
-		c.rootID = rootID
-		c.cursor = 0
-		c.mu.Unlock()
-		return errReconnectForRoot
-	}
-
-	c.transition(ClientSnapshotting, nil)
-	if cursor > 0 {
-		replay, err := connection.Replay(c.ctx, daemon.ReplayParams{RootID: rootID, Cursor: cursor})
-		if err != nil {
-			return err
-		}
-		if !replay.Expired {
-			for i := range replay.Events {
-				c.emitEvent(replay.Events[i])
-			}
-			return nil
-		}
-	}
-	snapshot, err := connection.Snapshot(c.ctx, rootID)
-	if err != nil {
-		return err
-	}
-	c.mu.Lock()
-	c.cursor = snapshot.Cursor
-	c.mu.Unlock()
-	c.emit(ClientUpdate{Snapshot: &snapshot})
-	return nil
-}
-
-func (c *Client) consume(connection daemonConnection) bool {
-	for {
-		select {
-		case <-c.ctx.Done():
-			_ = connection.Close()
-			return false
-		case <-connection.Done():
-			return true
-		case event, ok := <-connection.Events():
-			if !ok {
-				return true
-			}
-			c.emitEvent(event)
-		}
-	}
-}
-
-func (c *Client) emitEvent(event daemon.ProtocolEvent) {
-	c.mu.Lock()
-	if event.RootID != c.rootID || event.Seq <= c.cursor {
-		c.mu.Unlock()
-		return
-	}
-	c.cursor = event.Seq
-	c.mu.Unlock()
-	c.emit(ClientUpdate{Event: &event})
-}
-
-func (c *Client) transition(state ClientState, err error) {
-	c.mu.Lock()
-	c.state = state
-	c.notifyLocked()
-	c.mu.Unlock()
-	c.emit(ClientUpdate{State: state, StateChanged: true, Err: err})
-}
-
-func (c *Client) emit(update ClientUpdate) {
-	select {
-	case <-c.ctx.Done():
-	case c.updates <- update:
-	}
-}
-
-func (c *Client) position() (string, int64) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.rootID, c.cursor
-}
-
-func (c *Client) setConnection(connection daemonConnection) {
-	c.mu.Lock()
-	c.conn = connection
-	c.notifyLocked()
-	c.mu.Unlock()
-}
-
-func (c *Client) clearConnection(connection daemonConnection) {
-	c.mu.Lock()
-	if c.conn == connection {
-		c.conn = nil
-		c.notifyLocked()
-	}
-	c.mu.Unlock()
-}
-
-func (c *Client) notifyLocked() {
-	if c.changed != nil {
-		close(c.changed)
-	}
-	c.changed = make(chan struct{})
-}
-
-func (c *Client) retry(delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-c.ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
 }
 
 type clientUpdateMsg struct {
@@ -743,20 +317,21 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 	}
 	draft := m.input.Value()
 	follow, offset, selection := m.follow, m.vp.YOffset, m.sel
+	selectedAgentID := ""
+	if rows := m.runtimeAgentRows(); m.agentsFocus && m.agentSel >= 0 && m.agentSel < len(rows) {
+		selectedAgentID = rows[m.agentSel].agent.ID
+	}
+	if m.sessionID != "" && m.sessionID != snapshot.RootID {
+		m.agentOpen = ""
+		m.agentMessages = map[string][]llm.Message{}
+		m.terminalAgentID, m.terminalMarker = "", ""
+	}
 	m.sessionID = snapshot.RootID
 	m.clientCursor = snapshot.Cursor
-	m.sessionMode = snapshot.Meta.Mode
-	m.modelName, m.provName = snapshot.Meta.Model, snapshot.Meta.Provider
+	m.applyClientRoute(snapshot.Meta.Model, snapshot.Meta.Provider)
 	m.goal, m.sessTitle = snapshot.Meta.Goal, snapshot.Meta.Title
-	if m.cfg != nil {
-		if _, _, apiID, err := m.cfg.Resolve(snapshot.Meta.Model, snapshot.Meta.Provider); err == nil {
-			m.clientView.modelID = apiID
-		}
-	}
 	m.clientView.workingDir = snapshot.Meta.CWD
-	if snapshot.Meta.Effort != "" {
-		m.clientView.effort = snapshot.Meta.Effort
-	}
+	m.applyStoredEffort(snapshot.Meta.Effort)
 	usage := llm.Usage{PromptTokens: snapshot.Meta.UsageIn, CompletionTokens: snapshot.Meta.UsageOut}
 	if snapshot.Meta.UsageCached > 0 {
 		usage.PromptTokensDetails = &struct {
@@ -771,26 +346,21 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 	m.clientView.budgets = append([]session.SnapshotBudget(nil), snapshot.Budgets...)
 	m.clientView.capabilities = append([]session.CapabilityRecord(nil), snapshot.Capabilities...)
 	m.clientView.schedules = append([]session.Schedule(nil), snapshot.Schedules...)
-	m.blocks, m.msgBlock = nil, nil
-	m.clientTerminalID, m.iactive = "", nil
-	m.seedTranscript(snapshot.Messages, 1)
-	for _, event := range snapshot.Presentation {
-		_, _ = m.applyClientStream(event.Kind, event.Payload)
-	}
-	for _, runtimeAgent := range snapshot.Agents {
-		if runtimeAgent.ParentID == "" {
-			continue
+	m.clientView.permissions = append([]session.PermissionSnapshot(nil), snapshot.Permissions...)
+	m.clientView.presentation = append([]session.SnapshotEvent(nil), snapshot.Presentation...)
+	m.clientView.agentPresentations = snapshot.AgentPresentations
+	if selectedAgentID != "" {
+		for index, row := range m.runtimeAgentRows() {
+			if row.agent.ID == selectedAgentID {
+				m.agentSel = index
+				break
+			}
 		}
-		m.blocks = append(m.blocks, block{kind: blockText, text: dimStyle.Render(runtimeAgentLine(runtimeAgent))})
 	}
+	m.rebuildClientTranscript()
+	m.restoreTerminalMarker()
 	m.applyClientPermissions(snapshot.Permissions)
-	m.busy = m.clientInFlight > 0
-	for _, item := range snapshot.Inbox {
-		if item.Status == "queued" || item.Status == "running" {
-			m.busy = true
-			break
-		}
-	}
+	m.busy = m.visibleAgentBusy()
 	m.input.SetValue(draft)
 	m.input.CursorEnd()
 	m.follow, m.sel = follow, selection
@@ -800,17 +370,154 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 	}
 }
 
+func (m *model) applyClientRoute(modelName, providerName string) {
+	if modelName != "" {
+		m.modelName = modelName
+	}
+	if providerName != "" {
+		m.provName = providerName
+	}
+	if m.cfg == nil {
+		return
+	}
+	m.clientView.modelID, m.clientView.contextLimit = "", 0
+	_, modelConfig, apiID, err := m.cfg.Resolve(m.modelName, m.provName)
+	if err != nil {
+		return
+	}
+	m.clientView.modelID = apiID
+	m.clientView.contextLimit = modelConfig.ContextWindow()
+	if catalog, ok := m.catalogs[m.provName]; ok {
+		m.clientView.contextLimit = max(m.clientView.contextLimit, catalog.ContextLength(apiID))
+	}
+}
+
+func (m *model) applyStoredEffort(stored string) {
+	switch stored {
+	case "off":
+		m.clientView.effort = ""
+	case "":
+		if m.cfg == nil {
+			m.clientView.effort = ""
+			return
+		}
+		m.clientView.effort = DefaultEffortFor(m.catalogs, m.provName, m.displayModelID(), m.cfg.DefaultEffort)
+	default:
+		m.clientView.effort = stored
+	}
+}
+
+func (m *model) rebuildClientTranscript() {
+	expanded := map[string]bool{}
+	for _, value := range m.blocks {
+		if value.expanded {
+			expanded[blockExpansionKey(value)] = true
+		}
+	}
+	m.blocks, m.msgBlock = nil, nil
+	m.clientTerminalID, m.iactive = "", nil
+	m.current, m.curThink, m.inMsg, m.inThink = "", "", false, false
+	messages := m.clientView.messages
+	base := 1
+	presentation := m.clientView.presentation
+	if m.agentOpen != "" {
+		messages = m.agentMessages[m.agentOpen]
+		base = 0
+		presentation = m.clientView.agentPresentations[m.agentOpen]
+	}
+	m.seedTranscript(messages, base)
+	for _, item := range m.clientView.inbox {
+		if item.AgentID != m.visibleAgentID() {
+			continue
+		}
+		if text := pendingUserText(item); text != "" {
+			m.appendRaw(blockUser, linkifyFilePathsAt(text, m.completionRoot()))
+		}
+	}
+	for _, event := range presentation {
+		_, _ = m.applyClientStream(event.Kind, event.Payload)
+	}
+	for i := range m.blocks {
+		if expanded[blockExpansionKey(m.blocks[i])] {
+			m.blocks[i].expanded, m.blocks[i].stale = true, true
+		}
+	}
+}
+
+func pendingUserText(item session.InboxItem) string {
+	switch item.Kind {
+	case "submit", "steer":
+		return string(item.Payload.Inline)
+	case "submit.parts", "steer.parts":
+		var payload daemon.SubmitPayload
+		if json.Unmarshal(item.Payload.Inline, &payload) != nil {
+			return ""
+		}
+		if payload.Text != "" {
+			return payload.Text
+		}
+		if len(payload.Parts) > 0 {
+			return "[image attachment]"
+		}
+	}
+	return ""
+}
+
+func blockExpansionKey(value block) string {
+	if value.toolID != "" {
+		return fmt.Sprintf("%d:%s", value.kind, value.toolID)
+	}
+	return fmt.Sprintf("%d:%s", value.kind, value.text)
+}
+
+func (m *model) restoreTerminalMarker() {
+	if m.terminalMarker != "" && m.terminalAgentID == m.visibleAgentID() {
+		if len(m.blocks) > 0 && m.blocks[len(m.blocks)-1].text == m.terminalMarker {
+			return
+		}
+		m.append(m.terminalMarker)
+	}
+}
+
+func (m *model) recordTurnFailure(action Action, message string) {
+	if message == "" {
+		message = "turn failed"
+	}
+	agentID := m.rootAgentID()
+	if action.Operation == "agent.submit" {
+		var payload struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(action.Payload, &payload) == nil && payload.ID != "" {
+			agentID = payload.ID
+		}
+	}
+	m.clientTurnError = message
+	m.terminalAgentID = agentID
+	m.terminalMarker = errStyle.Render("error: " + message)
+	m.restoreTerminalMarker()
+}
+
 func runtimeAgentLine(value session.RuntimeAgent) string {
 	phase := value.LifecyclePhase
 	if phase == "" {
 		phase = value.Status
 	}
-	line := fmt.Sprintf("⚙ %s — %s", value.ID, phase)
+	name := value.Name
+	if name == "" {
+		name = value.ID
+	} else {
+		name += " (" + value.ID + ")"
+	}
+	line := fmt.Sprintf("⚙ %s — %s", name, phase)
 	if value.BlockingReason != "" {
 		line += " · blocked: " + value.BlockingReason
 	}
 	if value.TerminalCause != "" {
 		line += " · terminal: " + value.TerminalCause
+	}
+	if value.PendingMail > 0 {
+		line += fmt.Sprintf(" · mail %d", value.PendingMail)
 	}
 	if len(value.AllowedControls) > 0 {
 		line += " · controls: " + strings.Join(value.AllowedControls, ", ")
@@ -819,53 +526,43 @@ func runtimeAgentLine(value session.RuntimeAgent) string {
 }
 
 func (m *model) displayModelID() string {
-	if m.client != nil {
-		return m.clientView.modelID
-	}
-	if m.agent != nil {
-		return m.agent.Model
-	}
-	return ""
+	return m.clientView.modelID
 }
 
 func (m *model) displayEffort() string {
-	if m.client != nil {
-		return m.clientView.effort
-	}
-	if m.agent != nil {
-		return m.agent.Effort
-	}
-	return ""
+	return m.clientView.effort
 }
 
 func (m *model) displayUsage() llm.Usage {
-	if m.client != nil {
-		return m.clientView.usage
-	}
-	if m.agent != nil {
-		return m.agent.Usage()
-	}
-	return llm.Usage{}
+	return m.clientView.usage
 }
 
 func (m *model) displayMessages() []llm.Message {
-	if m.client != nil {
-		return m.clientView.messages
-	}
-	if m.agent != nil {
-		return m.agent.Messages
-	}
-	return nil
+	return m.clientView.messages
 }
 
 func (m *model) displayContextLimit() int {
-	if m.client != nil {
-		return m.clientView.contextLimit
+	return m.clientView.contextLimit
+}
+
+func (m *model) recordClientStream(event daemon.ProtocolEvent) {
+	if !strings.HasPrefix(event.Kind, "stream.") {
+		return
 	}
-	if m.agent != nil {
-		return m.agent.ContextLimit
+	var payload daemon.StreamEvent
+	if json.Unmarshal(event.Payload, &payload) != nil {
+		return
 	}
-	return 0
+	value := session.SnapshotEvent{Seq: event.Seq, Kind: event.Kind, Payload: append([]byte(nil), event.Payload...)}
+	owner := payload.AgentID
+	if owner == "" || owner == m.rootAgentID() {
+		m.clientView.presentation = append(m.clientView.presentation, value)
+		return
+	}
+	if m.clientView.agentPresentations == nil {
+		m.clientView.agentPresentations = make(map[string][]session.SnapshotEvent)
+	}
+	m.clientView.agentPresentations[owner] = append(m.clientView.agentPresentations[owner], value)
 }
 
 func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.Cmd) {
@@ -875,6 +572,13 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 	var event daemon.StreamEvent
 	if err := json.Unmarshal(payload, &event); err != nil {
 		m.append(errStyle.Render("daemon stream: " + err.Error()))
+		return true, nil
+	}
+	owner := event.AgentID
+	if owner == "" {
+		owner = m.rootAgentID()
+	}
+	if owner != m.visibleAgentID() {
 		return true, nil
 	}
 	switch kind {
@@ -918,12 +622,359 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		message = toolEndMsg{id: event.ID, name: event.Name, result: event.Result}
 	case "stream.notice":
 		message = noticeMsg(event.Text)
+	case "stream.usage":
+		var usage daemon.UsageEvent
+		if err := json.Unmarshal([]byte(event.Result), &usage); err != nil {
+			m.append(errStyle.Render("daemon usage: " + err.Error()))
+			return true, nil
+		}
+		m.lastResp = usage.Usage
+		if usage.Size > 0 {
+			m.clientView.contextLimit = usage.Size
+		}
+		return true, nil
+	case "stream.plan":
+		var plan daemon.PlanEvent
+		if err := json.Unmarshal([]byte(event.Result), &plan); err != nil {
+			m.append(errStyle.Render("daemon plan: " + err.Error()))
+			return true, nil
+		}
+		m.plan = append(m.plan[:0], plan.Items...)
+		return true, nil
 	default:
 		m.append(dimStyle.Render("daemon sent unsupported stream event " + kind))
 		return true, nil
 	}
 	_, command := m.Update(message)
 	return true, command
+}
+
+func (m *model) rootAgentID() string {
+	for _, value := range m.clientView.agents {
+		if value.ParentID == "" {
+			return value.ID
+		}
+	}
+	return ""
+}
+
+func (m *model) visibleAgentID() string {
+	if m.agentOpen != "" {
+		return m.agentOpen
+	}
+	return m.rootAgentID()
+}
+
+func (m *model) visibleAgentBusy() bool {
+	id := m.visibleAgentID()
+	for _, value := range m.clientView.agents {
+		if value.ID == id && value.LifecyclePhase == "running" {
+			return true
+		}
+	}
+	for _, item := range m.clientView.inbox {
+		if item.AgentID == id && (item.Status == "queued" || item.Status == "running") {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *model) setAgentLifecycle(id, phase string) bool {
+	for index := range m.clientView.agents {
+		if m.clientView.agents[index].ID == id {
+			m.clientView.agents[index].LifecyclePhase = phase
+			return true
+		}
+	}
+	return false
+}
+
+func (m *model) upsertInbox(agentID string, seq int64, kind, status string) {
+	if agentID == "" || seq < 1 {
+		return
+	}
+	for index := range m.clientView.inbox {
+		item := &m.clientView.inbox[index]
+		if item.AgentID == agentID && item.Seq == seq {
+			if kind != "" {
+				item.Kind = kind
+			}
+			if status != "" {
+				item.Status = status
+			}
+			return
+		}
+	}
+	m.clientView.inbox = append(m.clientView.inbox, session.InboxItem{
+		RootID: m.sessionID, AgentID: agentID, Seq: seq, Kind: kind, Status: status,
+	})
+}
+
+func (m *model) startAgentInbox(agentID string, inboxSeq int64) {
+	if inboxSeq > 0 {
+		m.upsertInbox(agentID, inboxSeq, "", "running")
+		return
+	}
+	claimed := 0
+	for index := range m.clientView.inbox {
+		item := &m.clientView.inbox[index]
+		if item.AgentID == agentID && item.Status == "queued" && claimed < session.MaxInboxBatch {
+			item.Status = "running"
+			claimed++
+		}
+	}
+}
+
+func (m *model) finishAgentInbox(agentID string, acknowledged []int64) {
+	consumed := make(map[int64]bool, len(acknowledged))
+	for _, seq := range acknowledged {
+		consumed[seq] = true
+	}
+	kept := m.clientView.inbox[:0]
+	for _, item := range m.clientView.inbox {
+		if item.AgentID != agentID {
+			kept = append(kept, item)
+			continue
+		}
+		if consumed[item.Seq] {
+			continue
+		}
+		if item.Status == "running" {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	m.clientView.inbox = kept
+}
+
+func (m *model) replaceAgentInbox(agentID string, inbox []session.InboxItem) {
+	kept := m.clientView.inbox[:0]
+	for _, item := range m.clientView.inbox {
+		if item.AgentID != agentID {
+			kept = append(kept, item)
+		}
+	}
+	m.clientView.inbox = append(kept, inbox...)
+}
+
+func mergePresentation(snapshot, current []session.SnapshotEvent, cursor int64) []session.SnapshotEvent {
+	merged := append([]session.SnapshotEvent(nil), snapshot...)
+	for _, event := range current {
+		if event.Seq > cursor {
+			merged = append(merged, event)
+		}
+	}
+	return merged
+}
+
+func (m *model) openAgent(result daemon.AgentTranscriptResult) {
+	m.agentOpen = result.Agent.ID
+	m.agentMessages[result.Agent.ID] = append([]llm.Message(nil), result.Messages...)
+	if m.clientView.agentPresentations == nil {
+		m.clientView.agentPresentations = make(map[string][]session.SnapshotEvent)
+	}
+	m.clientView.agentPresentations[result.Agent.ID] = mergePresentation(
+		result.Presentation, m.clientView.agentPresentations[result.Agent.ID], result.Cursor,
+	)
+	m.replaceAgentInbox(result.Agent.ID, result.Inbox)
+	m.plan = nil
+	m.rebuildClientTranscript()
+	m.restoreTerminalMarker()
+	m.busy = m.visibleAgentBusy()
+	m.turnStart = time.Time{}
+	if m.busy {
+		m.turnStart = m.nowFn()
+	}
+	m.follow = true
+	m.refreshVP()
+}
+
+func (m *model) closeAgent() {
+	if m.agentOpen == "" {
+		return
+	}
+	m.agentOpen = ""
+	m.plan = nil
+	m.rebuildClientTranscript()
+	m.restoreTerminalMarker()
+	m.busy = m.visibleAgentBusy()
+	m.turnStart = time.Time{}
+	if m.busy {
+		m.turnStart = m.nowFn()
+	}
+	m.follow = true
+	m.refreshVP()
+}
+
+func (m *model) cancelVisibleTurn() (bubbletea.Model, bubbletea.Cmd) {
+	if m.agentOpen != "" {
+		return m.submitClientAction("agent.turn.cancel", map[string]string{"id": m.agentOpen}, "")
+	}
+	return m.submitClientAction("cancel", map[string]any{}, "")
+}
+
+func (m *model) applyClientLifecycle(kind string, payload []byte) (bool, bubbletea.Cmd) {
+	if strings.HasPrefix(kind, "session.") && strings.HasSuffix(kind, ".updated") {
+		var event daemon.SessionUpdateEvent
+		if err := json.Unmarshal(payload, &event); err != nil {
+			return false, nil
+		}
+		if event.Title != "" {
+			m.sessTitle = event.Title
+		}
+		if event.Model != "" || event.Provider != "" {
+			m.applyClientRoute(event.Model, event.Provider)
+		}
+		if event.EffortChanged {
+			m.applyStoredEffort(event.Effort)
+		}
+		if event.WorkingDir != "" {
+			m.clientView.workingDir = event.WorkingDir
+		}
+		return true, nil
+	}
+	var event session.LifecycleEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return false, nil
+	}
+	rootAgent := m.rootAgentID()
+	isRoot := event.AgentID == "" || rootAgent == "" || event.AgentID == rootAgent
+	switch kind {
+	case "inbox.queued":
+		m.upsertInbox(event.AgentID, event.InboxSeq, event.InboxKind, "queued")
+		return true, nil
+	case "inbox.consumed":
+		m.finishAgentInbox(event.AgentID, []int64{event.InboxSeq})
+		return true, nil
+	case "scratch.restored":
+		if event.AgentID == m.visibleAgentID() {
+			line := "(worker restarted; scratch restored: " + strings.Join(event.Restored, ", ")
+			if len(event.Restored) == 0 {
+				line = "(worker restarted; no scratch restored"
+			}
+			if len(event.NotRestored) > 0 {
+				parts := make([]string, 0, len(event.NotRestored))
+				for _, item := range event.NotRestored {
+					parts = append(parts, item.Name+" ("+item.Reason+")")
+				}
+				line += "; not restored: " + strings.Join(parts, ", ")
+			}
+			m.append(dimStyle.Render(line + ")"))
+		}
+		return true, nil
+	case "turn.started":
+		phase := event.Phase
+		if phase == "" {
+			phase = "running"
+		}
+		m.setAgentLifecycle(rootAgent, phase)
+		m.startAgentInbox(rootAgent, event.InboxSeq)
+		if m.agentOpen != "" {
+			return true, nil
+		}
+		m.busy = true
+		m.clientTurnError = ""
+		m.terminalAgentID, m.terminalMarker = "", ""
+		m.plan = nil
+		if m.turnStart.IsZero() {
+			m.turnStart = m.nowFn()
+		}
+		return true, nil
+	case "turn.succeeded", "turn.failed", "turn.cancelled", "turn.interrupted":
+		if !isRoot {
+			return true, nil
+		}
+		phase := event.Phase
+		if phase == "" {
+			phase = "idle"
+		}
+		m.setAgentLifecycle(rootAgent, phase)
+		m.finishAgentInbox(rootAgent, event.Acknowledged)
+		if m.agentOpen != "" {
+			_, transcriptCommand := m.submitClientAction("agent.transcript", map[string]string{"id": rootAgent}, "")
+			return true, transcriptCommand
+		}
+		m.flushThink()
+		m.flushCurrent()
+		m.busy = false
+		m.interrupt1 = false
+		m.turnStart = time.Time{}
+		m.plan = nil
+		m.clientTurnError = event.Error
+		m.terminalAgentID, m.terminalMarker = rootAgent, ""
+		switch kind {
+		case "turn.failed":
+			if event.Error == "" {
+				event.Error = "turn failed"
+			}
+			m.terminalMarker = errStyle.Render("error: " + event.Error)
+		case "turn.cancelled":
+			m.terminalMarker = dimStyle.Render("(interrupted)")
+		case "turn.interrupted":
+			m.terminalMarker = dimStyle.Render("(interrupted — effects may be uncertain)")
+		}
+		m.restoreTerminalMarker()
+		_, transcriptCommand := m.submitClientAction("agent.transcript", map[string]string{"id": rootAgent}, "")
+		return true, transcriptCommand
+	case "agent.turn.started", "agent.turn.succeeded", "agent.turn.failed", "agent.turn.cancelled", "agent.turn.interrupted":
+		phase := event.Phase
+		if phase == "" && kind == "agent.turn.started" {
+			phase = "running"
+		} else if phase == "" {
+			phase = "idle"
+		}
+		if !m.setAgentLifecycle(event.AgentID, phase) {
+			return true, m.requestClientSnapshot()
+		}
+		if event.AgentID != m.agentOpen {
+			return true, nil
+		}
+		if kind == "agent.turn.started" {
+			m.startAgentInbox(event.AgentID, event.InboxSeq)
+			m.busy = true
+			m.clientTurnError = ""
+			m.terminalAgentID, m.terminalMarker = "", ""
+			m.plan = nil
+			if m.turnStart.IsZero() {
+				m.turnStart = m.nowFn()
+			}
+			return true, nil
+		}
+		m.finishAgentInbox(event.AgentID, event.Acknowledged)
+		m.flushThink()
+		m.flushCurrent()
+		m.busy = false
+		m.interrupt1 = false
+		m.turnStart = time.Time{}
+		m.plan = nil
+		m.clientTurnError = event.Error
+		m.terminalAgentID, m.terminalMarker = event.AgentID, ""
+		switch kind {
+		case "agent.turn.failed":
+			if event.Error == "" {
+				event.Error = "turn failed"
+			}
+			m.terminalMarker = errStyle.Render("error: " + event.Error)
+		case "agent.turn.cancelled":
+			m.terminalMarker = dimStyle.Render("(interrupted)")
+		case "agent.turn.interrupted":
+			m.terminalMarker = dimStyle.Render("(interrupted — effects may be uncertain)")
+		}
+		m.restoreTerminalMarker()
+		_, transcriptCommand := m.submitClientAction("agent.transcript", map[string]string{"id": event.AgentID}, "")
+		return true, transcriptCommand
+	case "command.queued", "command.running", "command.succeeded", "command.failed", "command.cancelled", "command.interrupted",
+		"command.control.queued":
+		return true, nil
+	case "session.reload.failed":
+		if event.Error == "" {
+			event.Error = "session reload failed"
+		}
+		m.append(errStyle.Render("session reload: " + event.Error))
+		return true, nil
+	}
+	return false, nil
 }
 
 func (m *model) submitClientAction(operation string, payload any, echo string) (bubbletea.Model, bubbletea.Cmd) {
@@ -937,11 +988,16 @@ func (m *model) submitClientAction(operation string, payload any, echo string) (
 		return m, nil
 	}
 	if echo != "" {
-		m.appendRaw(blockUser, linkifyFilePaths(echo, realFileExists))
+		m.appendRaw(blockUser, linkifyFilePathsAt(echo, m.completionRoot()))
+	}
+	if operation == "submit" || operation == "steer" || operation == "agent.submit" {
+		m.clientTouched = true
 	}
 	m.clientInFlight++
-	m.busy = true
-	m.turnStart = m.nowFn()
+	if operation == "submit" || operation == "steer" || operation == "agent.submit" {
+		m.busy = true
+		m.turnStart = m.nowFn()
+	}
 	return m, func() bubbletea.Msg {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1016,39 +1072,80 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 	if m.mpicker != nil {
 		return m.modelPickerKey(msg)
 	}
-	children := m.runtimeChildren()
-	if m.tasksFocus && len(children) == 0 {
-		m.tasksFocus = false
+	if msg.Type == bubbletea.KeyCtrlJ ||
+		(msg.Type == bubbletea.KeyEnter && msg.Alt) ||
+		(msg.Type == bubbletea.KeyRunes && msg.Alt && string(msg.Runes) == "\r") ||
+		isShiftEnterSeq(msg) {
+		maxHeight := m.input.MaxHeight
+		m.input.MaxHeight = 0
+		var command bubbletea.Cmd
+		m.input, command = m.input.Update(bubbletea.KeyMsg{Type: bubbletea.KeyCtrlJ})
+		m.input.MaxHeight = maxHeight
+		m.input.SetHeight(maxHeight)
+		value := m.input.Value()
+		m.input.SetValue(value)
+		m.input.CursorEnd()
+		m.refreshMenu()
+		return m, command
 	}
-	if m.tasksFocus {
+	if m.uiMode == opencodeMode {
+		if !m.leaderAt.IsZero() && m.nowFn().Sub(m.leaderAt) < 2*time.Second {
+			m.leaderAt = time.Time{}
+			if msg.String() == "esc" {
+				return m, nil
+			}
+			if next, command, handled := m.ocLeaderChord(msg.String()); handled {
+				return next, command
+			}
+		} else if msg.String() == "ctrl+x" {
+			m.leaderAt = m.nowFn()
+			return m, nil
+		}
+	}
+	if msg.Paste && m.cfg != nil && m.cfg.CollapsePaste != nil && *m.cfg.CollapsePaste {
+		if lines := strings.Count(string(msg.Runes), "\n"); lines >= 2 {
+			m.pasteBuf = string(msg.Runes)
+			m.input.SetValue(m.input.Value() + fmt.Sprintf("[Pasted ~%d lines]", lines+1))
+			m.input.CursorEnd()
+			m.growInput()
+			return m, nil
+		}
+	}
+	children := m.runtimeChildren()
+	if m.agentsFocus && len(children) == 0 {
+		m.agentsFocus = false
+	}
+	if m.agentsFocus {
 		switch msg.Type {
 		case bubbletea.KeyEsc, bubbletea.KeyCtrlT:
-			m.tasksFocus = false
+			m.agentsFocus = false
 			return m, nil
 		case bubbletea.KeyUp:
-			if m.taskSel == 0 {
-				m.tasksFocus = false
+			if m.agentSel == 0 {
+				m.agentsFocus = false
 			} else {
-				m.taskSel--
+				m.agentSel--
 			}
 			return m, nil
 		case bubbletea.KeyDown:
-			m.taskSel = min(m.taskSel+1, len(children)-1)
+			m.agentSel = min(m.agentSel+1, len(children)-1)
 			return m, nil
 		case bubbletea.KeyCtrlX:
 			if len(children) == 0 {
-				m.tasksFocus = false
+				m.agentsFocus = false
 				return m, nil
 			}
-			child := children[min(m.taskSel, len(children)-1)]
+			child := children[min(m.agentSel, len(children)-1)]
 			return m.submitClientAction("agent.control", map[string]string{"args": "stop " + child.ID}, "")
 		case bubbletea.KeyEnter:
 			if len(children) > 0 {
-				m.append(dimStyle.Render(runtimeAgentLine(children[min(m.taskSel, len(children)-1)])))
+				child := children[min(m.agentSel, len(children)-1)]
+				m.agentsFocus = false
+				return m.submitClientAction("agent.transcript", map[string]string{"id": child.ID}, "")
 			}
 			return m, nil
 		default:
-			m.tasksFocus = false
+			m.agentsFocus = false
 		}
 	}
 	switch msg.Type {
@@ -1058,7 +1155,7 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 				m.interrupt1 = true
 				return m, nil
 			}
-			return m.submitClientAction("cancel", map[string]any{}, "")
+			return m.cancelVisibleTurn()
 		}
 		if m.quit1 {
 			m.quit1 = false
@@ -1074,8 +1171,12 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 			m.menu = nil
 			return m, nil
 		}
+		if m.agentOpen != "" && strings.TrimSpace(m.input.Value()) == "" {
+			m.closeAgent()
+			return m, nil
+		}
 		if m.busy && strings.TrimSpace(m.input.Value()) == "" && m.clientState == ClientLive {
-			return m.submitClientAction("cancel", map[string]any{}, "")
+			return m.cancelVisibleTurn()
 		}
 		if strings.TrimSpace(m.input.Value()) != "" {
 			if m.escClr {
@@ -1101,6 +1202,8 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 		m.vp, command = m.vp.Update(msg)
 		m.follow = m.vp.AtBottom()
 		return m, command
+	case bubbletea.KeyCtrlV:
+		return m, pasteImageCmd
 	case bubbletea.KeyCtrlO:
 		m.toggleThinking()
 		return m, nil
@@ -1132,8 +1235,8 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 		return m.thinCommand("/clear")
 	case bubbletea.KeyCtrlT:
 		if len(children) > 0 {
-			m.tasksFocus = true
-			m.clampTaskSel()
+			m.agentsFocus = true
+			m.clampAgentSel()
 		}
 		return m, nil
 	case bubbletea.KeyDown:
@@ -1142,9 +1245,14 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 			return m, nil
 		}
 		if strings.TrimSpace(m.input.Value()) == "" && len(children) > 0 {
-			m.tasksFocus = true
-			m.taskSel = 0
+			m.agentsFocus = true
+			m.agentSel = 0
 			return m, nil
+		}
+		if !m.cursorOnLastLine() {
+			var command bubbletea.Cmd
+			m.input, command = m.input.Update(msg)
+			return m, command
 		}
 		m.histNext()
 		return m, nil
@@ -1153,6 +1261,17 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 			m.menu.idx = (m.menu.idx + len(m.menu.cands) - 1) % len(m.menu.cands)
 			return m, nil
 		}
+		if !m.cursorOnFirstLine() {
+			m.lastUp = m.nowFn()
+			var command bubbletea.Cmd
+			m.input, command = m.input.Update(msg)
+			return m, command
+		}
+		if m.nowFn().Sub(m.lastUp) < 300*time.Millisecond {
+			m.lastUp = m.nowFn()
+			return m, nil
+		}
+		m.lastUp = m.nowFn()
 		m.histPrev()
 		return m, nil
 	case bubbletea.KeyEnter:
@@ -1177,21 +1296,65 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 			}
 		}
 		text := strings.TrimSpace(m.input.Value())
-		if text == "" {
-			return m, nil
+		if m.pasteBuf != "" {
+			placeholder := fmt.Sprintf("[Pasted ~%d lines]", strings.Count(m.pasteBuf, "\n")+1)
+			text = strings.Replace(text, placeholder, strings.TrimSpace(m.pasteBuf), 1)
+			m.pasteBuf = ""
 		}
 		if m.clientState != ClientLive {
 			m.append(errStyle.Render("daemon is " + m.clientState.String() + " — draft preserved"))
 			return m, nil
 		}
+		if text != "" && !strings.HasPrefix(text, "/") && !strings.HasPrefix(text, "!") && m.visibleAgentReadOnly() {
+			m.append(errStyle.Render("this agent is read-only because it has stopped"))
+			return m, nil
+		}
+		if m.busy {
+			switch {
+			case text != "" && clientCommandRunsWhileBusy(text):
+				if !strings.HasPrefix(text, "/auth ") {
+					m.hist = append(m.hist, text)
+					m.histIdx = len(m.hist)
+				}
+				m.input.Reset()
+				return m.thinCommand(text)
+			case strings.HasPrefix(text, "/") || strings.HasPrefix(text, "!"):
+				// Mutating commands and shell wait for the turn; the draft stays.
+				m.append(dimStyle.Render("(waits for the current turn — press enter again when idle)"))
+				return m, nil
+			case text != "":
+				// Typed text is durable daemon work: it steers the running turn
+				// at its next loop boundary, or runs as the next turn if the
+				// turn ends first. alt+enter stays the newline binding.
+				if !strings.HasPrefix(text, "/auth ") {
+					m.hist = append(m.hist, text)
+					m.histIdx = len(m.hist)
+				}
+				m.input.Reset()
+				if m.agentOpen != "" {
+					return m.submitClientAction("agent.submit", map[string]string{"id": m.agentOpen, "text": text, "delivery": "steer"}, text)
+				}
+				return m.submitClientAction("steer", daemon.SubmitPayload{Text: text}, text)
+			default:
+				return m, nil
+			}
+		}
+		if text == "" {
+			return m, nil
+		}
 		m.input.Reset()
-		m.hist = append(m.hist, text)
-		m.histIdx = len(m.hist)
+		if !strings.HasPrefix(text, "/auth ") {
+			m.hist = append(m.hist, text)
+			m.histIdx = len(m.hist)
+		}
 		if strings.HasPrefix(text, "/") {
 			return m.thinCommand(text)
 		}
 		if command, ok := strings.CutPrefix(text, "!"); ok {
 			return m.submitClientAction("shell.run", map[string]any{"command": strings.TrimSpace(command)}, text)
+		}
+		if m.agentOpen != "" {
+			return m.submitClientAction("agent.submit", map[string]string{"id": m.agentOpen, "text": text}, text)
 		}
 		return m.submitClientAction("submit", map[string]string{"text": text}, text)
 	}
@@ -1201,13 +1364,34 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 	return m, command
 }
 
+func clientCommandRunsWhileBusy(text string) bool {
+	fields := strings.Fields(text)
+	if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
+		return false
+	}
+	name := strings.TrimPrefix(fields[0], "/")
+	args := strings.TrimSpace(strings.TrimPrefix(text, fields[0]))
+	switch name {
+	case "help", "theme", "mouse", "pwd", "fork", "agents", "report", "export", "me", "memory", "context-doctor":
+		return true
+	case "effort":
+		return args == ""
+	case "goal":
+		return args == "" || args == "clear" || strings.HasPrefix(args, "rounds ")
+	case "mcp", "lsp", "browser", "schedule":
+		return args == "" || args == "list" || args == "status"
+	default:
+		return false
+	}
+}
+
 func (m *model) thinInteractiveKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 	if msg.Type == bubbletea.KeyCtrlC {
 		if !m.interrupt1 {
 			m.interrupt1 = true
 			return m, nil
 		}
-		return m.submitClientAction("cancel", map[string]any{}, "")
+		return m.cancelVisibleTurn()
 	}
 	var input []byte
 	switch msg.Type {
@@ -1262,7 +1446,6 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubble
 		}
 		dialog.deciding = true
 		m.clientInFlight++
-		m.busy = true
 		permissionID := dialog.daemon.ID
 		return m, func() bubbletea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1324,19 +1507,70 @@ func (m *model) openThinPalette() {
 	}
 	items := []paletteItem{
 		commandItem("Model", "Agent", "/model", true),
-		commandItem("Reasoning effort", "Agent", "/effort "+nextEffort(m.effortsFor(), m.displayEffort()), false),
+		{
+			title: "Reasoning effort", category: "Agent",
+			dynDesc: func(value *model) string { return "current: " + effortLabel(value.displayEffort()) },
+			dynHint: func(*model) string { return "/effort" },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.openThinEffortPalette()
+				return value, nil
+			},
+		},
+		{
+			title: "Authentication", category: "Agent",
+			dynDesc: func(*model) string { return "configure Inference.net or OpenRouter" },
+			dynHint: func(*model) string { return "/auth" },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.openThinAuthPalette()
+				return value, nil
+			},
+		},
 		commandItem("Computer use", "Agent", "/computer-use status", false),
+		{
+			title: "Session", category: "Session",
+			dynDesc: func(value *model) string { return value.sessTitle },
+			dynHint: func(*model) string { return "resume · fork · rename · clear" },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.openThinSessionPalette()
+				return value, nil
+			},
+		},
 		commandItem("Resume session", "Session", "/resume", true),
 		commandItem("Rewind conversation", "Session", "/rewind", true),
 		commandItem("Fork session", "Session", "/fork", false),
 		commandItem("Rename session", "Session", "/rename", false),
 		commandItem("Clear conversation", "Session", "/clear", false),
-		commandItem("Compact session", "Session", "/compact", true),
+		{
+			title: "Compact session", category: "Session", suggested: true,
+			dynDesc: func(*model) string { return "run, configure, retry, or inspect compaction" },
+			dynHint: func(*model) string { return "/compact" },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.openThinCompactPalette()
+				return value, nil
+			},
+		},
 		commandItem("Context doctor", "Session", "/context-doctor", false),
-		commandItem("Subagents", "Session", "/subagents", false),
+		commandItem("Agents", "Session", "/agents", false),
 		commandItem("Schedules", "Session", "/schedule list", false),
-		commandItem("MCPs", "Session", "/mcp list", false),
-		commandItem("Browser", "Session", "/browser status", false),
+		{
+			title: "MCPs", category: "Session",
+			dynDesc: func(*model) string { return "servers and imported configurations" },
+			dynHint: func(*model) string { return "/mcp" },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.openThinMCPPalette()
+				return value, nil
+			},
+		},
+		commandItem("Language servers", "Session", "/lsp status", false),
+		{
+			title: "Browser", category: "Session",
+			dynDesc: func(*model) string { return "status and driver" },
+			dynHint: func(*model) string { return "/browser" },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.openThinBrowserPalette()
+				return value, nil
+			},
+		},
 		{
 			title: "Thinking tokens", category: "Display",
 			dynDesc: func(*model) string { return "show or hide streamed reasoning" },
@@ -1344,6 +1578,33 @@ func (m *model) openThinPalette() {
 			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
 				value.palette = nil
 				value.toggleThinking()
+				return value, nil
+			},
+		},
+		{
+			title: "UI mode", category: "Display",
+			dynDesc: func(value *model) string { return "current: " + uiModeLabel(value.uiMode) },
+			dynHint: func(*model) string { return "/ui-mode" },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.openThinUIModePalette()
+				return value, nil
+			},
+		},
+		{
+			title: "Theme", category: "Display",
+			dynDesc: func(value *model) string {
+				current := ""
+				if value.cfg != nil {
+					current = value.cfg.Theme
+				}
+				if current == "" {
+					current = "auto"
+				}
+				return "current: " + current
+			},
+			dynHint: func(*model) string { return "/theme" },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.openThinThemePalette()
 				return value, nil
 			},
 		},
@@ -1358,6 +1619,84 @@ func (m *model) openThinPalette() {
 				return value, bubbletea.Quit
 			},
 		},
+	}
+	m.palette = &palette{all: items}
+	m.palette.applyFilter(m)
+}
+
+func (m *model) openThinSessionPalette() {
+	commands := []struct{ title, command string }{
+		{"Resume a session", "/resume"},
+		{"Fork this session", "/fork"},
+		{"Rename this session", "/rename"},
+		{"Clear this conversation", "/clear"},
+	}
+	m.openCommandSubpalette("Session", commands)
+}
+
+func (m *model) openThinAuthPalette() {
+	commands := []struct{ title, command string }{
+		{"Sign in to Inference.net", "/auth inference-net"},
+		{"Configure OpenRouter key", "/auth openrouter"},
+	}
+	m.openCommandSubpalette("Authentication", commands)
+}
+
+func (m *model) openThinCompactPalette() {
+	commands := []struct{ title, command string }{
+		{"Compact now", "/compact"},
+		{"Use automatic default", "/compact off"},
+		{"Retry latest compaction", "/compact retry"},
+		{"View compaction log", "/compact log"},
+	}
+	for _, item := range buildModelItems(m.cfg) {
+		commands = append(commands, struct{ title, command string }{
+			title:   "Use " + item.model + " @ " + item.provider,
+			command: "/compact " + item.model + " " + item.provider,
+		})
+	}
+	m.openCommandSubpalette("Compaction", commands)
+}
+
+func (m *model) openThinMCPPalette() {
+	commands := []struct{ title, command string }{
+		{"MCP server status", "/mcp status"},
+		{"MCP import status", "/mcp import status"},
+		{"Enable Claude imports", "/mcp import claude on"},
+		{"Disable Claude imports", "/mcp import claude off"},
+		{"Enable Codex imports", "/mcp import codex on"},
+		{"Disable Codex imports", "/mcp import codex off"},
+	}
+	var servers []string
+	if m.cfg != nil {
+		servers = make([]string, 0, len(m.cfg.MCPServers))
+		for name := range m.cfg.MCPServers {
+			servers = append(servers, name)
+		}
+	}
+	slices.Sort(servers)
+	for _, name := range servers {
+		commands = append(commands,
+			struct{ title, command string }{"Reconnect " + name, "/mcp " + name + " reconnect"},
+			struct{ title, command string }{"Enable " + name, "/mcp " + name + " enable"},
+			struct{ title, command string }{"Disable " + name, "/mcp " + name + " disable"},
+		)
+	}
+	m.openCommandSubpalette("MCP", commands)
+}
+
+func (m *model) openCommandSubpalette(category string, commands []struct{ title, command string }) {
+	items := make([]paletteItem, 0, len(commands))
+	for _, item := range commands {
+		item := item
+		items = append(items, paletteItem{
+			title: item.title, category: category,
+			dynHint: func(*model) string { return item.command },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.palette = nil
+				return value.thinCommand(item.command)
+			},
+		})
 	}
 	m.palette = &palette{all: items}
 	m.palette.applyFilter(m)
@@ -1381,6 +1720,77 @@ func (m *model) openThinThemePalette() {
 	m.palette.applyFilter(m)
 }
 
+func (m *model) openThinEffortPalette() {
+	items := make([]paletteItem, 0, len(m.effortsFor()))
+	for _, level := range m.effortsFor() {
+		level := level
+		items = append(items, paletteItem{
+			title: "Effort: " + effortLabel(level), category: "Agent",
+			dynDesc: func(value *model) string {
+				if value.displayEffort() == level {
+					return "current"
+				}
+				return "switch reasoning level"
+			},
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.palette = nil
+				return value.submitClientAction("session.effort", map[string]string{
+					"args": effortLabel(level), "persist_default": "true",
+				}, "")
+			},
+		})
+	}
+	m.palette = &palette{all: items}
+	m.palette.applyFilter(m)
+}
+
+func (m *model) openThinBrowserPalette() {
+	commands := []struct{ title, command string }{
+		{"Browser status", "/browser status"},
+		{"Use Rod driver", "/browser driver rod"},
+		{"Use chromedp driver", "/browser driver chromedp"},
+	}
+	items := make([]paletteItem, 0, len(commands))
+	for _, item := range commands {
+		item := item
+		items = append(items, paletteItem{
+			title: item.title, category: "Browser",
+			dynHint: func(*model) string { return item.command },
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.palette = nil
+				return value.thinCommand(item.command)
+			},
+		})
+	}
+	m.palette = &palette{all: items}
+	m.palette.applyFilter(m)
+}
+
+func (m *model) openThinUIModePalette() {
+	items := make([]paletteItem, 0, 2)
+	for _, mode := range []string{"default", opencodeMode} {
+		mode := mode
+		items = append(items, paletteItem{
+			title: "UI mode: " + mode, category: "Display",
+			dynDesc: func(value *model) string {
+				if uiModeLabel(value.uiMode) == mode {
+					return "current"
+				}
+				return "switch rendering mode"
+			},
+			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
+				value.palette = nil
+				if mode == opencodeMode {
+					return value, value.setUIMode(opencodeMode)
+				}
+				return value, value.setUIMode("")
+			},
+		})
+	}
+	m.palette = &palette{all: items}
+	m.palette.applyFilter(m)
+}
+
 func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 	fields := strings.Fields(text)
 	name := strings.TrimPrefix(fields[0], "/")
@@ -1389,6 +1799,10 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 	case "help", "mouse", "export", "report":
 		return m.command(text)
 	case "auth":
+		if len(fields) == 1 {
+			m.openThinAuthPalette()
+			return m, nil
+		}
 		m.authCommand(fields[1:])
 		return m, nil
 	case "me":
@@ -1402,6 +1816,21 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			return m, nil
 		}
 		return m.command(text)
+	case "ui-mode":
+		switch args {
+		case "", "toggle":
+			if m.uiMode == opencodeMode {
+				return m, m.setUIMode("")
+			}
+			return m, m.setUIMode(opencodeMode)
+		case "default":
+			return m, m.setUIMode("")
+		case "opencode":
+			return m, m.setUIMode(opencodeMode)
+		default:
+			m.append(errStyle.Render("usage: /ui-mode [default|opencode]"))
+			return m, nil
+		}
 	case "quit", "exit", "q":
 		return m, bubbletea.Quit
 	case "goal-from-context":
@@ -1413,12 +1842,38 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			}
 		}
 		return m.submitClientAction("goal.from-context", map[string]string{"args": args}, "")
+	case "effort":
+		if args == "" {
+			m.openThinEffortPalette()
+			return m, nil
+		}
+		level, ok := parseEffort(m.effortsFor(), args)
+		if !ok {
+			levels := m.effortsFor()
+			names := make([]string, len(levels))
+			for index := range levels {
+				names[index] = effortLabel(levels[index])
+			}
+			m.append(errStyle.Render("unknown effort level; " + m.modelName + " supports: " + strings.Join(names, ", ")))
+			return m, nil
+		}
+		return m.submitClientAction("session.effort", map[string]string{
+			"args": effortLabel(level), "persist_default": "true",
+		}, "")
 	case "model", "model-for-session":
+		if args == "refresh" {
+			return m.submitClientAction("provider.catalogs", map[string]string{}, "")
+		}
 		if args == "" {
 			m.openModelPicker(name == "model-for-session")
 			return m, nil
 		}
-		return m.submitClientAction("session.model", map[string]string{"args": args}, "")
+		resolved, err := m.resolveModelCommandArgs(args)
+		if err != nil {
+			m.append(errStyle.Render(err.Error()))
+			return m, nil
+		}
+		return m.submitClientAction("session.model", map[string]string{"args": resolved, "persist_default": strconv.FormatBool(name == "model")}, "")
 	case "rewind":
 		if args == "" {
 			m.openRewind()
@@ -1453,15 +1908,25 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			return m.submitClientAction("submit", map[string]string{"text": instruction}, args)
 		}
 		return m.submitClientAction("computer.control", map[string]string{"args": args}, "")
-	case "subagent":
-		if args == "" {
-			m.append(errStyle.Render("/subagent [-m model[@provider]] <prompt>"))
-			return m, nil
+	case "agents":
+		parts := strings.Fields(args)
+		if len(parts) == 0 || (len(parts) == 1 && parts[0] == "list") {
+			return m.submitClientAction("agents.list", map[string]string{}, "")
 		}
-		if fields := strings.Fields(args); len(fields) == 2 && fields[0] == "stop" {
-			return m.submitClientAction("agent.control", map[string]string{"args": args}, "")
+		if len(parts) == 2 && parts[0] == "stop" {
+			return m.submitClientAction("agent.control", map[string]string{"args": parts[1]}, "")
 		}
-		return m.submitClientAction("agent.start", map[string]string{"args": args}, "")
+		if len(parts) == 2 && parts[0] == "delete" {
+			return m.submitClientAction("agent.delete", map[string]string{"args": parts[1]}, "")
+		}
+		if len(parts) == 4 && parts[0] == "budget" {
+			return m.submitClientAction("budget.cap", map[string]string{"args": strings.Join(parts[1:], " ")}, "")
+		}
+		if len(parts) == 2 && parts[0] == "revoke" {
+			return m.submitClientAction("capability.revoke", map[string]string{"args": parts[1]}, "")
+		}
+		m.append(errStyle.Render("usage: /agents [list|stop <id>|delete <id>|budget <id> <kind> <limit>|revoke <capability-id>]"))
+		return m, nil
 	case "goal":
 		switch args {
 		case "":
@@ -1488,15 +1953,26 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			return m, nil
 		}
 		return m.submitClientAction("steer", map[string]string{"text": args}, args)
+	case "compact":
+		switch args {
+		case "log":
+			return m.submitClientAction("history.compact.log", map[string]string{}, "")
+		case "retry":
+			return m.submitClientAction("history.compact.retry", map[string]string{}, "")
+		case "off":
+			return m.submitClientAction("compaction.configure", map[string]string{"args": "off"}, "")
+		case "":
+			return m.submitClientAction("history.compact", map[string]string{}, "")
+		default:
+			return m.submitClientAction("compaction.configure", map[string]string{"args": args}, "")
+		}
 	}
 	operations := map[string]string{
 		"schedule": "schedule.manage",
 		"cd":       "workspace.set", "pwd": "workspace.inspect",
-		"effort": "session.effort", "clear": "history.clear", "compact": "history.compact",
-		"tasks": "agents.list", "subagents": "agents.list",
-		"mcp": "mcp.control", "lsp": "lsp.control",
-		"browser": "browser.control", "context-doctor": "context.inspect",
-		"budget": "budget.cap", "capability": "capability.revoke", "delete-agent": "agent.delete",
+		"clear": "history.clear",
+		"mcp":   "mcp.control", "lsp": "lsp.control",
+		"browser": "browser.control", "context-doctor": "context.audit",
 	}
 	operation, ok := operations[name]
 	if !ok {

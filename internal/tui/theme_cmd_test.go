@@ -49,13 +49,9 @@ func TestThemeBareOpensSwitcher(t *testing.T) {
 	if m.palette == nil {
 		t.Fatal("bare /theme should open the palette")
 	}
-	pp := m.palette.top()
-	if pp == nil || pp.kind != panelTheme {
-		t.Fatalf("expected the theme panel, got %+v", pp)
-	}
-	// the panel lists auto/light/dark with the current one selected
-	if len(pp.list) != 3 || pp.list[0] != "auto" || pp.list[1] != "light" || pp.list[2] != "dark" {
-		t.Fatalf("theme panel list: %v", pp.list)
+	if len(m.palette.items) != 3 || m.palette.items[0].title != "Theme: auto" ||
+		m.palette.items[1].title != "Theme: light" || m.palette.items[2].title != "Theme: dark" {
+		t.Fatalf("theme palette: %+v", m.palette.items)
 	}
 	// navigate to light and apply with enter
 	tm, _ := m.paletteKey(tea.KeyMsg{Type: tea.KeyDown})

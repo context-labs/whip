@@ -90,7 +90,7 @@ func TestBrowserExecReachesModel(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	ag := NewWithServices(llm.New(srv.URL, "k"), "m", 100, "sys", services)
+	ag := newTestAgentWithServices(llm.New(srv.URL, "k"), "m", 100, "sys", services)
 	final, err := ag.Turn(ctx, "what's the page title?", Events{})
 	if err != nil {
 		t.Fatal(err)

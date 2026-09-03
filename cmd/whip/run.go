@@ -19,7 +19,6 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/tui"
 )
 
 func runCLI(args []string) error {
@@ -68,7 +67,7 @@ func runCLI(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, model, _, err := tui.ResolveWithRefresh(cfg, *modelFlag, *providerFlag)
+	_, model, _, err := cfg.Resolve(*modelFlag, *providerFlag)
 	if err != nil {
 		return err
 	}
@@ -110,7 +109,7 @@ func runCLI(args []string) error {
 		Connector: daemonConnector("automation", clientID),
 	}
 	if *resumeFlag == "" {
-		options.Create = &daemon.CreateSession{CWD: cwd(), Model: modelName, Provider: providerName}
+		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: providerName}
 	}
 	client, err := daemon.NewRootClient(options)
 	if err != nil {

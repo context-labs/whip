@@ -33,7 +33,7 @@ func TestOnToolOutputStreamsBash(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	bindTestAgent(t, ag, t.TempDir())
 
 	var mu sync.Mutex

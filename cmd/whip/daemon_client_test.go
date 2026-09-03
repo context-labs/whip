@@ -2,13 +2,30 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/session"
 )
+
+func runtimeDBPath(home string) string { return filepath.Join(home, "runtime-v2", "sessions.db") }
+
+func openRuntimeTestStore(t *testing.T, home string) *session.Store {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(runtimeDBPath(home)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.Open(runtimeDBPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
 
 // useTestDaemon keeps command tests at the real protocol boundary while
 // running the owner in-process; the test binary cannot exec its hidden daemon

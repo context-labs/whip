@@ -13,8 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/context-labs/whip/internal/agent"
-	"github.com/context-labs/whip/internal/lsp"
+	"github.com/context-labs/whip/internal/llm"
 )
 
 // opencode.go implements whip's "opencode" UI mode: an opt-in *structural*
@@ -228,8 +227,11 @@ func (m *model) sidebarView(height int) string {
 	dim := lipgloss.NewStyle().Foreground(ocMutedCol()).Background(ocPanelBg())
 
 	title := strings.TrimSpace(m.sessTitle)
+	if value, ok := m.runtimeAgent(m.agentOpen); ok {
+		title = value.Name
+	}
 	if title == "" {
-		title = filepath.Base(cwd()) // untitled session: fall back to the working dir
+		title = filepath.Base(m.completionRoot()) // untitled session: fall back to the working dir
 	}
 
 	var b strings.Builder
@@ -240,7 +242,7 @@ func (m *model) sidebarView(height int) string {
 	u := m.displayUsage()
 	b.WriteString(dim.Render(fmtTok(u.PromptTokens+u.CompletionTokens)+" tokens") + "\n")
 	if limit := m.displayContextLimit(); limit > 0 {
-		pct := agent.EstimateTokens(m.displayMessages()) * 100 / limit
+		pct := estimateTokens(m.displayMessages()) * 100 / limit
 		b.WriteString(dim.Render(fmt.Sprintf("%d%% used", pct)) + "\n")
 	}
 	if cost, ok := m.sessionCost(); ok {
@@ -286,25 +288,7 @@ func (m *model) sidebarView(height int) string {
 // lspSummary is a one-line LSP status for the sidebar: a connected count, or a
 // disabled note when no LSP manager is configured.
 func (m *model) lspSummary() string {
-	if m.lspMgr == nil {
-		return "LSPs are disabled"
-	}
-	return lspSummaryLine(m.lspMgr.Statuses())
-}
-
-// lspSummaryLine is the pure formatter behind lspSummary (extracted so its
-// branches are testable without a live LSP server).
-func lspSummaryLine(servers []lsp.Status) string {
-	if len(servers) == 0 {
-		return "no servers"
-	}
-	connected := 0
-	for _, s := range servers {
-		if s.State == "connected" {
-			connected++
-		}
-	}
-	return fmt.Sprintf("%d/%d connected", connected, len(servers))
+	return "managed by daemon"
 }
 
 // opencodePrompt wraps the textarea in opencode's prompt chrome: a ┃ left bar,
@@ -411,7 +395,7 @@ func (m *model) opencodeStatus() string {
 	if u := m.displayUsage(); u.PromptTokens+u.CompletionTokens > 0 {
 		rightRaw = strings.ToUpper(fmtTok(u.PromptTokens + u.CompletionTokens)) // opencode uses uppercase (15.8K)
 		if limit := m.displayContextLimit(); limit > 0 {
-			rightRaw += fmt.Sprintf(" (%d%%)", agent.EstimateTokens(m.displayMessages())*100/limit)
+			rightRaw += fmt.Sprintf(" (%d%%)", estimateTokens(m.displayMessages())*100/limit)
 		}
 		rightRaw += "  "
 	}
@@ -429,7 +413,7 @@ func (m *model) opencodeStatus() string {
 		}
 		leftR = " " + m.spin.View() + "  " + txt.Render("esc") + muted.Render(hint)
 	} else {
-		left := cwd()
+		left := m.completionRoot()
 		if lipgloss.Width(left)+rightW+2 > w { // no room: truncate the cwd, keep the right side
 			left = truncLine(left, max(w-rightW-2, 0))
 		}
@@ -446,7 +430,17 @@ func (m *model) opencodeStatus() string {
 	return line
 }
 
-// opencodePaletteView renders the ctrl+p command list as opencode's Commands
+func estimateTokens(messages []llm.Message) int {
+	bytes := 0
+	for _, message := range messages {
+		bytes += len(message.TextContent())
+		for _, call := range message.ToolCalls {
+			bytes += len(call.Function.Name) + len(call.Function.Arguments)
+		}
+	}
+	return (bytes + 3) / 4
+}
+
 // ocBoxKit bundles the styles and row builders every floating opencode dialog
 // shares (Commands, Message Actions): a fixed-width panel with lr rows.
 type ocBoxKit struct {
@@ -484,19 +478,10 @@ func (k ocBoxKit) lr(left, right string) string {
 func (m *model) ocDialogRows() []string {
 	p := m.palette
 	k := m.newOcBox()
-	w, bg := k.w, k.bg
-	pnl, text, head, muted, accent := k.pnl, k.text, k.head, k.muted, k.accent
+	w := k.w
+	text, head, muted, accent := k.text, k.head, k.muted, k.accent
 	lr := k.lr
 	blank := k.blank
-
-	// a sub-panel (theme picker, model list, …) renders inside the same box
-	if pp := p.top(); pp != nil {
-		rows := []string{blank, lr(head.Render("Commands › "+pp.title), muted.Render("esc")), blank}
-		for ln := range strings.SplitSeq(strings.TrimRight(m.panelView(pp), "\n"), "\n") {
-			rows = append(rows, ocPadTo(pnl.Render("  ")+ocOnBg(ln, bg), w, bg))
-		}
-		return append(rows, blank)
-	}
 
 	rows := []string{blank, lr(head.Render("Commands"), muted.Render("esc")), blank}
 	if p.filter == "" {
@@ -547,22 +532,15 @@ func ocToolIcon(name string) string {
 		return "%"
 	case "websearch", "browser_exec", "computer_exec":
 		return "◈"
-	case "subagent", "subagent_steer", "skill":
+	case "skill":
 		return "→"
 	default:
 		return "⚙"
 	}
 }
 
-// ocToolLabel is the display name + separator for a tool row: subagents read
-// as opencode tasks ("Task — {description}"), everything else keeps the tool
-// name and a plain space ("Bash git status").
-func ocToolLabel(name string) (label, sep string) {
-	if name == "subagent" {
-		return "Task", " — "
-	}
-	return toolHeaderName(name), " "
-}
+// ocToolLabel is the display name + separator for a tool row.
+func ocToolLabel(name string) (label, sep string) { return toolHeaderName(name), " " }
 
 // ocToolRow renders a completed tool call opencode-style: indent 3, an icon,
 // the tool name in text color, and the subject muted. Failed calls go red.
@@ -638,7 +616,7 @@ var msgActionList = []msgAction{
 		}
 		return nil
 	}},
-	{"Fork", "create a new session", func(m *model, _ int) tea.Cmd { m.forkCommand(""); return nil }},
+	{"Fork", "create a new session", func(m *model, _ int) tea.Cmd { _, cmd := m.thinCommand("/fork"); return cmd }},
 }
 
 // msgActionItems returns the actions matching the dialog's filter.
@@ -822,16 +800,16 @@ func (m *model) ocLeaderChord(k string) (tea.Model, tea.Cmd, bool) {
 	case "m": // model list
 		m.openModelPicker(false)
 	case "l": // session list
-		return mcCmd(m.command("/resume"))
+		return mcCmd(m.thinCommand("/resume"))
 	case "n": // new session
-		return mcCmd(m.command("/clear"))
+		return mcCmd(m.thinCommand("/clear"))
 	case "b": // sidebar toggle
 		m.sidebarHide = !m.sidebarHide
 		m.ocRecalcWidth()
 	case "t": // theme list
-		m.openPaletteOn("theme")
+		m.openThinThemePalette()
 	case "c": // compact
-		return mcCmd(m.command("/compact"))
+		return mcCmd(m.thinCommand("/compact"))
 	case "g": // jump back through messages (whip's rewind picker)
 		m.openRewind()
 	case "y": // copy last assistant message

@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,59 +14,13 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 )
 
-func TestMigrationFailureKeepsCheckpointedSourceAndSyncedBackup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sessions.db")
-	db := createHistoricalStore(t, path, historicalShape{name: "H0"})
-	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE blocker(x); CREATE INDEX events ON blocker(x)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(context.Background(), `INSERT INTO messages VALUES('legacy',9,'user','{"role":"user","content":"committed in WAL"}')`); err != nil {
-		t.Fatal(err)
-	}
-	if info, err := os.Stat(path + "-wal"); err != nil || info.Size() == 0 {
-		t.Fatalf("fixture did not retain committed WAL data: info=%v err=%v", info, err)
-	}
-
-	if st, err := Open(path); err == nil {
-		st.Close()
-		t.Fatal("migration should fail on the colliding events index")
-	}
-	var sourceRows, sourceVersion int
-	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM messages WHERE seq=9`).Scan(&sourceRows); err != nil || sourceRows != 1 {
-		t.Fatalf("source lost WAL row: rows=%d err=%v", sourceRows, err)
-	}
-	if err := db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&sourceVersion); err != nil || sourceVersion != 0 {
-		t.Fatalf("failed migration changed source version: %d, %v", sourceVersion, err)
-	}
-	var modeColumn int
-	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM pragma_table_info('sessions') WHERE name='mode'`).Scan(&modeColumn); err != nil || modeColumn != 0 {
-		t.Fatalf("failed migration left partial columns: count=%d err=%v", modeColumn, err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	backup, err := sql.Open("sqlite", migrationBackupPath(path, 0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer backup.Close()
-	var backupRows, backupVersion int
-	if err := backup.QueryRowContext(context.Background(), `SELECT count(*) FROM messages WHERE seq=9`).Scan(&backupRows); err != nil || backupRows != 1 {
-		t.Fatalf("backup lost checkpointed WAL row: rows=%d err=%v", backupRows, err)
-	}
-	if err := backup.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&backupVersion); err != nil || backupVersion != 0 {
-		t.Fatalf("backup version=%d err=%v", backupVersion, err)
-	}
-}
-
 func TestRuntimeTransitionFailureRollsBackRowsAndDiagnosesBody(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID, _ := st.Create("/workspace", "m", "p")
+	rootID, _ := st.Create(SessionKindAgent, "/workspace", "m", "p")
 	exec(t, st, `CREATE TRIGGER reject_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
 	large := bytes.Repeat([]byte("orphan-on-rollback"), 1024)
 	_, err = st.CommitRuntime(context.Background(), RuntimeTransition{
@@ -160,7 +113,7 @@ func TestActorPersistenceEventFailuresRollBack(t *testing.T) {
 		st, rootID, agentID := actorFailureFixture(t)
 		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'d','running',?,?)`, rootID, now(), now())
 		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
-		if _, err := st.FailClassicRoot(context.Background(), rootID, "actor panic"); err == nil {
+		if _, err := st.FailRoot(context.Background(), rootID, "actor panic"); err == nil {
 			t.Fatal("event failure should abort root terminalization")
 		}
 		var statuses string
@@ -178,11 +131,11 @@ func actorFailureFixture(t *testing.T) (*Store, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(t.TempDir(), "m", "p")
+	rootID, err := st.Create(SessionKindAgent, t.TempDir(), "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,11 +158,10 @@ func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID, _ := st.Create("/workspace", "m", "p")
+	rootID, _ := st.Create(SessionKindAgent, "/workspace", "m", "p")
 	exec(t, st, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at) VALUES('a',?,NULL,'idle',?,?)`, rootID, now(), now())
 	exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'d','queued',?,?)`, rootID, now(), now())
 	exec(t, st, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES('turn',?,'a','running',?,?)`, rootID, now(), now())
-	exec(t, st, `INSERT INTO child_executions(id,root_id,parent_agent_id,child_agent_id,status,created_at,updated_at) VALUES('child',?,'a','a','running',?,?)`, rootID, now(), now())
 	exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,created_at,updated_at) VALUES('op',?,'a','running',?,?)`, rootID, now(), now())
 	exec(t, st, `INSERT INTO leases(id,root_id,agent_id,operation_id,status,created_at,updated_at) VALUES('lease',?,'a','op','running',?,?)`, rootID, now(), now())
 	exec(t, st, `CREATE TRIGGER reject_recovery BEFORE UPDATE ON operations BEGIN SELECT RAISE(ABORT,'recovery failure'); END`)
@@ -229,7 +181,7 @@ func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for table, want := range map[string]string{"commands": "queued", "turns": "running", "child_executions": "running", "operations": "running", "leases": "running"} {
+	for table, want := range map[string]string{"commands": "queued", "turns": "running", "operations": "running", "leases": "running"} {
 		var status string
 		if err := db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` LIMIT 1`).Scan(&status); err != nil {
 			t.Fatal(err)
@@ -250,17 +202,11 @@ func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 	if err := st.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
+	for _, table := range []string{"commands", "turns", "operations", "leases"} {
 		var status string
 		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` LIMIT 1`).Scan(&status); err != nil || status != "interrupted" {
 			t.Errorf("%s status=%q err=%v", table, status, err)
 		}
-	}
-}
-
-func TestOpenRejectsInvalidDefaultMode(t *testing.T) {
-	if _, err := OpenWithDefaultMode(filepath.Join(t.TempDir(), "sessions.db"), Mode("future")); err == nil {
-		t.Fatal("invalid configured mode should fail before opening")
 	}
 }
 
@@ -295,8 +241,8 @@ func TestOpenRejectsIncompatibleDatabase(t *testing.T) {
 		st.Close()
 		t.Fatal("Open should reject a database whose schema collides with whip's")
 	}
-	if !strings.Contains(err.Error(), "messages") {
-		t.Fatalf("error should name the colliding object: %v", err)
+	if !strings.Contains(err.Error(), p) || !strings.Contains(err.Error(), "archive or remove") {
+		t.Fatalf("error should identify the incompatible database: %v", err)
 	}
 }
 
@@ -310,7 +256,6 @@ func TestClosedStoreDegradesGracefully(t *testing.T) {
 	}
 
 	errCases := map[string]func() error{
-		"LoadTasks":   func() error { _, err := st.LoadTasks(id); return err },
 		"Save":        func() error { return st.Save(id, 0, []llm.Message{{Role: "user", Content: "x"}}, "m", "p") },
 		"Load":        func() error { _, _, err := st.Load(id); return err },
 		"Recent":      func() error { _, err := st.Recent(10); return err },
@@ -330,22 +275,19 @@ func TestClosedStoreDegradesGracefully(t *testing.T) {
 			return err
 		},
 		"ConsumeInbox": func() error { _, err := st.ConsumeInbox(context.Background(), id, "agent", 1); return err },
-		"StartClassicTurn": func() error {
-			return st.StartClassicTurn(context.Background(), id, "agent", 1)
+		"StartRootTurn": func() error {
+			return st.StartRootTurn(context.Background(), id, "agent", 1)
 		},
-		"CommitClassicTurn": func() error {
-			return st.CommitClassicTurn(context.Background(), ClassicTurnCommit{RootID: id, AgentID: "agent", InboxSeq: 1})
-		},
-		"RecordClassicTask": func() error {
-			return st.RecordClassicTask(context.Background(), id, "agent", Task{ID: "task"})
+		"CommitRootTurn": func() error {
+			return st.CommitRootTurn(context.Background(), RootTurnCommit{RootID: id, AgentID: "agent", InboxSeq: 1})
 		},
 		"ClaimScheduleFire": func() error {
 			_, err := st.ClaimScheduleFire(context.Background(), ScheduleFireClaim{RootID: id, AgentID: "agent", ScheduleID: 1, Slot: time.Now()})
 			return err
 		},
-		"FailClassicRoot":      func() error { _, err := st.FailClassicRoot(context.Background(), id, "failed"); return err },
-		"InterruptClassicRoot": func() error { _, err := st.InterruptClassicRoot(context.Background(), id, "interrupted"); return err },
-		"StopClassicRoot":      func() error { _, err := st.StopClassicRoot(context.Background(), id, "stopped"); return err },
+		"FailRoot":      func() error { _, err := st.FailRoot(context.Background(), id, "failed"); return err },
+		"InterruptRoot": func() error { _, err := st.InterruptRoot(context.Background(), id, "interrupted"); return err },
+		"StopRoot":      func() error { _, err := st.StopRoot(context.Background(), id, "stopped"); return err },
 		"CommitRuntime": func() error {
 			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Event: &RuntimeEvent{RootID: id, Seq: 1, Kind: "test"}})
 			return err
@@ -366,8 +308,8 @@ func TestClosedStoreDegradesGracefully(t *testing.T) {
 			return st.RevokeContentGrant(context.Background(), "reference", id, "agent")
 		},
 		"OrphanContent": func() error { _, err := st.OrphanContent(context.Background()); return err },
-		"EnsureClassicAuthority": func() error {
-			_, err := st.EnsureClassicAuthority(context.Background(), id)
+		"EnsureAuthority": func() error {
+			_, err := st.EnsureAuthority(context.Background(), id)
 			return err
 		},
 		"WorkspaceRoot": func() error { _, err := st.WorkspaceRoot(context.Background(), id); return err },
@@ -635,7 +577,7 @@ func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	id, err := st.Create("/tmp", "m", "p")
+	id, err := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}

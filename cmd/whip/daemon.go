@@ -22,11 +22,13 @@ import (
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/tui"
 )
 
 var restartDaemonBinary = daemon.RestartSelfDaemon
+var daemonKernelCommand []string
 
 func daemonCLI(args []string) error {
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -62,8 +64,7 @@ func runDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defaultMode := configuredSessionMode(cfg)
-	store, err := session.OpenWithDefaultMode(filepath.Join(dir, "sessions.db"), defaultMode)
+	store, err := session.Open(filepath.Join(paths.Home, "sessions.db"))
 	if err != nil {
 		return err
 	}
@@ -74,16 +75,21 @@ func runDaemon(ctx context.Context, args []string) error {
 	}
 	limits := rlmLimits(cfg.RLM)
 	kernels := rlm.NewManager(limits.MaxWorkers)
+	defer kernels.Close()
 	factory := func(_ context.Context, meta session.Meta, history []llm.Message) (daemon.Components, error) {
-		if meta.Model == "mcp" && meta.Provider == "local" {
-			services := daemonToolServices(cfg, meta, "mcp")
-			ag := agent.NewWithServices(llm.New("", ""), "mcp", 1, "", services)
-			ag.ModelName, ag.Provider = meta.Model, meta.Provider
-			ag.WorkingDir = meta.CWD
-			ag.ComputerDisabled = true
-			return daemon.Components{Runner: daemon.NewAgentRunner(ag)}, nil
+		runtimeCfg, err := config.Load()
+		if err != nil {
+			return daemon.Components{}, err
 		}
-		prov, model, apiID, err := cfg.Resolve(meta.Model, meta.Provider)
+		switch meta.Kind {
+		case session.SessionKindToolHost:
+			services := daemonToolServices(runtimeCfg, meta, "mcp")
+			return daemon.Components{Runner: daemon.NewToolRunner(services)}, nil
+		case session.SessionKindAgent:
+		default:
+			return daemon.Components{}, fmt.Errorf("unsupported session kind %q", meta.Kind)
+		}
+		prov, model, apiID, err := runtimeCfg.Resolve(meta.Model, meta.Provider)
 		if err != nil {
 			return daemon.Components{}, err
 		}
@@ -92,7 +98,7 @@ func runDaemon(ctx context.Context, args []string) error {
 			return daemon.Components{}, errors.Join(err, fmt.Errorf("no API key for provider %q", meta.Provider))
 		}
 		client := llm.New(prov.BaseURL, key)
-		client.MaxRetries = cfg.MaxRetries
+		client.MaxRetries = runtimeCfg.MaxRetries
 		catalogs := config.LoadCatalogs()
 		catalog, hasCatalog := catalogs[meta.Provider]
 		contextLimit := model.ContextWindow()
@@ -108,16 +114,12 @@ func runDaemon(ctx context.Context, args []string) error {
 		if maxOutput <= 0 {
 			maxOutput = contextLimit
 		}
-		prompt := systemPrompt(meta.CWD, time.Now())
-		if meta.Mode == session.ModeRLM {
-			prompt = rlm.BuildPrompt(meta.CWD, nil)
-		}
-		services := daemonToolServices(cfg, meta, apiID)
-		ag := agent.NewWithServices(client, apiID, maxOutput, prompt, services)
+		prompt := rlm.BuildPrompt(meta.CWD, nil) + skills.PromptBlock(skills.Scan(skills.DirsFor(meta.CWD)...))
+		services := daemonToolServices(runtimeCfg, meta, apiID)
+		ag := agent.NewRuntime(client, apiID, maxOutput, prompt, services)
 		ag.ModelName, ag.Provider = meta.Model, meta.Provider
 		ag.WorkingDir = meta.CWD
 		ag.ContextLimit = contextLimit
-		ag.WorktreeSubagents = cfg.WorktreeSubagents != nil && *cfg.WorktreeSubagents
 		if model.SamplingParams != nil {
 			ag.Temperature, ag.TopP = model.SamplingParams.Temperature, model.SamplingParams.TopP
 		}
@@ -136,65 +138,89 @@ func runDaemon(ctx context.Context, args []string) error {
 				ag.SteerImages("browser/computer screenshots attached:", parts)
 			})
 		}
-		ag.Effort = meta.Effort
-		if ag.Effort == "" {
-			ag.Effort = tui.DefaultEffortFor(catalogs, meta.Provider, apiID, cfg.DefaultEffort)
-		}
-		configSnapshot := cfg.Snapshot()
-		ag.ResolveModel = func(model, provider string) (agent.SubModel, error) {
-			return tui.SubModelFor(configSnapshot, model, provider)
-		}
-		if taskDefault, taskErr := tui.TaskDefaultFor(configSnapshot); taskErr == nil {
-			ag.TaskDefault = taskDefault
-		}
-		ag.BrowserDisabled = cfg.Browser.Enabled != nil && !*cfg.Browser.Enabled
-		ag.ComputerDisabled = cfg.Computer.Enabled != nil && !*cfg.Computer.Enabled
-		if ag.BrowserDisabled || ag.ComputerDisabled {
-			filtered := ag.Tools[:0]
-			for _, tool := range ag.Tools {
-				name := tool.Def.Function.Name
-				if ag.BrowserDisabled && name == "browser_exec" || ag.ComputerDisabled && name == "computer_exec" {
-					continue
-				}
-				filtered = append(filtered, tool)
+		ag.Vision = vision
+		ag.Effort = resolvedRuntimeEffort(catalogs, meta.Provider, apiID, meta.Effort, runtimeCfg.DefaultEffort)
+		ag.ResolveModel = func(model, provider string) (agent.ModelRoute, error) {
+			currentCfg, loadErr := config.Load()
+			if loadErr != nil {
+				return agent.ModelRoute{}, loadErr
 			}
-			ag.Tools = filtered
+			resolvedProvider, resolvedModel, apiID, resolveErr := currentCfg.Resolve(model, provider)
+			if resolveErr != nil {
+				return agent.ModelRoute{}, resolveErr
+			}
+			key, keyErr := resolvedProvider.ResolveKey()
+			if keyErr != nil {
+				return agent.ModelRoute{}, keyErr
+			}
+			if key == "" {
+				return agent.ModelRoute{}, fmt.Errorf("no API key for the provider serving %q", model)
+			}
+			childClient := llm.New(resolvedProvider.BaseURL, key)
+			childClient.MaxRetries = currentCfg.MaxRetries
+			resolvedProviderName := provider
+			if resolvedProviderName == "" {
+				resolvedProviderName = currentCfg.DefaultProvider
+			}
+			if resolvedProviderName == "" && len(resolvedModel.Providers) > 0 {
+				resolvedProviderName = resolvedModel.Providers[0]
+			}
+			resolvedVision := resolvedModel.Vision
+			if currentCatalog, ok := config.LoadCatalogs()[resolvedProviderName]; ok {
+				if advertised, found := currentCatalog.SupportsVision(apiID); found {
+					resolvedVision = advertised
+				}
+			}
+			return agent.ModelRoute{
+				Client: childClient, ModelName: model, Provider: resolvedProviderName, Model: apiID,
+				ContextLimit: resolvedModel.ContextWindow(), MaxTokens: resolvedModel.MaxOut,
+				Vision: resolvedVision,
+			}, nil
 		}
+		compactName := runtimeCfg.CompactModel
+		if compactName == "" {
+			compactName = config.DefaultCompactModel
+		}
+		if compactProvider, _, compactID, resolveErr := runtimeCfg.Resolve(compactName, runtimeCfg.CompactProvider); resolveErr == nil {
+			if compactKey, keyErr := compactProvider.ResolveKey(); keyErr == nil && compactKey != "" {
+				ag.CompactClient = llm.New(compactProvider.BaseURL, compactKey)
+				ag.CompactClient.MaxRetries = runtimeCfg.MaxRetries
+				ag.CompactModel = compactID
+			}
+		}
+		compactPct := runtimeCfg.CompactPct
+		if compactPct == 0 {
+			compactPct = config.DefaultCompactPct
+		}
+		ag.CompactThreshold = float64(min(max(compactPct, 10), 90)) / 100
+		ag.BrowserDisabled = runtimeCfg.Browser.Enabled != nil && !*runtimeCfg.Browser.Enabled
+		ag.ComputerDisabled = runtimeCfg.Computer.Enabled != nil && !*runtimeCfg.Computer.Enabled
 		var mcpManager *mcp.Manager
-		discovery := mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
+		discovery := mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(runtimeCfg.MCPServers), mcp.ImportPolicyFrom(runtimeCfg.MCPImport))
 		if len(discovery.Merged) > 0 || len(discovery.Blocked) > 0 {
 			mcpManager = mcp.NewManager(discovery.Merged)
 			mcpManager.SetBlocked(discovery.Blocked)
 		}
-		if meta.Mode == session.ModeRLM {
-			ag.Messages = append(ag.Messages[:1], rlm.FocusedHistory(history)...)
-			host := newDaemonRLMHost(ag, history)
-			if hasCatalog {
-				input, output, cacheRead, _ := catalog.Pricing(apiID)
-				host.SetPricing(input, output, cacheRead)
-			}
-			kernel, err := rlm.NewKernel(rlm.KernelOptions{Limits: limits, Manager: kernels, Host: host})
-			if err != nil {
-				if mcpManager != nil {
-					mcpManager.Close()
-				}
-				services.Close()
-				return daemon.Components{}, err
-			}
-			ag.SetExclusiveTool(rlm.Tool(kernel), "rlm")
-			components := daemon.Components{
-				Runner: daemon.NewAgentRunner(ag), Runtime: daemonRLMRuntime{host: host, kernel: kernel},
-				Bind: host.Bind,
-			}
+		ag.Messages = append(ag.Messages[:1], rlm.FocusedHistory(history)...)
+		inputPrice, outputPrice, cacheReadPrice := 0.0, 0.0, 0.0
+		if hasCatalog {
+			inputPrice, outputPrice, cacheReadPrice, _ = catalog.Pricing(apiID)
+		}
+		runtime, err := daemon.NewRecursiveRuntime(daemon.RecursiveRuntimeOptions{
+			Agent: ag, History: history, Limits: limits, Kernels: kernels, MCP: mcpManager,
+			KernelCommand: daemonKernelCommand,
+			InputPrice:    inputPrice, OutputPrice: outputPrice, CacheReadPrice: cacheReadPrice,
+		})
+		if err != nil {
 			if mcpManager != nil {
-				components.MCP = mcpManager
+				mcpManager.Close()
 			}
-			return components, nil
+			services.Close()
+			return daemon.Components{}, err
 		}
-		if len(history) > 1 {
-			ag.Messages = append(ag.Messages[:1], history[1:]...)
+		components := daemon.Components{
+			Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind,
 		}
-		components := daemon.Components{Runner: daemon.NewAgentRunner(ag)}
 		if mcpManager != nil {
 			components.MCP = mcpManager
 		}
@@ -205,11 +231,14 @@ func runDaemon(ctx context.Context, args []string) error {
 		_ = store.Close()
 		return err
 	}
-	restartRequested := make(chan struct{})
-	var restartOnce sync.Once
+	lifecycleRequested := make(chan bool, 1)
+	var lifecycleOnce sync.Once
+	requestLifecycle := func(restart bool) {
+		lifecycleOnce.Do(func() { lifecycleRequested <- restart })
+	}
 	server, err := daemon.NewServer(ownerDaemon, daemon.ServerOptions{
 		BuildID: version, Generation: generation, RuntimeDir: paths.Runtime,
-		Restart: func() { restartOnce.Do(func() { close(restartRequested) }) },
+		Restart: func() { requestLifecycle(true) }, Stop: func() { requestLifecycle(false) },
 	})
 	if err != nil {
 		_ = ownerDaemon.Close()
@@ -224,8 +253,12 @@ func runDaemon(ctx context.Context, args []string) error {
 	select {
 	case err := <-served:
 		return err
-	case <-restartRequested:
-		_ = store.SetDaemonStatus(context.Background(), generation, "restarting")
+	case restart := <-lifecycleRequested:
+		status := "stopping"
+		if restart {
+			status = "restarting"
+		}
+		_ = store.SetDaemonStatus(context.Background(), generation, status)
 		if err := server.Close(); err != nil {
 			return err
 		}
@@ -233,7 +266,10 @@ func runDaemon(ctx context.Context, args []string) error {
 		if err := owner.Close(); err != nil {
 			return err
 		}
-		return restartDaemonBinary()
+		if restart {
+			return restartDaemonBinary()
+		}
+		return nil
 	case <-ctx.Done():
 		_ = store.SetDaemonStatus(context.Background(), generation, "stopping")
 		return server.Close()
@@ -257,7 +293,11 @@ func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string) *to
 		case "extension":
 			mode = browser.ModeExtension
 		}
-		services.SetBrowser(browser.NewManager(mode), cfg.Browser.AllowPrivateURLs)
+		manager := browser.NewManager(mode)
+		if cfg.Browser.Driver != "" {
+			manager.SwitchDriver(cfg.Browser.Driver)
+		}
+		services.SetBrowser(manager, cfg.Browser.AllowPrivateURLs)
 	}
 	if cfg.Computer.Enabled == nil || *cfg.Computer.Enabled {
 		defaultDeny := cfg.Computer.DefaultDeny != nil && *cfg.Computer.DefaultDeny
@@ -267,11 +307,14 @@ func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string) *to
 	return services
 }
 
-func configuredSessionMode(cfg *config.Config) session.Mode {
-	if cfg != nil && cfg.RLMEnabled() {
-		return session.ModeRLM
+func resolvedRuntimeEffort(catalogs map[string]config.Catalog, provider, modelID, stored, defaultEffort string) string {
+	if stored == "off" {
+		return ""
 	}
-	return session.ModeClassic
+	if stored != "" {
+		return stored
+	}
+	return tui.DefaultEffortFor(catalogs, provider, modelID, defaultEffort)
 }
 
 func rlmLimits(value config.RLMConfig) rlm.Limits {

@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,22 +26,42 @@ type fakeRunner struct {
 	mu        sync.Mutex
 	history   []llm.Message
 	turn      func(context.Context, string, bool) (string, error)
-	steer     func(string)
-	accept    func(string)
-	holdSteer bool
 	historyFn func() []llm.Message
-	steers    []string
 	closed    atomic.Bool
 	calls     atomic.Int32
 	closeFn   func()
 }
 
-func (r *fakeRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
+type titleRunner struct {
+	*fakeRunner
+	title    string
+	started  chan struct{}
+	release  chan struct{}
+	finished chan struct{}
+}
+
+func (r *titleRunner) GenerateTitle(ctx context.Context) (string, llm.Usage, error) {
+	if r.started != nil {
+		close(r.started)
+	}
+	if r.release != nil {
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return "", llm.Usage{}, ctx.Err()
+		}
+	}
+	if r.finished != nil {
+		close(r.finished)
+	}
+	return r.title, llm.Usage{PromptTokens: 2, CompletionTokens: 1}, nil
+}
+
+func (r *fakeRunner) Turn(ctx context.Context, input string, authored bool, started func(), _ func(string)) (string, error) {
 	r.calls.Add(1)
-	r.mu.Lock()
-	r.accept = accepted
-	r.mu.Unlock()
-	started()
+	if started != nil {
+		started()
+	}
 	output, err := input, error(nil)
 	if r.turn != nil {
 		output, err = r.turn(ctx, input, authored)
@@ -55,21 +73,6 @@ func (r *fakeRunner) Turn(ctx context.Context, input string, authored bool, star
 	}
 	r.mu.Unlock()
 	return output, err
-}
-
-func (r *fakeRunner) Steer(text string) bool {
-	if r.steer != nil {
-		r.steer(text)
-	}
-	r.mu.Lock()
-	r.steers = append(r.steers, text)
-	accept := r.accept
-	hold := r.holdSteer
-	r.mu.Unlock()
-	if accept != nil && !hold {
-		accept(text)
-	}
-	return true
 }
 
 func (r *fakeRunner) History() []llm.Message {
@@ -135,7 +138,7 @@ func openStore(t *testing.T, path string) *session.Store {
 
 func createRoot(t *testing.T, store *session.Store) string {
 	t.Helper()
-	rootID, err := store.Create(t.TempDir(), "model", "provider")
+	rootID, err := store.Create(session.SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +154,106 @@ func waitReceipt(t *testing.T, receipt *Receipt) Completion {
 		t.Fatal(err)
 	}
 	return completion
+}
+
+func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
+	t.Run("publishes title", func(t *testing.T) {
+		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+		rootID := createRoot(t, store)
+		runner := &titleRunner{fakeRunner: &fakeRunner{}, title: "Worker Queue Investigation", finished: make(chan struct{})}
+		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			return Components{Runner: runner}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = value.Close() })
+		root, err := value.Open(rootID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result := clientCommand(t, root, "tui", "autotitle", "session.autotitle", map[string]bool{"enabled": true}); result.Status != "succeeded" {
+			t.Fatalf("enable automatic title=%+v", result)
+		}
+		receipt, err := root.Submit(t.Context(), "Investigate flaky workers")
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitReceipt(t, receipt)
+		select {
+		case <-runner.finished:
+		case <-time.After(time.Second):
+			t.Fatal("automatic title did not finish")
+		}
+		var meta session.Meta
+		deadline := time.Now().Add(time.Second)
+		for meta.Title != runner.title && time.Now().Before(deadline) {
+			meta, _, err = store.Load(rootID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(time.Millisecond)
+		}
+		if meta.Title != runner.title {
+			t.Fatalf("automatic title=%q", meta.Title)
+		}
+		events, _, err := store.ReplayEvents(t.Context(), rootID, 0, session.MaxEventReplay)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, event := range events {
+			found = found || event.Kind == "session.title.updated"
+		}
+		if !found {
+			t.Fatal("automatic title update event was not published")
+		}
+	})
+
+	t.Run("explicit rename wins", func(t *testing.T) {
+		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+		rootID := createRoot(t, store)
+		runner := &titleRunner{
+			fakeRunner: &fakeRunner{}, title: "Generated Too Late",
+			started: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{}),
+		}
+		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			return Components{Runner: runner}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = value.Close() })
+		root, err := value.Open(rootID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clientCommand(t, root, "tui", "autotitle", "session.autotitle", map[string]bool{"enabled": true})
+		receipt, err := root.Submit(t.Context(), "Investigate flaky workers")
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitReceipt(t, receipt)
+		select {
+		case <-runner.started:
+		case <-time.After(time.Second):
+			t.Fatal("automatic title did not start")
+		}
+		if result := clientCommand(t, root, "tui", "rename", "session.rename", map[string]string{"args": "Explicit Name"}); result.Status != "succeeded" {
+			t.Fatalf("rename=%+v", result)
+		}
+		close(runner.release)
+		select {
+		case <-runner.finished:
+		case <-time.After(time.Second):
+			t.Fatal("automatic title did not finish")
+		}
+		time.Sleep(5 * time.Millisecond)
+		meta, _, err := store.Load(rootID)
+		if err != nil || meta.Title != "Explicit Name" {
+			t.Fatalf("title after rename race=%q err=%v", meta.Title, err)
+		}
+	})
 }
 
 func TestConcurrentSubmitUsesCommittedInboxOrder(t *testing.T) {
@@ -314,24 +417,10 @@ func TestUnobservedCompletionCannotBlockActor(t *testing.T) {
 	}
 }
 
-func TestSteerWaitsForRunningTurnBoundary(t *testing.T) {
+func TestSteerWhileIdleRunsAsAuthoredTurn(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	started := make(chan struct{})
-	steered := make(chan string, 1)
-	release := make(chan struct{})
-	runner := &fakeRunner{
-		turn: func(ctx context.Context, input string, _ bool) (string, error) {
-			close(started)
-			select {
-			case <-release:
-				return input, nil
-			case <-ctx.Done():
-				return "", ctx.Err()
-			}
-		},
-		steer: func(text string) { steered <- text },
-	}
+	runner := &fakeRunner{}
 	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner}, nil
 	})
@@ -340,39 +429,26 @@ func TestSteerWaitsForRunningTurnBoundary(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = daemon.Close() })
 	root, _ := daemon.Open(rootID)
-	turn, err := root.Submit(context.Background(), "turn")
-	if err != nil {
-		t.Fatal(err)
-	}
-	<-started
 	steer, err := root.Steer(context.Background(), "boundary")
 	if err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case got := <-steered:
-		if got != "boundary" {
-			t.Fatalf("steer=%q", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("steer did not reach the running turn")
+	if completion := waitReceipt(t, steer); completion.Err != nil || completion.Output != "boundary" {
+		t.Fatalf("idle steer completion=%+v", completion)
 	}
-	close(release)
-	if completion := waitReceipt(t, turn); completion.Err != nil {
-		t.Fatal(completion.Err)
-	}
-	if completion := waitReceipt(t, steer); completion.Err != nil {
-		t.Fatal(completion.Err)
+	history := runner.History()
+	if len(history) < 1 || history[0].Content != "boundary" || !history[0].Authored {
+		t.Fatalf("idle steer history=%+v", history)
 	}
 }
 
-func TestUnacknowledgedSteerRunsAsNextTurn(t *testing.T) {
+func TestSteerDuringTurnRunsAsNextTurn(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	inputs := make(chan string, 2)
-	runner := &fakeRunner{holdSteer: true, turn: func(ctx context.Context, input string, _ bool) (string, error) {
+	runner := &fakeRunner{turn: func(ctx context.Context, input string, _ bool) (string, error) {
 		inputs <- input
 		if input == "turn" {
 			close(started)
@@ -400,7 +476,7 @@ func TestUnacknowledgedSteerRunsAsNextTurn(t *testing.T) {
 		t.Fatal(completion.Err)
 	}
 	if completion := waitReceipt(t, steer); completion.Output != "next" || completion.Err != nil {
-		t.Fatalf("unacknowledged steer completion=%+v", completion)
+		t.Fatalf("steer completion=%+v", completion)
 	}
 	if first, second := <-inputs, <-inputs; first != "turn" || second != "next" {
 		t.Fatalf("turn inputs=%q, %q", first, second)
@@ -629,13 +705,13 @@ func TestToolPanicReentersRootSupervisor(t *testing.T) {
 	defer server.Close()
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	ag := agent.New(llm.New(server.URL, "key"), "model", 100, "system")
+	ag := agent.NewRuntime(llm.New(server.URL, "key"), "model", 100, "system", tools.NewServices())
 	ag.Tools = append(ag.Tools, tools.Tool{
 		Def: llm.NewTool("explode", "panic", `{"type":"object"}`),
 		Run: func(context.Context, json.RawMessage) (string, error) { panic("tool exploded") },
 	})
 	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: NewAgentRunner(ag)}, nil
+		return Components{Runner: &AgentSession{agent: ag}}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -673,9 +749,9 @@ func TestAgentStreamEventsAreDurableOrderedAndSnapshotRestorable(t *testing.T) {
 	defer server.Close()
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	agentValue := agent.New(llm.New(server.URL, "key"), "model", 100, "system")
+	agentValue := agent.NewRuntime(llm.New(server.URL, "key"), "model", 100, "system", tools.NewServices())
 	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: NewAgentRunner(agentValue)}, nil
+		return Components{Runner: &AgentSession{agent: agentValue}}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -752,10 +828,10 @@ func TestAgentStreamEventsAreDurableOrderedAndSnapshotRestorable(t *testing.T) {
 func TestOpenBindsMCPProcessesAndTools(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	ag := agent.New(llm.New("http://unused", "key"), "model", 100, "system")
+	ag := agent.NewRuntime(llm.New("http://unused", "key"), "model", 100, "system", tools.NewServices())
 	manager := &fakeMCP{tools: []tools.Tool{{Def: llm.NewTool("mcp_one", "one", `{}`)}}}
 	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: NewAgentRunner(ag), MCP: manager}, nil
+		return Components{Runner: &AgentSession{agent: ag}, MCP: manager}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -776,106 +852,6 @@ func TestOpenBindsMCPProcessesAndTools(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("MCP tool refresh did not reach the root agent")
-	}
-}
-
-func TestOpenAdvancesTaskIDsPastPersistedTasks(t *testing.T) {
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	rootID := createRoot(t, store)
-	now := time.Now()
-	if err := store.SaveTask(rootID, session.Task{ID: "historic-1000000", Description: "old", Status: "done", StartedAt: now, EndedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	ag := agent.New(llm.New("http://unused", "key"), "model", 100, "system")
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: NewAgentRunner(ag)}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = daemon.Close() })
-	root, err := daemon.Open(rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	task := ag.RegisterBackground("new task", "do it", agent.SubModel{})
-	index := strings.LastIndexByte(task.ID, '-')
-	sequence, err := strconv.ParseInt(task.ID[index+1:], 10, 64)
-	if err != nil || sequence <= 1000000 {
-		t.Fatalf("resumed task id=%q err=%v", task.ID, err)
-	}
-	ag.Tasks().Cancel(task.ID)
-	ag.LaunchBackground(task, "")
-	<-task.Done
-	root.Stop()
-}
-
-func TestClosedAgentRejectsLateBackgroundLaunch(t *testing.T) {
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	rootID := createRoot(t, store)
-	ag := agent.New(llm.New("http://unused", "key"), "model", 100, "system")
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: NewAgentRunner(ag)}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = daemon.Close() })
-	root, err := daemon.Open(rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root.Stop()
-	task := ag.StartBackground("late task", "do not run", agent.SubModel{})
-	select {
-	case <-task.Done:
-	case <-time.After(time.Second):
-		t.Fatal("late task escaped the stopped root supervisor")
-	}
-	if task.Status != agent.TaskCancelled {
-		t.Fatalf("late task status=%q", task.Status)
-	}
-}
-
-func TestFailedTaskRecordCancelsBeforeLaunch(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sessions.db")
-	store := openStore(t, path)
-	rootID := createRoot(t, store)
-	ag := agent.New(llm.New("http://unused", "key"), "model", 100, "system")
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: NewAgentRunner(ag)}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = daemon.Close() })
-	root, err := daemon.Open(rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(context.Background(), `CREATE TRIGGER reject_classic_task BEFORE INSERT ON tasks BEGIN SELECT RAISE(ABORT,'no task'); END`); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	_ = db.Close()
-	task := ag.RegisterBackground("blocked task", "do it", agent.SubModel{})
-	ag.LaunchBackground(task, "")
-	select {
-	case <-task.Done:
-	case <-time.After(time.Second):
-		t.Fatal("rejected task launch did not settle")
-	}
-	if task.Status != agent.TaskCancelled {
-		t.Fatalf("rejected task status=%q", task.Status)
-	}
-	select {
-	case <-root.Done():
-	case <-time.After(time.Second):
-		t.Fatal("task persistence failure did not fail the root")
 	}
 }
 
@@ -986,11 +962,11 @@ func TestOpenSharesLiveRootWithoutHoldingRegistryLockDuringFactory(t *testing.T)
 	}
 }
 
-func TestLoadInboxCapsPendingBacklog(t *testing.T) {
+func TestDispatchWaitsForAdmissionPublication(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	t.Cleanup(func() { _ = store.Close() })
 	rootID := createRoot(t, store)
-	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := store.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -998,34 +974,29 @@ func TestLoadInboxCapsPendingBacklog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range session.MaxInboxBatch + 5 {
-		if _, err := store.EnqueueInbox(context.Background(), session.InboxEnqueue{
-			RootID: rootID, AgentID: authority.AgentID, Kind: "submit",
-			Payload: session.RuntimePayload{Data: []byte("work")},
-		}); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := store.EnqueueInbox(context.Background(), session.InboxEnqueue{
+		RootID: rootID, AgentID: authority.AgentID, Kind: "submit",
+		Payload: session.RuntimePayload{Data: []byte("work")},
+	}); err != nil {
+		t.Fatal(err)
 	}
 	root := newSession(store, meta, authority, Components{Runner: &fakeRunner{}})
 	t.Cleanup(root.supervisor.stop)
 	root.admitMu.RLock()
-	loaded := make(chan error, 1)
-	go func() { loaded <- root.loadInbox() }()
+	dispatched := make(chan error, 1)
+	go func() { dispatched <- root.dispatch() }()
 	select {
-	case err := <-loaded:
+	case err := <-dispatched:
 		root.admitMu.RUnlock()
-		t.Fatalf("inbox became visible before admission publication: %v", err)
+		t.Fatalf("inbox was claimed before admission publication: %v", err)
 	case <-time.After(10 * time.Millisecond):
 	}
 	root.admitMu.RUnlock()
-	if err := <-loaded; err != nil {
+	if err := <-dispatched; err != nil {
 		t.Fatal(err)
 	}
-	if len(root.pending) != session.MaxInboxBatch {
-		t.Fatalf("pending backlog=%d", len(root.pending))
-	}
-	if err := root.loadInbox(); err != nil || len(root.pending) != session.MaxInboxBatch {
-		t.Fatalf("pending backlog grew past cap: %d, %v", len(root.pending), err)
+	if root.running == nil || root.running.seq == 0 {
+		t.Fatalf("dispatch did not claim the queued row: %+v", root.running)
 	}
 }
 
@@ -1143,7 +1114,7 @@ func TestSessionWakeAndReferencedInboxFailuresAreReported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := store.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1166,19 +1137,16 @@ func TestSessionWakeAndReferencedInboxFailuresAreReported(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	root.enqueueWake("wait", "wake")
+	root.enqueueWake("steer", "wake")
 	events := root.supervisor.take()
 	if len(events) != 1 || events[0].err == nil {
 		t.Fatalf("failed wake events = %+v", events)
 	}
 }
 
-func TestAgentRunnerSteerAndSafeCloseEdges(t *testing.T) {
-	agentValue := agent.New(llm.New("http://unused", "key"), "model", 1, "system")
-	runner := NewAgentRunner(agentValue)
-	if runner.Steer("idle") {
-		t.Fatal("idle agent accepted a boundary steer")
-	}
+func TestAgentRunnerSafeCloseEdges(t *testing.T) {
+	agentValue := agent.NewRuntime(llm.New("http://unused", "key"), "model", 1, "system", tools.NewServices())
+	runner := &AgentSession{agent: agentValue}
 	if err := safeClose("normal", func() {}); err != nil {
 		t.Fatal(err)
 	}
@@ -1314,105 +1282,6 @@ func TestCloseCancelsInFlightFactory(t *testing.T) {
 	}
 }
 
-func TestCloseFlushesLateTaskTranscript(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sessions.db")
-	store := openStore(t, path)
-	rootID := createRoot(t, store)
-	runner := &fakeRunner{}
-	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: runner}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, err := daemon.Open(rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner.closeFn = func() {
-		now := time.Now()
-		root.supervisor.post(workerEnvelope{
-			kind:       workerTaskRecord,
-			task:       &session.Task{ID: "late-task", Description: "late", Prompt: "finish", Status: "done", StartedAt: now, EndedAt: now},
-			transcript: []llm.Message{{Role: "system", Content: "task system"}, {Role: "user", Content: "finish"}, {Role: "assistant", Content: "done"}},
-			model:      "task-model", reply: make(chan error, 1),
-		})
-	}
-	if err := daemon.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store = openStore(t, path)
-	t.Cleanup(func() { _ = store.Close() })
-	tasks, err := store.LoadTasks(rootID)
-	if err != nil || len(tasks) != 1 || tasks[0].Status != "done" {
-		t.Fatalf("late task=%+v err=%v", tasks, err)
-	}
-	transcript, err := store.SubagentTranscript(rootID, "late-task")
-	if err != nil || len(transcript) != 3 || transcript[0].Content != "task system" {
-		t.Fatalf("late transcript=%+v err=%v", transcript, err)
-	}
-}
-
-func TestRecordTaskRetriesAfterActorCancellation(t *testing.T) {
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	t.Cleanup(func() { _ = store.Close() })
-	rootID := createRoot(t, store)
-	meta, _, err := store.Load(rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := newSession(store, meta, authority, Components{Runner: &fakeRunner{}})
-	root.supervisor.stop()
-	now := time.Now()
-	event := workerEnvelope{
-		kind:       workerTaskRecord,
-		task:       &session.Task{ID: "cancelled-actor", Description: "late", Prompt: "finish", Status: "done", StartedAt: now, EndedAt: now},
-		transcript: []llm.Message{{Role: "system", Content: "system"}, {Role: "assistant", Content: "done"}}, model: "task-model",
-	}
-	if err := root.recordTask(event); err != nil {
-		t.Fatal(err)
-	}
-	transcript, err := store.SubagentTranscript(rootID, event.task.ID)
-	if err != nil || len(transcript) != 2 {
-		t.Fatalf("retried transcript=%+v err=%v", transcript, err)
-	}
-}
-
-func TestActorPersistsTaskRecordsBeforeConcurrentFailure(t *testing.T) {
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	t.Cleanup(func() { _ = store.Close() })
-	rootID := createRoot(t, store)
-	meta, _, err := store.Load(rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := newSession(store, meta, authority, Components{Runner: &fakeRunner{}})
-	t.Cleanup(root.supervisor.stop)
-	now := time.Now()
-	root.supervisor.post(workerEnvelope{kind: "failed worker", err: errors.New("worker failed")})
-	root.supervisor.post(workerEnvelope{
-		kind:       workerTaskRecord,
-		task:       &session.Task{ID: "concurrent-task", Description: "task", Prompt: "finish", Status: "done", StartedAt: now, EndedAt: now},
-		transcript: []llm.Message{{Role: "system", Content: "system"}, {Role: "assistant", Content: "done"}},
-		model:      "task-model", reply: make(chan error, 1),
-	})
-	if err := root.actor(); err == nil || !strings.Contains(err.Error(), "worker failed") {
-		t.Fatalf("actor error=%v", err)
-	}
-	transcript, err := store.SubagentTranscript(rootID, "concurrent-task")
-	if err != nil || len(transcript) != 2 {
-		t.Fatalf("concurrent transcript=%+v err=%v", transcript, err)
-	}
-}
-
 func TestSupervisorCoalescesCompatibleStreamEvents(t *testing.T) {
 	supervisor := newSupervisor()
 	t.Cleanup(supervisor.stop)
@@ -1443,6 +1312,41 @@ func TestSupervisorCoalescesCompatibleStreamEvents(t *testing.T) {
 	}})
 	if events := supervisor.take(); len(events) != 2 {
 		t.Fatalf("oversized stream events were coalesced: %d", len(events))
+	}
+}
+
+func TestRouteControlDoesNotDeadlockDuringShutdown(t *testing.T) {
+	root := &Session{supervisor: newSupervisor()}
+	finished := make(chan error, 1)
+	if !root.supervisor.launchWorker("control", func() {
+		finished <- root.routeControl(context.Background(), func(context.Context) error { return nil })
+	}) {
+		t.Fatal("control worker was not launched")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		root.supervisor.mu.Lock()
+		queued := len(root.supervisor.events)
+		root.supervisor.mu.Unlock()
+		if queued == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	root.admitMu.Lock()
+	root.stopping = true
+	root.admitMu.Unlock()
+	root.supervisor.stop()
+	if err := root.drainWorkers(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-finished:
+		if !errors.Is(err, ErrStopped) {
+			t.Fatalf("shutdown control error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("control remained blocked after supervisor shutdown")
 	}
 }
 
@@ -1505,7 +1409,7 @@ func TestClosePreservesClaimedScheduleWake(t *testing.T) {
 	}
 }
 
-func TestReopenReconstructsHistoryWithoutReplayingUncertainCommands(t *testing.T) {
+func TestReopenReconstructsHistoryAndRunsQueuedSubmitOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	store := openStore(t, path)
 	rootID := createRoot(t, store)
@@ -1518,7 +1422,7 @@ func TestReopenReconstructsHistoryWithoutReplayingUncertainCommands(t *testing.T
 	if err := store.Save(rootID, 0, history, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
-	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := store.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1547,23 +1451,37 @@ func TestReopenReconstructsHistoryWithoutReplayingUncertainCommands(t *testing.T
 	if _, err := daemon.Open(rootID); err != nil {
 		t.Fatal(err)
 	}
-	if runner.calls.Load() != 0 {
-		t.Fatal("uncertain command replayed on reopen")
-	}
 	if len(restored) != 3 || restored[2].Role != "tool" || !strings.Contains(restored[2].Content, "interrupted") {
 		t.Fatalf("restored history=%+v", restored)
 	}
-	queued, err := store.LoadQueuedInbox(context.Background(), rootID, authority.AgentID, 0, 10)
-	if err != nil || len(queued) != 0 {
-		t.Fatalf("uncertain queued command survived recovery: %+v, %v", queued, err)
+	// The interrupted tool call is not replayed; the queued submit is durable
+	// work and runs exactly once after the restart.
+	deadline := time.Now().Add(5 * time.Second)
+	for runner.calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
 	}
+	if runner.calls.Load() != 1 {
+		t.Fatalf("queued submit ran %d times after reopen", runner.calls.Load())
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		queued, err := store.LoadQueuedInbox(context.Background(), rootID, authority.AgentID, 0, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(queued) == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("queued submit was not consumed after reopen")
 }
 
 func TestReopenResumesQueuedScheduleAsUnauthored(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	store := openStore(t, path)
 	rootID := createRoot(t, store)
-	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := store.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}

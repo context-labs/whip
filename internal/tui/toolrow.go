@@ -35,10 +35,6 @@ func toolHeaderName(name string) string {
 		return "Read"
 	case "bash":
 		return "Bash"
-	case "subagent":
-		return "Subagent"
-	case "subagent_steer":
-		return "Steer"
 	case "todowrite":
 		return "Plan"
 	case "remember":
@@ -54,7 +50,7 @@ func toolHeaderName(name string) string {
 }
 
 // toolSubject extracts the human subject from a call's raw JSON args: the
-// path for file tools, the command for bash, the description for subagents.
+// path for file tools and the command for bash.
 // Unknown shapes fall back to the compacted args.
 func toolSubject(name, args string) string {
 	var m map[string]any
@@ -69,12 +65,6 @@ func toolSubject(name, args string) string {
 		s = strings.Join(strings.Fields(get("command")), " ")
 	case "read", "write", "edit":
 		s = get("path")
-	case "subagent":
-		if s = get("description"); s == "" {
-			s = firstLine(get("prompt"))
-		}
-	case "subagent_steer":
-		s = get("id")
 	case "browser_exec", "computer_exec":
 		s = browserStepLabel(args)
 	}
@@ -84,15 +74,8 @@ func toolSubject(name, args string) string {
 	return s
 }
 
-// queuedSubject is the text a still-streaming tool row leads with: the
-// subagent's task description when there is one (raw JSON for a subagent call
-// is an unreadable blob), else the call's first line.
-func queuedSubject(name, args string) string {
-	if name == "subagent" {
-		return toolSubject("subagent", args)
-	}
-	return firstLine(args)
-}
+// queuedSubject is the first line shown for a still-streaming tool call.
+func queuedSubject(_ string, args string) string { return firstLine(args) }
 
 // toolHeaderRow renders the completed call's header: "● Update(path)"
 // (opencode mode: an indent-3 icon row, see ocToolRow).

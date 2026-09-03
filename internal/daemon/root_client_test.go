@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"database/sql"
 	"errors"
 	"net"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -195,7 +198,7 @@ func (*staticRootConnection) Replay(context.Context, ReplayParams) (ReplayResult
 }
 
 func (*staticRootConnection) Snapshot(_ context.Context, rootID string) (session.RootSnapshot, error) {
-	return session.RootSnapshot{RootID: rootID, Cursor: 3}, nil
+	return session.RootSnapshot{RootID: rootID}, nil
 }
 
 func (c *staticRootConnection) Events() <-chan ProtocolEvent { return c.events }
@@ -297,6 +300,149 @@ func TestRootClientValidationAndDisconnectedSurface(t *testing.T) {
 	}
 }
 
+func TestRootClientProcessInstancesNeverReuseActionOrCreationIDs(t *testing.T) {
+	connector := func(context.Context, map[string]int64) (RootConnection, error) {
+		return newStaticRootConnection(), nil
+	}
+	first, err := NewRootClient(RootClientOptions{ClientID: "durable", RootID: "root", Connector: connector})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewRootClient(RootClientOptions{ClientID: "durable", RootID: "root", Connector: connector})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstAction, _ := first.NewAction("submit", SubmitPayload{Text: "one"})
+	secondAction, _ := second.NewAction("submit", SubmitPayload{Text: "two"})
+	if firstAction.CommandID == secondAction.CommandID {
+		t.Fatalf("separate process instances reused action id %q", firstAction.CommandID)
+	}
+	firstCreationID := first.clientID + "-session-" + first.instanceID
+	secondCreationID := second.clientID + "-session-" + second.instanceID
+	if firstCreationID == secondCreationID {
+		t.Fatalf("separate process instances reused session creation id %q", firstCreationID)
+	}
+	if first.instanceID == second.instanceID || first.instanceID == "" || second.instanceID == "" {
+		t.Fatalf("process nonces first=%q second=%q", first.instanceID, second.instanceID)
+	}
+	_ = first.Close()
+	_ = second.Close()
+}
+
+func TestRootClientSwitchRootClosesConnectionAndResynchronizes(t *testing.T) {
+	first := newStaticRootConnection()
+	second := newStaticRootConnection()
+	connections := []*staticRootConnection{first, second}
+	var calls int
+	client, err := NewRootClient(RootClientOptions{
+		ClientID: "client", RootID: "one", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
+		Connector: func(context.Context, map[string]int64) (RootConnection, error) {
+			connection := connections[min(calls, len(connections)-1)]
+			calls++
+			return connection, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	if err := client.WaitLive(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SwitchRoot("two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.WaitLive(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-first.Done():
+	default:
+		t.Fatal("old root connection remained open")
+	}
+	if client.RootID() != "two" || client.Cursor() != 0 || calls < 2 {
+		t.Fatalf("switched root=%q cursor=%d connects=%d", client.RootID(), client.Cursor(), calls)
+	}
+}
+
+func TestRootClientReceivesEventsAfterExpiredCursorSnapshot(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "sessions.db")
+	store := openStore(t, databasePath)
+	t.Cleanup(func() { _ = store.Close() })
+	rootID := createRoot(t, store)
+	database, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	if _, err := database.Exec(`INSERT INTO events(root_id,seq,kind,created_at) VALUES(?,?,?,?),(?,?,?,?)`,
+		rootID, 2, "fixture", stamp, rootID, session.EventRetention+1, "fixture", stamp); err != nil {
+		_ = database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		<-served
+	})
+
+	client, err := NewRootClient(RootClientOptions{
+		ClientID: "expired-cursor", RootID: rootID, RetryMin: time.Millisecond, RetryMax: time.Millisecond,
+		Connector: func(ctx context.Context, cursors map[string]int64) (RootConnection, error) {
+			connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
+			if err != nil {
+				return nil, err
+			}
+			return NewClient(ctx, connection, InitializeParams{
+				ProtocolMajor: ProtocolMajor, ClientID: "expired-cursor", ClientKind: "test", Cursors: cursors,
+			})
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	if err := client.WaitLive(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	sequence, err := store.AppendRootEvent(t.Context(), rootID, "fresh", session.RuntimePayload{Data: []byte(`{"ok":true}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case update := <-client.Updates():
+			if update.Event != nil && update.Event.Seq == sequence && update.Event.Kind == "fresh" {
+				return
+			}
+		case <-deadline:
+			t.Fatal("live event pump stopped after the expired-cursor snapshot")
+		}
+	}
+}
+
 func TestRootClientRetriesAndUsesPrivilegedConnection(t *testing.T) {
 	_, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -323,7 +469,7 @@ func TestRootClientRetriesAndUsesPrivilegedConnection(t *testing.T) {
 	if err := client.WaitLive(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if attempts != 2 || client.State() != RootLive || client.Cursor() != 3 || client.Err() != nil {
+	if attempts != 2 || client.State() != RootLive || client.Cursor() != 0 || client.Err() != nil {
 		t.Fatalf("attempts=%d state=%s cursor=%d err=%v", attempts, client.State(), client.Cursor(), client.Err())
 	}
 	if snapshot, err := client.Snapshot(t.Context()); err != nil || snapshot.RootID != "root" {

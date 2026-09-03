@@ -14,8 +14,6 @@ func TestToolHeaderRowSubjects(t *testing.T) {
 		{"write", `{"path":"a.go","content":"x"}`, "Write(a.go)"},
 		{"read", `{"path":"a.go"}`, "Read(a.go)"},
 		{"bash", `{"command":"git  status"}`, "Bash(git status)"},
-		{"subagent", `{"description":"probe the repo","prompt":"p"}`, "Subagent(probe the repo)"},
-		{"subagent_steer", `{"id":"sub-3","message":"m"}`, "Steer(sub-3)"},
 	}
 	for _, c := range cases {
 		if got := ansi.Strip(toolHeaderRow(c.name, c.args, false)); got != "● "+c.want {

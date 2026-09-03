@@ -29,11 +29,11 @@ func TestServeInProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID, err := store.Create(cwd, "mcp-test", "local")
+	rootID, err := store.Create(session.SessionKindAgent, cwd, "mcp-test", "local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := store.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +86,8 @@ func TestServeInProcess(t *testing.T) {
 	for _, tool := range list.Tools {
 		names[tool.Name] = true
 	}
-	if len(list.Tools) != 4 || !names["read"] || names["task"] {
-		t.Fatalf("served tools = %v (want whip's 4, task excluded)", names)
+	if len(list.Tools) != 4 || !names["read"] || names["rlm_exec"] {
+		t.Fatalf("served tools = %v (want whip's 4 restricted tools)", names)
 	}
 
 	res, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{

@@ -19,6 +19,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 type smokeSpec struct {
@@ -42,7 +43,6 @@ type comparisonSpec struct {
 }
 
 type evaluationMetrics struct {
-	Mode              string  `json:"mode"`
 	Correct           bool    `json:"correct"`
 	Error             string  `json:"error,omitempty"`
 	DurationMillis    int64   `json:"duration_ms"`
@@ -61,8 +61,7 @@ type comparisonReport struct {
 	Provider          string            `json:"provider"`
 	RootContextTokens int               `json:"root_context_tokens"`
 	MaxModelCalls     int               `json:"max_model_calls"`
-	RLM               evaluationMetrics `json:"rlm"`
-	Classic           evaluationMetrics `json:"classic"`
+	Runtime           evaluationMetrics `json:"runtime"`
 }
 
 type evaluationBudget struct {
@@ -145,9 +144,6 @@ func (host *smokeHost) Call(ctx context.Context, module, operation string, argum
 		host.maxRead = max(host.maxRead, end-offset)
 		host.mu.Unlock()
 		return map[string]any{"text": host.corpus[offset:end], "handle": host.contextHandle(), "source": "fixture", "size": len(host.corpus), "span": map[string]any{"start": offset, "end": end}}, nil
-	}
-	if module == "answer" && operation == "submit" {
-		return arguments, nil
 	}
 	if module == "models" && operation == "batch" {
 		prompts, ok := arguments["prompts"].([]any)
@@ -286,11 +282,6 @@ func comparisonServer(t *testing.T, spec comparisonSpec) *httptest.Server {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		if len(input.Tools) == 0 {
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"corpus unavailable; no grounded answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":800,"completion_tokens":40}}`+"\n\n")
-			fmt.Fprint(w, "data: [DONE]\n\n")
-			return
-		}
 		if len(input.Messages) > 0 && input.Messages[len(input.Messages)-1].Role == "tool" {
 			body, _ := json.Marshal("result=" + spec.Expected + " citation=fixture-span")
 			fmt.Fprintf(w, `data: {"choices":[{"delta":{"content":%s},"finish_reason":"stop"}],"usage":{"prompt_tokens":950,"completion_tokens":55}}`+"\n\n", body)
@@ -299,14 +290,14 @@ func comparisonServer(t *testing.T, spec comparisonSpec) *httptest.Server {
 		}
 		code := fmt.Sprintf(`candidates = models.batch(prompts=["locate %s", "verify %s"], max_tokens=256)
 evidence = context.search(query=%q)
-answer.submit(text=evidence["matches"][0]["text"], citations=[evidence["matches"][0]["span"]])`, spec.Query, spec.Query, spec.Query)
+{"text": evidence["matches"][0]["text"], "citation": evidence["matches"][0]["span"]}`, spec.Query, spec.Query, spec.Query)
 		arguments, _ := json.Marshal(map[string]string{"code": code})
 		fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"rlm-1","type":"function","function":{"name":"rlm_exec","arguments":%q}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":800,"completion_tokens":75}}`+"\n\n", string(arguments))
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 }
 
-func evaluateAgent(ctx context.Context, spec comparisonSpec, mode, task string, value *agent.Agent, budget *evaluationBudget, host *smokeHost) (evaluationMetrics, string, error) {
+func evaluateAgent(ctx context.Context, spec comparisonSpec, task string, value *agent.Agent, budget *evaluationBudget, host *smokeHost) (evaluationMetrics, string, error) {
 	value.ContextLimit = spec.RootContextTokens
 	value.MaxTurns = spec.MaxModelCalls
 	value.SetModelCallBudget(budget)
@@ -324,7 +315,7 @@ func evaluateAgent(ctx context.Context, spec comparisonSpec, mode, task string, 
 		host.mu.Unlock()
 	}
 	metrics := evaluationMetrics{
-		Mode: mode, Correct: strings.Contains(output, spec.Expected), Error: errorString(err), DurationMillis: duration.Milliseconds(),
+		Correct: strings.Contains(output, spec.Expected), Error: errorString(err), DurationMillis: duration.Milliseconds(),
 		ModelCalls: budget.Calls(), ModelFanout: modelFanout, HostCalls: hostCalls, PromptTokens: usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens, ContextTokensUsed: usage.PromptTokens + usage.CompletionTokens,
 		CostUSD: float64(usage.PromptTokens)*spec.InputPrice + float64(usage.CompletionTokens)*spec.OutputPrice,
@@ -332,22 +323,18 @@ func evaluateAgent(ctx context.Context, spec comparisonSpec, mode, task string, 
 	return metrics, output, err
 }
 
-func logComparisonReport(t *testing.T, report comparisonReport) []byte {
+func logEvaluationReport(t *testing.T, report comparisonReport) []byte {
 	t.Helper()
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("RLM comparison report:\n%s", data)
+	t.Logf("RLM evaluation report:\n%s", data)
 	return append(data, '\n')
 }
 
 func resolveLiveEvalRoute(cfg *config.Config) (config.Provider, config.Model, string, error) {
-	model := os.Getenv("WHIP_RLM_EVAL_MODEL")
-	if model == "" {
-		model = config.DefaultTaskModel
-	}
-	return cfg.Resolve(model, os.Getenv("WHIP_RLM_EVAL_PROVIDER"))
+	return cfg.Resolve(os.Getenv("WHIP_RLM_EVAL_MODEL"), os.Getenv("WHIP_RLM_EVAL_PROVIDER"))
 }
 
 func TestEvalKernelWorker(t *testing.T) {
@@ -382,7 +369,7 @@ func TestOversizedCorpusStaysBehindFocusedReads(t *testing.T) {
 	index := strings.Index(corpus, spec.Needle)
 	code := fmt.Sprintf(`hits = context.search(query=%q)
 excerpt = context.read(handle="smoke-corpus", offset=%d, length=%d)
-answer.submit(text=excerpt["text"], citations=[excerpt["span"]])`, spec.Needle, index, len(spec.Needle))
+{"text": excerpt["text"], "citation": excerpt["span"]}`, spec.Needle, index, len(spec.Needle))
 	result, err := kernel.Exec(context.Background(), code)
 	if err != nil {
 		t.Fatal(err)
@@ -397,7 +384,7 @@ answer.submit(text=excerpt["text"], citations=[excerpt["span"]])`, spec.Needle, 
 	}
 }
 
-func TestDeterministicRLMClassicComparisonReport(t *testing.T) {
+func TestDeterministicRLMEvaluationReport(t *testing.T) {
 	spec, corpus, task := loadComparison(t)
 	server := comparisonServer(t, spec)
 	defer server.Close()
@@ -405,19 +392,10 @@ func TestDeterministicRLMClassicComparisonReport(t *testing.T) {
 	rlmBudget := &evaluationBudget{maxCalls: spec.MaxModelCalls, maxCallEstimate: int64(spec.RootContextTokens)}
 	host := &smokeHost{corpus: corpus, handle: "comparison-corpus", budget: rlmBudget}
 	kernel := smokeKernel(t, host)
-	rlmAgent := agent.New(llm.New(server.URL, "scripted"), "scripted", spec.MaxOutputTokens,
-		rlm.BuildPrompt("/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"}))
+	rlmAgent := agent.NewRuntime(llm.New(server.URL, "scripted"), "scripted", spec.MaxOutputTokens,
+		rlm.BuildPrompt("/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
 	rlmAgent.SetExclusiveTool(rlm.Tool(kernel), "rlm")
-	rlmMetrics, rlmOutput, err := evaluateAgent(t.Context(), spec, "rlm", task, rlmAgent, rlmBudget, host)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	classicAgent := agent.New(llm.New(server.URL, "scripted"), "scripted", spec.MaxOutputTokens,
-		"Answer only from evidence supplied in this conversation. Do not guess.")
-	classicAgent.Tools = nil
-	classicBudget := &evaluationBudget{maxCalls: spec.MaxModelCalls, maxCallEstimate: int64(spec.RootContextTokens)}
-	classicMetrics, classicOutput, err := evaluateAgent(t.Context(), spec, "classic", task, classicAgent, classicBudget, nil)
+	rlmMetrics, rlmOutput, err := evaluateAgent(t.Context(), spec, task, rlmAgent, rlmBudget, host)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,14 +403,14 @@ func TestDeterministicRLMClassicComparisonReport(t *testing.T) {
 	report := comparisonReport{
 		Fixture: "comparison", Model: "scripted", Provider: "httptest",
 		RootContextTokens: spec.RootContextTokens, MaxModelCalls: spec.MaxModelCalls,
-		RLM: rlmMetrics, Classic: classicMetrics,
+		Runtime: rlmMetrics,
 	}
-	logComparisonReport(t, report)
-	if !report.RLM.Correct || report.Classic.Correct {
-		t.Fatalf("comparison outputs RLM=%q Classic=%q", rlmOutput, classicOutput)
+	logEvaluationReport(t, report)
+	if !report.Runtime.Correct {
+		t.Fatalf("runtime output = %q", rlmOutput)
 	}
-	if report.RLM.ModelCalls > spec.MaxModelCalls || report.Classic.ModelCalls > spec.MaxModelCalls || report.RLM.HostCalls < 3 || report.RLM.ModelFanout != 2 {
-		t.Fatalf("comparison budgets/host calls = %+v", report)
+	if report.Runtime.ModelCalls > spec.MaxModelCalls || report.Runtime.HostCalls < 2 || report.Runtime.ModelFanout != 2 {
+		t.Fatalf("evaluation budgets/host calls = %+v", report)
 	}
 	prompt := rlm.BuildPrompt("/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"})
 	if host.maxRead > 8<<10 || strings.Contains(prompt, spec.Expected) {
@@ -465,7 +443,7 @@ func TestLiveOversizedContextSmoke(t *testing.T) {
 	if maxOutput == 0 {
 		maxOutput = 4_096
 	}
-	ag := agent.New(client, apiID, maxOutput, rlm.BuildPrompt("/workspace", &rlm.ContextHandle{ReferenceID: "smoke-corpus", Size: int64(len(corpus)), Source: "fixture"}))
+	ag := agent.NewRuntime(client, apiID, maxOutput, rlm.BuildPrompt("/workspace", &rlm.ContextHandle{ReferenceID: "smoke-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
 	ag.MaxTurns = 8
 	ag.SetExclusiveTool(rlm.Tool(kernel), "rlm")
 	output, err := ag.Turn(context.Background(), task, agent.Events{})
@@ -485,9 +463,9 @@ func TestLiveOversizedContextSmoke(t *testing.T) {
 	t.Logf("RLM live smoke: corpus_bytes=%d prompt_bytes=%d calls=%v max_read=%d input_tokens=%d output_tokens=%d", len(corpus), len(task), calls, maxRead, usage.PromptTokens, usage.CompletionTokens)
 }
 
-func TestLiveRLMClassicComparison(t *testing.T) {
+func TestLiveRLMEvaluation(t *testing.T) {
 	if os.Getenv("WHIP_RLM_LIVE_EVAL") != "1" {
-		t.Skip("set WHIP_RLM_LIVE_EVAL=1 for the opt-in RLM versus Classic evaluation")
+		t.Skip("set WHIP_RLM_LIVE_EVAL=1 for the opt-in RLM evaluation")
 	}
 	spec, corpus, task := loadComparison(t)
 	cfg, err := config.Load()
@@ -520,31 +498,25 @@ func TestLiveRLMClassicComparison(t *testing.T) {
 	rlmBudget := &evaluationBudget{maxCalls: spec.MaxModelCalls, maxCallEstimate: int64(spec.RootContextTokens)}
 	host := &smokeHost{corpus: corpus, handle: "comparison-corpus", client: newClient(), model: apiID, maxTokens: min(maxOutput, 256), budget: rlmBudget}
 	kernel := smokeKernel(t, host)
-	rlmAgent := agent.New(newClient(), apiID, maxOutput,
-		rlm.BuildPrompt("/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"}))
+	rlmAgent := agent.NewRuntime(newClient(), apiID, maxOutput,
+		rlm.BuildPrompt("/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
 	rlmAgent.SetExclusiveTool(rlm.Tool(kernel), "rlm")
-	rlmMetrics, rlmOutput, err := evaluateAgent(t.Context(), spec, "rlm", task, rlmAgent, rlmBudget, host)
+	rlmMetrics, rlmOutput, err := evaluateAgent(t.Context(), spec, task, rlmAgent, rlmBudget, host)
 	rlmErr := err
 
-	classicAgent := agent.New(newClient(), apiID, maxOutput,
-		"Answer only from evidence supplied in this conversation. Do not guess.")
-	classicAgent.Tools = nil
-	classicBudget := &evaluationBudget{maxCalls: spec.MaxModelCalls, maxCallEstimate: int64(spec.RootContextTokens)}
-	classicMetrics, classicOutput, err := evaluateAgent(t.Context(), spec, "classic", task, classicAgent, classicBudget, nil)
-	classicErr := err
 	report := comparisonReport{
 		Fixture: "comparison-live", Model: apiID, Provider: provider.Name,
 		RootContextTokens: spec.RootContextTokens, MaxModelCalls: spec.MaxModelCalls,
-		RLM: rlmMetrics, Classic: classicMetrics,
+		Runtime: rlmMetrics,
 	}
-	data := logComparisonReport(t, report)
+	data := logEvaluationReport(t, report)
 	if path := os.Getenv("WHIP_RLM_EVAL_REPORT"); path != "" {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if rlmErr != nil || classicErr != nil || !report.RLM.Correct || report.Classic.Correct {
-		t.Fatalf("live comparison outputs RLM=%q Classic=%q, errors RLM=%v Classic=%v", rlmOutput, classicOutput, rlmErr, classicErr)
+	if rlmErr != nil || !report.Runtime.Correct {
+		t.Fatalf("live evaluation output=%q error=%v", rlmOutput, rlmErr)
 	}
 }
 

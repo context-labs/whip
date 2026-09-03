@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/inferencenet"
+	"github.com/context-labs/whip/internal/llm"
 )
 
 // /auth inference-net [key] connects Inference.net. The bare form runs the
@@ -214,20 +216,18 @@ func (m *model) inferenceNetFinish(p inferencenet.Project) {
 // applyInferenceNetAuth commits a finished device login on the UI goroutine:
 // register the provider (machine key resolves from the stored auth file) and
 // hot-swap the live agent when the session already routes inference-net.
-func (m *model) applyInferenceNetAuth(msg inferenceNetAuthMsg) {
+func (m *model) applyInferenceNetAuth(msg inferenceNetAuthMsg) bool {
 	if msg.err != nil {
 		m.append(errStyle.Render("Inference.net sign-in failed: " + msg.err.Error()))
-		return
+		return false
 	}
 	m.cfg.UpsertInferenceNet("", false) // machine key resolves from disk
 	if err := m.cfg.Save(); err != nil {
 		m.append(errStyle.Render("config save failed: " + err.Error()))
-		return
+		return false
 	}
 	m.append(dimStyle.Render("✓ signed in as " + msg.auth.UserEmail + " — project " + msg.auth.ProjectName + "; inference-net provider configured"))
-	if m.prog != nil {
-		go m.fetchCatalogs(true)
-	}
+	return true
 }
 
 // authInferenceNetKey validates a pasted Inference.net key and upserts the
@@ -243,30 +243,31 @@ func (m *model) authInferenceNetKey(key string, envMode bool) {
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		err := inferencenet.ValidateKey(ctx, key)
-		cancel()
-		m.prog.Send(inferenceNetKeyMsg{key: key, envMode: envMode, err: err})
+		defer cancel()
+		result, err := m.client.ValidateProvider(ctx, daemon.ProviderValidateParams{
+			Name: config.InferenceNetProvider, BaseURL: config.InferenceNetBaseURL, Key: key,
+		})
+		m.prog.Send(inferenceNetKeyMsg{key: key, envMode: envMode, models: result.Models, err: err})
 	}()
 }
 
 type inferenceNetKeyMsg struct {
 	key     string
 	envMode bool
+	models  []llm.ModelInfo
 	err     error
 }
 
-func (m *model) applyInferenceNetKey(msg inferenceNetKeyMsg) {
+func (m *model) applyInferenceNetKey(msg inferenceNetKeyMsg) bool {
 	if msg.err != nil {
 		m.append(errStyle.Render("Inference.net rejected the key: " + msg.err.Error()))
-		return
+		return false
 	}
 	m.cfg.UpsertInferenceNet(msg.key, msg.envMode)
 	if err := m.cfg.Save(); err != nil {
 		m.append(errStyle.Render("config save failed: " + err.Error()))
-		return
+		return false
 	}
 	m.append(dimStyle.Render("✓ inference-net configured; /model lists its models"))
-	if m.prog != nil {
-		go m.fetchCatalogs(true)
-	}
+	return true
 }

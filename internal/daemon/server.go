@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -26,6 +28,8 @@ const (
 type ServerOptions struct {
 	BuildID               string
 	Generation            int64
+	PID                   int
+	StartedAt             time.Time
 	RuntimeDir            string
 	InitializationTimeout time.Duration
 	ClientIdleTimeout     time.Duration
@@ -34,6 +38,7 @@ type ServerOptions struct {
 	MaxOutbound           int
 	MaxOutboundBytes      int64
 	Restart               func()
+	Stop                  func()
 }
 
 type Server struct {
@@ -65,7 +70,7 @@ type serverConn struct {
 	authMu    sync.Mutex
 	outBytes  int64
 	nonce     []byte
-	restart   int64
+	lifecycle int64
 	snapshots map[string][]SnapshotChunk
 	done      chan struct{}
 	closed    bool
@@ -93,6 +98,12 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 	}
 	if options.ClientIdleTimeout <= 0 {
 		options.ClientIdleTimeout = clientIdleTimeout
+	}
+	if options.PID <= 0 {
+		options.PID = os.Getpid()
+	}
+	if options.StartedAt.IsZero() {
+		options.StartedAt = time.Now().UTC()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
@@ -212,6 +223,7 @@ func (s *Server) serveConn(raw net.Conn) {
 	_ = raw.SetReadDeadline(time.Time{})
 	if err := writeProtocolMessage(raw, rpcMessage{ID: message.ID, Result: InitializeResult{
 		ProtocolMajor: ProtocolMajor, BuildID: s.options.BuildID, Generation: s.options.Generation,
+		PID: s.options.PID, StartedAt: s.options.StartedAt.Format(time.RFC3339Nano),
 		Capabilities: []string{"commands", "events", "snapshots", "uploads", "identities"}, Nonce: connection.nonceValue(),
 	}}); err != nil {
 		return
@@ -231,10 +243,14 @@ func (s *Server) serveConn(raw net.Conn) {
 			return
 		}
 		message, err := decodeFrame(frame)
-		if err == nil && message.Method == "daemon.restart" && len(message.ID) == 0 {
+		if err == nil && (message.Method == "daemon.restart" || message.Method == "daemon.stop") && len(message.ID) == 0 {
 			var params RestartParams
-			if json.Unmarshal(message.Params, &params) == nil && connection.consumeRestart(params.Generation) && s.options.Restart != nil {
-				go s.options.Restart()
+			if json.Unmarshal(message.Params, &params) == nil && connection.consumeLifecycle(params.Generation) {
+				if message.Method == "daemon.restart" && s.options.Restart != nil {
+					go s.options.Restart()
+				} else if message.Method == "daemon.stop" && s.options.Stop != nil {
+					go s.options.Stop()
+				}
 			}
 			return
 		}
@@ -324,6 +340,18 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		}
 		result, err := connection.snapshotChunk(params)
 		return result, rpcFromError(err)
+	case "provider.validate":
+		var params ProviderValidateParams
+		if err := json.Unmarshal(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, "invalid provider validation request")
+		}
+		if params.Name == "" || params.BaseURL == "" || params.Key == "" {
+			return nil, rpcFailure(-32602, "provider name, base URL, and key are required")
+		}
+		validationCtx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
+		defer cancel()
+		models, err := llm.New(params.BaseURL, params.Key).Models(validationCtx)
+		return ProviderValidateResult{Models: models}, rpcFromError(err)
 	case "upload.begin":
 		var params UploadBeginParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
@@ -435,7 +463,7 @@ func (s *Server) commandAuthorized(connection *serverConn, params CommandParams,
 			}
 			output, err := s.daemon.store.ResolveRuntimeValue(s.ctx, "", record.Outcome)
 			if err == nil {
-				connection.armRestart(s.options.Generation)
+				connection.armLifecycle(s.options.Generation)
 			}
 			return CommandResult{CommandID: params.CommandID, IngressSeq: record.IngressSeq, Status: record.Status, Output: string(output)}, err
 		}
@@ -768,19 +796,19 @@ func (c *serverConn) snapshotChunk(params SnapshotChunkParams) (SnapshotChunk, e
 	return chunk, nil
 }
 
-func (c *serverConn) armRestart(generation int64) {
+func (c *serverConn) armLifecycle(generation int64) {
 	c.mu.Lock()
-	c.restart = generation
+	c.lifecycle = generation
 	c.mu.Unlock()
 }
 
-func (c *serverConn) consumeRestart(generation int64) bool {
+func (c *serverConn) consumeLifecycle(generation int64) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if generation != c.restart || generation == 0 {
+	if generation != c.lifecycle || generation == 0 {
 		return false
 	}
-	c.restart = 0
+	c.lifecycle = 0
 	return true
 }
 

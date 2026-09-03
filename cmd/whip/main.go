@@ -10,9 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tui"
 	"github.com/context-labs/whip/internal/update"
 )
@@ -42,36 +41,16 @@ func username() string {
 // `whip run` pass the process cwd; `whip acp` passes the client-provided
 // session cwd (the editor spawns whip wherever it likes).
 func systemPrompt(wd string, now time.Time) string {
-	prompt := `You are an expert coding assistant operating inside whip, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
-
-Available tools:
-- read: Read file contents
-- bash: Execute bash commands (ls, grep, find, etc.)
-- edit: Make precise file edits with exact text replacement
-- write: Create or overwrite files
-- task: Delegate a self-contained task to a subagent with fresh context
-
-Guidelines:
-- Use bash for file operations like ls, rg, find
-- Use read to examine files instead of cat or sed
-- Use edit for precise changes (old_string must match exactly and be unique, or set replace_all)
-- Use write only for new files or complete rewrites
-- When the user tags a file with @, a note lists the tagged paths — inspect them with your tools as needed
-- Be concise in your responses
-- Show file paths clearly when working with files
+	prompt := rlm.BuildPrompt(wd, nil) + `
 
 Operating rules:
-- The tool set changes turn to turn: MCP servers connect and drop, skills come and go. Never assume a tool exists because it did earlier — check the current set before calling it.
-- Bias toward acting on reasonable assumptions. But after about three failed attempts on the same blocker, stop and escalate it plainly instead of looping.
-- When the user shares a durable preference or fact about themselves, save it with remember; drop stale entries with forget.
-- Git hygiene: review the staged diff for secrets before committing, never run git add . — stage only the files you intend — and never force-push.
-- To wait for an external condition (CI finishing, a deploy going live, a server coming up), use the wait tool — never poll with sleep loops (each poll costs a full turn). You will be notified once when the condition changes.
+- When the user tags a file with @, inspect the listed path with files.read.
+- Bias toward acting on reasonable assumptions. After repeated failures on one blocker, escalate it plainly instead of looping.
+- Use explicit messages for child collaboration; do not assume a child's ordinary response reaches its parent.
+- Git hygiene: inspect staged changes for secrets, stage intentional files only, and never force-push.
 
-whip's own docs (features, tools, configuration, MCP servers, skills) live at https://github.com/context-labs/whip/tree/main/docs — consult them when the user asks how to configure or extend whip itself.
-
-Here is some useful information about the environment you are running in:
+Environment:
 <env>
-  Working directory: ` + wd + `
   Platform: ` + runtime.GOOS + `
   Current date/time: ` + now.Format("Mon Jan 2, 2006 15:04:05 MST (UTC-07:00)") + `
   User: ` + username() + `
@@ -79,8 +58,6 @@ Here is some useful information about the environment you are running in:
 	if extra := config.MeInstructions(); extra != "" {
 		prompt += "\n\nStanding instructions from the user (~/.whip/me.md — treat as user rules):\n" + extra
 	}
-	// the skills block is appended fresh each turn by the TUI, so newly added
-	// skills are picked up without restarting
 	return prompt
 }
 
@@ -103,12 +80,21 @@ func main() {
 	providerFlag := flag.String("p", "", "provider to route the model through (default: model's first provider)")
 	versionFlag := flag.Bool("version", false, "print version")
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
-	benchFlag := flag.Bool("bench", false, "do full startup init (config, routing, key, agent) then exit; for `task benchmark`")
+	benchFlag := flag.Bool("bench", false, "measure configuration and provider routing startup, then exit; for `task benchmark`")
 	cautiousFlag := flag.Bool("cautious", false, "ask before running commands / writing files")
 	flag.Parse()
 
 	if *versionFlag {
 		fmt.Println("whip", version)
+		return
+	}
+
+	// `whip daemon ...` — inspect and manage the local runtime daemon.
+	if flag.NArg() > 0 && flag.Arg(0) == "daemon" {
+		if err := daemonManageCLI(flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "whip:", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -196,13 +182,12 @@ func main() {
 	}
 
 	if *benchFlag {
-		prov, mdl, id, err := cfg.Resolve(*modelFlag, *providerFlag)
+		prov, _, _, err := cfg.Resolve(*modelFlag, *providerFlag)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "whip:", err)
 			os.Exit(1)
 		}
 		_ = prov.Key()
-		_ = agent.New(llm.New(prov.BaseURL, "bench"), id, mdl.MaxTokens, systemPrompt(cwd(), time.Now()))
 		return
 	}
 

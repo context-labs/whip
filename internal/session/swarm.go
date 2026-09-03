@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -15,11 +14,16 @@ var (
 	ErrAgentTerminal = errors.New("agent is terminal")
 )
 
-type ChildAdmission struct {
+type AgentAdmission struct {
 	RootID        string
 	ParentAgentID string
 	ChildAgentID  string
-	ExecutionID   string
+	Name          string
+	Model         string
+	Provider      string
+	Effort        string
+	CWD           string
+	Prompt        RuntimePayload
 	Budgets       []BudgetLimit
 	Capabilities  []CapabilityDelegation
 }
@@ -30,37 +34,30 @@ type AgentRelatives struct {
 	Siblings []RuntimeAgent
 }
 
-type MessageDelivery string
-
-const (
-	DeliveryQueued    MessageDelivery = "queued"
-	DeliveryNextTurn  MessageDelivery = "next_turn"
-	DeliveryImmediate MessageDelivery = "immediate"
-)
-
-type AgentMessage struct {
-	Delivery            MessageDelivery
-	Body                string
-	EvidenceReferenceID string
-}
-
-type AgentMessageEnvelope struct {
-	SenderAgentID       string          `json:"sender_agent_id"`
-	RecipientAgentID    string          `json:"recipient_agent_id"`
-	Delivery            MessageDelivery `json:"delivery"`
-	Body                string          `json:"body,omitempty"`
-	EvidenceReferenceID string          `json:"evidence_reference_id,omitempty"`
-}
-
 const subtreeCTE = `WITH RECURSIVE subtree(id) AS (
 	SELECT id FROM agents WHERE root_id=? AND id=?
 	UNION ALL
 	SELECT a.id FROM agents a JOIN subtree s ON a.parent_id=s.id WHERE a.root_id=?
 ) `
 
-func (s *Store) AdmitChild(ctx context.Context, admission ChildAdmission) (int64, error) {
-	if admission.RootID == "" || admission.ParentAgentID == "" || admission.ChildAgentID == "" || admission.ExecutionID == "" || admission.ParentAgentID == admission.ChildAgentID {
-		return 0, errors.New("child admission requires distinct root, parent, child, and execution identities")
+// AdmitAgent atomically persists a retained recursive agent and its initial
+// queued prompt. Worker availability is intentionally not part of admission.
+func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64, error) {
+	if admission.RootID == "" || admission.ParentAgentID == "" || admission.ChildAgentID == "" || admission.ParentAgentID == admission.ChildAgentID {
+		return 0, errors.New("agent admission requires distinct root, parent, and child identities")
+	}
+	if admission.Name == "" {
+		admission.Name = admission.ChildAgentID
+	}
+	var prompt preparedRuntimeValue
+	if len(admission.Prompt.Data) > 0 {
+		var err error
+		prompt, err = s.prepareRuntimeValue(admission.Prompt, ContentGrant{
+			RootID: admission.RootID, AgentID: admission.ChildAgentID, Scope: ContentGrantAgent,
+		})
+		if err != nil {
+			return 0, err
+		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -106,12 +103,17 @@ func (s *Store) AdmitChild(ctx context.Context, admission ChildAdmission) (int64
 		return 0, err
 	}
 	stamp := now()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at) VALUES(?,?,?,'idle',?,?)`,
-		admission.ChildAgentID, admission.RootID, admission.ParentAgentID, stamp, stamp); err != nil {
+	var duplicateName int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM agents WHERE root_id=? AND parent_id=? AND name=? AND status!='deleted'`,
+		admission.RootID, admission.ParentAgentID, admission.Name).Scan(&duplicateName); err != nil {
 		return 0, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO child_executions(id,root_id,parent_agent_id,child_agent_id,status,created_at,updated_at) VALUES(?,?,?,?, 'queued',?,?)`,
-		admission.ExecutionID, admission.RootID, admission.ParentAgentID, admission.ChildAgentID, stamp, stamp); err != nil {
+	if duplicateName != 0 {
+		return 0, fmt.Errorf("agent name %q already exists under this parent", admission.Name)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,name,model,provider,effort,cwd,status,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,'idle',?,?)`, admission.ChildAgentID, admission.RootID, admission.ParentAgentID,
+		admission.Name, admission.Model, admission.Provider, admission.Effort, admission.CWD, stamp, stamp); err != nil {
 		return 0, err
 	}
 	for kind, requestedLimit := range requested {
@@ -145,134 +147,24 @@ func (s *Store) AdmitChild(ctx context.Context, admission ChildAdmission) (int64
 			return 0, err
 		}
 	}
+	if len(admission.Prompt.Data) > 0 {
+		if _, err := s.enqueueInboxTx(ctx, tx, InboxEnqueue{
+			RootID: admission.RootID, AgentID: admission.ChildAgentID, Kind: "submit", Payload: admission.Prompt,
+		}, prompt, "agent.prompt.queued", actorEvent{AgentID: admission.ChildAgentID, Status: "queued"}); err != nil {
+			return 0, err
+		}
+	}
 	if _, err := s.insertActorEventTx(ctx, tx, admission.RootID, "budget.active_child.reserved", actorEvent{
-		AgentID: admission.ParentAgentID, ChildExecutionID: admission.ExecutionID, BudgetKind: string(BudgetActiveChildren), Amount: 1,
+		AgentID: admission.ParentAgentID, BudgetKind: string(BudgetActiveChildren), Amount: 1,
 	}, stamp); err != nil {
 		return 0, err
 	}
 	if err := syncChildBudgetReservationsTx(ctx, tx, admission.RootID); err != nil {
 		return 0, err
 	}
-	eventSeq, err := s.insertActorEventTx(ctx, tx, admission.RootID, "child.admitted", actorEvent{
-		AgentID: admission.ChildAgentID, Status: "queued", ChildExecutionID: admission.ExecutionID,
+	eventSeq, err := s.insertActorEventTx(ctx, tx, admission.RootID, "agent.admitted", actorEvent{
+		AgentID: admission.ChildAgentID, Status: "queued",
 	}, stamp)
-	if err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return eventSeq, nil
-}
-
-func (s *Store) StartChildTurn(ctx context.Context, rootID, callerAgentID, executionID string) (int64, error) {
-	if rootID == "" || callerAgentID == "" || executionID == "" {
-		return 0, ErrAgentAccess
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	parentID, childID, status, err := loadChildExecutionTx(ctx, tx, rootID, executionID)
-	if err != nil {
-		return 0, err
-	}
-	if status != "queued" && status != "idle" && status != "waiting" {
-		return 0, ErrAgentTerminal
-	}
-	if err := authorizeExecutionCallerTx(ctx, tx, rootID, callerAgentID, parentID); err != nil {
-		return 0, err
-	}
-	child, err := loadAgentTx(ctx, tx, rootID, childID)
-	if err != nil {
-		return 0, err
-	}
-	if isTerminalAgentStatus(child.Status) {
-		return 0, ErrAgentTerminal
-	}
-	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
-		return 0, err
-	}
-	concurrency := []capability.Reservation{{Kind: string(BudgetConcurrentChildTurns), Amount: 1}}
-	if err := reserveCapabilityBudgets(ctx, tx, rootID, parentID, concurrency); err != nil {
-		return 0, err
-	}
-	stamp := now()
-	if _, err := tx.ExecContext(ctx, `UPDATE child_executions SET status='running',updated_at=? WHERE root_id=? AND id=? AND status=?`, stamp, rootID, executionID, status); err != nil {
-		return 0, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status='running',updated_at=? WHERE root_id=? AND id=?`, stamp, rootID, childID); err != nil {
-		return 0, err
-	}
-	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "budget.child_turn.reserved", actorEvent{
-		AgentID: parentID, ChildExecutionID: executionID, BudgetKind: string(BudgetConcurrentChildTurns), Amount: 1,
-	}, stamp)
-	if err != nil {
-		return 0, err
-	}
-	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return eventSeq, nil
-}
-
-func (s *Store) FinishChildTurn(ctx context.Context, rootID, callerAgentID, executionID, status string) (int64, error) {
-	return s.FinishChildTurnWithInbox(ctx, rootID, callerAgentID, executionID, status, nil)
-}
-
-// FinishChildTurnWithInbox atomically terminalizes a successful child turn
-// and acknowledges the durable messages incorporated into that turn.
-func (s *Store) FinishChildTurnWithInbox(ctx context.Context, rootID, callerAgentID, executionID, status string, acknowledged []int64) (int64, error) {
-	if status != "succeeded" && status != "failed" && status != "cancelled" && status != "interrupted" {
-		return 0, errors.New("child turn completion requires a terminal status")
-	}
-	if status != "succeeded" && len(acknowledged) > 0 {
-		return 0, errors.New("only a successful child turn may acknowledge inbox messages")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	parentID, childID, current, err := loadChildExecutionTx(ctx, tx, rootID, executionID)
-	if err != nil {
-		return 0, err
-	}
-	if current != "running" {
-		return 0, ErrAgentTerminal
-	}
-	if err := authorizeExecutionCallerTx(ctx, tx, rootID, callerAgentID, parentID); err != nil {
-		return 0, err
-	}
-	stamp := now()
-	if _, err := tx.ExecContext(ctx, `UPDATE child_executions SET status=?,updated_at=? WHERE root_id=? AND id=? AND status='running'`, status, stamp, rootID, executionID); err != nil {
-		return 0, err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status=?,updated_at=? WHERE root_id=? AND id=? AND status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`,
-		status, stamp, rootID, childID); err != nil {
-		return 0, err
-	}
-	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
-		return 0, err
-	}
-	seen := make(map[int64]struct{}, len(acknowledged))
-	for _, seq := range acknowledged {
-		if seq < 1 {
-			return 0, errors.New("acknowledged child inbox sequence must be positive")
-		}
-		if _, duplicate := seen[seq]; duplicate {
-			return 0, errors.New("acknowledged child inbox sequences must be unique")
-		}
-		seen[seq] = struct{}{}
-		if _, err := s.consumeInboxTx(ctx, tx, rootID, childID, seq, stamp); err != nil {
-			return 0, err
-		}
-	}
-	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "child.turn."+status, actorEvent{AgentID: childID, ChildExecutionID: executionID, Status: status}, stamp)
 	if err != nil {
 		return 0, err
 	}
@@ -302,12 +194,12 @@ func (s *Store) ListAgentRelatives(ctx context.Context, rootID, callerAgentID st
 			return AgentRelatives{}, err
 		}
 		result.Parent = &parent
-		result.Siblings, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),status FROM agents WHERE root_id=? AND parent_id=? AND id<>? ORDER BY id`, rootID, caller.ParentID, callerAgentID)
+		result.Siblings, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,status FROM agents WHERE root_id=? AND parent_id=? AND id<>? ORDER BY name,id`, rootID, caller.ParentID, callerAgentID)
 		if err != nil {
 			return AgentRelatives{}, err
 		}
 	}
-	result.Children, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),status FROM agents WHERE root_id=? AND parent_id=? ORDER BY id`, rootID, callerAgentID)
+	result.Children, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,status FROM agents WHERE root_id=? AND parent_id=? ORDER BY name,id`, rootID, callerAgentID)
 	if err != nil {
 		return AgentRelatives{}, err
 	}
@@ -315,77 +207,6 @@ func (s *Store) ListAgentRelatives(ctx context.Context, rootID, callerAgentID st
 		return AgentRelatives{}, err
 	}
 	return result, nil
-}
-
-func (s *Store) SendAgentMessage(ctx context.Context, rootID, senderAgentID, recipientAgentID string, message AgentMessage) (InboxSequence, error) {
-	if rootID == "" || senderAgentID == "" || recipientAgentID == "" || senderAgentID == recipientAgentID {
-		return InboxSequence{}, ErrAgentAccess
-	}
-	if message.Delivery != DeliveryQueued && message.Delivery != DeliveryNextTurn && message.Delivery != DeliveryImmediate {
-		return InboxSequence{}, fmt.Errorf("invalid message delivery %q", message.Delivery)
-	}
-	if message.Body == "" && message.EvidenceReferenceID == "" {
-		return InboxSequence{}, errors.New("message requires a body or evidence reference")
-	}
-	envelope := AgentMessageEnvelope{
-		SenderAgentID: senderAgentID, RecipientAgentID: recipientAgentID, Delivery: message.Delivery,
-		Body: message.Body, EvidenceReferenceID: message.EvidenceReferenceID,
-	}
-	payload, err := json.Marshal(envelope)
-	if err != nil {
-		return InboxSequence{}, err
-	}
-	prepared, err := s.prepareRuntimeValue(RuntimePayload{Data: payload, MediaType: "application/json", Source: "peer message envelope"}, ContentGrant{
-		RootID: rootID, AgentID: recipientAgentID, Scope: ContentGrantAgent,
-	})
-	if err != nil {
-		return InboxSequence{}, err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return InboxSequence{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := validateDirectRelativeTx(ctx, tx, rootID, senderAgentID, recipientAgentID); err != nil {
-		return InboxSequence{}, err
-	}
-	stamp := now()
-	if message.EvidenceReferenceID != "" {
-		authorized, err := contentAuthorizedTx(ctx, tx, message.EvidenceReferenceID, rootID, senderAgentID)
-		if err != nil {
-			return InboxSequence{}, err
-		}
-		if !authorized {
-			return InboxSequence{}, ErrContentAccess
-		}
-		recipientAuthorized, err := contentAuthorizedTx(ctx, tx, message.EvidenceReferenceID, rootID, recipientAgentID)
-		if err != nil {
-			return InboxSequence{}, err
-		}
-		if !recipientAuthorized {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO content_grants(reference_id,root_id,agent_id,scope,created_at) VALUES(?,?,?,'agent',?)
-				ON CONFLICT(reference_id,root_id,agent_id,scope) DO UPDATE SET revoked_at='',created_at=excluded.created_at`,
-				message.EvidenceReferenceID, rootID, recipientAgentID, stamp); err != nil {
-				return InboxSequence{}, err
-			}
-		}
-	}
-	kind := "peer.message"
-	if message.Delivery == DeliveryImmediate {
-		kind = "steer"
-	}
-	sequence, err := s.enqueueInboxTx(ctx, tx, InboxEnqueue{
-		RootID: rootID, AgentID: recipientAgentID, Kind: kind,
-	}, prepared, "message.queued", actorEvent{
-		SenderAgentID: senderAgentID, Delivery: string(message.Delivery),
-	})
-	if err != nil {
-		return InboxSequence{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return InboxSequence{}, err
-	}
-	return sequence, nil
 }
 
 func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, targetAgentID, status string) (int64, error) {
@@ -426,20 +247,11 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 		return 0, err
 	}
 	agentWhere := `status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`
-	executionWhere := `status IN ('queued','running','waiting','idle')`
 	if status == "deleted" {
 		agentWhere = `status!='deleted'`
-		executionWhere = `status!='deleted'`
 	}
 	if _, err := tx.ExecContext(ctx, subtreeCTE+`UPDATE agents SET status=?,updated_at=? WHERE root_id=? AND id IN (SELECT id FROM subtree) AND `+agentWhere,
 		rootID, targetAgentID, rootID, status, stamp, rootID); err != nil {
-		return 0, err
-	}
-	if _, err := tx.ExecContext(ctx, subtreeCTE+`UPDATE child_executions SET status=?,updated_at=? WHERE root_id=? AND child_agent_id IN (SELECT id FROM subtree) AND `+executionWhere,
-		rootID, targetAgentID, rootID, status, stamp, rootID); err != nil {
-		return 0, err
-	}
-	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
 		return 0, err
 	}
 	interrupt := func(query string, args ...any) error {
@@ -459,6 +271,9 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 			return 0, err
 		}
 	}
+	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
+		return 0, err
+	}
 	eventSeq, err := s.insertActorEventTx(ctx, tx, rootID, "agent.subtree."+status, actorEvent{AgentID: targetAgentID, Status: status}, stamp)
 	if err != nil {
 		return 0, err
@@ -471,8 +286,8 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 
 func loadAgentTx(ctx context.Context, tx *sql.Tx, rootID, agentID string) (RuntimeAgent, error) {
 	var agent RuntimeAgent
-	err := tx.QueryRowContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),status FROM agents WHERE root_id=? AND id=?`, rootID, agentID).
-		Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Status)
+	err := tx.QueryRowContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,status FROM agents WHERE root_id=? AND id=?`, rootID, agentID).
+		Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RuntimeAgent{}, ErrAgentAccess
 	}
@@ -488,7 +303,7 @@ func loadAgentsTx(ctx context.Context, tx *sql.Tx, query string, args ...any) ([
 	var agents []RuntimeAgent
 	for rows.Next() {
 		var agent RuntimeAgent
-		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Status); err != nil {
+		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Status); err != nil {
 			return nil, err
 		}
 		agents = append(agents, agent)
@@ -550,26 +365,6 @@ func agentDepthTx(ctx context.Context, tx *sql.Tx, rootID, agentID string) (int6
 	return depth, nil
 }
 
-func loadChildExecutionTx(ctx context.Context, tx *sql.Tx, rootID, executionID string) (parentID, childID, status string, err error) {
-	err = tx.QueryRowContext(ctx, `SELECT parent_agent_id,child_agent_id,status FROM child_executions WHERE root_id=? AND id=?`, rootID, executionID).
-		Scan(&parentID, &childID, &status)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = ErrAgentAccess
-	}
-	return
-}
-
-func authorizeExecutionCallerTx(ctx context.Context, tx *sql.Tx, rootID, callerAgentID, parentAgentID string) error {
-	allowed, err := agentInSubtreeTx(ctx, tx, rootID, callerAgentID, parentAgentID)
-	if err != nil {
-		return err
-	}
-	if !allowed {
-		return ErrAgentAccess
-	}
-	return nil
-}
-
 func syncChildBudgetReservationsTx(ctx context.Context, tx *sql.Tx, rootID string) error {
 	query := `SELECT root_id,agent_id,kind FROM budgets WHERE kind IN (?,?)`
 	args := []any{BudgetActiveChildren, BudgetConcurrentChildTurns}
@@ -601,20 +396,32 @@ func syncChildBudgetReservationsTx(ctx context.Context, tx *sql.Tx, rootID strin
 		return err
 	}
 	for _, budget := range budgets {
-		status := `status IN ('queued','running','waiting','idle')`
-		if budget.kind == BudgetConcurrentChildTurns {
-			status = `status='running'`
-		}
 		var reserved int64
-		if budget.agentID == "" {
-			err = tx.QueryRowContext(ctx, `SELECT count(*) FROM child_executions WHERE root_id=? AND `+status, budget.rootID).Scan(&reserved)
+		if budget.kind == BudgetActiveChildren {
+			status := `status IN ('queued','running','waiting','idle')`
+			if budget.agentID == "" {
+				err = tx.QueryRowContext(ctx, `SELECT count(*) FROM agents
+					WHERE root_id=? AND parent_id IS NOT NULL AND `+status, budget.rootID).Scan(&reserved)
+			} else {
+				err = tx.QueryRowContext(ctx, `WITH RECURSIVE descendants(id) AS (
+					SELECT id FROM agents WHERE root_id=? AND id=?
+					UNION ALL
+					SELECT a.id FROM agents a JOIN descendants d ON a.parent_id=d.id WHERE a.root_id=?
+				) SELECT count(*) FROM agents WHERE root_id=? AND parent_id IN (SELECT id FROM descendants) AND `+status,
+					budget.rootID, budget.agentID, budget.rootID, budget.rootID).Scan(&reserved)
+			}
+		} else if budget.agentID == "" {
+			err = tx.QueryRowContext(ctx, `SELECT count(*) FROM turns t
+				JOIN agents a ON a.root_id=t.root_id AND a.id=t.agent_id
+				WHERE t.root_id=? AND a.parent_id IS NOT NULL AND t.status='running'`, budget.rootID).Scan(&reserved)
 		} else {
 			err = tx.QueryRowContext(ctx, `WITH RECURSIVE descendants(id) AS (
 				SELECT id FROM agents WHERE root_id=? AND id=?
 				UNION ALL
 				SELECT a.id FROM agents a JOIN descendants d ON a.parent_id=d.id WHERE a.root_id=?
-			) SELECT count(*) FROM child_executions WHERE root_id=? AND parent_agent_id IN (SELECT id FROM descendants) AND `+status,
-				budget.rootID, budget.agentID, budget.rootID, budget.rootID).Scan(&reserved)
+			) SELECT count(*) FROM turns
+				WHERE root_id=? AND agent_id IN (SELECT id FROM descendants) AND agent_id!=? AND status='running'`,
+				budget.rootID, budget.agentID, budget.rootID, budget.rootID, budget.agentID).Scan(&reserved)
 		}
 		if err != nil {
 			return err

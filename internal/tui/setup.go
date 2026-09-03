@@ -12,7 +12,6 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferencenet"
-	"github.com/context-labs/whip/internal/llm"
 )
 
 // setupWizard runs once, on the first launch (no config file existed), after
@@ -35,14 +34,6 @@ func setupWizard(cfg *config.Config, r *bufio.Reader) error {
 		return nil //nolint:nilerr // no terminal to ask on: keep defaults
 	}
 	return runSetupWizard(cfg, r, os.Stderr)
-}
-
-// openRouterValidate is the wizard's key-check seam: llm's client in prod, an
-// httptest stub in tests (os.Stdin can't be swapped for a pipe either, but I/O
-// is a parameter already).
-var openRouterValidate = func(ctx context.Context, key string) (int, error) {
-	infos, err := llm.New(config.OpenRouterBaseURL, key).Models(ctx)
-	return len(infos), err
 }
 
 // runSetupWizard is the wizard body with injectable I/O so tests can drive it
@@ -170,10 +161,8 @@ func setupInferenceNet(cfg *config.Config, r *bufio.Reader, w io.Writer) {
 	fmt.Fprintf(w, "  ✓ signed in as %s (project %s)\n", auth.UserEmail, auth.ProjectName)
 }
 
-// setupOpenRouter validates a pasted key against OpenRouter's /models and
-// registers the provider. A bad paste doesn't wedge install — /auth
-// openrouter retries later. The key echoes in the plain terminal (the TUI's
-// masked input box doesn't exist yet); the prompt says so.
+// setupOpenRouter records a pasted key. The daemon is the sole provider host
+// and will validate the credential when it opens an agent session.
 func setupOpenRouter(cfg *config.Config, r *bufio.Reader, w io.Writer) {
 	fmt.Fprint(w, "  paste your OpenRouter key (visible while typing): ")
 	line, _ := r.ReadString('\n')
@@ -182,17 +171,8 @@ func setupOpenRouter(cfg *config.Config, r *bufio.Reader, w io.Writer) {
 		fmt.Fprintln(w, "  skipped — /auth openrouter later.")
 		return
 	}
-	fmt.Fprintln(w, "  validating key against OpenRouter…")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	models, err := openRouterValidate(ctx, key)
-	cancel()
-	if err != nil {
-		fmt.Fprintln(w, "  OpenRouter rejected the key: "+err.Error())
-		fmt.Fprintln(w, "  retry later with /auth openrouter — continuing setup.")
-		return
-	}
 	cfg.UpsertOpenRouter(key, false)
-	fmt.Fprintf(w, "  ✓ openrouter configured — %d models in the catalog\n", models)
+	fmt.Fprintln(w, "  ✓ openrouter configured")
 }
 
 // wizardChoose is the numbered-list ChooseFunc for the wizard's plain

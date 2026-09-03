@@ -25,7 +25,7 @@ func TestControlSessionCreationIsIdempotent(t *testing.T) {
 		ClientID: "client", CommandID: "create", RequestDigest: "digest",
 		Payload: session.RuntimePayload{Data: []byte(`{"cwd":"/tmp","model":"m","provider":"p"}`)},
 	}
-	create := CreateSession{CWD: "/tmp", Model: "m", Provider: "p"}
+	create := CreateSession{Kind: session.SessionKindAgent, CWD: "/tmp", Model: "m", Provider: "p"}
 	const retries = 12
 	records := make(chan session.CommandRecord, retries)
 	errs := make(chan error, retries)

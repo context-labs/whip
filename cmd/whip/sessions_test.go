@@ -27,8 +27,8 @@ func TestSessionsCLI(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("WHIP_HOME", dir)
 
-	st, _ := session.Open(filepath.Join(dir, "sessions.db"))
-	id, _ := st.Create("/tmp", "kimi-k3-fast", "inference")
+	st := openRuntimeTestStore(t, dir)
+	id, _ := st.Create(session.SessionKindAgent, "/tmp", "kimi-k3-fast", "inference")
 	st.Save(id, 0, []llm.Message{
 		{Role: "user", Content: "how do I unstage a file", Authored: true},
 		{Role: "assistant", Content: "git restore --staged"},
@@ -65,11 +65,8 @@ func TestSessionsCLIEmptyAndUntitled(t *testing.T) {
 		t.Fatalf("an empty store should say so, got %q", out)
 	}
 
-	st, err := session.Open(filepath.Join(dir, "sessions.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, err := st.Create("/tmp", "m", "p")
+	st := openRuntimeTestStore(t, dir)
+	id, err := st.Create(session.SessionKindAgent, "/tmp", "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,11 +91,8 @@ func TestSessionsCLITruncatesTitle(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("WHIP_HOME", dir)
 
-	st, err := session.Open(filepath.Join(dir, "sessions.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, _ := st.Create("/tmp", "m", "p")
+	st := openRuntimeTestStore(t, dir)
+	id, _ := st.Create(session.SessionKindAgent, "/tmp", "m", "p")
 	long := strings.Repeat("q", 80)
 	if err := st.Save(id, 0, []llm.Message{{Role: "user", Content: long, Authored: true}}, "m", "p"); err != nil {
 		t.Fatal(err)
@@ -126,7 +120,10 @@ func TestSessionsCLIStoreErrors(t *testing.T) {
 
 	dir := t.TempDir()
 	t.Setenv("WHIP_HOME", dir)
-	if err := os.Mkdir(filepath.Join(dir, "sessions.db"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "runtime-v2"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(runtimeDBPath(dir), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	useTestDaemon(t)

@@ -66,6 +66,9 @@ func (s *Session) SetBlackboard(ctx context.Context, callerAgentID, key string, 
 		value, err = s.store.SetBlackboard(actorCtx, s.meta.ID, callerAgentID, key, payload)
 		return err
 	})
+	if err == nil {
+		s.wakeSubscribers(key)
+	}
 	return value, err
 }
 
@@ -74,6 +77,9 @@ func (s *Session) AppendBlackboard(ctx context.Context, callerAgentID, key strin
 		value, err = s.store.AppendBlackboard(actorCtx, s.meta.ID, callerAgentID, key, payload)
 		return err
 	})
+	if err == nil {
+		s.wakeSubscribers(key)
+	}
 	return value, err
 }
 
@@ -82,7 +88,23 @@ func (s *Session) CompareAndSwapBlackboard(ctx context.Context, callerAgentID, k
 		value, err = s.store.CompareAndSwapBlackboard(actorCtx, s.meta.ID, callerAgentID, key, expectedVersion, payload)
 		return err
 	})
+	if err == nil {
+		s.wakeSubscribers(key)
+	}
 	return value, err
+}
+
+// wakeSubscribers nudges every live subscriber of key. The subscription wake
+// row was committed with the mutation; the durable inbox is the truth and a
+// spurious wake is harmless.
+func (s *Session) wakeSubscribers(key string) {
+	ids, err := s.store.SubscribedAgents(context.Background(), s.meta.ID, key)
+	if err != nil {
+		return
+	}
+	for _, id := range ids {
+		s.wakeAgent(id)
+	}
 }
 
 func (s *Session) BlackboardHistory(ctx context.Context, callerAgentID, key string) (values []sessionstore.StateValue, err error) {

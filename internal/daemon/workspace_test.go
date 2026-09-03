@@ -10,6 +10,7 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -26,11 +27,11 @@ func TestAgentRunnerWorkspaceSnapshotsUseRootManagedProcesses(t *testing.T) {
 
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	rootID, err := store.Create(repo, "model", "provider")
+	rootID, err := store.Create(session.SessionKindAgent, repo, "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := store.EnsureClassicAuthority(t.Context(), rootID)
+	authority, err := store.EnsureAuthority(t.Context(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,10 +39,10 @@ func TestAgentRunnerWorkspaceSnapshotsUseRootManagedProcesses(t *testing.T) {
 	if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
 		t.Fatal(err)
 	}
-	agentValue := agent.New(llm.New("http://unused.invalid", ""), "model", 100, "system")
+	agentValue := agent.NewRuntime(llm.New("http://unused.invalid", ""), "model", 100, "system", tools.NewServices())
 	agentValue.Services = services
 	agentValue.WorkingDir = repo
-	runner := &agentRunner{agent: agentValue}
+	runner := &AgentSession{agent: agentValue}
 
 	ref := runner.CaptureWorkspace(t.Context())
 	if ref == "" {
@@ -77,11 +78,11 @@ func TestAgentRunnerWorkspaceSnapshotsUseRootManagedProcesses(t *testing.T) {
 
 func TestWorkspaceSnapshotsIgnoreNonGitDirectoriesAndInvalidReferences(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	rootID, err := store.Create(t.TempDir(), "model", "provider")
+	rootID, err := store.Create(session.SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := store.EnsureClassicAuthority(t.Context(), rootID)
+	authority, err := store.EnsureAuthority(t.Context(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestWorkspaceSnapshotsIgnoreNonGitDirectoriesAndInvalidReferences(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &agentRunner{agent: agent.NewWithServices(llm.New("http://unused.invalid", ""), "model", 100, "system", services)}
+	runner := &AgentSession{agent: agent.NewRuntime(llm.New("http://unused.invalid", ""), "model", 100, "system", services)}
 	runner.agent.WorkingDir = meta.CWD
 	if ref := runner.CaptureWorkspace(t.Context()); ref != "" {
 		t.Fatalf("non-git snapshot ref = %q", ref)

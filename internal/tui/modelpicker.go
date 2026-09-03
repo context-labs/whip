@@ -122,8 +122,8 @@ func (p *modelPicker) applyQuery() {
 	})
 }
 
-// applyModelList filters a plain list of model names (palette compact/subagent
-// panels, whose rows are names, not routes). The "(new)" catalog marker and
+// applyModelList filters a plain list of model names (palette rows are names,
+// not routes). The "(new)" catalog marker and
 // the leading "default (…)" row are stripped for scoring so the query matches
 // the real name.
 func (f *modelFilter) applyModelList(list []string) {
@@ -217,6 +217,9 @@ func modelNamesFor(cfg *config.Config) []string {
 // a dim "(new)" section — selecting one resolves through the catalog fallback
 // and persists to config only via switchModel.
 func buildModelItems(cfg *config.Config) []modelItem {
+	if cfg == nil {
+		return nil
+	}
 	names := make([]string, 0, len(cfg.Models))
 	for name := range cfg.Models {
 		names = append(names, name)
@@ -233,6 +236,46 @@ func buildModelItems(cfg *config.Config) []modelItem {
 		}
 	}
 	return appendCatalogRoutes(items, cfg, config.LoadCatalogs())
+}
+
+// resolveModelCommandArgs turns the convenient `/model <name>` form into an
+// explicit model/provider route before it crosses the daemon boundary. That
+// keeps session.model deterministic when the current provider does not serve
+// the requested model and reports ambiguous catalog routes to the user.
+func (m *model) resolveModelCommandArgs(args string) (string, error) {
+	fields := strings.Fields(args)
+	if len(fields) != 1 || m.cfg == nil {
+		return args, nil
+	}
+	name, ok, ambiguous := resolveModelFuzzy(m.cfg, fields[0])
+	if !ok {
+		if len(ambiguous) > 0 {
+			return "", fmt.Errorf("model %q is ambiguous: %s", fields[0], strings.Join(ambiguous, ", "))
+		}
+		return "", fmt.Errorf("unknown model %q", fields[0])
+	}
+	var routes []modelItem
+	for _, item := range buildModelItems(m.cfg) {
+		if item.model == name {
+			routes = append(routes, item)
+		}
+	}
+	if len(routes) == 0 {
+		return "", fmt.Errorf("model %q has no configured provider", name)
+	}
+	for _, route := range routes {
+		if route.provider == m.provName {
+			return name + " " + route.provider, nil
+		}
+	}
+	if len(routes) > 1 {
+		providers := make([]string, 0, len(routes))
+		for _, route := range routes {
+			providers = append(providers, route.provider)
+		}
+		return "", fmt.Errorf("model %q is available from multiple providers (%s); specify one", name, strings.Join(providers, ", "))
+	}
+	return name + " " + routes[0].provider, nil
 }
 
 // appendCatalogRoutes adds one route per catalog-advertised model that has no
@@ -319,12 +362,10 @@ func (m *model) modelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		it := v[p.idx]
-		sessionOnly := p.sessionOnly
 		m.mpicker = nil
-		if m.client != nil {
-			return m.submitClientAction("session.model", map[string]string{"args": strings.TrimSpace(it.model + " " + it.provider)}, "")
-		}
-		m.switchModel(it.model, it.provider, !sessionOnly)
+		return m.submitClientAction("session.model", map[string]string{
+			"args": strings.TrimSpace(it.model + " " + it.provider), "persist_default": strconv.FormatBool(!p.sessionOnly),
+		}, "")
 	case tea.KeyRunes, tea.KeySpace:
 		p.filter.typeRunes(msg.Runes)
 		p.applyQuery()

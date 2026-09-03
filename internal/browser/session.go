@@ -1,7 +1,7 @@
 // session.go manages Browser instances per named session for the agent
 // tools: one Backend per (mode, name), lazily opened, serialized per
 // session, self-healing on dead connections. Named sessions give parallel
-// subagents isolated tabs/browsers (§5b) without cross-process daemons.
+// recursive agents isolated tabs/browsers (§5b) without extra daemons.
 
 package browser
 

@@ -311,7 +311,7 @@ func TestServicesValidationPaths(t *testing.T) {
 	defer processes.Close()
 	ledger := &countingLedger{}
 	workspaces := capability.NewWorkspaces()
-	authority := capability.ClassicAuthority{
+	authority := capability.Authority{
 		RootID: "root", AgentID: "agent",
 		Files: capability.Reference{ID: "files"}, Shell: capability.Reference{ID: "shell"},
 	}
@@ -320,12 +320,12 @@ func TestServicesValidationPaths(t *testing.T) {
 		ledger     capability.Ledger
 		workspaces *capability.Workspaces
 		processes  *capability.ProcessManager
-		authority  capability.ClassicAuthority
+		authority  capability.Authority
 	}{
 		{"nil ledger", nil, workspaces, processes, authority},
 		{"nil workspaces", ledger, nil, processes, authority},
 		{"nil processes", ledger, workspaces, nil, authority},
-		{"missing authority", ledger, workspaces, processes, capability.ClassicAuthority{}},
+		{"missing authority", ledger, workspaces, processes, capability.Authority{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := NewServices().BindDispatcher(tc.ledger, tc.workspaces, tc.processes, tc.authority); err == nil {
@@ -352,7 +352,7 @@ func TestServicesValidationPaths(t *testing.T) {
 	}
 
 	services.dispatcher = capability.NewDispatcher(nil, nil, nil)
-	if _, err := services.run(context.Background(), "missing", nil, nil); err == nil || !strings.Contains(err.Error(), "unknown classic operation") {
+	if _, err := services.run(context.Background(), "missing", nil, nil); err == nil || !strings.Contains(err.Error(), "unknown host operation") {
 		t.Fatalf("unknown operation error = %v", err)
 	}
 }
@@ -398,10 +398,10 @@ func TestServicesRemainingPaths(t *testing.T) {
 	func() {
 		defer func() {
 			if recover() == nil {
-				t.Error("unknown classic tool did not panic")
+				t.Error("unknown host tool did not panic")
 			}
 		}()
-		classicTool(NewServices(), "missing")
+		hostTool(NewServices(), "missing")
 	}()
 
 	direct := services.wrap(Tool{Def: llm.NewTool("direct", "", `{}`), Run: func(context.Context, json.RawMessage) (string, error) {
@@ -442,7 +442,7 @@ func TestServicesRemainingPaths(t *testing.T) {
 
 	processes := capability.NewProcessManager()
 	defer processes.Close()
-	authority := capability.ClassicAuthority{RootID: "root", AgentID: "agent", Files: capability.Reference{ID: "files"}, Shell: capability.Reference{ID: "shell"}}
+	authority := capability.Authority{RootID: "root", AgentID: "agent", Files: capability.Reference{ID: "files"}, Shell: capability.Reference{ID: "shell"}}
 	for _, ledger := range []capability.Ledger{
 		workspaceRootLedger{err: errors.New("root failed")},
 		workspaceRootLedger{root: filepath.Join(t.TempDir(), "missing")},

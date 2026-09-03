@@ -18,6 +18,13 @@ import (
 
 // Events receives streaming callbacks during a turn. All fields are optional.
 type Events struct {
+	// EphemeralSystem is included in every provider request for this turn but
+	// is never appended to the durable/displayed transcript.
+	EphemeralSystem string
+	// Prefix messages are appended to the durable transcript immediately
+	// before this turn's input message (a mailbox digest riding along with a
+	// user submit, for example). They are ordinary unauthored user messages.
+	Prefix      []llm.Message
 	OnStart     func()                        // the turn owns the loop boundary
 	OnText      func(delta string)            // assistant text as it streams
 	OnThink     func(delta string)            // reasoning/thinking tokens as they stream
@@ -30,8 +37,13 @@ type Events struct {
 	// OnToolOutput streams partial output for a running tool call (bash only —
 	// throttled snapshots, ~100ms apart). Fires from tool worker goroutines.
 	OnToolOutput func(id, outputSoFar string)
-	OnSteer      func(text string)    // a steered message was injected
-	OnCompact    func(took, kept int) // context was auto-compacted (messages removed/kept)
+	// OnBoundary fires at every loop boundary (after a round's tool results,
+	// before the next model call). Messages it returns are appended in order
+	// as user messages; the daemon uses it to inject steer-class work pulled
+	// from durable state. Returning messages keeps the turn going even when
+	// the model produced no tool calls.
+	OnBoundary func() []llm.Message
+	OnCompact  func(took, kept int) // context was auto-compacted (messages removed/kept)
 	// OnCompacted fires when a compaction ran: record the summary+cutoff as
 	// an event (the raw log survives) and show info — which model wrote the
 	// summary and its spend — in the transcript.
@@ -56,6 +68,18 @@ type Events struct {
 // and reconciles the provider-reported usage afterward.
 type ModelCallBudget interface {
 	ReserveModelCall(context.Context, int64) (func(llm.Usage) error, error)
+}
+
+// ModelRoute is a resolved model override for a recursively spawned agent.
+type ModelRoute struct {
+	Client       *llm.Client
+	ModelName    string
+	Provider     string
+	Model        string
+	ContextLimit int
+	MaxTokens    int
+	Effort       string
+	Vision       bool
 }
 
 // CompactInfo reports how one compaction ran: which model wrote the summary
@@ -87,6 +111,7 @@ type Agent struct {
 	Provider  string // config provider name
 	MaxTokens int
 	Effort    string // reasoning effort: "" = parameter omitted from requests
+	Vision    bool   // model accepts image content parts
 	// Temperature/TopP are optional per-model sampling knobs for outbound
 	// requests. nil omits the field, preserving provider defaults.
 	Temperature *float64
@@ -109,14 +134,9 @@ type Agent struct {
 	// proactively; 0 uses defaultCompactThreshold.
 	CompactThreshold float64
 
-	// TaskDefault is the default subagent route (config taskModel); the zero
-	// value runs subagents on the conversation's own client and model.
-	TaskDefault SubModel
-	// ResolveModel resolves a per-task model override named in a task call.
-	// Installed by the front-end (TUI or `whip run`) so the agent stays
-	// config-free; nil rejects overrides. It runs on tool worker goroutines,
-	// so implementations must not share mutable state with the UI.
-	ResolveModel func(model, provider string) (SubModel, error)
+	// ResolveModel resolves an agents.spawn model override. Descendants inherit
+	// this immutable resolver from their parent.
+	ResolveModel func(model, provider string) (ModelRoute, error)
 
 	// MaxTurns caps the tool-call loop (rounds of model→tools→model) so a
 	// scripted run can't run away. 0 = uncapped (the TUI default).
@@ -124,34 +144,17 @@ type Agent struct {
 	// WorkingDir scopes relative tool paths inside the session workspace.
 	WorkingDir string
 
-	// WorktreeSubagents is the session default for running background
-	// subagents in their own git worktree (isolated file edits). The subagent
-	// tool's per-call `worktree` argument overrides it. Off by default.
-	WorktreeSubagents bool
-
 	mu          sync.Mutex
 	pending     []pendingSteer // steered user messages awaiting injection
-	steerIn     func(string)   // daemon ingress; nil keeps the embedded path
 	launcher    func(string, func()) bool
-	subagents   SubagentRuntime
 	modelBudget ModelCallBudget
-	compacted   bool          // a compaction already happened this turn — don't retry-loop
-	running     atomic.Bool   // a turn is in flight (wait delivery routes on it)
-	waitReg     *waitRegistry // lazily created by waits()
+	compacted   bool        // a compaction already happened this turn — don't retry-loop
+	running     atomic.Bool // a turn is in flight
 
 	// msgsMu guards Messages for concurrent READERS: the turn goroutine
 	// mutates Messages freely, but a test/UI reader taking msgsMu sees a
 	// consistent slice. Mutations hold it only for the append.
 	msgsMu sync.Mutex
-
-	bg *taskRegistry
-
-	// subagentInflight / otherInflight count in-flight tool calls by kind
-	// (incremented in runTools after the mutation lock, decremented at tool
-	// end). WaitingOnSubagents reads them to let the TUI steer typed input
-	// into a turn that's only blocked on subagents, not queue it.
-	subagentInflight atomic.Int64
-	otherInflight    atomic.Int64
 
 	// Todos is the todowrite plan, rewritten in full by the model and
 	// injected per round. Like Messages, it is only mutated by the turn
@@ -182,114 +185,18 @@ type Agent struct {
 	// (config computer.enabled=false).
 	ComputerDisabled bool
 
-	// OnOrphanedSteer, when set by the TUI, receives steered messages that lost
-	// the race against a turn's final loop boundary (a Steer landing after the
-	// last drainPending but before the turn returned). The TUI submits each as
-	// a machine turn so a mid-turn message is never silently dropped. Same
-	// shape as the wait tool's OnWake; the two unify when both branches land.
-	OnOrphanedSteer func(text string)
-
 	usageMu sync.Mutex
 	usage   llm.Usage // session totals across every API call (PromptTokens = input)
 }
 
-// TurnRunning reports whether a turn is currently in flight. The wait
-// registry routes delivery on it: busy → Steer (drained at the next loop
-// boundary), idle → the OnWake hook (a parked steer would never be seen).
+// TurnRunning reports whether a turn is currently in flight.
 func (a *Agent) TurnRunning() bool { return a.running.Load() }
-
-func (a *Agent) HasRunningTasks() bool {
-	for _, task := range a.Tasks().List() {
-		if task.Status == TaskRunning {
-			return true
-		}
-	}
-	return false
-}
-
-func (a *Agent) HasRunningWaits() bool {
-	a.mu.Lock()
-	registry := a.waitReg
-	a.mu.Unlock()
-	if registry == nil {
-		return false
-	}
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	for _, wait := range registry.waits {
-		if wait.Status() == WaitRunning {
-			return true
-		}
-	}
-	return false
-}
-
-// Close stops waits and background tasks, then waits for their goroutines.
-func (a *Agent) Close() {
-	a.mu.Lock()
-	waits := a.waitReg
-	a.mu.Unlock()
-	if waits != nil {
-		waits.Close()
-	}
-	tasks := a.Tasks().List()
-	for _, task := range tasks {
-		if task.Status == TaskRunning {
-			a.Tasks().Cancel(task.ID)
-		}
-	}
-	for _, task := range tasks {
-		if task.Status == TaskRunning {
-			<-task.Done
-		}
-	}
-}
-
-// Steer queues a user message for injection at the next loop boundary of the
-// running turn — after the in-flight response and its tool calls complete,
-// never mid-generation. When NO turn is running (the caller raced a teardown:
-// it saw WaitingOnSubagents true, then the turn ended before this Steer
-// landed), there is no boundary left to drain the queue — so the steer goes
-// straight to OnOrphanedSteer instead of parking forever. One guard here
-// covers every Steer caller (TUI keys, wait-tool delivery, subagent fan-in).
-func (a *Agent) Steer(text string) {
-	a.mu.Lock()
-	ingress := a.steerIn
-	a.mu.Unlock()
-	if ingress != nil {
-		ingress(text)
-		return
-	}
-	a.deliverSteer(text, true)
-}
-
-// SetSteerIngress routes producers through a daemon's durable inbox. The
-// actor uses DeliverSteer to preserve the existing loop-boundary behavior.
-func (a *Agent) SetSteerIngress(ingress func(string)) {
-	a.mu.Lock()
-	a.steerIn = ingress
-	a.mu.Unlock()
-}
 
 // SetLauncher lets a daemon supervisor own agent-created goroutines.
 func (a *Agent) SetLauncher(launcher func(string, func()) bool) {
 	a.mu.Lock()
 	a.launcher = launcher
 	a.mu.Unlock()
-}
-
-// SetSubagentRuntime lets a daemon own durable child admission and control.
-// Nil keeps the embedded process-local behavior.
-func (a *Agent) SetSubagentRuntime(runtime SubagentRuntime) {
-	a.mu.Lock()
-	a.subagents = runtime
-	a.mu.Unlock()
-}
-
-func (a *Agent) subagentRuntime() SubagentRuntime {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.subagents
 }
 
 func (a *Agent) SetModelCallBudget(budget ModelCallBudget) {
@@ -315,37 +222,17 @@ func (a *Agent) launch(kind string, work func()) bool {
 	return true
 }
 
-func (a *Agent) DeliverSteer(text string) bool {
-	return a.deliverSteer(text, false)
-}
-
-func (a *Agent) deliverSteer(text string, park bool) bool {
-	a.mu.Lock()
-	if !a.running.Load() {
-		hook := a.OnOrphanedSteer
-		if park && hook == nil {
-			a.pending = append(a.pending, pendingSteer{text: text})
-		}
-		a.mu.Unlock()
-		if park && hook != nil {
-			hook(text)
-		}
-		return false
-	}
-	a.pending = append(a.pending, pendingSteer{text: text})
-	a.mu.Unlock()
-	return true
-}
-
-// pendingSteer is a queued steered message, optionally carrying images
-// (browser_exec screenshots attach to the conversation this way).
+// pendingSteer is a queued in-memory message carrying images (browser and
+// computer screenshots attach to the conversation this way). Text steers are
+// durable and arrive through Events.OnBoundary instead.
 type pendingSteer struct {
 	text  string
 	parts []llm.ContentPart
 }
 
-// SteerImages is Steer with image parts — the model receives text and
-// images together as a multimodal user message at the loop boundary.
+// SteerImages queues a multimodal user message for the next loop boundary of
+// the running turn. It is transient: a screenshot belongs to the turn that
+// took it and is dropped if that turn ends first.
 func (a *Agent) SteerImages(text string, parts []llm.ContentPart) {
 	a.mu.Lock()
 	a.pending = append(a.pending, pendingSteer{text: text, parts: parts})
@@ -406,8 +293,8 @@ func (a *Agent) ResetUsage() {
 }
 
 // Usage returns the session's cumulative token usage: input, output, and
-// cached-input tokens across every streamed call (plus compaction and
-// subagent calls on this agent).
+// cached-input tokens across every streamed call plus compaction and
+// stateless model calls made by this session.
 func (a *Agent) Usage() llm.Usage {
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()
@@ -419,34 +306,19 @@ func (a *Agent) Usage() llm.Usage {
 	return u
 }
 
-func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
-	return NewWithServices(client, model, maxTokens, systemPrompt, tools.NewServices())
-}
-
-func NewWithServices(client *llm.Client, model string, maxTokens int, systemPrompt string, services *tools.Services) *Agent {
+// NewRuntime constructs the provider loop without choosing a model-facing
+// tool surface. Runtime owners install the exact tools the session may see.
+func NewRuntime(client *llm.Client, model string, maxTokens int, systemPrompt string, services *tools.Services) *Agent {
 	if services == nil {
 		services = tools.NewServices()
 	}
-	a := &Agent{
+	return &Agent{
 		Client:    client,
 		Model:     model,
 		MaxTokens: maxTokens,
 		Messages:  []llm.Message{{Role: "system", Content: systemPrompt}},
 		Services:  services,
 	}
-	a.Tools = tools.AllWithServices(services)
-	if !a.BrowserDisabled {
-		a.Tools = append(a.Tools, tools.BrowserExec(services))
-	}
-	if !a.ComputerDisabled {
-		a.Tools = append(a.Tools, tools.ComputerExec(services))
-	}
-	a.Tools = append(a.Tools, taskTool(a), taskSteerTool(a))
-	a.Tools = append(a.Tools, todoTool(a))
-	a.Tools = append(a.Tools, waitTool(a))
-	a.Tools = append(a.Tools, memoryTools(a)...)
-	a.bg = newTaskRegistry()
-	return a
 }
 
 // MessagesSnapshot returns a copy of the conversation safe to read while a
@@ -567,7 +439,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 	clientID := a.toolClientID
 	a.toolsMu.Unlock()
 	if clientID == "" {
-		clientID = "classic"
+		clientID = "agent"
 	}
 	ctx, err = tools.WithTurnIdentity(ctx, clientID)
 	if err != nil {
@@ -599,6 +471,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		msg.SentAt = &now
 	}
 	a.msgsMu.Lock()
+	a.Messages = append(a.Messages, ev.Prefix...)
 	a.Messages = append(a.Messages, msg)
 	a.msgsMu.Unlock()
 	rounds := 0
@@ -613,12 +486,14 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			return "", err
 		}
 		msgs := a.Messages
+		if ev.EphemeralSystem != "" {
+			msgs = append(append([]llm.Message(nil), msgs...), llm.Message{Role: "system", Content: ev.EphemeralSystem})
+		}
 		if block := a.todoBlock(); block != "" {
 			// Open plan items ride along as an ephemeral system message each
 			// round: a.Messages stays clean, and the plan survives long tool
 			// loops and compaction because it is re-derived, not stored.
-			msgs = append(append([]llm.Message(nil), a.Messages...),
-				llm.Message{Role: "system", Content: block})
+			msgs = append(append([]llm.Message(nil), msgs...), llm.Message{Role: "system", Content: block})
 		}
 		// Surface transient-request retries through the event hook so the UI
 		// shows "retrying" instead of looking hung. Set/restored per call: the
@@ -698,26 +573,22 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				return "", ctx.Err()
 			}
 		}
-		a.mu.Lock()
-		steered := a.pending
-		a.pending = nil
-		if len(msg.ToolCalls) == 0 && len(steered) == 0 {
-			a.running.Store(false)
+		// Loop boundary: transient image steers first, then whatever durable
+		// steer-class work the owner pulls through OnBoundary.
+		injected := make([]llm.Message, 0, len(a.pending))
+		for _, s := range a.drainPending() {
+			injected = append(injected, llm.Message{Role: "user", Content: s.text, Parts: s.parts})
 		}
-		a.mu.Unlock()
-		if len(steered) > 0 {
+		if ev.OnBoundary != nil {
+			injected = append(injected, ev.OnBoundary()...)
+		}
+		if len(injected) > 0 {
 			a.msgsMu.Lock()
-		}
-		for _, s := range steered {
-			if ev.OnSteer != nil {
-				ev.OnSteer(s.text)
-			}
-			a.Messages = append(a.Messages, llm.Message{Role: "user", Content: s.text, Parts: s.parts})
-		}
-		if len(steered) > 0 {
+			a.Messages = append(a.Messages, injected...)
 			a.msgsMu.Unlock()
 		}
-		if len(msg.ToolCalls) == 0 && len(steered) == 0 {
+		if len(msg.ToolCalls) == 0 && len(injected) == 0 {
+			a.running.Store(false)
 			a.compacted = false // reset for the next Turn
 			return msg.Content, nil
 		}
@@ -735,37 +606,11 @@ func (a *Agent) reserveModelCall(ctx context.Context, request llm.Request) (func
 }
 
 func (a *Agent) finishTurn() {
-	a.mu.Lock()
 	a.running.Store(false)
-	hook := a.OnOrphanedSteer
-	if hook == nil {
-		a.mu.Unlock()
-		return
-	}
-	pending := a.pending
-	a.pending = nil
-	a.mu.Unlock()
-	for _, steer := range pending {
-		hook(steer.text)
-	}
-}
-
-// trackTool adjusts the in-flight counts by tool kind.
-func (a *Agent) trackTool(name string, delta int64) {
-	if name == "subagent" {
-		a.subagentInflight.Add(delta)
-	} else {
-		a.otherInflight.Add(delta)
-	}
-}
-
-// WaitingOnSubagents reports whether a turn is running and its only in-flight
-// work is subagent calls — the model is blocked waiting on them, so a user
-// message can be steered in as a mid-turn correction instead of queued behind
-// the whole turn (it isn't an interruption if the agent is just waiting).
-// Empty in-flight means mid-generation, which keeps the queue behavior.
-func (a *Agent) WaitingOnSubagents() bool {
-	return a.TurnRunning() && a.subagentInflight.Load() > 0 && a.otherInflight.Load() == 0
+	// Steers that landed after the last loop boundary must not leak into the
+	// next turn: inbox-offered ones are re-queued durably by the daemon's
+	// completeTurn, and screenshot steers belong to the turn that just ended.
+	a.drainPending()
 }
 
 // runTools executes a batch of tool calls concurrently, returning one result
@@ -799,8 +644,6 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, round int, e
 			if ev.OnToolStart != nil {
 				ev.OnToolStart(tc.ID, name, args)
 			}
-			a.trackTool(name, 1)
-			defer a.trackTool(name, -1)
 			start := time.Now()
 			callCtx := tools.WithServices(ctx, a.Services)
 			callCtx = tools.WithOperationIdentity(callCtx, fmt.Sprintf("%d:%s", round, tc.ID))

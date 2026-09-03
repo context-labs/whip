@@ -28,7 +28,7 @@ func budgetState(t *testing.T, store *Store, rootID, agentID string, kind Budget
 func TestDefaultRootBudgetLimits(t *testing.T) {
 	store, rootID, rootAgentID := newSwarmFixture(t)
 	want := map[BudgetKind]int64{
-		BudgetTokens:                 DefaultRootTokens,
+		BudgetTokens:                 100_000_000,
 		BudgetCost:                   DefaultRootCostMicros,
 		BudgetElapsed:                DefaultRootElapsedMillis,
 		BudgetDurableBytes:           DefaultRootDurableBytes,
@@ -95,9 +95,8 @@ func TestBudgetDescendantsRollUpAndReconcileConservatively(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, child := range []string{"left", "right"} {
-		if _, err := store.AdmitChild(context.Background(), ChildAdmission{
-			RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: child, ExecutionID: "exec-" + child,
-			Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 8}},
+		if _, err := store.AdmitAgent(context.Background(), AgentAdmission{
+			RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: child, Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 8}},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -134,15 +133,13 @@ func TestCapabilityBudgetUsesAgentAncestryAndCompletionUsage(t *testing.T) {
 	if err := store.SetBudgetLimit(context.Background(), rootID, "", BudgetTokens, 10); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AdmitChild(context.Background(), ChildAdmission{
-		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "parent", ExecutionID: "exec-parent",
-		Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 9}},
+	if _, err := store.AdmitAgent(context.Background(), AgentAdmission{
+		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "parent", Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 9}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AdmitChild(context.Background(), ChildAdmission{
-		RootID: rootID, ParentAgentID: "parent", ChildAgentID: "child", ExecutionID: "exec-child",
-		Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 8}},
+	if _, err := store.AdmitAgent(context.Background(), AgentAdmission{
+		RootID: rootID, ParentAgentID: "parent", ChildAgentID: "child", Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 8}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -196,9 +193,8 @@ func TestChildBudgetClampingDepthAndActiveChildLimits(t *testing.T) {
 		if err := store.ReserveBudget(context.Background(), rootID, rootAgentID, held); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.AdmitChild(context.Background(), ChildAdmission{
-			RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "child", ExecutionID: "exec-child",
-			Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 9}},
+		if _, err := store.AdmitAgent(context.Background(), AgentAdmission{
+			RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "child", Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 9}},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -214,7 +210,7 @@ func TestChildBudgetClampingDepthAndActiveChildLimits(t *testing.T) {
 			t.Fatal(err)
 		}
 		admitTestChild(t, store, rootID, rootAgentID, "first")
-		if _, err := store.AdmitChild(context.Background(), ChildAdmission{RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "second", ExecutionID: "exec-second"}); !errors.Is(err, capability.ErrDenied) {
+		if _, err := store.AdmitAgent(context.Background(), AgentAdmission{RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "second"}); !errors.Is(err, capability.ErrDenied) {
 			t.Fatalf("second child error=%v", err)
 		}
 	})
@@ -226,13 +222,13 @@ func TestChildBudgetClampingDepthAndActiveChildLimits(t *testing.T) {
 		}
 		admitTestChild(t, store, rootID, rootAgentID, "child")
 		admitTestChild(t, store, rootID, "child", "grandchild")
-		if _, err := store.AdmitChild(context.Background(), ChildAdmission{RootID: rootID, ParentAgentID: "grandchild", ChildAgentID: "too-deep", ExecutionID: "exec-too-deep"}); !errors.Is(err, capability.ErrDenied) {
+		if _, err := store.AdmitAgent(context.Background(), AgentAdmission{RootID: rootID, ParentAgentID: "grandchild", ChildAgentID: "too-deep"}); !errors.Is(err, capability.ErrDenied) {
 			t.Fatalf("depth error=%v", err)
 		}
 	})
 }
 
-func TestChildTurnAndSubtreeTerminalizationReleaseLiveBudgetsOnce(t *testing.T) {
+func TestAgentTurnAndSubtreeTerminalizationReleaseLiveBudgetsOnce(t *testing.T) {
 	store, rootID, rootAgentID := newSwarmFixture(t)
 	if err := store.SetBudgetLimit(context.Background(), rootID, "", BudgetConcurrentChildTurns, 1); err != nil {
 		t.Fatal(err)
@@ -259,10 +255,18 @@ func TestChildTurnAndSubtreeTerminalizationReleaseLiveBudgetsOnce(t *testing.T) 
 	if _, err := store.Begin(context.Background(), operation); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.StartChildTurn(context.Background(), rootID, rootAgentID, "exec-left"); err != nil {
+	left, err := store.EnqueueInbox(t.Context(), InboxEnqueue{RootID: rootID, AgentID: "left", Kind: "submit", Payload: RuntimePayload{Data: []byte("left")}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.StartChildTurn(context.Background(), rootID, rootAgentID, "exec-right"); !errors.Is(err, capability.ErrDenied) {
+	right, err := store.EnqueueInbox(t.Context(), InboxEnqueue{RootID: rootID, AgentID: "right", Kind: "submit", Payload: RuntimePayload{Data: []byte("right")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StartAgentTurn(context.Background(), rootID, "left", "turn-left"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StartAgentTurn(context.Background(), rootID, "right", "turn-right"); !errors.Is(err, capability.ErrDenied) {
 		t.Fatalf("concurrent turn error=%v", err)
 	}
 	if _, err := store.TerminalizeSubtree(context.Background(), rootID, rootAgentID, "left", "stopped"); err != nil {
@@ -280,15 +284,22 @@ func TestChildTurnAndSubtreeTerminalizationReleaseLiveBudgetsOnce(t *testing.T) 
 	if _, err := store.TerminalizeSubtree(context.Background(), rootID, rootAgentID, "left", "stopped"); !errors.Is(err, ErrAgentTerminal) {
 		t.Fatalf("second terminalization error=%v", err)
 	}
-	if _, err := store.StartChildTurn(context.Background(), rootID, rootAgentID, "exec-right"); err != nil {
+	if _, err := store.StartAgentTurn(context.Background(), rootID, "right", "turn-right"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.FinishChildTurn(context.Background(), rootID, rootAgentID, "exec-right", "succeeded"); err != nil {
+	if err := store.FinishAgentTurn(context.Background(), rootID, "right", AgentTurnCommit{TurnID: "turn-right", Status: "succeeded", AcknowledgedInbox: []int64{right.InboxSeq}}); err != nil {
 		t.Fatal(err)
 	}
-	if got := budgetState(t, store, rootID, rootAgentID, BudgetActiveChildren); got.Reserved != 0 || got.Used != 0 {
-		t.Fatalf("active children after finish=%+v", got)
+	if got := budgetState(t, store, rootID, rootAgentID, BudgetActiveChildren); got.Reserved != 1 || got.Used != 0 {
+		t.Fatalf("retained idle child was not counted after turn: %+v", got)
 	}
+	if _, err := store.TerminalizeSubtree(context.Background(), rootID, rootAgentID, "right", "stopped"); err != nil {
+		t.Fatal(err)
+	}
+	if got := budgetState(t, store, rootID, rootAgentID, BudgetActiveChildren); got.Reserved != 0 {
+		t.Fatalf("active children after stop=%+v", got)
+	}
+	_ = left
 }
 
 func TestCapBudgetEnforcesAncestryAndPreservesAccounting(t *testing.T) {
@@ -297,16 +308,14 @@ func TestCapBudgetEnforcesAncestryAndPreservesAccounting(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, child := range []string{"parent", "unrelated"} {
-		if _, err := store.AdmitChild(context.Background(), ChildAdmission{
-			RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: child, ExecutionID: "exec-" + child,
-			Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 10}},
+		if _, err := store.AdmitAgent(context.Background(), AgentAdmission{
+			RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: child, Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 10}},
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.AdmitChild(context.Background(), ChildAdmission{
-		RootID: rootID, ParentAgentID: "parent", ChildAgentID: "target", ExecutionID: "exec-target",
-		Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 10}},
+	if _, err := store.AdmitAgent(context.Background(), AgentAdmission{
+		RootID: rootID, ParentAgentID: "parent", ChildAgentID: "target", Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 10}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -396,27 +405,27 @@ func TestCapBudgetCreatesDescendantLimitForInheritedKind(t *testing.T) {
 	}
 }
 
-func TestRecoveryReleasesDescendantOperationAndChildReservations(t *testing.T) {
+func TestRecoveryReleasesDescendantOperationAndAgentTurnReservations(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	store, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID, err := store.Create(t.TempDir(), "model", "provider")
+	rootID, err := store.Create(SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := store.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AdmitChild(context.Background(), ChildAdmission{
-		RootID: rootID, ParentAgentID: authority.AgentID, ChildAgentID: "child", ExecutionID: "exec-child",
-		Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 10}},
+	if _, err := store.AdmitAgent(context.Background(), AgentAdmission{
+		RootID: rootID, ParentAgentID: authority.AgentID, ChildAgentID: "child",
+		Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 10}}, Prompt: RuntimePayload{Data: []byte("work")},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.StartChildTurn(context.Background(), rootID, authority.AgentID, "exec-child"); err != nil {
+	if _, err := store.StartAgentTurn(context.Background(), rootID, "child", "turn-child"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.IssueCapability(context.Background(), capability.Grant{ID: "child-read", RootID: rootID, AgentID: "child", Operations: []string{"read"}}); err != nil {
@@ -449,7 +458,11 @@ func TestRecoveryReleasesDescendantOperationAndChildReservations(t *testing.T) {
 	}
 	for _, kind := range []BudgetKind{BudgetTokens, BudgetCost, BudgetActiveOperations, BudgetActiveChildren, BudgetConcurrentChildTurns} {
 		got := budgetState(t, store, rootID, authority.AgentID, kind)
-		if got.Reserved != 0 {
+		wantReserved := int64(0)
+		if kind == BudgetActiveChildren {
+			wantReserved = 1 // the retained agent survives its interrupted turn
+		}
+		if got.Reserved != wantReserved {
 			t.Errorf("recovered %q=%+v", kind, got)
 		}
 		if kind == BudgetTokens && got.Used != 7 {
@@ -459,15 +472,15 @@ func TestRecoveryReleasesDescendantOperationAndChildReservations(t *testing.T) {
 			t.Errorf("recovered monetary usage=%+v", got)
 		}
 	}
-	var operationStatus, executionStatus string
+	var operationStatus, turnStatus string
 	if err := store.db.QueryRowContext(context.Background(), `SELECT status FROM operations WHERE id='child-operation'`).Scan(&operationStatus); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.db.QueryRowContext(context.Background(), `SELECT status FROM child_executions WHERE id='exec-child'`).Scan(&executionStatus); err != nil {
+	if err := store.db.QueryRowContext(context.Background(), `SELECT status FROM turns WHERE id='turn-child'`).Scan(&turnStatus); err != nil {
 		t.Fatal(err)
 	}
-	if operationStatus != "interrupted" || executionStatus != "interrupted" {
-		t.Fatalf("recovery statuses operation=%q execution=%q", operationStatus, executionStatus)
+	if operationStatus != "interrupted" || turnStatus != "interrupted" {
+		t.Fatalf("recovery statuses operation=%q turn=%q", operationStatus, turnStatus)
 	}
 }
 
@@ -477,9 +490,8 @@ func TestBudgetValidationAndAccountingDenials(t *testing.T) {
 	if err := store.SetBudgetLimit(ctx, rootID, "", BudgetTokens, 10); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AdmitChild(ctx, ChildAdmission{
-		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "child", ExecutionID: "exec-child",
-		Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 10}},
+	if _, err := store.AdmitAgent(ctx, AgentAdmission{
+		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "child", Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 10}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -569,9 +581,8 @@ func TestBudgetValidationAndAccountingDenials(t *testing.T) {
 	if err := store.ReserveBudget(ctx, rootID, "child", []capability.Reservation{{Kind: string(BudgetTokens), Amount: 1}}); !errors.Is(err, capability.ErrDenied) {
 		t.Fatalf("corrupt budget reserve error=%v", err)
 	}
-	if _, err := store.AdmitChild(ctx, ChildAdmission{
-		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "corrupt-budget", ExecutionID: "exec-corrupt-budget",
-		Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 1}},
+	if _, err := store.AdmitAgent(ctx, AgentAdmission{
+		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "corrupt-budget", Budgets: []BudgetLimit{{Kind: BudgetTokens, Limit: 1}},
 	}); !errors.Is(err, capability.ErrDenied) {
 		t.Fatalf("corrupt inherited budget error=%v", err)
 	}

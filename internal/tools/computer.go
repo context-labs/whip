@@ -61,7 +61,7 @@ func ComputerExec(services *Services) Tool {
 	if services == nil {
 		services = NewServices()
 	}
-	return classicTool(services, "computer_exec")
+	return hostTool(services, "computer_exec")
 }
 
 func computerExec(services *Services) Tool {

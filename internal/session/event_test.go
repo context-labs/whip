@@ -19,8 +19,8 @@ func TestEventReplayExpiresOldCursorsAndBoundsRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, _ := st.Create(t.TempDir(), "model", "provider")
-	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	rootID, _ := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureAuthority(context.Background(), rootID)
 	tx, err := st.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -58,8 +58,8 @@ func TestRootSnapshotAndActiveRootDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, _ := st.Create(t.TempDir(), "model", "provider")
-	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	rootID, _ := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureAuthority(context.Background(), rootID)
 	if err := st.Save(rootID, 0, []llm.Message{{Role: "user", Content: "hello", Authored: true}}, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestRootSnapshotCarriesOnlyTheUncommittedPresentationTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(t.TempDir(), "model", "provider")
+	rootID, err := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestReplayResolvesReferencedEventPayloadAndRejectsCorruptSnapshot(t *testin
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(t.TempDir(), "m", "p")
+	rootID, err := st.Create(SessionKindAgent, t.TempDir(), "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestReplayResolvesReferencedEventPayloadAndRejectsCorruptSnapshot(t *testin
 	if err != nil || string(resolved) != string(large) {
 		t.Fatalf("resolved event = %d bytes, %v", len(resolved), err)
 	}
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}

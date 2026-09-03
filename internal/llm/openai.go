@@ -327,7 +327,7 @@ type Client struct {
 	// failure. Optional — nil means silent retries.
 	OnRetry func(RetryEvent)
 	// CacheKey is stamped as prompt_cache_key on every request (see
-	// Request.PromptCacheKey). Set once per session by the caller; subagents
+	// Request.PromptCacheKey). Set once per session by the caller; descendants
 	// get their own key so their shorter contexts don't churn the parent's
 	// cached prefix. Empty disables the field.
 	CacheKey string

@@ -9,6 +9,8 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +19,50 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
+
+func TestProviderValidationIsEphemeralAndNeverCreatesACommand(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/models" || request.Header.Get("Authorization") != "Bearer secret-key" {
+			http.Error(w, "unexpected request", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"validated-model"}]}`))
+	}))
+	defer provider.Close()
+
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, client, served := startTCPClient(t, value, "auth-client")
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+		<-served
+	})
+
+	result, err := client.ValidateProvider(t.Context(), ProviderValidateParams{
+		Name: "temporary", BaseURL: provider.URL, Key: "secret-key",
+	})
+	if err != nil || len(result.Models) != 1 || result.Models[0].ID != "validated-model" {
+		t.Fatalf("provider validation=%+v err=%v", result, err)
+	}
+	if _, err := store.LoadCommand(t.Context(), "auth-client", "provider.validate"); err == nil {
+		t.Fatal("ephemeral provider validation created a durable command")
+	}
+	replay, err := client.Replay(t.Context(), ReplayParams{RootID: rootID, Cursor: 0, Limit: session.MaxEventReplay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(replay)
+	if strings.Contains(string(encoded), "secret-key") {
+		t.Fatal("provider credential leaked into durable events")
+	}
+}
 
 func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
@@ -28,7 +74,8 @@ func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewServer(value, ServerOptions{BuildID: "test-build", Generation: 7})
+	startedAt := time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+	server, err := NewServer(value, ServerOptions{BuildID: "test-build", Generation: 7, PID: 4321, StartedAt: startedAt})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +106,7 @@ func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	if got := client.InitializeResult(); got.Generation != 7 || got.BuildID != "test-build" {
+	if got := client.InitializeResult(); got.Generation != 7 || got.BuildID != "test-build" || got.PID != 4321 || got.StartedAt != startedAt.Format(time.RFC3339Nano) {
 		t.Fatalf("initialize = %+v", got)
 	}
 	payload, _ := json.Marshal(map[string]string{"text": "hello"})
@@ -579,9 +626,9 @@ func TestServerCommandValidation(t *testing.T) {
 	if _, err := connection.snapshotChunk(SnapshotChunkParams{SnapshotID: "missing"}); err == nil {
 		t.Fatal("missing snapshot chunk was returned")
 	}
-	connection.armRestart(2)
-	if connection.consumeRestart(1) || !connection.consumeRestart(2) || connection.consumeRestart(2) {
-		t.Fatal("restart generation was not single-use")
+	connection.armLifecycle(2)
+	if connection.consumeLifecycle(1) || !connection.consumeLifecycle(2) || connection.consumeLifecycle(2) {
+		t.Fatal("lifecycle generation was not single-use")
 	}
 	if _, err := readProtocolFrame(bufio.NewReader(strings.NewReader(`{"jsonrpc":"2.0"}`))); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("unterminated frame = %v", err)

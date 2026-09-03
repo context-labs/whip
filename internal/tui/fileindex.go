@@ -33,10 +33,17 @@ var currentRoot = os.Getwd
 // changed. Skips hidden dirs (.git, .agents) and heavy dependency dirs
 // (vendor, node_modules) so the index stays small and the walk stays fast.
 func refreshFileIndex() {
-	fileIndex.Lock()
-	defer fileIndex.Unlock()
 	wd, err := currentRoot()
 	if err != nil {
+		return
+	}
+	refreshFileIndexAt(wd)
+}
+
+func refreshFileIndexAt(wd string) {
+	fileIndex.Lock()
+	defer fileIndex.Unlock()
+	if wd == "" {
 		return
 	}
 	if wd == fileIndex.root && time.Since(fileIndex.builtAt) < fileIndexTTL {
@@ -74,7 +81,12 @@ func refreshFileIndex() {
 // The result cap keeps per-keystroke scoring bounded; it only binds on
 // pathological queries in huge trees, where the top-ranked matches win anyway.
 func fuzzyFiles(query string, limit int) []string {
-	refreshFileIndex()
+	root, _ := currentRoot()
+	return fuzzyFilesAt(root, query, limit)
+}
+
+func fuzzyFilesAt(root, query string, limit int) []string {
+	refreshFileIndexAt(root)
 	fileIndex.Lock()
 	files := append([]string(nil), fileIndex.files...)
 	fileIndex.Unlock()
@@ -157,34 +169,4 @@ func subseq(s, q string) bool {
 		s = s[i+1:]
 	}
 	return true
-}
-
-// resolveMentionPath turns an @mention token into an absolute path. Real
-// paths (relative, absolute, ~) stat as-is; a bare word like "roadmap"
-// falls back to the fuzzy index when exactly one file matches.
-func resolveMentionPath(p string) (string, bool) {
-	abs := p
-	if abs == "~" || strings.HasPrefix(abs, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			abs = home + abs[1:]
-		}
-	}
-	if !filepath.IsAbs(abs) {
-		if wd, err := os.Getwd(); err == nil {
-			abs = filepath.Join(wd, abs)
-		}
-	}
-	if _, err := os.Stat(abs); err == nil {
-		return abs, true
-	}
-	// Not a literal path: try a unique fuzzy match against the index, but
-	// only for bare words (no separators) so partial paths stay untouched.
-	if !strings.ContainsAny(p, "/\\") {
-		if hits := fuzzyFiles(p, 2); len(hits) == 1 {
-			if wd, err := currentRoot(); err == nil {
-				return filepath.Join(wd, filepath.FromSlash(hits[0])), true
-			}
-		}
-	}
-	return "", false
 }

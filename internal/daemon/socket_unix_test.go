@@ -43,11 +43,18 @@ func TestRuntimePathsAndOwnerLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	pid, active, err := ActiveOwnerPID(paths.Lock)
+	if err != nil || !active || pid != os.Getpid() {
+		t.Fatalf("active owner = pid %d, active %t, err %v", pid, active, err)
+	}
 	if _, err := AcquireOwner(paths.Lock); !errors.Is(err, ErrDaemonOwned) {
 		t.Fatalf("second owner error = %v", err)
 	}
 	if err := lock.Close(); err != nil {
 		t.Fatal(err)
+	}
+	if pid, active, err := ActiveOwnerPID(paths.Lock); err != nil || active || pid != 0 {
+		t.Fatalf("released owner = pid %d, active %t, err %v", pid, active, err)
 	}
 	lock, err = AcquireOwner(paths.Lock)
 	if err != nil {

@@ -32,18 +32,19 @@ type EventEnvelope struct {
 }
 
 type RootSnapshot struct {
-	RootID       string
-	Cursor       int64
-	Meta         Meta
-	Messages     []llm.Message
-	Presentation []SnapshotEvent
-	Agents       []RuntimeAgent
-	Inbox        []InboxItem
-	Blackboard   []StateValue
-	Budgets      []SnapshotBudget
-	Capabilities []CapabilityRecord
-	Schedules    []Schedule
-	Permissions  []PermissionSnapshot
+	RootID             string
+	Cursor             int64
+	Meta               Meta
+	Messages           []llm.Message
+	Presentation       []SnapshotEvent
+	AgentPresentations map[string][]SnapshotEvent
+	Agents             []RuntimeAgent
+	Inbox              []InboxItem
+	Blackboard         []StateValue
+	Budgets            []SnapshotBudget
+	Capabilities       []CapabilityRecord
+	Schedules          []Schedule
+	Permissions        []PermissionSnapshot
 }
 
 // SnapshotEvent is presentation-only state that has been durably observed but
@@ -177,12 +178,12 @@ func (s *Store) SnapshotRoot(ctx context.Context, rootID string) (RootSnapshot, 
 	snapshot := RootSnapshot{RootID: rootID}
 	var updated, tags string
 	var pinned int
-	if err := tx.QueryRowContext(ctx, `SELECT id,title,model,provider,cwd,goal,mode,forked_from,fork_seq,tags,pinned,effort,
-		usage_in,usage_cached,usage_out,task_id,updated_at FROM sessions WHERE id=?`, rootID).Scan(
-		&snapshot.Meta.ID, &snapshot.Meta.Title, &snapshot.Meta.Model, &snapshot.Meta.Provider, &snapshot.Meta.CWD,
-		&snapshot.Meta.Goal, &snapshot.Meta.Mode, &snapshot.Meta.ForkedFrom, &snapshot.Meta.ForkSeq, &tags, &pinned,
+	if err := tx.QueryRowContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,effort,
+		usage_in,usage_cached,usage_out,updated_at FROM sessions WHERE id=?`, rootID).Scan(
+		&snapshot.Meta.ID, &snapshot.Meta.Kind, &snapshot.Meta.Title, &snapshot.Meta.Model, &snapshot.Meta.Provider, &snapshot.Meta.CWD,
+		&snapshot.Meta.Goal, &snapshot.Meta.ForkedFrom, &snapshot.Meta.ForkSeq, &tags, &pinned,
 		&snapshot.Meta.Effort, &snapshot.Meta.UsageIn, &snapshot.Meta.UsageCached, &snapshot.Meta.UsageOut,
-		&snapshot.Meta.TaskID, &updated); err != nil {
+		&updated); err != nil {
 		return RootSnapshot{}, err
 	}
 	if tags != "" {
@@ -194,9 +195,6 @@ func (s *Store) SnapshotRoot(ctx context.Context, rootID string) (RootSnapshot, 
 		return RootSnapshot{}, err
 	}
 	if err := readSnapshotMessages(ctx, tx, rootID, &snapshot); err != nil {
-		return RootSnapshot{}, err
-	}
-	if err := s.readSnapshotPresentation(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
 	if err := readSnapshotAgents(ctx, tx, rootID, &snapshot); err != nil {
@@ -221,14 +219,18 @@ func (s *Store) SnapshotRoot(ctx context.Context, rootID string) (RootSnapshot, 
 		return RootSnapshot{}, err
 	}
 	deriveSnapshotAgentState(&snapshot)
+	if err := s.readSnapshotPresentation(ctx, tx, rootID, &snapshot); err != nil {
+		return RootSnapshot{}, err
+	}
 	return snapshot, tx.Commit()
 }
 
 func (s *Store) readSnapshotPresentation(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
 	rows, err := tx.QueryContext(ctx, `SELECT seq,kind,payload_inline,payload_ref FROM events
-		WHERE root_id=? AND kind LIKE 'stream.%' AND seq>COALESCE((
-			SELECT MAX(seq) FROM events WHERE root_id=? AND kind IN ('turn.succeeded','turn.failed')
-		),0) ORDER BY seq`, rootID, rootID)
+		WHERE root_id=? AND (kind LIKE 'stream.%' OR kind IN (
+			'turn.started','turn.succeeded','turn.failed','turn.cancelled','turn.interrupted',
+			'agent.turn.started','agent.turn.succeeded','agent.turn.failed','agent.turn.cancelled','agent.turn.interrupted'
+		)) ORDER BY seq`, rootID)
 	if err != nil {
 		return err
 	}
@@ -252,12 +254,42 @@ func (s *Store) readSnapshotPresentation(ctx context.Context, tx *sql.Tx, rootID
 	if err := rows.Close(); err != nil {
 		return err
 	}
+	snapshot.AgentPresentations = make(map[string][]SnapshotEvent)
 	for _, item := range pending {
 		item.event.Payload, err = s.readRuntimeValueTx(ctx, tx, item.inline, item.reference)
 		if err != nil {
 			return err
 		}
-		snapshot.Presentation = append(snapshot.Presentation, item.event)
+		switch item.event.Kind {
+		case "turn.started":
+			snapshot.Presentation = nil
+		case "turn.succeeded", "turn.failed", "turn.cancelled", "turn.interrupted":
+			snapshot.Presentation = nil
+		case "agent.turn.started":
+			var event LifecycleEvent
+			if json.Unmarshal(item.event.Payload, &event) == nil && event.AgentID != "" {
+				delete(snapshot.AgentPresentations, event.AgentID)
+			}
+		case "agent.turn.succeeded", "agent.turn.failed", "agent.turn.cancelled", "agent.turn.interrupted":
+			var event LifecycleEvent
+			if json.Unmarshal(item.event.Payload, &event) == nil && event.AgentID != "" {
+				delete(snapshot.AgentPresentations, event.AgentID)
+			}
+		default:
+			var owner struct {
+				AgentID string `json:"agent_id"`
+			}
+			if json.Unmarshal(item.event.Payload, &owner) != nil || owner.AgentID == "" {
+				snapshot.Presentation = append(snapshot.Presentation, item.event)
+			} else {
+				snapshot.AgentPresentations[owner.AgentID] = append(snapshot.AgentPresentations[owner.AgentID], item.event)
+			}
+		}
+	}
+	for _, agent := range snapshot.Agents {
+		if agent.ParentID != "" && agent.LifecyclePhase != "running" {
+			delete(snapshot.AgentPresentations, agent.ID)
+		}
 	}
 	return nil
 }
@@ -283,14 +315,16 @@ func readSnapshotMessages(ctx context.Context, tx *sql.Tx, rootID string, snapsh
 }
 
 func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),status FROM agents WHERE root_id=? ORDER BY created_at,id`, rootID)
+	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.root_id,COALESCE(a.parent_id,''),a.name,a.model,a.provider,a.effort,a.cwd,a.status,
+		(SELECT count(*) FROM agent_messages m WHERE m.root_id=a.root_id AND m.recipient_agent_id=a.id AND m.status='pending')
+		FROM agents a WHERE a.root_id=? ORDER BY a.created_at,a.id`, rootID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var agent RuntimeAgent
-		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Status); err != nil {
+		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Status, &agent.PendingMail); err != nil {
 			return err
 		}
 		snapshot.Agents = append(snapshot.Agents, agent)
@@ -473,10 +507,11 @@ func deriveSnapshotAgentState(snapshot *RootSnapshot) {
 	for _, permission := range snapshot.Permissions {
 		blocked[permission.AgentID] = "permission"
 	}
+	// Only the root's own inbox rows mean live work for the root actor; a
+	// child is running iff its agents row says so.
 	for _, item := range snapshot.Inbox {
-		active[item.AgentID] = true
-		if blocked[item.AgentID] == "" && strings.Contains(item.Kind, "message") {
-			blocked[item.AgentID] = "peer"
+		if item.Status == "running" {
+			active[item.AgentID] = true
 		}
 	}
 	for i := range snapshot.Agents {
@@ -510,12 +545,14 @@ func deriveSnapshotAgentState(snapshot *RootSnapshot) {
 	}
 }
 
-// ActiveRootIDs finds detached roots whose durable schedulers or
-// subscriptions must be reconstructed at daemon startup.
+// ActiveRootIDs finds detached roots whose durable schedulers,
+// subscriptions, or recursive-agent notifications need reconstruction.
 func (s *Store) ActiveRootIDs(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT root_id FROM (
 		SELECT session_id AS root_id FROM schedules
 		UNION ALL SELECT root_id FROM subscriptions WHERE status='active'
+		UNION ALL SELECT root_id FROM agent_messages WHERE status='pending'
+			AND recipient_agent_id IN (SELECT id FROM agents WHERE parent_id IS NOT NULL)
 	) ORDER BY root_id`)
 	if err != nil {
 		return nil, err
@@ -533,7 +570,7 @@ func (s *Store) ActiveRootIDs(ctx context.Context) ([]string, error) {
 }
 
 func (s *Store) RootCursors(ctx context.Context) (map[string]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,COALESCE((SELECT MAX(seq) FROM events WHERE root_id=sessions.id),0) FROM sessions WHERE task_id='' ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,COALESCE((SELECT MAX(seq) FROM events WHERE root_id=sessions.id),0) FROM sessions ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

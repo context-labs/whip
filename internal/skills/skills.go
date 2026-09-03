@@ -36,9 +36,16 @@ type ScanProblem struct {
 // DefaultDirs returns whip's skill locations: project .agents/skills, then
 // user ~/.whip/skills and ~/.agents/skills.
 func DefaultDirs() []string {
+	wd, _ := os.Getwd()
+	return DirsFor(wd)
+}
+
+// DirsFor returns configured skill roots for a specific daemon session. This
+// avoids resolving project skills against the daemon process's startup cwd.
+func DirsFor(workingDirectory string) []string {
 	var dirs []string
-	if wd, err := os.Getwd(); err == nil {
-		dirs = append(dirs, filepath.Join(wd, ".agents", "skills"))
+	if workingDirectory != "" {
+		dirs = append(dirs, filepath.Join(workingDirectory, ".agents", "skills"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		dirs = append(dirs, filepath.Join(home, ".whip", "skills"))

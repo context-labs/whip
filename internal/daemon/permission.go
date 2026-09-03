@@ -67,20 +67,21 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 		})
 		return errors.Join(decisionErr, finishErr)
 	})
+	if err == nil {
+		// A decision may have unblocked a waiting node; re-derive readiness.
+		s.reconcileAgentWork()
+	}
 	return ticket, err
 }
 
 func (s *Session) permissionResolver(agentID string) clientPermissionRunner {
-	if agentID == s.authority.AgentID {
-		resolver, _ := s.runner.(clientPermissionRunner)
-		return resolver
+	if runtime, ok := s.runtime.(interface {
+		PermissionResolver(string) clientPermissionRunner
+	}); ok {
+		return runtime.PermissionResolver(agentID)
 	}
-	for _, child := range s.children {
-		if child.agentID == agentID && child.agent != nil && child.agent.Services != nil {
-			return child.agent.Services
-		}
-	}
-	return nil
+	resolver, _ := s.runner.(clientPermissionRunner)
+	return resolver
 }
 
 func (s *Session) DecidePermission(ctx context.Context, permissionID string, decision capability.Decision) (ticket capability.Ticket, err error) {

@@ -57,9 +57,13 @@ func (s *Session) modelPricing() modelPricing {
 }
 
 // ReserveModelCall makes the root session itself an agent.ModelCallBudget.
-// Root, Classic, RLM, and stateless calls therefore share durable accounting.
+// Root, descendant, and stateless calls therefore share durable accounting.
 func (s *Session) ReserveModelCall(ctx context.Context, amount int64) (func(llm.Usage) error, error) {
 	return s.reserveModelCall(ctx, s.authority.AgentID, amount)
+}
+
+func (s *Session) ReserveAgentModelCall(ctx context.Context, agentID string, amount int64) (func(llm.Usage) error, error) {
+	return s.reserveModelCall(ctx, agentID, amount)
 }
 
 func (s *Session) reserveModelCall(ctx context.Context, agentID string, amount int64) (func(llm.Usage) error, error) {
@@ -91,9 +95,10 @@ func (s *Session) reserveModelCall(ctx context.Context, agentID string, amount i
 			actual = append(actual, capability.Usage{Kind: string(sessionstore.BudgetCost), Amount: cost})
 		}
 		actual = append(actual, capability.Usage{Kind: string(sessionstore.BudgetElapsed), Amount: max(time.Since(started).Milliseconds(), 1)})
-		return s.routeControl(context.Background(), func(actorCtx context.Context) error {
-			return s.store.ReconcileBudget(actorCtx, s.meta.ID, agentID, reservation, actual)
-		})
+		// Settlement can outlive a cancelled model turn. Keep it independent of
+		// the root actor so shutdown never waits on a worker that is waiting to
+		// route its final accounting back through that same actor.
+		return s.store.ReconcileBudget(context.Background(), s.meta.ID, agentID, reservation, actual)
 	}, nil
 }
 

@@ -112,12 +112,12 @@ func acceptanceCommand(rootID, commandID, text string) CommandParams {
 	return CommandParams{CommandID: commandID, Scope: "root", RootID: rootID, Operation: "submit", Payload: payload}
 }
 
-// TestRuntimeAcceptanceDetachedRecoveryAndClassicIsolation is the hermetic
+// TestRuntimeAcceptanceDetachedRecoveryAndContextIsolation is the hermetic
 // release proof for the cross-process spine. It launches the real Unix daemon
 // server and the real Starlark worker in subprocesses, then exercises detach,
 // cursor replay, snapshot reconstruction, crash recovery, idempotent retry,
-// oversized content isolation, and the Classic zero-kernel invariant.
-func TestRuntimeAcceptanceDetachedRecoveryAndClassicIsolation(t *testing.T) {
+// and oversized content isolation.
+func TestRuntimeAcceptanceDetachedRecoveryAndContextIsolation(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 	database := filepath.Join(home, "sessions.db")
@@ -137,22 +137,11 @@ func TestRuntimeAcceptanceDetachedRecoveryAndClassicIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := session.OpenWithDefaultMode(database, session.ModeRLM)
+	store, err := session.Open(database)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rlmRoot, err := store.Create(workspace, "scripted", "acceptance")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err = session.OpenWithDefaultMode(database, session.ModeClassic)
-	if err != nil {
-		t.Fatal(err)
-	}
-	classicRoot, err := store.Create(workspace, "scripted", "acceptance")
+	rlmRoot, err := store.Create(session.SessionKindAgent, workspace, "scripted", "acceptance")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +196,7 @@ func TestRuntimeAcceptanceDetachedRecoveryAndClassicIsolation(t *testing.T) {
 		}
 	}
 	snapshot, err := client.Snapshot(t.Context(), rlmRoot)
-	if err != nil || snapshot.Cursor != replay.Latest || snapshot.Meta.Mode != session.ModeRLM {
+	if err != nil || snapshot.Cursor != replay.Latest {
 		t.Fatalf("snapshot = %+v, replay latest=%d, %v", snapshot, replay.Latest, err)
 	}
 
@@ -236,17 +225,12 @@ func TestRuntimeAcceptanceDetachedRecoveryAndClassicIsolation(t *testing.T) {
 		t.Fatalf("recovered command = %+v, %v", result, err)
 	}
 
-	classic := acceptanceCommand(classicRoot, "classic-command", "classic")
-	result, err = client.Command(t.Context(), classic)
-	if err != nil || result.Status != "succeeded" || result.Output != "classic:classic" {
-		t.Fatalf("Classic command = %+v, %v", result, err)
-	}
 	kernelStarts, err := os.ReadFile(filepath.Join(home, "kernel-starts.log"))
 	if err != nil || strings.Count(string(kernelStarts), "started\n") != 1 {
 		t.Fatalf("kernel starts = %q, %v", kernelStarts, err)
 	}
 	calls, err := os.ReadFile(filepath.Join(home, "turn-calls.log"))
-	if err != nil || strings.Count(string(calls), "detached\n") != 1 || strings.Count(string(calls), "interrupted\n") != 1 || strings.Count(string(calls), "classic\n") != 1 {
+	if err != nil || strings.Count(string(calls), "detached\n") != 1 || strings.Count(string(calls), "interrupted\n") != 1 {
 		t.Fatalf("turn calls = %q, %v", calls, err)
 	}
 
@@ -276,8 +260,6 @@ func (host acceptanceHost) Call(_ context.Context, module, operation string, arg
 			"text": host.corpus[index : index+len(query)],
 			"span": map[string]any{"start": index, "end": index + len(query)},
 		}, nil
-	case "answer.submit":
-		return arguments, nil
 	default:
 		return nil, fmt.Errorf("unsupported acceptance operation %s.%s", module, operation)
 	}
@@ -311,8 +293,7 @@ func (runner *acceptanceRunner) Turn(ctx context.Context, input string, authored
 		}
 	}
 	defer runner.kernel.Close()
-	cell := fmt.Sprintf(`evidence = context.search(query=%q)
-answer.submit(text=evidence["text"], citations=[evidence["span"]])`, acceptanceNeedle)
+	cell := fmt.Sprintf(`context.search(query=%q)`, acceptanceNeedle)
 	value, err := runner.kernel.Exec(ctx, cell)
 	if err != nil {
 		return "", err
@@ -339,37 +320,6 @@ func (runner *acceptanceRunner) History() []llm.Message {
 }
 
 func (runner *acceptanceRunner) Close() { runner.kernel.Close() }
-
-type classicAcceptanceRunner struct {
-	mu      sync.Mutex
-	history []llm.Message
-	home    string
-}
-
-func (runner *classicAcceptanceRunner) Turn(_ context.Context, input string, authored bool, started func(), _ func(string)) (string, error) {
-	started()
-	if err := appendAcceptanceLine(filepath.Join(runner.home, "turn-calls.log"), input); err != nil {
-		return "", err
-	}
-	output := "classic:" + input
-	runner.mu.Lock()
-	runner.history = append(runner.history,
-		llm.Message{Role: "user", Content: input, Authored: authored},
-		llm.Message{Role: "assistant", Content: output},
-	)
-	runner.mu.Unlock()
-	return output, nil
-}
-
-func (*classicAcceptanceRunner) Steer(string) bool { return true }
-
-func (runner *classicAcceptanceRunner) History() []llm.Message {
-	runner.mu.Lock()
-	defer runner.mu.Unlock()
-	return append([]llm.Message(nil), runner.history...)
-}
-
-func (*classicAcceptanceRunner) Close() {}
 
 func appendAcceptanceLine(path, value string) error {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -413,9 +363,6 @@ func TestRuntimeAcceptanceDaemonHelper(t *testing.T) {
 	}
 	manager := rlm.NewManager(1)
 	value, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
-		if meta.Mode == session.ModeClassic {
-			return Components{Runner: &classicAcceptanceRunner{history: history, home: home}}, nil
-		}
 		kernel, kernelErr := rlm.NewKernel(rlm.KernelOptions{
 			Command: []string{executable, "-test.run=^TestRuntimeAcceptanceKernelWorker$", "--", "-acceptance-start", filepath.Join(home, "kernel-starts.log")},
 			Manager: manager, Host: acceptanceHost{corpus: string(corpus)},

@@ -51,7 +51,7 @@ type Services struct {
 	diagnostics         Diagnostics
 	gate                Gate
 	dispatcher          *capability.Dispatcher
-	authority           capability.ClassicAuthority
+	authority           capability.Authority
 	processes           *capability.ProcessManager
 	workspace           *capability.Workspace
 	processCwd          string
@@ -412,7 +412,7 @@ func AllWithServices(services *Services) []Tool {
 		services = NewServices()
 	}
 	var toolset []Tool
-	for _, spec := range classicToolSpecs {
+	for _, spec := range hostToolSpecs {
 		if spec.advertised {
 			toolset = append(toolset, services.wrap(spec.build(services)))
 		}
@@ -431,7 +431,7 @@ func (s *Services) CallTool(ctx context.Context, name string, arguments json.Raw
 	return s.Invoke(ctx, name, arguments)
 }
 
-type classicToolSpec struct {
+type hostToolSpec struct {
 	build      func(*Services) Tool
 	advertised bool
 	shell      bool
@@ -441,7 +441,7 @@ type classicToolSpec struct {
 	path       func(json.RawMessage) (string, error)
 }
 
-var classicToolSpecs = []classicToolSpec{
+var hostToolSpecs = []hostToolSpec{
 	{build: bashTool, advertised: true, shell: true, writer: true, mutation: capability.MutationWorkspace, permission: true},
 	{build: func(*Services) Tool { return readTool() }, advertised: true, path: toolPath},
 	{build: writeTool, advertised: true, mutation: capability.MutationPath, permission: true, path: toolPath},
@@ -451,23 +451,23 @@ var classicToolSpecs = []classicToolSpec{
 	{build: workspaceProcessTool, shell: true, writer: true, mutation: capability.MutationWorkspace, permission: true},
 }
 
-func classicTool(services *Services, operation string) Tool {
-	for _, spec := range classicToolSpecs {
+func hostTool(services *Services, operation string) Tool {
+	for _, spec := range hostToolSpecs {
 		tool := spec.build(services)
 		if tool.Def.Function.Name == operation {
 			return services.wrap(tool)
 		}
 	}
-	panic("unknown classic tool: " + operation)
+	panic("unknown host tool: " + operation)
 }
 
-func classicSpec(operation string) (classicToolSpec, bool) {
-	for _, spec := range classicToolSpecs {
+func hostSpec(operation string) (hostToolSpec, bool) {
+	for _, spec := range hostToolSpecs {
 		if spec.build(nil).Def.Function.Name == operation {
 			return spec, true
 		}
 	}
-	return classicToolSpec{}, false
+	return hostToolSpec{}, false
 }
 
 func (s *Services) wrap(tool Tool) Tool {
@@ -484,9 +484,9 @@ func (s *Services) wrap(tool Tool) Tool {
 
 type dispatchCallKey struct{}
 
-func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.ClassicAuthority) error {
+func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.Authority) error {
 	if ledger == nil || workspaces == nil || processes == nil || authority.RootID == "" || authority.AgentID == "" || authority.Files.ID == "" || authority.Shell.ID == "" {
-		return errors.New("classic dispatcher authority is incomplete")
+		return errors.New("host dispatcher authority is incomplete")
 	}
 	s.mu.RLock()
 	bound := s.dispatcher != nil && s.processes == processes && s.authority == authority
@@ -503,7 +503,7 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 	if err != nil {
 		return err
 	}
-	for _, spec := range classicToolSpecs {
+	for _, spec := range hostToolSpecs {
 		tool := spec.build(s)
 		operation := tool.Def.Function.Name
 		registration := capability.Registration{Operation: operation, Handler: func(ctx context.Context, call capability.Call) (string, error) {
@@ -550,7 +550,7 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 
 // CloneForAuthority keeps the parent's host integrations while binding tool
 // calls to a distinct descendant capability set.
-func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.ClassicAuthority) (*Services, error) {
+func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.Authority) (*Services, error) {
 	s.mu.RLock()
 	clone := &Services{
 		interactive:         s.interactive,
@@ -595,15 +595,15 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 	if dispatcher == nil {
 		return "", errors.New("tool services are not bound to dispatcher authority")
 	}
-	spec, ok := classicSpec(operation)
+	spec, ok := hostSpec(operation)
 	if !ok {
-		return "", fmt.Errorf("unknown classic operation %q", operation)
+		return "", fmt.Errorf("unknown host operation %q", operation)
 	}
 	capabilityRef := authority.Files
 	identity, ok := ctx.Value(invocationKey{}).(invocation)
 	if !ok || identity.traceID == "" {
 		var err error
-		ctx, err = WithTurnIdentity(ctx, "classic")
+		ctx, err = WithTurnIdentity(ctx, "runtime")
 		if err != nil {
 			return "", err
 		}
@@ -637,11 +637,11 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 
 // Invoke routes a named built-in operation through the same dispatcher,
 // authority, permission, budget, mutation-ordering, and trace path used by
-// Classic tools. RLM host modules use this seam instead of concrete handlers.
+// runtime modules.
 func (s *Services) Invoke(ctx context.Context, operation string, arguments json.RawMessage) (string, error) {
-	spec, ok := classicSpec(operation)
+	spec, ok := hostSpec(operation)
 	if !ok {
-		return "", fmt.Errorf("unknown classic operation %q", operation)
+		return "", fmt.Errorf("unknown host operation %q", operation)
 	}
 	return s.run(ctx, operation, arguments, spec.build(s).Run)
 }

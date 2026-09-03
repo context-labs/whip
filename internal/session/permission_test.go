@@ -12,7 +12,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 )
 
-func TestChildAdmissionDelegatesNarrowInspectableCapabilityAtomically(t *testing.T) {
+func TestAgentAdmissionDelegatesNarrowInspectableCapabilityAtomically(t *testing.T) {
 	store, rootID, rootAgentID := newSwarmFixture(t)
 	root, err := store.WorkspaceRoot(context.Background(), rootID)
 	if err != nil {
@@ -25,10 +25,9 @@ func TestChildAdmissionDelegatesNarrowInspectableCapabilityAtomically(t *testing
 	}
 	allowed = filepath.Join(allowed, "allowed")
 
-	if _, err := store.AdmitChild(context.Background(), ChildAdmission{
-		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "child", ExecutionID: "exec-child",
-		Capabilities: []CapabilityDelegation{{
-			ID: "child-read", Issuer: capability.Reference{ID: "classic-files:" + rootID, Generation: 1},
+	if _, err := store.AdmitAgent(context.Background(), AgentAdmission{
+		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "child", Capabilities: []CapabilityDelegation{{
+			ID: "child-read", Issuer: capability.Reference{ID: "files:" + rootID, Generation: 1},
 			AgentID: "child", Operations: []string{"read"}, Scopes: []string{allowed},
 		}},
 	}); err != nil {
@@ -45,10 +44,9 @@ func TestChildAdmissionDelegatesNarrowInspectableCapabilityAtomically(t *testing
 		t.Fatalf("delegated authority = %+v", record)
 	}
 
-	if _, err := store.AdmitChild(context.Background(), ChildAdmission{
-		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "rolled-back", ExecutionID: "exec-rolled-back",
-		Capabilities: []CapabilityDelegation{{
-			ID: "escalated", Issuer: capability.Reference{ID: "classic-files:" + rootID, Generation: 1},
+	if _, err := store.AdmitAgent(context.Background(), AgentAdmission{
+		RootID: rootID, ParentAgentID: rootAgentID, ChildAgentID: "rolled-back", Capabilities: []CapabilityDelegation{{
+			ID: "escalated", Issuer: capability.Reference{ID: "files:" + rootID, Generation: 1},
 			AgentID: "rolled-back", Operations: []string{"network"},
 		}},
 	}); !errors.Is(err, capability.ErrDenied) {
@@ -117,7 +115,7 @@ func TestDelegationDeniesAuthorityEscalationAndUnrelatedCallers(t *testing.T) {
 		"issuer generation":   {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.Issuer.Generation = 3; return v }()},
 		"shell path": {rootID, rootAgentID, func() CapabilityDelegation {
 			v := base
-			v.Issuer = capability.Reference{ID: "classic-shell:" + rootID, Generation: 1}
+			v.Issuer = capability.Reference{ID: "shell:" + rootID, Generation: 1}
 			v.Operations = []string{"bash"}
 			return v
 		}()},
@@ -129,7 +127,7 @@ func TestDelegationDeniesAuthorityEscalationAndUnrelatedCallers(t *testing.T) {
 		}()},
 		"writer without scope": {rootID, rootAgentID, func() CapabilityDelegation {
 			v := base
-			v.Issuer = capability.Reference{ID: "classic-files:" + rootID, Generation: 1}
+			v.Issuer = capability.Reference{ID: "files:" + rootID, Generation: 1}
 			v.Operations = []string{"workspace.write"}
 			v.Scopes = nil
 			v.ExpiresAt = time.Time{}
@@ -154,11 +152,11 @@ func TestDelegationDeniesAuthorityEscalationAndUnrelatedCallers(t *testing.T) {
 		"terminal subject": {rootID, rootAgentID, func() CapabilityDelegation { v := base; v.AgentID = "terminal-child"; return v }()},
 		"unrelated":        {rootID, "unrelated", base},
 	}
-	otherRoot, err := store.Create(t.TempDir(), "model", "provider")
+	otherRoot, err := store.Create(SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherAuthority, err := store.EnsureClassicAuthority(ctx, otherRoot)
+	otherAuthority, err := store.EnsureAuthority(ctx, otherRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,11 +300,11 @@ func TestCapabilityRevocationCancelsPendingPermissionAndRetainsHistory(t *testin
 			if _, err := store.RevokeCapabilityFor(ctx, rootID, "sibling", revokedID); !errors.Is(err, capability.ErrDenied) {
 				t.Fatalf("unrelated revocation error = %v", err)
 			}
-			otherRoot, err := store.Create(t.TempDir(), "model", "provider")
+			otherRoot, err := store.Create(SessionKindAgent, t.TempDir(), "model", "provider")
 			if err != nil {
 				t.Fatal(err)
 			}
-			otherAuthority, err := store.EnsureClassicAuthority(ctx, otherRoot)
+			otherAuthority, err := store.EnsureAuthority(ctx, otherRoot)
 			if err != nil {
 				t.Fatal(err)
 			}

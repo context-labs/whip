@@ -62,6 +62,14 @@ type Server struct {
 	Source string // config file the server was discovered from ("" when unknown)
 }
 
+// Tool is the bounded metadata exposed through the RLM mcp module.
+type Tool struct {
+	Name        string          `json:"name"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema"`
+}
+
 // server holds one server's live state.
 type server struct {
 	name string
@@ -618,6 +626,59 @@ func (m *Manager) Tools() []tools.Tool {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Def.Function.Name < out[j].Def.Function.Name })
 	return out
+}
+
+// ListTools returns one server's current tool metadata without widening the
+// model-facing JSON tool surface.
+func (m *Manager) ListTools(serverName string) ([]Tool, error) {
+	m.onChangeMu.Lock()
+	server := m.servers[serverName]
+	m.onChangeMu.Unlock()
+	if server == nil {
+		return nil, fmt.Errorf("MCP server %q not found", serverName)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if server.status != StatusReady || server.sess == nil {
+		return nil, fmt.Errorf("MCP server %q is %s", serverName, server.status)
+	}
+	result := make([]Tool, 0, len(server.defs))
+	for _, definition := range server.defs {
+		schema, err := json.Marshal(definition.InputSchema)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, Tool{
+			Name: definition.Name, Title: definition.Title,
+			Description: definition.Description, InputSchema: schema,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result, nil
+}
+
+// Call invokes a named tool on a named server. The server retains its normal
+// connection, timeout, and per-server serialization behavior.
+func (m *Manager) Call(ctx context.Context, serverName, toolName string, arguments json.RawMessage) (string, error) {
+	m.onChangeMu.Lock()
+	server := m.servers[serverName]
+	m.onChangeMu.Unlock()
+	if server == nil {
+		return "", fmt.Errorf("MCP server %q not found", serverName)
+	}
+	server.mu.Lock()
+	found := false
+	for _, definition := range server.defs {
+		if definition.Name == toolName {
+			found = true
+			break
+		}
+	}
+	server.mu.Unlock()
+	if !found {
+		return "", fmt.Errorf("MCP tool %s.%s not found", serverName, toolName)
+	}
+	return server.call(ctx, toolName, arguments)
 }
 
 // bridge converts one listed MCP tool into the agent-loop tools.Tool. The

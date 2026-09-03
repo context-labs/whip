@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/computer"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
@@ -41,6 +43,60 @@ func clientCommand(t *testing.T, root *Session, clientID, commandID, operation s
 		t.Fatal(err)
 	}
 	return result
+}
+
+func TestToolHostRunsOnlyRestrictedToolCommands(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "evidence.txt")
+	if err := os.WriteFile(path, []byte("tool-host evidence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID, err := store.Create(session.SessionKindToolHost, workspace, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var agentConstructions atomic.Int32
+	owner, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+		if meta.Kind != session.SessionKindToolHost {
+			agentConstructions.Add(1)
+			return Components{}, errors.New("unexpected model session")
+		}
+		return Components{Runner: NewToolRunner(tools.NewServices())}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	root, err := owner.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := root.runner.(*toolRunner); !ok || agentConstructions.Load() != 0 {
+		t.Fatalf("tool host runner=%T agent constructions=%d", root.runner, agentConstructions.Load())
+	}
+	if _, err := root.Submit(t.Context(), "model turn"); err == nil || !strings.Contains(err.Error(), "tool-host") {
+		t.Fatalf("tool-host submit error=%v", err)
+	}
+	if _, err := root.Steer(t.Context(), "model steer"); err == nil || !strings.Contains(err.Error(), "tool-host") {
+		t.Fatalf("tool-host steer error=%v", err)
+	}
+
+	schema := clientCommand(t, root, "mcp", "schema", "tool.schema", struct{}{})
+	if schema.Status != "succeeded" || !strings.Contains(schema.Output, `"name":"read"`) {
+		t.Fatalf("tool schema=%+v", schema)
+	}
+	call := clientCommand(t, root, "mcp", "read", "tool.call", map[string]any{
+		"tool": "read", "arguments": json.RawMessage(fmt.Sprintf(`{"path":%q}`, path)),
+	})
+	if call.Status != "succeeded" || !strings.Contains(call.Output, "tool-host evidence") {
+		t.Fatalf("tool call=%+v", call)
+	}
+	if _, err := root.ClientCommand(t.Context(), session.CommandAdmission{
+		ClientID: "mcp", CommandID: "agents", RequestDigest: "irrelevant",
+	}, "agents.list", json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "tool-host") {
+		t.Fatalf("agent command error=%v", err)
+	}
 }
 
 func TestClientControlCommandsAreActorOwnedAndIdempotent(t *testing.T) {
@@ -90,7 +146,7 @@ func TestClientControlCommandsAreActorOwnedAndIdempotent(t *testing.T) {
 	}
 
 	created := clientCommand(t, root, "tui", "schedule-create", "schedule.manage", map[string]string{"args": "@every 10m inspect CI"})
-	if created.Status != "succeeded" || created.Output != "1" {
+	if created.Status != "succeeded" || created.Output != "schedule 1 created" {
 		t.Fatalf("schedule create = %+v", created)
 	}
 	listed := clientCommand(t, root, "tui", "schedule-list", "schedule.manage", map[string]string{"args": "list"})
@@ -98,7 +154,7 @@ func TestClientControlCommandsAreActorOwnedAndIdempotent(t *testing.T) {
 		t.Fatalf("schedule list = %+v", listed)
 	}
 	cancelled := clientCommand(t, root, "tui", "schedule-cancel", "schedule.manage", map[string]string{"args": "cancel 1"})
-	if cancelled.Status != "succeeded" || len(store.Schedules(rootID)) != 0 {
+	if cancelled.Status != "succeeded" || cancelled.Output != "schedule 1 cancelled" || len(store.Schedules(rootID)) != 0 {
 		t.Fatalf("schedule cancel = %+v schedules=%+v", cancelled, store.Schedules(rootID))
 	}
 
@@ -612,6 +668,7 @@ type controlSurfaceMCP struct {
 func (m *controlSurfaceMCP) Statuses() []mcp.Server {
 	return []mcp.Server{{Name: "alpha", Status: mcp.StatusReady, Tools: 2}}
 }
+func (m *controlSurfaceMCP) Blocked() []mcp.Server      { return nil }
 func (m *controlSurfaceMCP) Reconnect(name string) bool { return m.record("reconnect", name) }
 func (m *controlSurfaceMCP) Enable(name string) bool    { return m.record("enable", name) }
 func (m *controlSurfaceMCP) Disable(name string) bool   { return m.record("disable", name) }
@@ -624,6 +681,7 @@ func (m *controlSurfaceMCP) record(action, name string) bool {
 }
 
 func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
@@ -639,7 +697,7 @@ func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := root.AdmitChild(t.Context(), root.AgentID(), "child", "exec-child"); err != nil {
+	if err := root.AdmitAgent(t.Context(), session.AgentAdmission{ParentAgentID: root.AgentID(), ChildAgentID: "child", Name: "child"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -656,9 +714,8 @@ func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
 		{"same-model", "session.model", "model provider", "model @ provider"},
 		{"fork", "session.fork", "control fork", ""},
 		{"agents", "agents.list", "", "child"},
-		{"task", "agent.start", "inspect the daemon", "task-1"},
 		{"budget", "budget.cap", root.AgentID() + " tokens 100", `"Limit":100`},
-		{"context", "context.inspect", "", rootID},
+		{"context", "context.audit", "", rootID},
 		{"terminal", "terminal.input", "", "input delivered"},
 		{"mcp-list", "mcp.control", "list", "alpha"},
 		{"mcp-reconnect", "mcp.control", "alpha reconnect", "alpha: reconnect"},
@@ -667,8 +724,6 @@ func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
 		{"lsp", "lsp.control", "status", "[]"},
 		{"browser", "browser.control", "status", "disabled"},
 		{"computer", "computer.control", "status", "disabled"},
-		{"stop-child", "agent.control", "stop child", "stopped"},
-		{"delete-child", "agent.delete", "child", "deleted"},
 		{"clear-goal", "goal.set", "clear", ""},
 	}
 	for _, test := range tests {
@@ -690,6 +745,54 @@ func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
 	meta, _, err := store.Load(rootID)
 	if err != nil || meta.CWD != runner.workingDirectory || meta.Effort != "high" {
 		t.Fatalf("durable controls meta=%+v err=%v", meta, err)
+	}
+}
+
+func TestClientControlRejectsRootRuntimeMutationDuringTurn(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}, workingDirectory: t.TempDir()}
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: runner}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := root.routeControl(t.Context(), func(context.Context) error {
+		root.running = &rootTurn{seq: 1}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = root.routeControl(context.Background(), func(context.Context) error {
+			root.running = nil
+			return nil
+		})
+	})
+
+	for index, test := range []struct {
+		operation string
+		args      string
+		contains  string
+	}{
+		{"workspace.set", "nested", "working directory cannot change"},
+		{"session.effort", "high", "effort cannot change"},
+	} {
+		result := clientCommand(t, root, "tui", fmt.Sprintf("busy-mutation-%d", index), test.operation, map[string]string{"args": test.args})
+		if result.Status != "failed" || !strings.Contains(result.Error, test.contains) {
+			t.Fatalf("%s while busy = %+v", test.operation, result)
+		}
+	}
+	result := clientCommand(t, root, "tui", "busy-effort-read", "session.effort", map[string]string{"args": ""})
+	if result.Status != "succeeded" {
+		t.Fatalf("effort status while busy = %+v", result)
 	}
 }
 
@@ -724,7 +827,6 @@ func TestClientControlRejectsInvalidActionsDurably(t *testing.T) {
 		{"schedule.manage", "cancel nope"},
 		{"schedule.manage", "@every nope prompt"},
 		{"schedule.manage", "invalid"},
-		{"agent.start", ""},
 		{"agent.control", ""},
 		{"budget.cap", "missing"},
 		{"budget.cap", root.AgentID() + " tokens nope"},
@@ -785,7 +887,6 @@ func TestProtocolClientCommandsFailClosedWithoutOptionalRunnerCapabilities(t *te
 		{"run.configure", struct{}{}},
 		{"workspace.set", map[string]string{"args": "nested"}},
 		{"history.clear", struct{}{}},
-		{"agent.start", map[string]string{"args": "work"}},
 	} {
 		result := clientCommand(t, root, "client", fmt.Sprintf("unsupported-%d", i), test.operation, test.payload)
 		if result.Status != "failed" || result.Error == "" {
@@ -827,7 +928,6 @@ func TestClientControlReportsUnsupportedRunnerCapabilities(t *testing.T) {
 		{"history.rewind", map[string]any{"args": "1"}},
 		{"workspace.set", map[string]any{"args": "."}},
 		{"history.clear", map[string]any{}},
-		{"agent.start", map[string]any{"args": "work"}},
 		{"terminal.input", map[string]any{"id": "terminal", "bytes": []byte("x")}},
 	}
 	for i, test := range tests {
@@ -915,6 +1015,111 @@ type replaceBlockedRunner struct{ *fakeRunner }
 
 func (*replaceBlockedRunner) CanReplace() error { return errors.New("child task is running") }
 
+type reloadTestRuntime struct{ running atomic.Bool }
+
+func (*reloadTestRuntime) Close()                   {}
+func (r *reloadTestRuntime) HasRunningAgents() bool { return r.running.Load() }
+
+func TestMCPImportDefersRuntimeReloadUntilChildrenAreIdle(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	runtime := &reloadTestRuntime{}
+	runtime.running.Store(true)
+	constructions := 0
+	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		constructions++
+		return Components{Runner: &fakeRunner{}, Runtime: runtime}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	root, err := value.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := clientCommand(t, root, "tui", "mcp-import", "mcp.control", map[string]string{"args": "import claude off"})
+	if result.Status != "succeeded" || !strings.Contains(result.Output, "pending") || !root.reloadPending || constructions != 1 {
+		t.Fatalf("busy import=%+v pending=%t constructions=%d", result, root.reloadPending, constructions)
+	}
+	cfg, err := config.Load()
+	if err != nil || cfg.MCPImport == nil || cfg.MCPImport.Claude == nil || cfg.MCPImport.Claude.Enabled == nil || *cfg.MCPImport.Claude.Enabled {
+		t.Fatalf("saved import policy=%+v err=%v", cfg.MCPImport, err)
+	}
+	runtime.running.Store(false)
+	root.applyPendingReloadAfterAgent()
+	if root.reloadPending || constructions != 2 {
+		t.Fatalf("idle reload pending=%t constructions=%d", root.reloadPending, constructions)
+	}
+}
+
+func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(t *testing.T) {
+	t.Run("explicit off", func(t *testing.T) {
+		t.Setenv("WHIP_HOME", t.TempDir())
+		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+		rootID := createRoot(t, store)
+		runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}}
+		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			return Components{Runner: runner}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = value.Close() })
+		root, err := value.Open(rootID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := clientCommand(t, root, "tui", "effort-off", "session.effort", map[string]string{"args": "off", "persist_default": "true"})
+		meta, _, loadErr := store.Load(rootID)
+		cfg, configErr := config.Load()
+		if result.Status != "succeeded" || runner.effort != "" || loadErr != nil || configErr != nil || meta.Effort != "off" || cfg.DefaultEffort != "off" {
+			t.Fatalf("off result=%+v runner=%q meta=%q default=%q load=%v config=%v", result, runner.effort, meta.Effort, cfg.DefaultEffort, loadErr, configErr)
+		}
+	})
+
+	t.Run("model compatibility is session only", func(t *testing.T) {
+		t.Setenv("WHIP_HOME", t.TempDir())
+		cfg := config.Default()
+		cfg.DefaultEffort = "high"
+		cfg.Providers["limited-provider"] = config.Provider{BaseURL: "https://example.test"}
+		cfg.Models["limited-model"] = config.Model{ID: "limited-api", Providers: []string{"limited-provider"}}
+		if err := cfg.Save(); err != nil {
+			t.Fatal(err)
+		}
+		if err := config.SaveCatalogs(map[string]config.Catalog{"limited-provider": {
+			Models: []config.ModelInfoLite{{ID: "limited-api", ReasoningEfforts: []string{"low"}}},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+		rootID := createRoot(t, store)
+		if err := store.SetEffort(rootID, "high"); err != nil {
+			t.Fatal(err)
+		}
+		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			return Components{Runner: &fakeRunner{}}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = value.Close() })
+		root, err := value.Open(rootID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := clientCommand(t, root, "tui", "model-session-only", "session.model", map[string]string{
+			"args": "limited-model limited-provider", "persist_default": "false",
+		})
+		meta, _, loadErr := store.Load(rootID)
+		saved, configErr := config.Load()
+		if result.Status != "succeeded" || loadErr != nil || configErr != nil || meta.Effort != "off" || saved.DefaultEffort != "high" {
+			t.Fatalf("compatibility result=%+v effort=%q default=%q load=%v config=%v", result, meta.Effort, saved.DefaultEffort, loadErr, configErr)
+		}
+	})
+}
+
 func TestModelReplacementRejectsUnsafeFactories(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -970,6 +1175,7 @@ func TestModelReplacementRejectsUnsafeFactories(t *testing.T) {
 }
 
 func TestProductionAgentRunnerControlAdapters(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"choices":[{"message":{"content":"formed goal"}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}`)
@@ -978,7 +1184,7 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
-	authority, err := store.EnsureClassicAuthority(t.Context(), rootID)
+	authority, err := store.EnsureAuthority(t.Context(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -993,14 +1199,33 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agentValue := agent.NewWithServices(llm.New(server.URL, "key"), "model", 100, "system", services)
+	agentValue := agent.NewRuntime(llm.New(server.URL, "key"), "model", 100, "system", services)
 	agentValue.WorkingDir = meta.CWD
-	runner := &agentRunner{agent: agentValue}
+	runner := &AgentSession{agent: agentValue}
 
 	if path, err := runner.ResolveWorkingDirectory("."); err != nil || !filepath.IsAbs(path) {
 		t.Fatalf("resolved workspace=%q err=%v", path, err)
 	}
-	runner.SetWorkingDirectory(agentValue.WorkingDir)
+	rootDirectory := agentValue.WorkingDir
+	nested := filepath.Join(rootDirectory, "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(rootDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalNested, err := filepath.EvalSymlinks(nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.SetWorkingDirectory(nested)
+	if path, err := runner.ResolveWorkingDirectory("."); err != nil || path != canonicalNested {
+		t.Fatalf("resolved current session workspace=%q err=%v", path, err)
+	}
+	if path, err := runner.ResolveWorkingDirectory(".."); err != nil || path != canonicalRoot {
+		t.Fatalf("resolved relative session workspace=%q err=%v", path, err)
+	}
 	if output, err := runner.RunShell(t.Context(), "printf adapter"); err != nil || output != "adapter" {
 		t.Fatalf("shell output=%q err=%v", output, err)
 	}
@@ -1020,61 +1245,6 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 	}
 	if err := runner.CanReplace(); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := runner.StartTask(""); err == nil {
-		t.Fatal("empty task was accepted")
-	}
-	if _, err := runner.StartTask("-m model"); err == nil {
-		t.Fatal("incomplete model override was accepted")
-	}
-	if _, err := runner.StartTask("-m other do work"); err == nil {
-		t.Fatal("unresolvable model override was accepted")
-	}
-	agentValue.ResolveModel = func(model, provider string) (agent.SubModel, error) {
-		if model == "broken" {
-			return agent.SubModel{}, errors.New("route unavailable")
-		}
-		if provider == "" {
-			t.Fatal("provider override was not forwarded")
-		}
-		return agent.SubModel{Client: llm.New(server.URL, "key"), Model: model}, nil
-	}
-	if _, err := runner.StartTask("-m broken@provider do work"); err == nil || !strings.Contains(err.Error(), "route unavailable") {
-		t.Fatalf("resolver failure = %v", err)
-	}
-	id, err := runner.StartTask("-m other@provider one two three four five six seven eight nine")
-	if err != nil || id == "" {
-		t.Fatalf("started task=%q err=%v", id, err)
-	}
-	startedTask, ok := agentValue.Tasks().Get(id)
-	if !ok {
-		t.Fatalf("started task %q was not registered", id)
-	}
-	select {
-	case <-startedTask.Done:
-	case <-time.After(time.Second):
-		t.Fatal("started task did not settle")
-	}
-	queued := agentValue.RegisterBackground("queued", "queued", agent.SubModel{})
-	if err := runner.CanReplace(); err == nil || !strings.Contains(err.Error(), "child task") {
-		t.Fatalf("replace with queued child = %v", err)
-	}
-	agentValue.Tasks().Cancel(queued.ID)
-	agentValue.LaunchBackground(queued, "")
-	select {
-	case <-queued.Done:
-	case <-time.After(time.Second):
-		t.Fatal("cancelled task did not settle")
-	}
-	w, err := agentValue.StartWait(agent.WaitTaskSpec{Command: "sleep 10", Until: "never", Timeout: time.Minute})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runner.CanReplace(); err == nil || !strings.Contains(err.Error(), "wait") {
-		t.Fatalf("replace with active wait = %v", err)
-	}
-	if !agentValue.Waits().CancelWait(w.ID) {
-		t.Fatal("active wait was not cancelled")
 	}
 	if runner.browserManager() == nil || runner.lspManager() == nil || runner.computerPolicy() == nil {
 		t.Fatal("configured services were absent from the production adapter")
@@ -1105,14 +1275,14 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 	if _, err := controlSession.applyClientCommand(t.Context(), "lsp.control", json.RawMessage(`{"args":"restart"}`)); err == nil {
 		t.Fatal("invalid LSP action was accepted")
 	}
-	emptyRunner := &agentRunner{agent: &agent.Agent{}}
+	emptyRunner := &AgentSession{agent: &agent.Agent{}}
 	if emptyRunner.browserManager() != nil || emptyRunner.lspManager() != nil || emptyRunner.computerPolicy() != nil {
 		t.Fatal("agent without services exposed optional managers")
 	}
 	if _, err := runner.CompactNow(t.Context()); err == nil {
 		t.Fatal("short history unexpectedly compacted")
 	}
-	emptyHistory := &agentRunner{agent: agent.New(llm.New(server.URL, "key"), "model", 100, "system")}
+	emptyHistory := &AgentSession{agent: agent.NewRuntime(llm.New(server.URL, "key"), "model", 100, "system", tools.NewServices())}
 	if _, _, err := emptyHistory.FormGoal(t.Context(), 2); err == nil {
 		t.Fatal("goal formulation accepted an empty conversation")
 	}
@@ -1130,38 +1300,6 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 	runner.Close()
 }
 
-func TestClientAgentControlMapsTaskIDsToDurableChildren(t *testing.T) {
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	rootID := createRoot(t, store)
-	runner := &controlSurfaceRunner{fakeRunner: &fakeRunner{}}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: runner}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = value.Close() })
-	root, err := value.Open(rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := root.AdmitChild(t.Context(), root.AgentID(), "child-agent", "exec-child"); err != nil {
-		t.Fatal(err)
-	}
-	root.children["task-9"] = &liveSubagent{agentID: "child-agent", executionID: "exec-child", running: true}
-	result := clientCommand(t, root, "tui", "stop-mapped-child", "agent.control", map[string]string{"args": "task-9"})
-	if result.Status != "succeeded" || result.Output != "stopped" || root.children["task-9"].running {
-		t.Fatalf("mapped child stop = %+v child=%+v", result, root.children["task-9"])
-	}
-	retry := clientCommand(t, root, "tui", "stop-terminal-child", "agent.control", map[string]string{"args": "child-agent"})
-	if retry.Status != "succeeded" || retry.Output != "stopped" {
-		t.Fatalf("terminal child retry = %+v", retry)
-	}
-	if err := root.completeClientCommand(nil); err == nil {
-		t.Fatal("nil client completion was accepted")
-	}
-}
-
 type recoveringCompactionRunner struct{ *snapshottingHistoryRunner }
 
 func (*recoveringCompactionRunner) CompactNow(context.Context) (clientCompaction, error) {
@@ -1175,7 +1313,7 @@ func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := store.EnsureClassicAuthority(t.Context(), rootID)
+	authority, err := store.EnsureAuthority(t.Context(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1195,7 +1333,7 @@ func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
 		{"history.clear", `{}`},
 		{"schedule.manage", `{"args":"list"}`},
 		{"session.list", `{}`},
-		{"context.inspect", `{}`},
+		{"context.audit", `{}`},
 		{"budget.cap", fmt.Sprintf(`{"args":%q}`, root.AgentID()+" tokens 1")},
 	} {
 		if _, err := root.applyClientCommand(t.Context(), test.operation, json.RawMessage(test.payload)); err == nil {

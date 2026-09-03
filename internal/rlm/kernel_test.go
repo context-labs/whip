@@ -79,6 +79,38 @@ func testKernel(t *testing.T, limits Limits, host Host) *Kernel {
 	return kernel
 }
 
+func testManagedKernel(t *testing.T, manager *Manager) *Kernel {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kernel, err := NewKernel(KernelOptions{
+		Command: []string{executable, "-test.run=TestWorkerProcess", "--"},
+		Limits:  DefaultLimits(), Manager: manager,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+	return kernel
+}
+
+func waitManagerQueue(t *testing.T, manager *Manager, size int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		manager.mu.Lock()
+		queued := len(manager.queue)
+		manager.mu.Unlock()
+		if queued == size {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("kernel queue did not reach %d", size)
+}
+
 func TestKernelPreservesGlobalsAndReturnsFinalExpression(t *testing.T) {
 	kernel := testKernel(t, DefaultLimits(), nil)
 	if kernel.Started() {
@@ -244,8 +276,14 @@ func TestKernelReservationAndCrashRestart(t *testing.T) {
 	if _, err := first.Exec(context.Background(), "x = 7"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := second.Exec(context.Background(), "1"); !errors.Is(err, ErrWorkerLimit) {
-		t.Fatalf("reservation error = %v", err)
+	if _, err := second.Exec(context.Background(), "1"); err != nil {
+		t.Fatalf("LRU replacement: %v", err)
+	}
+	if first.Started() || manager.State(first) != KernelCold {
+		t.Fatalf("first kernel was not suspended: started=%v state=%s", first.Started(), manager.State(first))
+	}
+	if _, err := first.Exec(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "undefined") {
+		t.Fatalf("globals survived suspension: %v", err)
 	}
 
 	first.mu.Lock()
@@ -264,9 +302,177 @@ func TestKernelReservationAndCrashRestart(t *testing.T) {
 	if _, err := first.Exec(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "undefined") {
 		t.Fatalf("globals survived worker restart: %v", err)
 	}
-	if _, err := second.Exec(context.Background(), "1"); !errors.Is(err, ErrWorkerLimit) {
-		// first owns the sole slot again after its restart.
+	if _, err := second.Exec(context.Background(), "1"); err != nil {
 		t.Fatalf("reservation after restart = %v", err)
+	}
+}
+
+func TestKernelManagerSchedulesFIFOWithoutEvictingRunningTurns(t *testing.T) {
+	manager := NewManager(2)
+	t.Cleanup(manager.Close)
+	kernels := []*Kernel{
+		testManagedKernel(t, manager), testManagedKernel(t, manager),
+		testManagedKernel(t, manager), testManagedKernel(t, manager),
+	}
+	_, _, releaseFirst, err := kernels[0].AcquireTurn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseFirst()
+	_, _, releaseSecond, err := kernels[1].AcquireTurn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseSecond()
+
+	type acquisition struct {
+		index   int
+		release func()
+		err     error
+	}
+	acquired := make(chan acquisition, 2)
+	acquire := func(index int) {
+		_, _, release, acquireErr := kernels[index].AcquireTurn(t.Context())
+		acquired <- acquisition{index: index, release: release, err: acquireErr}
+	}
+	go acquire(2)
+	waitManagerQueue(t, manager, 1)
+	go acquire(3)
+	waitManagerQueue(t, manager, 2)
+	if manager.Active() != 2 {
+		t.Fatalf("resident workers=%d, want 2", manager.Active())
+	}
+
+	releaseSecond()
+	third := <-acquired
+	if third.err != nil || third.index != 2 {
+		t.Fatalf("first queued acquisition=%+v", third)
+	}
+	defer third.release()
+	if manager.State(kernels[0]) != KernelRunning || manager.State(kernels[1]) != KernelCold || manager.State(kernels[2]) != KernelRunning {
+		t.Fatalf("states after first grant=%s,%s,%s", manager.State(kernels[0]), manager.State(kernels[1]), manager.State(kernels[2]))
+	}
+
+	releaseFirst()
+	fourth := <-acquired
+	if fourth.err != nil || fourth.index != 3 {
+		t.Fatalf("second queued acquisition=%+v", fourth)
+	}
+	defer fourth.release()
+	if manager.Active() != 2 || manager.State(kernels[2]) != KernelRunning || manager.State(kernels[3]) != KernelRunning {
+		t.Fatalf("states after second grant=%s,%s active=%d", manager.State(kernels[2]), manager.State(kernels[3]), manager.Active())
+	}
+}
+
+func TestKernelManagerEvictsIdleWorkersInLRUOrderAcrossRetainedSessions(t *testing.T) {
+	manager := NewManager(2)
+	t.Cleanup(manager.Close)
+	kernels := make([]*Kernel, 10)
+	for index := range kernels {
+		kernels[index] = testManagedKernel(t, manager)
+	}
+	if _, err := kernels[0].Exec(t.Context(), "x = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kernels[1].Exec(t.Context(), "x = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kernels[0].Exec(t.Context(), "x += 1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kernels[2].Exec(t.Context(), "x = 3"); err != nil {
+		t.Fatal(err)
+	}
+	if manager.State(kernels[1]) != KernelCold || manager.State(kernels[0]) != KernelResident {
+		t.Fatalf("LRU states first=%s second=%s", manager.State(kernels[0]), manager.State(kernels[1]))
+	}
+	for index := 3; index < len(kernels); index++ {
+		if _, err := kernels[index].Exec(t.Context(), fmt.Sprintf("x = %d", index)); err != nil {
+			t.Fatalf("retained session %d: %v", index, err)
+		}
+		if manager.Active() > 2 {
+			t.Fatalf("resident workers=%d after session %d", manager.Active(), index)
+		}
+	}
+	started := 0
+	for _, kernel := range kernels {
+		if kernel.Started() {
+			started++
+		}
+	}
+	if started != 2 {
+		t.Fatalf("resident subprocesses=%d, want 2", started)
+	}
+}
+
+func TestKernelManagerRemovesCancelledWaitersAndWakesOnShutdown(t *testing.T) {
+	manager := NewManager(1)
+	first := testManagedKernel(t, manager)
+	queued := testManagedKernel(t, manager)
+	shutdown := testManagedKernel(t, manager)
+	_, _, release, err := first.AcquireTurn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancelled := make(chan error, 1)
+	go func() {
+		_, _, _, acquireErr := queued.AcquireTurn(ctx)
+		cancelled <- acquireErr
+	}()
+	waitManagerQueue(t, manager, 1)
+	if _, _, _, duplicateErr := queued.AcquireTurn(t.Context()); duplicateErr == nil || !strings.Contains(duplicateErr.Error(), "already queued") {
+		t.Fatalf("duplicate waiter error=%v", duplicateErr)
+	}
+	cancel()
+	if err := <-cancelled; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled acquisition=%v", err)
+	}
+	waitManagerQueue(t, manager, 0)
+
+	closed := make(chan error, 1)
+	go func() {
+		_, _, _, acquireErr := shutdown.AcquireTurn(t.Context())
+		closed <- acquireErr
+	}()
+	waitManagerQueue(t, manager, 1)
+	manager.Close()
+	if err := <-closed; !errors.Is(err, ErrManagerClosed) {
+		t.Fatalf("shutdown acquisition=%v", err)
+	}
+}
+
+func TestKernelTurnLeasePreservesScratchAndSuspendRejectsRunning(t *testing.T) {
+	manager := NewManager(1)
+	t.Cleanup(manager.Close)
+	kernel := testManagedKernel(t, manager)
+	ctx, start, release, err := kernel.AcquireTurn(t.Context())
+	if err != nil || start.Restarted {
+		t.Fatalf("first lease start=%+v err=%v", start, err)
+	}
+	if err := kernel.Suspend(); !errors.Is(err, ErrKernelRunning) {
+		t.Fatalf("suspend running kernel=%v", err)
+	}
+	if _, err := kernel.Exec(ctx, "scratch = 41"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := kernel.Exec(ctx, "scratch + 1")
+	if err != nil || result.Value != float64(42) {
+		t.Fatalf("same-turn scratch=%#v err=%v", result, err)
+	}
+	release()
+	if err := kernel.Suspend(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, start, release, err = kernel.AcquireTurn(t.Context())
+	if err != nil || !start.Restarted || start.Restore != nil {
+		t.Fatalf("second lease start=%+v err=%v", start, err)
+	}
+	defer release()
+	if _, err := kernel.Exec(ctx, "scratch"); err == nil || !strings.Contains(err.Error(), "undefined") {
+		t.Fatalf("scratch survived suspension: %v", err)
 	}
 }
 
@@ -389,4 +595,94 @@ func TestKernelLifecycleAndDiagnosticsBoundaries(t *testing.T) {
 	if err := killProcessGroup(0); err != nil {
 		t.Fatalf("zero process group: %v", err)
 	}
+}
+
+type memoryScratch struct {
+	mu       sync.Mutex
+	program  string
+	manifest SnapshotManifest
+	saves    int
+}
+
+func (store *memoryScratch) Load(context.Context) (string, SnapshotManifest, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.program, store.manifest, nil
+}
+
+func (store *memoryScratch) Save(_ context.Context, program string, manifest SnapshotManifest) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.program, store.manifest = program, manifest
+	store.saves++
+	return nil
+}
+
+func (store *memoryScratch) count() int {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.saves
+}
+
+func TestKernelScratchSurvivesSuspensionAndMidTurnRestart(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(1)
+	t.Cleanup(manager.Close)
+	limits := DefaultLimits()
+	limits.Wall = 300 * time.Millisecond
+	limits.Steps = ^uint64(0)
+	store := &memoryScratch{}
+	kernel, err := NewKernel(KernelOptions{
+		Command: []string{executable, "-test.run=TestWorkerProcess", "--"},
+		Limits:  limits, Manager: manager, Scratch: store,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+
+	ctx, start, release, err := kernel.AcquireTurn(t.Context())
+	if err != nil || start.Restarted || start.Restore != nil {
+		t.Fatalf("first lease start=%+v err=%v", start, err)
+	}
+	if _, err := kernel.Exec(ctx, "scratch = 41\ndef bump(x):\n    return x + 1"); err != nil {
+		t.Fatal(err)
+	}
+	if store.count() != 1 {
+		t.Fatalf("saves after first cell = %d", store.count())
+	}
+	if result, err := kernel.Exec(ctx, "bump(scratch)"); err != nil || result.Value != float64(42) || result.Restored != nil {
+		t.Fatalf("same-turn cell = %+v err=%v", result, err)
+	}
+	if store.count() != 1 {
+		t.Fatalf("unchanged scratch was saved again: %d", store.count())
+	}
+	release()
+	if err := kernel.Suspend(); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, start, release, err = kernel.AcquireTurn(t.Context())
+	if err != nil || !start.Restarted || start.Restore == nil {
+		t.Fatalf("second lease start=%+v err=%v", start, err)
+	}
+	if !slices.Equal(start.Restore.Restored, []string{"scratch", "bump"}) || len(start.Restore.Failed) != 0 {
+		t.Fatalf("restore report = %+v", start.Restore)
+	}
+	if result, err := kernel.Exec(ctx, "bump(scratch)"); err != nil || result.Value != float64(42) {
+		t.Fatalf("restored scratch = %+v err=%v", result, err)
+	}
+	// A cell that hits the wall clock kills the worker mid-turn; the next
+	// cell runs on a replacement that revived the scratch first.
+	if _, err := kernel.Exec(ctx, "while True:\n  pass"); err == nil {
+		t.Fatal("infinite cell did not hit the wall limit")
+	}
+	result, err := kernel.Exec(ctx, "bump(scratch)")
+	if err != nil || result.Value != float64(42) || result.Restored == nil || !slices.Contains(result.Restored.Restored, "scratch") {
+		t.Fatalf("mid-turn restore = %+v err=%v", result, err)
+	}
+	release()
 }

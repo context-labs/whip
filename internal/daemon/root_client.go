@@ -114,7 +114,7 @@ type RootClient struct {
 	nextID  atomic.Uint64
 }
 
-var errReconnectForCreatedRoot = errors.New("reconnect to subscribe to created root")
+var errReconnectWithSynchronizedCursor = errors.New("reconnect with synchronized root cursor")
 
 func NewRootClient(options RootClientOptions) (*RootClient, error) {
 	if options.ClientID == "" || options.Connector == nil {
@@ -188,6 +188,26 @@ func (c *RootClient) Cursor() int64 {
 	return c.cursor
 }
 
+// SwitchRoot changes the subscribed session after a successful daemon action.
+// Closing the current connection makes the run loop synchronize the new root
+// before it accepts another command.
+func (c *RootClient) SwitchRoot(rootID string) error {
+	if rootID == "" {
+		return errors.New("session root is required")
+	}
+	c.mu.Lock()
+	c.rootID, c.cursor, c.create = rootID, 0, nil
+	c.state = RootSnapshotting
+	connection := c.conn
+	c.notifyLocked()
+	c.mu.Unlock()
+	c.emit(RootUpdate{State: RootSnapshotting, StateChanged: true})
+	if connection != nil {
+		return connection.Close()
+	}
+	return nil
+}
+
 func (c *RootClient) Err() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -244,6 +264,45 @@ func (c *RootClient) Command(ctx context.Context, action RootAction) (CommandRes
 			continue
 		default:
 			return CommandResult{}, err
+		}
+	}
+}
+
+// ValidateProvider performs an ephemeral daemon request. Unlike Command, its
+// credential-bearing payload is never admitted to the durable command log.
+func (c *RootClient) ValidateProvider(ctx context.Context, params ProviderValidateParams) (ProviderValidateResult, error) {
+	type validator interface {
+		ValidateProvider(context.Context, ProviderValidateParams) (ProviderValidateResult, error)
+	}
+	for {
+		c.mu.RLock()
+		state, connection := c.state, c.conn
+		c.mu.RUnlock()
+		if state != RootLive || connection == nil {
+			if !c.started.Load() || !c.waitForLive(ctx) {
+				if err := ctx.Err(); err != nil {
+					return ProviderValidateResult{}, err
+				}
+				return ProviderValidateResult{}, c.ctx.Err()
+			}
+			continue
+		}
+		provider, ok := connection.(validator)
+		if !ok {
+			return ProviderValidateResult{}, errors.New("daemon connection does not support provider validation")
+		}
+		result, err := provider.ValidateProvider(ctx, params)
+		if err == nil {
+			return result, nil
+		}
+		if ctx.Err() != nil {
+			return ProviderValidateResult{}, ctx.Err()
+		}
+		select {
+		case <-connection.Done():
+			continue
+		default:
+			return ProviderValidateResult{}, err
 		}
 	}
 }
@@ -410,7 +469,7 @@ func (c *RootClient) run() {
 		delay = c.retryMin
 		c.setConnection(connection)
 		if err := c.synchronize(connection); err != nil {
-			if errors.Is(err, errReconnectForCreatedRoot) {
+			if errors.Is(err, errReconnectWithSynchronizedCursor) {
 				_ = connection.Close()
 				c.clearConnection(connection)
 				continue
@@ -457,7 +516,7 @@ func (c *RootClient) synchronize(connection RootConnection) error {
 		c.mu.Lock()
 		c.rootID, c.cursor = result.Output, 0
 		c.mu.Unlock()
-		return errReconnectForCreatedRoot
+		return errReconnectWithSynchronizedCursor
 	}
 
 	c.transition(RootSnapshotting, nil)
@@ -467,10 +526,16 @@ func (c *RootClient) synchronize(connection RootConnection) error {
 			return err
 		}
 		if !replay.Expired {
+			contiguous := true
 			for i := range replay.Events {
-				c.emitEvent(replay.Events[i])
+				if !c.emitEvent(replay.Events[i]) {
+					contiguous = false
+					break
+				}
 			}
-			return nil
+			if contiguous {
+				return nil
+			}
 		}
 	}
 	snapshot, err := connection.Snapshot(c.ctx, rootID)
@@ -481,7 +546,13 @@ func (c *RootClient) synchronize(connection RootConnection) error {
 	c.cursor = snapshot.Cursor
 	c.mu.Unlock()
 	c.emit(RootUpdate{Snapshot: &snapshot})
-	return nil
+	if snapshot.Cursor == cursor {
+		return nil
+	}
+	// The server's event pump was created with the cursor sent during
+	// initialization. Reconnect after replacing that cursor with a snapshot so
+	// the live subscription starts at the same authoritative boundary.
+	return errReconnectWithSynchronizedCursor
 }
 
 func (c *RootClient) consume(connection RootConnection) bool {
@@ -496,20 +567,28 @@ func (c *RootClient) consume(connection RootConnection) bool {
 			if !ok {
 				return true
 			}
-			c.emitEvent(event)
+			if !c.emitEvent(event) {
+				_ = connection.Close()
+				return true
+			}
 		}
 	}
 }
 
-func (c *RootClient) emitEvent(event ProtocolEvent) {
+func (c *RootClient) emitEvent(event ProtocolEvent) bool {
 	c.mu.Lock()
 	if event.RootID != c.rootID || event.Seq <= c.cursor {
 		c.mu.Unlock()
-		return
+		return true
+	}
+	if c.cursor > 0 && event.Seq != c.cursor+1 {
+		c.mu.Unlock()
+		return false
 	}
 	c.cursor = event.Seq
 	c.mu.Unlock()
 	c.emit(RootUpdate{Event: &event})
+	return true
 }
 
 func (c *RootClient) transition(state RootClientState, err error) {

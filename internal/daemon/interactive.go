@@ -71,7 +71,7 @@ func (r *daemonInteractiveRunner) Send(id string, input []byte) error {
 	}
 }
 
-func (r *agentRunner) SendTerminalInput(id string, input []byte) error {
+func (r *AgentSession) SendTerminalInput(id string, input []byte) error {
 	if r.interactive == nil {
 		return errors.New("interactive terminal is unavailable")
 	}

@@ -16,11 +16,11 @@ func TestCommandAdmissionIsIdempotentAndBoundToOneInboxSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(t.TempDir(), "model", "provider")
+	rootID, err := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,17 +74,17 @@ func TestCommandAdmissionIsIdempotentAndBoundToOneInboxSequence(t *testing.T) {
 	}
 }
 
-func TestClassicTurnCommitsProtocolCommandOutcome(t *testing.T) {
+func TestRootTurnCommitsProtocolCommandOutcome(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(t.TempDir(), "model", "provider")
+	rootID, err := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,14 +103,14 @@ func TestClassicTurnCommitsProtocolCommandOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, result.Command.IngressSeq); err != nil {
+	if err := st.StartRootTurn(context.Background(), rootID, authority.AgentID, result.Command.IngressSeq); err != nil {
 		t.Fatal(err)
 	}
 	if record, err := st.LoadCommand(context.Background(), "client", "command"); err != nil || record.Status != "running" {
 		t.Fatalf("running command = %+v, %v", record, err)
 	}
 	outcome := bytes.Repeat([]byte("result"), 2048)
-	if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
+	if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: result.Command.IngressSeq,
 		Model: "model", Provider: "provider", Outcome: RuntimePayload{Data: outcome, Source: "outcome"},
 	}); err != nil {
@@ -174,17 +174,17 @@ func TestCommandAdmissionRejectsInvalidScopesAndMissingRecords(t *testing.T) {
 	if _, err := st.LoadCommand(ctx, "missing", "missing"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("missing command = %v", err)
 	}
-	if _, err := st.CreateSessionForCommand(ctx, "c", "id", "", "", ""); err == nil {
+	if _, err := st.CreateSessionForCommand(ctx, "c", "id", SessionKindAgent, "", "", ""); err == nil {
 		t.Fatal("incomplete session creation was accepted")
 	}
-	if _, err := st.CreateSessionForCommand(ctx, "c", "id", "/tmp", "m", "p"); err == nil {
+	if _, err := st.CreateSessionForCommand(ctx, "c", "id", SessionKindAgent, "/tmp", "m", "p"); err == nil {
 		t.Fatal("unadmitted session command was executed")
 	}
-	rootID, err := st.Create(t.TempDir(), "m", "p")
+	rootID, err := st.Create(SessionKindAgent, t.TempDir(), "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := st.EnsureClassicAuthority(ctx, rootID)
+	authority, err := st.EnsureAuthority(ctx, rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestCommandAdmissionRejectsInvalidScopesAndMissingRecords(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateSessionForCommand(ctx, "root-client", "root", "/tmp", "m", "p"); err == nil {
+	if _, err := st.CreateSessionForCommand(ctx, "root-client", "root", SessionKindAgent, "/tmp", "m", "p"); err == nil {
 		t.Fatal("root command created a session")
 	}
 	if _, err := st.AdmitCommand(ctx, CommandAdmission{
@@ -222,11 +222,11 @@ func TestCommandAdmissionRejectsInvalidScopesAndMissingRecords(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	created, err := st.CreateSessionForCommand(ctx, "daemon", "create", "/tmp", "m", "p")
+	created, err := st.CreateSessionForCommand(ctx, "daemon", "create", SessionKindAgent, "/tmp", "m", "p")
 	if err != nil || created.Status != "succeeded" {
 		t.Fatalf("create session command = %+v, %v", created, err)
 	}
-	retry, err := st.CreateSessionForCommand(ctx, "daemon", "create", "/tmp", "m", "p")
+	retry, err := st.CreateSessionForCommand(ctx, "daemon", "create", SessionKindAgent, "/tmp", "m", "p")
 	if err != nil || string(retry.Outcome.Inline) != string(created.Outcome.Inline) {
 		t.Fatalf("create session retry = %+v, %v", retry, err)
 	}
@@ -253,7 +253,7 @@ func TestCommandAPIsReturnClosedStoreErrors(t *testing.T) {
 	if _, err := st.LoadCommand(ctx, "c", "id"); err == nil {
 		t.Fatal("closed store loaded command")
 	}
-	if _, err := st.CreateSessionForCommand(ctx, "c", "id", "/tmp", "m", "p"); err == nil {
+	if _, err := st.CreateSessionForCommand(ctx, "c", "id", SessionKindAgent, "/tmp", "m", "p"); err == nil {
 		t.Fatal("closed store created session")
 	}
 }

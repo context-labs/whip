@@ -17,7 +17,7 @@ import (
 func TestMemoryToolsSessionScope(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
-	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New("http://unused", "k"), "m", 100, "sys")
 	ctx := context.Background()
 
 	out := tools.Execute(ctx, ag.Tools, "remember", json.RawMessage(`{"text":"x","scope":"session"}`))
@@ -65,7 +65,7 @@ func TestMemoryToolsSessionScope(t *testing.T) {
 // false "Remembered".
 func TestMemoryToolErrors(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
-	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	ag := newTestAgent(llm.New("http://unused", "k"), "m", 100, "sys")
 	ctx := context.Background()
 
 	for _, tc := range []struct{ tool, args, want string }{

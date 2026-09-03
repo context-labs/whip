@@ -60,6 +60,7 @@ func TestProcessEnvironmentCwdAndDescriptors(t *testing.T) {
 	t.Setenv("PROVIDER_API_KEY", "daemon-provider")
 	t.Setenv("SSH_AUTH_SOCK", "/daemon-agent")
 	t.Setenv("RANDOM_DAEMON_SECRET", "daemon-random")
+	t.Setenv("WHIP_HOME", "/snapshot-whip-home")
 	m := NewProcessManager()
 	t.Setenv("HOME", "/changed-after-snapshot")
 
@@ -104,6 +105,7 @@ func TestProcessEnvironmentCwdAndDescriptors(t *testing.T) {
 		"HOME":        "/snapshot-home",
 		"LANG":        "en_US.UTF-8",
 		"LC_TEST":     "kept",
+		"WHIP_HOME":   "/snapshot-whip-home",
 		"WHIP_SECRET": "explicit",
 	} {
 		if env[name] != want {

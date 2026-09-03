@@ -19,12 +19,12 @@ import (
 
 func TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
-	st, err := OpenWithDefaultMode(path, ModeRLM)
+	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create("/workspace", "m", "p")
+	rootID, err := st.Create(SessionKindAgent, "/workspace", "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestRuntimeValueInlineBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	rootID, _ := st.Create("/workspace", "m", "p")
+	rootID, _ := st.Create(SessionKindAgent, "/workspace", "m", "p")
 	inline := bytes.Repeat([]byte("i"), InlineValueLimit)
 	result, err := st.CommitRuntime(context.Background(), RuntimeTransition{Event: &RuntimeEvent{RootID: rootID, Seq: 1, Kind: "inline", Payload: RuntimePayload{Data: inline}}})
 	if err != nil {
@@ -151,8 +151,8 @@ func TestContentReferencesEnforceRootAgentAndSubtreeGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	root1, _ := st.Create("/one", "m", "p")
-	root2, _ := st.Create("/two", "m", "p")
+	root1, _ := st.Create(SessionKindAgent, "/one", "m", "p")
+	root2, _ := st.Create(SessionKindAgent, "/two", "m", "p")
 	for _, agent := range []RuntimeAgent{
 		{ID: "parent", RootID: root1, Status: "idle"},
 		{ID: "child", RootID: root1, ParentID: "parent", Status: "idle"},
@@ -244,11 +244,11 @@ func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID, err := st.Create(t.TempDir(), "m", "p")
+	rootID, err := st.Create(SessionKindAgent, t.TempDir(), "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,14 +344,14 @@ func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 	}
 }
 
-func TestClassicTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *testing.T) {
+func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, _ := st.Create(t.TempDir(), "old-model", "old-provider")
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	rootID, _ := st.Create(SessionKindAgent, t.TempDir(), "old-model", "old-provider")
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +367,7 @@ func TestClassicTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, first.InboxSeq); err != nil {
+	if err := st.StartRootTurn(context.Background(), rootID, authority.AgentID, first.InboxSeq); err != nil {
 		t.Fatal(err)
 	}
 	history := []llm.Message{
@@ -376,7 +376,7 @@ func TestClassicTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t
 		{Role: "user", Content: "adjust"},
 		{Role: "assistant", Content: "done"},
 	}
-	if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
+	if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: first.InboxSeq,
 		AcknowledgedInbox: []int64{steer.InboxSeq}, Messages: history,
 		WorkspaceSeq: 5, WorkspaceRef: "snapshot-commit",
@@ -410,24 +410,24 @@ func TestClassicTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t
 	}
 }
 
-func TestClassicTurnInternalInboxDoesNotPersistACommandOutcome(t *testing.T) {
+func TestInternalTurnInboxDoesNotPersistACommandOutcome(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, _ := st.Create(t.TempDir(), "model", "provider")
-	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	rootID, _ := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureAuthority(context.Background(), rootID)
 	item, err := st.EnqueueInbox(context.Background(), InboxEnqueue{
 		RootID: rootID, AgentID: authority.AgentID, Kind: "schedule", Payload: RuntimePayload{Data: []byte("run")},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
+	if err := st.StartRootTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
+	if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 		Outcome: RuntimePayload{Data: bytes.Repeat([]byte("outcome"), 2048), MediaType: "text/plain", Source: "command outcome"},
 		Model:   "model", Provider: "provider",
@@ -443,14 +443,14 @@ func TestClassicTurnInternalInboxDoesNotPersistACommandOutcome(t *testing.T) {
 	}
 }
 
-func TestClassicTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
+func TestRootTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, _ := st.Create(t.TempDir(), "model", "provider")
-	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	rootID, _ := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureAuthority(context.Background(), rootID)
 	raw := []llm.Message{
 		{Role: "system", Content: "system"},
 		{Role: "user", Content: "q1"},
@@ -467,10 +467,10 @@ func TestClassicTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	item, _ := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: authority.AgentID, Kind: "submit", Payload: RuntimePayload{Data: []byte("q4")}})
-	if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
+	if err := st.StartRootTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
+	if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 		Messages: []llm.Message{{Role: "user", Content: "q4"}, {Role: "assistant", Content: "a4"}},
 		Model:    "model", Provider: "provider",
@@ -487,14 +487,14 @@ func TestClassicTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 	}
 }
 
-func TestClassicTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
+func TestRootTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, _ := st.Create(t.TempDir(), "model", "provider")
-	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	rootID, _ := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureAuthority(context.Background(), rootID)
 	history := []llm.Message{
 		{Role: "system", Content: "system"},
 		{Role: "user", Content: "q1"},
@@ -513,13 +513,13 @@ func TestClassicTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
+		if err := st.StartRootTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
 			t.Fatal(err)
 		}
-		if err := st.CommitClassicTurn(context.Background(), ClassicTurnCommit{
+		if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 			RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 			Messages:    []llm.Message{{Role: "user", Content: input}, {Role: "assistant", Content: output}},
-			Compactions: []ClassicCompaction{{Summary: "summary " + input, Cutoff: cutoff, RawTailStart: rawTail}},
+			Compactions: []RootCompaction{{Summary: "summary " + input, Cutoff: cutoff, RawTailStart: rawTail}},
 			Model:       "model", Provider: "provider",
 		}); err != nil {
 			t.Fatal(err)
@@ -537,23 +537,23 @@ func TestClassicTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
 	}
 }
 
-func TestClassicTurnCommitRollsBackAsOneTransition(t *testing.T) {
+func TestRootTurnCommitRollsBackAsOneTransition(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, _ := st.Create(t.TempDir(), "model", "provider")
-	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
+	rootID, _ := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	authority, _ := st.EnsureAuthority(context.Background(), rootID)
 	if err := st.SetGoal(rootID, "finish the work"); err != nil {
 		t.Fatal(err)
 	}
 	item, _ := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: authority.AgentID, Kind: "submit", Payload: RuntimePayload{Data: []byte("work")}})
-	if err := st.StartClassicTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
+	if err := st.StartRootTurn(context.Background(), rootID, authority.AgentID, item.InboxSeq); err != nil {
 		t.Fatal(err)
 	}
 	want := errors.New("commit fault")
-	err = st.commitClassicTurn(context.Background(), ClassicTurnCommit{
+	err = st.commitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 		Messages: []llm.Message{{Role: "user", Content: "work"}}, WorkspaceSeq: 1, WorkspaceRef: "rolled-back-snapshot",
 		GoalContinuation: "continue", Model: "model", Provider: "provider",
@@ -568,7 +568,7 @@ func TestClassicTurnCommitRollsBackAsOneTransition(t *testing.T) {
 	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`, rootID, authority.AgentID, item.InboxSeq).Scan(&inboxStatus); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM turns WHERE id=?`, classicTurnID(authority.AgentID, item.InboxSeq)).Scan(&turnStatus); err != nil {
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM turns WHERE id=?`, rootTurnID(authority.AgentID, item.InboxSeq)).Scan(&turnStatus); err != nil {
 		t.Fatal(err)
 	}
 	if inboxStatus != "running" || turnStatus != "running" {
@@ -588,46 +588,17 @@ func TestClassicTurnCommitRollsBackAsOneTransition(t *testing.T) {
 	}
 }
 
-func TestClassicTaskAndTranscriptRollBackTogether(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	rootID, _ := st.Create(t.TempDir(), "model", "provider")
-	authority, _ := st.EnsureClassicAuthority(context.Background(), rootID)
-	if _, err := st.db.ExecContext(context.Background(), `CREATE TRIGGER reject_task_transcript BEFORE INSERT ON messages
-		WHEN NEW.session_id LIKE 'task-%' BEGIN SELECT RAISE(ABORT,'no transcript'); END`); err != nil {
-		t.Fatal(err)
-	}
-	task := Task{ID: "task-1", Description: "work", Prompt: "do it", Status: "done", StartedAt: time.Now(), EndedAt: time.Now()}
-	if err := st.RecordClassicTaskTranscript(context.Background(), rootID, authority.AgentID, task,
-		[]llm.Message{{Role: "assistant", Content: "done"}}, "model", "provider"); err == nil {
-		t.Fatal("task transcript write should fail")
-	}
-	var tasks, transcripts int
-	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM tasks WHERE session_id=? AND task_id=?`, rootID, task.ID).Scan(&tasks); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM sessions WHERE id=?`, subagentSessionID(rootID, task.ID)).Scan(&transcripts); err != nil {
-		t.Fatal(err)
-	}
-	if tasks != 0 || transcripts != 0 {
-		t.Fatalf("partial task persistence: tasks=%d transcripts=%d", tasks, transcripts)
-	}
-}
-
 func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID, err := st.Create(t.TempDir(), "m", "p")
+	rootID, err := st.Create(SessionKindAgent, t.TempDir(), "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -703,7 +674,7 @@ func TestScheduleFireClaimIsExactOnceAndGridAnchored(t *testing.T) {
 	}
 }
 
-func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
+func TestFailRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -711,16 +682,16 @@ func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 	defer st.Close()
 	type fixture struct {
 		root      string
-		authority capability.ClassicAuthority
+		authority capability.Authority
 		pending   string
 	}
 	fixtures := make([]fixture, 2)
 	for i := range fixtures {
-		rootID, err := st.Create(t.TempDir(), "m", "p")
+		rootID, err := st.Create(SessionKindAgent, t.TempDir(), "m", "p")
 		if err != nil {
 			t.Fatal(err)
 		}
-		authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+		authority, err := st.EnsureAuthority(context.Background(), rootID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -730,7 +701,6 @@ func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES(?,?, 'root',?,'d','succeeded',?,?)`, prefix, "done", rootID, now(), now())
 		for _, status := range []string{"running", "succeeded"} {
 			exec(t, st, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)`, prefix+"-turn-"+status, rootID, authority.AgentID, status, now(), now())
-			exec(t, st, `INSERT INTO child_executions(id,root_id,parent_agent_id,child_agent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, prefix+"-child-"+status, rootID, authority.AgentID, authority.AgentID, status, now(), now())
 		}
 		for seq, status := range []string{"queued", "running", "consumed"} {
 			exec(t, st, `INSERT INTO inbox(root_id,agent_id,seq,kind,status,payload_inline,created_at) VALUES(?,?,?,?,?,?,?)`, rootID, authority.AgentID, seq+1, "test", status, []byte(status), now())
@@ -760,16 +730,22 @@ func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsBefore); err != nil {
 		t.Fatal(err)
 	}
-	eventSeq, err := st.FailClassicRoot(context.Background(), root.root, "actor panic")
-	if err != nil || eventSeq != int64(eventsBefore+1) {
+	// Failing the root emits turn.interrupted for its one running turn, then
+	// root.failed, so the failure event is two past the previous cursor.
+	eventSeq, err := st.FailRoot(context.Background(), root.root, "actor panic")
+	if err != nil || eventSeq != int64(eventsBefore+2) {
 		t.Fatalf("failure event seq=%d err=%v", eventSeq, err)
 	}
-	if _, err := st.FailClassicRoot(context.Background(), root.root, "second panic"); !errors.Is(err, ErrRootTerminal) {
+	var interruptedKind string
+	if err := st.db.QueryRowContext(context.Background(), `SELECT kind FROM events WHERE root_id=? AND seq=?`, root.root, eventsBefore+1).Scan(&interruptedKind); err != nil || interruptedKind != "turn.interrupted" {
+		t.Fatalf("event before failure = %q, %v", interruptedKind, err)
+	}
+	if _, err := st.FailRoot(context.Background(), root.root, "second panic"); !errors.Is(err, ErrRootTerminal) {
 		t.Fatalf("second failure error = %v", err)
 	}
 	var eventsAfter int
-	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsAfter); err != nil || eventsAfter != eventsBefore+1 {
-		t.Fatalf("terminal retry appended events=%d want=%d err=%v", eventsAfter, eventsBefore+1, err)
+	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM events WHERE root_id=?`, root.root).Scan(&eventsAfter); err != nil || eventsAfter != eventsBefore+2 {
+		t.Fatalf("terminal retry appended events=%d want=%d err=%v", eventsAfter, eventsBefore+2, err)
 	}
 
 	var status string
@@ -777,8 +753,7 @@ func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 		t.Fatalf("root agent status=%q err=%v", status, err)
 	}
 	for table, id := range map[string]string{
-		"commands": "active", "turns": "a-turn-running", "child_executions": "a-child-running",
-		"operations": "a-operation",
+		"commands": "active", "turns": "a-turn-running", "operations": "a-operation",
 	} {
 		idColumn := "id"
 		if table == "commands" {
@@ -794,7 +769,7 @@ func TestFailClassicRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM leases WHERE root_id=? AND operation_id='a-operation'`, root.root).Scan(&status); err != nil || status != "interrupted" {
 		t.Errorf("active lease status=%q err=%v", status, err)
 	}
-	for table, id := range map[string]string{"commands": "done", "turns": "a-turn-succeeded", "child_executions": "a-child-succeeded", "operations": "a-done-operation"} {
+	for table, id := range map[string]string{"commands": "done", "turns": "a-turn-succeeded", "operations": "a-done-operation"} {
 		idColumn := "id"
 		if table == "commands" {
 			idColumn = "command_id"
@@ -836,13 +811,12 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID, _ := st.Create("/workspace", "m", "p")
+	rootID, _ := st.Create(SessionKindAgent, "/workspace", "m", "p")
 	exec(t, st, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at) VALUES('a',?,NULL,'idle',?,?)`, rootID, now(), now())
 	for _, status := range []string{"queued", "running", "succeeded"} {
 		suffix := status
 		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c',?,'root',?,'d',?,?,?)`, "cmd-"+suffix, rootID, status, now(), now())
 		exec(t, st, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)`, "turn-"+suffix, rootID, "a", status, now(), now())
-		exec(t, st, `INSERT INTO child_executions(id,root_id,parent_agent_id,child_agent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, "child-"+suffix, rootID, "a", "a", status, now(), now())
 		exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)`, "op-"+suffix, rootID, "a", status, now(), now())
 		exec(t, st, `INSERT INTO leases(id,root_id,agent_id,operation_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, "lease-"+suffix, rootID, "a", "op-"+suffix, status, now(), now())
 	}
@@ -867,14 +841,14 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	if err := st.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
+	for _, table := range []string{"commands", "turns", "operations", "leases"} {
 		idColumn := "id"
 		if table == "commands" {
 			idColumn = "command_id"
 		}
 		for _, original := range []string{"queued", "running", "succeeded"} {
 			var got string
-			prefix := map[string]string{"commands": "cmd-", "turns": "turn-", "child_executions": "child-", "operations": "op-", "leases": "lease-"}[table]
+			prefix := map[string]string{"commands": "cmd-", "turns": "turn-", "operations": "op-", "leases": "lease-"}[table]
 			if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` WHERE `+idColumn+`=?`, prefix+original).Scan(&got); err != nil {
 				t.Fatal(err)
 			}
@@ -887,7 +861,9 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 			}
 		}
 	}
-	for seq, want := range map[int]string{1: "interrupted", 2: "interrupted", 3: "consumed", 4: "queued"} {
+	// Queued input (a human follow-up, a schedule fire) survives a restart;
+	// only the uncertain running item is interrupted.
+	for seq, want := range map[int]string{1: "queued", 2: "interrupted", 3: "consumed", 4: "queued"} {
 		var got string
 		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND seq=?`, rootID, seq).Scan(&got); err != nil || got != want {
 			t.Errorf("recovered inbox %d status=%q want=%q err=%v", seq, got, want, err)
@@ -898,24 +874,20 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 		t.Errorf("recovered permission status=%q err=%v", permission, err)
 	}
 	items, err := st.LoadQueuedInbox(context.Background(), rootID, "a", 0, 10)
-	if err != nil || len(items) != 1 || items[0].Kind != "schedule" {
+	if err != nil || len(items) != 2 || items[0].Kind != "command" || items[1].Kind != "schedule" {
 		t.Fatalf("recovery replay queue=%+v err=%v", items, err)
 	}
 }
 
-func TestRecoveryReleasesReservationsAndInterruptsClassicTasks(t *testing.T) {
+func TestRecoveryReleasesOperationReservations(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sessions.db")
 	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootID, _ := st.Create(t.TempDir(), "model", "provider")
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	rootID, _ := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
-		t.Fatal(err)
-	}
-	task := Task{ID: "task-1", Description: "work", Prompt: "do it", Status: "running", StartedAt: time.Now()}
-	if err := st.RecordClassicTask(context.Background(), rootID, authority.AgentID, task); err != nil {
 		t.Fatal(err)
 	}
 	admission := capability.Admission{Request: capability.Request{
@@ -936,13 +908,6 @@ func TestRecoveryReleasesReservationsAndInterruptsClassicTasks(t *testing.T) {
 	defer st.Close()
 	if err := st.Recover(context.Background()); err != nil {
 		t.Fatal(err)
-	}
-	var taskStatus, report string
-	if err := st.db.QueryRowContext(context.Background(), `SELECT status,report FROM tasks WHERE session_id=? AND task_id='task-1'`, rootID).Scan(&taskStatus, &report); err != nil {
-		t.Fatal(err)
-	}
-	if taskStatus != "error" || report != "interrupted by daemon restart" {
-		t.Fatalf("recovered task=%q %q", taskStatus, report)
 	}
 	var operationStatus string
 	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM operations WHERE id='active-operation'`).Scan(&operationStatus); err != nil || operationStatus != "interrupted" {
@@ -972,19 +937,16 @@ func TestRuntimeAPIValidationMatrix(t *testing.T) {
 			return err
 		},
 		"start sequence": func() error {
-			return st.StartClassicTurn(context.Background(), rootID, agentID, 0)
+			return st.StartRootTurn(context.Background(), rootID, agentID, 0)
 		},
 		"commit identity": func() error {
-			return st.CommitClassicTurn(context.Background(), ClassicTurnCommit{})
+			return st.CommitRootTurn(context.Background(), RootTurnCommit{})
 		},
 		"commit duplicate acknowledgement": func() error {
-			return st.CommitClassicTurn(context.Background(), ClassicTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: 1, AcknowledgedInbox: []int64{1}})
+			return st.CommitRootTurn(context.Background(), RootTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: 1, AcknowledgedInbox: []int64{1}})
 		},
 		"commit conflicting goal": func() error {
-			return st.CommitClassicTurn(context.Background(), ClassicTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: 1, ClearGoal: true, GoalContinuation: "continue"})
-		},
-		"task identity": func() error {
-			return st.RecordClassicTask(context.Background(), rootID, agentID, Task{})
+			return st.CommitRootTurn(context.Background(), RootTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: 1, ClearGoal: true, GoalContinuation: "continue"})
 		},
 		"schedule identity": func() error {
 			_, err := st.ClaimScheduleFire(context.Background(), ScheduleFireClaim{})
@@ -1058,15 +1020,15 @@ func TestRuntimeAPIValidationMatrix(t *testing.T) {
 			return st.RevokeContentGrant(context.Background(), "missing", rootID, agentID)
 		},
 		"missing failure root": func() error {
-			_, err := st.FailClassicRoot(context.Background(), "", "reason")
+			_, err := st.FailRoot(context.Background(), "", "reason")
 			return err
 		},
 		"missing interruption root": func() error {
-			_, err := st.InterruptClassicRoot(context.Background(), "", "reason")
+			_, err := st.InterruptRoot(context.Background(), "", "reason")
 			return err
 		},
 		"missing stop root": func() error {
-			_, err := st.StopClassicRoot(context.Background(), "", "reason")
+			_, err := st.StopRoot(context.Background(), "", "reason")
 			return err
 		},
 	}
@@ -1079,15 +1041,18 @@ func TestRuntimeAPIValidationMatrix(t *testing.T) {
 	}
 }
 
-func TestClassicRootInterruptAndStop(t *testing.T) {
+func TestRootInterruptAndStop(t *testing.T) {
 	for _, test := range []struct {
 		name             string
 		stop             bool
 		wantAgent        string
+		wantCommandItem  string
 		wantScheduleItem string
 	}{
-		{name: "interrupt", wantAgent: "idle", wantScheduleItem: "queued"},
-		{name: "stop", stop: true, wantAgent: "stopped", wantScheduleItem: "interrupted"},
+		// A graceful interrupt keeps every queued item; stopping the root
+		// terminalizes them all.
+		{name: "interrupt", wantAgent: "idle", wantCommandItem: "queued", wantScheduleItem: "queued"},
+		{name: "stop", stop: true, wantAgent: "stopped", wantCommandItem: "interrupted", wantScheduleItem: "interrupted"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			st, rootID, agentID := actorFailureFixture(t)
@@ -1098,9 +1063,9 @@ func TestClassicRootInterruptAndStop(t *testing.T) {
 			}
 			var err error
 			if test.stop {
-				_, err = st.StopClassicRoot(context.Background(), rootID, "shutdown")
+				_, err = st.StopRoot(context.Background(), rootID, "shutdown")
 			} else {
-				_, err = st.InterruptClassicRoot(context.Background(), rootID, "restart")
+				_, err = st.InterruptRoot(context.Background(), rootID, "restart")
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -1115,7 +1080,7 @@ func TestClassicRootInterruptAndStop(t *testing.T) {
 			if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND kind='schedule'`, rootID).Scan(&scheduleStatus); err != nil {
 				t.Fatal(err)
 			}
-			if agentStatus != test.wantAgent || commandStatus != "interrupted" || scheduleStatus != test.wantScheduleItem {
+			if agentStatus != test.wantAgent || commandStatus != test.wantCommandItem || scheduleStatus != test.wantScheduleItem {
 				t.Fatalf("statuses agent=%q command=%q schedule=%q", agentStatus, commandStatus, scheduleStatus)
 			}
 		})

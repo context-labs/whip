@@ -33,11 +33,10 @@ else
 	echo "pre-commit: golangci-lint not installed — skipping (CI will run it)" >&2
 fi
 
-# Two environment flakes, skipped only for the hook's run (CI runs them):
+# One environment flake, skipped only for the hook's run (CI runs it):
 # TestPortProbeSquatterTriggersFallback fails when the machine's real Chrome
-# holds a probe port (9223); TestProvisionSubagentWorktree fails when the
-# outer `git commit` holds the repo's index lock mid-test.
+# holds a probe port (9223).
 echo "pre-commit: go test …"
-WHIP_SKIP_PORT_SQUATTER_TEST=1 WHIP_SKIP_WORKTREE_TEST=1 go test ./...
+WHIP_SKIP_PORT_SQUATTER_TEST=1 go test ./...
 
 echo "pre-commit: OK"

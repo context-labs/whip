@@ -23,7 +23,6 @@ import (
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/tui"
 )
 
 func acpCLI(args []string) error {
@@ -43,7 +42,7 @@ func acpCLI(args []string) error {
 	if err != nil {
 		return err
 	}
-	provider, model, apiID, err := tui.ResolveWithRefresh(cfg, *modelFlag, *providerFlag)
+	provider, model, apiID, err := cfg.Resolve(*modelFlag, *providerFlag)
 	if err != nil {
 		return err
 	}
@@ -116,7 +115,7 @@ func (b *acpDaemonBackend) root(ctx context.Context, rootID, cwd string, servers
 		Connector: daemonConnector("acp", b.clientID),
 	}
 	if rootID == "" {
-		options.Create = &daemon.CreateSession{CWD: cwd, Model: b.model, Provider: b.provider}
+		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd, Model: b.model, Provider: b.provider}
 	}
 	client, err := daemon.NewRootClient(options)
 	if err != nil {

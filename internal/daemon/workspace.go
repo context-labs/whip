@@ -23,7 +23,7 @@ type workspaceSnapshotRunner interface {
 	RestoreWorkspace(context.Context, string) (int, error)
 }
 
-func (r *agentRunner) CaptureWorkspace(ctx context.Context) string {
+func (r *AgentSession) CaptureWorkspace(ctx context.Context) string {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	commit, err := r.workspaceGit(ctx, "stash", "create")
@@ -42,14 +42,14 @@ func (r *agentRunner) CaptureWorkspace(ctx context.Context) string {
 	return commit
 }
 
-func (r *agentRunner) WorkspaceClean(ctx context.Context) bool {
+func (r *AgentSession) WorkspaceClean(ctx context.Context) bool {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	output, err := r.workspaceGit(ctx, "status", "--porcelain", "--untracked-files=no")
 	return err == nil && output == ""
 }
 
-func (r *agentRunner) DropWorkspaceSnapshot(ctx context.Context, ref string) {
+func (r *AgentSession) DropWorkspaceSnapshot(ctx context.Context, ref string) {
 	if ref == "" {
 		return
 	}
@@ -58,7 +58,7 @@ func (r *agentRunner) DropWorkspaceSnapshot(ctx context.Context, ref string) {
 	_, _ = r.workspaceGit(ctx, "update-ref", "-d", workspaceSnapshotRefPrefix+ref)
 }
 
-func (r *agentRunner) RestoreWorkspace(ctx context.Context, ref string) (int, error) {
+func (r *AgentSession) RestoreWorkspace(ctx context.Context, ref string) (int, error) {
 	if ref == "" {
 		return 0, nil
 	}
@@ -78,7 +78,7 @@ func (r *agentRunner) RestoreWorkspace(ctx context.Context, ref string) (int, er
 	return len(strings.Split(dirty, "\n")), nil
 }
 
-func (r *agentRunner) workspaceGit(ctx context.Context, args ...string) (string, error) {
+func (r *AgentSession) workspaceGit(ctx context.Context, args ...string) (string, error) {
 	if r.agent == nil || r.agent.Services == nil {
 		return "", errors.New("agent services are required")
 	}

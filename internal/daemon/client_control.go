@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/computer"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
@@ -23,9 +26,11 @@ import (
 
 type clientActionPayload struct {
 	Args                string                      `json:"args,omitempty"`
+	Text                string                      `json:"text,omitempty"`
 	Command             string                      `json:"command,omitempty"`
 	Cut                 int                         `json:"cut,omitempty"`
 	ID                  string                      `json:"id,omitempty"`
+	Delivery            string                      `json:"delivery,omitempty"`
 	Bytes               []byte                      `json:"bytes,omitempty"`
 	System              string                      `json:"system,omitempty"`
 	MaxTurns            int                         `json:"max_turns,omitempty"`
@@ -34,6 +39,7 @@ type clientActionPayload struct {
 	Arguments           json.RawMessage             `json:"arguments,omitempty"`
 	DenyPermissions     bool                        `json:"deny_permissions,omitempty"`
 	ExternalPermissions bool                        `json:"external_permissions,omitempty"`
+	PersistDefault      string                      `json:"persist_default,omitempty"`
 	Servers             map[string]mcp.ServerConfig `json:"servers,omitempty"`
 }
 
@@ -77,10 +83,13 @@ type clientGoal struct {
 func isClientOperation(operation string) bool {
 	switch operation {
 	case "cancel", "goal.set", "goal.run", "goal.from-context", "schedule.manage", "session.fork", "workspace.inspect", "workspace.set",
-		"session.effort", "session.model", "session.list", "session.open", "session.rename", "run.configure",
+		"session.effort", "session.model", "session.list", "session.open", "session.rename", "session.reload", "session.autotitle", "run.configure",
 		"history.clear", "history.rewind", "history.compact",
-		"agents.list", "agent.start", "agent.control", "agent.delete", "budget.cap", "capability.revoke", "shell.run",
-		"context.inspect", "mcp.control", "lsp.control", "browser.control", "computer.control", "terminal.input",
+		"history.compact.log", "history.compact.retry", "compaction.configure",
+		"history.user.list", "session.preview", "agents.list", "agent.transcript", "agent.submit", "agent.turn.cancel",
+		"provider.catalogs",
+		"agent.control", "agent.delete", "budget.cap", "capability.revoke", "shell.run",
+		"context.audit", "mcp.control", "lsp.control", "browser.control", "computer.control", "terminal.input",
 		"tool.configure", "tool.schema", "tool.call", "permission.mode", "mcp.attach":
 		return true
 	default:
@@ -99,10 +108,6 @@ type clientShellRunner interface {
 
 type clientHistoryRunner interface {
 	ReplaceHistory([]llm.Message)
-}
-
-type clientTaskRunner interface {
-	StartTask(string) (string, error)
 }
 
 type clientGoalRunner interface {
@@ -144,26 +149,36 @@ type clientPermissionRunner interface {
 
 type clientMCPManager interface {
 	Statuses() []mcp.Server
+	Blocked() []mcp.Server
 	Reconnect(string) bool
 	Enable(string) bool
 	Disable(string) bool
 }
 
-func (r *agentRunner) ResolveWorkingDirectory(path string) (string, error) {
+func (r *AgentSession) ResolveWorkingDirectory(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" || path == "." {
+		path = r.agent.WorkingDir
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join(r.agent.WorkingDir, path)
+	}
+	if path == "" {
+		path = "."
+	}
 	return r.agent.Services.ResolveWorkingDirectory(path)
 }
 
-func (r *agentRunner) SetWorkingDirectory(path string) { r.agent.WorkingDir = path }
+func (r *AgentSession) SetWorkingDirectory(path string) { r.agent.WorkingDir = path }
 
-func (r *agentRunner) RunShell(ctx context.Context, command string) (string, error) {
+func (r *AgentSession) RunShell(ctx context.Context, command string) (string, error) {
 	ctx = tools.WithWorkingDirectory(ctx, r.agent.WorkingDir)
 	result, err := r.agent.Services.RunBash(ctx, command, 120*time.Second)
 	return result.Output, err
 }
 
-func (r *agentRunner) ReplaceHistory(history []llm.Message) { r.agent.ReplaceHistory(history) }
+func (r *AgentSession) ReplaceHistory(history []llm.Message) { r.agent.ReplaceHistory(history) }
 
-func (r *agentRunner) ConfigureRun(system string, maxTurns int, headless bool) {
+func (r *AgentSession) ConfigureRun(system string, maxTurns int, headless bool) {
 	if system != "" {
 		r.agent.SetSystemPrompt(system)
 	}
@@ -174,79 +189,39 @@ func (r *agentRunner) ConfigureRun(system string, maxTurns int, headless bool) {
 	}
 }
 
-func (r *agentRunner) ToolDefinitions(ctx context.Context) ([]llm.Tool, error) {
+func (r *AgentSession) ToolDefinitions(ctx context.Context) ([]llm.Tool, error) {
 	return r.agent.Services.ToolDefinitions(ctx)
 }
 
-func (r *agentRunner) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error) {
+func (r *AgentSession) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error) {
 	return r.agent.Services.CallTool(ctx, name, arguments)
 }
 
-func (r *agentRunner) DenyToolPermissions() {
+func (r *AgentSession) DenyToolPermissions() {
 	r.agent.Services.SetExternalPermissions(false)
 	r.agent.Services.SetGate(func(context.Context, tools.GateRequest) (tools.GateDecision, string) {
 		return tools.GateReject, "this automation client cannot approve side effects"
 	})
 }
 
-func (r *agentRunner) SetExternalPermissions(enabled bool) {
+func (r *AgentSession) SetExternalPermissions(enabled bool) {
 	r.agent.Services.SetExternalPermissions(enabled)
 }
 
-func (r *agentRunner) ExternalPermissionsEnabled() bool {
+func (r *AgentSession) ExternalPermissionsEnabled() bool {
 	return r.agent.Services.ExternalPermissionsEnabled()
 }
 
-func (r *agentRunner) ResolvePermission(permissionID string, decision capability.Decision) error {
+func (r *AgentSession) ResolvePermission(permissionID string, decision capability.Decision) error {
 	return r.agent.Services.ResolvePermission(permissionID, decision)
 }
 
-func (r *agentRunner) StartTask(arguments string) (string, error) {
-	prompt := strings.TrimSpace(arguments)
-	model, provider := "", ""
-	if strings.HasPrefix(prompt, "-m ") {
-		fields := strings.Fields(prompt)
-		if len(fields) < 3 {
-			return "", errors.New("subagent requires -m model[@provider] and a prompt")
-		}
-		model, provider, _ = strings.Cut(fields[1], "@")
-		prompt = strings.TrimSpace(strings.TrimPrefix(prompt, strings.Join(fields[:2], " ")))
-	}
-	if prompt == "" {
-		return "", errors.New("subagent prompt is required")
-	}
-	var route agent.SubModel
-	if model != "" {
-		if r.agent.ResolveModel == nil {
-			return "", errors.New("subagent model overrides are unavailable")
-		}
-		var err error
-		route, err = r.agent.ResolveModel(model, provider)
-		if err != nil {
-			return "", err
-		}
-	}
-	description := strings.Join(strings.Fields(prompt), " ")
-	if fields := strings.Fields(description); len(fields) > 8 {
-		description = strings.Join(fields[:8], " ") + "…"
-	}
-	task := r.agent.StartBackground(description, prompt, route)
-	if task.Status == agent.TaskError || task.Status == agent.TaskCancelled {
-		return "", errors.New(task.Report)
-	}
-	return task.ID, nil
-}
-
-func (r *agentRunner) FormGoal(ctx context.Context, window int) (string, llm.Usage, error) {
+func (r *AgentSession) FormGoal(ctx context.Context, window int) (string, llm.Usage, error) {
 	tail, err := agent.GoalFromContextMessages(r.agent.MessagesSnapshot(), window)
 	if err != nil {
 		return "", r.agent.Usage(), err
 	}
-	goal, usage, err := r.agent.Client.Complete(ctx, llm.Request{
-		Model: r.agent.Model, MaxTokens: 8192,
-		Messages: []llm.Message{{Role: "user", Content: agent.BuildGoalFromContextPrompt(tail)}},
-	})
-	r.agent.AddUsage(usage)
+	goal, _, err := r.complete(ctx, agent.BuildGoalFromContextPrompt(tail), 8192)
 	goal = strings.TrimSpace(goal)
 	if err == nil && goal == "" {
 		err = errors.New("model returned an empty goal")
@@ -254,7 +229,7 @@ func (r *agentRunner) FormGoal(ctx context.Context, window int) (string, llm.Usa
 	return goal, r.agent.Usage(), err
 }
 
-func (r *agentRunner) CompactNow(ctx context.Context) (clientCompaction, error) {
+func (r *AgentSession) CompactNow(ctx context.Context) (clientCompaction, error) {
 	before := r.agent.MessagesSnapshot()
 	summary, cutoff, info, err := r.agent.CompactNow(ctx)
 	return clientCompaction{
@@ -263,27 +238,21 @@ func (r *agentRunner) CompactNow(ctx context.Context) (clientCompaction, error) 
 	}, err
 }
 
-func (r *agentRunner) CanReplace() error {
-	switch {
-	case r.agent.TurnRunning():
+func (r *AgentSession) CanReplace() error {
+	if r.agent.TurnRunning() {
 		return errors.New("a turn is running")
-	case r.agent.HasRunningTasks():
-		return errors.New("a child task is running")
-	case r.agent.HasRunningWaits():
-		return errors.New("a wait is running")
-	default:
-		return nil
 	}
+	return nil
 }
 
-func (r *agentRunner) browserManager() *browser.Manager {
+func (r *AgentSession) browserManager() *browser.Manager {
 	if r.agent.Services == nil {
 		return nil
 	}
 	return r.agent.Services.Browser()
 }
 
-func (r *agentRunner) lspManager() *lsp.Manager {
+func (r *AgentSession) lspManager() *lsp.Manager {
 	if r.agent.Services == nil {
 		return nil
 	}
@@ -291,7 +260,7 @@ func (r *agentRunner) lspManager() *lsp.Manager {
 	return manager
 }
 
-func (r *agentRunner) computerPolicy() *computer.Policy {
+func (r *AgentSession) computerPolicy() *computer.Policy {
 	if r.agent.Services == nil {
 		return nil
 	}
@@ -302,6 +271,9 @@ func (r *agentRunner) computerPolicy() *computer.Policy {
 // command row is the idempotency boundary; matching retries never re-execute
 // the action and instead return its authoritative terminal outcome.
 func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.CommandAdmission, operation string, payload json.RawMessage) (result CommandResult, err error) {
+	if s.meta.Kind == sessionstore.SessionKindToolHost && !isToolHostOperation(operation) {
+		return CommandResult{}, fmt.Errorf("tool-host sessions do not support %q", operation)
+	}
 	admission.Scope = sessionstore.CommandScopeRoot
 	admission.RootID = s.meta.ID
 	admission.AgentID = s.authority.AgentID
@@ -522,6 +494,15 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 	return result, err
 }
 
+func isToolHostOperation(operation string) bool {
+	switch operation {
+	case "tool.configure", "tool.schema", "tool.call", "permission.mode":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Session) finishClientCommandInline(ctx context.Context, admission sessionstore.CommandAdmission, operation, output string, actionErr error, result *CommandResult) error {
 	status := "succeeded"
 	if actionErr != nil {
@@ -639,10 +620,8 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 			return "", errors.New("session runner does not support external permissions")
 		}
 		runner.SetExternalPermissions(payload.ExternalPermissions)
-		for _, child := range s.children {
-			if child.agent != nil && child.agent.Services != nil {
-				child.agent.Services.SetExternalPermissions(payload.ExternalPermissions)
-			}
+		if runtime, ok := s.runtime.(interface{ SetExternalPermissions(bool) }); ok {
+			runtime.SetExternalPermissions(payload.ExternalPermissions)
 		}
 		return "configured", nil
 	case "tool.configure":
@@ -711,6 +690,9 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 		return s.meta.CWD, nil
 	case "workspace.set":
+		if s.running != nil {
+			return "", errors.New("working directory cannot change while the root agent is running")
+		}
 		runner, ok := s.runner.(clientWorkspaceRunner)
 		if !ok {
 			return "", errors.New("session runner does not support working-directory changes")
@@ -724,17 +706,42 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 		runner.SetWorkingDirectory(path)
 		s.meta.CWD = path
+		s.emitSessionUpdate(ctx, "session.cwd.updated", SessionUpdateEvent{WorkingDir: path})
 		return path, nil
 	case "session.effort":
-		level := strings.TrimSpace(payload.Args)
+		requested := strings.TrimSpace(payload.Args)
+		if requested == "" {
+			return daemonEffortLabel(s.meta.Effort), nil
+		}
+		if s.running != nil {
+			return "", errors.New("effort cannot change while the root agent is running")
+		}
+		if err := validateEffort(s.meta.Model, s.meta.Provider, requested); err != nil {
+			return "", err
+		}
+		level := requested
+		if level == "off" {
+			level = ""
+		}
 		if setter, ok := s.runner.(interface{ SetEffort(string) }); ok {
 			setter.SetEffort(level)
 		}
-		if err := s.store.SetEffort(s.meta.ID, level); err != nil {
+		if err := s.store.SetEffort(s.meta.ID, requested); err != nil {
 			return "", err
 		}
-		s.meta.Effort = level
-		return level, nil
+		s.meta.Effort = requested
+		if payload.PersistDefault != "false" {
+			cfg, err := config.Load()
+			if err != nil {
+				return "", err
+			}
+			cfg.DefaultEffort = requested
+			if err := cfg.Save(); err != nil {
+				return "", err
+			}
+		}
+		s.emitSessionUpdate(ctx, "session.effort.updated", SessionUpdateEvent{Effort: requested, EffortChanged: true})
+		return daemonEffortLabel(requested), nil
 	case "session.model":
 		if strings.TrimSpace(payload.Args) == "" {
 			return s.meta.Model + " @ " + s.meta.Provider, nil
@@ -744,10 +751,33 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if len(fields) > 1 {
 			provider = fields[1]
 		}
-		return s.replaceModel(ctx, fields[0], provider)
+		output, err := s.replaceModel(ctx, fields[0], provider, false)
+		if err != nil || payload.PersistDefault != "true" {
+			return output, err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return "", err
+		}
+		cfg.DefaultModel, cfg.DefaultProvider = fields[0], provider
+		if err := cfg.Save(); err != nil {
+			return "", err
+		}
+		return output, nil
+	case "session.reload":
+		return s.reloadSession(ctx)
+	case "session.autotitle":
+		s.autoTitle = true
+		return "configured", nil
 	case "session.list":
 		metas, err := s.store.RecentContext(ctx, 50)
 		return marshalClientOutput(metas, err)
+	case "session.preview":
+		if payload.ID == "" {
+			return "", errors.New("session preview requires an ID")
+		}
+		user, assistant := s.store.LastExchange(payload.ID)
+		return marshalClientOutput(SessionPreviewResult{RootID: payload.ID, User: user, Assistant: assistant}, nil)
 	case "session.open":
 		meta, _, err := s.store.Load(strings.TrimSpace(payload.Args))
 		if err != nil {
@@ -763,6 +793,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 			return "", err
 		}
 		s.meta.Title = title
+		s.emitSessionUpdate(ctx, "session.title.updated", SessionUpdateEvent{Title: title})
 		return title, nil
 	case "history.clear":
 		if s.running != nil || s.clientBusy {
@@ -793,15 +824,70 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 			})
 		}
 		return "history cleared", nil
-	case "agents.list":
-		relatives, err := s.store.ListAgentRelatives(ctx, s.meta.ID, s.authority.AgentID)
-		return marshalClientOutput(relatives, err)
-	case "agent.start":
-		runner, ok := s.runner.(clientTaskRunner)
-		if !ok {
-			return "", errors.New("session runner does not support background subagents")
+	case "history.user.list":
+		history, err := s.store.UserHistory(500)
+		return marshalClientOutput(history, err)
+	case "provider.catalogs":
+		return s.clientProviderCatalogs(ctx)
+	case "history.compact.log":
+		return marshalClientOutput(s.store.Compactions(s.meta.ID), nil)
+	case "history.compact.retry":
+		if s.running != nil || s.clientBusy {
+			return "", errors.New("history cannot change while a turn is running")
 		}
-		return runner.StartTask(payload.Args)
+		events := s.store.Compactions(s.meta.ID)
+		if len(events) == 0 {
+			return "no compaction to retry", nil
+		}
+		last := events[len(events)-1]
+		if err := s.store.DeleteCompaction(s.meta.ID, last.Seq); err != nil {
+			return "", err
+		}
+		_, history, err := s.store.Load(s.meta.ID)
+		if err != nil {
+			return "", err
+		}
+		if runner, ok := s.runner.(clientHistoryRunner); ok {
+			runner.ReplaceHistory(history)
+		}
+		return fmt.Sprintf("compaction %d undone; raw history restored", last.Seq), nil
+	case "compaction.configure":
+		fields := strings.Fields(payload.Args)
+		cfg, err := config.Load()
+		if err != nil {
+			return "", err
+		}
+		if len(fields) == 0 || fields[0] == "off" {
+			cfg.CompactModel, cfg.CompactProvider = "", ""
+		} else {
+			cfg.CompactModel = fields[0]
+			cfg.CompactProvider = ""
+			if len(fields) > 1 {
+				cfg.CompactProvider = fields[1]
+			}
+			if _, _, _, err := cfg.Resolve(cfg.CompactModel, cfg.CompactProvider); err != nil {
+				return "", err
+			}
+		}
+		if err := cfg.Save(); err != nil {
+			return "", err
+		}
+		if _, err := s.replaceModel(ctx, s.meta.Model, s.meta.Provider, true); err != nil {
+			return "", err
+		}
+		if cfg.CompactModel == "" {
+			return "automatic compaction restored to built-in defaults", nil
+		}
+		return "compaction model: " + strings.TrimSpace(cfg.CompactModel+" "+cfg.CompactProvider), nil
+	case "agents.list":
+		snapshot, err := s.store.SnapshotRoot(ctx, s.meta.ID)
+		return marshalClientOutput(snapshot.Agents, err)
+	case "agent.transcript":
+		return s.clientAgentTranscript(ctx, payload.ID)
+	case "agent.submit":
+		return s.clientAgentSubmit(ctx, payload.ID, payload.Text, payload.Delivery)
+	case "agent.turn.cancel":
+		return s.clientAgentTurnCancel(payload.ID)
 	case "agent.control":
 		return s.clientAgentControl(ctx, payload.Args, "stopped")
 	case "agent.delete":
@@ -811,7 +897,10 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 	case "capability.revoke":
 		record, err := s.store.RevokeCapabilityFor(ctx, s.meta.ID, s.authority.AgentID, strings.TrimSpace(payload.Args))
 		return marshalClientOutput(record, err)
-	case "context.inspect":
+	case "context.audit":
+		if runner, ok := s.runner.(interface{ ContextAudit() ContextAuditResult }); ok {
+			return marshalClientOutput(runner.ContextAudit(), nil)
+		}
 		snapshot, err := s.store.SnapshotRoot(ctx, s.meta.ID)
 		return marshalClientOutput(snapshot, err)
 	case "terminal.input":
@@ -824,16 +913,21 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 		return "input delivered", runner.SendTerminalInput(payload.ID, payload.Bytes)
 	case "mcp.control":
-		return s.clientMCP(payload.Args)
+		return s.clientMCP(ctx, payload.Args)
 	case "lsp.control":
-		runner, ok := s.runner.(*agentRunner)
+		runner, ok := s.runner.(*AgentSession)
 		if !ok || runner.lspManager() == nil {
 			return "[]", nil
 		}
 		if args := strings.TrimSpace(payload.Args); args != "" && args != "list" && args != "status" {
 			return "", errors.New("lsp supports status only")
 		}
-		return marshalClientOutput(runner.lspManager().Statuses(), nil)
+		statuses := runner.lspManager().Statuses()
+		result := make([]LSPStatusResult, 0, len(statuses))
+		for _, status := range statuses {
+			result = append(result, LSPStatusResult{Name: status.Name, Root: status.Root, State: status.State, Error: status.Err})
+		}
+		return marshalClientOutput(result, nil)
 	case "browser.control":
 		return s.clientBrowser(payload.Args)
 	case "computer.control":
@@ -843,14 +937,26 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 	}
 }
 
-func (s *Session) clientMCP(args string) (string, error) {
+func (s *Session) clientMCP(ctx context.Context, args string) (string, error) {
 	manager, ok := s.mcp.(clientMCPManager)
+	fields := strings.Fields(args)
+	if len(fields) > 0 && fields[0] == "import" {
+		return s.clientMCPImport(ctx, fields[1:])
+	}
 	if !ok {
 		return "[]", nil
 	}
-	fields := strings.Fields(args)
 	if len(fields) == 0 || fields[0] == "list" || fields[0] == "status" {
-		return marshalClientOutput(manager.Statuses(), nil)
+		statuses := append(manager.Statuses(), manager.Blocked()...)
+		slices.SortFunc(statuses, func(a, b mcp.Server) int { return strings.Compare(a.Name, b.Name) })
+		result := make([]MCPStatusResult, 0, len(statuses))
+		for _, status := range statuses {
+			result = append(result, MCPStatusResult{
+				Name: status.Name, Status: status.Status.String(), Note: status.Note,
+				Error: status.Err, Tools: status.Tools, Source: status.Source,
+			})
+		}
+		return marshalClientOutput(result, nil)
 	}
 	action := "reconnect"
 	if len(fields) > 1 {
@@ -873,8 +979,69 @@ func (s *Session) clientMCP(args string) (string, error) {
 	return fields[0] + ": " + action, nil
 }
 
+func (s *Session) clientMCPImport(ctx context.Context, fields []string) (string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
+	if len(fields) == 0 || fields[0] == "status" {
+		return fmt.Sprintf("MCP imports: Claude %s · Codex %s", importState(cfg.MCPImport, "claude"), importState(cfg.MCPImport, "codex")), nil
+	}
+	if len(fields) != 2 || fields[0] != "claude" && fields[0] != "codex" || fields[1] != "on" && fields[1] != "off" {
+		return "", errors.New("mcp import requires claude|codex and on|off")
+	}
+	if cfg.MCPImport == nil {
+		cfg.MCPImport = &config.MCPImport{}
+	}
+	source := cfg.MCPImport.Claude
+	if fields[0] == "codex" {
+		source = cfg.MCPImport.Codex
+	}
+	if source == nil {
+		source = &config.MCPImportSource{}
+		if fields[0] == "claude" {
+			cfg.MCPImport.Claude = source
+		} else {
+			cfg.MCPImport.Codex = source
+		}
+	}
+	enabled := fields[1] == "on"
+	source.Enabled = &enabled
+	if err := cfg.Save(); err != nil {
+		return "", err
+	}
+	reload, err := s.reloadSession(ctx)
+	if err != nil {
+		return "", err
+	}
+	label := strings.ToUpper(fields[0][:1]) + fields[0][1:]
+	return fmt.Sprintf("%s MCP imports %s · %s", label, fields[1], reload), nil
+}
+
+func importState(value *config.MCPImport, source string) string {
+	if value == nil {
+		return "on"
+	}
+	setting := value.Claude
+	if source == "codex" {
+		setting = value.Codex
+	}
+	if setting == nil || setting.Enabled == nil || *setting.Enabled {
+		return "on"
+	}
+	return "off"
+}
+
+func (s *Session) reloadSession(ctx context.Context) (string, error) {
+	if s.hasRunningAgent() || s.clientBusy {
+		s.reloadPending = true
+		return "reload pending until all active turns finish", nil
+	}
+	return s.replaceModel(ctx, s.meta.Model, s.meta.Provider, true)
+}
+
 func (s *Session) clientBrowser(args string) (string, error) {
-	runner, ok := s.runner.(*agentRunner)
+	runner, ok := s.runner.(*AgentSession)
 	if !ok || runner.browserManager() == nil {
 		return "browser automation is disabled", nil
 	}
@@ -891,11 +1058,22 @@ func (s *Session) clientBrowser(args string) (string, error) {
 		return "", errors.New("browser driver must be rod or chromedp")
 	}
 	manager.SwitchDriver(driver)
+	if manager.Driver() != driver {
+		return "", fmt.Errorf("browser driver %q is pinned by WHIP_BROWSER_DRIVER", manager.Driver())
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
+	cfg.Browser.Driver = driver
+	if err := cfg.Save(); err != nil {
+		return "", err
+	}
 	return manager.Driver(), nil
 }
 
 func (s *Session) clientComputer(args string) (string, error) {
-	runner, ok := s.runner.(*agentRunner)
+	runner, ok := s.runner.(*AgentSession)
 	if !ok || runner.computerPolicy() == nil {
 		return "computer automation is disabled", nil
 	}
@@ -916,11 +1094,11 @@ func (s *Session) clientComputer(args string) (string, error) {
 	return app + ": " + fields[0], nil
 }
 
-func (s *Session) replaceModel(ctx context.Context, model, provider string) (string, error) {
+func (s *Session) replaceModel(ctx context.Context, model, provider string, force bool) (string, error) {
 	if s.running != nil || s.clientBusy {
 		return "", errors.New("model cannot change while a root operation is running")
 	}
-	if model == s.meta.Model && provider == s.meta.Provider {
+	if !force && model == s.meta.Model && provider == s.meta.Provider {
 		return model + " @ " + provider, nil
 	}
 	if s.factory == nil {
@@ -936,6 +1114,8 @@ func (s *Session) replaceModel(ctx context.Context, model, provider string) (str
 		return "", err
 	}
 	meta.Model, meta.Provider = model, provider
+	previousEffort := meta.Effort
+	meta.Effort = compatibleEffort(model, provider, meta.Effort)
 	components, err := s.factory(ctx, meta, history)
 	if err != nil {
 		return "", err
@@ -972,9 +1152,18 @@ func (s *Session) replaceModel(ctx context.Context, model, provider string) (str
 		cleanup()
 		return "", err
 	}
+	if meta.Effort != previousEffort {
+		if err := s.store.SetEffort(s.meta.ID, meta.Effort); err != nil {
+			cleanup()
+			return "", err
+		}
+	}
 	oldRunner, oldMCP, oldRuntime := s.runner, s.mcp, s.runtime
 	s.runner, s.mcp, s.runtime = components.Runner, components.MCP, components.Runtime
-	s.meta.Model, s.meta.Provider = model, provider
+	s.meta.Model, s.meta.Provider, s.meta.Effort = model, provider, meta.Effort
+	s.emitSessionUpdate(ctx, "session.model.updated", SessionUpdateEvent{
+		Model: model, Provider: provider, Effort: meta.Effort, EffortChanged: true,
+	})
 	_ = safeClose("previous runner", oldRunner.Close)
 	if oldMCP != nil {
 		_ = safeClose("previous MCP", oldMCP.Close)
@@ -985,7 +1174,74 @@ func (s *Session) replaceModel(ctx context.Context, model, provider string) (str
 	return model + " @ " + provider, nil
 }
 
-func (r *agentRunner) SetEffort(level string) { r.agent.Effort = level }
+func daemonEffortLabel(level string) string {
+	if level == "" {
+		return "off"
+	}
+	return level
+}
+
+func validateEffort(model, provider, requested string) error {
+	if requested == "off" {
+		return nil
+	}
+	if !slices.Contains([]string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}, requested) {
+		return fmt.Errorf("unknown effort level %q", requested)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return nil
+	}
+	_, _, apiID, err := cfg.Resolve(model, provider)
+	if err != nil {
+		return nil
+	}
+	catalog, ok := config.LoadCatalogs()[provider]
+	if !ok {
+		return nil
+	}
+	info := catalog.Find(apiID)
+	if info != nil && len(info.ReasoningEfforts) > 0 && !slices.Contains(info.ReasoningEfforts, requested) {
+		return fmt.Errorf("%s does not support effort %q", model, requested)
+	}
+	return nil
+}
+
+func compatibleEffort(model, provider, current string) string {
+	runtimeLevel := current
+	if runtimeLevel == "off" {
+		runtimeLevel = ""
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return current
+	}
+	_, _, apiID, err := cfg.Resolve(model, provider)
+	if err != nil {
+		return current
+	}
+	catalog, ok := config.LoadCatalogs()[provider]
+	if !ok {
+		return current
+	}
+	info := catalog.Find(apiID)
+	if info == nil || slices.Contains(append([]string{""}, info.ReasoningEfforts...), runtimeLevel) {
+		return current
+	}
+	return "off"
+}
+
+func (s *Session) emitSessionUpdate(ctx context.Context, kind string, event SessionUpdateEvent) {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	_, _ = s.store.AppendRootEvent(ctx, s.meta.ID, kind, sessionstore.RuntimePayload{
+		Data: payload, MediaType: "application/json", Source: kind,
+	})
+}
+
+func (r *AgentSession) SetEffort(level string) { r.agent.Effort = level }
 
 func (s *Session) clientSchedule(ctx context.Context, args string) (string, error) {
 	fields := strings.Fields(args)
@@ -1001,7 +1257,10 @@ func (s *Session) clientSchedule(ctx context.Context, args string) (string, erro
 		if err != nil {
 			return "", errors.New("schedule ID must be a number")
 		}
-		return "", s.store.DeleteSchedule(s.meta.ID, id)
+		if err := s.store.DeleteSchedule(s.meta.ID, id); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("schedule %d cancelled", id), nil
 	}
 	if len(fields) < 3 || fields[0] != "@every" && fields[0] != "@at" {
 		return "", errors.New("schedule requires @every <duration> or @at <time> and a prompt")
@@ -1023,7 +1282,7 @@ func (s *Session) clientSchedule(ctx context.Context, args string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	return strconv.Itoa(id), nil
+	return fmt.Sprintf("schedule %d created", id), nil
 }
 
 func (s *Session) clientAgentControl(ctx context.Context, args, status string) (string, error) {
@@ -1034,24 +1293,90 @@ func (s *Session) clientAgentControl(ctx context.Context, args, status string) (
 	if len(fields) != 1 {
 		return "", errors.New("agent control requires one child ID")
 	}
-	target, taskID := fields[0], ""
-	for id, child := range s.children {
-		if child.agentID == target || id == target {
-			taskID, target = id, child.agentID
-			child.running = false
-			break
-		}
+	runtime, ok := s.runtime.(interface {
+		ControlAgent(context.Context, string, string) error
+	})
+	if !ok {
+		return "", errors.New("session runtime does not support agent control")
 	}
-	_, err := s.store.TerminalizeSubtree(ctx, s.meta.ID, s.authority.AgentID, target, status)
+	err := runtime.ControlAgent(ctx, fields[0], status)
 	if errors.Is(err, sessionstore.ErrAgentTerminal) {
 		err = nil
 	}
-	if err == nil && taskID != "" {
-		if runner, ok := s.runner.(*agentRunner); ok {
-			s.supervisor.launchWorker("cancel controlled subagent", func() { runner.agent.Tasks().Cancel(taskID) })
+	return status, err
+}
+
+func (s *Session) clientAgentTranscript(ctx context.Context, id string) (string, error) {
+	agentValue, err := s.store.LoadAgent(ctx, s.meta.ID, id)
+	if err != nil {
+		return "", err
+	}
+	snapshot, err := s.store.SnapshotRoot(ctx, s.meta.ID)
+	if err != nil {
+		return "", err
+	}
+	inbox := make([]sessionstore.InboxItem, 0)
+	for _, item := range snapshot.Inbox {
+		if item.AgentID == id {
+			inbox = append(inbox, item)
 		}
 	}
-	return status, err
+	if agentValue.ParentID == "" {
+		_, messages, loadErr := s.store.Load(s.meta.ID)
+		return marshalClientOutput(AgentTranscriptResult{
+			Cursor: snapshot.Cursor, Agent: agentValue, Messages: messages, Presentation: snapshot.Presentation, Inbox: inbox,
+		}, loadErr)
+	}
+	messages, err := s.store.LoadAgentTranscript(ctx, s.meta.ID, id)
+	return marshalClientOutput(AgentTranscriptResult{
+		Cursor: snapshot.Cursor, Agent: agentValue, Messages: messages, Presentation: snapshot.AgentPresentations[id], Inbox: inbox,
+	}, err)
+}
+
+// clientAgentSubmit enqueues human input for a descendant. delivery "steer"
+// joins a running turn at its next loop boundary; anything else waits for its
+// own turn.
+func (s *Session) clientAgentSubmit(ctx context.Context, id, text, delivery string) (string, error) {
+	text = strings.TrimSpace(text)
+	if id == "" || text == "" {
+		return "", errors.New("agent submission requires an agent and text")
+	}
+	kind := "submit"
+	if delivery == "steer" {
+		kind = "steer"
+	}
+	agentValue, err := s.store.LoadAgent(ctx, s.meta.ID, id)
+	if err != nil {
+		return "", err
+	}
+	if agentValue.ParentID == "" {
+		return "", errors.New("use submit for the root agent")
+	}
+	if agentValue.Status == "stopped" || agentValue.Status == "deleted" || agentValue.Status == "failed" {
+		return "", sessionstore.ErrAgentTerminal
+	}
+	sequence, err := s.store.EnqueueInbox(ctx, sessionstore.InboxEnqueue{
+		RootID: s.meta.ID, AgentID: id, Kind: kind,
+		Payload: sessionstore.RuntimePayload{Data: []byte(text), MediaType: "text/plain", Source: "human child submission"},
+	})
+	if err != nil {
+		return "", err
+	}
+	s.wakeAgent(id)
+	return marshalClientOutput(AgentSubmitResult{AgentID: id, InboxSeq: sequence.InboxSeq, Kind: kind, Status: "queued"}, nil)
+}
+
+func (s *Session) clientAgentTurnCancel(id string) (string, error) {
+	runtime, ok := s.runtime.(interface {
+		CancelAgentTurn(string) bool
+	})
+	if !ok {
+		return "", errors.New("session runtime does not support agent cancellation")
+	}
+	if !runtime.CancelAgentTurn(id) {
+		return "already idle", nil
+	}
+	return "cancellation requested", nil
 }
 
 func (s *Session) clientBudget(ctx context.Context, args string) (string, error) {
@@ -1064,6 +1389,10 @@ func (s *Session) clientBudget(ctx context.Context, args string) (string, error)
 		return "", errors.New("budget limit must be a nonnegative integer")
 	}
 	state, err := s.store.CapBudget(ctx, s.meta.ID, s.authority.AgentID, fields[0], sessionstore.BudgetKind(fields[1]), limit)
+	if err == nil {
+		// A raised cap can unblock queued descendants; re-derive readiness.
+		s.reconcileAgentWork()
+	}
 	return marshalClientOutput(state, err)
 }
 
@@ -1073,4 +1402,53 @@ func marshalClientOutput(value any, err error) (string, error) {
 	}
 	raw, err := json.Marshal(value)
 	return string(raw), err
+}
+
+func (s *Session) clientProviderCatalogs(ctx context.Context) (string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
+	catalogs := config.LoadCatalogs()
+	result := ProviderCatalogsResult{Catalogs: catalogs, Errors: map[string]string{}}
+	for name, provider := range cfg.Providers {
+		key, keyErr := provider.ResolveKey()
+		if keyErr != nil || key == "" {
+			if keyErr != nil {
+				result.Errors[name] = keyErr.Error()
+			} else {
+				result.Errors[name] = "no API key"
+			}
+			continue
+		}
+		models, fetchErr := llm.New(provider.BaseURL, key).Models(ctx)
+		if fetchErr != nil {
+			result.Errors[name] = fetchErr.Error()
+			continue
+		}
+		catalogs[name] = config.Catalog{
+			FetchedAt: time.Now(), BaseURL: provider.BaseURL, Models: modelInfoLites(models),
+		}
+	}
+	if err := config.SaveCatalogs(catalogs); err != nil {
+		return "", err
+	}
+	result.Catalogs = catalogs
+	return marshalClientOutput(result, nil)
+}
+
+func modelInfoLites(values []llm.ModelInfo) []config.ModelInfoLite {
+	result := make([]config.ModelInfoLite, 0, len(values))
+	for _, value := range values {
+		var inputPrice, outputPrice, cacheReadPrice float64
+		if value.Pricing != nil {
+			inputPrice, outputPrice, cacheReadPrice = value.Pricing.Rates()
+		}
+		result = append(result, config.ModelInfoLite{
+			ID: value.ID, ContextLength: value.ContextLength, MaxCompletionTokens: value.MaxCompletionTokens,
+			ReasoningEfforts: value.ReasoningEfforts, InputModalities: value.InputModalities,
+			InPrice: inputPrice, OutPrice: outputPrice, CacheReadPrice: cacheReadPrice,
+		})
+	}
+	return result
 }

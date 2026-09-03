@@ -46,6 +46,9 @@ func effortsIn(catalogs map[string]config.Catalog, provName, modelID string) []s
 // as-is, even if the model later turns out not to support it (updateCatalogs
 // resets the live session).
 func DefaultEffortFor(catalogs map[string]config.Catalog, provName, modelID, pinned string) string {
+	if pinned == "off" {
+		return ""
+	}
 	if pinned != "" {
 		return pinned
 	}
@@ -114,11 +117,7 @@ func effortCandsFor(levels []string) []cand {
 // fetch completes).
 func (m *model) updateCatalogs(cats map[string]config.Catalog) {
 	m.catalogs = cats
-	if n := m.contextLimitFor(m.provName, m.agent.Model); n != m.agent.ContextLimit {
-		m.agent.ContextLimit = n // /models is the source of truth
-	}
-	if !slices.Contains(m.effortsFor(), m.agent.Effort) {
-		m.resetEffort("")
-		m.append(dimStyle.Render("⚡ effort reset to off: not supported by " + m.agent.Model))
+	if limit := m.contextLimitFor(m.provName, m.displayModelID()); limit > 0 {
+		m.clientView.contextLimit = limit
 	}
 }

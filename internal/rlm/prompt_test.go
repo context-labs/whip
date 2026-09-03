@@ -36,9 +36,14 @@ func TestFocusedHistoryBoundsSummaryAndRecentExchanges(t *testing.T) {
 
 func TestBuildPromptReferencesHandleWithoutInliningCorpus(t *testing.T) {
 	prompt := BuildPrompt("/workspace", &ContextHandle{ReferenceID: "ref-history", Size: 1 << 20, Source: "history"})
-	for _, contract := range []string{"ref-history", "rlm_exec", `context.search(handle="...", query="...")`, `models.batch(prompts=[...]`, `answer.submit(text="...", citations=`} {
+	for _, contract := range []string{"ref-history", "rlm_exec", `context.search(handle="...", query="...")`, `models.batch(prompts=[...]`, `messages.complete(ids=[...])`, `mcp.call(server="..."`} {
 		if !strings.Contains(prompt, contract) {
 			t.Fatalf("prompt is missing %q: %q", contract, prompt)
+		}
+	}
+	for _, removed := range []string{"answer.submit", "agents.await", "agents.steer", "messages.receive"} {
+		if strings.Contains(prompt, removed) {
+			t.Fatalf("prompt still advertises removed operation %q", removed)
 		}
 	}
 	if strings.Contains(prompt, strings.Repeat("x", 100)) {

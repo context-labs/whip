@@ -86,7 +86,7 @@ func TestBlackboardSubscriptionRoutesThroughActorAndSurvivesRecovery(t *testing.
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := root.AdmitChild(ctx, root.authority.AgentID, "subscriber", "exec-subscriber"); err != nil {
+	if err := root.AdmitAgent(ctx, session.AgentAdmission{ParentAgentID: root.authority.AgentID, ChildAgentID: "subscriber", Name: "subscriber"}); err != nil {
 		t.Fatal(err)
 	}
 	subscription, err := root.CreateBlackboardSubscription(ctx, "subscriber", "build")
@@ -104,12 +104,16 @@ func TestBlackboardSubscriptionRoutesThroughActorAndSurvivesRecovery(t *testing.
 	if err != nil || value.Version != 1 {
 		t.Fatalf("actor blackboard mutation=%+v err=%v", value, err)
 	}
-	queued, err := store.LoadQueuedInbox(ctx, rootID, "subscriber", 0, 10)
-	if err != nil || len(queued) != 1 || queued[0].Kind != "subscription" {
-		t.Fatalf("subscription wake=%+v err=%v", queued, err)
+	pending, err := store.ListMailboxMessages(ctx, rootID, "subscriber", "pending", "", 10)
+	if err != nil || len(pending) != 1 || pending[0].Kind != session.MessageKindStateChanged || pending[0].Subject != "build" {
+		t.Fatalf("subscription message=%+v err=%v", pending, err)
+	}
+	message, err := store.ReadMailboxMessage(ctx, rootID, "subscriber", pending[0].ID)
+	if err != nil {
+		t.Fatal(err)
 	}
 	var wake session.BlackboardWake
-	if err := json.Unmarshal(queued[0].Payload.Inline, &wake); err != nil || wake.SubscriptionID != subscription.ID || wake.Key != "build" || wake.Version != 1 || wake.AuthorAgentID != root.authority.AgentID {
+	if err := json.Unmarshal(message.Body.Inline, &wake); err != nil || wake.SubscriptionID != subscription.ID || wake.Key != "build" || wake.Version != 1 || wake.AuthorAgentID != root.authority.AgentID {
 		t.Fatalf("wake=%+v err=%v", wake, err)
 	}
 	if err := daemon.Close(); err != nil {
@@ -126,9 +130,9 @@ func TestBlackboardSubscriptionRoutesThroughActorAndSurvivesRecovery(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	queued, err = store.LoadQueuedInbox(ctx, rootID, "subscriber", 0, 10)
-	if err != nil || len(queued) != 1 || queued[0].Seq != 1 {
-		t.Fatalf("recovered wake=%+v err=%v", queued, err)
+	pending, err = store.ListMailboxMessages(ctx, rootID, "subscriber", "pending", "", 10)
+	if err != nil || len(pending) != 1 || pending[0].Status != "pending" {
+		t.Fatalf("recovered message=%+v err=%v", pending, err)
 	}
 	listed, err = root.ListBlackboardSubscriptions(ctx, "subscriber")
 	if err != nil || len(listed) != 1 || listed[0].Cursor != 1 {
@@ -144,8 +148,8 @@ func TestBlackboardSubscriptionRoutesThroughActorAndSurvivesRecovery(t *testing.
 	if _, err := root.SetBlackboard(ctx, root.authority.AgentID, "build", session.RuntimePayload{Data: []byte("still green"), MediaType: "text/plain"}); err != nil {
 		t.Fatal(err)
 	}
-	queued, err = store.LoadQueuedInbox(ctx, rootID, "subscriber", 0, 10)
-	if err != nil || len(queued) != 1 {
-		t.Fatalf("cancelled subscription enqueued another wake=%+v err=%v", queued, err)
+	pending, err = store.ListMailboxMessages(ctx, rootID, "subscriber", "all", "", 10)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("cancelled subscription posted another message=%+v err=%v", pending, err)
 	}
 }

@@ -50,8 +50,7 @@ func TestViewNeverTallerThanTerminal(t *testing.T) {
 		}
 	}
 	check("busy", func() { m.busy = true })
-	check("queued", func() { m.queue = []string{"queued one", "queued two"} })
-	check("quit-hint", func() { m.busy, m.queue = false, nil; m.quit1 = true })
+	check("quit-hint", func() { m.busy, m.quit1 = false, true })
 	check("esc-hint", func() { m.quit1, m.escClr = false, true })
 }
 

@@ -182,9 +182,9 @@ func (s *Store) LoadCommand(ctx context.Context, clientID, commandID string) (Co
 // CreateSessionForCommand commits the daemon command's only durable side
 // effect and terminal outcome together, closing the crash window between the
 // two records.
-func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID, cwd, model, provider string) (CommandRecord, error) {
-	if cwd == "" || model == "" || provider == "" {
-		return CommandRecord{}, errors.New("session creation requires cwd, model, and provider")
+func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider string) (CommandRecord, error) {
+	if err := validateSessionIdentity(kind, cwd, model, provider); err != nil {
+		return CommandRecord{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -206,8 +206,8 @@ func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID
 		return CommandRecord{}, err
 	}
 	stamp := now()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,created_at,updated_at,cwd,model,provider,mode) VALUES(?,?,?,?,?,?,?)`,
-		rootID, stamp, stamp, cwd, model, provider, s.defaultMode); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider) VALUES(?,?,?,?,?,?,?)`,
+		rootID, kind, stamp, stamp, cwd, model, provider); err != nil {
 		return CommandRecord{}, err
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE commands SET status='succeeded',outcome_inline=?,updated_at=?

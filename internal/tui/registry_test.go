@@ -5,14 +5,19 @@ import (
 	"testing"
 )
 
-// Every slash command in the registry must route through the dispatch switch
-// to a real handler — the "registry says it exists but the switch 404s" drift
-// class. The probe runs the bare command on a scratch model and fails if the
-// transcript reports an unknown command.
-func TestRegistryEntriesDispatch(t *testing.T) {
-	for _, e := range slashRegistry() {
-		if !compactCmdModel().dispatches(e.Name) {
-			t.Errorf("%s is in the registry but the command switch doesn't handle it", e.Name)
+func TestRegistryContainsOnlyRecursiveAgentCommands(t *testing.T) {
+	removed := map[string]bool{
+		"/task": true, "/tasks": true, "/subagent": true, "/subagents": true,
+		"/delete-agent": true, "/budget": true, "/capability": true,
+	}
+	for _, entry := range registry {
+		if removed[entry.Name] {
+			t.Errorf("legacy command %s remains registered", entry.Name)
+		}
+	}
+	for _, required := range []string{"/agents", "/browser", "/lsp", "/goal-from-context", "/context-doctor", "/model-for-session"} {
+		if registryFind(required) == nil {
+			t.Errorf("required command %s is missing", required)
 		}
 	}
 }
@@ -52,13 +57,11 @@ func TestPaletteListsRegistryCommands(t *testing.T) {
 		if !strings.HasPrefix(hint, "/") || strings.ContainsAny(hint, " ·<") {
 			continue // keybind-only or usage-form hints ("/model · tab", "/compact <model>")
 		}
-		e := registryFind(hint)
+		name := strings.Fields(hint)[0]
+		e := registryFind(name)
 		if e == nil {
 			t.Errorf("palette row %q hints %q, which is not in the registry", it.title, hint)
 			continue
-		}
-		if !strings.Contains(it.dynDesc(m), e.Hint) {
-			t.Errorf("palette row %q desc %q doesn't come from the registry hint %q", it.title, it.dynDesc(m), e.Hint)
 		}
 		rows++
 	}

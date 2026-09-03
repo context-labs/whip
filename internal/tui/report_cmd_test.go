@@ -178,11 +178,3 @@ func TestReportCommandAppendsOneBlock(t *testing.T) {
 		t.Error("appended block does not carry the issue link")
 	}
 }
-
-// TestReportIsBusySafe: /report is read-only, so it runs mid-turn instead of
-// being queued as a message.
-func TestReportIsBusySafe(t *testing.T) {
-	if !busyCmd("/report") {
-		t.Error("/report should be safe while busy")
-	}
-}

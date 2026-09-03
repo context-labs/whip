@@ -13,7 +13,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
@@ -97,12 +96,8 @@ func waitClientState(t *testing.T, client *Client, want ClientState) []ClientSta
 	}
 }
 
-func TestClientSnapshotEventsAndStableActions(t *testing.T) {
-	snapshot := session.RootSnapshot{
-		RootID: "root", Cursor: 2, Meta: session.Meta{ID: "root", Model: "m", Provider: "p", Mode: session.ModeRLM},
-		Messages: []llm.Message{{Role: "user", Content: "hello", Authored: true}},
-	}
-	connection := newFakeDaemonConnection(snapshot)
+func TestInteractiveSetupAppliesCautiousModeBeforeAutomaticTitles(t *testing.T) {
+	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
 		Connector: func(context.Context, map[string]int64) (daemonConnection, error) { return connection, nil },
@@ -111,10 +106,110 @@ func TestClientSnapshotEventsAndStableActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	if err := configureInteractiveSession(t.Context(), client, true); err != nil {
+		t.Fatal(err)
+	}
+	connection.mu.Lock()
+	defer connection.mu.Unlock()
+	if len(connection.commands) != 2 || connection.commands[0].Operation != "permission.mode" || connection.commands[1].Operation != "session.autotitle" {
+		t.Fatalf("interactive setup command order=%+v", connection.commands)
+	}
+}
+
+func TestInteractiveSetupStopsWhenCautiousModeFails(t *testing.T) {
+	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
+	connection.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
+		if params.Operation == "permission.mode" {
+			return daemon.CommandResult{CommandID: params.CommandID, Status: "failed", Error: "identity rejected"}, nil
+		}
+		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded"}, nil
+	}
+	client, err := NewClient(ClientOptions{
+		ClientID: "tui", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
+		Connector: func(context.Context, map[string]int64) (daemonConnection, error) { return connection, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	if err := configureInteractiveSession(t.Context(), client, true); err == nil || !strings.Contains(err.Error(), "identity rejected") {
+		t.Fatalf("cautious setup error=%v", err)
+	}
+	connection.mu.Lock()
+	defer connection.mu.Unlock()
+	if len(connection.commands) != 1 || connection.commands[0].Operation != "permission.mode" {
+		t.Fatalf("failed cautious setup continued: %+v", connection.commands)
+	}
+}
+
+func TestAuthenticationRefreshesDaemonCatalogsBeforeReload(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	m, connection := liveQueueModel(t)
+	m.busy = false
+	m.cfg = config.Default()
+	connection.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
+		output := ""
+		if params.Operation == "provider.catalogs" {
+			output = `{"catalogs":{}}`
+		}
+		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: output}, nil
+	}
+
+	next, command := m.Update(authResultMsg{key: "secret"})
+	m = next.(*model)
+	if command == nil {
+		t.Fatal("successful authentication did not request daemon catalogs")
+	}
+	message := command().(clientCommandMsg)
+	if message.action.Operation != "provider.catalogs" {
+		t.Fatalf("first post-auth operation=%q", message.action.Operation)
+	}
+	next, command = m.Update(message)
+	m = next.(*model)
+	if command == nil {
+		t.Fatal("catalog refresh did not request session reload")
+	}
+	message = command().(clientCommandMsg)
+	if message.action.Operation != "session.reload" || m.reloadAfterCatalogs {
+		t.Fatalf("post-catalog operation=%q pending=%t", message.action.Operation, m.reloadAfterCatalogs)
+	}
+}
+
+func TestClientSnapshotEventsAndStableActions(t *testing.T) {
+	snapshot := session.RootSnapshot{
+		RootID: "root", Cursor: 2, Meta: session.Meta{ID: "root", Model: "m", Provider: "p"},
+		Messages: []llm.Message{{Role: "user", Content: "hello", Authored: true}},
+	}
+	initial := newFakeDaemonConnection(snapshot)
+	connection := newFakeDaemonConnection(snapshot)
+	var connects int
+	client, err := NewClient(ClientOptions{
+		ClientID: "tui", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
+		Connector: func(context.Context, map[string]int64) (daemonConnection, error) {
+			connects++
+			if connects == 1 {
+				return initial, nil
+			}
+			return connection, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Start()
 	defer client.Close()
 
-	updates := []ClientUpdate{nextClientUpdate(t, client), nextClientUpdate(t, client), nextClientUpdate(t, client), nextClientUpdate(t, client)}
-	if updates[0].State != ClientReconnecting || updates[1].State != ClientSnapshotting || updates[2].Snapshot == nil || updates[3].State != ClientLive {
+	var updates []ClientUpdate
+	for {
+		update := nextClientUpdate(t, client)
+		updates = append(updates, update)
+		if update.StateChanged && update.State == ClientLive {
+			break
+		}
+	}
+	if updates[0].State != ClientReconnecting || updates[1].State != ClientSnapshotting || updates[2].Snapshot == nil || connects != 2 {
 		t.Fatalf("initial synchronization updates = %+v", updates)
 	}
 
@@ -122,7 +217,7 @@ func TestClientSnapshotEventsAndStableActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if action.CommandID != "tui-1" {
+	if !strings.HasPrefix(action.CommandID, "tui-") || !strings.HasSuffix(action.CommandID, "-1") {
 		t.Fatalf("command ID = %q", action.CommandID)
 	}
 	if _, err := client.Command(context.Background(), action); err != nil {
@@ -149,9 +244,10 @@ func TestClientSnapshotEventsAndStableActions(t *testing.T) {
 }
 
 func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
-	first := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Cursor: 2, Meta: session.Meta{ID: "root"}})
+	first := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root"}})
 	second := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Cursor: 9, Meta: session.Meta{ID: "root"}})
 	second.replay = daemon.ReplayResult{Expired: true, Latest: 9}
+	third := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Cursor: 9, Meta: session.Meta{ID: "root"}})
 	var mu sync.Mutex
 	var calls int
 	var reconnectCursor int64
@@ -164,8 +260,11 @@ func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
 			if calls == 1 {
 				return first, nil
 			}
-			reconnectCursor = cursors["root"]
-			return second, nil
+			if calls == 2 {
+				reconnectCursor = cursors["root"]
+				return second, nil
+			}
+			return third, nil
 		},
 	})
 	if err != nil {
@@ -174,7 +273,7 @@ func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
 	client.Start()
 	defer client.Close()
 	waitClientState(t, client, ClientLive)
-	first.events <- daemon.ProtocolEvent{RootID: "root", Seq: 3, Kind: "turn.started"}
+	first.events <- daemon.ProtocolEvent{RootID: "root", Seq: 1, Kind: "turn.started"}
 	for update := nextClientUpdate(t, client); update.Event == nil; update = nextClientUpdate(t, client) {
 	}
 	first.err = errors.New("lost socket")
@@ -189,19 +288,19 @@ func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
 			break
 		}
 	}
-	if !sawDisconnected || reconnectCursor != 3 || client.Cursor() != 9 {
+	if !sawDisconnected || reconnectCursor != 1 || client.Cursor() != 9 || calls != 3 {
 		t.Fatalf("reconnect: disconnected=%v supplied=%d cursor=%d", sawDisconnected, reconnectCursor, client.Cursor())
 	}
 }
 
 func TestClientReattachesInFlightActionWithSameIdentityAfterDisconnect(t *testing.T) {
-	first := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Cursor: 1, Meta: session.Meta{ID: "root"}})
+	first := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root"}})
 	first.err = errors.New("socket lost after admission")
 	first.commandFunc = func(daemon.CommandParams) (daemon.CommandResult, error) {
 		_ = first.Close()
 		return daemon.CommandResult{}, first.err
 	}
-	second := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Cursor: 2, Meta: session.Meta{ID: "root"}})
+	second := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root"}})
 	second.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
 		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: "persisted outcome"}, nil
 	}
@@ -246,7 +345,7 @@ func TestClientCreatesThenReconnectsWithRootSubscription(t *testing.T) {
 	creation.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
 		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: "new-root"}, nil
 	}
-	live := newFakeDaemonConnection(session.RootSnapshot{RootID: "new-root", Cursor: 1, Meta: session.Meta{ID: "new-root"}})
+	live := newFakeDaemonConnection(session.RootSnapshot{RootID: "new-root", Meta: session.Meta{ID: "new-root"}})
 	var calls int
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", Create: &daemon.CreateSession{CWD: "/work", Model: "m", Provider: "p"},
@@ -276,7 +375,7 @@ func TestClientCreatesThenReconnectsWithRootSubscription(t *testing.T) {
 	}
 	creation.mu.Lock()
 	defer creation.mu.Unlock()
-	if len(creation.commands) != 1 || creation.commands[0].CommandID != "tui-session" {
+	if len(creation.commands) != 1 || !strings.HasPrefix(creation.commands[0].CommandID, "tui-session-") {
 		t.Fatalf("creation commands = %+v", creation.commands)
 	}
 }
@@ -296,8 +395,6 @@ func TestClientDisablesCommandsUntilLiveAndValidatesOptions(t *testing.T) {
 	if _, err := client.Command(context.Background(), action); err == nil {
 		t.Fatal("command was admitted before synchronization")
 	}
-	client.cancel()
-	client.Start()
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -312,9 +409,9 @@ func TestThinCommandsMapOneUserActionToOneDaemonCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.mu.Lock()
-	client.state, client.conn = ClientLive, connection
-	client.mu.Unlock()
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	waitClientState(t, client, ClientLive)
 	m := &model{
 		client: client, clientState: ClientLive, input: newInput(), now: time.Now,
 	}
@@ -322,10 +419,10 @@ func TestThinCommandsMapOneUserActionToOneDaemonCommand(t *testing.T) {
 		"/schedule list": "schedule.manage", "/goal ship": "goal.run", "/fork copy": "session.fork",
 		"/goal-from-context 4": "goal.from-context",
 		"/cd /tmp":             "workspace.set", "/model next": "session.model", "/effort high": "session.effort",
-		"/rewind 2": "history.rewind", "/subagent stop child": "agent.control", "/mcp list": "mcp.control",
+		"/rewind 2": "history.rewind", "/agents stop child": "agent.control", "/mcp list": "mcp.control",
 		"/lsp list": "lsp.control", "/browser status": "browser.control", "/computer status": "computer.control",
-		"/context-doctor": "context.inspect", "/budget tokens 10": "budget.cap",
-		"/capability cap-1": "capability.revoke", "/delete-agent child": "agent.delete",
+		"/context-doctor": "context.audit", "/agents budget child tokens 10": "budget.cap",
+		"/agents revoke cap-1": "capability.revoke", "/agents delete child": "agent.delete",
 	}
 	for input, operation := range cases {
 		_, command := m.thinCommand(input)
@@ -378,30 +475,28 @@ func TestThinTabCompletionPreservesTheTerminalMenu(t *testing.T) {
 }
 
 func TestSnapshotReplacementPreservesPresentationState(t *testing.T) {
-	m := &model{
-		client: &Client{}, input: newInput(), follow: false, sessionMode: session.ModeClassic,
-	}
+	m := &model{client: &Client{}, input: newInput(), follow: false}
 	m.input.SetValue("unsent draft")
 	m.vp.YOffset = 4
 	m.sel = &selection{}
 	selection := m.sel
 	m.applyClientSnapshot(session.RootSnapshot{
 		RootID: "root", Cursor: 4,
-		Meta:     session.Meta{ID: "root", Model: "m", Provider: "p", Mode: session.ModeRLM, Goal: "finish"},
+		Meta:     session.Meta{ID: "root", Model: "m", Provider: "p", Goal: "finish"},
 		Messages: []llm.Message{{Role: "assistant", Content: "authoritative"}},
 	})
 	if m.input.Value() != "unsent draft" || m.follow || m.sel != selection {
 		t.Fatalf("presentation state changed: draft=%q follow=%v selection=%p", m.input.Value(), m.follow, m.sel)
 	}
-	if messages := m.displayMessages(); m.sessionMode != session.ModeRLM || len(messages) != 2 || messages[1].Content != "authoritative" {
-		t.Fatalf("behavioral snapshot not replaced: mode=%s messages=%+v", m.sessionMode, messages)
+	if messages := m.displayMessages(); len(messages) != 2 || messages[1].Content != "authoritative" {
+		t.Fatalf("behavioral snapshot not replaced: messages=%+v", messages)
 	}
 	m.applyClientSnapshot(session.RootSnapshot{
-		RootID: "root", Cursor: 3, Meta: session.Meta{ID: "root", Mode: session.ModeClassic},
+		RootID: "root", Cursor: 3, Meta: session.Meta{ID: "root"},
 		Messages: []llm.Message{{Role: "assistant", Content: "stale"}},
 	})
-	if messages := m.displayMessages(); m.sessionMode != session.ModeRLM || messages[1].Content != "authoritative" {
-		t.Fatalf("older snapshot replaced newer presentation: mode=%s messages=%+v", m.sessionMode, messages)
+	if messages := m.displayMessages(); messages[1].Content != "authoritative" {
+		t.Fatalf("older snapshot replaced newer presentation: messages=%+v", messages)
 	}
 }
 
@@ -428,7 +523,7 @@ func TestDaemonBackedModelRendersWithoutAnAgent(t *testing.T) {
 		},
 	}
 	m.applyClientSnapshot(session.RootSnapshot{
-		RootID: "root", Meta: session.Meta{ID: "root", Model: "model", Provider: "provider", Mode: session.ModeRLM},
+		RootID: "root", Meta: session.Meta{ID: "root", Model: "model", Provider: "provider"},
 		Messages: []llm.Message{{Role: "assistant", Content: "hello"}},
 	})
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -445,7 +540,7 @@ func TestClientStreamEventsRenderLiveAndSnapshotRestoresThem(t *testing.T) {
 		}
 		return daemon.ProtocolEvent{RootID: "root", Kind: kind, Payload: payload}
 	}
-	m := &model{agent: &agent.Agent{}, input: newInput(), follow: true, showThinking: true}
+	m := &model{input: newInput(), follow: true, showThinking: true}
 	for _, event := range []daemon.ProtocolEvent{
 		stream("stream.reasoning", daemon.StreamEvent{Text: "considering"}),
 		stream("stream.text", daemon.StreamEvent{Text: "hello"}),
@@ -475,7 +570,7 @@ func TestClientStreamEventsRenderLiveAndSnapshotRestoresThem(t *testing.T) {
 }
 
 func TestThinKeyKeepsDraftWhileSynchronizing(t *testing.T) {
-	m := &model{client: &Client{}, clientState: ClientSnapshotting, agent: &agent.Agent{}, input: newInput()}
+	m := &model{client: &Client{}, clientState: ClientSnapshotting, input: newInput()}
 	m.input.SetValue("keep me")
 	_, command := m.thinKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if command != nil || m.input.Value() != "keep me" {
@@ -496,10 +591,10 @@ func TestThinPermissionSendsOneStableSignedDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.mu.Lock()
-	client.state, client.conn = ClientLive, connection
-	client.mu.Unlock()
-	m := &model{client: client, clientState: ClientLive, agent: &agent.Agent{}, input: newInput()}
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	waitClientState(t, client, ClientLive)
+	m := &model{client: client, clientState: ClientLive, input: newInput()}
 	m.applyClientPermissions([]session.PermissionSnapshot{{
 		ID: "permission", AgentID: "agent", OperationID: "operation", Operation: "write",
 		CanonicalPath: "/work/file", RequestDigest: "digest", Status: "pending",
@@ -515,32 +610,32 @@ func TestThinPermissionSendsOneStableSignedDecision(t *testing.T) {
 		t.Fatal("deciding permission accepted a duplicate action")
 	}
 	message := command().(clientPermissionMsg)
-	if message.err != nil || message.action.CommandID != "tui-1" {
+	if message.err != nil || message.action.CommandID == "" {
 		t.Fatalf("permission message = %+v", message)
 	}
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
-	if len(connection.decisions) != 1 || connection.decisions[0].CommandID != "tui-1" || connection.decisions[0].PermissionID != "permission" {
+	if len(connection.decisions) != 1 || connection.decisions[0].CommandID != message.action.CommandID || connection.decisions[0].PermissionID != "permission" {
 		t.Fatalf("permission decisions = %+v", connection.decisions)
 	}
 }
 
 func TestThinSessionPickerSwitchesBetweenPersistedModes(t *testing.T) {
-	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "classic-root"})
+	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "current-root"})
 	client, err := NewClient(ClientOptions{
-		ClientID: "tui", RootID: "classic-root",
+		ClientID: "tui", RootID: "current-root",
 		Connector: func(context.Context, map[string]int64) (daemonConnection, error) { return connection, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.mu.Lock()
-	client.state, client.conn = ClientLive, connection
-	client.mu.Unlock()
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	waitClientState(t, client, ClientLive)
 	m := &model{client: client, clientState: ClientLive, input: newInput(), width: 100, height: 30}
 	metas := []session.Meta{
-		{ID: "rlm-root", Title: "RLM work", Model: "m", Provider: "p", Mode: session.ModeRLM, UpdatedAt: time.Now()},
-		{ID: "classic-root", Title: "Classic work", Model: "m", Provider: "p", Mode: session.ModeClassic, UpdatedAt: time.Now().Add(-time.Hour)},
+		{ID: "new-root", Title: "New work", Model: "m", Provider: "p", UpdatedAt: time.Now()},
+		{ID: "older-root", Title: "Older work", Model: "m", Provider: "p", UpdatedAt: time.Now().Add(-time.Hour)},
 	}
 	raw, _ := json.Marshal(metas)
 	_, _ = m.Update(clientCommandMsg{
@@ -550,8 +645,8 @@ func TestThinSessionPickerSwitchesBetweenPersistedModes(t *testing.T) {
 		t.Fatal("session list did not open the daemon-backed picker")
 	}
 	view := m.pickerView()
-	if !strings.Contains(view, "classic") || !strings.Contains(view, "rlm") {
-		t.Fatalf("session picker omits persisted modes: %q", view)
+	if !strings.Contains(view, "New work") || !strings.Contains(view, "Older work") {
+		t.Fatalf("session picker omits sessions: %q", view)
 	}
 	_, command := m.pickerKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if command == nil {
@@ -568,7 +663,7 @@ func TestThinSessionPickerSwitchesBetweenPersistedModes(t *testing.T) {
 	}
 }
 
-func TestThinPaletteAndTaskControlsStayDaemonBacked(t *testing.T) {
+func TestThinPaletteAndAgentControlsStayDaemonBacked(t *testing.T) {
 	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", RootID: "root",
@@ -577,9 +672,9 @@ func TestThinPaletteAndTaskControlsStayDaemonBacked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.mu.Lock()
-	client.state, client.conn = ClientLive, connection
-	client.mu.Unlock()
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	waitClientState(t, client, ClientLive)
 	m := &model{
 		cfg: &config.Config{}, client: client, clientState: ClientLive, input: newInput(), now: time.Now,
 		clientView: clientPresentation{agents: []session.RuntimeAgent{
@@ -593,16 +688,16 @@ func TestThinPaletteAndTaskControlsStayDaemonBacked(t *testing.T) {
 	}
 	m.palette = nil
 	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlT})
-	if !m.tasksFocus || !strings.Contains(m.tasksDock(), "blocked: permission") {
-		t.Fatalf("daemon lifecycle dock focus=%v view=%q", m.tasksFocus, m.tasksDock())
+	if !m.agentsFocus || !strings.Contains(m.agentsDock(), "blocked: permission") {
+		t.Fatalf("daemon lifecycle dock focus=%v view=%q", m.agentsFocus, m.agentsDock())
 	}
 	_, command := m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlX})
 	if command == nil {
-		t.Fatal("task stop did not create a daemon action")
+		t.Fatal("agent stop did not create a daemon action")
 	}
 	message := command().(clientCommandMsg)
 	if message.action.Operation != "agent.control" || message.action.CommandID == "" {
-		t.Fatalf("task stop action = %+v", message.action)
+		t.Fatalf("agent stop action = %+v", message.action)
 	}
 }
 
@@ -615,9 +710,9 @@ func TestThinInteractiveTerminalRestoresAndForwardsBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.mu.Lock()
-	client.state, client.conn = ClientLive, connection
-	client.mu.Unlock()
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	waitClientState(t, client, ClientLive)
 	m := &model{client: client, clientState: ClientLive, input: newInput()}
 	stream := func(kind string, event daemon.StreamEvent) session.SnapshotEvent {
 		payload, marshalErr := json.Marshal(event)
@@ -666,7 +761,7 @@ func TestThinInteractiveTerminalRestoresAndForwardsBytes(t *testing.T) {
 }
 
 func TestClosingClientDoesNotCancelDaemonOwnedCommand(t *testing.T) {
-	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Cursor: 1, Meta: session.Meta{ID: "root"}})
+	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root"}})
 	started, release := make(chan struct{}), make(chan struct{})
 	connection.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
 		close(started)

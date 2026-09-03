@@ -21,11 +21,11 @@ func bindTestServices(t *testing.T, services *tools.Services, root string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	rootID, err := store.Create(root, "m", "p")
+	rootID, err := store.Create(session.SessionKindAgent, root, "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := store.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := store.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}

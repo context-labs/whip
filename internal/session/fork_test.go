@@ -14,7 +14,7 @@ func seeded(t *testing.T) (*Store, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	id, err := st.Create("/tmp", "kimi-k3-fast", "inference")
+	id, err := st.Create(SessionKindAgent, "/tmp", "kimi-k3-fast", "inference")
 	if err != nil {
 		t.Fatal(err)
 	}

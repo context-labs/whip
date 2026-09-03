@@ -44,12 +44,14 @@ func FanIn(evs ...Events) Events {
 				}
 			}
 		},
-		OnSteer: func(text string) {
+		OnBoundary: func() []llm.Message {
+			var out []llm.Message
 			for _, e := range evs {
-				if e.OnSteer != nil {
-					e.OnSteer(text)
+				if e.OnBoundary != nil {
+					out = append(out, e.OnBoundary()...)
 				}
 			}
+			return out
 		},
 		OnCompact: func(took, kept int) {
 			for _, e := range evs {

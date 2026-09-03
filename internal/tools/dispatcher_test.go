@@ -38,18 +38,18 @@ func (l *countingLedger) lastAdmission() capability.Admission {
 	return l.admissions[len(l.admissions)-1]
 }
 
-func TestClassicToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
+func TestBoundToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
 	root := t.TempDir()
 	st, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(root, "m", "p")
+	rootID, err := st.Create(session.SessionKindAgent, root, "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +79,9 @@ func TestClassicToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
 		{name: "write", args: json.RawMessage(`{"path":` + quoteJSON(path) + `,"content":"one\n"}`)},
 		{name: "read", args: json.RawMessage(`{"path":` + quoteJSON(path) + `}`), prepare: func() { _ = os.WriteFile(path, []byte("one\n"), 0o600) }},
 		{name: "edit", args: json.RawMessage(`{"path":` + quoteJSON(path) + `,"old_string":"one","new_string":"two"}`), prepare: func() { _ = os.WriteFile(path, []byte("one\n"), 0o600) }},
-		{name: "bash", args: json.RawMessage(`{"command":"printf classic"}`)},
+		{name: "bash", args: json.RawMessage(`{"command":"printf bound"}`)},
 	}
-	ctx, err := WithTurnIdentity(context.Background(), "classic-test")
+	ctx, err := WithTurnIdentity(context.Background(), "bound-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,17 +94,17 @@ func TestClassicToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
 		if tc.prepare != nil {
 			tc.prepare()
 		}
-		got := Execute(WithOperationIdentity(ctx, tc.name+"-classic"), dispatched, tc.name, tc.args)
+		got := Execute(WithOperationIdentity(ctx, tc.name+"-bound"), dispatched, tc.name, tc.args)
 		if got != want {
 			t.Errorf("%s output = %q, want %q", tc.name, got, want)
 		}
-		classic := ledger.lastAdmission()
+		bound := ledger.lastAdmission()
 		if commandID == "" {
-			commandID, traceID = classic.Request.CommandID, classic.Request.TraceID
-		} else if classic.Request.CommandID != commandID || classic.Request.TraceID != traceID {
-			t.Errorf("%s lost turn command/trace identity: %+v", tc.name, classic.Request)
+			commandID, traceID = bound.Request.CommandID, bound.Request.TraceID
+		} else if bound.Request.CommandID != commandID || bound.Request.TraceID != traceID {
+			t.Errorf("%s lost turn command/trace identity: %+v", tc.name, bound.Request)
 		}
-		directRequest := classic.Request
+		directRequest := bound.Request
 		directRequest.OperationID = directRequest.CommandID + ":" + tc.name + "-direct"
 		if tc.prepare != nil {
 			tc.prepare()
@@ -117,11 +117,11 @@ func TestClassicToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
 			t.Errorf("direct %s output = %q, want %q", tc.name, directResponse.Output, want)
 		}
 		directAdmission := ledger.lastAdmission()
-		if classic.Mutation != directAdmission.Mutation || classic.RequirePermission != directAdmission.RequirePermission ||
-			classic.CanonicalRoot != directAdmission.CanonicalRoot || classic.CanonicalPath != directAdmission.CanonicalPath ||
-			classic.Request.TraceID != directAdmission.Request.TraceID || classic.Request.CommandClientID != directAdmission.Request.CommandClientID ||
-			classic.Request.CommandID != directAdmission.Request.CommandID || !reflect.DeepEqual(classic.Request.Reservations, directAdmission.Request.Reservations) {
-			t.Errorf("%s Classic/direct admission mismatch:\nclassic: %+v\ndirect:  %+v", tc.name, classic, directAdmission)
+		if bound.Mutation != directAdmission.Mutation || bound.RequirePermission != directAdmission.RequirePermission ||
+			bound.CanonicalRoot != directAdmission.CanonicalRoot || bound.CanonicalPath != directAdmission.CanonicalPath ||
+			bound.Request.TraceID != directAdmission.Request.TraceID || bound.Request.CommandClientID != directAdmission.Request.CommandClientID ||
+			bound.Request.CommandID != directAdmission.Request.CommandID || !reflect.DeepEqual(bound.Request.Reservations, directAdmission.Request.Reservations) {
+			t.Errorf("%s bound/direct admission mismatch:\nbound:  %+v\ndirect: %+v", tc.name, bound, directAdmission)
 		}
 	}
 	res, err := services.RunBash(context.Background(), "printf wait", time.Second)
@@ -143,11 +143,11 @@ func TestAuthorityCloneKeepsHostIntegrationsAndPermissionMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	rootID, err := store.Create(root, "model", "provider")
+	rootID, err := store.Create(session.SessionKindAgent, root, "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := store.EnsureClassicAuthority(t.Context(), rootID)
+	authority, err := store.EnsureAuthority(t.Context(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestAuthorityCloneKeepsHostIntegrationsAndPermissionMode(t *testing.T) {
 	}
 }
 
-func TestUnboundClassicToolsFailClosed(t *testing.T) {
+func TestUnboundToolsFailClosed(t *testing.T) {
 	for _, tool := range All() {
 		if tool.Def.Function.Name == "read" {
 			if _, err := tool.Run(context.Background(), json.RawMessage(`{"path":"go.mod"}`)); err == nil {

@@ -121,6 +121,14 @@ func TestManagerConnectAndCall(t *testing.T) {
 	if out != "hi whip" {
 		t.Errorf("greet = %q", out)
 	}
+	listed, err := m.ListTools("docs")
+	if err != nil || len(listed) != 4 || listed[1].Name != "greet" {
+		t.Fatalf("RLM tool metadata = %+v, %v", listed, err)
+	}
+	direct, err := m.Call(context.Background(), "docs", "greet", json.RawMessage(`{"name":"runtime"}`))
+	if err != nil || direct != "hi runtime" {
+		t.Fatalf("RLM direct call = %q, %v", direct, err)
+	}
 
 	st := m.Statuses()
 	if len(st) != 1 || st[0].Status != StatusReady || st[0].Tools != 4 {

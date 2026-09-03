@@ -22,7 +22,7 @@ func TestCapabilityLedgerBindsAgentOperationBudgetAndScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(root, "m", "p")
+	rootID, err := st.Create(SessionKindAgent, root, "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestCapabilityLedgerBindsAgentOperationBudgetAndScope(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	otherRoot, err := st.Create(t.TempDir(), "m", "p")
+	otherRoot, err := st.Create(SessionKindAgent, t.TempDir(), "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,23 +130,23 @@ func TestCapabilityLedgerBindsAgentOperationBudgetAndScope(t *testing.T) {
 	}
 }
 
-func TestEnsureClassicAuthorityIsIdempotent(t *testing.T) {
+func TestEnsureAuthorityIsIdempotent(t *testing.T) {
 	root := t.TempDir()
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(root, "m", "p")
+	rootID, err := st.Create(SessionKindAgent, root, "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	first, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	first, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	second, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestEnsureClassicAuthorityIsIdempotent(t *testing.T) {
 		t.Fatalf("authority changed across bootstrap: %#v != %#v", first, second)
 	}
 	if first.RootID != rootID || first.AgentID == "" || first.Files.ID == "" || first.Shell.ID == "" || first.Files.ID == first.Shell.ID {
-		t.Fatalf("invalid classic authority: %#v", first)
+		t.Fatalf("invalid root authority: %#v", first)
 	}
 	var agents, grants, budgets int
 	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM agents WHERE root_id=?`, rootID).Scan(&agents); err != nil {
@@ -178,7 +178,7 @@ func TestCapabilityPermissionSurvivesDispatcherAndRevalidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, _ := st.Create(root, "m", "p")
+	rootID, _ := st.Create(SessionKindAgent, root, "m", "p")
 	_, err = st.CommitRuntime(context.Background(), RuntimeTransition{Agent: &RuntimeAgent{ID: "owner", RootID: rootID, Status: "idle"}})
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ func TestWorkspaceMutationRequiresDistinctRootWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(root, "m", "p")
+	rootID, err := st.Create(SessionKindAgent, root, "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestPendingPermissionResumesAfterStoreReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(root, "m", "p")
+	rootID, err := st.Create(SessionKindAgent, root, "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func TestLargeCapabilityPayloadRoundTripUsesReferences(t *testing.T) {
 	arguments := json.RawMessage(`{"blob":"` + strings.Repeat("x", MaxContentRead+InlineValueLimit) + `"}`)
 	admission := capability.Admission{
 		Request: capability.Request{
-			RootID: rootID, AgentID: agentID, CapabilityID: "classic-files:" + rootID,
+			RootID: rootID, AgentID: agentID, CapabilityID: "files:" + rootID,
 			CapabilityGeneration: 1, OperationID: "large-operation", Operation: "read", Arguments: arguments,
 		},
 		RequirePermission: true,
@@ -429,7 +429,7 @@ func TestCapabilityDecisionsTerminalizeDeniedAndStaleAdmissions(t *testing.T) {
 	st, rootID, agentID := actorFailureFixture(t)
 	base := capability.Admission{
 		Request: capability.Request{
-			RootID: rootID, AgentID: agentID, CapabilityID: "classic-files:" + rootID,
+			RootID: rootID, AgentID: agentID, CapabilityID: "files:" + rootID,
 			CapabilityGeneration: 1, Operation: "read",
 			Reservations: []capability.Reservation{{Kind: "active_operations", Amount: 1}},
 		},
@@ -524,7 +524,7 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 	}
 	admission := func(rootID, agentID, operationID string) capability.Admission {
 		return capability.Admission{Request: capability.Request{
-			RootID: rootID, AgentID: agentID, CapabilityID: "classic-files:" + rootID,
+			RootID: rootID, AgentID: agentID, CapabilityID: "files:" + rootID,
 			CapabilityGeneration: 1, OperationID: operationID, Operation: "read",
 		}}
 	}
@@ -555,7 +555,7 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 			t.Fatal("missing workspace root was accepted")
 		}
 		exec(t, st, `UPDATE agents SET status='stopped' WHERE id=?`, agentID)
-		if _, err := st.EnsureClassicAuthority(ctx, rootID); !errors.Is(err, ErrRootTerminal) {
+		if _, err := st.EnsureAuthority(ctx, rootID); !errors.Is(err, ErrRootTerminal) {
 			t.Fatalf("terminal authority error=%v", err)
 		}
 	})
@@ -568,7 +568,7 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 		value := admission(rootID, agentID, "closed")
 		for name, call := range map[string]func() error{
 			"workspace": func() error { _, err := st.WorkspaceRoot(ctx, rootID); return err },
-			"revoke":    func() error { return st.RevokeCapability(ctx, "classic-files:"+rootID) },
+			"revoke":    func() error { return st.RevokeCapability(ctx, "files:"+rootID) },
 			"begin":     func() error { _, err := st.Begin(ctx, value); return err },
 			"pending":   func() error { _, err := st.Pending(ctx, "missing"); return err },
 			"decide":    func() error { _, err := st.Decide(ctx, value, "missing", capability.Decision{}); return err },
@@ -586,7 +586,7 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 
 	t.Run("missing workspace", func(t *testing.T) {
 		st, rootID := capabilityRoot(t, filepath.Join(t.TempDir(), "missing"))
-		if _, err := st.EnsureClassicAuthority(ctx, rootID); err == nil {
+		if _, err := st.EnsureAuthority(ctx, rootID); err == nil {
 			t.Fatal("missing workspace was accepted")
 		}
 	})
@@ -602,7 +602,7 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 		t.Run("bootstrap "+test.name+" failure", func(t *testing.T) {
 			st, rootID := capabilityRoot(t, t.TempDir())
 			exec(t, st, test.trigger)
-			if _, err := st.EnsureClassicAuthority(ctx, rootID); err == nil {
+			if _, err := st.EnsureAuthority(ctx, rootID); err == nil {
 				t.Fatal("bootstrap write failure was ignored")
 			}
 		})
@@ -824,7 +824,7 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 		} {
 			t.Run(test.column, func(t *testing.T) {
 				st, rootID, agentID := actorFailureFixture(t)
-				exec(t, st, `UPDATE capabilities SET `+test.column+`=? WHERE id=?`, test.value, "classic-files:"+rootID)
+				exec(t, st, `UPDATE capabilities SET `+test.column+`=? WHERE id=?`, test.value, "files:"+rootID)
 				if _, err := st.Begin(ctx, admission(rootID, agentID, "malformed-"+test.column)); err == nil {
 					t.Fatal("malformed capability record was accepted")
 				}
@@ -931,7 +931,7 @@ func capabilityRoot(t *testing.T, workspace string) (*Store, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	rootID, err := st.Create(workspace, "m", "p")
+	rootID, err := st.Create(SessionKindAgent, workspace, "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}

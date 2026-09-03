@@ -10,55 +10,6 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 )
 
-func TestTaskRoundTrip(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
-	id, err := st.Create("/tmp", "m", "p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	start := time.Now().Add(-time.Minute)
-	// start writes the running row…
-	if err := st.SaveTask(id, Task{ID: "task-1", Description: "probe", Prompt: "look around", Status: "running", StartedAt: start}); err != nil {
-		t.Fatal(err)
-	}
-	// …settle upserts the same row with the final state
-	end := time.Now()
-	if err := st.SaveTask(id, Task{ID: "task-1", Description: "probe", Prompt: "look around", Status: "done", Report: "the report", StartedAt: start, EndedAt: end}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SaveTask(id, Task{ID: "task-2", Description: "other", Prompt: "p", Status: "error", Report: "boom", StartedAt: start.Add(time.Second), EndedAt: end}); err != nil {
-		t.Fatal(err)
-	}
-
-	tasks, err := st.LoadTasks(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tasks) != 2 {
-		t.Fatalf("expected 2 tasks (the upsert must not duplicate), got %d", len(tasks))
-	}
-	if tasks[0].ID != "task-1" || tasks[0].Status != "done" || tasks[0].Report != "the report" {
-		t.Fatalf("task-1 should hold the settled state, got %+v", tasks[0])
-	}
-	if tasks[0].EndedAt.IsZero() {
-		t.Fatal("ended_at should round-trip")
-	}
-	if tasks[1].ID != "task-2" || tasks[1].Status != "error" {
-		t.Fatalf("task-2: %+v", tasks[1])
-	}
-	// tasks belong to their session only
-	if other, _ := st.Create("/tmp", "m", "p"); true {
-		if got, _ := st.LoadTasks(other); len(got) != 0 {
-			t.Fatalf("a fresh session should have no tasks, got %d", len(got))
-		}
-	}
-}
-
 func TestDeleteSessionRemovesOwnedTree(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {
@@ -66,16 +17,16 @@ func TestDeleteSessionRemovesOwnedTree(t *testing.T) {
 	}
 	defer st.Close()
 
-	rootID, err := st.Create(t.TempDir(), "model", "provider")
+	rootID, err := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	authority, err := st.EnsureAuthority(context.Background(), rootID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AdmitChild(context.Background(), ChildAdmission{
-		RootID: rootID, ParentAgentID: authority.AgentID, ChildAgentID: "child", ExecutionID: "child-exec",
+	if _, err := st.AdmitAgent(context.Background(), AgentAdmission{
+		RootID: rootID, ParentAgentID: authority.AgentID, ChildAgentID: "child", Name: "child",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -84,16 +35,11 @@ func TestDeleteSessionRemovesOwnedTree(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RecordClassicTaskTranscript(context.Background(), rootID, authority.AgentID, Task{
-		ID: "task-1", Status: "done", StartedAt: time.Now(), EndedAt: time.Now(),
-	}, []llm.Message{{Role: "assistant", Content: "subagent output"}}, "model", "provider"); err != nil {
-		t.Fatal(err)
-	}
 	userFork, err := st.Fork(rootID, 0, "keep this fork")
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherID, err := st.Create(t.TempDir(), "model", "provider")
+	otherID, err := st.Create(SessionKindAgent, t.TempDir(), "model", "provider")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,8 +47,8 @@ func TestDeleteSessionRemovesOwnedTree(t *testing.T) {
 	if err := st.DeleteSession(context.Background(), rootID); err != nil {
 		t.Fatal(err)
 	}
-	var ownedSessions, ownedAgents, ownedGrants, ownedTasks int
-	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sessions WHERE id=? OR (forked_from=? AND task_id<>'')`, rootID, rootID).Scan(&ownedSessions); err != nil {
+	var ownedSessions, ownedAgents, ownedGrants int
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sessions WHERE id=?`, rootID).Scan(&ownedSessions); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM agents WHERE root_id=?`, rootID).Scan(&ownedAgents); err != nil {
@@ -111,11 +57,8 @@ func TestDeleteSessionRemovesOwnedTree(t *testing.T) {
 	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM content_grants WHERE root_id=?`, rootID).Scan(&ownedGrants); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM tasks WHERE session_id=?`, rootID).Scan(&ownedTasks); err != nil {
-		t.Fatal(err)
-	}
-	if ownedSessions != 0 || ownedAgents != 0 || ownedGrants != 0 || ownedTasks != 0 {
-		t.Fatalf("owned rows remain: sessions=%d agents=%d grants=%d tasks=%d", ownedSessions, ownedAgents, ownedGrants, ownedTasks)
+	if ownedSessions != 0 || ownedAgents != 0 || ownedGrants != 0 {
+		t.Fatalf("owned rows remain: sessions=%d agents=%d grants=%d", ownedSessions, ownedAgents, ownedGrants)
 	}
 	if _, _, err := st.Load(otherID); err != nil {
 		t.Fatalf("unrelated session was affected: %v", err)
@@ -137,7 +80,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 	defer st.Close()
 
-	id, err := st.Create("/tmp", "kimi-k3-fast", "inference")
+	id, err := st.Create(SessionKindAgent, "/tmp", "kimi-k3-fast", "inference")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +155,24 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRecentExcludesUntouchedBlankRoots(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.Create(SessionKindAgent, t.TempDir(), "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	recent, err := st.Recent(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 0 {
+		t.Fatalf("untouched blank root appeared in resume history: %+v", recent)
+	}
+}
+
 func TestEffortRoundTrip(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
 	if err != nil {
@@ -219,7 +180,7 @@ func TestEffortRoundTrip(t *testing.T) {
 	}
 	defer st.Close()
 
-	id, err := st.Create("/tmp", "m", "p")
+	id, err := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,42 +219,30 @@ func TestEffortRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSessionModePersistsConfiguredDefault(t *testing.T) {
+func TestSessionsUseOneExecutionContract(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.db")
-	st, err := OpenWithDefaultMode(path, ModeRLM)
+	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rid, err := st.Create("/tmp", "m", "p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	st.Close()
-
-	st, err = OpenWithDefaultMode(path, ModeClassic)
+	rid, err := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	cid, err := st.Create("/tmp", "m", "p")
-	if err != nil {
-		t.Fatal(err)
+	var modeColumns int
+	if err := st.db.QueryRow(`SELECT count(*) FROM pragma_table_info('sessions') WHERE name='mode'`).Scan(&modeColumns); err != nil || modeColumns != 0 {
+		t.Fatalf("session mode columns=%d err=%v", modeColumns, err)
 	}
-	rmeta, _, err := st.Load(rid)
-	if err != nil || rmeta.Mode != ModeRLM {
-		t.Fatalf("RLM session changed after config change: mode=%q err=%v", rmeta.Mode, err)
+	meta, _, err := st.Load(rid)
+	if err != nil || meta.Kind != SessionKindAgent {
+		t.Fatalf("agent session contract=%+v err=%v", meta, err)
 	}
-	cmeta, _, err := st.Load(cid)
-	if err != nil || cmeta.Mode != ModeClassic {
-		t.Fatalf("new Classic session mode=%q err=%v", cmeta.Mode, err)
-	}
-	sid, err := st.SaveSubagentTranscript(rid, "child", []llm.Message{{Role: "assistant", Content: "done"}}, "m", "p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	smeta, _, err := st.Load(sid)
-	if err != nil || smeta.Mode != ModeRLM {
-		t.Fatalf("subagent should inherit persisted parent mode: mode=%q err=%v", smeta.Mode, err)
+	for _, removed := range []string{"tasks", "child_executions"} {
+		var count int
+		if err := st.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name=?`, removed).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("legacy object %s count=%d err=%v", removed, count, err)
+		}
 	}
 }
 
@@ -305,13 +254,13 @@ func TestUserHistory(t *testing.T) {
 	defer st.Close()
 
 	// two sessions in different folders; the newer one typed last
-	a, _ := st.Create("/proj/a", "m", "p")
+	a, _ := st.Create(SessionKindAgent, "/proj/a", "m", "p")
 	st.Save(a, 0, []llm.Message{
 		{Role: "system", Content: "sys"},
 		{Role: "user", Content: "from folder A", Authored: true},
 		{Role: "assistant", Content: "ans"},
 	}, "m", "p")
-	b, _ := st.Create("/proj/b", "m", "p")
+	b, _ := st.Create(SessionKindAgent, "/proj/b", "m", "p")
 	st.Save(b, 0, []llm.Message{
 		{Role: "system", Content: "sys"},
 		{Role: "user", Content: "from folder B", Authored: true},
@@ -347,7 +296,7 @@ func TestUserHistorySkipsInjected(t *testing.T) {
 	}
 	defer st.Close()
 
-	id, _ := st.Create("/proj/x", "m", "p")
+	id, _ := st.Create(SessionKindAgent, "/proj/x", "m", "p")
 	st.Save(id, 0, []llm.Message{
 		{Role: "system", Content: "sys"},
 		{Role: "user", Content: "real question I typed", Authored: true},
@@ -380,8 +329,8 @@ func TestStoreEdgeCases(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	id1, _ := st.Create("/tmp", "m", "p")
-	id2, _ := st.Create("/tmp", "m", "p")
+	id1, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
+	id2, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	msgs := []llm.Message{{Role: "system"}, {Role: "user", Content: "q"}}
 	st.Save(id1, 1, msgs, "m", "p")
 	st.Save(id2, 1, msgs, "m", "p")
@@ -406,7 +355,7 @@ func TestGoalPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	id, _ := st.Create("/tmp", "m", "p")
+	id, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	st.Save(id, 1, []llm.Message{{Role: "system"}, {Role: "user", Content: "q"}}, "m", "p")
 
 	if err := st.SetGoal(id, "finish the thing"); err != nil {
@@ -437,7 +386,7 @@ func TestLoadSynthesizesDanglingToolResults(t *testing.T) {
 		tc.ID, tc.Function.Name = id, name
 		return tc
 	}
-	id, _ := st.Create("/tmp", "m", "p")
+	id, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	msgs := []llm.Message{
 		{Role: "system", Content: "sys"},
 		{Role: "user", Content: "go"},
@@ -489,7 +438,7 @@ func TestCompactionEvent(t *testing.T) {
 	}
 	defer st.Close()
 
-	id, _ := st.Create("/tmp", "m", "p")
+	id, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	msgs := []llm.Message{
 		{Role: "system", Content: "sys"},
 		{Role: "user", Content: "q1"},
@@ -579,7 +528,7 @@ func TestTodosAndUsagePersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	id, _ := st.Create("/tmp", "m", "p")
+	id, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	st.Save(id, 1, []llm.Message{{Role: "system"}, {Role: "user", Content: "q"}}, "m", "p")
 
 	if got := st.Todos(id); got != "" {
@@ -623,7 +572,7 @@ func TestClearMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	id, _ := st.Create("/tmp", "m", "p")
+	id, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	st.Save(id, 0, []llm.Message{
 		{Role: "system", Content: "sys"},
 		{Role: "user", Content: "q"},
@@ -649,7 +598,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	id, _ := st.Create("/tmp", "m", "p")
+	id, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
 
 	if got := st.Snapshots(id); len(got) != 0 {
 		t.Fatalf("fresh session should have no snapshots, got %v", got)
@@ -700,7 +649,7 @@ func TestRewindHistoryAtomicallyDropsDerivedTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	id, _ := st.Create(t.TempDir(), "m", "p")
+	id, _ := st.Create(SessionKindAgent, t.TempDir(), "m", "p")
 	history := []llm.Message{
 		{Role: "system", Content: "system"},
 		{Role: "user", Content: "q1"},
@@ -746,7 +695,7 @@ func TestScheduleRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	id, _ := st.Create("/tmp", "m", "p")
+	id, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
 
 	if got := st.Schedules(id); len(got) != 0 {
 		t.Fatalf("fresh session should have no schedules, got %v", got)
@@ -764,7 +713,7 @@ func TestScheduleRoundTrip(t *testing.T) {
 		t.Fatalf("ids should increment per session: %d %d", id1, id2)
 	}
 	// ids are per-session: another session starts at 1 again
-	other, _ := st.Create("/tmp", "m", "p")
+	other, _ := st.Create(SessionKindAgent, "/tmp", "m", "p")
 	if oid, _ := st.AddSchedule(other, "@every 1h", "p", anchor); oid != 1 {
 		t.Fatalf("other session's first schedule id: %d", oid)
 	}
@@ -801,167 +750,5 @@ func TestScheduleRoundTrip(t *testing.T) {
 	scs = st.Schedules(id)
 	if len(scs) != 1 || scs[0].ID != id2 {
 		t.Fatalf("after delete: %+v", scs)
-	}
-}
-
-// A subagent transcript round-trips as an attributed session row: id
-// <parent>/task/<task>, forked_from the parent, task_id set, messages intact.
-// Re-saving after a follow-up turn replaces the same row (no duplicate).
-func TestSubagentTranscriptRoundTrip(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
-
-	parent, err := st.Create("/tmp", "m", "p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	msgs := []llm.Message{
-		{Role: "system", Content: "sub sys"},
-		{Role: "user", Content: "explore the codebase"},
-		{Role: "assistant", Content: "found 3 things"},
-	}
-	id, err := st.SaveSubagentTranscript(parent, "probe-1", msgs, "sub-m", "sub-p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id != "task-"+parent+"-probe-1" {
-		t.Fatalf("id = %q", id)
-	}
-	meta, got, err := st.Load(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if meta.TaskID != "probe-1" || meta.ForkedFrom != parent {
-		t.Fatalf("attribution: taskID=%q forkedFrom=%q", meta.TaskID, meta.ForkedFrom)
-	}
-	if len(got) != 3 || got[1].Content != "explore the codebase" || got[2].Content != "found 3 things" {
-		t.Fatalf("transcript round-trip: %+v", got)
-	}
-
-	// Follow-up turn appends; re-save replaces the row, no duplicate session.
-	msgs = append(msgs, llm.Message{Role: "user", Content: "follow up"}, llm.Message{Role: "assistant", Content: "answered"})
-	if _, err := st.SaveSubagentTranscript(parent, "probe-1", msgs, "sub-m", "sub-p"); err != nil {
-		t.Fatal(err)
-	}
-	_, got, err = st.Load(id)
-	if err != nil || len(got) != 5 {
-		t.Fatalf("after follow-up: %d msgs, err %v", len(got), err)
-	}
-
-	// No parent / no task id → no-op ("" id, no error).
-	if id, err := st.SaveSubagentTranscript("", "t", msgs, "m", "p"); id != "" || err != nil {
-		t.Fatalf("empty parent should no-op: id=%q err=%v", id, err)
-	}
-}
-
-// SubagentTranscript loads by EXACT id, not Load's prefix scan: two sibling
-// task ids that share a stem (foo-1 vs foo-12) would make the prefix form
-// return "ambiguous", so the transcript lookup must bypass it.
-func TestSubagentTranscriptExactIDNoPrefixCollision(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
-
-	parent, err := st.Create("/tmp", "m", "p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Two sibling tasks whose ids share a stem: task-<parent>-foo-1 and
-	// task-<parent>-foo-12. Loading "-foo-1" by prefix would also match
-	// "-foo-12" and fail "ambiguous".
-	mk := []llm.Message{{Role: "user", Content: "one"}}
-	if _, err := st.SaveSubagentTranscript(parent, "foo-1", mk, "m", "p"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.SaveSubagentTranscript(parent, "foo-12", mk, "m", "p"); err != nil {
-		t.Fatal(err)
-	}
-
-	// The exact-id lookup must succeed where the prefix form would be ambiguous.
-	got, err := st.SubagentTranscript(parent, "foo-1")
-	if err != nil {
-		t.Fatalf("exact-id transcript load: %v", err)
-	}
-	if len(got) != 1 || got[0].Content != "one" {
-		t.Fatalf("wrong transcript: %+v", got)
-	}
-	// And a nonexistent task yields empty, not an error.
-	if got, err := st.SubagentTranscript(parent, "nope-9"); err != nil || len(got) != 0 {
-		t.Fatalf("missing transcript should be empty, got %d msgs err %v", len(got), err)
-	}
-}
-
-// A follow-up turn that compacts the transcript writes FEWER messages than
-// the first save; the re-save must delete the stale rows past the new tail,
-// not leave them to reload as phantom trailing messages.
-func TestSubagentTranscriptResaveDeletesOrphanRows(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
-
-	parent, err := st.Create("/tmp", "m", "p")
-	if err != nil {
-		t.Fatal(err)
-	}
-	long := []llm.Message{
-		{Role: "user", Content: "u1"},
-		{Role: "assistant", Content: "a1"},
-		{Role: "user", Content: "u2"},
-		{Role: "assistant", Content: "a2"},
-		{Role: "user", Content: "u3"},
-		{Role: "assistant", Content: "a3"},
-	}
-	if _, err := st.SaveSubagentTranscript(parent, "t-1", long, "m", "p"); err != nil {
-		t.Fatal(err)
-	}
-	// Re-save a shorter transcript (post-compaction): 2 messages.
-	short := []llm.Message{
-		{Role: "system", Content: "Summary of the conversation so far: ..."},
-		{Role: "assistant", Content: "a3"},
-	}
-	if _, err := st.SaveSubagentTranscript(parent, "t-1", short, "m", "p"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := st.SubagentTranscript(parent, "t-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != len(short) {
-		t.Fatalf("orphan rows survived: %d msgs, want %d (%+v)", len(got), len(short), got)
-	}
-}
-
-// The transcript records the SUBAGENT's model, not the parent's — the settle
-// path passes t.SubModel, so the saved session row attributes the work to the
-// model that actually produced it.
-func TestSubagentTranscriptAttributesSubModel(t *testing.T) {
-	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
-
-	parent, err := st.Create("/tmp", "parent-model", "parent-prov")
-	if err != nil {
-		t.Fatal(err)
-	}
-	id, err := st.SaveSubagentTranscript(parent, "t-1",
-		[]llm.Message{{Role: "user", Content: "x"}}, "sub-model-id", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	meta, _, err := st.Load(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if meta.Model != "sub-model-id" {
-		t.Fatalf("transcript should attribute the sub's model, got %q", meta.Model)
 	}
 }

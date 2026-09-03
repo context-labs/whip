@@ -23,14 +23,16 @@ var moduleRegistry = map[string][]string{
 	"context":     {"inspect", "search", "read"},
 	"files":       {"list", "search", "read", "write", "patch"},
 	"shell":       {"run", "read"},
+	"browser":     {"run"},
+	"computer":    {"run"},
 	"models":      {"call", "batch"},
-	"agents":      {"spawn", "inspect", "list", "steer", "stop", "await"},
-	"messages":    {"send", "receive"},
+	"agents":      {"spawn", "submit", "wait", "inspect", "list", "stop", "delete"},
+	"messages":    {"send", "list", "read", "complete", "ack", "defer"},
+	"mcp":         {"list_servers", "list_tools", "call"},
 	"state":       {"private_get", "private_set", "private_append", "private_cas", "private_list", "blackboard_get", "blackboard_set", "blackboard_append", "blackboard_cas", "blackboard_history", "subscribe", "subscriptions", "cancel_subscription"},
 	"artifacts":   {"put", "inspect", "read"},
 	"schedules":   {"create", "list", "cancel"},
 	"permissions": {"request", "status"},
-	"answer":      {"submit"},
 }
 
 func Modules() map[string][]string {

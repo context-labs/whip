@@ -287,6 +287,28 @@ func TestRealFileExists(t *testing.T) {
 	}
 }
 
+func TestTranscriptLinksResolveAgainstSessionWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "docs", "note.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("note"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	linked := linkifyFilePathsAt("inspect docs/note.md", root)
+	if !strings.Contains(linked, "file://"+path) {
+		t.Fatalf("user link did not use session cwd: %q", linked)
+	}
+	m := &model{clientView: clientPresentation{workingDir: root}, input: newInput()}
+	m.appendAssistantBlock("See [the note](docs/note.md).")
+	rendered := m.blocks[len(m.blocks)-1].render(80)
+	if !strings.Contains(rendered, "file://"+path) {
+		t.Fatalf("assistant link did not use session cwd: %q", rendered)
+	}
+}
+
 func mustWd(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()

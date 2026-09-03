@@ -8,9 +8,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,7 +37,7 @@ func Paths(home string) (RuntimePaths, error) {
 	if home == "" {
 		return RuntimePaths{}, errors.New("runtime home is required")
 	}
-	abs, err := filepath.Abs(home)
+	abs, err := filepath.Abs(filepath.Join(home, "runtime-v2"))
 	if err != nil {
 		return RuntimePaths{}, err
 	}
@@ -77,7 +80,47 @@ func AcquireOwner(path string) (*OwnerLock, error) {
 		}
 		return nil, err
 	}
+	if err := file.Truncate(0); err != nil {
+		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		_ = file.Close()
+		return nil, err
+	}
+	if _, err := file.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0); err != nil {
+		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		_ = file.Close()
+		return nil, err
+	}
+	if err := file.Sync(); err != nil {
+		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		_ = file.Close()
+		return nil, err
+	}
 	return &OwnerLock{file: file}, nil
+}
+
+// ActiveOwnerPID returns the PID recorded by the process currently holding
+// the daemon owner lock. Stale PID text is ignored once the lock is free.
+func ActiveOwnerPID(path string) (int, bool, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path comes from validated RuntimePaths.
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = file.Close() }()
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err == nil {
+		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		return 0, false, nil
+	} else if !errors.Is(err, unix.EWOULDBLOCK) {
+		return 0, false, err
+	}
+	data, err := io.ReadAll(io.LimitReader(file, 64))
+	if err != nil {
+		return 0, true, err
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0, true, errors.New("daemon lock is owned but has no valid PID metadata")
+	}
+	return pid, true, nil
 }
 
 func (l *OwnerLock) Close() error {

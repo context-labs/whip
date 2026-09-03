@@ -24,7 +24,7 @@ func callTodowrite(t *testing.T, a *Agent, todosJSON string) string {
 }
 
 func TestTodowriteFullRewriteAndInjection(t *testing.T) {
-	a := New(nil, "m", 0, "sys")
+	a := newTestAgent(nil, "m", 0, "sys")
 
 	out := callTodowrite(t, a, `{"todos":[
 		{"content":"read the code","status":"completed"},
@@ -52,7 +52,7 @@ func TestTodowriteFullRewriteAndInjection(t *testing.T) {
 }
 
 func TestTodowriteValidation(t *testing.T) {
-	a := New(nil, "m", 0, "sys")
+	a := newTestAgent(nil, "m", 0, "sys")
 	cases := []string{
 		`{"todos":[{"content":"a","status":"in_progress"},{"content":"b","status":"in_progress"}]}`,           // two in_progress
 		`{"todos":[{"content":"a","status":"bogus"}]}`,                                                        // bad status
@@ -68,7 +68,7 @@ func TestTodowriteValidation(t *testing.T) {
 
 // An oversized list, malformed arguments, and the clear-the-plan call.
 func TestTodowriteEdges(t *testing.T) {
-	a := New(nil, "m", 0, "sys")
+	a := newTestAgent(nil, "m", 0, "sys")
 
 	var big strings.Builder
 	big.WriteString(`{"todos":[`)
@@ -115,7 +115,7 @@ func TestTodowriteEndToEnd(t *testing.T) {
 	})
 	defer srv.Close()
 
-	a := New(llm.New(srv.URL, "k"), "m", 100, "sys")
+	a := newTestAgent(llm.New(srv.URL, "k"), "m", 100, "sys")
 	callTodowrite(t, a, `{"todos":[
 		{"content":"read the code","status":"completed"},
 		{"content":"write tests","status":"in_progress"}]}`)
@@ -133,7 +133,7 @@ func TestTodowriteEndToEnd(t *testing.T) {
 }
 
 func TestTodosPersistenceRoundTrip(t *testing.T) {
-	a := New(nil, "m", 0, "sys")
+	a := newTestAgent(nil, "m", 0, "sys")
 	callTodowrite(t, a, `{"todos":[{"content":"ship it","status":"in_progress"}]}`)
 
 	saved := a.TodosJSON()
@@ -141,14 +141,14 @@ func TestTodosPersistenceRoundTrip(t *testing.T) {
 		t.Fatal("TodosJSON should serialize a non-empty plan")
 	}
 
-	b := New(nil, "m", 0, "sys")
+	b := newTestAgent(nil, "m", 0, "sys")
 	b.LoadTodosJSON(saved)
 	if !strings.Contains(b.todoBlock(), "ship it") {
 		t.Fatalf("restored plan should inject open item:\n%s", b.todoBlock())
 	}
 
 	// Corrupt/empty blobs load as an empty plan, never a crash.
-	c := New(nil, "m", 0, "sys")
+	c := newTestAgent(nil, "m", 0, "sys")
 	c.LoadTodosJSON("{not json")
 	c.LoadTodosJSON("")
 	if c.TodosJSON() != "" {

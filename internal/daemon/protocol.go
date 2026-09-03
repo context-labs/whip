@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/session"
 )
 
 const (
@@ -53,6 +55,8 @@ type InitializeResult struct {
 	ProtocolMajor int      `json:"protocol_major"`
 	BuildID       string   `json:"build_id"`
 	Generation    int64    `json:"generation"`
+	PID           int      `json:"pid,omitempty"`
+	StartedAt     string   `json:"started_at,omitempty"`
 	Capabilities  []string `json:"capabilities"`
 	Nonce         []byte   `json:"nonce"`
 }
@@ -87,11 +91,12 @@ type ProtocolEvent struct {
 }
 
 type StreamEvent struct {
-	ID     string `json:"id,omitempty"`
-	Name   string `json:"name,omitempty"`
-	Text   string `json:"text,omitempty"`
-	Args   string `json:"args,omitempty"`
-	Result string `json:"result,omitempty"`
+	AgentID string `json:"agent_id,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Text    string `json:"text,omitempty"`
+	Args    string `json:"args,omitempty"`
+	Result  string `json:"result,omitempty"`
 }
 
 // SubmitPayload is the durable user input accepted by root submit commands.
@@ -103,8 +108,9 @@ type SubmitPayload struct {
 }
 
 type UsageEvent struct {
-	Used int `json:"used"`
-	Size int `json:"size"`
+	Used  int       `json:"used"`
+	Size  int       `json:"size"`
+	Usage llm.Usage `json:"usage"`
 }
 
 type PlanItem struct {
@@ -114,6 +120,82 @@ type PlanItem struct {
 
 type PlanEvent struct {
 	Items []PlanItem `json:"items"`
+}
+
+type AgentTranscriptResult struct {
+	Cursor       int64                   `json:"cursor"`
+	Agent        session.RuntimeAgent    `json:"agent"`
+	Messages     []llm.Message           `json:"messages"`
+	Presentation []session.SnapshotEvent `json:"presentation,omitempty"`
+	Inbox        []session.InboxItem     `json:"inbox,omitempty"`
+}
+
+type AgentSubmitResult struct {
+	AgentID  string `json:"agent_id"`
+	InboxSeq int64  `json:"inbox_seq"`
+	Kind     string `json:"kind,omitempty"` // submit or steer
+	Status   string `json:"status"`
+}
+
+type SessionPreviewResult struct {
+	RootID    string `json:"root_id"`
+	User      string `json:"user"`
+	Assistant string `json:"assistant"`
+}
+
+// SessionUpdateEvent carries an ordered metadata change that a presenter can
+// reduce without replacing the complete root snapshot.
+type SessionUpdateEvent struct {
+	Title         string `json:"title,omitempty"`
+	Model         string `json:"model,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	Effort        string `json:"effort,omitempty"`
+	EffortChanged bool   `json:"effort_changed,omitempty"`
+	WorkingDir    string `json:"working_directory,omitempty"`
+}
+
+// ProviderValidateParams is deliberately handled outside the durable command
+// journal: Key is an ephemeral credential used only for this request.
+type ProviderValidateParams struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	Key     string `json:"key"`
+}
+
+type ProviderValidateResult struct {
+	Models []llm.ModelInfo `json:"models"`
+}
+
+type ProviderCatalogsResult struct {
+	Catalogs map[string]config.Catalog `json:"catalogs"`
+	Errors   map[string]string         `json:"errors,omitempty"`
+}
+
+type ContextAuditRow struct {
+	Label string `json:"label"`
+	Bytes int    `json:"bytes,omitempty"`
+	Note  string `json:"note,omitempty"`
+}
+
+type ContextAuditResult struct {
+	WorkingDirectory string            `json:"working_directory"`
+	Rows             []ContextAuditRow `json:"rows"`
+}
+
+type MCPStatusResult struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Note   string `json:"note,omitempty"`
+	Error  string `json:"error,omitempty"`
+	Tools  int    `json:"tools,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
+type LSPStatusResult struct {
+	Name  string `json:"name"`
+	Root  string `json:"root,omitempty"`
+	State string `json:"state"`
+	Error string `json:"error,omitempty"`
 }
 
 type ReplayResult struct {

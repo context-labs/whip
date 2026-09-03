@@ -24,8 +24,6 @@ func toolKind(name string) acp.ToolKind {
 		return acp.ToolKindEdit
 	case "bash":
 		return acp.ToolKindExecute
-	case "task":
-		return acp.ToolKindThink
 	default:
 		// browser_exec, computer_exec, mcp__* tools: "other" is honest.
 		return acp.ToolKindOther
@@ -63,14 +61,6 @@ func toolTitle(name, args string) string {
 			return "$ " + a.Command
 		}
 		return "Run command"
-	case "task":
-		var a struct {
-			Description string `json:"description"`
-		}
-		if err := json.Unmarshal([]byte(args), &a); err == nil && a.Description != "" {
-			return "Subagent: " + a.Description
-		}
-		return "Subagent"
 	}
 	return name
 }

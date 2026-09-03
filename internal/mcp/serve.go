@@ -24,8 +24,8 @@ type ToolProvider interface {
 //
 //	whip mcp serve
 //
-// registered as a stdio server. The `task` tool is excluded (no subagent
-// recursion over MCP). Callers use the raw llm definitions verbatim.
+// registered as a stdio server. The model-facing `rlm_exec` tool is not part
+// of this restricted protocol endpoint. Callers use the raw definitions.
 func Serve(ctx context.Context, version string, provider ToolProvider) error {
 	if provider == nil {
 		return errors.New("mcp serve requires a tool provider")

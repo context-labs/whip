@@ -21,7 +21,6 @@ import (
 // goroutine, which would race the program.
 func TestCtrlJFirstLineStaysVisible(t *testing.T) {
 	m := compactCmdModel()
-	m.queueSel = -1
 	p := tea.NewProgram(m, tea.WithOutput(nopWriter{}), tea.WithInput(strings.NewReader("")), tea.WithoutSignalHandler())
 	done := make(chan struct{})
 	go func() { p.Run(); close(done) }()

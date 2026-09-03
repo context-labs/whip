@@ -12,7 +12,7 @@ import (
 // Tool exposes the entire RLM runtime as one model-facing operation.
 func Tool(kernel *Kernel) tools.Tool {
 	return tools.Tool{
-		Def: llm.NewTool("rlm_exec", `Execute one bounded Starlark cell. Ordinary Starlark globals persist until the disposable worker restarts. Use the context, files, shell, models, agents, messages, state, artifacts, schedules, permissions, and answer modules for all host access. Module calls accept keyword arguments only.`, `{
+		Def: llm.NewTool("rlm_exec", `Execute one bounded Starlark cell. Starlark globals persist across cells and survive worker restarts (closures and self-referential values excepted). Use the context, files, shell, browser, computer, models, agents, messages, mcp, state, artifacts, schedules, and permissions modules for all host access. Module calls accept keyword arguments only.`, `{
   "type": "object",
   "properties": {"code": {"type": "string", "description": "Starlark source code"}},
   "required": ["code"],
