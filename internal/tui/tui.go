@@ -3,6 +3,7 @@ package tui
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1700,7 +1701,7 @@ func procHasAncestor(pid int, want string) bool {
 		// ppid is field 4 of /proc/PID/stat; the (comm) field before it may
 		// contain spaces/parens, so split after the LAST ')'. Fields after it
 		// are: state ppid ... — ppid is fields[1] of the remainder.
-		idx := strings.LastIndexByte(string(stat), ')')
+		idx := bytes.LastIndexByte(stat, ')')
 		if idx < 0 {
 			return false
 		}
