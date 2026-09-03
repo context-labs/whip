@@ -1908,6 +1908,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.askDialog = &askDialog{req: msg.req, reply: msg.reply, picked: map[int]bool{}}
 		return m, nil
 
+	case askClose:
+		if m.askDialog != nil && m.askDialog.reply == msg.reply {
+			m.askDialog = nil
+		}
+		return m, nil
+
 	case selScrollTick:
 		// drag parked past the viewport edge: keep scrolling + extending the
 		// selection until the drag ends or the viewport hits its limit

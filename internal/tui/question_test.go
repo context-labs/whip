@@ -74,3 +74,14 @@ func TestQuestionCustomAndMulti(t *testing.T) {
 		t.Fatalf("esc: got %+v", got)
 	}
 }
+
+// ctrl+c dismisses the question and interrupts the turn.
+func TestQuestionCtrlCInterrupts(t *testing.T) {
+	m, reply := newAskModel(false)
+	cancelled := false
+	m.busy, m.cancel = true, func() { cancelled = true }
+	m.askKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if got := <-reply; got.ok || !cancelled || m.askDialog != nil {
+		t.Fatalf("got %+v cancelled=%v", got, cancelled)
+	}
+}

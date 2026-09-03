@@ -27,9 +27,9 @@ type AskRequest struct {
 }
 
 // Ask is the installed UI hook. It returns the chosen labels (or the typed
-// custom answer) and ok=false when the user dismissed the question. Nil =
-// no interactive user.
-var Ask func(AskRequest) (answers []string, ok bool)
+// custom answer) and ok=false when the user dismissed the question or ctx was
+// cancelled. Nil = no interactive user.
+var Ask func(ctx context.Context, req AskRequest) (answers []string, ok bool)
 
 // QuestionTool is registered for the main agent only — subagents are told not
 // to ask questions and the MCP server has no user to ask.
@@ -46,7 +46,7 @@ func QuestionTool() Tool {
 			if Ask == nil {
 				return "", errors.New("no interactive user to ask; make a reasonable assumption and continue")
 			}
-			answers, ok := Ask(a)
+			answers, ok := Ask(ctx, a)
 			if !ok {
 				return "", errors.New("the user dismissed the question")
 			}

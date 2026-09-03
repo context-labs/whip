@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"context"
 	"strconv"
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -35,16 +37,33 @@ type askDialog struct {
 	custom  string
 }
 
+// askClose drops the dialog for a request whose tool call was cancelled.
+type askClose struct{ reply chan askAnswer }
+
 // installAskHook wires tools.Ask to the modal. Called once at startup.
+// One question at a time: parallel question calls in one tool batch queue on
+// the mutex instead of overwriting each other's dialog. ctx cancel (ctrl+c,
+// esc interrupt) releases the tool goroutine and closes the dialog.
 func (m *model) installAskHook() {
-	tools.Ask = func(req tools.AskRequest) ([]string, bool) {
+	var mu sync.Mutex
+	tools.Ask = func(ctx context.Context, req tools.AskRequest) ([]string, bool) {
 		if m.prog == nil {
 			return nil, false // headless: no one to ask
 		}
+		mu.Lock()
+		defer mu.Unlock()
+		if ctx.Err() != nil {
+			return nil, false
+		}
 		reply := make(chan askAnswer, 1)
 		m.prog.Send(askRequest{req: req, reply: reply}) //nolint:uilock // background: the calling tool goroutine, which blocks on reply — never the event loop
-		ans := <-reply
-		return ans.answers, ans.ok
+		select {
+		case ans := <-reply:
+			return ans.answers, ans.ok
+		case <-ctx.Done():
+			m.prog.Send(askClose{reply: reply}) //nolint:uilock // background: same tool goroutine
+			return nil, false
+		}
 	}
 }
 
@@ -123,6 +142,11 @@ func (m *model) askKey(msg tea.KeyMsg) bool {
 		choose(d.sel)
 	case tea.KeyEsc:
 		answer(askAnswer{ok: false})
+	case tea.KeyCtrlC:
+		answer(askAnswer{ok: false})
+		if m.busy && m.cancel != nil {
+			m.cancel() // interrupt the turn, not just the question
+		}
 	case tea.KeyRunes:
 		s := string(msg.Runes)
 		switch s {
