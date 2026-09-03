@@ -61,7 +61,7 @@ func TestBashToolOnUpdateCtx(t *testing.T) {
 		snaps = append(snaps, soFar)
 		mu.Unlock()
 	})
-	out := Execute(ctx, All(), "bash",
+	out := Execute(ctx, directTools(), "bash",
 		json.RawMessage(`{"command":"echo early; sleep 0.3; echo late"}`))
 	if !strings.Contains(out, "late") {
 		t.Fatalf("final result wrong: %q", out)

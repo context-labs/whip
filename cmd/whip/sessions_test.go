@@ -34,6 +34,7 @@ func TestSessionsCLI(t *testing.T) {
 		{Role: "assistant", Content: "git restore --staged"},
 	}, "kimi-k3-fast", "inference")
 	st.Close()
+	useTestDaemon(t)
 
 	out := captureStdout(t, func() {
 		if err := sessionsCLI(); err != nil {
@@ -53,6 +54,7 @@ func TestSessionsCLI(t *testing.T) {
 func TestSessionsCLIEmptyAndUntitled(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("WHIP_HOME", dir)
+	useTestDaemon(t)
 
 	out := captureStdout(t, func() {
 		if err := sessionsCLI(); err != nil {
@@ -102,6 +104,7 @@ func TestSessionsCLITruncatesTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.Close()
+	useTestDaemon(t)
 
 	out := captureStdout(t, func() {
 		if err := sessionsCLI(); err != nil {
@@ -126,6 +129,7 @@ func TestSessionsCLIStoreErrors(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "sessions.db"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 	if err := sessionsCLI(); err == nil {
 		t.Error("a sessions.db that is a directory should error")
 	}

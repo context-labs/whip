@@ -18,11 +18,6 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 )
 
-// Browser is the hook installed by the agent (nil in tests/headless runs
-// where no browser is wanted): it resolves named sessions. Errors from the
-// tool are strings fed back to the model, per the tool contract.
-var Browser *browser.Manager
-
 // browserDescription mirrors hermes's benchmarked _HEADER_BASE + helpers
 // digest, adapted: JS snippets (not Python) with a per-call persistent
 // browser; step-label comment convention kept for TUI rows.
@@ -52,14 +47,22 @@ Login walls: stop and ask the user; never guess credentials. In live mode the br
 
 // BrowserExec builds the browser_exec tool. Screenshots attach inline when
 // the active model has vision: the tool returns the text result and queues
-// the image via the ScreenshotSink hook the agent installs.
-func BrowserExec() Tool {
+// the image via the session's screenshot hook.
+func BrowserExec(services *Services) Tool {
+	if services == nil {
+		services = NewServices()
+	}
+	return classicTool(services, "browser_exec")
+}
+
+func browserExec(services *Services) Tool {
 	return Tool{
 		Def: llm.NewTool("browser_exec",
 			browserDescription,
 			`{"type":"object","properties":{"code":{"type":"string","description":"Newline/semicolon-separated helper calls; print(...) output is returned."},"session":{"type":"string","description":"Named isolated session (default 'default'); prefix mode e.g. 'headless:scrape'."},"timeout":{"type":"number","description":"Seconds before the call is cancelled (default 60)."}},"required":["code"]}`),
 		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
-			if Browser == nil {
+			manager, allowPrivateURLs, screenshotSink := services.browserConfig()
+			if manager == nil {
 				return "", errors.New("browser subsystem not initialized")
 			}
 			var a struct {
@@ -79,12 +82,12 @@ func BrowserExec() Tool {
 			ctx, cancel := context.WithTimeout(ctx, secondsDuration(a.Timeout))
 			defer cancel()
 
-			sess, err := Browser.Session(a.Session)
+			sess, err := manager.Session(a.Session)
 			if err != nil {
 				return "", err
 			}
 			return sess.Do(ctx, func(b browser.Backend) (string, error) {
-				return runBrowserCode(ctx, b, a.Code, a.Session)
+				return runBrowserCode(ctx, b, a.Code, a.Session, allowPrivateURLs, screenshotSink)
 			})
 		},
 	}
@@ -94,7 +97,7 @@ func BrowserExec() Tool {
 // The program is NOT a full JS engine — each statement is one helper call,
 // which keeps parsing trivially safe and the semantics obvious. js(...)
 // snippets are passed through to the page verbatim.
-func runBrowserCode(ctx context.Context, b browser.Backend, code, session string) (string, error) {
+func runBrowserCode(ctx context.Context, b browser.Backend, code, session string, allowPrivateURLs bool, screenshotSink func([][]byte)) (string, error) {
 	prog, err := parseHelperProgram(code)
 	if err != nil {
 		return "", err
@@ -102,7 +105,7 @@ func runBrowserCode(ctx context.Context, b browser.Backend, code, session string
 	var out strings.Builder
 	var shots [][]byte
 	for _, st := range prog {
-		res, shot, err := st.exec(ctx, b)
+		res, shot, err := st.exec(ctx, b, allowPrivateURLs)
 		if err != nil {
 			// Post-hoc safety: if an action navigated us onto a blocked
 			// target, neutralize before returning the error.
@@ -122,8 +125,8 @@ func runBrowserCode(ctx context.Context, b browser.Backend, code, session string
 	if msg := neutralizeIfBlocked(ctx, b); msg != "" {
 		fmt.Fprintln(&out, msg)
 	}
-	if len(shots) > 0 && ScreenshotSink != nil {
-		ScreenshotSink(shots)
+	if len(shots) > 0 && screenshotSink != nil {
+		screenshotSink(shots)
 		fmt.Fprintf(&out, "\n(%d screenshot(s) attached to your context — inspect directly with your vision)", len(shots))
 	}
 	return out.String(), nil
@@ -143,10 +146,5 @@ func neutralizeIfBlocked(ctx context.Context, b browser.Backend) string {
 	}
 	return ""
 }
-
-// ScreenshotSink, when non-nil, receives JPEG screenshots captured by
-// browser_exec for inline attach to the conversation (installed by the TUI
-// when the active model has vision; nil = text note only).
-var ScreenshotSink func(jpegs [][]byte)
 
 func secondsDuration(f float64) time.Duration { return time.Duration(f * float64(time.Second)) }

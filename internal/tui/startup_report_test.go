@@ -32,6 +32,7 @@ func TestStartupReportSkillsAndWarnings(t *testing.T) {
 	os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte("no frontmatter here"), 0o644)
 
 	t.Chdir(dir)
+	t.Setenv("HOME", t.TempDir())
 
 	m := tasksModel("http://unused")
 	m.startupReport()

@@ -1,19 +1,10 @@
 package acp
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"log"
 
 	acp "github.com/coder/acp-go-sdk"
 )
-
-// newID mints a session id when there's no store (or the store create failed).
-func newID() string {
-	var b [8]byte
-	_, _ = rand.Read(b[:])
-	return "acp_" + hex.EncodeToString(b[:])
-}
 
 // config_logf logs to stderr (stdout is the protocol channel — nothing else
 // may write there) and to whip's event log when it's initialized.

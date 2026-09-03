@@ -3,11 +3,14 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +20,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
@@ -87,6 +91,8 @@ type server struct {
 	reconnect chan struct{}
 
 	autoTries int // auto-reconnect attempts since the last successful connect
+	runCtx    context.Context
+	stop      context.CancelFunc
 
 	mu sync.Mutex // guards status/err/defs/sess/cfg.Enabled
 }
@@ -123,12 +129,19 @@ func (s *server) kickAutoReconnect(m *Manager) {
 	m.onChangeMu.Unlock()
 	s.mu.Lock()
 	tries := s.autoTries
+	ctx := s.runCtx
 	s.mu.Unlock()
 	if closing || s.disabled() || tries >= autoReconnectMax {
 		return
 	}
-	go func() {
-		time.Sleep(autoReconnectDelay(tries))
+	m.launch("MCP auto-reconnect "+s.name, func() {
+		timer := time.NewTimer(autoReconnectDelay(tries))
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
 		m.onChangeMu.Lock()
 		closing := m.closed
 		m.onChangeMu.Unlock()
@@ -145,7 +158,7 @@ func (s *server) kickAutoReconnect(m *Manager) {
 		case s.reconnect <- struct{}{}:
 		default:
 		}
-	}()
+	})
 }
 
 // Manager owns every MCP server connection. All methods are safe for
@@ -165,6 +178,17 @@ type Manager struct {
 
 	onChangeMu sync.Mutex // guards onChange, blocked, and closed (writes may race connect goroutines)
 	closed     bool       // set by Close; connect() won't store new sessions after it
+	started    bool
+	stop       context.CancelFunc
+	runCtx     context.Context
+	stopStart  func() bool
+	closeOnce  sync.Once
+	workers    sync.WaitGroup
+	launcher   func(string, func()) bool
+	processes  *capability.ProcessManager
+	rootID     string
+	processCwd string
+	processEnv map[string]string
 }
 
 // newServer builds one server's live state. Config errors become failed
@@ -199,21 +223,67 @@ func newServer(name string, cfg ServerConfig) *server {
 // NewManager builds a manager from merged server configs. Config errors
 // become failed servers immediately; disabled entries never spawn.
 func NewManager(cfgs map[string]ServerConfig) *Manager {
-	m := &Manager{
-		servers:          map[string]*server{},
-		connectTransport: defaultTransport,
-	}
+	ctx, stop := context.WithCancel(context.Background())
+	m := &Manager{servers: map[string]*server{}, runCtx: ctx, stop: stop}
+	m.connectTransport = m.defaultTransport
 	for name, cfg := range cfgs {
 		m.servers[name] = newServer(name, cfg)
 	}
 	return m
 }
 
+// SetLauncher routes MCP lifecycle goroutines through a daemon supervisor.
+func (m *Manager) SetLauncher(launcher func(string, func()) bool) {
+	m.onChangeMu.Lock()
+	m.launcher = launcher
+	m.onChangeMu.Unlock()
+}
+
+func (m *Manager) launch(kind string, work func()) bool {
+	m.onChangeMu.Lock()
+	if m.closed {
+		m.onChangeMu.Unlock()
+		return false
+	}
+	launcher := m.launcher
+	m.workers.Add(1)
+	m.onChangeMu.Unlock()
+	run := func() {
+		defer m.workers.Done()
+		work()
+	}
+	if launcher != nil {
+		if launcher(kind, run) {
+			return true
+		}
+		m.workers.Done()
+		return false
+	}
+	go run()
+	return true
+}
+
+func (m *Manager) SetProcessOptions(processes *capability.ProcessManager, rootID, cwd string, env map[string]string) {
+	m.onChangeMu.Lock()
+	changedRoot := m.rootID != "" && m.rootID != rootID
+	names := make([]string, 0, len(m.servers))
+	if changedRoot && m.started {
+		for name := range m.servers {
+			names = append(names, name)
+		}
+	}
+	m.processes, m.rootID, m.processCwd, m.processEnv = processes, rootID, cwd, maps.Clone(env)
+	m.onChangeMu.Unlock()
+	for _, name := range names {
+		m.Reconnect(name)
+	}
+}
+
 // AddServers folds new configs into a running manager and kicks connects for
 // the enabled ones — the live half of toggling an import source on
 // (LoadMergedFiltered re-discovers; the manager absorbs). A name that already
 // exists is left alone: whip-owned entries and existing sessions win.
-func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) {
+func (m *Manager) AddServers(_ context.Context, cfgs map[string]ServerConfig) {
 	m.onChangeMu.Lock()
 	if m.closed {
 		m.onChangeMu.Unlock()
@@ -225,6 +295,7 @@ func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) 
 			continue
 		}
 		s := newServer(name, cfg)
+		s.runCtx, s.stop = context.WithCancel(m.runCtx) //nolint:fatcontext // each server stores an independent child context
 		m.servers[name] = s
 		if s.status == StatusConnecting {
 			fresh = append(fresh, s)
@@ -232,7 +303,7 @@ func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) 
 	}
 	m.onChangeMu.Unlock()
 	for _, s := range fresh {
-		go s.run(ctx, m) //nolint:gosec // G118: same contract as Start — the lifecycle goroutine outlives ctx
+		m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
 	}
 	m.fireOnChange()
 }
@@ -240,9 +311,8 @@ func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) 
 // RemoveServers tears down and forgets servers by name — the live half of
 // toggling an import source off. Sessions close, auto-reconnect stops (the
 // gen bump invalidates stale watchers), and the servers vanish from Tools()
-// and Statuses() immediately. A removed server's run goroutine parks on its
-// reconnect channel like Close's — no owner, no work, no cost. Names that
-// aren't live are ignored (whip-owned entries are the caller's to keep).
+// and Statuses() immediately. Names that aren't live are ignored (whip-owned
+// entries are the caller's to keep).
 func (m *Manager) RemoveServers(names ...string) {
 	m.onChangeMu.Lock()
 	var doomed []*server
@@ -255,7 +325,10 @@ func (m *Manager) RemoveServers(names ...string) {
 	m.onChangeMu.Unlock()
 	for _, s := range doomed {
 		s.mu.Lock()
-		s.cfg.Enabled = new(false) // parked run goroutine refuses reconnects
+		if s.stop != nil {
+			s.stop()
+		}
+		s.cfg.Enabled = new(false)
 		old := s.sess
 		s.sess, s.defs = nil, nil
 		s.gen++
@@ -295,17 +368,98 @@ func (m *Manager) fireOnChange() {
 // ctx cancellation aborts initial connects (e.g. shutdown during startup).
 func (m *Manager) Start(ctx context.Context) {
 	m.onChangeMu.Lock()
+	if m.started || m.closed {
+		m.onChangeMu.Unlock()
+		return
+	}
+	m.started = true
+	startCtx, cancelStart := context.WithCancel(m.runCtx)
+	m.stopStart = context.AfterFunc(ctx, cancelStart)
 	servers := make([]*server, 0, len(m.servers))
 	for _, s := range m.servers {
-		servers = append(servers, s)
+		if s.status == StatusConnecting {
+			s.runCtx, s.stop = context.WithCancel(startCtx) //nolint:fatcontext // each server stores an independent child context
+			servers = append(servers, s)
+		}
 	}
 	m.onChangeMu.Unlock()
 	for _, s := range servers {
-		if s.status != StatusConnecting {
-			continue
-		}
-		go s.run(ctx, m) //nolint:gosec // G118: the lifecycle goroutine deliberately outlives Start's ctx (reconnects run until Close)
+		m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
 	}
+}
+
+func (m *Manager) defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
+	if cfg.Remote() {
+		return defaultTransport(ctx, cfg, stderr)
+	}
+	if len(cfg.Command) == 0 {
+		return nil, errors.New("MCP command is empty")
+	}
+	m.onChangeMu.Lock()
+	processes, rootID, cwd := m.processes, m.rootID, m.processCwd
+	env := make(map[string]string, len(m.processEnv)+len(cfg.Env))
+	maps.Copy(env, m.processEnv)
+	m.onChangeMu.Unlock()
+	if processes == nil {
+		return defaultTransport(ctx, cfg, stderr)
+	}
+	if cfg.Cwd != "" {
+		baseCwd := cwd
+		cwd = cfg.Cwd
+		if !filepath.IsAbs(cwd) {
+			cwd = filepath.Join(baseCwd, cwd)
+		}
+	}
+	maps.Copy(env, cfg.Env)
+	return &managedTransport{processes: processes, rootID: rootID, cwd: cwd, env: env, command: cfg.Command, stderr: stderr}, nil
+}
+
+type managedTransport struct {
+	processes *capability.ProcessManager
+	rootID    string
+	cwd       string
+	env       map[string]string
+	command   []string
+	stderr    io.Writer
+}
+
+func (t *managedTransport) Connect(ctx context.Context) (sdkmcp.Connection, error) {
+	stderr := t.stderr
+	if stderr == nil {
+		stderr = io.Discard
+	}
+	process, stdin, stdout, err := t.processes.StartPiped(context.WithoutCancel(ctx), t.rootID, t.command[0], t.command[1:], capability.ProcessOptions{
+		Cwd: t.cwd, Env: t.env, Stderr: stderr,
+	})
+	if err != nil {
+		return nil, err
+	}
+	transport := &sdkmcp.IOTransport{Reader: stdout, Writer: &managedInput{WriteCloser: stdin, process: process}}
+	return transport.Connect(ctx)
+}
+
+type managedInput struct {
+	io.WriteCloser
+	process *capability.Process
+	once    sync.Once
+	err     error
+}
+
+func (w *managedInput) Close() error {
+	w.once.Do(func() {
+		closeErr := w.WriteCloser.Close()
+		done := make(chan error, 1)
+		go func() { done <- w.process.Wait() }()
+		select {
+		case waitErr := <-done:
+			_ = w.process.Kill()
+			w.err = errors.Join(closeErr, waitErr)
+		case <-time.After(3 * time.Second):
+			killErr := w.process.Kill()
+			w.err = errors.Join(closeErr, killErr, <-done)
+		}
+	})
+	return w.err
 }
 
 // run is the per-server lifecycle goroutine: one connect attempt, then it
@@ -316,7 +470,12 @@ func (m *Manager) Start(ctx context.Context) {
 // user asked for a fresh connection and already has one.
 func (s *server) run(ctx context.Context, m *Manager) {
 	s.connect(ctx, m)
-	for range s.reconnect {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.reconnect:
+		}
 		if s.disabled() {
 			s.setState(m, StatusDisabled, "")
 			continue
@@ -327,7 +486,7 @@ func (s *server) run(ctx context.Context, m *Manager) {
 		if ready {
 			continue
 		}
-		s.connect(context.Background(), m) // reconnect outlives any single turn
+		s.connect(ctx, m) // manager lifetime, not any single turn
 	}
 }
 
@@ -385,7 +544,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				// guarded by a client-identity check, index.ts:443). The gen
 				// counter is the same check: a watcher from an older connect
 				// must not tear down the newer session.
-				go func() {
+				m.launch("MCP connection watcher "+s.name, func() {
 					_ = sess.Wait()
 					m.onChangeMu.Lock()
 					closing := m.closed
@@ -402,7 +561,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 						s.setState(m, StatusFailed, "connection closed")
 						s.kickAutoReconnect(m)
 					}
-				}()
+				})
 				return
 			}
 			_ = sess.Close()
@@ -722,6 +881,10 @@ func Probe(ctx context.Context, name string, cfg ServerConfig) ProbeResult {
 	start := time.Now()
 	m := NewManager(map[string]ServerConfig{name: cfg})
 	defer m.Close()
+	processes := capability.NewProcessManager()
+	defer func() { _ = processes.Close() }()
+	cwd, _ := os.Getwd()
+	m.SetProcessOptions(processes, "mcp-probe", cwd, nil)
 	m.Start(ctx)
 	s := m.servers[name] // ponytail: no lock — this manager never leaves Probe, so AddServers/RemoveServers can't reach it
 	select {
@@ -803,6 +966,8 @@ func (m *Manager) Reconnect(name string) bool {
 	s.mu.Lock()
 	old := s.sess
 	s.sess, s.defs = nil, nil
+	s.status = StatusConnecting
+	s.gen++
 	s.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
@@ -815,26 +980,36 @@ func (m *Manager) Reconnect(name string) bool {
 }
 
 // Close shuts every session down. Stdio transports terminate their child
-// process on Close (the SDK sends SIGTERM after stdin closes, then SIGKILL);
-// children get their own process group at spawn (defaultTransport) so whip's
-// exit path can also group-kill strays via the bashrun registry pattern.
+// process on Close (stdin closes first, then the scoped process is killed).
 func (m *Manager) Close() {
-	m.onChangeMu.Lock()
-	m.closed = true
-	servers := make([]*server, 0, len(m.servers))
-	for _, s := range m.servers {
-		servers = append(servers, s)
-	}
-	m.onChangeMu.Unlock()
-	for _, s := range servers {
-		s.mu.Lock()
-		sess := s.sess
-		s.sess, s.defs = nil, nil
-		s.mu.Unlock()
-		if sess != nil {
-			_ = sess.Close()
+	m.closeOnce.Do(func() {
+		m.onChangeMu.Lock()
+		m.closed = true
+		m.onChange = nil
+		stop := m.stop
+		stopStart := m.stopStart
+		servers := make([]*server, 0, len(m.servers))
+		for _, s := range m.servers {
+			servers = append(servers, s)
 		}
-	}
+		m.onChangeMu.Unlock()
+		if stop != nil {
+			stop()
+		}
+		if stopStart != nil {
+			stopStart()
+		}
+		for _, s := range servers {
+			s.mu.Lock()
+			sess := s.sess
+			s.sess, s.defs = nil, nil
+			s.mu.Unlock()
+			if sess != nil {
+				_ = sess.Close()
+			}
+		}
+		m.workers.Wait()
+	})
 }
 
 // defaultTransport builds the SDK transport for a config: CommandTransport
@@ -863,6 +1038,9 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 			// notifications (tool list changes); request-response is enough for v1
 			DisableStandaloneSSE: true,
 		}, nil
+	}
+	if len(cfg.Command) == 0 {
+		return nil, errors.New("MCP command is empty")
 	}
 	// WithoutCancel: ctx is connect()'s startup-timeout context, cancelled the
 	// moment connect returns — binding the command to it would SIGKILL every

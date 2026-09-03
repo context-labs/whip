@@ -16,6 +16,7 @@ import (
 // and delivers exactly one "met" message.
 func TestWaitConditionMetImmediately(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 
 	var woke atomic.Int32
@@ -45,6 +46,7 @@ func TestWaitConditionMetImmediately(t *testing.T) {
 // `until` is set, and a matching output settles it once the pattern appears.
 func TestWaitUntilRegex(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -68,6 +70,7 @@ func TestWaitUntilRegex(t *testing.T) {
 // of polling until the timeout.
 func TestWaitStrikesOut(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -88,6 +91,7 @@ func TestWaitStrikesOut(t *testing.T) {
 // Timeout delivers a timeout message exactly once.
 func TestWaitTimeout(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -107,6 +111,7 @@ func TestWaitTimeout(t *testing.T) {
 // A running turn routes delivery through Steer (loop boundary), not OnWake.
 func TestWaitBusySteersInsteadOfWaking(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.running.Store(true) // simulate an in-flight turn
 
@@ -129,6 +134,7 @@ func TestWaitBusySteersInsteadOfWaking(t *testing.T) {
 // Cancel stops the wait and suppresses delivery.
 func TestWaitCancel(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -151,6 +157,7 @@ func TestWaitCancel(t *testing.T) {
 // poll" contract message.
 func TestWaitToolRegisters(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 
 	var wt tools.Tool
@@ -197,12 +204,29 @@ func TestWaitToolRegisters(t *testing.T) {
 	}
 }
 
+func TestWaitToolRejectsInvalidOrUnlaunchableWaits(t *testing.T) {
+	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	wt := waitTool(ag)
+	if _, err := wt.Run(t.Context(), json.RawMessage(`{`)); err == nil {
+		t.Fatal("malformed wait arguments should fail")
+	}
+
+	ag.SetLauncher(func(string, func()) bool { return false })
+	if _, err := wt.Run(t.Context(), json.RawMessage(`{"command":"exit 0"}`)); err == nil {
+		t.Fatal("a rejected waiter launch should fail")
+	}
+	if left := len(ag.Waits().waits); left != 0 {
+		t.Fatalf("rejected wait should be removed from the registry, %d left", left)
+	}
+}
+
 // The ticker path (a condition false on the immediate first check but true on
 // a later poll) is distinct from the immediate-check path — the 2s minimum
 // interval clamps make sub-2s tests never exercise it, so this one sits at
 // the real minimum and confirms a later poll settles the wait.
 func TestWaitTickerPath(t *testing.T) {
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+	bindTestAgent(t, ag, t.TempDir())
 	defer ag.Waits().Close()
 	ag.Waits().OnWake = func(string) {}
 
@@ -246,9 +270,7 @@ func TestTurnTeardownDrainsOrphanedSteers(t *testing.T) {
 
 	ag.running.Store(true)
 	ag.Steer("orphaned message")
-	// Simulate teardown: running flips false, then the re-drain runs.
-	ag.running.Store(false)
-	ag.drainOrphanedSteers()
+	ag.finishTurn()
 
 	if len(woke) != 1 || woke[0] != "orphaned message" {
 		t.Fatalf("orphaned steer should wake, got %v", woke)
@@ -261,8 +283,10 @@ func TestTurnTeardownDrainsOrphanedSteers(t *testing.T) {
 // CancelWait racing a deliver must not panic (double close). The CAS makes
 // exactly one of them own the close. Run under -race.
 func TestWaitCancelRacesDeliver(t *testing.T) {
+	services := tools.NewServices()
+	bindTestServices(t, services, t.TempDir())
 	for range 200 {
-		ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
+		ag := NewWithServices(llm.New("http://unused", "k"), "m", 100, "sys", services)
 		ag.Waits().OnWake = func(string) {}
 		w, err := ag.StartWait(WaitTaskSpec{Command: "exit 0", Interval: waitMinInterval, Timeout: time.Minute})
 		if err != nil {

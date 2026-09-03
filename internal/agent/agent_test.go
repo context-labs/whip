@@ -50,6 +50,36 @@ func echoTool() tools.Tool {
 	}
 }
 
+func TestRunningWorkReflectsTaskAndWaitRegistries(t *testing.T) {
+	ag := New(llm.New("http://unused", "key"), "model", 1, "system")
+	if ag.HasRunningTasks() || ag.HasRunningWaits() {
+		t.Fatal("new agent reported running background work")
+	}
+	task := ag.RegisterBackground("coverage task", "wait", SubModel{})
+	if !ag.HasRunningTasks() {
+		t.Fatal("registered task was not reported running")
+	}
+	task.Status = TaskDone
+	if ag.HasRunningTasks() {
+		t.Fatal("completed task remained running")
+	}
+	task.cancel()
+
+	wait := &waitTask{ID: "wait-test", Done: make(chan struct{}), pollDone: make(chan struct{})}
+	registry := ag.Waits()
+	registry.mu.Lock()
+	registry.waits[wait.ID] = wait
+	registry.mu.Unlock()
+	if !ag.HasRunningWaits() {
+		t.Fatal("registered wait was not reported running")
+	}
+	wait.setStatus(WaitKilled)
+	if ag.HasRunningWaits() {
+		t.Fatal("cancelled wait remained running")
+	}
+	registry.stop()
+}
+
 func TestTurnLoop(t *testing.T) {
 	srv := loopServer(t)
 	defer srv.Close()
@@ -698,6 +728,19 @@ func TestCompactKeepsToolCallPair(t *testing.T) {
 	}
 }
 
+func TestCompactionRawTailStartSkipsDerivedSummaries(t *testing.T) {
+	before := []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "first request"},
+		{Role: "system", Content: "Summary of the conversation so far:\n\nnew"},
+		{Role: "system", Content: "Summary of the conversation so far:\n\nprior"},
+		{Role: "assistant", Content: "raw tail"},
+	}
+	if got := CompactionRawTailStart(before, len(before)); got != 4 {
+		t.Fatalf("raw tail start=%d", got)
+	}
+}
+
 // SteerImages queues a multimodal user message: the turn continues past it
 // and the injected message carries both the text and the image parts.
 func TestSteerImagesInjectsParts(t *testing.T) {
@@ -781,13 +824,8 @@ func TestTurnWithImagesMarksAuthoredAndCarriesParts(t *testing.T) {
 	}
 }
 
-// SetMCPTools makes the MCP set visible via AllTools and installs the
-// tools.Suggester, so a typo'd mcp__ call gets a "did you mean?" nudge.
+// SetMCPTools makes the MCP set visible to this agent's local suggester.
 func TestSetMCPToolsInstallsSuggester(t *testing.T) {
-	orig := tools.Suggester
-	tools.Suggester = nil
-	t.Cleanup(func() { tools.Suggester = orig })
-
 	ag := New(llm.New("http://unused", "k"), "m", 100, "sys")
 	mt := tools.Tool{Def: llm.NewTool("mcp__srv__hello", "h", `{"type":"object"}`)}
 	ag.SetMCPTools([]tools.Tool{mt})
@@ -801,11 +839,8 @@ func TestSetMCPToolsInstallsSuggester(t *testing.T) {
 	if !found {
 		t.Fatal("MCP tool missing from AllTools")
 	}
-	if tools.Suggester == nil {
-		t.Fatal("SetMCPTools should install the suggester")
-	}
 	// a near-miss call self-corrects through Execute's unknown-tool path
-	out := tools.Execute(context.Background(), ag.AllTools(), "mcp__srv__helo", json.RawMessage(`{}`))
+	out := tools.ExecuteWithSuggester(context.Background(), ag.AllTools(), "mcp__srv__helo", json.RawMessage(`{}`), ag.suggest)
 	if !strings.Contains(out, "did you mean") || !strings.Contains(out, "mcp__srv__hello") {
 		t.Fatalf("typo'd MCP call should suggest the live name, got %q", out)
 	}

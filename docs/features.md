@@ -1,16 +1,44 @@
 # Features
 
-whip is a minimal coding-agent harness: an interactive bubbletea TUI driving an
-LLM tool-use loop (bash / read / write / edit / subagent) with provider-routable
-models. This document is the map of what's shipped and where it lives. Each
-section links the behavior to the code and its tests.
+whip is a local coding-agent runtime: one daemon owns model loops, durable
+state, policy, and side effects, while the Bubble Tea TUI, headless CLI, MCP,
+and ACP processes are protocol clients. New sessions use RLM mode by default;
+Classic mode retains the direct JSON-tool experience without starting a
+kernel. This document maps shipped behavior to code and tests.
+
+## Daemon and RLM runtime
+
+`internal/daemon`, `internal/session`, `internal/content`,
+`internal/capability`, and `internal/rlm` form the cross-process spine.
+
+- A cross-process owner lock is acquired before the daemon opens SQLite. The
+  owner-only Unix socket carries bounded command, event, replay, snapshot,
+  content-upload, identity, and permission frames.
+- Commands have stable IDs and durable ingress sequences. Disconnecting a
+  client does not cancel work; reconnect retries return one stored outcome.
+  Expired replay falls back to a complete behavioral snapshot before the
+  client can submit again.
+- One actor serializes each root while different roots run concurrently.
+  Recovery keeps committed results and marks uncertain work `interrupted`
+  without replaying external effects.
+- RLM roots expose only `rlm_exec`. A bounded Starlark worker uses focused
+  context handles plus modules for files, shell, stateless model fan-out,
+  durable children, messages, state, artifacts, schedules, permissions, and
+  cited answers. Classic roots expose JSON tools and create no kernel.
+- Both modes route built-in file and shell effects through one capability
+  dispatcher and one budget/permission model. Large runtime values live in
+  the content-addressed store rather than SQLite rows or root prompts.
+
+The complete operational contract, limits, module table, recovery semantics,
+and release commands are in [rlm-runtime.md](rlm-runtime.md).
 
 ## The agent loop
 
-`internal/agent/agent.go` — `Agent.Turn` is the loop: append the user message,
-stream a completion, run any tool calls, append results, repeat until the model
-stops calling tools. Steered messages (`Steer`) inject at loop boundaries,
-never mid-generation.
+`internal/agent/agent.go` — `Agent.Turn` is the provider loop owned by the
+daemon: append the user message, stream a completion, run any tool calls,
+append results, repeat until the model stops calling tools. Steered messages
+inject at loop boundaries, never mid-generation. In RLM mode its only tool is
+`rlm_exec`; in Classic mode it receives the ordinary catalog.
 
 ### Parallel tool calls with per-path file locks
 
@@ -19,12 +47,14 @@ to goroutines and collects results on a buffered channel, laid back out in
 **call order** (the API matches tool results to call IDs). `OnToolStart` /
 `OnToolEnd` fire per call as they run, so the UI shows each tool live.
 
-`internal/agent/filelocks.go` — mutations to the same file serialize through a
+`internal/agent/filelocks.go` serializes a Classic batch before dispatch, and
+the daemon-wide workspace coordinator in `internal/capability` is the final
+cross-root ordering authority. Mutations to the same file serialize through a
 **per-canonical-path channel semaphore** (a 1-capacity `chan struct{}` per
 path: send to acquire, receive to release). Two edits to `foo.go` can't
-interleave; edits to different files run truly in parallel. `bash` takes a
-global lock because a command's side effects aren't attributable to one path.
-Reads don't lock.
+interleave; edits to different files run in parallel. Shell and unknown
+mutations take workspace-wide authority because their side effects cannot be
+attributed to one path. Reads do not take mutation locks.
 
 This is the Go-native port of pi's `withFileMutationQueue` (per-path promise
 chains in TypeScript). In Go the lock is a buffered channel — no explicit
@@ -42,14 +72,13 @@ Two ways a bash command stops being a black box (pi's bash tool has both):
   accumulated combined stdout/stderr at most every 100ms
   (`bashrun.updateInterval`) from a snapshot ticker goroutine owned by the
   run — it snapshots the shared buffer under the drains' mutex and exits on a
-  done-channel close when `runPiped` returns (one trailing tick may land after
-  return; the TUI's `toolRunning` check makes it a no-op). The TUI callback
-  uses a detached `go p.Send(...)`, so a wedged UI queue can never park the
-  ticker goroutine (docs/concurrency.md's ABBA rule). The bash
+  done-channel close when `runPiped` returns. The daemon converts updates to
+  bounded `stream.tool.output` protocol events; a slow client can lose its
+  bounded connection without parking the tool or root actor. The bash
   tool receives the callback through a **per-call context value**
-  (`tools.WithOnUpdate`), not a package var, so parallel tool calls can't
+  (`tools.WithOnUpdate`), not a package var, so parallel tool calls cannot
   cross wires; `agent.runTools` attaches it when `Events.OnToolOutput` is set
-  and the call is bash. The TUI (`toolOutputMsg`) renders the last three
+  and the call is bash. The TUI renders the last three
   non-empty lines under the running tool row's verb line (`block.live`);
   `toolEndMsg` clears it and collapses the row as before. The final output
   still arrives via the tool result — snapshots are progress, never state.
@@ -200,7 +229,9 @@ Update loop with a small compaction limit),
 `internal/agent/background.go` — the `subagent` tool with `background: true` launches a
 subagent that runs **concurrently with the parent** instead of blocking the
 turn. This is the channel-native port of opencode's `background-job.ts`
-registry.
+registry. In production the daemon binds the registry to durable child,
+transcript, inbox, budget, and event records. RLM's `agents.spawn` uses those
+same records rather than a separate swarm implementation.
 
 Each task is a `BackgroundTask` with a `Done chan struct{}`. When the subagent
 settles, the registry `settle()`s and **closes `Done` once** — closing a
@@ -210,9 +241,9 @@ channel broadcasts to every waiter at once, so the tool caller, the TUI, and
 as a **steered message**, so the model sees it on the next loop boundary.
 
 - `Tasks().List()` / `Get(id)` / `Cancel(id)` — registry snapshot + cancel.
-- `Tasks().OnChange` — the TUI installs a callback that sends a message to
-  redraw live. `Tasks().OnRecord` — a second hook the TUI uses to upsert the
-  task into the session store on start and settle.
+- `Tasks().OnChange` updates observers. `Tasks().OnRecord` sends start/settle
+  records to the owning root actor; the daemon, not a TUI callback, commits
+  them and their transcript.
 - `/subagents` (alias `/tasks`) lists running/done subagents with report previews; a `⚙ N sub`
   header badge shows the running count. The persistent dock strip renders
   **below the input** (above the status line), so focus follows the cursor's
@@ -221,11 +252,9 @@ as a **steered message**, so the model sees it on the next loop boundary.
   consumed by the dock (it stays the interrupt/rewind key). The strip is
   mouse-clickable: `dockTop()` maps screen rows to task rows, skipping the
   focused hint row (`dockSkip`) so a click opens the row actually clicked.
-- **Persisted across resume.** The session store's `tasks` table records
-  every start/settle; `resume()` seeds the registry via `RestoreTask`
-  (settled, `Done` pre-closed, marked `Restored`). A row still `running` on
-  disk means the subagent died with the last process exit, so it comes back
-  as `error` — "interrupted — whip exited". Restored tasks are history:
+- **Persisted across resume.** The daemon's `tasks`, agent, execution, and
+  transcript rows record every start/settle. Recovery terminalizes a child
+  left running by daemon loss as interrupted/error. Restored tasks are history:
   `/subagents` (alias `/tasks`) lists them with a `(restored)` marker; the dock never shows them.
   The dock itself shows running tasks plus ones settled within a one-minute
   grace window (`dockSettledGrace`) — long enough to notice the ✓, then the
@@ -271,9 +300,10 @@ picker's "default" row restores the built-in default); the main
 model overrides per call via the `subagent` tool's optional `model`/`provider`
 params. Resolution chain: taskModel → built-in default → catalog id ending in
 `/<default>` (openrouter-style vendor prefixes) → silently fall back to the
-session model. The agent stays config-free: the TUI/`whip run` inject a
-`ResolveModel` closure over a `cfg.Snapshot()` (the resolver runs on tool
-worker goroutines while `/auth` mutates live config on the UI goroutine).
+session model. The agent stays config-free: the daemon injects a
+`ResolveModel` closure over a `cfg.Snapshot()` when it constructs the
+root (the resolver can run on tool workers without racing later client-side
+configuration changes).
 
 **User-spawned subagents**: `/subagent [-m model[@provider]] <prompt>` starts a
 background task by hand — it runs mid-turn too (listed with the
@@ -458,6 +488,12 @@ relay: full device login + key mint, store round-trip, key validation),
 
 `internal/tui/tui.go` — bubbletea fullscreen alt-screen. Highlights:
 
+Production `Run` always constructs a reconnecting daemon client. The model is
+a projection of snapshots and ordered events; behavioral commands are disabled
+until synchronization reaches `live`. It never opens `sessions.db`, creates an
+agent/provider, or owns a tool/process. Presentation-only settings such as
+theme and mouse capture remain local.
+
 - **ctrl+c is a two-stage key.** While busy it interrupts the turn (first press
   arms, second cancels). While idle it quits — but only on a **second press
   within a 2-second window**, so a stray ctrl+c can't nuke the session. The
@@ -504,59 +540,26 @@ relay: full device login + key mint, store round-trip, key validation),
 - Queueing (enter while busy), steering (empty enter), history recall (↑/↓),
   `@file` mentions, `$skill` invocation, `/goal` loop, `/resume` session
   picker, `/effort` reasoning levels — see the roadmap for the full list.
-- **Typing steers a turn that's only waiting on subagents.** When a turn is
-  running but its only in-flight tool calls are subagents
-  (`Agent.WaitingOnSubagents` — the agent tracks in-flight tool names in
-  `runTools`), typed input routes to `Agent.Steer` instead of the busy queue:
-  it reaches the model at the next loop boundary as a mid-turn correction
-  rather than queueing behind the whole turn (waiting on a subagent isn't real
-  work the message would interrupt). Any other in-flight tool (a bash, an
-  edit) keeps the queue behavior. The input placeholder reflects the routing
-  live (`syncInputPlaceholder`, consulted in `View`): "waiting on subagents —
-  type to steer this turn" vs "busy — type to queue". Tests:
-  `internal/agent/busysteer_test.go` (`TestInFlightToolsTracking`,
-  `TestWaitingOnSubagentsGating`,
-  `TestWaitingOnSubagentsDuringForegroundSubagent` — a real turn blocked on a
-  live foreground subagent reports waiting, then flips false),
-  `internal/tui/queue_test.go` (`TestBusyPlaceholderReflectsRouting`).
-- **Settings commands run mid-turn.** `/theme`, `/mouse`, `/effort`, `/subagents` (alias `/tasks`),
-  `/help`, `/cd`, `/pwd`, and the non-submitting `/goal` forms (bare, `clear`,
-  `rounds`) execute immediately while busy instead of queueing — queued text
-  is sent to the model verbatim after the turn, which is nonsense for a
-  settings change. The `busyCmd` allow-list gates this; everything else
-  (`/model`, `/goal <text>`, plain messages) still queues. These commands only
-  touch TUI-local state or fields read at the *next* request, and their
-  confirmation notes append as transcript blocks safely behind the streaming
-  one. Tests: `queue_test.go` (`TestBusyCmdAllowList`, `TestEnterWhileBusy*`).
-- **`!` shell escape, `/cd`, `/pwd`** — `shell.go`. An input starting with
-  `!` runs locally via the same `bashrun` runner as the agent's bash tool
-  (120s cap, `tools.TruncateTail`, `(exit …)` markers) — no model turn, no
-  busy state, runs immediately even mid-turn, and queued `!` lines execute
-  when the queue drains instead of being submitted to the model. The command
-  runs on a goroutine and lands via `shellDoneMsg` (the UI never blocks), the
-  output lands in the transcript as a collapsed tool block **and** in the
-  conversation so the model sees it at the next request: idle via
-  `Agent.AppendUser` (non-authored `$ <cmd>` user message), mid-turn via
-  `Agent.Steer` (mutex-guarded, injected at the next loop boundary with the
-  usual `(steered)` echo) — the turn goroutine owns `Agent.Messages` while
-  busy. Esc stays bound to the turn; a running escape isn't cancellable (the
-  120s cap bounds it). `/cd [dir]` changes whip's process cwd (an in-flight
-  command keeps its already-resolved cwd, POSIX; the next spawns, relative
-  tool paths, and the `@` index follow); bare prints it, `~` expands. `/pwd`
-  prints it. Port of opencode's `session.shell` minus the shell-mode chrome —
-  see the `ponytail` note in `shell.go`.
-  Tests: `shell_test.go` (output/message routing idle+busy, queue-drain,
-  truncation, echo rules, cd/pwd incl. `~` and bad dirs).
-- **`/goal-from-context [n]`** distills the last *n* conversation messages
+- **Typing can steer a waiting turn.** The daemon snapshot/event projection
+  reports whether the active root is waiting on children. The TUI submits a
+  stable `steer` command so the text enters the root mailbox and lands at the
+  next model-loop boundary. Other busy states retain queue/cancel behavior.
+- **Commands keep their owner.** `/theme`, `/mouse`, and `/help` are local
+  presentation actions. Model, effort, goal, history, workspace, schedule,
+  task, MCP, and LSP actions become daemon commands. Stable IDs make their
+  result safe to retry after reconnect.
+- **`!` shell escape, `/cd`, `/pwd`.** `!` submits `shell.run`; terminal
+  output and input use daemon stream events and stable terminal IDs. `/cd`
+  and `/pwd` map to `workspace.set` and `workspace.inspect`. The client never
+  starts the command or mutates daemon process state directly.
+- **`/goal-from-context [n]`** asks the daemon to distill the last *n*
+  conversation messages
   (default 8, clamped to the available history) into a detailed goal — a
   concrete outcome line plus a bullet list of checkable completion criteria —
-  with one non-streaming call on the current model (the compact-model override
-  is deliberately ignored), then sets it exactly like `/goal <text>` and starts
-  the goal loop. The transcript note states the exact window used. Prompt
-  building is pure (`agent.BuildGoalFromContextPrompt` over the window from
-  `agent.GoalFromContextMessages`); the TUI command mirrors `/compact`'s
-  goroutine + `goalFromContextMsg` pattern, refusing while busy and running
-  inline when headless. Tests: `goal_test.go` (`TestGoalFromContext*`).
+  with one non-streaming call on the current model, then set and start the
+  goal loop. Prompt construction stays in `internal/agent`; admission,
+  accounting, persistence, and continuation are daemon-owned. Tests:
+  `goal_test.go` and daemon client-control goal tests.
   User-facing walkthrough: [goal-from-context.md](goal-from-context.md).
 
 ## Conversation time travel
@@ -565,39 +568,25 @@ relay: full device login + key mint, store round-trip, key validation),
 the conversation's authored user messages, newest first, with the transcript
 **live-scrolling** to the selected message as you browse (opencode's
 `dialog-timeline.tsx` `onMove`, and `msgBlock` maps conversation index →
-transcript block so the jump is direct). enter rewinds to just before the
-selected message: `Agent.Messages` is truncated, the clipped tail becomes an
-in-memory **redo stack** (`m.future`, oldest first), the DB rows are deleted
-(`Store.DeleteFrom`), the transcript is rebuilt via `seedTranscript`, and the
-rewound message's text lands back in the input for editing (opencode's undo:
-"the input restore is what makes it feel good"). Cuts sit at user-message
-indices, so a tool_call is never orphaned from its results.
+transcript block so the jump is direct). Enter submits `history.rewind`; the
+daemon atomically cuts the journal, applies its owned workspace snapshot, and
+returns an authoritative replacement snapshot. The selected user text lands
+back in the input for editing. Cuts sit at user-message boundaries so a tool
+call is never orphaned from its result.
 
-**Forward travel:** reopening the picker while rewound lists the clipped
-messages dimmed, marked `(rewound)`; enter on one pulls the tail back in and
-re-saves it. Submitting new input while rewound discards the redo stack.
-Compaction also drops it (a stale redo would resurrect summarized history).
-esc cancels and restores the scroll position. The redo stack is in-memory
-only by design: quitting while rewound leaves the DB at the rewound point.
+Esc cancels and restores the scroll position. Presentation preview state is
+client-local; committed history and workspace state are always daemon-owned.
 
-`internal/tui/fork.go` — **`/fork [name]`** copies the conversation into a
-**new** session (one `INSERT…SELECT` in `Store.Fork`; the original is
-untouched and stays under `/resume`) and switches to it. Bare `/fork` opens an
+`internal/tui/fork.go` — **`/fork [name]`** submits `session.fork`; the daemon
+copies the selected durable prefix into a **new** session while the original
+remains under `/resume`, then the client synchronizes to the new root. Bare
+`/fork` opens an
 inline name prompt prefilled with `<title> (fork #N)` (`Store.ForkTitle`
 increments past existing forks and unwraps nested suffixes, opencode's
 `getForkedTitle`). **`f` in the rewind picker** forks from the selected
-message instead — one picker, two destinations. Forking while rewound pulls
-the redo stack up to the picked point into the copy. **Mid-turn** (`busyFork`)
-the copy of the stored rows lands immediately — the confirmation prints the
-`whip --resume <id>` line so the clone can be opened in another whip process
-right away — and the switch defers to `turnDoneMsg` (`pendingForkID` →
-`switchToForked`), since the turn goroutine owns `Agent.Messages` and the
-session id until then; the original keeps the finished turn, queued messages
-are dropped (they named the old conversation), and the goal carries over via
-the copy's stamped row. **`/rename [title]`** retitles the current session
-(`Store.SetTitle`); bare opens the same inline prompt prefilled with the
-current title. Both prompts stash and restore any in-progress draft. /rename
-refuses to run mid-turn; /fork never queues. Palette entries:
+message instead — one picker, two destinations. **`/rename [title]`** maps to
+`session.rename`; bare opens the same inline prompt prefilled with the current
+title. Both prompts stash and restore any in-progress draft. Palette entries:
 "Rewind conversation", "Fork session", "Rename session" under Session.
 
 Tests: `rewind_test.go` — double-esc opens/cancels, busy esc still
@@ -619,6 +608,11 @@ headers}}}`), `~/.codex/config.toml` `[mcp_servers.*]` (codex-style), and the
 `"mcp"` block in `~/.whip/config.json`. Claude `type: sse` imports as
 disabled-with-note (legacy transport); `${VAR}` references in env/headers
 expand from whip's environment.
+
+Production MCP client managers live with daemon roots. `/mcp` is a daemon
+control command. `whip mcp serve` is a thin stdio adapter that forwards tool
+requests to a dedicated daemon root through the capability dispatcher; it
+does not open SQLite, invoke a concrete handler, or answer permissions.
 
 - **Manager** (`manager.go`) — one lifecycle goroutine per server; a
   `ready chan struct{}` closes once on first settle (the BackgroundTask
@@ -675,8 +669,8 @@ expand from whip's environment.
   `whip mcp add <name> -- <cmd...>` / `--url`, `whip mcp remove`,
   `whip mcp import [--dry-run]` (materializes imported servers into whip's
   config; `--dry-run` prints the JSONC fragment without writing; blocked
-  servers are never imported). `whip mcp serve` (`serve.go`) exposes whip's
-  read/bash/edit/write as an MCP stdio server for other harnesses.
+  servers are never imported). `whip mcp serve` exposes daemon-backed
+  read/bash/edit/write operations to other harnesses.
 - **Import gating** — the `"mcpImport"` block in `~/.whip/config.json`
   (`{"claude": …, "codex": …}` per source: `enabled`, `only` allowlist,
   `exclude` denylist — exclude wins over only; absent block imports both
@@ -737,11 +731,11 @@ apply, idempotence, blocked servers never imported).
 
 ## Process safety
 
-`internal/tools/bashrun/bashrun.go` — every command the agent runs is tracked
-in a process registry (`track`/`untrack`). On exit (`tui.Run` returning — quit,
-`/quit`, or a signal), `KillAll()` SIGKILLs every tracked **process group** and
-waits briefly for reaping, so an agent-started server or watcher never outlives
-whip.
+`internal/capability/process.go` and `internal/tools/bashrun/bashrun.go` track
+daemon-owned commands by root and process group. Explicit root stop, daemon
+shutdown/replacement, timeout, or cancellation kills the group, waits for
+reaping, and releases its durable reservation. Closing a client alone does not
+stop detached work.
 
 The non-interactive path captures via explicit `StdoutPipe`/`StderrPipe` and
 closes the read ends the moment the process exits, so a detached grandchild
@@ -955,10 +949,10 @@ code-shaped tool, `browser_exec`. Design: docs/learnings/browser-use-integration
   recheck neutralizes the page to about:blank when JS navigation laundered
   the target.
 - **Vision loop**: `screenshot()` returns a JPEG (≤1568px, quality 80, via
-  CDP clip-scale); when the model has vision, the TUI's `ScreenshotSink`
-  steers the image into the conversation as a multimodal user message
+  CDP clip-scale); when the model has vision, the daemon-owned service's
+  screenshot sink steers the image into its agent as a multimodal message
   (`Agent.SteerImages` → `pendingSteer.parts`), so the model inspects it
-  natively on the next request — no temp-file dance.
+  natively on the next request. No image bytes pass through TUI ownership.
 - **UX**: the TUI tool row shows the code's first `# comment` as a
   plain-language step label (`tui/browser.go browserStepLabel`) instead of
   raw JSON; `browser.enabled: false` removes the tool.
@@ -1007,13 +1001,10 @@ Flags still work because Go's `flag` package stops parsing at `up`
 untouched — the `up` handler never re-parses its args.
 
 The prompt rides the `model.initialPrompt` field into the session; `Init()`
-emits a one-shot `initialPromptMsg` (batched with the textarea blink) and
-`Update` submits it. Kicking off from `Init` — not from `Run` before
-`tea.NewProgram` — is the load-bearing choice: the turn goroutine's event
-callbacks `p.Send` through `m.prog`, which only exists once the program is
-constructed. Combined with `--resume` the replayed history renders first and
-the prompt fires as the next turn, matching `whip run`'s
-prompt-after-resume order.
+emits a one-shot `initialPromptMsg` after the daemon client is started and
+`Update` submits it only once the client is `live`. With `--resume`, replay or
+snapshot replacement renders first and the prompt becomes the next stable
+daemon command, matching `whip run`'s prompt-after-resume order.
 
 Tests: `internal/tui/up_test.go` — `TestInitialPromptSubmitsFirstTurn` (Init
 kickoff → busy turn, authored user message, history entry, one-shot
@@ -1025,60 +1016,36 @@ double-submit mid-turn).
 
 `whip acp` (`cmd/whip/acp.go`, `internal/acp/`) serves whip as an **Agent
 Client Protocol** v1 agent over stdio: an editor (Zed et al.) spawns the
-binary and drives the agent loop with newline-delimited JSON-RPC 2.0. Stdout
-is exclusively protocol frames; diagnostics go to stderr + the event log.
-Wire types, framing, and per-session cancel plumbing come from
-`github.com/coder/acp-go-sdk` (schema-generated, zero transitive deps).
+binary and drives a reconnecting daemon root with newline-delimited JSON-RPC
+2.0. Stdout is exclusively ACP frames; diagnostics go to stderr and the daemon
+log. Wire types and framing come from `github.com/coder/acp-go-sdk`.
 
-- **Bridge** (`internal/acp/bridge.go`) — implements the SDK's `Agent` +
-  `AgentLoader`: `initialize` negotiates protocol version 1 and advertises
-  `loadSession` (with a store), prompt capabilities (image only when the
-  resolved model has vision; embeddedContext always), MCP-over-http, and
-  `sessionCapabilities.list`/`close`. `session/new` builds a fresh
-  `agent.Agent` via a `Factory` (model/key/system-prompt rooted at the
-  client's `cwd`, per-session MCP manager merging client-sent servers over
-  whip's config — whip wins name clashes). `session/prompt` runs
-  `Agent.TurnParts` (the one-line export of the loop's parts-taking turn);
-  streamed text/thought chunks, tool cards (`tool_call`/`tool_call_update`
-  with kind, title, locations, raw input, and `diff` content for
-  write/edit), `plan` updates from todowrite (via the new
-  `Agent.SetOnTodos` hook), `usage_update` (per-request prompt tokens over
-  the advertised context window), and a `session_info_update` title once the
-  store auto-titles the session — all flow through `SessionUpdate`
-  notifications. Stop reasons: `end_turn` normally, `cancelled` on
-  `session/cancel` (never an error response, per spec), `max_tokens` when a
-  context-limit error survives the compaction retry.
-- **One turn at a time** — a prompt arriving mid-turn gets a JSON-RPC
-  "session busy" error (ACP clients serialize turns; queueing prompts nobody
-  is watching invites zombie work). The turn runs on a ctx decoupled from
-  the request ctx because the SDK auto-cancels a session's in-flight prompt
-  when a second prompt arrives; cancellation flows through `session/cancel`
-  → `Bridge.Cancel` instead, and an idle-session cancel (which the SDK parks
-  against the next request's ctx) is a no-op. `session/close` and process
-  teardown (`Bridge.CloseAll` on conn EOF/signal) cancel running turns and
-  close per-session MCP managers before `bashrun.KillAll()`.
-- **Persistence** — turns save into the same SQLite store as the TUI
-  (`storeFrom` starts at 1: the system prompt is never persisted), so an ACP
-  session is resumable with `whip --resume <id>` and appears in
-  `session/list`. `session/load` rejects prefix ids, verifies the request
-  cwd matches the recorded one, then replays the full history (user/agent
-  chunks + tool cards in terminal state, `replayUpdates` in translate.go)
-  **before** responding, per spec.
-- **Modes & permissions** (`internal/acp/permission.go`) — sessions
-  advertise modes `auto` (default; tools ungated, `whip run` posture) and
-  `ask` (gated bash/write/edit round-trip through
-  `session/request_permission` with allow-once/always/reject options).
-  `session/set_mode` flips live and echoes `current_mode_update`. The gate
-  installs on the package-global `tools.Gate` serialized bridge-wide for the
-  turn's duration (a second ask-mode turn waits rather than interleave
-  mislabeled prompts); the permission request runs on the turn ctx so cancel
-  unblocks it, and cancelled/errored prompts fail closed. "Allow always"
-  rules are remembered per session for the session's lifetime.
+- **Thin bridge.** `session/new` and `session/load` create `daemon.RootClient`
+  subscriptions. The bridge never receives a store, provider, agent, concrete
+  tool registry, or process manager. Client-supplied MCP definitions are sent
+  to the daemon with `mcp.attach`; whip configuration wins name clashes.
+- **Synchronization before prompts.** A new or loaded root must finish replay
+  or snapshot replacement and reach `live` before the bridge registers it.
+  `session/load` requires an exact ID, validates the recorded cwd, renders the
+  snapshot/history, then consumes ordered presentation events.
+- **Streaming translation.** Daemon text/reasoning/tool/plan/usage/title
+  events become ACP `SessionUpdate`s. Image and embedded-context prompt parts
+  cross the daemon protocol as bounded content parts. Stop reasons map daemon
+  cancellation and context-limit outcomes to ACP values.
+- **One turn at a time.** A concurrent ACP prompt receives `session busy`.
+  `session/cancel` submits an explicit daemon cancel command; closing the ACP
+  connection closes client subscriptions but does not silently make the stdio
+  process the owner of daemon work.
+- **Permission mode is not RLM mode.** ACP `ask`/`auto` controls whether side
+  effects require an external human response. RLM/Classic is persisted
+  separately on the session. A paired ACP identity signs a decision for the
+  exact pending permission; cancelled, stale, forged, unpaired, and
+  old-generation decisions fail closed. Session-local allow-always rules
+  remain scoped to that ACP session.
 
 Out of scope by design (recorded in `.ai-docs/plans/acp/README.md`):
 terminal suite, `fs/*` client calls, elicitation, auth, config options,
-session/resume+delete, ACP v2. Known gap: background subagents gated
-mid-turn share the session's gate.
+session/resume+delete, and ACP v2.
 
 Tests: `internal/acp/translate_test.go` (content-block conversion, tool
 kind/title/locations, diff cards, replay ordering), `bridge_test.go` +
@@ -1086,11 +1053,11 @@ kind/title/locations, diff cards, replay ordering), `bridge_test.go` +
 provider: capabilities, streaming order, cancel mid-turn → cancelled not
 error, prompt-while-busy → "session busy" error + recovery, unknown session,
 idle-cancel no-op, plan updates, context-limit → max_tokens),
-`permission_test.go` (allow-once/reject/always-covers-repeats, auto mode
-never prompts, unknown mode, cancelled outcome fails closed),
-`load_test.go` (persistence incremental + system-prompt exclusion, replay
-before response with tool cards, prefix-id rejection, session/list with cwd
-filter, usage + title updates). All green under `-race`.
+`permission_test.go` (signed allow/reject/always, auto-mode pairing, stale and
+cancelled decisions fail closed), `load_test.go` and `bridge_test.go`
+(replay/snapshot before live, prefix-id rejection, session list, independent
+concurrent sessions, cancellation, usage and title updates). All run under
+`-race` in the release suite.
 
 Editor setup (Zed `settings.json`):
 ```json

@@ -11,21 +11,6 @@ import (
 	"github.com/context-labs/whip/internal/schedule"
 )
 
-// The wakeup channel: a 5s ticker checks the session's scheduled tasks and
-// submits a machine-authored turn for each one that's due. A fired task is a
-// normal turn — the transcript shows it with a ⏰ marker, the agent works it
-// with its full tool set, and the answer lands like any other. While busy,
-// the fire waits (one catch-up, grid stays anchored). One-shots complete on
-// their first fire.
-
-type scheduleTickMsg struct{}
-
-// scheduleTick is the always-on heartbeat: it re-arms itself, so a session
-// with no tasks costs one 5s no-op tick.
-func scheduleTick() tea.Cmd {
-	return tea.Tick(5*time.Second, func(time.Time) tea.Msg { return scheduleTickMsg{} })
-}
-
 // fireDueSchedules submits machine-authored turns for due tasks. Called on
 // each tick; a busy agent defers the fire to the next one (grid stays
 // anchored, so a defer doesn't drift the schedule).

@@ -58,6 +58,13 @@ func FanIn(evs ...Events) Events {
 				}
 			}
 		},
+		OnCompaction: func(summary string, cutoff int, before []llm.Message) {
+			for _, e := range evs {
+				if e.OnCompaction != nil {
+					e.OnCompaction(summary, cutoff, before)
+				}
+			}
+		},
 		OnCompacted: func(sum string, cutoff int, info CompactInfo) {
 			for _, e := range evs {
 				if e.OnCompacted != nil {

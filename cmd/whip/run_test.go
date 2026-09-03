@@ -38,12 +38,15 @@ func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
+		"mcpImport": {"claude": {"enabled": false}, "codex": {"enabled": false}},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 }
 
 // runCapture swaps stdout/stdin for the duration of runCLI and returns what
@@ -237,10 +240,12 @@ func TestRunMaxTurns(t *testing.T) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600)
+	useTestDaemon(t)
 
 	out, err := runCapture(t, "", "-max-turns", "2", "-no-session", "loop forever")
 	if err != nil {
@@ -263,10 +268,12 @@ func TestRunTimeout(t *testing.T) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600)
+	useTestDaemon(t)
 
 	_, err := runCapture(t, "", "-timeout", "200ms", "-no-session", "hi")
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
@@ -369,8 +376,16 @@ func TestRunUnreadableConfig(t *testing.T) {
 // In --format json the tool calls are events too, and a failed run ends with
 // an error event rather than a done event.
 func TestRunJSONToolEvents(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "target.txt")
-	if err := os.WriteFile(target, []byte("file body"), 0o600); err != nil {
+	targetFile, err := os.CreateTemp(".", "run-tool-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := targetFile.Name()
+	t.Cleanup(func() { _ = os.Remove(target) })
+	if _, err := targetFile.WriteString("file body"); err != nil {
+		t.Fatal(err)
+	}
+	if err := targetFile.Close(); err != nil {
 		t.Fatal(err)
 	}
 	// Answers with a read tool call while tools are offered; once -max-turns
@@ -396,12 +411,14 @@ func TestRunJSONToolEvents(t *testing.T) {
 	t.Setenv("WHIP_HOME", home)
 	cfg := fmt.Sprintf(`{
 		"defaultModel": "test",
+		"rlm": {"enabled": false},
 		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`, srv.URL)
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 
 	out, err := runCapture(t, "", "-format", "json", "-max-turns", "2", "-quiet", "-no-session", "read it")
 	if err != nil {
@@ -447,6 +464,7 @@ func TestRunJSONReasoning(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	useTestDaemon(t)
 
 	out, err := runCapture(t, "", "--format", "json", "go")
 	if err != nil {

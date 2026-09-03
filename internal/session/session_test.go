@@ -59,6 +59,77 @@ func TestTaskRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDeleteSessionRemovesOwnedTree(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	rootID, err := st.Create(t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AdmitChild(context.Background(), ChildAdmission{
+		RootID: rootID, ParentAgentID: authority.AgentID, ChildAgentID: "child", ExecutionID: "child-exec",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.StoreContent(context.Background(), ContentGrant{RootID: rootID, Scope: ContentGrantRoot}, RuntimePayload{
+		Data: []byte("owned content"), MediaType: "text/plain", Source: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordClassicTaskTranscript(context.Background(), rootID, authority.AgentID, Task{
+		ID: "task-1", Status: "done", StartedAt: time.Now(), EndedAt: time.Now(),
+	}, []llm.Message{{Role: "assistant", Content: "subagent output"}}, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	userFork, err := st.Fork(rootID, 0, "keep this fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherID, err := st.Create(t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.DeleteSession(context.Background(), rootID); err != nil {
+		t.Fatal(err)
+	}
+	var ownedSessions, ownedAgents, ownedGrants, ownedTasks int
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sessions WHERE id=? OR (forked_from=? AND task_id<>'')`, rootID, rootID).Scan(&ownedSessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM agents WHERE root_id=?`, rootID).Scan(&ownedAgents); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM content_grants WHERE root_id=?`, rootID).Scan(&ownedGrants); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM tasks WHERE session_id=?`, rootID).Scan(&ownedTasks); err != nil {
+		t.Fatal(err)
+	}
+	if ownedSessions != 0 || ownedAgents != 0 || ownedGrants != 0 || ownedTasks != 0 {
+		t.Fatalf("owned rows remain: sessions=%d agents=%d grants=%d tasks=%d", ownedSessions, ownedAgents, ownedGrants, ownedTasks)
+	}
+	if _, _, err := st.Load(otherID); err != nil {
+		t.Fatalf("unrelated session was affected: %v", err)
+	}
+	if meta, _, err := st.Load(userFork); err != nil {
+		t.Fatalf("user-created fork was affected: %v", err)
+	} else if meta.ForkedFrom != "" {
+		t.Fatalf("surviving fork retained deleted parent %q", meta.ForkedFrom)
+	}
+	if err := st.DeleteSession(context.Background(), rootID); err != nil {
+		t.Fatalf("repeated delete should be idempotent: %v", err)
+	}
+}
+
 func TestStoreRoundTrip(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
 	if err != nil {
@@ -184,6 +255,45 @@ func TestEffortRoundTrip(t *testing.T) {
 	}
 	if fmeta.Effort != "high" {
 		t.Fatalf("fork should inherit effort, got %q", fmeta.Effort)
+	}
+}
+
+func TestSessionModePersistsConfiguredDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.db")
+	st, err := OpenWithDefaultMode(path, ModeRLM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rid, err := st.Create("/tmp", "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+
+	st, err = OpenWithDefaultMode(path, ModeClassic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cid, err := st.Create("/tmp", "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rmeta, _, err := st.Load(rid)
+	if err != nil || rmeta.Mode != ModeRLM {
+		t.Fatalf("RLM session changed after config change: mode=%q err=%v", rmeta.Mode, err)
+	}
+	cmeta, _, err := st.Load(cid)
+	if err != nil || cmeta.Mode != ModeClassic {
+		t.Fatalf("new Classic session mode=%q err=%v", cmeta.Mode, err)
+	}
+	sid, err := st.SaveSubagentTranscript(rid, "child", []llm.Message{{Role: "assistant", Content: "done"}}, "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	smeta, _, err := st.Load(sid)
+	if err != nil || smeta.Mode != ModeRLM {
+		t.Fatalf("subagent should inherit persisted parent mode: mode=%q err=%v", smeta.Mode, err)
 	}
 }
 
@@ -581,6 +691,52 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	}
 	if got = st.Snapshots(id); len(got) != 0 {
 		t.Fatalf("ClearSnapshots left rows: %v", got)
+	}
+}
+
+func TestRewindHistoryAtomicallyDropsDerivedTail(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	id, _ := st.Create(t.TempDir(), "m", "p")
+	history := []llm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "q1"},
+		{Role: "assistant", Content: "a1"},
+		{Role: "user", Content: "q2"},
+		{Role: "assistant", Content: "a2"},
+	}
+	if err := st.Save(id, 1, history, "m", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSnapshot(id, 1, "keep"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSnapshot(id, 3, "drop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordCompaction(id, 2, "summary"); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshots, err := st.WorkspaceSnapshotsFrom(t.Context(), id, 3)
+	if err != nil || len(snapshots) != 1 || snapshots[0].Seq != 3 || snapshots[0].Ref != "drop" {
+		t.Fatalf("workspace tail = %+v, %v", snapshots, err)
+	}
+	restored, err := st.RewindHistory(t.Context(), id, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 2 || restored[0].Content != "q1" || restored[1].Content != "a1" {
+		t.Fatalf("restored history = %+v", restored)
+	}
+	if snapshots := st.Snapshots(id); len(snapshots) != 1 || snapshots[1] != "keep" {
+		t.Fatalf("remaining snapshots = %v", snapshots)
+	}
+	if compactions := st.Compactions(id); len(compactions) != 0 {
+		t.Fatalf("remaining compactions = %+v", compactions)
 	}
 }
 

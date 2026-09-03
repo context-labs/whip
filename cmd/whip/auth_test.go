@@ -5,10 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/creack/pty"
 )
 
 // fakeOpenRouter serves GET /models: 200 with a two-model list for the good
@@ -164,6 +167,61 @@ func TestOfferShellExportNonTTY(t *testing.T) {
 	if _, err := os.Stat(home + "/.zshrc"); !os.IsNotExist(err) {
 		t.Error("non-tty run must not create or modify the rc file")
 	}
+}
+
+func TestTerminalKeyPromptAndShellExport(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "/bin/zsh")
+	peer, terminal, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStdin := os.Stdin
+	os.Stdin = terminal
+	savedStdin, err := syscall.Dup(syscall.Stdin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Dup2(int(terminal.Fd()), syscall.Stdin); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Dup2(savedStdin, syscall.Stdin)
+		_ = syscall.Close(savedStdin)
+		os.Stdin = oldStdin
+		_ = terminal.Close()
+		_ = peer.Close()
+	})
+	if _, err := peer.WriteString("  sk-or-terminal  \n"); err != nil {
+		t.Fatal(err)
+	}
+	key, err := promptKey("key: ")
+	if err != nil || key != "sk-or-terminal" {
+		t.Fatalf("terminal key=%q err=%v", key, err)
+	}
+	if _, err := peer.WriteString("yes\n"); err != nil {
+		t.Fatal(err)
+	}
+	offerShellExport("sk-or-export")
+	content, err := os.ReadFile(filepath.Join(home, ".zshrc"))
+	if err != nil || !strings.Contains(string(content), "export "+config.OpenRouterEnvVar+"=sk-or-export") {
+		t.Fatalf("shell export=%q err=%v", content, err)
+	}
+	if _, err := peer.WriteString("no\n"); err != nil {
+		t.Fatal(err)
+	}
+	offerShellExport("sk-or-skipped")
+	if err := os.Remove(filepath.Join(home, ".zshrc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(home, ".zshrc"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := peer.WriteString("yes\n"); err != nil {
+		t.Fatal(err)
+	}
+	offerShellExport("sk-or-open-error")
 }
 
 func TestShellRC(t *testing.T) {

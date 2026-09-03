@@ -1,35 +1,28 @@
-// `whip acp` — serve whip as an Agent Client Protocol agent over stdio, so
-// ACP clients (Zed, other editors) can drive the agent loop. One process
-// speaks newline-delimited JSON-RPC 2.0 on stdin/stdout; nothing but protocol
-// frames may touch stdout, so all logging goes to stderr + the event log.
-//
-// The agent side of the protocol lives in internal/acp (bridge/translate/
-// permission); this file is only process wiring: config → model → bridge
-// factory → SDK connection → clean shutdown.
+// `whip acp` is an editor-facing protocol adapter. It owns the ACP stdio
+// connection and reconnecting daemon clients, never agent execution or
+// persistence.
 package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
 	"github.com/context-labs/whip/internal/acp"
-	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/lsp"
+	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/memory"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/skills"
-	"github.com/context-labs/whip/internal/tools"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 	"github.com/context-labs/whip/internal/tui"
 )
 
@@ -50,149 +43,177 @@ func acpCLI(args []string) error {
 	if err != nil {
 		return err
 	}
-	prov, mdl, apiID, err := tui.ResolveWithRefresh(cfg, *modelFlag, *providerFlag)
+	provider, model, apiID, err := tui.ResolveWithRefresh(cfg, *modelFlag, *providerFlag)
 	if err != nil {
 		return err
 	}
-	modelName, provName := *modelFlag, *providerFlag
+	modelName, providerName := *modelFlag, *providerFlag
 	if modelName == "" {
 		modelName = cfg.DefaultModel
 	}
-	if provName == "" {
-		provName = cfg.DefaultProvider
-		if provName == "" && len(mdl.Providers) > 0 {
-			provName = mdl.Providers[0]
+	if providerName == "" {
+		providerName = cfg.DefaultProvider
+		if providerName == "" && len(model.Providers) > 0 {
+			providerName = model.Providers[0]
 		}
 	}
-	key, err := prov.ResolveKey()
+	key, err := provider.ResolveKey()
 	if err != nil {
 		return err
 	}
 	if key == "" {
-		return fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)", provName)
+		return fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)", providerName)
 	}
+	credentials, err := loadACPClientCredentials()
+	if err != nil {
+		return fmt.Errorf("ACP identity: %w", err)
+	}
+	backend := &acpDaemonBackend{
+		clientID: credentials.ClientID, privateKey: credentials.PrivateKey,
+		model: modelName, provider: providerName,
+	}
+	backend.refreshPaired(context.Background())
 
-	vision := acpSupportsVision(cfg, modelName, apiID, provName)
+	vision := acpSupportsVision(cfg, modelName, apiID, providerName)
 	acp.SetEventLog(func(format string, args ...any) { config.LogEvent("acp", fmt.Sprintf(format, args...)) })
+	bridge := acp.NewBridge(version, backend, vision, acpBaseMCP(cfg))
+	connection := acpsdk.NewAgentSideConnection(bridge, os.Stdout, os.Stdin)
+	bridge.SetAgentConnection(connection)
 
-	// Session store: same SQLite file as the TUI, so editor sessions are
-	// resumable in the terminal (`whip --resume <id>`) and vice versa.
-	// Best-effort like run.go: ACP mode still works without it (loadSession
-	// capability simply isn't advertised).
-	var store *session.Store
-	if dir, derr := config.Dir(); derr == nil {
-		if st, serr := session.Open(dir + "/sessions.db"); serr == nil {
-			store = st
-			defer func() { _ = st.Close() }()
-		}
-	}
-
-	// LSP diagnostics for write/edit output — same built-in gopls + config
-	// servers as the TUI, spawned lazily on first covered file touch.
-	lspMgr := lsp.NewManager(lsp.FromConfigMap(cfg.LSPServers))
-	tools.LSP = lspMgr
-	defer func() {
-		lspMgr.Close()
-		tools.LSP = nil
-	}()
-
-	// Resolved once: the catalog values buildAgent re-derives per session are
-	// constant for the process lifetime (same provider + model).
-	cat, hasCat := config.LoadCatalogs()[provName]
-	ctxLimit := mdl.ContextWindow()
-	if hasCat {
-		if n := cat.ContextLength(apiID); n > 0 {
-			ctxLimit = n
-		}
-	}
-	maxOut := mdl.MaxOut
-	if maxOut <= 0 && hasCat {
-		maxOut = cat.MaxCompletionTokens(apiID)
-	}
-	if maxOut <= 0 {
-		maxOut = ctxLimit // generous default; provider clamps if too high
-	}
-
-	// Editor sessions have no consent prompt of their own outside ACP
-	// permissions: computer_exec stays off (same posture as `whip run`).
-	factory := func(ctx context.Context, wd string, servers map[string]mcp.ServerConfig) (*agent.Agent, *mcp.Manager, error) {
-		client := llm.New(prov.BaseURL, key)
-		client.MaxRetries = cfg.MaxRetries
-		ag := agent.New(client, apiID, maxOut, systemPrompt(wd, time.Now()))
-		ag.ModelName, ag.Provider = modelName, provName
-		ag.ComputerDisabled = true
-		ag.ContextLimit = ctxLimit
-		// Reasoning effort: explicit cfg.DefaultEffort wins; "" resolves
-		// model-aware — "low" when the model advertises it, else the lowest
-		// supported level, else off — so a non-reasoning model never sends an
-		// effort parameter the provider would reject.
-		ag.Effort = tui.DefaultEffortFor(config.LoadCatalogs(), provName, ag.Model, cfg.DefaultEffort)
-
-		// Skills + memory ride the system prompt. The TUI refreshes these per
-		// turn; ACP sessions refresh at session creation — a new skill lands
-		// with the next session/new, not mid-conversation.
-		ag.Messages[0].Content += skills.PromptBlock(skills.Scan(skills.DefaultDirs()...))
-		ag.Messages[0].Content += memory.PromptBlock(memory.Installation(), memory.Session("acp"))
-
-		// MCP: whip's merged config (own + claude/codex imports, gated) plus
-		// the client's session servers (already merged by the bridge — whip
-		// config wins clashes).
-		mgr := mcp.NewManager(servers)
-		mgr.SetOnChange(func() { ag.SetMCPTools(mgr.Tools()) })
-		mgr.Start(ctx)
-		ag.SetMCPTools(mgr.Tools())
-		if ib := mgr.InstructionsBlock(); ib != "" {
-			ag.Messages[0].Content += ib
-		}
-		return ag, mgr, nil
-	}
-
-	bridge := acp.NewBridge(version, factory, store, vision, acpBaseMCP(cfg))
-	conn := acpsdk.NewAgentSideConnection(bridge, os.Stdout, os.Stdin)
-	bridge.SetAgentConnection(conn)
-
-	// SIGINT/SIGTERM close the connection: Done() unblocks main so deferred
-	// cleanup (MCP/LSP shutdown, KillAll) runs instead of orphaning children.
-	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
 	select {
-	case <-conn.Done():
-	case <-sigCtx.Done():
+	case <-connection.Done():
+	case <-signalContext.Done():
 	}
-
-	// Client gone or signal: stop every in-flight/queued turn and shut each
-	// session's MCP manager down politely (stdin close → SIGTERM → SIGKILL)
-	// before KillAll sweeps any agent-spawned process groups — the TUI's
-	// exit ordering.
 	bridge.CloseAll()
-	bashrun.KillAll()
 	return nil
 }
 
-// acpSupportsVision mirrors the TUI's modelSupportsVision (tui.go): the
-// provider-advertised input_modalities win; else the config's per-model
-// vision flag. ponytail: duplicated rather than exported from the UI package.
-func acpSupportsVision(cfg *config.Config, modelName, modelID, provName string) bool {
-	if cat, ok := config.LoadCatalogs()[provName]; ok {
-		if vision, found := cat.SupportsVision(modelID); found {
+var loadACPClientCredentials = func() (daemon.ClientCredentials, error) {
+	return daemon.LoadOrCreateClientCredentials(daemon.SystemKeyStore(), "acp")
+}
+
+type acpDaemonBackend struct {
+	clientID   string
+	privateKey ed25519.PrivateKey
+	model      string
+	provider   string
+	paired     atomic.Bool
+}
+
+func (b *acpDaemonBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+	return b.root(ctx, "", cwd, servers)
+}
+
+func (b *acpDaemonBackend) LoadRoot(ctx context.Context, rootID, _ string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+	return b.root(ctx, rootID, "", servers)
+}
+
+func (b *acpDaemonBackend) root(ctx context.Context, rootID, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
+	options := daemon.RootClientOptions{
+		ClientID: b.clientID, PrivateKey: b.privateKey, RootID: rootID,
+		Connector: daemonConnector("acp", b.clientID),
+	}
+	if rootID == "" {
+		options.Create = &daemon.CreateSession{CWD: cwd, Model: b.model, Provider: b.provider}
+	}
+	client, err := daemon.NewRootClient(options)
+	if err != nil {
+		return nil, err
+	}
+	client.Start()
+	if err := client.WaitLive(ctx); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+	if len(servers) > 0 {
+		action, err := client.NewAction("mcp.attach", map[string]any{"servers": servers})
+		if err != nil {
+			_ = client.Close()
+			return nil, err
+		}
+		result, err := client.Command(ctx, action)
+		if err != nil {
+			_ = client.Close()
+			return nil, err
+		}
+		if result.Status != "succeeded" {
+			_ = client.Close()
+			return nil, errors.New(result.Error)
+		}
+	}
+	return client, nil
+}
+
+func (b *acpDaemonBackend) ListSessions(ctx context.Context, limit int) ([]session.Meta, error) {
+	connection, err := connectDaemon(ctx, "acp", b.clientID, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = connection.Close() }()
+	payload, err := json.Marshal(map[string]int{"limit": limit})
+	if err != nil {
+		return nil, err
+	}
+	result, err := connection.Command(ctx, daemon.CommandParams{
+		CommandID: daemonCommandID(b.clientID, "list"), Scope: string(session.CommandScopeDaemon),
+		Operation: "session.list", Payload: payload,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result.Status != "succeeded" {
+		return nil, errors.New(result.Error)
+	}
+	var metas []session.Meta
+	if err := json.Unmarshal([]byte(result.Output), &metas); err != nil {
+		return nil, err
+	}
+	return metas, nil
+}
+
+func (b *acpDaemonBackend) Paired(ctx context.Context) bool {
+	b.refreshPaired(ctx)
+	return b.paired.Load()
+}
+
+func (b *acpDaemonBackend) refreshPaired(ctx context.Context) {
+	query, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	connection, err := connectDaemon(query, "acp", b.clientID, nil)
+	if err != nil {
+		return
+	}
+	defer func() { _ = connection.Close() }()
+	identity, ok := connection.(interface {
+		IdentityStatus(context.Context) (daemon.IdentityStatusResult, error)
+	})
+	if !ok {
+		return
+	}
+	status, err := identity.IdentityStatus(query)
+	if err == nil {
+		b.paired.Store(status.Paired)
+	}
+}
+
+func acpSupportsVision(cfg *config.Config, modelName, modelID, providerName string) bool {
+	if catalog, ok := config.LoadCatalogs()[providerName]; ok {
+		if vision, found := catalog.SupportsVision(modelID); found {
 			return vision
 		}
 	}
-	if mc, ok := cfg.Models[modelName]; ok {
-		return mc.Vision
+	if model, ok := cfg.Models[modelName]; ok {
+		return model.Vision
 	}
 	return false
 }
 
-// acpBaseMCP is whip's own merged MCP config (config + .mcp.json + codex
-// imports, gated by mcpImport policy) — the per-session floor that client
-// servers are layered over. Discovery is rooted at the process cwd, matching
-// the TUI's startup.
 func acpBaseMCP(cfg *config.Config) map[string]mcp.ServerConfig {
-	disc := mcp.LoadMergedFiltered(cwd(), mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-	for src, err := range disc.Errs {
-		config.LogEvent("acp", fmt.Sprintf("mcp discovery: %s: %s", src, err))
+	discovery := mcp.LoadMergedFiltered(cwd(), mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
+	for source, err := range discovery.Errs {
+		config.LogEvent("acp", fmt.Sprintf("mcp discovery: %s: %s", source, err))
 	}
-	return disc.Merged
+	return discovery.Merged
 }

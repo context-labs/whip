@@ -1,31 +1,40 @@
 package browser
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
 
-func TestSetDriver(t *testing.T) {
-	defer func() { Driver = DriverRod }()
-	t.Setenv("WHIP_BROWSER_DRIVER", "") // env unset → SetDriver works
-	SetDriver(DriverChromedp)
-	if Driver != DriverChromedp {
-		t.Fatalf("got %q", Driver)
+func TestManagerDriver(t *testing.T) {
+	t.Setenv("WHIP_BROWSER_DRIVER", "")
+	m := NewManager(ModeHeadless)
+	m.SwitchDriver(DriverChromedp)
+	if m.Driver() != DriverChromedp {
+		t.Fatalf("got %q", m.Driver())
 	}
-	SetDriver(DriverRod)
-	if Driver != DriverRod {
-		t.Fatalf("got %q", Driver)
+	m.SwitchDriver(DriverRod)
+	if m.Driver() != DriverRod {
+		t.Fatalf("got %q", m.Driver())
 	}
-	SetDriver("bogus")
-	if Driver != DriverRod {
-		t.Fatalf("bogus driver must be ignored, got %q", Driver)
+	m.SwitchDriver("bogus")
+	if m.Driver() != DriverRod {
+		t.Fatalf("bogus driver must be ignored, got %q", m.Driver())
 	}
 }
 
 func TestSetDriverEnvPinWins(t *testing.T) {
-	defer func() { Driver = DriverRod }()
 	t.Setenv("WHIP_BROWSER_DRIVER", "chromedp")
-	SetDriver(DriverRod) // no-op under the pin
-	if Driver != DriverRod {
-		// note: Driver was already resolved at init; SetDriver must not
-		// mutate it under a pin. The package var's initial value stands.
-		t.Fatalf("pin must make SetDriver a no-op, got %q", Driver)
+	m := NewManager(ModeHeadless)
+	m.SwitchDriver(DriverRod)
+	if m.Driver() != DriverChromedp {
+		t.Fatalf("pin must make SwitchDriver a no-op, got %q", m.Driver())
+	}
+}
+
+func TestChromedpRejectsScopedLaunchEnvironment(t *testing.T) {
+	_, err := openChromedp(context.Background(), ModeHeadless, "test", []string{"PATH=/bin"})
+	if err == nil || !strings.Contains(err.Error(), "isolated environment") {
+		t.Fatalf("scoped chromedp launch error = %v", err)
 	}
 }

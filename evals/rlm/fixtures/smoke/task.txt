@@ -1,0 +1,1 @@
+Find the unique RLMSMOKE token without loading the full corpus into root context. In rlm_exec, call context.search(query="RLMSMOKE-"), take the first match's span.start, then call context.read(handle="smoke-corpus", offset=start, length=64). Return the exact RLMSMOKE-NNNN token and cite its exact corpus byte span.

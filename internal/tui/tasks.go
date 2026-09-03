@@ -25,6 +25,7 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/session"
 )
 
 // taskEventMsg is one live event from an opened background task (OnText /
@@ -123,9 +124,29 @@ func (m *model) dockTasks() []agent.BackgroundTask {
 	return out
 }
 
+func (m *model) runtimeChildren() []session.RuntimeAgent {
+	if m.client == nil {
+		return nil
+	}
+	var children []session.RuntimeAgent
+	for _, runtimeAgent := range m.clientView.agents {
+		if runtimeAgent.ParentID != "" {
+			children = append(children, runtimeAgent)
+		}
+	}
+	return children
+}
+
+func (m *model) dockCount() int {
+	if m.client != nil {
+		return len(m.runtimeChildren())
+	}
+	return len(m.dockTasks())
+}
+
 // clampTaskSel keeps the dock selection inside the current task list.
 func (m *model) clampTaskSel() {
-	if n := len(m.dockTasks()); m.taskSel >= n {
+	if n := m.dockCount(); m.taskSel >= n {
 		m.taskSel = max(n-1, 0)
 	}
 }
@@ -133,6 +154,9 @@ func (m *model) clampTaskSel() {
 // tasksDock renders the persistent strip: one row per task with a live
 // status icon, plus a hint row when the dock is focused.
 func (m *model) tasksDock() string {
+	if m.client != nil {
+		return m.runtimeTasksDock()
+	}
 	tasks := m.dockTasks()
 	if len(tasks) == 0 {
 		return ""
@@ -182,6 +206,41 @@ func (m *model) tasksDock() string {
 	}
 	if more := len(tasks) - hi; more > 0 {
 		rows = append(rows, dimStyle.Render(fmt.Sprintf("   … +%d more (ctrl+t to browse)", more)))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m *model) runtimeTasksDock() string {
+	children := m.runtimeChildren()
+	if len(children) == 0 {
+		return ""
+	}
+	m.clampTaskSel()
+	rows := make([]string, 0, len(children)+1)
+	if m.tasksFocus {
+		rows = append(rows, dimStyle.Render(" ⚙ subagents — ↑/↓ select · ctrl+x stop · esc back"))
+	}
+	budget := tasksDockHeight - len(rows)
+	if len(children) > budget {
+		budget--
+	}
+	lo := 0
+	if m.tasksFocus && m.taskSel >= budget {
+		lo = m.taskSel - budget + 1
+	}
+	hi := min(lo+budget, len(children))
+	for i := lo; i < hi; i++ {
+		child := children[i]
+		line := runtimeAgentLine(child)
+		if m.tasksFocus && i == m.taskSel {
+			line = botStyle.Render(" → " + line)
+		} else {
+			line = "   " + line
+		}
+		rows = append(rows, line)
+	}
+	if more := len(children) - hi; more > 0 {
+		rows = append(rows, dimStyle.Render(fmt.Sprintf("   … +%d more", more)))
 	}
 	return strings.Join(rows, "\n")
 }

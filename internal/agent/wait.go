@@ -12,7 +12,6 @@ import (
 
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
-	"github.com/context-labs/whip/internal/tools/bashrun"
 )
 
 // A wait is a harness-owned poller: the model names a shell command and a
@@ -49,6 +48,7 @@ type waitTask struct {
 	status    atomic.Value // WaitStatus; string-typed, atomic for raced readers
 	Detail    string       // delivered message — read only after Done closes
 	Done      chan struct{}
+	pollDone  chan struct{}
 	cancel    context.CancelFunc
 	delivered atomic.Bool
 }
@@ -147,13 +147,20 @@ func (a *Agent) StartWait(spec WaitTaskSpec) (*waitTask, error) {
 	w := &waitTask{
 		ID: id, Command: spec.Command, Until: spec.Until,
 		Interval: spec.Interval, Timeout: spec.Timeout,
-		Started: time.Now(), Done: make(chan struct{}),
+		Started: time.Now(), Done: make(chan struct{}), pollDone: make(chan struct{}),
 		cancel: cancel,
 	}
 	r.waits[id] = w
 	r.mu.Unlock()
 
-	go r.poll(ctx, w, untilRe)
+	if !a.launch("wait "+id, func() { r.poll(ctx, w, untilRe) }) {
+		cancel()
+		r.mu.Lock()
+		delete(r.waits, id)
+		r.mu.Unlock()
+		close(w.pollDone)
+		return nil, errors.New("agent is stopping")
+	}
 	return w, nil
 }
 
@@ -161,6 +168,7 @@ func (a *Agent) StartWait(spec WaitTaskSpec) (*waitTask, error) {
 // the condition resolves, the timeout fires, or the registry stops. Owner of
 // the goroutine; exits on every path.
 func (r *waitRegistry) poll(ctx context.Context, w *waitTask, until *regexp.Regexp) {
+	defer close(w.pollDone)
 	ticker := time.NewTicker(w.Interval)
 	defer ticker.Stop()
 	deadline := time.NewTimer(w.Timeout)
@@ -172,9 +180,13 @@ func (r *waitRegistry) poll(ctx context.Context, w *waitTask, until *regexp.Rege
 		// interval is short. Floor 30s so short-interval waits still let real
 		// commands finish; capped at 60s so a hung command can't stall the
 		// ticker for the whole session timeout.
-		res := bashrun.Run(ctx, bashrun.Options{Command: w.Command, Timeout: min(max(w.Interval, 30*time.Second), 60*time.Second)})
+		timeout := min(max(w.Interval, 30*time.Second), 60*time.Second)
+		res, runErr := r.agent.Services.RunBash(tools.WithWorkingDirectory(ctx, r.agent.WorkingDir), w.Command, timeout)
 		if ctx.Err() != nil {
 			return true // cancelled / registry stopped — deliver nothing
+		}
+		if runErr != nil {
+			res.Exit = runErr.Error()
 		}
 		if res.TimedOut || res.Exit != "" {
 			strikes++
@@ -233,14 +245,14 @@ func (r *waitRegistry) deliver(w *waitTask, status WaitStatus, msg string) {
 	}
 	// Headless idle (no turn, no hook): the message is dropped by design —
 	// an idle headless agent has no loop boundary coming (see waitRegistry doc).
-	close(w.Done)
-	w.cancel() // stop the ticker select
 	// ponytail: no listing surface exists yet (no /waits command), so a
 	// settled wait serves no one — drop it to keep the map bounded. If a
 	// listing lands later, keep settled rows and bound by count instead.
 	r.mu.Lock()
 	delete(r.waits, w.ID)
 	r.mu.Unlock()
+	close(w.Done)
+	w.cancel() // stop the ticker select
 }
 
 // Close stops every poller goroutine. Called when the agent is being torn
@@ -249,6 +261,15 @@ func (r *waitRegistry) deliver(w *waitTask, status WaitStatus, msg string) {
 func (r *waitRegistry) Close() {
 	if r.stop != nil {
 		r.stop()
+	}
+	r.mu.Lock()
+	waits := make([]*waitTask, 0, len(r.waits))
+	for _, wait := range r.waits {
+		waits = append(waits, wait)
+	}
+	r.mu.Unlock()
+	for _, wait := range waits {
+		<-wait.pollDone
 	}
 }
 
@@ -267,11 +288,11 @@ func (r *waitRegistry) CancelWait(id string) bool {
 		return false // a deliver is already settling it
 	}
 	w.setStatus(WaitKilled)
-	close(w.Done)
-	w.cancel()
 	r.mu.Lock()
 	delete(r.waits, id)
 	r.mu.Unlock()
+	close(w.Done)
+	w.cancel()
 	return true
 }
 

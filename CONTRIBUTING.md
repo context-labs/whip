@@ -11,13 +11,14 @@ Run the full local gate — it's exactly what CI runs:
 task ci
 ```
 
-That composes three tasks:
+That composes four tasks:
 
 | Task | What it runs | CI equivalent |
 | --- | --- | --- |
 | `task check` | `gofmt -s`, `go vet`, `go test ./...` | format + vet + tests |
 | `task lint` | `golangci-lint run ./...` | the lint gate (`.golangci.yml`) |
 | `task vuln` | `govulncheck ./...` | the dependency-vulnerability gate |
+| `task acceptance` | real daemon/kernel recovery plus focused runtime contract tests under `-race` | Linux/macOS runtime jobs |
 
 `task lint-fix` auto-fixes what golangci-lint can. The pre-commit hook
 (`task hooks` to enable) runs `task check`.
@@ -49,8 +50,15 @@ Two workflows gate pull requests: **ci** and **security**.
   tests; a PR that drops the total below the floor fails.
 - **go mod tidy is a no-op** — commit a tidy `go.mod`/`go.sum`.
 - **cross-compile** for the four release targets.
+- **runtime acceptance on Linux and macOS** — owner-only sockets, real daemon
+  detach/reconnect/recovery, RLM worker containment, deadlines, process-group
+  cleanup, and memory limits.
 - **Swift driver build** (macOS) so a driver-breaking change fails the PR, not
   the next release.
+
+The required aggregate `go` job depends on lint, portable tests, every
+cross-build, both runtime platforms, and the Swift driver. A failure in any of
+them therefore blocks the aggregate even though the work runs in parallel.
 
 ### `security` — vulnerability & SAST
 

@@ -1,15 +1,268 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 )
+
+func TestMigrationFailureKeepsCheckpointedSourceAndSyncedBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	db := createHistoricalStore(t, path, historicalShape{name: "H0"})
+	if _, err := db.ExecContext(context.Background(), `PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE blocker(x); CREATE INDEX events ON blocker(x)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO messages VALUES('legacy',9,'user','{"role":"user","content":"committed in WAL"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path + "-wal"); err != nil || info.Size() == 0 {
+		t.Fatalf("fixture did not retain committed WAL data: info=%v err=%v", info, err)
+	}
+
+	if st, err := Open(path); err == nil {
+		st.Close()
+		t.Fatal("migration should fail on the colliding events index")
+	}
+	var sourceRows, sourceVersion int
+	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM messages WHERE seq=9`).Scan(&sourceRows); err != nil || sourceRows != 1 {
+		t.Fatalf("source lost WAL row: rows=%d err=%v", sourceRows, err)
+	}
+	if err := db.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&sourceVersion); err != nil || sourceVersion != 0 {
+		t.Fatalf("failed migration changed source version: %d, %v", sourceVersion, err)
+	}
+	var modeColumn int
+	if err := db.QueryRowContext(context.Background(), `SELECT count(*) FROM pragma_table_info('sessions') WHERE name='mode'`).Scan(&modeColumn); err != nil || modeColumn != 0 {
+		t.Fatalf("failed migration left partial columns: count=%d err=%v", modeColumn, err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	backup, err := sql.Open("sqlite", migrationBackupPath(path, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backup.Close()
+	var backupRows, backupVersion int
+	if err := backup.QueryRowContext(context.Background(), `SELECT count(*) FROM messages WHERE seq=9`).Scan(&backupRows); err != nil || backupRows != 1 {
+		t.Fatalf("backup lost checkpointed WAL row: rows=%d err=%v", backupRows, err)
+	}
+	if err := backup.QueryRowContext(context.Background(), `PRAGMA user_version`).Scan(&backupVersion); err != nil || backupVersion != 0 {
+		t.Fatalf("backup version=%d err=%v", backupVersion, err)
+	}
+}
+
+func TestRuntimeTransitionFailureRollsBackRowsAndDiagnosesBody(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, _ := st.Create("/workspace", "m", "p")
+	exec(t, st, `CREATE TRIGGER reject_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+	large := bytes.Repeat([]byte("orphan-on-rollback"), 1024)
+	_, err = st.CommitRuntime(context.Background(), RuntimeTransition{
+		Agent:   &RuntimeAgent{ID: "a", RootID: rootID, Status: "idle"},
+		Command: &RuntimeCommand{ClientID: "c", ID: "cmd", Scope: CommandScopeRoot, RootID: rootID, RequestDigest: "d", Status: "queued", Payload: RuntimePayload{Data: large}},
+		Inbox:   &RuntimeInbox{RootID: rootID, AgentID: "a", Seq: 1, Kind: "command", Status: "queued", Payload: RuntimePayload{Data: large}},
+		State:   &RuntimeState{RootID: rootID, AgentID: "a", Key: "k", Version: 1, AuthorAgentID: "a", Payload: RuntimePayload{Data: large}},
+		Event:   &RuntimeEvent{RootID: rootID, Seq: 1, Kind: "event", Payload: RuntimePayload{Data: large}},
+		Usage:   &RuntimeUsage{ID: "u", RootID: rootID, AgentID: "a"},
+	})
+	if err == nil {
+		t.Fatal("trigger should abort the runtime transition")
+	}
+	exec(t, st, `DROP TRIGGER reject_event`)
+	for _, table := range []string{"agents", "commands", "inbox", "agent_state", "events", "usage_charges", "content_objects", "content_references", "content_grants"} {
+		var n int
+		if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM `+table).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("failed transition left %s rows=%d err=%v", table, n, err)
+		}
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	orphans, err := st.OrphanContent(context.Background())
+	if err != nil || len(orphans) != 1 {
+		t.Fatalf("orphan diagnoses=%+v err=%v", orphans, err)
+	}
+	if body, err := st.content.Read(orphans[0].Digest, 0, len(large)); err != nil || !bytes.Equal(body, large) {
+		t.Fatalf("diagnosis deleted or changed body: %d bytes err=%v", len(body), err)
+	}
+}
+
+func TestActorPersistenceEventFailuresRollBack(t *testing.T) {
+	t.Run("enqueue", func(t *testing.T) {
+		st, rootID, agentID := actorFailureFixture(t)
+		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+		_, err := st.EnqueueInbox(context.Background(), InboxEnqueue{
+			RootID: rootID, AgentID: agentID, Kind: "command",
+			Payload: RuntimePayload{Data: bytes.Repeat([]byte("large"), 4096)},
+		})
+		if err == nil {
+			t.Fatal("event failure should abort enqueue")
+		}
+		assertActorRows(t, st, rootID, 0, 0)
+	})
+
+	t.Run("consume", func(t *testing.T) {
+		st, rootID, agentID := actorFailureFixture(t)
+		pair, err := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: rootID, AgentID: agentID, Kind: "command"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+		if _, err := st.ConsumeInbox(context.Background(), rootID, agentID, pair.InboxSeq); err == nil {
+			t.Fatal("event failure should abort consume")
+		}
+		var status string
+		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM inbox WHERE root_id=? AND agent_id=? AND seq=?`, rootID, agentID, pair.InboxSeq).Scan(&status); err != nil || status != "queued" {
+			t.Fatalf("failed consume status=%q err=%v", status, err)
+		}
+		assertActorRows(t, st, rootID, 1, 1)
+	})
+
+	t.Run("schedule", func(t *testing.T) {
+		st, rootID, agentID := actorFailureFixture(t)
+		anchor := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+		id, err := st.AddSchedule(rootID, "@every 10m", "work", anchor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+		if _, err := st.ClaimScheduleFire(context.Background(), ScheduleFireClaim{RootID: rootID, AgentID: agentID, ScheduleID: id, Slot: anchor}); err == nil {
+			t.Fatal("event failure should abort schedule claim")
+		}
+		if got := st.Schedules(rootID); len(got) != 1 || !got[0].LastFire.IsZero() {
+			t.Fatalf("failed schedule claim stamped row: %+v", got)
+		}
+		assertActorRows(t, st, rootID, 0, 0)
+	})
+
+	t.Run("root failure", func(t *testing.T) {
+		st, rootID, agentID := actorFailureFixture(t)
+		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'d','running',?,?)`, rootID, now(), now())
+		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
+		if _, err := st.FailClassicRoot(context.Background(), rootID, "actor panic"); err == nil {
+			t.Fatal("event failure should abort root terminalization")
+		}
+		var statuses string
+		if err := st.db.QueryRowContext(context.Background(), `SELECT a.status || ':' || c.status FROM agents a JOIN commands c ON c.root_id=a.root_id WHERE a.id=? AND c.command_id='cmd'`, agentID).Scan(&statuses); err != nil || statuses != "idle:running" {
+			t.Fatalf("failed terminalization statuses=%q err=%v", statuses, err)
+		}
+		assertActorRows(t, st, rootID, 0, 0)
+	})
+}
+
+func actorFailureFixture(t *testing.T) (*Store, string, string) {
+	t.Helper()
+	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rootID, err := st.Create(t.TempDir(), "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := st.EnsureClassicAuthority(context.Background(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st, rootID, authority.AgentID
+}
+
+func assertActorRows(t *testing.T, st *Store, rootID string, inbox, events int) {
+	t.Helper()
+	for table, want := range map[string]int{"inbox": inbox, "events": events} {
+		var got int
+		if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM `+table+` WHERE root_id=?`, rootID).Scan(&got); err != nil || got != want {
+			t.Fatalf("%s rows=%d want=%d err=%v", table, got, want, err)
+		}
+	}
+}
+
+func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, _ := st.Create("/workspace", "m", "p")
+	exec(t, st, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at) VALUES('a',?,NULL,'idle',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'d','queued',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES('turn',?,'a','running',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO child_executions(id,root_id,parent_agent_id,child_agent_id,status,created_at,updated_at) VALUES('child',?,'a','a','running',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,created_at,updated_at) VALUES('op',?,'a','running',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO leases(id,root_id,agent_id,operation_id,status,created_at,updated_at) VALUES('lease',?,'a','op','running',?,?)`, rootID, now(), now())
+	exec(t, st, `CREATE TRIGGER reject_recovery BEFORE UPDATE ON operations BEGIN SELECT RAISE(ABORT,'recovery failure'); END`)
+	st.Close()
+
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Recover(context.Background()); err == nil {
+		t.Fatal("recovery should fail closed")
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for table, want := range map[string]string{"commands": "queued", "turns": "running", "child_executions": "running", "operations": "running", "leases": "running"} {
+		var status string
+		if err := db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` LIMIT 1`).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if status != want {
+			t.Errorf("partial recovery changed %s to %q", table, status)
+		}
+	}
+	if _, err := db.ExecContext(context.Background(), `DROP TRIGGER reject_recovery`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"commands", "turns", "child_executions", "operations", "leases"} {
+		var status string
+		if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM `+table+` LIMIT 1`).Scan(&status); err != nil || status != "interrupted" {
+			t.Errorf("%s status=%q err=%v", table, status, err)
+		}
+	}
+}
+
+func TestOpenRejectsInvalidDefaultMode(t *testing.T) {
+	if _, err := OpenWithDefaultMode(filepath.Join(t.TempDir(), "sessions.db"), Mode("future")); err == nil {
+		t.Fatal("invalid configured mode should fail before opening")
+	}
+}
 
 // exec runs test-only SQL against the store's own database. Every fault below
 // is injected this way — through the real store's real connection — so the
@@ -67,6 +320,73 @@ func TestClosedStoreDegradesGracefully(t *testing.T) {
 		"ForksOf":     func() error { _, err := st.ForksOf(id); return err },
 		"ForkTitle":   func() error { _, err := st.ForkTitle("base"); return err },
 		"AddSchedule": func() error { _, err := st.AddSchedule(id, "@every 1m", "p", time.Now()); return err },
+		"Schedules":   func() error { _, err := st.SchedulesContext(context.Background(), id); return err },
+		"EnqueueInbox": func() error {
+			_, err := st.EnqueueInbox(context.Background(), InboxEnqueue{RootID: id, AgentID: "agent", Kind: "test"})
+			return err
+		},
+		"LoadQueuedInbox": func() error {
+			_, err := st.LoadQueuedInbox(context.Background(), id, "agent", 0, 1)
+			return err
+		},
+		"ConsumeInbox": func() error { _, err := st.ConsumeInbox(context.Background(), id, "agent", 1); return err },
+		"StartClassicTurn": func() error {
+			return st.StartClassicTurn(context.Background(), id, "agent", 1)
+		},
+		"CommitClassicTurn": func() error {
+			return st.CommitClassicTurn(context.Background(), ClassicTurnCommit{RootID: id, AgentID: "agent", InboxSeq: 1})
+		},
+		"RecordClassicTask": func() error {
+			return st.RecordClassicTask(context.Background(), id, "agent", Task{ID: "task"})
+		},
+		"ClaimScheduleFire": func() error {
+			_, err := st.ClaimScheduleFire(context.Background(), ScheduleFireClaim{RootID: id, AgentID: "agent", ScheduleID: 1, Slot: time.Now()})
+			return err
+		},
+		"FailClassicRoot":      func() error { _, err := st.FailClassicRoot(context.Background(), id, "failed"); return err },
+		"InterruptClassicRoot": func() error { _, err := st.InterruptClassicRoot(context.Background(), id, "interrupted"); return err },
+		"StopClassicRoot":      func() error { _, err := st.StopClassicRoot(context.Background(), id, "stopped"); return err },
+		"CommitRuntime": func() error {
+			_, err := st.CommitRuntime(context.Background(), RuntimeTransition{Event: &RuntimeEvent{RootID: id, Seq: 1, Kind: "test"}})
+			return err
+		},
+		"FinishCommand": func() error {
+			_, err := st.FinishCommand(context.Background(), "client", "command", "succeeded", RuntimePayload{})
+			return err
+		},
+		"StoreContent": func() error {
+			_, err := st.StoreContent(context.Background(), ContentGrant{RootID: id, Scope: ContentGrantRoot}, RuntimePayload{})
+			return err
+		},
+		"ReadContent": func() error {
+			_, _, err := st.ReadContent(context.Background(), "reference", id, "agent", 0, 1)
+			return err
+		},
+		"RevokeContentGrant": func() error {
+			return st.RevokeContentGrant(context.Background(), "reference", id, "agent")
+		},
+		"OrphanContent": func() error { _, err := st.OrphanContent(context.Background()); return err },
+		"EnsureClassicAuthority": func() error {
+			_, err := st.EnsureClassicAuthority(context.Background(), id)
+			return err
+		},
+		"WorkspaceRoot": func() error { _, err := st.WorkspaceRoot(context.Background(), id); return err },
+		"IssueCapability": func() error {
+			return st.IssueCapability(context.Background(), capability.Grant{ID: "cap", RootID: id, AgentID: "agent", Operations: []string{"read"}})
+		},
+		"RevokeCapability": func() error { return st.RevokeCapability(context.Background(), "cap") },
+		"BeginCapability": func() error {
+			_, err := st.Begin(context.Background(), capability.Admission{Request: capability.Request{RootID: id, AgentID: "agent", OperationID: "operation"}})
+			return err
+		},
+		"PendingCapability": func() error { _, err := st.Pending(context.Background(), "permission"); return err },
+		"DecideCapability": func() error {
+			_, err := st.Decide(context.Background(), capability.Admission{}, "permission", capability.Decision{})
+			return err
+		},
+		"FinishCapability": func() error {
+			return st.Finish(context.Background(), capability.Completion{Status: capability.StatusSucceeded})
+		},
 	}
 	for name, fn := range errCases {
 		if err := fn(); err == nil {
@@ -88,6 +408,48 @@ func TestClosedStoreDegradesGracefully(t *testing.T) {
 	}
 	if got := st.Todos(id); got != "" {
 		t.Errorf("Todos on a closed store = %q, want empty", got)
+	}
+}
+
+func TestRecoveryRejectsCorruptAdmissionsBeforeRecordingOrphans(t *testing.T) {
+	st, rootID, agentID := actorFailureFixture(t)
+	orphan, err := st.content.Put([]byte("unreferenced recovery body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,payload_inline,created_at,updated_at) VALUES('malformed',?,?, 'running','{',?,?)`, rootID, agentID, now(), now())
+	if err := st.Recover(context.Background()); err == nil {
+		t.Fatal("malformed admission should fail recovery")
+	}
+	var status string
+	if err := st.db.QueryRowContext(context.Background(), `SELECT status FROM operations WHERE id='malformed'`).Scan(&status); err != nil || status != "running" {
+		t.Fatalf("failed recovery operation status=%q err=%v", status, err)
+	}
+	if orphans, err := st.OrphanContent(context.Background()); err != nil || len(orphans) != 0 {
+		t.Fatalf("failed runtime recovery recorded orphans=%+v err=%v", orphans, err)
+	}
+	exec(t, st, `UPDATE operations SET status='succeeded' WHERE id='malformed'`)
+	mismatched, err := json.Marshal(capability.Admission{Request: capability.Request{RootID: "other-root", AgentID: agentID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,payload_inline,created_at,updated_at) VALUES('mismatched',?,?, 'running',?,?,?)`, rootID, agentID, mismatched, now(), now())
+	if err := st.Recover(context.Background()); err == nil || !strings.Contains(err.Error(), "root does not match") {
+		t.Fatalf("mismatched admission recovery error=%v", err)
+	}
+	exec(t, st, `UPDATE operations SET status='succeeded' WHERE id='mismatched'`)
+	if err := st.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	orphans, err := st.OrphanContent(context.Background())
+	if err != nil || len(orphans) != 1 || orphans[0].Digest != orphan.Digest || orphans[0].Size != orphan.Size {
+		t.Fatalf("recorded orphans=%+v err=%v", orphans, err)
+	}
+	if err := st.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if orphans, err := st.OrphanContent(context.Background()); err != nil || len(orphans) != 1 {
+		t.Fatalf("repeated recovery duplicated orphans=%+v err=%v", orphans, err)
 	}
 }
 
@@ -294,18 +656,18 @@ func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// the raw log is [q1, first-gen summary, q2, a2]; folding at 3 keeps the
-	// head slot, the new summary, the prior summary, and the raw tail
-	if len(got) != 4 {
+	// The raw log is [q1, first-gen summary, q2, a2]. Folding at 3 replaces
+	// the raw prefix, keeps the prior derived summary, and retains the raw tail.
+	if len(got) != 3 {
 		t.Fatalf("compacted view: %d msgs %+v", len(got), got)
 	}
-	if !strings.Contains(got[1].Content, "second gen") {
-		t.Fatalf("the newest summary should come first: %q", got[1].Content)
+	if !strings.Contains(got[0].Content, "second gen") {
+		t.Fatalf("the newest summary should come first: %q", got[0].Content)
 	}
-	if !strings.Contains(got[2].Content, "first gen") {
-		t.Fatalf("the prior summary must be kept: %q", got[2].Content)
+	if !strings.Contains(got[1].Content, "first gen") {
+		t.Fatalf("the prior summary must be kept: %q", got[1].Content)
 	}
-	if got[3].Content != "a2" {
-		t.Fatalf("raw tail lost: %+v", got[3:])
+	if got[2].Content != "a2" {
+		t.Fatalf("raw tail lost: %+v", got[2:])
 	}
 }

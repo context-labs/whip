@@ -5,6 +5,10 @@ package main
 // serves stdio and isn't unit-testable; its helpers are.
 
 import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +17,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/mcp"
 )
 
 // acpCLI's config prologue runs before the serve loop: a broken config, an
@@ -79,6 +86,16 @@ func TestAcpCLIServeExitsOnEOF(t *testing.T) {
 		"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions", "apiKey": "k"}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`)
+	useTestDaemon(t)
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousCredentials := loadACPClientCredentials
+	loadACPClientCredentials = func() (daemon.ClientCredentials, error) {
+		return daemon.ClientCredentials{ClientID: "acp-test", PrivateKey: private}, nil
+	}
+	t.Cleanup(func() { loadACPClientCredentials = previousCredentials })
 
 	// stdin/stdout become the ends of two pipes: the test acts as the ACP
 	// client on the other side.
@@ -127,9 +144,9 @@ func TestAcpCLIServeExitsOnEOF(t *testing.T) {
 		t.Errorf("initialize response = %q", got)
 	}
 
-	// session/new drives the factory closure: it builds the agent (skills,
-	// memory, MCP manager) without contacting the provider, so it needs no
-	// network. Covers the wiring the error paths return before.
+	// session/new drives the daemon-backed root factory without contacting the
+	// provider, so it needs no network. Covers the wiring the error paths return
+	// before.
 	cwd, _ := os.Getwd()
 	newReq := `{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":` + fmt.Sprintf("%q", cwd) + `,"mcpServers":[]}}` + "\n"
 	if _, err := inW.WriteString(newReq); err != nil {
@@ -151,6 +168,198 @@ func TestAcpCLIServeExitsOnEOF(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Error("acpCLI did not exit after stdin EOF")
 	}
+}
+
+func TestACPDaemonBackendAndMCPToolsRoundTrip(t *testing.T) {
+	var requests []llm.Request
+	runFixture(t, "daemon reply", &requests)
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &acpDaemonBackend{
+		clientID: "acp-round-trip", privateKey: private,
+		model: "test", provider: "testprov",
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	disabled := false
+	workingDirectory := t.TempDir()
+	root, err := backend.NewRoot(ctx, workingDirectory, map[string]mcp.ServerConfig{
+		"unused": {Command: []string{"false"}, Enabled: &disabled},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+
+	// Exercise the content-parts path used by image-capable ACP clients.
+	action, err := root.NewAction("submit", daemon.SubmitPayload{
+		Text:  "remember this",
+		Parts: []llm.ContentPart{{Type: "text", Text: "remember this"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := root.Command(ctx, action)
+	if err != nil || result.Status != "succeeded" || result.Output != "daemon reply" {
+		t.Fatalf("submit = %+v, %v", result, err)
+	}
+	if len(requests) != 1 || len(requests[0].Messages) == 0 {
+		t.Fatalf("provider requests = %+v", requests)
+	}
+
+	// The MCP adapter sees schemas and invokes built-ins only through daemon
+	// commands. Read is safe; write is rejected after the headless policy is
+	// installed, proving side effects do not bypass daemon-owned permissions.
+	configure, err := root.NewAction("tool.configure", map[string]bool{"deny_permissions": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured, commandErr := root.Command(ctx, configure); commandErr != nil || configured.Status != "succeeded" {
+		t.Fatalf("tool.configure = %+v, %v", configured, commandErr)
+	}
+	provider := daemonMCPTools{client: root}
+	definitions, err := provider.ToolDefinitions(ctx)
+	if err != nil || len(definitions) == 0 {
+		t.Fatalf("tool definitions = %d, %v", len(definitions), err)
+	}
+	path := filepath.Join(workingDirectory, "note.txt")
+	if err := os.WriteFile(path, []byte("daemon-owned tools\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	readArgs, err := json.Marshal(map[string]string{"path": path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := provider.CallTool(ctx, "read", readArgs)
+	if err != nil || !strings.Contains(output, "daemon-owned tools") {
+		t.Fatalf("read tool = %q, %v", output, err)
+	}
+	writeArgs, err := json.Marshal(map[string]string{"path": path, "content": "changed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.CallTool(ctx, "write", writeArgs); err == nil || !strings.Contains(err.Error(), "Permission denied") {
+		t.Fatalf("write tool should be denied, got %v", err)
+	}
+	if backend.Paired(ctx) {
+		t.Fatal("an untrusted ACP identity should not report as paired")
+	}
+
+	// Pair the ACP identity, switch to external prompts, and resolve the real
+	// daemon-owned permission. This covers the signed boundary rather than a
+	// protocol mock: the tool worker stays blocked until the decision lands.
+	identityConnection, err := connectDaemon(ctx, "acp", backend.clientID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enroller, ok := identityConnection.(interface {
+		EnrollIdentity(context.Context, ed25519.PrivateKey, bool, string, ed25519.PrivateKey) (daemon.IdentityResult, error)
+	})
+	if !ok {
+		t.Fatal("daemon connection does not support identity enrollment")
+	}
+	if _, err := enroller.EnrollIdentity(ctx, private, true, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	_ = identityConnection.Close()
+	if !backend.Paired(ctx) {
+		t.Fatal("enrolled ACP identity should report as paired")
+	}
+	external, err := root.NewAction("permission.mode", map[string]bool{"external_permissions": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := root.SetPermissionMode(ctx, external, true); err != nil || result.Status != "succeeded" {
+		t.Fatalf("external permission mode = %+v, %v", result, err)
+	}
+	beforeWrite, err := root.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type toolResult struct {
+		output string
+		err    error
+	}
+	writeDone := make(chan toolResult, 1)
+	go func() {
+		output, callErr := provider.CallTool(ctx, "write", writeArgs)
+		writeDone <- toolResult{output: output, err: callErr}
+	}()
+	permissionID := ""
+	var eventKinds []string
+	permissionDeadline := time.NewTimer(5 * time.Second)
+	defer permissionDeadline.Stop()
+	for permissionID == "" {
+		select {
+		case update := <-root.Updates():
+			if update.Event == nil {
+				continue
+			}
+			eventKinds = append(eventKinds, update.Event.Kind)
+			if update.Event.Kind != "permission.pending" || update.Event.Seq <= beforeWrite.Cursor {
+				continue
+			}
+			var pending struct {
+				ID string `json:"permission_id"`
+			}
+			if err := json.Unmarshal(update.Event.Payload, &pending); err != nil {
+				t.Fatal(err)
+			}
+			permissionID = pending.ID
+		case result := <-writeDone:
+			t.Fatalf("write finished before a permission decision: %q, %v", result.output, result.err)
+		case <-permissionDeadline.C:
+			snapshot, snapshotErr := root.Snapshot(context.Background())
+			t.Fatalf("permission event was not delivered; events=%v snapshot permissions=%+v err=%v cursor=%d", eventKinds, snapshot.Permissions, snapshotErr, root.Cursor())
+		case <-ctx.Done():
+			t.Fatal("permission event was not delivered")
+		}
+	}
+	decisionAction, err := root.NewAction("permission.decide", struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := root.DecidePermission(ctx, decisionAction, permissionID, true, "approved in ACP")
+	if err != nil || decision.OperationID == "" {
+		t.Fatalf("permission decision = %+v, %v", decision, err)
+	}
+	select {
+	case result := <-writeDone:
+		if result.err != nil {
+			t.Fatalf("approved write = %q, %v", result.output, result.err)
+		}
+	case <-ctx.Done():
+		t.Fatal("approved write did not finish")
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "changed" {
+		t.Fatalf("written body = %q, %v", body, err)
+	}
+	automatic, err := root.NewAction("permission.mode", map[string]bool{"external_permissions": false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := root.SetPermissionMode(ctx, automatic, false); err != nil || result.Status != "succeeded" {
+		t.Fatalf("automatic permission mode = %+v, %v", result, err)
+	}
+
+	snapshot, err := root.Snapshot(ctx)
+	if err != nil || snapshot.RootID != root.RootID() {
+		t.Fatalf("snapshot = %+v, %v", snapshot, err)
+	}
+	metas, err := backend.ListSessions(ctx, 10)
+	if err != nil || len(metas) != 1 || metas[0].ID != root.RootID() {
+		t.Fatalf("sessions = %+v, %v", metas, err)
+	}
+	loaded, err := backend.LoadRoot(ctx, root.RootID(), "ignored", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.RootID() != root.RootID() {
+		t.Fatalf("loaded root = %q, want %q", loaded.RootID(), root.RootID())
+	}
+	_ = loaded.Close()
 }
 
 // Provider-advertised input_modalities beat the config's per-model vision

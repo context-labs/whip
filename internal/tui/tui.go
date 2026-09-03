@@ -2,13 +2,12 @@
 package tui
 
 import (
-	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -34,8 +33,6 @@ import (
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/tools"
-	"github.com/context-labs/whip/internal/tools/bashrun"
-	"github.com/context-labs/whip/internal/update"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
@@ -88,6 +85,7 @@ type compactMsg struct {
 	took, kept int // messages removed / kept after compaction
 	summary    string
 	cutoff     int               // index in the pre-compaction history the summary replaces
+	rawTail    int               // index in that history where the prior raw tail begins
 	info       agent.CompactInfo // which model wrote the summary + its spend
 	err        error
 }
@@ -133,11 +131,20 @@ type menu struct {
 }
 
 type model struct {
-	cfg       *config.Config
-	agent     *agent.Agent
-	modelName string
-	provName  string
-	sysPrompt string
+	cfg              *config.Config
+	agent            *agent.Agent // embedded test harness only; production state lives in the daemon
+	client           *Client
+	clientView       clientPresentation
+	clientState      ClientState
+	clientErr        error
+	clientCursor     int64
+	clientInFlight   int
+	clientPromptOp   string
+	clientPromptCut  int
+	clientTerminalID string
+	modelName        string
+	provName         string
+	sysPrompt        string
 	// cfgExtra pins scalar settings this session explicitly changed (theme,
 	// effort, …): the config watcher applies file values only for keys not
 	// pinned here, so a local pick this session survives another session's
@@ -175,17 +182,19 @@ type model struct {
 	cancel       context.CancelFunc
 	prog         *tea.Program
 
-	store     *session.Store
-	sessionID string
-	saved     int            // messages already persisted (index into agent.Messages)
-	snapshots map[int]string // workspace snapshot ref per turn-start index (mirrors the snapshots table)
+	store       *session.Store
+	sessionID   string
+	sessionMode session.Mode
+	saved       int            // messages already persisted (index into agent.Messages)
+	snapshots   map[int]string // workspace snapshot ref per turn-start index (mirrors the snapshots table)
 
-	hist     []string         // submitted inputs, for up/down recall
-	pasteBuf string           // held paste text for the [Pasted ~N lines] placeholder (config collapsePaste)
-	histIdx  int              // len(hist) == not navigating
-	draft    string           // in-progress input saved while navigating history
-	lastUp   time.Time        // last ↑ keypress; repeat detection for history rollover
-	now      func() time.Time // test seam; defaults to time.Now
+	hist     []string           // submitted inputs, for up/down recall
+	pasteBuf string             // held paste text for the [Pasted ~N lines] placeholder (config collapsePaste)
+	histIdx  int                // len(hist) == not navigating
+	draft    string             // in-progress input saved while navigating history
+	lastUp   time.Time          // last ↑ keypress; repeat detection for history rollover
+	now      func() time.Time   // test seam; defaults to time.Now
+	chdir    func(string) error // production owns one TUI cwd; tests opt in explicitly
 
 	turnStart  time.Time // when the in-flight turn began; zero when idle (busy line shows elapsed)
 	thinkStart time.Time // opencode mode: when the current reasoning segment began (collapsed to "+ Thought: {dur}")
@@ -200,6 +209,7 @@ type model struct {
 	titled     bool   // an auto-title has been attempted for this session
 
 	pendingForkID string // busy-forked copy awaiting the turn's end to switch into ("" = none)
+	shellRunning  int    // asynchronous ! commands still attributed to this agent/root
 
 	mouseOn  bool       // runtime mouse-capture state (toggle with /mouse)
 	sel      *selection // in-flight/last drag selection over the transcript
@@ -241,10 +251,12 @@ type model struct {
 	// temp-dir skills instead of whatever the test machine happens to have.
 	skillScan func() []skills.Skill
 
-	irunner *interactiveRunner // installed on tools.InteractiveBash at startup
+	irunner *interactiveRunner // TUI-owned interactive command runner
 	iactive *interactive       // in-flight interactive command; nil when idle
 
-	perms      permRules   // saved allow-always rules
+	permsMu    sync.Mutex
+	perms      permRules // saved allow-always rules
+	toolGate   tools.Gate
 	permDialog *permDialog // open permission modal; the turn is paused on it
 
 	tasksFocus bool      // the tasks dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
@@ -321,232 +333,57 @@ var (
 	bgCache    bgResult
 )
 
-// Run starts the interactive session. It returns the id of the session that
-// was active on exit ("" if nothing was said). firstRun reports the config
-// file did not exist at startup (the caller checks config.Exists before
-// config.Load creates it) and triggers the one-time setup wizard.
-// initialPrompt (`whip up <words>`) is submitted as the first turn once the
-// UI is up — after any resume replay, matching `whip run`'s order.
-func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool, initialPrompt string) (string, error) {
-	// One shared stdin reader for the pre-TUI prompts: a bufio.Reader reads
-	// ahead, so separate readers for the trust gate and the setup wizard would
-	// lose buffered answers (a pasted "y\n2\n…\n" answers both).
-	stdinR := bufio.NewReader(os.Stdin)
-
-	// Trust gate first: before whip reads a single file, ask whether this
-	// folder's contents may steer the model. Persisted per absolute path in
-	// ~/.whip/trusted.json (claude-code's per-project trust dialog).
-	if ok, err := checkTrust(stdinR); err != nil {
-		return "", err
-	} else if !ok {
-		return "", errors.New("folder not trusted")
+func (m *model) bindToolServices(a *agent.Agent) {
+	if a == nil || a.Services == nil {
+		return
 	}
-
-	// First run only: the setup wizard (provider, thinking display, MCP
-	// imports) before the TUI takes the terminal. Skipped silently when stdin
-	// isn't a terminal — headless launches keep the defaults.
-	if firstRun {
-		if err := setupWizard(cfg, stdinR); err != nil {
-			return "", err
-		}
-	}
-
-	ag, mn, pn, err := buildAgentWithRefresh(cfg, modelName, provName, sysPrompt)
-	if err != nil {
-		return "", err
-	}
-
-	ti := newInput()
-
-	// Reasoning effort: an explicit cfg.DefaultEffort is honored as-is; "" (no
-	// config / pre-feature file) resolves model-aware — "low" when the model
-	// advertises it, else the lowest supported level, else off (no parameter) —
-	// so a non-reasoning model never opens on an effort it can't accept.
-	ag.Effort = DefaultEffortFor(config.LoadCatalogs(), pn, ag.Model, cfg.DefaultEffort)
-	// Mouse capture ON by default so the wheel scrolls the transcript viewport
-	// and ⚡/tool clicks work — with button-motion reporting (?1002) so a left
-	// drag becomes whip's own selection (select.go): enabling click reporting
-	// alone makes most terminals (Ghostty, kitty) suppress their native
-	// drag-selection without sending the drag to anyone. With capture off,
-	// tmux's WheelUpPane binding sees mouse_any_flag=0 and runs 'copy-mode -e',
-	// scrolling tmux's own scrollback instead of the transcript. Inside tmux,
-	// tmux forwards the drag to whip (mouse_any_flag is set), so whip's own
-	// selection handles drag-to-copy there too. Explicit config wins.
-	mouseOn := true
-	if cfg.Mouse != nil {
-		mouseOn = *cfg.Mouse
-	}
-	showThinking := true // default on; "thinking": false in config opts out
-	if cfg.Thinking != nil {
-		showThinking = *cfg.Thinking
-	}
-	sidebarHide := false // default shown (when the terminal is wide enough); "sidebar": false opts out at startup
-	if cfg.Sidebar != nil {
-		sidebarHide = !*cfg.Sidebar
-	}
-	m := &model{
-		cfg: cfg, agent: ag, modelName: mn, provName: pn, sysPrompt: sysPrompt,
-		input: ti, spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true, saved: 1, hoverIdx: -1,
-		catalogs: config.LoadCatalogs(), mouseOn: mouseOn, now: time.Now, showThinking: showThinking,
-		sidebarHide:  sidebarHide,
-		compactModel: cfg.CompactModel, compactProv: cfg.CompactProvider,
-		skillScan:     func() []skills.Skill { return skills.Scan(skills.DefaultDirs()...) },
-		initialPrompt: initialPrompt,
-	}
-	m.applyCompactModel()
-	m.applyTaskModel()
-	m.agent.CompactThreshold = compactThresholdFor(cfg)
-	m.wireTasks() // redraw the UI when background subagents start/settle
-
-	// MCP: merge whip's own config with imported claude (.mcp.json) and codex
-	// (~/.codex/config.toml) servers — gated by the mcpImport policy, whose
-	// blocked entries stay visible in /mcp — then kick concurrent connects in
-	// the background. Tool calls block on that server's first settle only, so a
-	// slow/hung server never delays startup. Discovery problems (a broken
-	// .mcp.json) land as a transcript note, not a startup failure.
-	if wd, wdErr := os.Getwd(); wdErr == nil {
-		disc := mcp.LoadMergedFiltered(wd, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-		merged, mcpErrs := disc.Merged, disc.Errs
-		if len(merged) > 0 || len(disc.Blocked) > 0 || len(mcpErrs) > 0 {
-			m.mcpMgr = mcp.NewManager(merged)
-			m.mcpMgr.SetBlocked(disc.Blocked)
-			m.mcpMgr.SetOnChange(m.mcpOnChange())
-			m.mcpMgr.Start(context.Background())
-			ag.SetMCPTools(m.mcpMgr.Tools())
-			for src, derr := range mcpErrs {
-				m.append(errStyle.Render(fmt.Sprintf("mcp: %s: %s", src, derr)))
-			}
-		}
-		// LSP: build the diagnostics manager (built-ins merged under the
-		// config's "lsp" block) and install it for write/edit tool output.
-		// Servers spawn lazily on first covered file touch; a missing binary
-		// is remembered as broken, so this never blocks startup.
-		m.lspMgr = lsp.NewManager(lsp.FromConfigMap(cfg.LSPServers))
-		tools.LSP = m.lspMgr
-	}
-	// computer-use: the per-app consent prompt — installed once, here, where
-	// the model exists (buildAgent is package-level and has no m).
-	tools.ComputerApprover = m.computerConsent
-	// Permission prompts are opt-in (--cautious); without it tools run free.
-	if cautious {
-		m.installPermGate()
-	}
-	if dir, derr := config.Dir(); derr == nil {
-		if st, serr := session.Open(dir + "/sessions.db"); serr == nil {
-			m.store = st
-			defer func() { _ = st.Close() }()
-			// Seed input recall with user messages from ALL sessions (every
-			// folder), so ↑ cycles global history, not just this session's.
-			// UserHistory is newest-first; hist is oldest-first (up-arrow walks
-			// back from the end), so reverse it into place.
-			if hist, herr := st.UserHistory(500); herr == nil && len(hist) > 0 {
-				for _, h := range slices.Backward(hist) {
-					m.hist = append(m.hist, h)
-				}
-				m.histIdx = len(m.hist)
-			}
-		} else {
-			config.LogEvent("session.open", "FAILED: "+serr.Error())
-			m.append(errStyle.Render("sessions disabled: " + serr.Error()))
-		}
-	}
-	if resumeID != "" {
-		if m.store == nil {
-			return "", errors.New("cannot resume: session store unavailable")
-		}
-		if err := m.resume(resumeID); err != nil {
-			return "", err
-		}
-	}
-	// Pick up whatever the update check recorded: a notice from an earlier
-	// launch always shows; one discovered by main's background check shows
-	// this launch if its 1 RTT beats startup (first-run trust prompt), else
-	// next launch — the record is durable either way.
-	m.updateLatest = update.Pending(Version)
-	// Resolve the theme BEFORE applyUIMode/startupReport: opencode mode bakes
-	// theme-resolved colors into the input styles, and startupReport's
-	// unknown-background notice must reflect the final detection result.
-	m.themeHow = m.applyTheme(cfg.Theme)
-	if cfg.UIMode == opencodeMode {
-		m.applyUIMode(opencodeMode) // set the mode BEFORE startupReport so it renders opencode-clean
-	}
-	m.startupReport()
-
-	// Inline rendering (no alt-screen): the transcript lives in the normal
-	// terminal scrollback, so terminal scrollback owns history. Mouse capture
-	// is ON with click+wheel+button-motion (?1000/?1002): the wheel scrolls
-	// the viewport (capture off → tmux eats it into copy-mode), ⚡ clicks
-	// work, and a left drag paints whip's own selection and copies on release
-	// (select.go) — terminals hand the drag to the app once any mouse mode is
-	// on, so native selection isn't available anyway.
-	//
-	// We do NOT use tea.WithMouseCellMotion + an output filter: piping the
-	// program output through a non-TTY makes bubbletea skip terminal-size
-	// detection (ttyOutput becomes nil → no WindowSizeMsg → width/height stay
-	// 0 and the whole layout collapses). Instead we keep the real TTY as the
-	// output and enable click/wheel reporting directly on it.
-	opts := []tea.ProgramOption{}
-	if cfg.UIMode == opencodeMode {
-		opts = append(opts, tea.WithAltScreen()) // opencode mode owns the whole screen
-	}
-	// Bottom-anchor the inline view: move the cursor to the terminal's last
-	// row before bubbletea's first paint, so the view's screen position is
-	// knowable (viewTop = height - viewH). Without this the view starts
-	// wherever the shell prompt left the cursor, and mouse events — which are
-	// ABSOLUTE screen coordinates — map a few rows off (drag-select landing
-	// two lines above the pointer).
-	fmt.Fprint(os.Stdout, "\x1b[9999;1H")
-	if m.mouseOn {
-		enableClickWheelMouse(os.Stdout)
-		if cfg.UIMode == opencodeMode {
-			// all-motion tracking (?1003, a superset of ?1002) so passive mouse
-			// moves drive opencode's hover highlight on message cards
-			fmt.Fprint(os.Stdout, "\x1b[?1003h")
-		}
-	}
-	if m.cfgExtra == nil {
-		m.cfgExtra = map[string]string{}
-	}
-	if dir, err := config.Dir(); err == nil { // watcher baseline: only later saves sync
-		if fi, err := os.Stat(filepath.Join(dir, "config.json")); err == nil {
-			m.cfgMod = fi.ModTime()
-		}
-	}
-	p := tea.NewProgram(m, opts...)
-	m.prog = p
-	// install the interactive bash runner so the agent's bash tool can hand
-	// sudo/ssh-style prompts to the user with a 15s inactivity timeout.
-	m.irunner = newInteractiveRunner(p)
-	tools.InteractiveBash = m.irunner
-	go m.fetchCatalogs(false)
-	go func() { p.Send(cfgSyncTick{}) }()     // start the config watcher
-	go func() { p.Send(scheduleTickMsg{}) }() // start the wakeup channel
-	// From here the terminal belongs to bubbletea: theme re-detections must
-	// not run raw tty queries (see detectColorScheme) or they kill its input
-	// reader with a spurious EOF.
-	tuiRunning = true
-	_, err = p.Run()
-	tuiRunning = false
-	// The UI has exited (quit, /quit, or a signal). We enabled click/wheel mouse
-	// reporting directly on the TTY (bubbletea doesn't manage it), so release it.
-	if m.mouseOn {
-		disableClickWheelMouse(os.Stdout)
-	}
-	// Shut MCP servers down first (graceful: stdin close → SIGTERM → SIGKILL)
-	// so a clean stdio server never becomes a KillAll target.
-	if m.mcpMgr != nil {
-		m.mcpMgr.Close()
-	}
-	// LSP servers get the same courtesy (shutdown/exit, then SIGKILL).
 	if m.lspMgr != nil {
-		m.lspMgr.Close()
-		tools.LSP = nil
+		a.Services.SetDiagnostics(m.lspMgr)
+	} else {
+		a.Services.SetDiagnostics(nil)
 	}
-	// Make sure no agent-spawned child process (a server the model started, a
-	// watcher, a daemon) outlives whip. KillAll SIGKILLs every tracked process
-	// group and waits for them.
-	bashrun.KillAll()
-	return m.sessionID, err
+	a.Services.SetInteractive(m.irunner)
+	a.Services.SetGate(m.toolGate)
+	a.Services.SetComputerApprover(m.computerConsent)
+	if err := m.bindSessionAuthority(a, m.sessionID); err != nil {
+		config.LogEvent("capability.bind", "FAILED: "+err.Error())
+	}
+}
+
+func (m *model) bindSessionAuthority(a *agent.Agent, sessionID string) error {
+	if m.store == nil || sessionID == "" || a == nil || a.Services == nil || a.Services.ProcessOptions().RootID == sessionID {
+		return nil
+	}
+	previous := a.Services.ProcessOptions()
+	authority, err := m.store.EnsureClassicAuthority(context.Background(), sessionID)
+	if err != nil {
+		return err
+	}
+	if err := a.Services.BindDispatcher(m.store, m.store.Workspaces(), m.store.Processes(), authority); err != nil {
+		return err
+	}
+	if previous.Processes != nil && previous.RootID != "" {
+		if err := previous.Processes.StopRoot(previous.RootID); err != nil {
+			config.LogEvent("capability.stop", "FAILED: "+err.Error())
+		}
+	}
+	return nil
+}
+
+func (m *model) replacementBlocked() string {
+	if m.busy {
+		return "a turn is running"
+	}
+	if m.shellRunning > 0 {
+		return "a shell command is running"
+	}
+	if m.agent != nil && m.agent.HasRunningTasks() {
+		return "a background task is running"
+	}
+	if m.agent != nil && m.agent.HasRunningWaits() {
+		return "a wait is running"
+	}
+	return ""
 }
 
 // startupReport prints one block naming what whip loaded — skills (with
@@ -725,14 +562,14 @@ func (m *model) fetchCatalogs(force bool) {
 // path performs no network fetch; a persistent failure surfaces the ORIGINAL
 // error (the refresh's failures are already logged by refreshCatalogs).
 func buildAgentWithRefresh(cfg *config.Config, modelName, provName, sysPrompt string) (*agent.Agent, string, string, error) {
-	ag, mn, pn, err := buildAgent(cfg, modelName, provName, sysPrompt)
+	ag, mn, pn, err := buildAgent(cfg, modelName, provName, sysPrompt, nil)
 	var unknown *config.UnknownModelError
 	if !errors.As(err, &unknown) {
 		return ag, mn, pn, err
 	}
 	config.LogEvent("catalog.fetch", fmt.Sprintf("startup resolve missed %q — force-refreshing catalogs", unknown.Model))
 	refreshCatalogs(cfg, true)
-	if ag, mn, pn, rerr := buildAgent(cfg, modelName, provName, sysPrompt); rerr == nil {
+	if ag, mn, pn, rerr := buildAgent(cfg, modelName, provName, sysPrompt, nil); rerr == nil {
 		return ag, mn, pn, nil
 	}
 	return nil, "", "", err
@@ -757,10 +594,29 @@ func ResolveWithRefresh(cfg *config.Config, modelName, provName string) (config.
 
 // resume replaces the conversation with a stored session.
 func (m *model) resume(id string) error {
+	if reason := m.replacementBlocked(); reason != "" {
+		return fmt.Errorf("cannot resume while %s", reason)
+	}
 	meta, msgs, err := m.store.Load(id)
 	if err != nil {
 		return err
 	}
+	previousCWD := ""
+	restoreCWD := true
+	if m.chdir != nil {
+		previousCWD, err = os.Getwd()
+		if err != nil {
+			return err
+		}
+		if err := m.chdir(meta.CWD); err != nil {
+			return fmt.Errorf("resume workspace: %w", err)
+		}
+	}
+	defer func() {
+		if restoreCWD && previousCWD != "" {
+			_ = os.Chdir(previousCWD)
+		}
+	}()
 	// prefer the session's model/provider; fall back to current on error.
 	// The session's own effort wins; a row that pre-dates per-session effort
 	// ("") inherits the current default and gets stamped on the next save.
@@ -768,13 +624,31 @@ func (m *model) resume(id string) error {
 	if effort == "" {
 		effort = m.agent.Effort
 	}
-	if ag, mn, pn, err := buildAgent(m.cfg, meta.Model, meta.Provider, m.sysPrompt); err == nil {
-		m.agent, m.modelName, m.provName = ag, mn, pn
+	rootedPrompt := rerootSystemPrompt(m.sysPrompt, meta.CWD)
+	previousAgent := m.agent
+	var nextAgent *agent.Agent
+	var nextModel, nextProvider string
+	if ag, mn, pn, err := buildAgent(m.cfg, meta.Model, meta.Provider, rootedPrompt, previousAgent.Services); err == nil {
+		nextAgent, nextModel, nextProvider = ag, mn, pn
 	} else {
-		m.agent = agent.New(m.agent.Client, m.agent.Model, m.agent.MaxTokens, m.sysPrompt)
-		m.agent.ModelName, m.agent.Provider = m.modelName, m.provName
-		m.agent.ContextLimit = m.contextLimitFor(m.provName, m.agent.Model)
+		nextAgent = agent.NewWithServices(previousAgent.Client, previousAgent.Model, previousAgent.MaxTokens, rootedPrompt, previousAgent.Services)
+		nextAgent.ModelName, nextAgent.Provider = m.modelName, m.provName
+		nextAgent.ContextLimit = m.contextLimitFor(m.provName, nextAgent.Model)
+		nextModel, nextProvider = m.modelName, m.provName
 	}
+	nextAgent.WorkingDir = meta.CWD
+	nextAgent.Services.SetProcessMarkers(meta.ID, nextAgent.Model)
+	if err := m.bindSessionAuthority(nextAgent, meta.ID); err != nil {
+		previousAgent.Services.SetProcessMarkers(m.sessionID, previousAgent.Model)
+		return fmt.Errorf("resume authority: %w", err)
+	}
+	previousAgent.Close()
+	m.agent, m.modelName, m.provName = nextAgent, nextModel, nextProvider
+	m.sysPrompt = rootedPrompt
+	m.sessionID = meta.ID
+	m.bindToolServices(m.agent)
+	m.reloadMCP(meta.CWD)
+	restoreCWD = false
 	m.applyCompactModel()
 	m.applyTaskModel()
 	m.agent.CompactThreshold = compactThresholdFor(m.cfg)
@@ -830,9 +704,7 @@ func (m *model) resume(id string) error {
 	if slices.Contains(m.effortsFor(), effort) {
 		m.agent.Effort = effort
 	}
-	m.sessionID = meta.ID
 	m.sessTitle = meta.Title
-	bashrun.SetMarkers(meta.ID, m.agent.Model)
 	m.saved = len(m.agent.Messages)
 	// Add this session's user messages to recall, skipping any already present
 	// from the global cross-session seed (resume runs after that seed).
@@ -870,6 +742,42 @@ func (m *model) resume(id string) error {
 	}
 	m.seedTranscript(msgs, 1)
 	return nil
+}
+
+func rerootSystemPrompt(prompt, workingDirectory string) string {
+	const marker = "  Working directory: "
+	start := strings.Index(prompt, marker)
+	if start < 0 {
+		return prompt
+	}
+	start += len(marker)
+	end := strings.IndexByte(prompt[start:], '\n')
+	if end < 0 {
+		return prompt[:start] + workingDirectory
+	}
+	return prompt[:start] + workingDirectory + prompt[start+end:]
+}
+
+func (m *model) reloadMCP(workingDirectory string) {
+	if m.mcpMgr != nil {
+		m.mcpMgr.Close()
+	}
+	discovery := mcp.LoadMergedFiltered(workingDirectory, mcp.FromConfigMap(m.cfg.MCPServers), mcp.ImportPolicyFrom(m.cfg.MCPImport))
+	for source, err := range discovery.Errs {
+		config.LogEvent("mcp.discovery", source+": "+err.Error())
+	}
+	if len(discovery.Merged) == 0 && len(discovery.Blocked) == 0 {
+		m.mcpMgr = nil
+		m.agent.SetMCPTools(nil)
+		return
+	}
+	m.mcpMgr = mcp.NewManager(discovery.Merged)
+	m.mcpMgr.SetBlocked(discovery.Blocked)
+	m.mcpMgr.SetOnChange(m.mcpOnChange())
+	opts := m.agent.Services.ProcessOptions()
+	m.mcpMgr.SetProcessOptions(opts.Processes, opts.RootID, opts.Cwd, opts.Env)
+	m.mcpMgr.Start(context.Background())
+	m.agent.SetMCPTools(m.mcpMgr.Tools())
 }
 
 // seedTranscript re-renders stored messages into the viewport. Blocks are
@@ -927,16 +835,11 @@ func (m *model) persist() {
 		if len(m.agent.Messages) <= m.saved {
 			return // nothing new to say; don't create an empty session row
 		}
-		id, err := m.store.Create(cwd(), m.modelName, m.provName)
-		if err != nil {
+		if err := m.ensureSession(); err != nil {
 			config.LogEvent("session.save", "create failed: "+err.Error())
 			m.append(errStyle.Render("session save failed: " + err.Error()))
 			return
 		}
-		m.sessionID = id
-		bashrun.SetMarkers(id, m.agent.Model)
-		m.agent.Tasks().SetSessionID(id) // publish before Save so a settling subagent records
-		m.agent.SetSessionID(id)         // scopes the per-session memory file
 	}
 	// Bookkeeping re-stamps every persist — even one with no new messages —
 	// so a resume restores goal/effort, and the cumulative token totals that
@@ -956,6 +859,35 @@ func (m *model) persist() {
 		return
 	}
 	m.saved = len(m.agent.Messages)
+}
+
+func (m *model) ensureSession() error {
+	if m.store == nil {
+		if m.mcpMgr != nil {
+			m.mcpMgr.Start(context.Background())
+		}
+		return nil
+	}
+	if m.sessionID == "" {
+		id, err := m.store.Create(cwd(), m.modelName, m.provName)
+		if err != nil {
+			return err
+		}
+		m.sessionID = id
+		m.agent.Services.SetProcessMarkers(id, m.agent.Model)
+		m.agent.Tasks().SetSessionID(id)
+		m.agent.SetSessionID(id)
+	}
+	if err := m.bindSessionAuthority(m.agent, m.sessionID); err != nil {
+		return err
+	}
+	if m.mcpMgr != nil {
+		opts := m.agent.Services.ProcessOptions()
+		m.mcpMgr.SetProcessOptions(opts.Processes, opts.RootID, opts.Cwd, opts.Env)
+		m.mcpMgr.Start(context.Background())
+		m.agent.SetMCPTools(m.mcpMgr.Tools())
+	}
+	return nil
 }
 
 // setTheme switches the color scheme ("light"/"dark"/"auto") live and
@@ -1051,7 +983,7 @@ func (m *model) setGoal(goal string) {
 	}
 }
 
-func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*agent.Agent, string, string, error) {
+func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string, existingServices *tools.Services) (*agent.Agent, string, string, error) {
 	prov, mdl, apiID, err := cfg.Resolve(modelName, provName)
 	if err != nil {
 		return nil, "", "", err
@@ -1093,7 +1025,12 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 	}
 	client := llm.New(prov.BaseURL, key)
 	client.MaxRetries = cfg.MaxRetries
-	ag := agent.New(client, apiID, maxOut, sysPrompt)
+	services := existingServices
+	if services == nil {
+		services = tools.NewServices()
+	}
+	freshServices := existingServices == nil
+	ag := agent.NewWithServices(client, apiID, maxOut, sysPrompt, services)
 	ag.ModelName, ag.Provider = modelName, provName
 	ag.ContextLimit = ctxLimit
 	ag.WorktreeSubagents = cfg.WorktreeSubagents != nil && *cfg.WorktreeSubagents
@@ -1106,11 +1043,11 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 	// Computer-use: per-app consent policy from config; the consent prompt is
 	// installed below (the model never touches an unapproved app silently).
 	ag.ComputerDisabled = cfg.Computer.Enabled != nil && !*cfg.Computer.Enabled
-	if !ag.ComputerDisabled {
+	if freshServices && !ag.ComputerDisabled {
 		defaultDeny := cfg.Computer.DefaultDeny != nil && *cfg.Computer.DefaultDeny // default: allow-all
-		tools.ComputerPolicy = computer.NewPolicy(cfg.Computer.Allow, cfg.Computer.Deny, defaultDeny)
+		services.SetComputerPolicy(computer.NewPolicy(cfg.Computer.Allow, cfg.Computer.Deny, defaultDeny))
 	}
-	if !ag.BrowserDisabled && tools.Browser == nil {
+	if freshServices && !ag.BrowserDisabled {
 		mode := browser.ModeLive
 		switch cfg.Browser.Mode {
 		case "dedicated":
@@ -1120,22 +1057,21 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 		case "extension":
 			mode = browser.ModeExtension
 		}
-		tools.Browser = browser.NewManager(mode)
+		services.SetBrowser(browser.NewManager(mode), cfg.Browser.AllowPrivateURLs)
 		if cfg.Browser.CDPURL != "" {
 			_ = os.Setenv("WHIP_CDP_URL", cfg.Browser.CDPURL)
 		}
-		browser.AllowPrivateURLs = cfg.Browser.AllowPrivateURLs
 	}
 	if modelSupportsVision(cfg, modelName, apiID, config.LoadCatalogs(), provName) {
-		tools.ScreenshotSink = func(jpegs [][]byte) {
+		services.SetScreenshotSink(func(jpegs [][]byte) {
 			parts := make([]llm.ContentPart, 0, len(jpegs))
 			for _, j := range jpegs {
 				parts = append(parts, llm.ImagePart("jpg", j))
 			}
 			ag.SteerImages("browser_exec screenshots attached:", parts)
-		}
+		})
 	} else {
-		tools.ScreenshotSink = nil
+		services.SetScreenshotSink(nil)
 	}
 	return ag, modelName, provName, nil
 }
@@ -1423,13 +1359,16 @@ func (m *model) viewportView() string {
 
 func (m *model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textarea.Blink}
+	if m.client != nil {
+		cmds = append(cmds, waitClientUpdate(m.client))
+	}
 	if inTmuxEnv() {
 		// live theme tracking: tmux knows the outer terminal's light/dark
 		// (#{client_theme}, via the 996/2031 protocol) — poll it so an OS
 		// appearance flip mid-session is picked up without a restart
 		cmds = append(cmds, themePollTick())
 	}
-	if m.initialPrompt != "" {
+	if m.initialPrompt != "" && m.client == nil {
 		// Batch blink with the kickoff; the turn's p.Send is nil-safe in headless tests.
 		cmds = append(cmds, func() tea.Msg { return initialPromptMsg{} })
 	}
@@ -1800,6 +1739,131 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case clientUpdateMsg:
+		if msg.StateChanged {
+			m.clientState, m.clientErr = msg.State, msg.Err
+			if msg.State == ClientLive {
+				m.clientErr = nil
+				if m.initialPrompt != "" {
+					text := m.initialPrompt
+					m.initialPrompt = ""
+					_, command := m.submitClientAction("submit", map[string]string{"text": text}, text)
+					return m, tea.Batch(waitClientUpdate(m.client), command)
+				}
+			}
+		}
+		if msg.Snapshot != nil {
+			m.applyClientSnapshot(*msg.Snapshot)
+		}
+		if msg.Event != nil {
+			m.clientCursor = max(m.clientCursor, msg.Event.Seq)
+			if handled, command := m.applyClientStream(msg.Event.Kind, msg.Event.Payload); handled {
+				return m, tea.Batch(waitClientUpdate(m.client), command)
+			}
+			return m, tea.Batch(waitClientUpdate(m.client), m.requestClientSnapshot())
+		}
+		if msg.closed {
+			return m, nil
+		}
+		return m, waitClientUpdate(m.client)
+
+	case clientSnapshotMsg:
+		if msg.err != nil {
+			m.clientErr = msg.err
+		} else {
+			m.applyClientSnapshot(msg.snapshot)
+		}
+		return m, nil
+
+	case clientCommandMsg:
+		m.clientInFlight = max(m.clientInFlight-1, 0)
+		m.busy = m.clientInFlight > 0
+		m.interrupt1 = false
+		if m.clientInFlight == 0 {
+			m.turnStart = time.Time{}
+		}
+		succeeded := msg.err == nil && msg.result.Error == "" && msg.result.Status == "succeeded"
+		if succeeded && msg.action.Operation == "session.list" {
+			var metas []session.Meta
+			if err := json.Unmarshal([]byte(msg.result.Output), &metas); err != nil {
+				m.append(errStyle.Render("session list: " + err.Error()))
+			} else if len(metas) == 0 {
+				m.append(dimStyle.Render("(no previous sessions)"))
+			} else {
+				m.picker = &picker{metas: metas, previews: map[string][2]string{}}
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "agents.list" {
+			var agents []session.RuntimeAgent
+			if err := json.Unmarshal([]byte(msg.result.Output), &agents); err != nil {
+				m.append(errStyle.Render("subagents: " + err.Error()))
+			} else if len(agents) == 0 {
+				m.append(dimStyle.Render("(no background subagents)"))
+			} else {
+				for _, runtimeAgent := range agents {
+					if runtimeAgent.ParentID != "" {
+						m.append(dimStyle.Render(runtimeAgentLine(runtimeAgent)))
+					}
+				}
+			}
+			if m.clientState == ClientLive {
+				return m, m.requestClientSnapshot()
+			}
+			return m, nil
+		}
+		switch {
+		case msg.err != nil:
+			m.append(errStyle.Render(msg.action.Operation + ": " + msg.err.Error()))
+		case msg.result.Error != "":
+			m.append(errStyle.Render(msg.action.Operation + ": " + msg.result.Error))
+		case msg.result.Status == "interrupted":
+			m.append(dimStyle.Render("(interrupted — effect may be uncertain; retry creates a new command)"))
+		case msg.action.Operation != "submit" && msg.action.Operation != "steer" && msg.action.Operation != "session.open" && msg.result.Output != "":
+			m.append(dimStyle.Render(msg.result.Output))
+		}
+		if succeeded && (msg.action.Operation == "session.fork" || msg.action.Operation == "session.open") {
+			m.clientState = ClientSnapshotting
+			if err := m.client.SwitchRoot(msg.result.Output); err != nil {
+				m.clientErr = err
+			}
+			return m, nil
+		}
+		if succeeded && msg.action.Operation == "session.rename" {
+			m.sessTitle = msg.result.Output
+		}
+		if m.clientState == ClientLive {
+			return m, m.requestClientSnapshot()
+		}
+		return m, nil
+
+	case clientPermissionMsg:
+		m.clientInFlight = max(m.clientInFlight-1, 0)
+		m.busy = m.clientInFlight > 0
+		if m.permDialog != nil && m.permDialog.daemon != nil && m.permDialog.daemon.ID == msg.permissionID {
+			m.permDialog.deciding = false
+			if msg.err == nil {
+				m.permDialog = nil
+			}
+		}
+		if msg.err != nil {
+			m.append(errStyle.Render("permission: " + msg.err.Error()))
+		} else {
+			m.append(dimStyle.Render("permission decision acknowledged for operation " + msg.result.OperationID))
+		}
+		if m.clientState == ClientLive {
+			return m, m.requestClientSnapshot()
+		}
+		return m, nil
+
+	case clientTerminalMsg:
+		if msg.err != nil {
+			m.append(errStyle.Render("terminal input: " + msg.err.Error()))
+		} else if msg.result.Error != "" {
+			m.append(errStyle.Render("terminal input: " + msg.result.Error))
+		}
+		return m, nil
+
 	case initialPromptMsg:
 		if m.initialPrompt == "" || m.busy {
 			return m, nil
@@ -1936,7 +2000,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.uiMode != opencodeMode &&
 			msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft &&
 			msg.Y == m.viewTop && msg.X >= m.effortX {
-			m.setEffort(nextEffort(m.effortsFor(), m.agent.Effort))
+			next := nextEffort(m.effortsFor(), m.displayEffort())
+			if m.client != nil {
+				return m.submitClientAction("session.effort", map[string]string{"args": next}, "")
+			}
+			m.setEffort(next)
 			return m, nil
 		}
 		if m.taskVP != nil {
@@ -1951,7 +2019,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.picker == nil && m.mpicker == nil && m.palette == nil {
 			// dock rows sit just above the input box: click selects/opens,
 			// wheel scrolls the selection through the strip
-			if top, n := m.dockTop(), len(m.dockTasks()); n > 0 && msg.Y >= top && msg.Y < top+n {
+			if top, n := m.dockTop(), m.dockCount(); n > 0 && msg.Y >= top && msg.Y < top+n {
 				if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 					m.tasksFocus = true
 					if msg.Button == tea.MouseButtonWheelUp {
@@ -1968,6 +2036,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.tasksFocus = true
 					m.taskSel = min(sel, n-1)
+					if m.client != nil {
+						return m, nil
+					}
 					// re-fetch: the list can change between the hitbox check
 					// above and this open (settled tasks age out)
 					if tasks := m.dockTasks(); len(tasks) > 0 {
@@ -2268,9 +2339,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// compaction lands between turns: record it as an event and note it
 		// inline. The raw message log stays on disk — Load derives the
 		// compacted view from the event, so a bad summary is inspectable and
-		// retryable (/compact retry). A live turn fires two compactMsgs per
-		// compaction (OnCompact's counts, then OnCompacted's summary+cutoff);
-		// only the one carrying the summary records/notes.
+		// retryable (/compact retry).
 		m.flushThink()
 		m.flushCurrent()
 		switch {
@@ -2284,7 +2353,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.store != nil && m.sessionID != "" {
 				// the agent's cutoff is in compacted coordinates; store the raw
 				// seq so Load never double-folds a summary
-				if err := m.store.RecordCompaction(m.sessionID, m.rawCutoff(msg.cutoff), msg.summary); err != nil {
+				if err := m.store.RecordCompaction(m.sessionID, m.rawCutoff(msg.cutoff, msg.rawTail), msg.summary); err != nil {
 					config.LogEvent("session.compact", "record failed: "+err.Error())
 				} else {
 					recorded = true
@@ -2337,9 +2406,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This precedes the queue drain and goal loop so any follow-up turns
 		// continue inside the fork, not the abandoned original.
 		if m.pendingForkID != "" {
-			m.switchToForked(m.pendingForkID)
-			m.pendingForkID = ""
-			return m, nil
+			if m.switchToForked(m.pendingForkID) {
+				m.pendingForkID = ""
+				return m, nil
+			}
 		}
 		// codex-style follow-up: send queued messages one turn at a time;
 		// `!` shell escapes execute locally instead of starting a turn.
@@ -2527,8 +2597,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
 
-	case scheduleTickMsg:
-		return m, tea.Batch(scheduleTick(), m.fireDueSchedules())
 	}
 
 	var cmd tea.Cmd
@@ -2537,6 +2605,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.client != nil {
+		return m.thinKey(msg)
+	}
 	// interactive passthrough: forward keystrokes to the child's PTY instead
 	// of editing the input box. ctrl+c ctrl+c breaks out (cancel), esc forwards
 	// a single esc to the child (many prompts use esc to cancel).
@@ -3053,11 +3124,11 @@ func (m *model) busyStats() string {
 	d := max(m.nowFn().Sub(m.turnStart), 0)
 	elapsed := d.Round(time.Second)
 	stats := fmt.Sprintf(" %d:%02d", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
-	if u := m.agent.Usage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
+	if u := m.displayUsage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
 		stats += fmt.Sprintf(" · %s tok", fmtTok(u.PromptTokens+u.CompletionTokens))
 	}
-	if m.agent.ContextLimit > 0 {
-		stats += fmt.Sprintf(" · %d%%", agent.EstimateTokens(m.agent.Messages)*100/m.agent.ContextLimit)
+	if limit := m.displayContextLimit(); limit > 0 {
+		stats += fmt.Sprintf(" · %d%%", agent.EstimateTokens(m.displayMessages())*100/limit)
 	}
 	return stats
 }
@@ -3123,11 +3194,11 @@ func (m *model) sessionCost() (float64, bool) {
 	if !ok {
 		return 0, false
 	}
-	in, out, cacheRead, ok := cat.Pricing(m.agent.Model)
+	in, out, cacheRead, ok := cat.Pricing(m.displayModelID())
 	if !ok {
 		return 0, false
 	}
-	return llm.SessionCost(m.agent.Usage(), in, out, cacheRead), true
+	return llm.SessionCost(m.displayUsage(), in, out, cacheRead), true
 }
 
 // compactThresholdFor converts the config's compactPct preference into the
@@ -3245,6 +3316,17 @@ func (m *model) wireWaits() {
 // runningTasks counts background subagents still in flight (for the header badge).
 func (m *model) runningTasks() int {
 	n := 0
+	if m.client != nil {
+		for _, runtimeAgent := range m.clientView.agents {
+			if runtimeAgent.ParentID != "" && runtimeAgent.LifecyclePhase == "running" {
+				n++
+			}
+		}
+		return n
+	}
+	if m.agent == nil {
+		return 0
+	}
 	for _, t := range m.agent.Tasks().List() {
 		if t.Status == agent.TaskRunning {
 			n++
@@ -3255,6 +3337,17 @@ func (m *model) runningTasks() int {
 
 // tasksView renders the background-subagent list for /tasks.
 func (m *model) tasksView() string {
+	if m.client != nil {
+		children := m.runtimeChildren()
+		if len(children) == 0 {
+			return dimStyle.Render("(no background subagents)")
+		}
+		var lines []string
+		for _, child := range children {
+			lines = append(lines, runtimeAgentLine(child))
+		}
+		return strings.Join(lines, "\n")
+	}
 	tasks := m.agent.Tasks().List()
 	if len(tasks) == 0 {
 		return dimStyle.Render("(no background subagents)")
@@ -3292,16 +3385,22 @@ func (m *model) tasksView() string {
 // persist=false (/model-for-session) leaves the saved default untouched, so the
 // next whip launch still opens on the configured model.
 func (m *model) switchModel(name, prov string, persist bool) {
-	ag, mn, pn, err := buildAgent(m.cfg, name, prov, m.sysPrompt)
+	if reason := m.replacementBlocked(); reason != "" {
+		m.append(errStyle.Render("cannot switch models while " + reason))
+		return
+	}
+	ag, mn, pn, err := buildAgent(m.cfg, name, prov, m.sysPrompt, m.agent.Services)
 	if err != nil {
 		m.append(errStyle.Render(err.Error()))
 		return
 	}
 	ag.Effort = m.agent.Effort
+	ag.WorkingDir = m.agent.WorkingDir
 	ag.Messages = append(ag.Messages, m.agent.Messages[1:]...) // carry history
 	ag.CompactClient, ag.CompactModel = m.agent.CompactClient, m.agent.CompactModel
 	ag.CompactThreshold = m.agent.CompactThreshold
 	m.agent, m.modelName, m.provName = ag, mn, pn
+	m.bindToolServices(m.agent)
 	m.applyTaskModel()
 	m.wireTasks()
 	if !slices.Contains(m.effortsFor(), ag.Effort) {
@@ -3337,6 +3436,9 @@ func (m *model) pickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		id := p.metas[p.idx].ID
 		m.picker = nil
+		if m.client != nil {
+			return m.submitClientAction("session.open", map[string]string{"args": id}, "")
+		}
 		if err := m.resume(id); err != nil {
 			m.append(errStyle.Render(err.Error()))
 		}
@@ -3345,6 +3447,9 @@ func (m *model) pickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (p *picker) loadPreview(store *session.Store) {
+	if store == nil {
+		return
+	}
 	id := p.metas[p.idx].ID
 	if _, ok := p.previews[id]; !ok {
 		u, a := store.LastExchange(id)
@@ -3689,6 +3794,10 @@ func (m *model) submitGoal(text string) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
+	if err := m.ensureSession(); err != nil {
+		m.append(errStyle.Render("session start failed: " + err.Error()))
+		return m, nil
+	}
 	m.busy = true
 	m.turnStart = m.nowFn()
 	prepared, parts := m.prepareTurn(text)
@@ -3776,7 +3885,8 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 	}
 
 	go func() {
-		var compactTook, compactKept int // last OnCompact counts; read by OnCompacted
+		var compactTook, compactKept int
+		var compactInfo agent.CompactInfo
 		events := agent.Events{
 			OnText:  onText,
 			OnThink: onThink,
@@ -3798,12 +3908,15 @@ func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 				send(steeredMsg(s))
 			},
 			OnCompactStart: func(took, est int) { send(compactStartMsg{took, est}) },
-			// OnCompact fires immediately before OnCompacted on the same turn
-			// goroutine; stash its counts so the result note (one compactMsg)
-			// carries them alongside the summary and the model/usage.
-			OnCompact: func(took, kept int) { compactTook, compactKept = took, kept },
-			OnCompacted: func(sum string, cutoff int, info agent.CompactInfo) {
-				send(compactMsg{took: compactTook, kept: compactKept, summary: sum, cutoff: cutoff, info: info})
+			OnCompact:      func(took, kept int) { compactTook, compactKept = took, kept },
+			OnCompacted: func(_ string, _ int, info agent.CompactInfo) {
+				compactInfo = info
+			},
+			OnCompaction: func(sum string, cutoff int, before []llm.Message) {
+				send(compactMsg{
+					took: compactTook, kept: compactKept, summary: sum, cutoff: cutoff,
+					rawTail: agent.CompactionRawTailStart(before, cutoff), info: compactInfo,
+				})
 			},
 			OnUsage: func(u llm.Usage) { send(usageMsg(u)) },
 			// The decay pass rewrote n prefix messages in agent.Messages; drop
@@ -3926,12 +4039,16 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		go func() {
 			var summary string
 			var cutoff int
+			var rawTail int
 			var info agent.CompactInfo
 			err := ag.ManualCompact(ctx, agent.Events{
-				OnCompacted: func(s string, c int, ci agent.CompactInfo) { summary, cutoff, info = s, c, ci },
+				OnCompaction: func(s string, c int, before []llm.Message) {
+					summary, cutoff, rawTail = s, c, agent.CompactionRawTailStart(before, c)
+				},
+				OnCompacted: func(_ string, _ int, ci agent.CompactInfo) { info = ci },
 			})
 			if p != nil { // nil in headless tests; compaction still ran
-				p.Send(compactMsg{took: took - len(ag.Messages), kept: len(ag.Messages), summary: summary, cutoff: cutoff, info: info, err: err})
+				p.Send(compactMsg{took: took - len(ag.Messages), kept: len(ag.Messages), summary: summary, cutoff: cutoff, rawTail: rawTail, info: info, err: err})
 				p.Send(turnDoneMsg{}) // clear busy state
 			}
 		}()
@@ -4367,6 +4484,14 @@ func (m *model) View() string {
 func (m *model) viewBody() string {
 	var b strings.Builder
 	left := fmt.Sprintf(" whip · %s @ %s · %s", m.modelName, m.provName, cwd())
+	if m.client != nil {
+		if m.sessionMode != "" {
+			left += " · " + string(m.sessionMode)
+		}
+		if m.clientState != ClientLive {
+			left += " · " + m.clientState.String()
+		}
+	}
 	if m.goal != "" {
 		left += " · ◎ " + truncLine(m.goal, 40)
 	}
@@ -4375,7 +4500,7 @@ func (m *model) viewBody() string {
 	}
 	// session token usage, provider-reported: in (cached of it) / out, then
 	// the share of the advertised context window the conversation occupies
-	u := m.agent.Usage()
+	u := m.displayUsage()
 	if u.PromptTokens > 0 || u.CompletionTokens > 0 {
 		left += fmt.Sprintf(" · ⣿ %s in", fmtTok(u.PromptTokens))
 		if c := u.Cached(); c > 0 {
@@ -4383,15 +4508,15 @@ func (m *model) viewBody() string {
 		}
 		left += fmt.Sprintf(" · %s out", fmtTok(u.CompletionTokens))
 	}
-	if m.agent.ContextLimit > 0 {
-		left += fmt.Sprintf(" · %d%% ctx", agent.EstimateTokens(m.agent.Messages)*100/m.agent.ContextLimit)
+	if limit := m.displayContextLimit(); limit > 0 {
+		left += fmt.Sprintf(" · %d%% ctx", agent.EstimateTokens(m.displayMessages())*100/limit)
 	}
 	// running background subagents get a badge; /tasks lists them
 	if n := m.runningTasks(); n > 0 {
 		left += fmt.Sprintf(" · ⚙ %d sub", n)
 	}
 	// right-aligned clickable effort control; ◌ marks thinking display
-	right := "⚡ " + effortLabel(m.agent.Effort) + " "
+	right := "⚡ " + effortLabel(m.displayEffort()) + " "
 	if m.showThinking {
 		right = "◌ on  " + right
 	}
@@ -4534,7 +4659,7 @@ func (m *model) syncInputPlaceholder() {
 	switch {
 	case !m.busy:
 		m.input.Placeholder = inputPlaceholder
-	case m.agent != nil && m.agent.WaitingOnSubagents():
+	case m.client == nil && m.agent != nil && m.agent.WaitingOnSubagents():
 		m.input.Placeholder = "waiting on subagents — type to steer this turn"
 	default:
 		m.input.Placeholder = "busy — type to queue (sent when the turn ends)"
@@ -4550,10 +4675,10 @@ func (m *model) statusView() string {
 		return m.opencodeStatus()
 	}
 	model := m.modelName
-	if e := effortLabel(m.agent.Effort); e != "off" {
+	if e := effortLabel(m.displayEffort()); e != "off" {
 		model += " (" + e + ")"
 	}
-	u := m.agent.Usage()
+	u := m.displayUsage()
 	spend := fmtUsage(u)
 	if cost, ok := m.sessionCost(); ok {
 		spend += " · " + fmtCost(cost)
@@ -4619,6 +4744,9 @@ func (m *model) pickerView() string {
 			title = "(untitled)"
 		}
 		line := fmt.Sprintf("%s  %s · %s · %s @ %s", meta.ID, title, ago(meta.UpdatedAt), meta.Model, meta.Provider)
+		if meta.Mode != "" {
+			line += " · " + string(meta.Mode)
+		}
 		if i != p.idx {
 			rows = append(rows, wrap("    "+line, m.width))
 			continue

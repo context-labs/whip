@@ -321,6 +321,9 @@ func (m *model) modelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		it := v[p.idx]
 		sessionOnly := p.sessionOnly
 		m.mpicker = nil
+		if m.client != nil {
+			return m.submitClientAction("session.model", map[string]string{"args": strings.TrimSpace(it.model + " " + it.provider)}, "")
+		}
 		m.switchModel(it.model, it.provider, !sessionOnly)
 	case tea.KeyRunes, tea.KeySpace:
 		p.filter.typeRunes(msg.Runes)

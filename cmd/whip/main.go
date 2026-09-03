@@ -85,6 +85,20 @@ Here is some useful information about the environment you are running in:
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "_kernel" {
+		if err := kernelCLI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "whip kernel:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "_daemon" {
+		if err := daemonCLI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "whip daemon:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	modelFlag := flag.String("m", "", "model name from ~/.whip/config.json (default: defaultModel)")
 	providerFlag := flag.String("p", "", "provider to route the model through (default: model's first provider)")
 	versionFlag := flag.Bool("version", false, "print version")

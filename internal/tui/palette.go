@@ -401,14 +401,14 @@ func (m *model) paletteItems() []paletteItem {
 		{
 			title: "Browser driver", category: "Display",
 			dynDesc: func(m *model) string {
-				return "current: " + browser.Driver + " — which automation engine drives Chrome"
+				return "current: " + m.browserDriver() + " — which automation engine drives Chrome"
 			},
 			dynHint: func(m *model) string { return "WHIP_BROWSER_DRIVER" },
 			panel: func(m *model) *ppanel {
-				list := browser.Drivers
+				list := browser.Drivers()
 				pp := &ppanel{kind: panelBrowser, title: "Browser driver", list: list}
 				for i, d := range list {
-					if d == browser.Driver {
+					if d == m.browserDriver() {
 						pp.midx = i
 						break
 					}
@@ -836,15 +836,20 @@ func (m *model) previewModel(it modelItem) {
 	if it.model == m.modelName && it.provider == m.provName {
 		return
 	}
-	ag, mn, pn, err := buildAgent(m.cfg, it.model, it.provider, m.sysPrompt)
+	if m.replacementBlocked() != "" {
+		return
+	}
+	ag, mn, pn, err := buildAgent(m.cfg, it.model, it.provider, m.sysPrompt, m.agent.Services)
 	if err != nil {
 		return // unresolved routes stay visible but unselectable-feeling
 	}
 	ag.Effort = m.agent.Effort
+	ag.WorkingDir = m.agent.WorkingDir
 	ag.Messages = append(ag.Messages, m.agent.Messages[1:]...) // carry history
 	ag.CompactClient, ag.CompactModel = m.agent.CompactClient, m.agent.CompactModel
 	ag.CompactThreshold = m.agent.CompactThreshold
 	m.agent, m.modelName, m.provName = ag, mn, pn
+	m.bindToolServices(m.agent)
 	m.applyTaskModel()
 	if !slices.Contains(m.effortsFor(), ag.Effort) {
 		m.setEffort("") // the previewed model doesn't support the current level
@@ -962,7 +967,7 @@ func (m *model) paletteChrome(s string) string {
 func paletteState(m *model, it paletteItem) string {
 	switch it.title {
 	case "Reasoning effort":
-		return dimStyle.Render("  [" + effortLabel(m.agent.Effort) + "]")
+		return dimStyle.Render("  [" + effortLabel(m.displayEffort()) + "]")
 	case "Thinking tokens":
 		return dimStyle.Render("  [" + onOff(m.showThinking) + "]")
 	case "Mouse capture":
@@ -1091,7 +1096,7 @@ func (m *model) panelView(pp *ppanel) string {
 	case panelBrowser:
 		for i, name := range pp.list {
 			mark := ""
-			if name == browser.Driver {
+			if name == m.browserDriver() {
 				mark = dimStyle.Render("  (current)")
 			}
 			if i == pp.midx {

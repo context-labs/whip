@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 )
 
@@ -31,7 +33,7 @@ func mcpCLI(args []string, version string) error {
 		return errors.New("usage: whip mcp <list|add|remove|import|serve|test>")
 	}
 	if args[0] == "serve" {
-		return mcp.Serve(context.Background(), version)
+		return mcpServe(version)
 	}
 	if args[0] == "test" {
 		if len(args) < 2 {
@@ -135,6 +137,79 @@ func mcpCLI(args []string, version string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown mcp subcommand %q (list|add|remove|import|serve|test)", args[0])
+}
+
+func mcpServe(version string) error {
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	clientID := daemonClientID("mcp")
+	client, err := daemon.NewRootClient(daemon.RootClientOptions{
+		ClientID:  clientID,
+		Create:    &daemon.CreateSession{CWD: wd, Model: "mcp", Provider: "local"},
+		Connector: daemonConnector("automation", clientID),
+	})
+	if err != nil {
+		return err
+	}
+	client.Start()
+	defer func() { _ = client.Close() }()
+	if err := client.WaitLive(ctx); err != nil {
+		return err
+	}
+	configure, err := client.NewAction("tool.configure", map[string]bool{"deny_permissions": true})
+	if err != nil {
+		return err
+	}
+	if result, err := client.Command(ctx, configure); err != nil {
+		return err
+	} else if result.Status != "succeeded" {
+		return errors.New(result.Error)
+	}
+	provider := daemonMCPTools{client: client}
+	serveErr := mcp.Serve(ctx, version, provider)
+	rootID := client.RootID()
+	closeErr := client.Close()
+	deleteErr := deleteDaemonSession(clientID, rootID)
+	return errors.Join(serveErr, closeErr, deleteErr)
+}
+
+type daemonMCPTools struct{ client *daemon.RootClient }
+
+func (p daemonMCPTools) ToolDefinitions(ctx context.Context) ([]llm.Tool, error) {
+	action, err := p.client.NewAction("tool.schema", struct{}{})
+	if err != nil {
+		return nil, err
+	}
+	result, err := p.client.Command(ctx, action)
+	if err != nil {
+		return nil, err
+	}
+	if result.Status != "succeeded" {
+		return nil, errors.New(result.Error)
+	}
+	var definitions []llm.Tool
+	if err := json.Unmarshal([]byte(result.Output), &definitions); err != nil {
+		return nil, fmt.Errorf("decode daemon tool schemas: %w", err)
+	}
+	return definitions, nil
+}
+
+func (p daemonMCPTools) CallTool(ctx context.Context, name string, arguments json.RawMessage) (string, error) {
+	action, err := p.client.NewAction("tool.call", map[string]any{"tool": name, "arguments": arguments})
+	if err != nil {
+		return "", err
+	}
+	result, err := p.client.Command(ctx, action)
+	if err != nil {
+		return "", err
+	}
+	if result.Status != "succeeded" {
+		return "", errors.New(result.Error)
+	}
+	return result.Output, nil
 }
 
 // mcpTestCLI is the doctor: connect to one configured server, report status,

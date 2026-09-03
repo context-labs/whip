@@ -1,8 +1,16 @@
 # The agent loop
 
-`internal/agent/agent.go` — `Agent.Turn` is the whole idea: append the user
-message, stream a completion, run any tool calls, append results, repeat
-until the model stops calling tools.
+`internal/agent/agent.go` supplies the provider loop for both session modes:
+append input, stream a completion, run any tool calls, append results, and
+repeat until the model stops calling tools. The daemon owns the agent and
+persists each turn; the TUI, headless runner, MCP server, and ACP adapter only
+submit commands and render protocol events.
+
+In **Classic** mode the model receives the normal JSON tool catalog. In
+**RLM** mode the same loop receives only `rlm_exec`; Starlark cells call
+daemon-hosted modules and large history/input stays behind content handles.
+The cycle below describes `Agent.Turn` in either case, while
+[rlm-runtime.md](rlm-runtime.md) describes the RLM programming model.
 
 ## The cycle
 
@@ -29,9 +37,25 @@ Three properties worth knowing:
 2. **A context-limit error is recoverable.** If the provider rejects a
    request (`context_length_exceeded`, `prompt_too_long`, HTTP 413), the
    loop compacts once and retries. A `compacted` guard prevents retry loops.
-3. **The loop is headless.** Events (tokens, tool start/end, compaction)
-   flow out through a typed `Events` struct; the TUI is one consumer, tests
-   are another. `Events.FanIn` merges subagent event streams.
+3. **The loop is headless and daemon-owned.** Events (tokens, tool
+   start/end, compaction) flow through a typed `Events` struct into the
+   daemon's durable ordered event stream. Protocol clients and tests are
+   consumers. `Events.FanIn` merges subagent event streams.
+
+## The RLM branch
+
+RLM changes the surface of the loop, not its authority model. The root model
+emits a short Starlark cell through `rlm_exec`. A supervised worker evaluates
+the cell and sends bounded typed requests back to the daemon. `context` and
+`artifacts` provide cited excerpts; `models.batch` performs concurrent
+stateless fan-out; `agents` creates durable children; `messages` and `state`
+coordinate them; file and shell operations enter the same capability
+dispatcher used by Classic tools.
+
+The worker has step, host-request, wall-time, memory, output, frame, and
+daemon-wide concurrency limits. Its globals are disposable. A worker crash
+loses scratch variables but not committed state, child identities, messages,
+artifacts, handles, or accounting. Classic sessions never create a worker.
 
 ## Parallel tool calls
 
@@ -131,9 +155,8 @@ Two mechanisms, both keyed off the tool-call graph, plus a dedupe pre-pass:
    short greps — the semantic glue) stay inline forever. Assistant messages
    are never rewritten: reasoning chains matter.
 
-Rewritten messages fire `Events.OnDecay`; the TUI responds by re-persisting
-the prefix (the session store `INSERT OR REPLACE`s rows), so a resumed
-session inherits the pruned state.
+Rewritten messages remain in the daemon-owned agent history and are committed
+with the turn journal, so a resumed session inherits the pruned state.
 
 Decay composes with **truncation at ingestion** (`internal/tools/tools.go`):
 any single tool output over 50KB (`maxOutput`) is middle-elided — first and
@@ -143,13 +166,16 @@ single turn; decay protects every turn after.
 
 ## Background subagents
 
-the `subagent` tool with `background: true` runs a subagent concurrently and reports back
-as a steered message on completion — one channel close wakes the tool
-caller, the TUI redraw, and `/subagents` simultaneously. Details:
+The Classic `subagent` tool with `background: true` runs a child concurrently
+and reports back as a steered message on completion. RLM's `agents.spawn`
+uses the same durable child records, budgets, lifecycle, and transcript
+storage. One channel close wakes runtime waiters while the daemon journals
+state and presentation events. Details:
 [concurrency.md](concurrency.md#2-background-subagents--one-channel-close-many-waiters).
 
 ## Read next
 
 - [concurrency.md](concurrency.md) — the channel primitives
+- [rlm-runtime.md](rlm-runtime.md) — RLM modules, limits, and recovery
 - [tools.md](tools.md) — what the tool calls actually do
 - [features.md](features.md#the-agent-loop) — the same loop, linked to code and tests
