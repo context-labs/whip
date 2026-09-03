@@ -40,7 +40,7 @@ func ResolveSecret(v string) (string, error) {
 			if val := os.Getenv(key); val != "" {
 				return val, nil
 			}
-			return os.Expand(def, os.Getenv), nil
+			return ExpandTemplate(def) // the default may reference vars; unset ones error, never silently empty
 		}
 		if key, def, found := strings.Cut(name, "-"); found {
 			if !isEnvName(key) {
@@ -49,7 +49,7 @@ func ResolveSecret(v string) (string, error) {
 			if _, ok := os.LookupEnv(key); ok {
 				return os.Getenv(key), nil
 			}
-			return os.Expand(def, os.Getenv), nil
+			return ExpandTemplate(def) // the default may reference vars; unset ones error, never silently empty
 		}
 		if val := os.Getenv(name); val != "" {
 			return val, nil
