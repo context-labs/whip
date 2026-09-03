@@ -300,6 +300,27 @@ func TestResumeRestoresUsage(t *testing.T) {
 		t.Fatalf("persist should store cumulative totals, got in=%d out=%d", meta.UsageIn, meta.UsageOut)
 	}
 
+	// subagent spend persists as its own ledger (never folded into usage_*)
+	// and a resume restores it, so the total survives a restart intact
+	m.agent.AddSubUsage("sub-m @ p", llm.Usage{PromptTokens: 5000, CompletionTokens: 40})
+	m.persist()
+	meta, _, _ = st.Load(id)
+	if meta.UsageIn != 15000 || meta.UsageOut != 2000 {
+		t.Fatalf("sub spend must not leak into the session's own usage columns: %+v", meta)
+	}
+	if su := meta.SubUsage["sub-m @ p"]; su.PromptTokens != 5000 || su.CompletionTokens != 40 {
+		t.Fatalf("sub ledger did not persist: %+v", meta.SubUsage)
+	}
+	if err := m.resume(id); err != nil {
+		t.Fatal(err)
+	}
+	if su := m.agent.SubUsage()["sub-m @ p"]; su.PromptTokens != 5000 {
+		t.Fatalf("resume should restore the sub ledger, got %+v", m.agent.SubUsage())
+	}
+	if tot := m.agent.TotalUsage(); tot.PromptTokens != 20000 || tot.CompletionTokens != 2040 {
+		t.Fatalf("restored total should be own + subs, got %+v", tot)
+	}
+
 	// legacy row (no usage columns stamped): totals are reconstructed from the
 	// per-message usage stored on assistant messages, then stamped on the next
 	// persist so reconstruction happens once

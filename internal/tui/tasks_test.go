@@ -1071,3 +1071,41 @@ func TestDockClickMapsThroughScrollWindow(t *testing.T) {
 		t.Fatalf("clicking the +N more row must not change the selection: %d → %d", before, m.taskSel)
 	}
 }
+
+// A settled task's session row carries the sub's own bill (usage_*), stamped
+// alongside its transcript, while the parent's own usage stays untouched.
+func TestTaskRowCarriesSubUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"report"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":123,"completion_tokens":45}}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	m := tasksModelStore(t, srv.URL)
+	m.wireTasks()
+	id, err := m.store.Create("/tmp", "m", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.sessionID = id
+	m.agent.Tasks().SetSessionID(id)
+
+	task := m.agent.StartBackground("probe", "p", agent.SubModel{})
+	defer m.agent.Tasks().Cancel(task.ID)
+	waitSettled(t, task)
+
+	meta, _, err := m.store.Load("task-" + id + "-" + task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.UsageIn != 123 || meta.UsageOut != 45 {
+		t.Fatalf("task row should carry the sub's own bill, got in=%d out=%d", meta.UsageIn, meta.UsageOut)
+	}
+	if u := m.agent.Usage(); u.PromptTokens != 0 {
+		t.Fatalf("parent's own usage must not include the sub: %+v", u)
+	}
+	if u := m.agent.SubUsage()["m @ "]; u.PromptTokens != 123 || u.CompletionTokens != 45 {
+		t.Fatalf("parent ledger should hold the sub's spend: %+v", m.agent.SubUsage())
+	}
+}

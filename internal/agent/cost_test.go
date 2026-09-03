@@ -199,3 +199,50 @@ func TestDoomLoopRefusalSkipsExecution(t *testing.T) {
 		t.Fatalf("OnToolEnd should fire for the refused call too, got %d", ended.Load())
 	}
 }
+
+// A subagent's compaction summary request is spend too, and no Events hook
+// reports it — the usageSink funnel is what carries it to the parent. The
+// sub's streamed request and its summary call both land in the ledger.
+func TestSubCompactionUsageReachesParentLedger(t *testing.T) {
+	var summaryCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		json.NewDecoder(r.Body).Decode(&req)
+		if !req.Stream { // the sub's compaction summary
+			summaryCalls.Add(1)
+			w.Write([]byte(`{"choices":[{"message":{"content":"folded"}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":400000,"completion_tokens":5}}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	parent := New(llm.New(srv.URL, "k"), "parent-m", 100, "sys")
+	sub := parent.newSub(SubModel{Client: parent.Client, Model: "sub-m", ContextLimit: 1_000_000})
+	sub.CompactThreshold = 0.30
+	for range 6 {
+		sub.Messages = append(sub.Messages,
+			llm.Message{Role: "user", Content: strings.Repeat("q", 2000)},
+			llm.Message{Role: "assistant", Content: strings.Repeat("a", 2000)},
+		)
+	}
+	if _, err := sub.Turn(context.Background(), "continue", Events{}); err != nil {
+		t.Fatal(err)
+	}
+	if summaryCalls.Load() != 1 {
+		t.Fatalf("sub should have compacted once, summary calls = %d", summaryCalls.Load())
+	}
+	if u := parent.Usage(); u.PromptTokens != 0 {
+		t.Fatalf("parent's own usage must stay 0, got %+v", u)
+	}
+	got := parent.SubUsage()["sub-m @ "]
+	if got.PromptTokens != 400_100 || got.CompletionTokens != 15 {
+		t.Fatalf("ledger should hold the sub's stream (400000/5) + summary (100/10): %+v", got)
+	}
+	if own := sub.Usage(); own != got {
+		t.Fatalf("sub's own usage %+v should equal what the parent ledgered %+v", own, got)
+	}
+}

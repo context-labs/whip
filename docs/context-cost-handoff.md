@@ -203,7 +203,10 @@ govulncheck, `go`, build ×4 platforms).
 - 6: `TestDoomLoopGuard`, `TestDoomLoopRefusalText`,
   `TestDoomLoopRefusalSkipsExecution`
 - 7: `TestBackgroundTaskUsageNotDoubleCounted`, `TestSubUsageForwardsThroughNestedSubs`,
-  session `TestRecordCompactionCarriesModelAndUsage` + sub_usage round-trip in the usage test
+  `TestSubCompactionUsageReachesParentLedger`, foreground split in `TestTaskToolSpawnsSubagent`;
+  session `TestRecordCompactionCarriesModelAndUsage` + sub_usage round-trip; TUI
+  `TestSessionCostUsesFetchedPricing` (per-model sub pricing, unpriceable hides),
+  `TestResumeRestoresUsage` (ledger persist/resume), `TestTaskRowCarriesSubUsage`
 - Updated for the budgeted tail: `TestCompactKeepsToolCallPair`,
   `TestCompactionEventsCarryModelAndUsage`
 

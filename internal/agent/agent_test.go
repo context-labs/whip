@@ -355,6 +355,7 @@ func TestTaskToolSpawnsSubagent(t *testing.T) {
 		switch call {
 		case 1: // outer agent delegates
 			fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"subagent","arguments":"{\"description\":\"probe\",\"prompt\":\"find the answer\"}"}}]}}]}`+"\n\n")
+			fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":1}}`+"\n\n")
 		case 2: // inner subagent: fresh context, no task tool, gets the prompt
 			if len(req.Messages) != 2 || req.Messages[1].Content != "find the answer" {
 				t.Errorf("subagent context wrong: %+v", req.Messages)
@@ -365,12 +366,14 @@ func TestTaskToolSpawnsSubagent(t *testing.T) {
 				}
 			}
 			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"the answer is 42"}}]}`+"\n\n")
+			fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":70,"completion_tokens":7}}`+"\n\n")
 		case 3: // outer agent sees the report as the tool result
 			last := req.Messages[len(req.Messages)-1]
 			if last.Role != "tool" || last.Content != "the answer is 42" {
 				t.Errorf("task result not fed back: %+v", last)
 			}
 			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"}}]}`+"\n\n")
+			fmt.Fprint(w, `data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":1}}`+"\n\n")
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
@@ -383,6 +386,17 @@ func TestTaskToolSpawnsSubagent(t *testing.T) {
 	}
 	if call != 3 {
 		t.Fatalf("expected 3 API calls, got %d", call)
+	}
+	// Spend splits cleanly: the parent's two requests in Usage, the
+	// foreground sub's one request in the ledger, the total counting each once.
+	if u := ag.Usage(); u.PromptTokens != 20 || u.CompletionTokens != 2 {
+		t.Fatalf("parent's own usage should be its two requests (20/2), got %+v", u)
+	}
+	if u := ag.SubUsage()["m @ "]; u.PromptTokens != 70 || u.CompletionTokens != 7 {
+		t.Fatalf("foreground sub's request should be ledgered under its model: %+v", ag.SubUsage())
+	}
+	if u := ag.TotalUsage(); u.PromptTokens != 90 || u.CompletionTokens != 9 {
+		t.Fatalf("total should be 90/9, got %+v", u)
 	}
 }
 
