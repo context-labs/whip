@@ -58,6 +58,27 @@ func TestMaybeCompactUsesRealUsage(t *testing.T) {
 	if summaryCalls.Load() == 0 {
 		t.Fatal("real prompt size 400k (>30% of 1M) should have triggered compaction despite the low text estimate")
 	}
+	// The fold invalidates the pre-fold prompt size: it must not linger and
+	// re-trigger a fold of the fresh fold on the next round.
+	if ag.lastPrompt != 0 {
+		t.Fatalf("lastPrompt should reset after compaction, got %d", ag.lastPrompt)
+	}
+}
+
+// Only the agent's own conversation requests drive lastPrompt. AddUsage also
+// receives foreground-subagent and summary-call usage (session spend), whose
+// prompt sizes say nothing about this conversation's context.
+func TestLastPromptIgnoresFannedInUsage(t *testing.T) {
+	ag := New(nil, "m", 100, "sys")
+	ag.AddUsage(llm.Usage{PromptTokens: 900_000})
+	if ag.lastPrompt != 0 {
+		t.Fatalf("AddUsage must not set lastPrompt, got %d", ag.lastPrompt)
+	}
+	ag.notePrompt(llm.Usage{PromptTokens: 1234})
+	ag.notePrompt(llm.Usage{}) // no usage reported: keep the last real value
+	if ag.lastPrompt != 1234 {
+		t.Fatalf("notePrompt should set lastPrompt to 1234, got %d", ag.lastPrompt)
+	}
 }
 
 // When the provider reports no usage, the estimate fallback still drives the
@@ -99,13 +120,6 @@ func TestMaybeCompactEstimateFallback(t *testing.T) {
 // without executing; an intervening different call resets the run.
 func TestDoomLoopGuard(t *testing.T) {
 	ag := New(nil, "m", 100, "sys")
-	calls := []llm.ToolCall{
-		{ID: "1", Function: struct {
-			Name      string `json:"name"`
-			Arguments string `json:"arguments"`
-		}{Name: "bash", Arguments: `{"command":"git status"}`}},
-	}
-	// helper to build a call
 	mk := func(id, name, args string) llm.ToolCall {
 		var tc llm.ToolCall
 		tc.ID = id
@@ -132,7 +146,6 @@ func TestDoomLoopGuard(t *testing.T) {
 		t.Fatal("after a reset, the same call runs again (run restarts at 1)")
 	}
 	// wait is exempt (repetition is its design).
-	_ = calls
 	w1 := ag.markDoomLoops([]llm.ToolCall{mk("g", "wait", `{"cmd":"true"}`)})
 	w2 := ag.markDoomLoops([]llm.ToolCall{mk("h", "wait", `{"cmd":"true"}`)})
 	w3 := ag.markDoomLoops([]llm.ToolCall{mk("i", "wait", `{"cmd":"true"}`)})
@@ -169,14 +182,20 @@ func TestDoomLoopRefusalSkipsExecution(t *testing.T) {
 		tc.Function.Arguments = `{"x":"same"}`
 		return tc
 	}
-	// Run the same call 3×; the 3rd must be refused (tool body runs only 2×).
-	ag.runTools(context.Background(), []llm.ToolCall{mk("1")}, Events{})
-	ag.runTools(context.Background(), []llm.ToolCall{mk("2")}, Events{})
-	res := ag.runTools(context.Background(), []llm.ToolCall{mk("3")}, Events{})
+	// Run the same call 3×; the 3rd must be refused (tool body runs only 2×)
+	// but still close its UI row via OnToolEnd.
+	var ended atomic.Int32
+	ev := Events{OnToolEnd: func(string, string, string) { ended.Add(1) }}
+	ag.runTools(context.Background(), []llm.ToolCall{mk("1")}, ev)
+	ag.runTools(context.Background(), []llm.ToolCall{mk("2")}, ev)
+	res := ag.runTools(context.Background(), []llm.ToolCall{mk("3")}, ev)
 	if ran.Load() != 2 {
 		t.Fatalf("tool body should run twice, ran %d", ran.Load())
 	}
 	if !strings.Contains(res[0], "refused") {
 		t.Fatalf("3rd call should return the refusal, got %q", res[0])
+	}
+	if ended.Load() != 3 {
+		t.Fatalf("OnToolEnd should fire for the refused call too, got %d", ended.Load())
 	}
 }

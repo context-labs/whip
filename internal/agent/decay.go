@@ -178,14 +178,7 @@ func (a *Agent) decay() int {
 	// accompanied the image is semantic glue). Runs after Pass 2 so turns
 	// already reflects authored-user distance.
 	for i := boundary - 1; i > 0; i-- {
-		m := &a.Messages[i]
-		if len(m.Parts) == 0 {
-			continue
-		}
-		n := stripImageParts(m)
-		if n > 0 {
-			rewritten += n
-		}
+		rewritten += stripImageParts(&a.Messages[i])
 	}
 	return rewritten
 }
@@ -204,10 +197,9 @@ func stripImageParts(m *llm.Message) int {
 			continue
 		}
 		path := spillImage(p.ImageURL.URL)
-		w, h := p.Dimensions()
 		size := "image"
-		if w > 0 {
-			size = fmt.Sprintf("%d×%d image", w, h)
+		if p.W > 0 {
+			size = fmt.Sprintf("%d×%d image", p.W, p.H)
 		}
 		note := decayedMarker + size + " omitted"
 		if path != "" {

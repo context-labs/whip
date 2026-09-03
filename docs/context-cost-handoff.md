@@ -4,7 +4,7 @@
 need — the evidence, the design, what shipped, what's left, and how to verify.
 
 **Repo:** `github.com/context-labs/whip` · **Branch:** `perf/context-cost-management`
-· **PR:** #113 (open, CI green at HEAD `f3ba3a8`) · **Plan doc:** `docs/context-cost-plan.md`
+· **PR:** #113 (open, CI green) · **Plan doc:** `docs/context-cost-plan.md`
 
 ---
 
@@ -52,12 +52,17 @@ bfab024 feat(llm): pixel-true image token estimates + ingest normalization
 a85be57 feat(agent): real-usage compaction trigger, budgeted tail, doom-loop guard, single-count usage
 e57ad57 feat(tui): normalize pasted and @-mentioned images at ingest
 f3ba3a8 lint: goimports grouping in images.go, drop predeclared 'real', remove unused encodePNG
+fb61707 docs: handoff doc for the context-cost work
+(HEAD)  fix(agent): lastPrompt only from own requests + reset on fold; refused calls fire tool events; cleanup
 ```
 
 ### Item 1 — real-usage compaction trigger
 `internal/agent/agent.go`
 - `Agent.lastPrompt` (new field) records the provider-reported `prompt_tokens`
-  of the most recent request, updated in `AddUsage`.
+  of the agent's most recent **own** conversation request, set via
+  `notePrompt` in the turn loop (not in `AddUsage`, which also receives
+  foreground-subagent and summary-call usage). `compact` resets it to 0 so
+  the estimate fallback drives the trigger until the next real request.
 - `maybeCompact` fires when `lastPrompt ≥ threshold × ContextLimit`; the
   chars/4 estimate is the fallback only when the provider returns no usage.
 - **Also closed the single-round-turn gap:** a final response whose usage
@@ -112,6 +117,8 @@ f3ba3a8 lint: goimports grouping in images.go, drop predeclared 'real', remove u
   is exempt (repetition is its designed use).
 - Marked in **issue order before the worker goroutines spawn**, so the
   parallel `runTools` batch can't scramble ordering.
+- A refused call still fires `OnToolStart`/`OnToolEnd` so the TUI's queued
+  row (opened on `OnToolCall`) closes instead of sticking at "⋯".
 
 ### Item 7 — usage single-count
 `internal/agent/background.go` (`launchBackground`), `internal/agent/subagent.go`
@@ -134,6 +141,17 @@ f3ba3a8 lint: goimports grouping in images.go, drop predeclared 'real', remove u
    before round-2 `maybeCompact`, so the just-landed usage never triggered a
    fold. Closed (see item 1), with the `a.compacted` guard preventing a
    re-fold of a fresh fold.
+
+3. **`lastPrompt` poisoning (review pass).** Setting it inside `AddUsage`
+   let a foreground subagent's or the compaction summary call's
+   `prompt_tokens` overwrite the parent's real context size, and the
+   pre-fold value lingered after a fold so the next round could re-fold the
+   fresh summary. Fixed: `notePrompt` from the turn loop only, reset in
+   `compact`. Covered by `TestLastPromptIgnoresFannedInUsage` and an
+   assertion in `TestMaybeCompactUsesRealUsage`.
+4. **Refused doom-loop calls left a stuck TUI row.** The refusal short-cut
+   skipped `OnToolStart`/`OnToolEnd`. Fixed; asserted in
+   `TestDoomLoopRefusalSkipsExecution`.
 
 ## Pre-existing failures (NOT this branch)
 
@@ -158,10 +176,11 @@ go test ./internal/agent/ ./internal/llm/ -count=1   # fresh, not cached
 ```
 
 **CI:** PR #113 → 12/12 checks pass (lint, test, codeql ×2, driver,
-govulncheck, `go`, build ×4 platforms) at HEAD `f3ba3a8`.
+govulncheck, `go`, build ×4 platforms).
 
 **New tests by item:**
-- 1: `TestMaybeCompactUsesRealUsage`, `TestMaybeCompactEstimateFallback`
+- 1: `TestMaybeCompactUsesRealUsage`, `TestMaybeCompactEstimateFallback`,
+  `TestLastPromptIgnoresFannedInUsage`
 - 2: `TestImageTokensPixelFormula`, `TestImagePartRecordsDimensions`,
   `TestContentPartDimsPersistedAndStripped`, `TestPartTokensLazyDecode`,
   `TestDecodeImageSize`
@@ -206,4 +225,4 @@ spill-to-disk is untouched.
   reconstruction used Python + `sqlite3` against the `messages` table (each
   assistant row carries a `usage` JSON blob).
 - Branch is clean and rebased-safe: `git log --oneline origin/main..HEAD`
-  shows the 5 commits; nothing else diverges from `main` except these.
+  shows the commit stack; nothing else diverges from `main` except these.

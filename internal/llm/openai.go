@@ -113,12 +113,6 @@ func ImagePart(ext string, data []byte) ContentPart {
 	return p
 }
 
-// Dimensions returns the recorded pixel size of an image part (0,0 when
-// unmeasured).
-func (p ContentPart) Dimensions() (w, h int) {
-	return p.W, p.H
-}
-
 // DecodeDimensions measures the image carried by the part's data URL. Used
 // when W/H are zero (session rows written before the fields existed).
 func (p ContentPart) DecodeDimensions() (w, h int, ok bool) {
@@ -130,18 +124,16 @@ func (p ContentPart) DecodeDimensions() (w, h int, ok bool) {
 	if i < 0 {
 		return 0, 0, false
 	}
-	// Decode only the header: 4KB of base64 covers every format's config.
+	// Decode only the head: 64KB of base64 (a multiple of 4, so the cut is
+	// a clean quantum boundary) covers every format's config, including
+	// JPEGs that front-load a large ICC profile before the size marker.
 	b64 := p.ImageURL.URL[i+len(prefix):]
-	if len(b64) > 4096 {
-		b64 = b64[:4096]
+	if len(b64) > 65536 {
+		b64 = b64[:65536]
 	}
 	head, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		// Truncated base64: decode what we have (headers sit at the front).
-		head, err = base64.StdEncoding.DecodeString(b64[:len(b64)-len(b64)%4])
-		if err != nil {
-			return 0, 0, false
-		}
+		return 0, 0, false
 	}
 	return DecodeImageSize(head)
 }

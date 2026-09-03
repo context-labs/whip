@@ -401,7 +401,7 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		// Usage() reports the session's own requests; per-sub spend is on the
 		// task sessions. The sub compacts on its own real usage, so dropping
 		// the fan-in doesn't blind the compaction trigger either.
-		report, err := t.sub.Turn(taskCtx, prompt, FanIn(a.bg.emitter(id), Events{}))
+		report, err := t.sub.Turn(taskCtx, prompt, a.bg.emitter(id))
 		status := TaskDone
 		text := report
 		switch {

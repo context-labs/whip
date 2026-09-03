@@ -54,8 +54,8 @@ func ImageTokens(w, h int) int {
 // carries them as zero-cost struct fields); text parts use chars/4.
 func PartTokens(p ContentPart) int {
 	if p.Type == "image_url" {
-		if w, h := p.Dimensions(); w > 0 {
-			return ImageTokens(w, h)
+		if p.W > 0 {
+			return ImageTokens(p.W, p.H)
 		}
 		// Dimensions missing (old session rows, hand-built parts): decode the
 		// data URL now rather than falling back blind.

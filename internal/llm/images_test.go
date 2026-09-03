@@ -57,9 +57,8 @@ func TestDecodeImageSize(t *testing.T) {
 func TestImagePartRecordsDimensions(t *testing.T) {
 	png := pngFixture(t, 560, 420) // ⌈560/28⌉=20, ⌈420/28⌉=15 → 300
 	p := ImagePart("png", png)
-	w, h := p.Dimensions()
-	if w != 560 || h != 420 {
-		t.Fatalf("dims: got %d×%d", w, h)
+	if p.W != 560 || p.H != 420 {
+		t.Fatalf("dims: got %d×%d", p.W, p.H)
 	}
 	if got := PartTokens(p); got != 300 {
 		t.Fatalf("PartTokens: got %d, want 300", got)

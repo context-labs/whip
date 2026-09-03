@@ -35,7 +35,7 @@ const (
 // jpegQualities are tried in order until the encoded output fits
 // NormalizeMaxBytes. 80 is visually lossless for screenshots; 40 is the last
 // resort for pathological noise-heavy captures.
-var jpegQualities = []int{80, 85, 70, 55, 40}
+var jpegQualities = []int{80, 70, 55, 40}
 
 // NormalizeImage re-encodes an attached image within the size budget:
 //
@@ -105,10 +105,4 @@ func scaleToFit(src image.Image, maxW, maxH int) image.Image {
 	dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
 	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 	return dst
-}
-
-// NormalizeImagePNG is NormalizeImage for callers holding PNG bytes whose
-// extension they don't know (browser screenshot sinks).
-func NormalizeImagePNG(data []byte) (string, []byte) {
-	return NormalizeImage("png", data)
 }
