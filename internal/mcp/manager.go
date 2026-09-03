@@ -849,7 +849,7 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 		// cleanly instead of sending the literal reference upstream.
 		headers := make(map[string]string, len(cfg.Headers))
 		for k, v := range cfg.Headers {
-			rv, err := config.ResolveSecret(v)
+			rv, err := config.ResolveHeader(v)
 			if err != nil {
 				logf("header %s: %v (dropped)", k, err)
 				continue
@@ -869,9 +869,19 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 	// stdio server right after a successful connect. The process must live
 	// until the session is closed (CommandTransport terminates it then).
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), cfg.Command[0], cfg.Command[1:]...)
+	// Env values may be secret references ("$VAR"/"${VAR}"/"!cmd") — resolve
+	// them at spawn time (the point of use), same as remote headers. A
+	// reference whose var is unset DROPS the entry rather than spawning with
+	// "KEY=", which would mask a KEY the child could inherit from whip's own
+	// environment (and is how an imported "$CUSTOMERIO_API_KEY" used to
+	// become an empty literal).
+	env, err := config.ResolveEnvMap(cfg.Env)
+	if err != nil {
+		return nil, fmt.Errorf("env: %w", err)
+	}
 	// Inherit whip's environment and layer the server's vars on top (opencode
 	// does the same — users expect $PATH etc. to work).
-	cmd.Env = append(os.Environ(), envPairs(cfg.Env)...)
+	cmd.Env = append(os.Environ(), envPairs(env)...)
 	if cfg.Cwd != "" {
 		cmd.Dir = cfg.Cwd
 	}

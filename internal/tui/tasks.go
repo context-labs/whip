@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/llm"
@@ -130,30 +131,92 @@ func (m *model) clampTaskSel() {
 	}
 }
 
+// dockExpandRows is how many lines of recent activity an expanded dock row
+// shows below its summary (the most recent N lines of the task's journal).
+const dockExpandRows = 4
+
+// dockTaskExpand renders the selected task's recent activity for the dock's
+// inline expansion: the tail of its event journal (tool starts/ends, text
+// deltas, steers) replayed through renderTaskEvent, or its report once
+// settled. The journal is a byte-bounded ring, so the tail may start with
+// "[earlier output dropped]" when old events aged out. Returns nil when
+// there's nothing to show (no journal yet, no report, unknown id).
+func (m *model) dockTaskExpand(id string) []string {
+	if m.agent == nil {
+		return nil
+	}
+	t, ok := m.agent.Tasks().Get(id)
+	if !ok {
+		return nil
+	}
+	events, truncated, _ := m.agent.Tasks().SubscribeWithJournal(id, agent.Events{})
+	var buf strings.Builder
+	switch {
+	case len(events) > 0:
+		if truncated {
+			buf.WriteString(dimStyle.Render("  [earlier output dropped]") + "\n")
+		}
+		for _, e := range events {
+			renderTaskEvent(&buf, e.Kind, e.S, e.S2)
+		}
+	case t.Report != "":
+		buf.WriteString(t.Report)
+	case t.Prompt != "":
+		// a fresh task has journaled nothing yet: show what it's working on
+		buf.WriteString(t.Prompt)
+	default:
+		return nil
+	}
+	lines := strings.Split(strings.TrimRight(ansi.Strip(buf.String()), "\n"), "\n")
+	if len(lines) > dockExpandRows {
+		lines = lines[len(lines)-dockExpandRows:]
+	}
+	for i, l := range lines {
+		lines[i] = "   " + dimStyle.Render("│ ") + truncLine(l, max(m.width-10, 8))
+	}
+	return lines
+}
+
 // tasksDock renders the persistent strip: one row per task with a live
-// status icon, plus a hint row when the dock is focused.
+// status icon, plus a hint row when the dock is focused. The selected row
+// expands inline (space/click) to show the task's recent activity without
+// leaving the main view; dockOffsets records each task row's screen offset
+// so click hit-testing lands on the right task even below an expansion.
 func (m *model) tasksDock() string {
 	tasks := m.dockTasks()
 	if len(tasks) == 0 {
+		m.dockOffsets = nil
 		return ""
 	}
 	m.clampTaskSel()
 
 	rows := make([]string, 0, len(tasks)+2)
 	if m.tasksFocus {
-		rows = append(rows, dimStyle.Render(" ⚙ subagents — ↑/↓ select (↑ past top: back to input) · enter open"))
+		hint := " ⚙ subagents — ↑/↓ select (↑ past top: back to input) · space expand · enter open"
+		if m.taskExpanded {
+			hint = " ⚙ subagents — ↑/↓ select · space collapse · enter open"
+		}
+		rows = append(rows, dimStyle.Render(hint))
 	}
 
 	budget := tasksDockHeight - len(rows)
 	if len(tasks) > budget { // reserve a row for the "+N more" counter
 		budget--
 	}
-	lo := 0
-	if m.tasksFocus && m.taskSel >= budget {
-		lo = m.taskSel - budget + 1 // keep the selection visible
+	// An expanded row spends extra rows from the budget on its activity lines.
+	extra := 0
+	if m.tasksFocus && m.taskExpanded && m.taskSel < len(tasks) {
+		extra = len(m.dockTaskExpand(tasks[m.taskSel].ID))
 	}
-	hi := min(lo+budget, len(tasks))
+	lo := 0
+	if m.tasksFocus && m.taskSel >= budget-extra {
+		lo = m.taskSel - (budget - extra) + 1 // keep the selection visible
+	}
+	hi := min(lo+budget-extra, len(tasks))
+	hi = max(hi, min(lo+1, len(tasks))) // always show at least the selected task
 
+	m.dockOffsets = m.dockOffsets[:0]
+	offset := 0
 	for i := lo; i < hi; i++ {
 		t := tasks[i]
 		icon := toolStyle.Render("⏳")
@@ -170,15 +233,24 @@ func (m *model) tasksDock() string {
 		} else {
 			meta = "  " + string(t.Status)
 		}
+		selected := m.tasksFocus && i == m.taskSel
 		switch {
-		case m.tasksFocus && i == m.taskSel:
+		case selected:
 			line = botStyle.Render(" → "+line) + toolStyle.Render(meta)
 		case t.Status == agent.TaskRunning:
 			line = "   " + toolStyle.Render(line) + dimStyle.Render(meta)
 		default:
 			line = "   " + line + dimStyle.Render(meta)
 		}
+		m.dockOffsets = append(m.dockOffsets, offset)
 		rows = append(rows, line)
+		offset++
+		if selected && m.taskExpanded {
+			for _, el := range m.dockTaskExpand(t.ID) {
+				rows = append(rows, el)
+				offset++
+			}
+		}
 	}
 	if more := len(tasks) - hi; more > 0 {
 		rows = append(rows, dimStyle.Render(fmt.Sprintf("   … +%d more (ctrl+t to browse)", more)))

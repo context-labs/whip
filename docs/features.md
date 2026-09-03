@@ -218,9 +218,14 @@ as a **steered message**, so the model sees it on the next loop boundary.
   **below the input** (above the status line), so focus follows the cursor's
   geometry: ↓ on an empty input (or ctrl+t) moves focus into the list, ↑ past
   its top row — or simply typing — hands focus back, and esc is never
-  consumed by the dock (it stays the interrupt/rewind key). The strip is
-  mouse-clickable: `dockTop()` maps screen rows to task rows, skipping the
-  focused hint row (`dockSkip`) so a click opens the row actually clicked.
+  consumed by the dock (it stays the interrupt/rewind key). With the dock
+  focused, **space expands the selected row inline** — the tail of the task's
+  journaled activity (or its prompt/report) renders under the row without
+  leaving the main view; space again, moving the selection, or the mouse
+  wheel collapses it. The strip is mouse-clickable: `dockTop()` plus the
+  per-row `dockOffsets` (expanded rows shift the rows below) map a screen row
+  to the task actually clicked — a click focuses/selects and toggles the
+  inline expansion, enter opens the full detail view.
 - **Persisted across resume.** The session store's `tasks` table records
   every start/settle; `resume()` seeds the registry via `RestoreTask`
   (settled, `Done` pre-closed, marked `Restored`). A row still `running` on
@@ -475,7 +480,9 @@ relay: full device login + key mint, store round-trip, key validation),
   absolute line numbers — the diff IS the collapsed view (capped at 30 rows),
   and trailing LSP diagnostics stay visible under it. Resumed sessions
   re-render call headers and diffs from the stored messages. `ctrl+e` toggles
-  the most recent; clicking a block expands/collapses it (each block tracks
+  the most recent (with no tool block to toggle, ctrl+e falls through to the
+  textarea's line-end binding — readline behavior); clicking a block
+  expands/collapses it (each block tracks
   its rendered line range `y0`/`y1` so the click row maps through the
   viewport offset). Blocks re-render at the current width on terminal resize.
   Tests: `tool_expand_test.go`, `resize_test.go`, `toolrow_test.go`
@@ -501,6 +508,29 @@ relay: full device login + key mint, store round-trip, key validation),
 - **Mouse**: `/mouse` toggles capture; with capture off the terminal's native
   selection works, with it on shift-drag selects. `"mouse": false` in config
   disables capture at startup.
+- **Newline keys.** `ctrl+j` / `shift+enter` / `alt+enter` insert a newline
+  instead of submitting. whip pushes the kitty keyboard-enhancement
+  **disambiguate** flag only (`CSI > 1 u`, DCS-passthrough-wrapped inside
+  tmux; applied pre-Run inline, post-Init in opencode's alt screen) so
+  terminals that support it report shift+enter as a distinguishable CSI
+  rather than a plain CR. Only flag 0x1 is pushed: flag 0x2 (report event
+  types) makes some terminals report ctrl+letter as CSI-u, which bubbletea
+  v1.3.10 can't decode, killing ctrl+a/ctrl+e. `isShiftEnterSeq` recognizes
+  both the current `?CSI[bytes]?` and the legacy `unknown csi sequence:`
+  renders, across the CSI-u, modifyOtherKeys, and kitty-57441 encodings.
+  Inside **tmux** (verified on 3.6), a modified key reaches a pane only when
+  the server option `extended-keys` is on AND the pane has requested xterm
+  modifyOtherKeys (`CSI > 4;1 m`) — tmux ignores the kitty push for that, and
+  the client's `extkeys` terminal-feature is not needed. whip does both at
+  startup: it runs `tmux set -s extended-keys on` when off (runtime only,
+  never `~/.tmux.conf`; not restored on exit so concurrent whips don't switch
+  it off under each other) and sends the mode-1 request to its pane. Mode 1,
+  never 2: mode 2 re-encodes ctrl+letter and kills ctrl+a/e. The
+  `extended-keys-format` stays xterm (csi-u broke drag-to-copy). If the set
+  fails (no tmux on PATH), whip prints the one-line `~/.tmux.conf` fix and
+  falls back to ctrl+j / alt+enter. Over **mosh** none of this helps — mosh
+  collapses S-Enter before tmux/whip see it — so whip detects mosh and warns
+  (use `ctrl-j`/`alt+enter` there).
 - Queueing (enter while busy), steering (empty enter), history recall (↑/↓),
   `@file` mentions, `$skill` invocation, `/goal` loop, `/resume` session
   picker, `/effort` reasoning levels — see the roadmap for the full list.
@@ -677,6 +707,17 @@ expand from whip's environment.
   config; `--dry-run` prints the JSONC fragment without writing; blocked
   servers are never imported). `whip mcp serve` (`serve.go`) exposes whip's
   read/bash/edit/write as an MCP stdio server for other harnesses.
+- **Secrets stay references** — `$VAR`/`${VAR}`/`!cmd` values in env and
+  headers are never expanded at parse or import time: discovery, `whip mcp
+  import`, and `/mcp` enable all carry the reference verbatim (resolved
+  secrets never land in `~/.whip/config.json`), and resolution happens at
+  connect/spawn via `config.ResolveSecret` / `ResolveEnvMap` /
+  `ExpandTemplate`. Codex's auth keys map too: `bearer_token_env_var` →
+  `Authorization: Bearer $VAR`, `http_headers` → headers verbatim,
+  `env_http_headers` → header values as `$VAR` references. A whole-value
+  reference to an unset var drops the stdio env entry (never a masking
+  `KEY=`) or the header, and a template with an unset ref fails the connect
+  loudly instead of sending `Bearer ` upstream.
 - **Import gating** — the `"mcpImport"` block in `~/.whip/config.json`
   (`{"claude": …, "codex": …}` per source: `enabled`, `only` allowlist,
   `exclude` denylist — exclude wins over only; absent block imports both

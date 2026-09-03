@@ -23,5 +23,14 @@ func TestMain(m *testing.M) {
 	// renders the dark style they expect. Per-test overrides (SetLightTheme,
 	// SetUnknownTheme) apply on top.
 	SetLightTheme(false)
+	// The mosh shift+enter startup warning must not fire in tests: the test
+	// binary runs under whatever environment the dev machine has (including
+	// mosh), and the report tests assert exact contents. Pin detection off;
+	// the detection logic itself is covered by TestDetectMosh* (proc-walk).
+	moshDetect = func() bool { return false }
+	// Same for the tmux shift+enter warning: the test binary runs inside tmux
+	// on dev machines, and the report tests assert exact contents. Pin the
+	// readiness check to "ready" so the warning stays out of test output.
+	tmuxExtKeysCheck = func() bool { return true }
 	os.Exit(m.Run())
 }

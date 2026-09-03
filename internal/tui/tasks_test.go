@@ -382,11 +382,12 @@ func TestEnterOnEmptyFocusedDockDoesNotPanic(t *testing.T) {
 	}
 }
 
-// Clicking a dock row opens THAT row's task: when the dock is focused its
-// hint row sits above the task rows, and must not be clickable itself — the
-// click hitbox used to start one row too high, opening the task above the
-// one clicked.
-func TestDockClickOpensClickedRow(t *testing.T) {
+// Clicking a dock row selects THAT row and expands it inline: when the dock
+// is focused its hint row sits above the task rows and must not be clickable
+// itself — the click hitbox used to start one row too high, acting on the
+// task above the one clicked. Enter opens the full detail view for the
+// selected row.
+func TestDockClickSelectsClickedRow(t *testing.T) {
 	srv := sseTextServer(t, "ok")
 	defer srv.Close()
 	m := tasksModel(srv.URL)
@@ -402,30 +403,35 @@ func TestDockClickOpensClickedRow(t *testing.T) {
 		return tm
 	}
 
-	// unfocused: the dock's first row is the newest task (t2); clicking it
-	// opens it
+	// unfocused: a click on the dock focuses it (newest row selected) without
+	// opening anything
 	m.layout()
-	top := m.dockTop()
-	m2 := click(top).(*model)
-	if m2.taskVP == nil || m2.taskVP.id != t2.ID {
-		t.Fatalf("clicking the first row should open %s, got %+v", t2.ID, m2.taskVP)
+	m2 := click(m.dockTop()).(*model)
+	if !m2.tasksFocus || m2.taskVP != nil {
+		t.Fatalf("first click should focus, not open: focus=%v vp=%+v", m2.tasksFocus, m2.taskVP)
 	}
-	m2.taskVP = nil
 	m = m2
 
 	// focused: a hint row sits above the task rows — clicking the SECOND task
-	// row must open the second task, not the first (the old off-by-one). The
+	// row must select the second task, not the first (the old off-by-one). The
 	// assertion is screen-position-based, not dockTop-based: the task rows
 	// render at stripTop+1 (past the hint) and stripTop+2.
-	m.tasksFocus = true
 	m.layout()
 	stripTop := m.height - 2 - m.dockRows // the strip renders below the input, above blank+status
 	m2 = click(stripTop + 2).(*model)
-	if m2.taskVP == nil || m2.taskVP.id != t1.ID {
-		t.Fatalf("clicking the second task row should open %s, got %+v", t1.ID, m2.taskVP)
+	if m2.taskSel != 1 || !m2.taskExpanded {
+		t.Fatalf("clicking the second task row should select+expand it: sel=%d expanded=%v", m2.taskSel, m2.taskExpanded)
 	}
-	m2.taskVP = nil
 	m = m2
+
+	// enter opens the selected task's detail view
+	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = tm.(*model)
+	if m.taskVP == nil || m.taskVP.id != t1.ID {
+		t.Fatalf("enter should open %s, got %+v", t1.ID, m.taskVP)
+	}
+	m.taskVP = nil
+	m.tasksFocus = true
 
 	// the hint row itself is not clickable
 	m2 = click(stripTop).(*model)
@@ -667,15 +673,23 @@ func TestDockScrollsWithSelection(t *testing.T) {
 	if !strings.Contains(dock, "more") {
 		t.Fatalf("dock should advertise hidden rows, got %q", dock)
 	}
-	// the newest task scrolled out of view
-	if strings.Contains(dock, "probe-7") {
-		t.Fatalf("row above the window should be scrolled out, got %q", dock)
+	// the newest task scrolled out of view. Task IDs come from a global
+	// counter shared across tests in the process, so count the rendered task
+	// rows instead of pinning a specific ID at the window's edge.
+	rendered := 0
+	for line := range strings.Lines(dock) {
+		if strings.Contains(line, "probe-") && !strings.Contains(line, "more") {
+			rendered++
+		}
+	}
+	if rendered != tasksDockHeight-2 { // hint row + "+N more" row are the budget
+		t.Fatalf("scrolled dock should render exactly %d task rows, got %d rows in %q", tasksDockHeight-2, rendered, dock)
 	}
 }
 
 // A click on a dock row opens that task's view; the wheel moves the
 // selection through the strip.
-func TestDockMouseClickOpensTask(t *testing.T) {
+func TestDockMouseClickExpandsTask(t *testing.T) {
 	srv := sseTextServer(t, "ok")
 	defer srv.Close()
 	m := tasksModel(srv.URL)
@@ -689,27 +703,53 @@ func TestDockMouseClickOpensTask(t *testing.T) {
 	if n := len(m.dockTasks()); n != 2 {
 		t.Fatalf("want 2 dock tasks, got %d", n)
 	}
-	// newest first: row 0 is t2
+	// unfocused: a click on a dock row just focuses the dock (selects the
+	// newest task); it no longer jumps straight into the detail view
 	tm, _ := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 5, Y: top})
 	m = tm.(*model)
-	if m.taskVP == nil || m.taskVP.id != t2.ID {
-		t.Fatalf("click on row 0 should open the newest task, got %+v", m.taskVP)
+	if !m.tasksFocus || m.taskSel != 0 {
+		t.Fatalf("first click should focus the dock on row 0: focus=%v sel=%d", m.tasksFocus, m.taskSel)
+	}
+	if m.taskVP != nil {
+		t.Fatalf("first click must not open the detail view, got %+v", m.taskVP)
 	}
 
-	// back out, then wheel down to select the older task
-	m.taskVP = nil
-	m.tasksFocus = false
-	tm, _ = m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, X: 5, Y: top})
-	m = tm.(*model)
-	if !m.tasksFocus || m.taskSel != 1 {
-		t.Fatalf("wheel should focus the dock and move the selection: focus=%v sel=%d", m.tasksFocus, m.taskSel)
-	}
-	// focused: clicking a task row selects-and-opens that row (row 1 = t1;
-	// row 0 is the hint row and maps to the current selection, t2)
+	// focused: clicking a row selects it and expands it inline (row 1 = t1)
 	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 5, Y: m.dockTop() + 1})
 	m = tm.(*model)
+	if m.taskSel != 1 || !m.taskExpanded {
+		t.Fatalf("second click should select+expand row 1: sel=%d expanded=%v", m.taskSel, m.taskExpanded)
+	}
+	if m.taskVP != nil {
+		t.Fatalf("click should expand inline, not open the detail view: %+v", m.taskVP)
+	}
+	// the expansion shows the task's activity in the dock itself
+	if dock := stripAll(m.tasksDock()); !strings.Contains(dock, "first") {
+		t.Fatalf("expanded dock should render the selected task's detail, got %q", dock)
+	}
+
+	// clicking the same row again collapses it
+	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 5, Y: m.dockTop() + 1})
+	m = tm.(*model)
+	if m.taskExpanded {
+		t.Fatal("clicking the expanded row should collapse it")
+	}
+
+	// enter still opens the full detail view for the selected task
+	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = tm.(*model)
 	if m.taskVP == nil || m.taskVP.id != t1.ID {
-		t.Fatalf("click on dock row 1 should open the older task, got id=%v", m.taskVP)
+		t.Fatalf("enter should open the selected task's detail view, got %+v", m.taskVP)
+	}
+
+	// back out, then wheel down: scrolls the selection and collapses
+	m.taskVP = nil
+	m.tasksFocus = true
+	m.taskExpanded = true
+	tm, _ = m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, X: 5, Y: m.dockTop()})
+	m = tm.(*model)
+	if m.taskExpanded {
+		t.Fatal("wheel-scrolling the dock should collapse the expansion")
 	}
 }
 
@@ -923,5 +963,68 @@ func TestSettledTasksLingerUntilUserMessage(t *testing.T) {
 	m2.submitTurn("what's next?", true)
 	if len(m2.dockTasks()) != 0 {
 		t.Fatalf("a user message should sweep settled tasks, got %d", len(m2.dockTasks()))
+	}
+}
+
+// Space on a focused dock expands the selected task inline: its recent
+// journal activity renders under the row without opening the detail view
+// (Ruslan: "couldn't expand tasks to see what tasks were in progress/done").
+// Space types normally when the dock isn't focused.
+func TestDockSpaceExpandsTask(t *testing.T) {
+	srv := sseTextServer(t, "ok")
+	defer srv.Close()
+	m := tasksModel(srv.URL)
+	task := m.agent.StartBackground("research", "p", agent.SubModel{})
+	defer m.agent.Tasks().Cancel(task.ID)
+	m.Update(mkWinSize(80, 24))
+
+	// focus the dock and expand with space
+	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlT})
+	m = tm.(*model)
+	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = tm.(*model)
+	if !m.taskExpanded {
+		t.Fatal("space on a focused dock should expand the selected task")
+	}
+	if m.taskVP != nil {
+		t.Fatal("space must expand inline, not open the detail view")
+	}
+
+	// the expansion shows what the task is working on under its row
+	dock := stripAll(m.tasksDock())
+	if !strings.Contains(dock, "│ p") {
+		t.Fatalf("expanded dock should show the task's prompt, got %q", dock)
+	}
+
+	// space again collapses; ↑/↓ moving the selection also collapses
+	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = tm.(*model)
+	if m.taskExpanded {
+		t.Fatal("space on the expanded row should collapse it")
+	}
+
+	// unfocused: space is a typed character in the input
+	m.tasksFocus = false
+	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	m = tm.(*model)
+	if m.input.Value() != " " {
+		t.Fatalf("space without dock focus should type into the input, got %q", m.input.Value())
+	}
+}
+
+// dockTaskExpand tails the journal (never the whole log) and renders nothing
+// for a task with no events and no report yet.
+func TestDockTaskExpandContent(t *testing.T) {
+	srv := sseTextServer(t, "ok")
+	defer srv.Close()
+	m := tasksModel(srv.URL)
+	task := m.agent.StartBackground("probe", "p", agent.SubModel{})
+	defer m.agent.Tasks().Cancel(task.ID)
+
+	if got := m.dockTaskExpand(task.ID); len(got) != 1 || !strings.Contains(stripAll(got[0]), "p") {
+		t.Fatalf("fresh task expands to its prompt, got %q", got)
+	}
+	if got := m.dockTaskExpand("no-such-task"); got != nil {
+		t.Fatalf("unknown id expands to nothing, got %q", got)
 	}
 }
