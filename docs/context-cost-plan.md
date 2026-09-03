@@ -39,6 +39,11 @@ cross 30% of the 1M window while the provider was billing 391k.
    columns are zero, inflating reported spend ~2× in this session (550M
    reported vs 283M provider-truth).
 
+> **Status: implemented on this branch.** Items 1–7 landed with tests;
+> `go build ./...` and `go test ./...` pass (the two `internal/tui`
+> `TestStartupReport*` failures pre-date this branch — verified failing on
+> clean `main`). Implementation notes per item are marked "as built".
+
 ## Work items (ordered by $ saved per line changed)
 
 ### 1. Real-usage compaction trigger — `internal/agent/agent.go`

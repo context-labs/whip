@@ -18,6 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/llm"
 )
 
 // readClipboardImage returns image bytes and their format extension from the
@@ -260,7 +261,11 @@ func pasteImageFileCmd(path string) tea.Msg {
 }
 
 // saveClipboardImage writes data to ~/.whip/pastes/ and returns the path.
+// Images are normalized first (bounded dims, byte budget) so a HiDPI
+// screenshot doesn't ride the context at full pixel cost for the rest of the
+// session.
 func saveClipboardImage(ext string, data []byte) (string, error) {
+	ext, data = llm.NormalizeImage(ext, data)
 	dir, err := config.Dir()
 	if err != nil {
 		return "", err
