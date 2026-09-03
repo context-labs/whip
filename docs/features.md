@@ -509,16 +509,22 @@ relay: full device login + key mint, store round-trip, key validation),
   selection works, with it on shift-drag selects. `"mouse": false` in config
   disables capture at startup.
 - **Newline keys.** `ctrl+j` / `shift+enter` / `alt+enter` insert a newline
-  instead of submitting. At startup whip pushes the kitty keyboard-enhancement
+  instead of submitting. whip pushes the kitty keyboard-enhancement
   **disambiguate** flag only (`CSI > 1 u`, DCS-passthrough-wrapped inside
-  tmux) so terminals that support it report shift+enter as a distinguishable
-  CSI rather than a plain CR — without the push, shift+enter IS enter in most
-  terminals (and in tmux without `extended-keys on`). Only flag 0x1 is pushed:
-  flag 0x2 (report event types) makes some terminals report ctrl+letter as
-  CSI-u, which bubbletea v1.3.10 can't decode, killing ctrl+a/ctrl+e.
-  bubbletea surfaces the sequence as an unknown CSI and `isShiftEnterSeq`
-  recognizes both its current `?CSI[bytes]?` render and the legacy
-  `unknown csi sequence:` form. The stack is popped on exit.
+  tmux; applied pre-Run inline, post-Init in opencode's alt screen) so
+  terminals that support it report shift+enter as a distinguishable CSI
+  rather than a plain CR. Only flag 0x1 is pushed: flag 0x2 (report event
+  types) makes some terminals report ctrl+letter as CSI-u, which bubbletea
+  v1.3.10 can't decode, killing ctrl+a/ctrl+e. `isShiftEnterSeq` recognizes
+  both the current `?CSI[bytes]?` and the legacy `unknown csi sequence:`
+  renders, across the CSI-u, modifyOtherKeys, and kitty-57441 encodings.
+  Inside **tmux**, shift+enter additionally needs tmux's `extended-keys=on` —
+  with it off, tmux reports "standard keys only" and collapses S-Enter to CR
+  regardless of the kitty push. whip enables it (keeping tmux's default xterm
+  format — switching to csi-u changes key reporting server-wide and breaks
+  drag-to-copy) and restores the prior value on exit. Over **mosh** none of
+  this helps — mosh collapses S-Enter before tmux/whip see it — so whip
+  detects mosh and warns (use `ctrl+j`/`alt+enter` there).
 - Queueing (enter while busy), steering (empty enter), history recall (↑/↓),
   `@file` mentions, `$skill` invocation, `/goal` loop, `/resume` session
   picker, `/effort` reasoning levels — see the roadmap for the full list.

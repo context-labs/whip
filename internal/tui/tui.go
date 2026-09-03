@@ -516,6 +516,16 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		// survives and the matching pop on exit restores the prior flags.
 		enableKeyboardEnhancement(os.Stdout)
 	}
+	// Inside tmux, shift+enter only reaches the pane when tmux's extended-keys
+	// is on — with it off (tmux's default), tmux reports "standard keys only"
+	// and collapses S-Enter to a plain CR (verified live; the kitty push can't
+	// override tmux's own reporting gate). Enable it, keeping tmux's default
+	// xterm format (whip's isShiftEnterSeq matches the 27;2;13~ form — do NOT
+	// switch to csi-u, which changes key reporting server-wide and broke
+	// drag-to-copy). extended-keys is SERVER-scoped (OPTIONS_TABLE_SERVER), so
+	// this unavoidably flips it for the whole tmux server; the restore func
+	// puts back the prior value on exit so the user's config is untouched.
+	tmuxExtKeysRestore := tmuxEnableExtendedKeys()
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
 	}
@@ -556,6 +566,10 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// that isn't ours.
 	if cfg.UIMode != opencodeMode {
 		disableKeyboardEnhancement(os.Stdout)
+	}
+	// Put tmux's extended-keys back to whatever it was before whip started.
+	if tmuxExtKeysRestore != nil {
+		tmuxExtKeysRestore()
 	}
 	// Shut MCP servers down first (graceful: stdin close → SIGTERM → SIGKILL)
 	// so a clean stdio server never becomes a KillAll target.
@@ -724,11 +738,41 @@ func tmuxPassthrough(seq string) string {
 	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
 }
 
-// (No tmux extended-keys manipulation: extended-keys is SERVER-scoped in
-// tmux — OPTIONS_TABLE_SERVER — so a "pane" set flips it for the whole server
-// and leaks into every other pane, breaking their drag-to-copy. There is no
-// pane-local way to enable it, and over mosh shift+enter is collapsed to CR
-// before tmux anyway, so whip leaves the user's tmux config untouched.)
+// tmuxEnableExtendedKeys turns on tmux's extended-keys so shift+enter reaches
+// whip's pane, and returns a restore func. With extended-keys off (tmux's
+// default), tmux reports "standard keys only" and collapses S-Enter to a
+// plain CR — whip cannot tell it from enter. extended-keys is SERVER-scoped
+// (OPTIONS_TABLE_SERVER), so this flips it for the whole tmux server, not just
+// whip's pane; the restore func puts the prior value back on exit so the
+// user's config is never permanently changed.
+//
+// ONLY extended-keys is set. The FORMAT is left at tmux's default (xterm):
+// whip's isShiftEnterSeq matches the xterm 27;2;13~ form, and switching to
+// csi-u changes key reporting for every pane in the server — that is what
+// broke drag-to-copy, not extended-keys itself. Returns nil outside tmux or
+// when tmux can't be reached.
+func tmuxEnableExtendedKeys() func() {
+	if !inTmuxEnv() {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{extended-keys}").Output()
+	if err != nil {
+		return nil
+	}
+	prev := strings.TrimSpace(string(out))
+	if prev == "on" || prev == "always" {
+		return func() {} // already on: nothing to change, nothing to restore
+	}
+	set := func(val string) {
+		c, cc := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cc()
+		_ = exec.CommandContext(c, "tmux", "set", "-g", "extended-keys", val).Run()
+	}
+	set("on")
+	return func() { set(prev) } // restore the exact prior value (off, or empty)
+}
 
 // (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whip — tmux's
 // factory MouseDrag1Pane binding checks mouse_any_flag, which our ?1002 sets,
