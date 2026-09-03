@@ -81,6 +81,7 @@ func TestCtrlAGoesToLineStart(t *testing.T) {
 // escape sequence and that Run pushes/pops it.
 func TestKeyboardEnhancementEscapes(t *testing.T) {
 	t.Setenv("TMUX", "") // exercise the non-tmux path deterministically
+	t.Setenv("TERM", "xterm-256color")
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -97,6 +98,37 @@ func TestKeyboardEnhancementEscapes(t *testing.T) {
 	}
 	if !strings.Contains(got, "\x1b[<u") {
 		t.Errorf("must pop the keyboard stack \\x1b[<u, got %q", got)
+	}
+	if strings.Contains(got, "\x1b[>4;") {
+		t.Errorf("modifyOtherKeys is tmux-only, got %q", got)
+	}
+}
+
+// Inside tmux the kitty push is ignored for pane key mode; tmux forwards
+// shift+enter only when the pane requests xterm modifyOtherKeys MODE 1
+// (mode 2 re-encodes ctrl+letter and kills ctrl+a/e). Pin that request and
+// its reset, and that the kitty push is DCS-wrapped so it reaches the outer
+// terminal.
+func TestKeyboardEnhancementTmuxRequestsModifyOtherKeys1(t *testing.T) {
+	t.Setenv("TMUX", "/tmp/tmux-1/default,1,0")
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	enableKeyboardEnhancement(w)
+	disableKeyboardEnhancement(w)
+	w.Close()
+	buf := make([]byte, 128)
+	_ = r.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, _ := r.Read(buf)
+	got := string(buf[:n])
+	for _, want := range []string{"\x1bPtmux;\x1b\x1b[>1u\x1b\\", "\x1b[>4;1m", "\x1b[>4;0m"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "\x1b[>4;2m") {
+		t.Errorf("mode 2 breaks ctrl+letter: %q", got)
 	}
 }
 
