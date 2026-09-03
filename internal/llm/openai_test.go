@@ -129,6 +129,26 @@ func TestStreamTextAndToolCalls(t *testing.T) {
 	}
 }
 
+func TestStreamSparseToolCallIndexDoesNotCreateEmptyCall(t *testing.T) {
+	srv := sseServer(t,
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"c1","type":"function","function":{"name":"Plan","arguments":"{\"todos\":[]}"}}]}}]}`,
+		`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		`data: [DONE]`,
+	)
+	defer srv.Close()
+
+	msg, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.ToolCalls) != 1 {
+		t.Fatalf("sparse stream index created phantom tool calls: %+v", msg.ToolCalls)
+	}
+	if got := msg.ToolCalls[0]; got.ID != "c1" || got.Function.Name != "Plan" {
+		t.Fatalf("tool call: %+v", got)
+	}
+}
+
 // onToolCall fires for each streaming tool-call delta once the call has an
 // id, with the id/name/args snapshot at that point — so the UI can render a
 // pending row before execution. A nil onToolCall must not panic.
