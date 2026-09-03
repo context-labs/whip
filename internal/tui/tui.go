@@ -1272,7 +1272,10 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 		tools.ScreenshotSink = func(jpegs [][]byte) {
 			parts := make([]llm.ContentPart, 0, len(jpegs))
 			for _, j := range jpegs {
-				parts = append(parts, llm.ImagePart("jpg", j))
+				// a HiDPI full-display capture exceeds both the dim and byte
+				// caps; bound it like every other image entering history
+				ext, data := llm.NormalizeImage("jpg", j)
+				parts = append(parts, llm.ImagePart(ext, data))
 			}
 			ag.SteerImages("browser_exec screenshots attached:", parts)
 		}

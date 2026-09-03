@@ -323,3 +323,25 @@ func pngFixtureForDecay(t *testing.T, w, h int) []byte {
 	}
 	return buf.Bytes()
 }
+
+// Image-only messages (screenshot steers, ACP image blocks) carry no Content,
+// so they must spend the hot-window budget through their parts: a run of
+// large images alone pushes the oldest past the window and Pass 3 strips it.
+func TestDecayImageOnlyMessagesSpendHotWindow(t *testing.T) {
+	big := llm.ImagePart("png", pngFixtureForDecay(t, 2000, 2000)) // ⌈2000/28⌉² = 5184 tokens
+	a := &Agent{}
+	a.Messages = []llm.Message{{Role: "system", Content: "sys"}}
+	for range 6 { // 6 × 5184 > the 24k hot window with no text at all
+		a.Messages = append(a.Messages, llm.Message{Role: "user", Parts: []llm.ContentPart{big}})
+	}
+	if n := a.decay(); n == 0 {
+		t.Fatal("the oldest image-only message should fall past the hot window and be stripped")
+	}
+	if len(a.Messages[1].Parts) != 1 || a.Messages[1].Parts[0].Type != "text" {
+		t.Fatalf("oldest message should now hold a text placeholder, got %+v", a.Messages[1].Parts)
+	}
+	last := a.Messages[len(a.Messages)-1]
+	if last.Parts[0].Type != "image_url" {
+		t.Fatal("the newest image must stay hot")
+	}
+}

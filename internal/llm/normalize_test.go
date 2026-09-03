@@ -76,3 +76,20 @@ func TestNormalizeImageNoiseFitsBudget(t *testing.T) {
 		t.Fatalf("even max-dim noise must fit the budget, got %d bytes (%s)", len(out), ext)
 	}
 }
+
+// The passthrough decision reads only the header: a tiny file whose header
+// claims a huge canvas (a decompression-bomb shape) must not be pixel-decoded
+// when it is over the dim cap either — it goes to the re-encode path only if
+// it actually decodes. Here a header-only truncated PNG within the caps passes
+// through without ever needing pixels.
+func TestNormalizeImageHeaderOnlyPassthrough(t *testing.T) {
+	full := pngFixture(t, 800, 600)
+	head := full[:64] // IHDR is complete; pixel data is gone
+	if w, h, ok := DecodeImageSize(head); !ok || w != 800 || h != 600 {
+		t.Fatalf("fixture: header should still decode, got %d×%d ok=%v", w, h, ok)
+	}
+	ext, out := NormalizeImage("png", head)
+	if ext != "png" || !bytes.Equal(out, head) {
+		t.Fatal("an in-budget image must pass through on its header alone (no pixel decode)")
+	}
+}

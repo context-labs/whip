@@ -296,7 +296,14 @@ func msgTokens(m llm.Message) int {
 	for _, tc := range m.ToolCalls {
 		n += len(tc.Function.Name) + len(tc.Function.Arguments)
 	}
-	return n / 4
+	t := n / 4
+	for _, p := range m.Parts {
+		// image parts cost thousands of tokens and carry no Content; without
+		// this an image-only screenshot turn never spends the hot budget and
+		// Pass 3 never gets to strip it
+		t += llm.PartTokens(p)
+	}
+	return t
 }
 
 // readPathFromCall finds the assistant tool_call that produced the tool

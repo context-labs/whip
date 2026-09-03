@@ -82,8 +82,11 @@ fb61707 docs: handoff doc for the context-cost work
 - `EstimateTokens` (agent.go) now uses `llm.PartTokens` per part.
 
 ### Item 3 — image normalization at ingest
-`internal/llm/normalize.go`; wired in `internal/tui/paste.go`
-(`saveClipboardImage`) and `internal/tui/mentions.go` (`imageParts`).
+`internal/llm/normalize.go`; wired at every image ingest: `internal/tui/paste.go`
+(`saveClipboardImage`), `internal/tui/mentions.go` (`imageParts`), the browser
+`ScreenshotSink` closure (`tui.go`), and ACP client image blocks
+(`internal/acp/translate.go`). The passthrough decision is header-only
+(`DecodeImageSize`); pixels decode only when a re-encode is needed.
 - `NormalizeImage`: pass-through if already ≤2000×2000 and ≤5MiB; else decode
   → `x/image/draw` scale to fit → JPEG q80→40 ladder until ≤5MiB → shrink
   ×0.75 per round (≤32 rounds). Corrupt input passes through unchanged.
@@ -107,7 +110,10 @@ fb61707 docs: handoff doc for the context-cost work
   a text placeholder naming dims + the spilled file path (`spillImage` writes
   the base64 payload to `$TMPDIR/whip-img-<pid>/`, mirroring bash's spill).
   The model can re-attach via `@<path>` if it genuinely needs the pixels.
-  Text parts of the message stay inline.
+  Text parts of the message stay inline. `msgTokens` (hot-window budget)
+  counts image parts via `llm.PartTokens`, so image-only screenshot turns
+  spend the budget and age out. The ACP bridge wires `OnDecay` to re-save
+  from message 1 (like the TUI) so decayed rows don't resurrect on resume.
 
 ### Item 6 — doom-loop guard
 `internal/agent/agent.go` (`markDoomLoops`, `doomLoopRefusal`)

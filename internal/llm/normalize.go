@@ -50,13 +50,19 @@ var jpegQualities = []int{80, 70, 55, 40}
 // encoding. On any decode failure the input is returned as-is — a corrupt
 // image is the provider's problem to reject, not a reason to block the paste.
 func NormalizeImage(ext string, data []byte) (string, []byte) {
+	// Header-only check first: the passthrough decision never needs pixels,
+	// and a small-file/huge-canvas PNG must not force a full decode on the
+	// paste path just to learn it is already within budget.
+	w, h, ok := DecodeImageSize(data)
+	if !ok {
+		return ext, data
+	}
+	if len(data) <= NormalizeMaxBytes && w <= NormalizeMaxDim && h <= NormalizeMaxDim {
+		return ext, data // already cheap enough; keep the original encoding
+	}
 	src, err := decodeAny(data)
 	if err != nil {
 		return ext, data
-	}
-	w, h := src.Bounds().Dx(), src.Bounds().Dy()
-	if len(data) <= NormalizeMaxBytes && w <= NormalizeMaxDim && h <= NormalizeMaxDim {
-		return ext, data // already cheap enough; keep the original encoding
 	}
 
 	img := scaleToFit(src, NormalizeMaxDim, NormalizeMaxDim)

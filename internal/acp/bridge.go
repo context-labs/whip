@@ -434,6 +434,10 @@ func (b *Bridge) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Prom
 		OnToolStart: func(id, name, args string) { _ = b.update(turnCtx, s.id, startToolCall(id, name, args)) },
 		OnToolEnd:   func(id, name, result string) { _ = b.update(turnCtx, s.id, b.endTool(s, id, name, result)) },
 		OnUsage:     func(u llm.Usage) { b.sendUsage(turnCtx, s, u) },
+		// Decay rewrote prefix messages in place (tool dumps, cold images);
+		// the incremental watermark would leave the original multi-MB rows in
+		// the store to resurrect on resume. Re-save from the first message.
+		OnDecay: func(int) { s.storeFrom = 1 },
 	})
 
 	// Persist like run.go: best-effort, incremental. When the save lands and
