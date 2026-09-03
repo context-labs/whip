@@ -61,12 +61,20 @@ type Message struct {
 // as an array of these parts rather than a plain string when images are
 // attached. The wire shape is {"type":"text","text":...} and
 // {"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}.
+//
+// W and H record the pixel dimensions of an image part, measured once at
+// ingest. They ride along in the persisted session (so token estimates stay
+// honest across resumes) and are stripped before any provider request — the
+// wire shape is unchanged. Zero means "unmeasured": estimators decode the
+// data URL lazily in that case.
 type ContentPart struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
 	ImageURL *struct {
 		URL string `json:"url"`
 	} `json:"image_url,omitempty"`
+	W int `json:"w,omitempty"`
+	H int `json:"h,omitempty"`
 }
 
 // TextContent returns the message's text, whether it was set directly
@@ -94,13 +102,48 @@ func imageDataURL(ext string, data []byte) string {
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 }
 
-// ImagePart builds an image ContentPart from raw bytes and a format extension.
+// ImagePart builds an image ContentPart from raw bytes and a format
+// extension, recording the pixel dimensions for token estimation.
 func ImagePart(ext string, data []byte) ContentPart {
 	p := ContentPart{Type: "image_url"}
 	p.ImageURL = &struct {
 		URL string `json:"url"`
 	}{URL: imageDataURL(ext, data)}
+	p.W, p.H, _ = DecodeImageSize(data)
 	return p
+}
+
+// Dimensions returns the recorded pixel size of an image part (0,0 when
+// unmeasured).
+func (p ContentPart) Dimensions() (w, h int) {
+	return p.W, p.H
+}
+
+// DecodeDimensions measures the image carried by the part's data URL. Used
+// when W/H are zero (session rows written before the fields existed).
+func (p ContentPart) DecodeDimensions() (w, h int, ok bool) {
+	if p.ImageURL == nil {
+		return 0, 0, false
+	}
+	const prefix = ";base64,"
+	i := strings.Index(p.ImageURL.URL, prefix)
+	if i < 0 {
+		return 0, 0, false
+	}
+	// Decode only the header: 4KB of base64 covers every format's config.
+	b64 := p.ImageURL.URL[i+len(prefix):]
+	if len(b64) > 4096 {
+		b64 = b64[:4096]
+	}
+	head, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		// Truncated base64: decode what we have (headers sit at the front).
+		head, err = base64.StdEncoding.DecodeString(b64[:len(b64)-len(b64)%4])
+		if err != nil {
+			return 0, 0, false
+		}
+	}
+	return DecodeImageSize(head)
 }
 
 // messageWire is the JSON shape of a Message. Content is `any` so it can be a
@@ -204,6 +247,19 @@ func stripAuthored(msgs []Message) []Message {
 		for j := range out[i].ToolCalls {
 			out[i].ToolCalls[j].DurationMs = 0
 			out[i].ToolCalls[j].ExitCode = 0
+		}
+		// W/H are whip-local estimation bookkeeping; the provider's wire shape
+		// for image parts is just the data URL. Copy the Parts slice first —
+		// a shallow struct copy shares it, so zeroing here would otherwise
+		// mutate the caller's history (and its persisted dims).
+		if len(out[i].Parts) > 0 {
+			parts := make([]ContentPart, len(out[i].Parts))
+			copy(parts, out[i].Parts)
+			for j := range parts {
+				parts[j].W = 0
+				parts[j].H = 0
+			}
+			out[i].Parts = parts
 		}
 	}
 	// Backfill tool-message Name from the owning call (older sessions predate
