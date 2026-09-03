@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,100 @@ func TestProviderHoldsReferenceNotValue(t *testing.T) {
 	p.APIKeyEnv = "WHIP_SECRET_TEST"
 	if k, _ := p.ResolveKey(); k != "resolved-value" {
 		t.Fatalf("apiKeyEnv precedence: got %q", k)
+	}
+}
+
+// TestIsWholeRef pins which values route to ResolveSecret (strict single
+// reference) vs ExpandTemplate (template). Multi-ref and compound values must
+// NOT be whole refs: ResolveSecret would treat the tail as one var name and
+// ResolveEnvMap would drop a value ExpandTemplate expands fine.
+func TestIsWholeRef(t *testing.T) {
+	whole := []string{"$FOO", "${FOO}", "${FOO:-def}", "${FOO-def}", "$F1_"}
+	for _, v := range whole {
+		if !IsWholeRef(v) {
+			t.Errorf("IsWholeRef(%q) = false, want true", v)
+		}
+	}
+	notWhole := []string{
+		"${A}${B}",          // multi-ref template
+		"${A} and ${B}",     // embedded refs
+		"$HOME/bin:$PATH",   // compound path
+		"$REDIS_HOST:6379",  // host:port
+		"postgres://$DB/db", // URL with ref
+		"${MY KEY-x}",       // invalid name (space) — not a ref at all
+		"${:-x}",            // empty name
+		"Bearer $TOKEN",     // template
+		"price is $5",       // literal
+		"",                  // empty
+		"$",                 // bare sigil
+	}
+	for _, v := range notWhole {
+		if IsWholeRef(v) {
+			t.Errorf("IsWholeRef(%q) = true, want false", v)
+		}
+	}
+}
+
+// TestResolveSecretDefaultForms pins shell semantics for ${VAR-def} and
+// ${VAR:-def}: ${MY-KEY} is "MY, default KEY" (a valid shell form), NOT an
+// invalid name — ResolveSecret resolves MY or falls back to KEY. Invalid
+// names (${MY KEY-x}, ${:-x}) are not whole refs and route to ExpandTemplate,
+// whose templateVar guard errors on them.
+func TestResolveSecretDefaultForms(t *testing.T) {
+	t.Setenv("WHIP_DEF_SET", "live")
+	os.Unsetenv("WHIP_DEF_UNSET")
+	// ${VAR-def}: default only when UNSET (set-but-empty keeps the empty).
+	if got, err := ResolveSecret("${WHIP_DEF_SET-fb}"); err != nil || got != "live" {
+		t.Errorf("${WHIP_DEF_SET-fb} = %q, %v", got, err)
+	}
+	if got, err := ResolveSecret("${WHIP_DEF_UNSET-fb}"); err != nil || got != "fb" {
+		t.Errorf("${WHIP_DEF_UNSET-fb} = %q, %v", got, err)
+	}
+	// ${VAR:-def}: default when unset OR empty.
+	t.Setenv("WHIP_DEF_EMPTY", "")
+	if got, err := ResolveSecret("${WHIP_DEF_EMPTY:-fb}"); err != nil || got != "fb" {
+		t.Errorf("${WHIP_DEF_EMPTY:-fb} = %q, %v", got, err)
+	}
+	// The "${MY-KEY}" trap from the review: with MY set this resolves MY's
+	// value (shell semantics), never the literal string "KEY" as a fallback
+	// for an invalid name.
+	t.Setenv("MY", "my-value")
+	if got, err := ResolveSecret("${MY-KEY}"); err != nil || got != "my-value" {
+		t.Errorf("${MY-KEY} with MY set = %q, %v — should resolve MY", got, err)
+	}
+	// Invalid names route to ExpandTemplate and error there (templateVar).
+	if _, err := ExpandTemplate("${MY KEY-x}"); err == nil {
+		t.Error("ExpandTemplate(${MY KEY-x}): expected invalid-name error")
+	}
+	if _, err := ExpandTemplate("${:-x}"); err == nil {
+		t.Error("ExpandTemplate(${:-x}): expected invalid-name error")
+	}
+}
+
+// TestResolveEnvMapCompoundValues pins the "$HOME/bin:$PATH" regression:
+// compound whole-$-looking values resolve through ExpandTemplate instead of
+// being dropped as unresolvable single refs.
+func TestResolveEnvMapCompoundValues(t *testing.T) {
+	t.Setenv("WHIP_COMPOUND_HOME", "/home/u")
+	t.Setenv("WHIP_COMPOUND_PATH", "/usr/bin")
+	t.Setenv("WHIP_COMPOUND_A", "x")
+	t.Setenv("WHIP_COMPOUND_B", "y")
+	env, err := ResolveEnvMap(map[string]string{
+		"PATHLIKE": "$WHIP_COMPOUND_HOME/bin:$WHIP_COMPOUND_PATH",
+		"HOSTPORT": "$WHIP_COMPOUND_A:6379",
+		"MULTIREF": "${WHIP_COMPOUND_A}${WHIP_COMPOUND_B}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["PATHLIKE"] != "/home/u/bin:/usr/bin" {
+		t.Errorf("PATHLIKE = %q, want /home/u/bin:/usr/bin", env["PATHLIKE"])
+	}
+	if env["HOSTPORT"] != "x:6379" {
+		t.Errorf("HOSTPORT = %q, want x:6379", env["HOSTPORT"])
+	}
+	if env["MULTIREF"] != "xy" {
+		t.Errorf("MULTIREF = %q, want xy", env["MULTIREF"])
 	}
 }
 

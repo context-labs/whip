@@ -58,6 +58,14 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 		}
 		c := ServerConfig{}
 		var args []string // folded into Command after the key loop
+		// Headers arrive in two kinds — literal (headers/http_headers, used
+		// verbatim) and env-ref (env_http_headers and bearer_token_env_var,
+		// stored as lazy $VAR references). Keeping them separate lets us
+		// combine them deterministically at the end instead of by map
+		// iteration order. Sub-tables merge first so an inline table's keys
+		// win within the same kind (matching the pre-existing env behavior).
+		litHeaders := map[string]string{} // literal auth header values
+		envHeaders := map[string]string{} // header name → $VAR reference
 		mergeInto := func(dst map[string]string, m map[string]any) map[string]string {
 			if dst == nil {
 				dst = map[string]string{}
@@ -74,18 +82,15 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 		// an inline table's keys win.
 		c.Env = mergeInto(c.Env, tables[table+".env"])
 		c.Env = mergeInto(c.Env, tables[table+".environment"])
-		c.Headers = mergeInto(c.Headers, tables[table+".headers"])
-		// codex's literal-name header table (auth values verbatim) plus its
-		// env-var-name header table (names resolved at connect time as
+		// codex's literal-name header table (auth values verbatim).
+		litHeaders = mergeInto(litHeaders, tables[table+".headers"])
+		litHeaders = mergeInto(litHeaders, tables[table+".http_headers"])
+		// codex's env-var-name header table (names resolved at connect time as
 		// $VAR references — same lazy secret flow as whip-native configs).
-		c.Headers = mergeInto(c.Headers, tables[table+".http_headers"])
 		if m := tables[table+".env_http_headers"]; len(m) > 0 {
-			if c.Headers == nil {
-				c.Headers = map[string]string{}
-			}
 			for k, v := range m {
 				if s, ok := v.(string); ok && s != "" {
-					c.Headers[k] = "$" + s
+					envHeaders[k] = "$" + s
 				}
 			}
 		}
@@ -113,16 +118,13 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 				}
 				switch k {
 				case "headers", "http_headers":
-					c.Headers = mergeInto(c.Headers, m)
+					litHeaders = mergeInto(litHeaders, m)
 				case "env_http_headers":
 					// header name → env var holding the value: keep a $VAR
 					// reference so resolution happens at connect, not import
 					for hk, hv := range m {
 						if s, ok := hv.(string); ok && s != "" {
-							if c.Headers == nil {
-								c.Headers = map[string]string{}
-							}
-							c.Headers[hk] = "$" + s
+							envHeaders[hk] = "$" + s
 						}
 					}
 				default:
@@ -131,16 +133,15 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 			case "bearer_token_env_var":
 				// codex's Authorization shortcut: the var NAME, resolved at
 				// request time. Imported as a $VAR header reference so whip
-				// resolves it at connect (never baked, never persisted).
+				// resolves it at connect (never baked, never persisted). Treated
+				// as env-ref kind: a literal http_headers Authorization still
+				// wins on collision (codex falls back to the literal).
 				s, ok := v.(string)
 				if !ok {
 					return nil, fmt.Errorf("codex config %s: bearer_token_env_var must be a string", table)
 				}
-				if s != "" && c.Headers == nil {
-					c.Headers = map[string]string{}
-				}
 				if s != "" {
-					c.Headers["Authorization"] = "Bearer $" + s
+					envHeaders["Authorization"] = "Bearer $" + s
 				}
 			case "url":
 				s, ok := v.(string)
@@ -180,6 +181,15 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 			// doesn't model (experimental_use_rmcp_client, ...).
 		}
 		c.Command = append(c.Command, args...)
+		// Combine headers deterministically: env-ref headers first, then overlay
+		// the literal headers so a literal key wins on collision. This mirrors
+		// codex semantics, where the literal is the fallback used when the env
+		// var behind a header is unset (codex prefers the env value, but falls
+		// back to the literal rather than dropping the header).
+		c.Headers = envHeaders
+		for k, v := range litHeaders {
+			c.Headers[k] = v
+		}
 		// "$VAR" references in env/headers stay REFERENCES: they resolve at
 		// connect time via config.ResolveSecret (defaultTransport). Expanding
 		// here would bake a var that's missing at import time into an empty

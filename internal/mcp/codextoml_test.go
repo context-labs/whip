@@ -179,6 +179,23 @@ url = "https://sub.example.com/mcp"
 X-Region = "us"
 [mcp_servers.mixedsub.env_http_headers]
 Authorization = "CIO_TEST_TOKEN"
+
+[mcp_servers.collide_inline]
+url = "https://ci.example.com/mcp"
+http_headers = { Authorization = "Bearer literal" }
+env_http_headers = { Authorization = "CIO_TEST_TOKEN" }
+
+[mcp_servers.collide_sub]
+url = "https://cs.example.com/mcp"
+[mcp_servers.collide_sub.http_headers]
+Authorization = "Bearer literal"
+[mcp_servers.collide_sub.env_http_headers]
+Authorization = "CIO_TEST_TOKEN"
+
+[mcp_servers.collide_bearer]
+url = "https://cb.example.com/mcp"
+http_headers = { Authorization = "Bearer literal" }
+bearer_token_env_var = "CIO_TEST_TOKEN"
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -199,6 +216,85 @@ Authorization = "CIO_TEST_TOKEN"
 	sub := cfgs["mixedsub"]
 	if sub.Headers["X-Region"] != "us" || sub.Headers["Authorization"] != "$CIO_TEST_TOKEN" {
 		t.Errorf("sub-table http_headers/env_http_headers = %v", sub.Headers)
+	}
+	// deterministic precedence: a literal key wins on collision for BOTH the
+	// inline and sub-table spellings, and over bearer_token_env_var.
+	for _, name := range []string{"collide_inline", "collide_sub", "collide_bearer"} {
+		if got := cfgs[name].Headers["Authorization"]; got != "Bearer literal" {
+			t.Errorf("%s: literal should win on collision, got %q", name, got)
+		}
+	}
+}
+
+// TestParseCodexHeaderPrecedence pins the deterministic http_headers vs
+// env_http_headers precedence: the literal wins on key collision (it is the
+// fallback codex uses when the env ref can't resolve), the env ref maps to a
+// $VAR reference, bearer_token_env_var becomes a Bearer $VAR reference, and
+// the inline and sub-table spellings produce identical headers.
+func TestParseCodexHeaderPrecedence(t *testing.T) {
+	doc := []byte(`
+[mcp_servers.inline]
+url = "https://i.example.com/mcp"
+http_headers = { Authorization = "Bearer lit", X-Literal = "v" }
+env_http_headers = { Authorization = "AUTH_VAR", X-Env = "ENV_VAR" }
+bearer_token_env_var = "BEARER_VAR"
+
+[mcp_servers.sub]
+url = "https://s.example.com/mcp"
+[mcp_servers.sub.http_headers]
+Authorization = "Bearer lit"
+X-Literal = "v"
+[mcp_servers.sub.env_http_headers]
+Authorization = "AUTH_VAR"
+X-Env = "ENV_VAR"
+`)
+	cfgs, err := ParseCodex(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"Authorization": "Bearer lit", // literal wins on collision
+		"X-Literal":     "v",
+		"X-Env":         "$ENV_VAR", // env ref maps to $VAR
+	}
+	for _, name := range []string{"inline", "sub"} {
+		got := cfgs[name].Headers
+		if len(got) != len(want) {
+			t.Errorf("%s: header count = %d, want %d (%v)", name, len(got), len(want), got)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s: header %s = %q, want %q", name, k, got[k], v)
+			}
+		}
+		// inline and sub-table spellings must be byte-for-byte identical
+		if got["X-Literal"] != "v" {
+			t.Errorf("%s: literal lost %v", name, got)
+		}
+	}
+	// (c) bearer_token_env_var still produces 'Bearer $VAR' when there is no
+	// Authorization collision
+	bcfgs, err := ParseCodex([]byte(`
+[mcp_servers.bearer]
+url = "https://b.example.com/mcp"
+bearer_token_env_var = "BEARER_VAR"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bcfgs["bearer"].Headers["Authorization"]; got != "Bearer $BEARER_VAR" {
+		t.Errorf("bearer_token_env_var = %q, want %q", got, "Bearer $BEARER_VAR")
+	}
+	// (d) inline and sub-table spellings produce identical results
+	inline := cfgs["inline"].Headers
+	sub := cfgs["sub"].Headers
+	if len(inline) != len(sub) {
+		t.Fatalf("inline/sub header counts differ: %v vs %v", inline, sub)
+	}
+	for k, v := range inline {
+		if sub[k] != v {
+			t.Errorf("inline/sub mismatch on %s: %q vs %q", k, v, sub[k])
+		}
 	}
 }
 

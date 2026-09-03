@@ -247,13 +247,13 @@ type model struct {
 	perms      permRules   // saved allow-always rules
 	permDialog *permDialog // open permission modal; the turn is paused on it
 
-	tasksFocus  bool      // the tasks dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
-	taskSel     int       // selected row in the dock (index into newest-first tasks)
-	taskExpanded bool     // selected dock row renders its recent activity inline (space/click toggles)
-	dockSkip    int       // non-task rows at the dock's top (focused hint) — click math skips them
-	dockOffsets []int     // screen-row offset of each task row within the strip (expanded rows shift rows below)
-	taskVP      *taskView // open per-task detail view; nil when on the main thread
-	dockRows    int       // rendered dock height; layout() maintains it for click math
+	tasksFocus   bool      // the tasks dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
+	taskSel      int       // selected row in the dock (index into newest-first tasks)
+	taskExpanded bool      // selected dock row renders its recent activity inline (space/click toggles)
+	dockSkip     int       // non-task rows at the dock's top (focused hint) — click math skips them
+	dockOffsets  []int     // screen-row offset of each task row within the strip (expanded rows shift rows below)
+	taskVP       *taskView // open per-task detail view; nil when on the main thread
+	dockRows     int       // rendered dock height; layout() maintains it for click math
 
 	rew    *rewindState  // open rewind picker (double-esc while idle)
 	esc1   bool          // first idle esc pressed; second opens the rewind picker
@@ -498,24 +498,31 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// ABSOLUTE screen coordinates — map a few rows off (drag-select landing
 	// two lines above the pointer).
 	fmt.Fprint(os.Stdout, "\x1b[9999;1H")
-	if m.mouseOn && cfg.UIMode != opencodeMode {
-		// Inline mode only: enable mouse reporting now (no alt screen will
-		// reset it). Opencode mode enables it from Init() AFTER the alt
-		// screen is up — entering ?1049 clears the terminal's mouse-tracking
-		// modes, so an enable written here never survived startup (only
-		// re-toggling /mouse at runtime brought it back).
-		enableClickWheelMouse(os.Stdout)
+	if cfg.UIMode == opencodeMode {
+		// Opencode mode owns the whole screen: mouse and kitty keyboard
+		// enables are (re)applied from Init() AFTER the alt screen is up —
+		// entering ?1049 clears the terminal's mouse-tracking modes and hands
+		// the kitty keyboard stack to the alt screen's fresh, empty stack, so
+		// anything written here before p.Run() would never take effect.
+	} else {
+		if m.mouseOn {
+			// Inline mode: enable mouse reporting now (no alt screen will
+			// reset it).
+			enableClickWheelMouse(os.Stdout)
+		}
+		// Inline mode only: push the kitty keyboard-enhancement flags so
+		// shift+enter arrives as a distinguishable CSI instead of a plain CR
+		// (see enableKeyboardEnhancement). No ?1049h happens, so the push
+		// survives and the matching pop on exit restores the prior flags.
+		enableKeyboardEnhancement(os.Stdout)
 	}
-	// Push the kitty keyboard-enhancement flags so shift+enter arrives as a
-	// distinguishable CSI instead of a plain CR (see enableKeyboardEnhancement).
-	// Written before p.Run(): the kitty stack survives the alt-screen entry,
-	// and the matching pop on exit restores the terminal's prior flags.
-	enableKeyboardEnhancement(os.Stdout)
 	// Inside tmux the kitty push does NOT reach the pane's key handling —
 	// tmux gates modifier-key translation on its own extended-keys option
 	// (off = shift+enter arrives as plain CR, indistinguishable from enter).
-	// Enable it on this pane (with the csi-u format whip's isShiftEnterSeq
-	// matches) and restore the prior value on exit.
+	// Enable it (with the csi-u format whip's isShiftEnterSeq matches) and
+	// restore/unset the prior value on exit. NOTE: extended-keys is
+	// server-scoped, so this flips it for the whole tmux server (see
+	// tmuxEnableExtendedKeys).
 	tmuxExtKeysRestore := tmuxEnableExtendedKeys()
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
@@ -542,11 +549,22 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	tuiRunning = false
 	// The UI has exited (quit, /quit, or a signal). We enabled click/wheel mouse
 	// reporting directly on the TTY (bubbletea doesn't manage it), so release it.
-	if m.mouseOn {
+	if m.mouseOn && cfg.UIMode != opencodeMode {
 		disableClickWheelMouse(os.Stdout)
 	}
-	// Pop the keyboard-enhancement flags pushed at startup.
-	disableKeyboardEnhancement(os.Stdout)
+	// Inline mode: pop the keyboard-enhancement flags pushed at startup before
+	// p.Run() (no ?1049h happened, so they're on the main screen's stack and
+	// this pop returns them). Opencode mode needs NO pop: the kitty keyboard
+	// stack is PER-SCREEN (kitty/foot/WezTerm/Ghostty each keep a separate
+	// stack for the normal and alt screens), so the push landed on the alt
+	// screen's fresh stack — and bubbletea's Program.Run() leaves the alt
+	// screen before returning (restoreTerminalState → renderer.exitAltScreen
+	// sends ?1049l, which switches to the main screen's stack), discarding it.
+	// A post-Run pop here would hit the MAIN screen's stack and pop an entry
+	// that isn't ours.
+	if cfg.UIMode != opencodeMode {
+		disableKeyboardEnhancement(os.Stdout)
+	}
 	// Restore tmux's extended-keys on this pane to whatever it was before.
 	if tmuxExtKeysRestore != nil {
 		tmuxExtKeysRestore()
@@ -681,10 +699,15 @@ func disableClickWheelMouse(w *os.File) {
 // die. Disambiguate alone leaves ctrl+letter untouched while reporting
 // shift+enter distinctly.
 //
-// The push happens BEFORE p.Run() so it survives the alt-screen entry (the
-// kitty stack is independent of ?1049); the pop restores the terminal's
-// prior flags on exit. Inside tmux the escape must reach the OUTER terminal,
-// so it's wrapped in DCS passthrough the same way the OSC 11 theme query is.
+// The kitty keyboard stack is PER-SCREEN (kitty/foot/WezTerm/Ghostty each
+// keep a separate stack for the normal and alt screens; entering ?1049h hands
+// the terminal to the alt screen's fresh stack). So the push must happen on
+// the SAME screen where whip runs. Inline mode (no alt screen) pushes before
+// p.Run() and pops after, as the comment below; opencode mode pushes from
+// Init() once the alt screen is up and does NOT pop — the alt screen's stack
+// is discarded by the ?1049l that bubbletea's Program.Run() emits before it
+// returns. Inside tmux the escape must reach the OUTER terminal, so it's
+// wrapped in DCS passthrough the same way the OSC 11 theme query is.
 func enableKeyboardEnhancement(w *os.File) {
 	fmt.Fprint(w, tmuxPassthrough("\x1b[>1u"))
 }
@@ -705,12 +728,14 @@ func tmuxPassthrough(seq string) string {
 	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
 }
 
-// tmuxEnableExtendedKeys turns on tmux's extended-keys (csi-u format) for
-// whip's own pane and returns a restore func. tmux gates modifier-key
-// translation on this option: with it off (the user's config here),
-// shift+enter arrives as plain CR and whip cannot tell it from enter. This is
-// pane-scoped, so it never touches the user's global/server setting; the
-// restore func puts back whatever value the pane had. Returns nil outside
+// tmuxEnableExtendedKeys turns on tmux's extended-keys (csi-u format) so
+// whip's JSON input actually reaches the pane and returns a restore func.
+// tmux gates modifier-key translation on this option: with it off (the user's
+// config here), shift+enter arrives as plain CR and whip cannot tell it from
+// enter. NOTE: extended-keys is SERVER-scoped (it lives in
+// OPTIONS_TABLE_SERVER), so "-p" does NOT scope it to this pane — the set
+// flips it for the whole tmux server. The restore func (or unset, when the
+// prior value was empty) puts the server-wide value back. Returns nil outside
 // tmux or when tmux can't be reached.
 func tmuxEnableExtendedKeys() func() {
 	if !inTmuxEnv() {
@@ -728,17 +753,35 @@ func tmuxEnableExtendedKeys() func() {
 	set := func(opt, val string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		// -p scopes to the current pane (this process's TMUX_PANE). Best-effort:
-		// a failure just means shift+enter stays a plain CR in this tmux.
+		// Server-scoped (OPTIONS_TABLE_SERVER) — flips the option for the whole
+		// tmux server, not just this pane. Best-effort: a failure just means
+		// shift+enter stays a plain CR inside this tmux.
 		_ = exec.CommandContext(ctx, "tmux", "set", "-p", opt, val).Run()
+	}
+	// unset restores a server option with no recorded value (option unset, or
+	// extended-keys-format which only exists from tmux 3.5+): `set ... ""`
+	// errors with "unknown value" and would leave the option ON after whip
+	// exits, so use `set -u` for those.
+	unset := func(opt string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = exec.CommandContext(ctx, "tmux", "set", "-u", "-p", opt).Run()
 	}
 	prevKeys := read("extended-keys")
 	prevFormat := read("extended-keys-format")
 	set("extended-keys", "on")
 	set("extended-keys-format", "csi-u")
 	return func() {
-		set("extended-keys", prevKeys)
-		set("extended-keys-format", prevFormat)
+		if prevKeys == "" {
+			unset("extended-keys")
+		} else {
+			set("extended-keys", prevKeys)
+		}
+		if prevFormat == "" {
+			unset("extended-keys-format")
+		} else {
+			set("extended-keys-format", prevFormat)
+		}
 	}
 }
 
@@ -1516,15 +1559,19 @@ func (m *model) viewportView() string {
 	return strings.Join(lines[:last+1], "\n")
 }
 
-// mouseInitMsg is sent once from Init (opencode mode) to enable mouse
-// reporting AFTER bubbletea has entered the alt screen — writing the enable
-// before p.Run() is clobbered by the ?1049h alt-screen entry.
-type mouseInitMsg struct{}
+// terminalInitMsg is sent once from Init (opencode mode) to re-apply terminal
+// features AFTER bubbletea has entered the alt screen — writing the enables
+// before p.Run() is clobbered: entering ?1049 clears the terminal's mouse
+// modes and hands the kitty keyboard stack to the alt screen's fresh stack.
+type terminalInitMsg struct{}
 
 func (m *model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textarea.Blink}
-	if m.mouseOn && m.uiMode == opencodeMode {
-		cmds = append(cmds, func() tea.Msg { return mouseInitMsg{} })
+	if m.uiMode == opencodeMode {
+		// Opencode mode owns the whole screen, so once the alt screen is up we
+		// re-apply keyboard enhancement (opencode always wants shift+enter) and
+		// mouse reporting (only when the mouse is on) from the handler.
+		cmds = append(cmds, func() tea.Msg { return terminalInitMsg{} })
 	}
 	if inTmuxEnv() {
 		// live theme tracking: tmux knows the outer terminal's light/dark
@@ -1903,13 +1950,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
-	case mouseInitMsg:
+	case terminalInitMsg:
 		// Alt screen is up by now (Init commands run after the renderer
-		// starts) — the mouse enable finally sticks.
-		enableClickWheelMouse(os.Stdout)
-		// all-motion tracking (?1003, a superset of ?1002) so passive mouse
-		// moves drive opencode's hover highlight on message cards
-		fmt.Fprint(os.Stdout, "\x1b[?1003h")
+		// starts), so these stick: the kitty keyboard-enhancement push goes on
+		// the alt screen's fresh kitty stack (per-screen), and the mouse
+		// enables survive because they're written after ?1049h cleared them.
+		enableKeyboardEnhancement(os.Stdout)
+		if m.mouseOn {
+			// all-motion tracking (?1003, a superset of ?1002) so passive mouse
+			// moves drive opencode's hover highlight on message cards
+			fmt.Fprint(os.Stdout, "\x1b[?1003h")
+			enableClickWheelMouse(os.Stdout)
+		}
 		return m, nil
 
 	case initialPromptMsg:

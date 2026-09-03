@@ -58,33 +58,36 @@ func TestDisableClickWheelMouse(t *testing.T) {
 	}
 }
 
-// The startup mouse enable must run AFTER bubbletea enters the alt screen:
-// entering ?1049 clears the terminal's mouse-tracking modes, so writing the
-// enable before p.Run() (the old code) silently dropped it — mouse only
-// worked after re-toggling /mouse. Init() schedules the post-altscreen
-// enable (mouseInitMsg) only when opencode mode starts with the mouse on.
-func TestMouseInitMsgScheduledOnlyForOpencode(t *testing.T) {
+// The startup terminal enable (mouse, and kitty keyboard in opencode mode)
+// must run AFTER bubbletea enters the alt screen: entering ?1049 clears the
+// terminal's mouse-tracking modes AND hands the kitty keyboard stack to the
+// alt screen's fresh stack, so writing the enables before p.Run() (the old
+// code) silently dropped them — mouse only worked after re-toggling /mouse.
+// Init() schedules the post-altscreen enable (terminalInitMsg) for opencode
+// mode (regardless of mouse) so the kitty push ALWAYS lands on the live alt
+// screen; inline mode has no alt screen, so Run() writes directly.
+func TestTerminalInitMsgScheduledOnlyForOpencode(t *testing.T) {
 	m := &model{input: newInput(), mouseOn: true, uiMode: opencodeMode}
-	if !initSendsMouseMsg(m) {
-		t.Error("opencode + mouseOn: Init must schedule the post-altscreen mouse enable")
-	}
-
-	m = &model{input: newInput(), mouseOn: true} // inline mode: Run() enables directly
-	if initSendsMouseMsg(m) {
-		t.Error("inline mode: Init must NOT schedule the mouse enable (Run writes it pre-start)")
+	if !initSendsTerminalMsg(m) {
+		t.Error("opencode + mouseOn: Init must schedule the post-altscreen terminal enable")
 	}
 
 	m = &model{input: newInput(), mouseOn: false, uiMode: opencodeMode}
-	if initSendsMouseMsg(m) {
-		t.Error("mouse off: Init must not schedule the enable")
+	if !initSendsTerminalMsg(m) {
+		t.Error("opencode + mouse off: Init must still schedule the terminal enable (kitty push always needed)")
+	}
+
+	m = &model{input: newInput(), mouseOn: true} // inline mode: Run() enables directly
+	if initSendsTerminalMsg(m) {
+		t.Error("inline mode: Init must NOT schedule the terminal enable (Run writes it pre-start)")
 	}
 }
 
-// initSendsMouseMsg runs m.Init()'s commands and reports whether any
-// produces a mouseInitMsg. Commands are run concurrently: tea.Batch kicks
+// initSendsTerminalMsg runs m.Init()'s commands and reports whether any
+// produces a terminalInitMsg. Commands are run concurrently: tea.Batch kicks
 // every command off in its own goroutine (Init also carries a 10s theme-poll
 // tick under TMUX — executing it inline would block the test).
-func initSendsMouseMsg(m *model) bool {
+func initSendsTerminalMsg(m *model) bool {
 	cmd := m.Init()
 	if cmd == nil {
 		return false
@@ -96,7 +99,7 @@ func initSendsMouseMsg(m *model) bool {
 	msg := cmd()
 	batch, ok := msg.(tea.BatchMsg)
 	if !ok {
-		_, ok = msg.(mouseInitMsg)
+		_, ok = msg.(terminalInitMsg)
 		return ok
 	}
 	for _, c := range batch {
@@ -108,7 +111,7 @@ func initSendsMouseMsg(m *model) bool {
 	for range batch {
 		select {
 		case msg := <-res:
-			if _, ok := msg.(mouseInitMsg); ok {
+			if _, ok := msg.(terminalInitMsg); ok {
 				return true
 			}
 		case <-time.After(2 * time.Second):
@@ -118,10 +121,11 @@ func initSendsMouseMsg(m *model) bool {
 	return false
 }
 
-// The mouseInitMsg handler writes the enable escapes to the TTY — with SGR
-// coords + button-motion, then all-motion for opencode's hover. Verified
-// here against a pipe by substituting stdout.
-func TestMouseInitMsgEnablesMouse(t *testing.T) {
+// The terminalInitMsg handler writes the kitty keyboard-enhancement push and
+// mouse enables (if mouseOn) to the TTY — with SGR coords + button-motion,
+// then all-motion for opencode's hover. Verified here against a pipe by
+// substituting stdout.
+func TestTerminalInitMsgEnablesTerminal(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +135,7 @@ func TestMouseInitMsgEnablesMouse(t *testing.T) {
 	defer func() { os.Stdout = orig }()
 
 	m := &model{input: newInput(), mouseOn: true, uiMode: opencodeMode}
-	tm, _ := m.Update(mouseInitMsg{})
+	tm, _ := m.Update(terminalInitMsg{})
 	_ = tm
 	w.Close()
 
@@ -139,8 +143,11 @@ func TestMouseInitMsgEnablesMouse(t *testing.T) {
 	_ = r.SetReadDeadline(time.Now().Add(2 * time.Second))
 	n, _ := r.Read(buf)
 	got := string(buf[:n])
+	if !strings.Contains(got, "\x1b[>1u") {
+		t.Errorf("terminalInitMsg must push kitty keyboard-enhancement flag, got %q", got)
+	}
 	if !strings.Contains(got, "\x1b[?1002h") || !strings.Contains(got, "\x1b[?1006h") {
-		t.Errorf("mouseInitMsg must enable click+wheel+drag mouse, got %q", got)
+		t.Errorf("terminalInitMsg must enable click+wheel+drag mouse, got %q", got)
 	}
 	if !strings.Contains(got, "\x1b[?1003h") {
 		t.Errorf("opencode mode must also enable all-motion ?1003h for hover, got %q", got)
@@ -158,7 +165,7 @@ func TestRunSourceKeepsMouseEnableInlineOnly(t *testing.T) {
 	}
 	// the pre-start block: bottom-anchor write followed by the mouse enable
 	// gated to inline mode
-	if !strings.Contains(string(src), "if m.mouseOn && cfg.UIMode != opencodeMode {") {
-		t.Error("Run()'s pre-start mouse enable must be gated to inline mode (opencode enables from Init, post-altscreen)")
+	if !strings.Contains(string(src), "// Inline mode: enable mouse reporting now (no alt screen will") {
+		t.Error("Run()'s inline-branch mouse enable must live behind the alt-screen gate (opencode enables from Init, post-altscreen)")
 	}
 }

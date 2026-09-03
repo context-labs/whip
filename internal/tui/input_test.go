@@ -120,17 +120,25 @@ func TestTmuxPassthroughOutsideTmux(t *testing.T) {
 	}
 }
 
-// Run must push the enhancement before p.Run() (so the alt-screen entry can't
-// clobber it) and pop it after — a source-level pin guarding the wiring.
+// Run must push the enhancement before p.Run() in inline mode (no ?1049h, so
+// it survives) and pop after — and opencode mode must route the push through
+// the post-altscreen Init handler instead (its per-screen kitty stack means a
+// pre-Run push never lands) — a source-level pin guarding the wiring.
 func TestKeyboardEnhancementWiredIntoRun(t *testing.T) {
 	src, err := os.ReadFile("tui.go")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// inline-mode push before p.Run(), pop after.
 	if !strings.Contains(string(src), "enableKeyboardEnhancement(os.Stdout)") {
-		t.Error("Run must push keyboard enhancement at startup")
+		t.Error("Run must push keyboard enhancement at startup (inline mode)")
 	}
 	if !strings.Contains(string(src), "disableKeyboardEnhancement(os.Stdout)") {
-		t.Error("Run must pop keyboard enhancement on exit")
+		t.Error("Run must pop keyboard enhancement on exit (inline mode)")
+	}
+	// opencode mode: the push is unconditionally scheduled via the Init/msg
+	// path (post-altscreen), not just when the mouse is on.
+	if !strings.Contains(string(src), "terminalInitMsg{}") {
+		t.Error("opencode mode must schedule the post-altscreen terminal init push")
 	}
 }

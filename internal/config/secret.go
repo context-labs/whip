@@ -31,15 +31,21 @@ const SecretCmdTimeout = 5 * time.Second
 // ExpandTemplate instead.
 func ResolveSecret(v string) (string, error) {
 	switch {
-	case strings.HasPrefix(v, "${") && strings.HasSuffix(v, "}"):
+	case strings.HasPrefix(v, "${") && strings.HasSuffix(v, "}") && isEnvRefBody(v[2:len(v)-1]):
 		name := v[2 : len(v)-1]
 		if key, def, found := strings.Cut(name, ":-"); found {
+			if !isEnvName(key) {
+				return "", fmt.Errorf("secret reference ${%s}: invalid variable name %q", name, key)
+			}
 			if val := os.Getenv(key); val != "" {
 				return val, nil
 			}
 			return os.Expand(def, os.Getenv), nil
 		}
 		if key, def, found := strings.Cut(name, "-"); found {
+			if !isEnvName(key) {
+				return "", fmt.Errorf("secret reference ${%s}: invalid variable name %q", name, key)
+			}
 			if _, ok := os.LookupEnv(key); ok {
 				return os.Getenv(key), nil
 			}
@@ -49,7 +55,7 @@ func ResolveSecret(v string) (string, error) {
 			return val, nil
 		}
 		return "", fmt.Errorf("secret reference ${%s}: environment variable unset or empty", name)
-	case strings.HasPrefix(v, "$") && len(v) > 1 && !strings.ContainsAny(v[1:], " \t"):
+	case strings.HasPrefix(v, "$") && len(v) > 1 && !strings.ContainsAny(v[1:], " \t") && isEnvName(v[1:]):
 		name := v[1:]
 		if val := os.Getenv(name); val != "" {
 			return val, nil
@@ -74,14 +80,33 @@ func ResolveSecret(v string) (string, error) {
 // IsWholeRef reports whether a value is nothing but a single variable
 // reference ("$NAME", "${NAME}") or a "!cmd" — the forms ResolveSecret
 // treats strictly. Anything else is a literal to ResolveSecret.
+//
+// The body must be a single valid reference (NAME, NAME:-def, NAME-def):
+// multi-reference templates like "${A}${B}" or compound values like
+// "$HOME/bin:$PATH" are NOT whole refs — ResolveSecret would treat the
+// middle as one var name and error, and ResolveEnvMap would then drop a
+// value ExpandTemplate expands fine. Those fall through to ExpandTemplate.
 func IsWholeRef(v string) bool {
 	switch {
 	case strings.HasPrefix(v, "${") && strings.HasSuffix(v, "}"):
-		return len(v) > 3
+		return len(v) > 3 && isEnvRefBody(v[2:len(v)-1])
 	case strings.HasPrefix(v, "$") && len(v) > 1:
-		return !strings.ContainsAny(v[1:], " \t")
+		return !strings.ContainsAny(v[1:], " \t") && isEnvName(v[1:])
 	}
 	return false
+}
+
+// isEnvRefBody reports whether s is the body of a single valid ${...}
+// reference: an env name, optionally with a ":-default" or "-default" suffix
+// (the default itself may be arbitrary text, including further references).
+func isEnvRefBody(s string) bool {
+	if key, _, found := strings.Cut(s, ":-"); found {
+		return isEnvName(key)
+	}
+	if key, _, found := strings.Cut(s, "-"); found {
+		return isEnvName(key)
+	}
+	return isEnvName(s)
 }
 
 // ExpandTemplate expands embedded "$VAR"/"${VAR}" references inside a larger
@@ -217,7 +242,11 @@ func ResolveEnvMap(env map[string]string) (map[string]string, error) {
 			rv, err = ExpandTemplate(v)
 		}
 		if err != nil {
-			continue // dropped, not fatal: sibling vars still apply
+			// Dropped, not fatal: sibling vars still apply. Log the drop (key
+			// name only, never the value — it may hold a secret) so a vanished
+			// env var is diagnosable instead of silently missing.
+			logf("mcp.env", "dropping env %s: %v", k, err)
+			continue
 		}
 		out[k] = rv
 	}
