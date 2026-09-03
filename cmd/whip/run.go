@@ -9,6 +9,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -27,6 +29,27 @@ import (
 	"github.com/context-labs/whip/internal/tui"
 )
 
+// resolveCacheKey picks the prompt_cache_key for a run: an explicit -cache-key
+// wins; otherwise the session id (stable per resumable session); otherwise a
+// fresh per-run key so a one-off (-no-session) run still caches its own turns.
+func resolveCacheKey(explicit, sessionID string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if sessionID != "" {
+		return sessionID
+	}
+	return "run-" + randHex(8)
+}
+
+func randHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "run"
+	}
+	return hex.EncodeToString(b)
+}
+
 func runCLI(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	format := fs.String("format", "text", "output format: text (stream the reply) or json (newline-delimited event stream)")
@@ -39,6 +62,7 @@ func runCLI(args []string) error {
 	timeoutFlag := fs.Duration("timeout", 0, "wall-clock cap on the whole run (e.g. 30s, 5m); 0 = no timeout")
 	quietFlag := fs.Bool("quiet", false, "suppress the stderr tool/session notes (clean stdout for -format json piping)")
 	noSessionFlag := fs.Bool("no-session", false, "run without persisting a session (one-off jobs don't clutter whip sessions)")
+	cacheKeyFlag := fs.String("cache-key", "", "prompt_cache_key for provider prefix caching; defaults to the session id, else a per-run key. Pass a STABLE value (e.g. repo/reviewer) to reuse the cached system prefix across runs.")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: whip run [--format text|json] [-m model] [-p provider] [-resume id] [-system text | -system-file path] [-max-turns N] [-timeout dur] [-quiet] [-no-session] \"prompt\"")
 		fs.PrintDefaults()
@@ -150,6 +174,12 @@ func runCLI(args []string) error {
 			}
 		}
 	}
+
+	// Prompt-cache key: stamped as prompt_cache_key so the provider caches the
+	// message prefix across turns (and across runs when the caller passes a
+	// stable key). -no-session left this empty, so headless runs never cached
+	// their own turns — a per-run fallback fixes that; subagents scope under it.
+	ag.Client.CacheKey = resolveCacheKey(*cacheKeyFlag, sessionID)
 
 	// ctrl+c cancels the turn; -timeout caps the whole run.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
