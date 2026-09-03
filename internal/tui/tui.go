@@ -516,16 +516,6 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		// survives and the matching pop on exit restores the prior flags.
 		enableKeyboardEnhancement(os.Stdout)
 	}
-	// Inside tmux, shift+enter only reaches the pane when tmux's extended-keys
-	// is on — with it off (tmux's default), tmux reports "standard keys only"
-	// and collapses S-Enter to a plain CR (verified live; the kitty push can't
-	// override tmux's own reporting gate). Enable it, keeping tmux's default
-	// xterm format (whip's isShiftEnterSeq matches the 27;2;13~ form — do NOT
-	// switch to csi-u, which changes key reporting server-wide and broke
-	// drag-to-copy). extended-keys is SERVER-scoped (OPTIONS_TABLE_SERVER), so
-	// this unavoidably flips it for the whole tmux server; the restore func
-	// puts back the prior value on exit so the user's config is untouched.
-	tmuxExtKeysRestore := tmuxEnableExtendedKeys()
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
 	}
@@ -567,10 +557,6 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	if cfg.UIMode != opencodeMode {
 		disableKeyboardEnhancement(os.Stdout)
 	}
-	// Put tmux's extended-keys back to whatever it was before whip started.
-	if tmuxExtKeysRestore != nil {
-		tmuxExtKeysRestore()
-	}
 	// Shut MCP servers down first (graceful: stdin close → SIGTERM → SIGKILL)
 	// so a clean stdio server never becomes a KillAll target.
 	if m.mcpMgr != nil {
@@ -610,6 +596,13 @@ func (m *model) startupReport() {
 		// (enter). Say so up front instead of failing silently; ctrl+j and
 		// alt+enter still insert newlines.
 		m.append(dimStyle.Render("◐ shift+enter unavailable over mosh — mosh collapses it to enter (no keyboard-protocol support); use ctrl+j or alt+enter for a newline"))
+	} else if inTmuxEnv() && !tmuxExtKeysCheck() {
+		// In tmux, shift+enter reaches whip only if extended-keys is on AND
+		// tmux knows the client speaks extended keys (terminal-features
+		// extkeys). Both are server/client config whip can't safely set
+		// per-pane — mutating them server-wide churns global state and broke
+		// drag-to-copy. Warn with the one-time opt-in instead.
+		m.append(dimStyle.Render("◐ shift+enter needs tmux config — add to ~/.tmux.conf and reattach: set -s extended-keys on ; set -as terminal-features 'xterm*:extkeys' (meanwhile ctrl+j / alt+enter insert newlines)"))
 	}
 	sk, problems := skills.ScanDetailed(skills.DefaultDirs()...)
 	var b strings.Builder
@@ -738,40 +731,27 @@ func tmuxPassthrough(seq string) string {
 	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
 }
 
-// tmuxEnableExtendedKeys turns on tmux's extended-keys so shift+enter reaches
-// whip's pane, and returns a restore func. With extended-keys off (tmux's
-// default), tmux reports "standard keys only" and collapses S-Enter to a
-// plain CR — whip cannot tell it from enter. extended-keys is SERVER-scoped
-// (OPTIONS_TABLE_SERVER), so this flips it for the whole tmux server, not just
-// whip's pane; the restore func puts the prior value back on exit so the
-// user's config is never permanently changed.
-//
-// ONLY extended-keys is set. The FORMAT is left at tmux's default (xterm):
-// whip's isShiftEnterSeq matches the xterm 27;2;13~ form, and switching to
-// csi-u changes key reporting for every pane in the server — that is what
-// broke drag-to-copy, not extended-keys itself. Returns nil outside tmux or
-// when tmux can't be reached.
-func tmuxEnableExtendedKeys() func() {
+// tmuxExtendedKeysReady reports whether tmux is configured to pass shift+enter
+// through to the pane: extended-keys must be on AND the client's
+// terminal-features must advertise extkeys (so tmux knows the outer terminal
+// speaks modified-key sequences). Both are user-owned config — whip reads
+// them to decide whether to warn, never mutates them.
+func tmuxExtendedKeysReady() bool {
 	if !inTmuxEnv() {
-		return nil
+		return true // not tmux: the kitty push path applies
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{extended-keys}").Output()
+	out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{extended-keys} #{client_termfeatures}").Output()
 	if err != nil {
-		return nil
+		return true // can't tell: don't nag
 	}
-	prev := strings.TrimSpace(string(out))
-	if prev == "on" || prev == "always" {
-		return func() {} // already on: nothing to change, nothing to restore
+	s := string(out)
+	keys := strings.Fields(s)
+	if len(keys) == 0 || (keys[0] != "on" && keys[0] != "always") {
+		return false
 	}
-	set := func(val string) {
-		c, cc := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cc()
-		_ = exec.CommandContext(c, "tmux", "set", "-g", "extended-keys", val).Run()
-	}
-	set("on")
-	return func() { set(prev) } // restore the exact prior value (off, or empty)
+	return strings.Contains(s, "extkeys")
 }
 
 // (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whip — tmux's
@@ -1714,6 +1694,11 @@ func procHasAncestor(pid int, want string) bool {
 // environment the developer's machine has (including mosh), so the startup
 // report can't depend on the real answer. Reassigned in tests.
 var moshDetect = detectMosh
+
+// tmuxExtKeysCheck is the test seam for tmuxExtendedKeysReady — tests run
+// inside tmux on dev machines, so the shift+enter warning can't depend on the
+// real server config. Reassigned in tests.
+var tmuxExtKeysCheck = tmuxExtendedKeysReady
 
 // inMoshEnv reports whether whip runs under mosh, via the test seam.
 func inMoshEnv() bool { return moshDetect() }

@@ -518,13 +518,14 @@ relay: full device login + key mint, store round-trip, key validation),
   v1.3.10 can't decode, killing ctrl+a/ctrl+e. `isShiftEnterSeq` recognizes
   both the current `?CSI[bytes]?` and the legacy `unknown csi sequence:`
   renders, across the CSI-u, modifyOtherKeys, and kitty-57441 encodings.
-  Inside **tmux**, shift+enter additionally needs tmux's `extended-keys=on` —
-  with it off, tmux reports "standard keys only" and collapses S-Enter to CR
-  regardless of the kitty push. whip enables it (keeping tmux's default xterm
-  format — switching to csi-u changes key reporting server-wide and breaks
-  drag-to-copy) and restores the prior value on exit. Over **mosh** none of
-  this helps — mosh collapses S-Enter before tmux/whip see it — so whip
-  detects mosh and warns (use `ctrl+j`/`alt+enter` there).
+  Inside **tmux**, shift+enter needs user-owned tmux config whip can't safely
+  set for you (it's server/client-scoped and mutating it churns global state /
+  broke drag-to-copy): `set -s extended-keys on` and
+  `set -as terminal-features 'xterm*:extkeys'` in `~/.tmux.conf`, then
+  reattach. whip detects the unworkable config at startup and prints that
+  opt-in instead of failing silently. Over **mosh** none of this helps — mosh
+  collapses S-Enter before tmux/whip see it — so whip detects mosh and warns
+  (use `ctrl-j`/`alt+enter` there).
 - Queueing (enter while busy), steering (empty enter), history recall (↑/↓),
   `@file` mentions, `$skill` invocation, `/goal` loop, `/resume` session
   picker, `/effort` reasoning levels — see the roadmap for the full list.
