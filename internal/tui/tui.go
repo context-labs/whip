@@ -516,14 +516,6 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		// survives and the matching pop on exit restores the prior flags.
 		enableKeyboardEnhancement(os.Stdout)
 	}
-	// Inside tmux the kitty push does NOT reach the pane's key handling —
-	// tmux gates modifier-key translation on its own extended-keys option
-	// (off = shift+enter arrives as plain CR, indistinguishable from enter).
-	// Enable it (with the csi-u format whip's isShiftEnterSeq matches) and
-	// restore/unset the prior value on exit. NOTE: extended-keys is
-	// server-scoped, so this flips it for the whole tmux server (see
-	// tmuxEnableExtendedKeys).
-	tmuxExtKeysRestore := tmuxEnableExtendedKeys()
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
 	}
@@ -564,10 +556,6 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// that isn't ours.
 	if cfg.UIMode != opencodeMode {
 		disableKeyboardEnhancement(os.Stdout)
-	}
-	// Restore tmux's extended-keys on this pane to whatever it was before.
-	if tmuxExtKeysRestore != nil {
-		tmuxExtKeysRestore()
 	}
 	// Shut MCP servers down first (graceful: stdin close → SIGTERM → SIGKILL)
 	// so a clean stdio server never becomes a KillAll target.
@@ -736,62 +724,11 @@ func tmuxPassthrough(seq string) string {
 	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
 }
 
-// tmuxEnableExtendedKeys turns on tmux's extended-keys (csi-u format) so
-// whip's JSON input actually reaches the pane and returns a restore func.
-// tmux gates modifier-key translation on this option: with it off (the user's
-// config here), shift+enter arrives as plain CR and whip cannot tell it from
-// enter. NOTE: extended-keys is SERVER-scoped (it lives in
-// OPTIONS_TABLE_SERVER), so "-p" does NOT scope it to this pane — the set
-// flips it for the whole tmux server. The restore func (or unset, when the
-// prior value was empty) puts the server-wide value back. Returns nil outside
-// tmux or when tmux can't be reached.
-func tmuxEnableExtendedKeys() func() {
-	if !inTmuxEnv() {
-		return nil
-	}
-	read := func(opt string) string {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{"+opt+"}").Output()
-		if err != nil {
-			return ""
-		}
-		return strings.TrimSpace(string(out))
-	}
-	set := func(opt, val string) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		// Server-scoped (OPTIONS_TABLE_SERVER) — flips the option for the whole
-		// tmux server, not just this pane. Best-effort: a failure just means
-		// shift+enter stays a plain CR inside this tmux.
-		_ = exec.CommandContext(ctx, "tmux", "set", "-p", opt, val).Run()
-	}
-	// unset restores a server option with no recorded value (option unset, or
-	// extended-keys-format which only exists from tmux 3.5+): `set ... ""`
-	// errors with "unknown value" and would leave the option ON after whip
-	// exits, so use `set -u` for those.
-	unset := func(opt string) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = exec.CommandContext(ctx, "tmux", "set", "-u", "-p", opt).Run()
-	}
-	prevKeys := read("extended-keys")
-	prevFormat := read("extended-keys-format")
-	set("extended-keys", "on")
-	set("extended-keys-format", "csi-u")
-	return func() {
-		if prevKeys == "" {
-			unset("extended-keys")
-		} else {
-			set("extended-keys", prevKeys)
-		}
-		if prevFormat == "" {
-			unset("extended-keys-format")
-		} else {
-			set("extended-keys-format", prevFormat)
-		}
-	}
-}
+// (No tmux extended-keys manipulation: extended-keys is SERVER-scoped in
+// tmux — OPTIONS_TABLE_SERVER — so a "pane" set flips it for the whole server
+// and leaks into every other pane, breaking their drag-to-copy. There is no
+// pane-local way to enable it, and over mosh shift+enter is collapsed to CR
+// before tmux anyway, so whip leaves the user's tmux config untouched.)
 
 // (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whip — tmux's
 // factory MouseDrag1Pane binding checks mouse_any_flag, which our ?1002 sets,
