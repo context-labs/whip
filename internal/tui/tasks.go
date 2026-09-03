@@ -216,6 +216,7 @@ func (m *model) tasksDock() string {
 	hi = max(hi, min(lo+1, len(tasks))) // always show at least the selected task
 
 	m.dockOffsets = m.dockOffsets[:0]
+	m.dockLo = lo
 	offset := 0
 	for i := lo; i < hi; i++ {
 		t := tasks[i]
@@ -252,6 +253,7 @@ func (m *model) tasksDock() string {
 			}
 		}
 	}
+	m.dockTaskRows = offset
 	if more := len(tasks) - hi; more > 0 {
 		rows = append(rows, dimStyle.Render(fmt.Sprintf("   … +%d more (ctrl+t to browse)", more)))
 	}

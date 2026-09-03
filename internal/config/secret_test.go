@@ -256,3 +256,22 @@ func TestResolveHeader(t *testing.T) {
 		t.Errorf("literal = %q, %v", got, err)
 	}
 }
+
+// A whole-ref default that itself references an unset variable must error,
+// not resolve to "" — the empty value would spawn KEY= (env) or send an empty
+// header, the masking bug lazy resolution exists to remove.
+func TestResolveSecretDefaultUnsetInnerVarErrors(t *testing.T) {
+	t.Setenv("WHIP_OUTER_UNSET", "")
+	os.Unsetenv("WHIP_OUTER_UNSET")
+	os.Unsetenv("WHIP_INNER_UNSET")
+	for _, v := range []string{"${WHIP_OUTER_UNSET:-$WHIP_INNER_UNSET}", "${WHIP_OUTER_UNSET-$WHIP_INNER_UNSET}"} {
+		if got, err := ResolveSecret(v); err == nil {
+			t.Errorf("ResolveSecret(%q) = %q, want error for the unset inner var", v, got)
+		}
+	}
+	// a resolvable inner var still expands
+	t.Setenv("WHIP_INNER_SET", "inner")
+	if got, err := ResolveSecret("${WHIP_OUTER_UNSET:-$WHIP_INNER_SET}"); err != nil || got != "inner" {
+		t.Errorf("default with a set inner var = %q, %v; want inner", got, err)
+	}
+}

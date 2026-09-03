@@ -253,7 +253,9 @@ type model struct {
 	taskSel      int       // selected row in the dock (index into newest-first tasks)
 	taskExpanded bool      // selected dock row renders its recent activity inline (space/click toggles)
 	dockSkip     int       // non-task rows at the dock's top (focused hint) — click math skips them
-	dockOffsets  []int     // screen-row offset of each task row within the strip (expanded rows shift rows below)
+	dockOffsets  []int     // screen-row offset of each VISIBLE task row within the strip (expanded rows shift rows below)
+	dockLo       int       // index (into newest-first tasks) of the first visible dock row: dockOffsets[i] is task dockLo+i
+	dockTaskRows int       // strip rows occupied by task rows (incl. expansion); rows at/after this are the "+N more" counter
 	taskVP       *taskView // open per-task detail view; nil when on the main thread
 	dockRows     int       // rendered dock height; layout() maintains it for click math
 
@@ -2031,15 +2033,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case terminalInitMsg:
-		// Alt screen is up by now (Init commands run after the renderer
-		// starts), so these stick: the kitty keyboard-enhancement push goes on
-		// the alt screen's fresh kitty stack (per-screen), and the mouse
-		// enables survive because they're written after ?1049h cleared them.
+		// The screen switch (?1049h from Init or a runtime /ui toggle, ?1049l
+		// from a toggle back) has landed by now, so these stick: the kitty
+		// keyboard-enhancement push goes on the CURRENT screen's stack
+		// (per-screen), and the mouse enables survive because they're written
+		// after the switch cleared them.
 		enableKeyboardEnhancement(os.Stdout)
 		if m.mouseOn {
-			// all-motion tracking (?1003, a superset of ?1002) so passive mouse
-			// moves drive opencode's hover highlight on message cards
-			fmt.Fprint(os.Stdout, "\x1b[?1003h")
+			if m.uiMode == opencodeMode {
+				// all-motion tracking (?1003, a superset of ?1002) so passive
+				// mouse moves drive opencode's hover highlight on message cards
+				fmt.Fprint(os.Stdout, "\x1b[?1003h")
+			}
 			enableClickWheelMouse(os.Stdout)
 		}
 		return m, nil
@@ -2221,11 +2226,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 					if m.tasksFocus && len(m.dockOffsets) > 0 {
 						row := msg.Y - top
-						// find the last task row whose offset is at/above the click
+						if row >= m.dockTaskRows {
+							// the trailing "… +N more" counter is not a task:
+							// don't let a click on it select the last visible row
+							return m, nil
+						}
+						// find the last visible task row whose offset is at/above
+						// the click; offsets are window-relative, so add the
+						// window base to get the absolute task index
 						sel := m.taskSel
 						for i, off := range m.dockOffsets {
 							if off <= row {
-								sel = i
+								sel = m.dockLo + i
 							}
 						}
 						m.taskSel = min(sel, n-1)

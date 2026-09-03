@@ -1028,3 +1028,46 @@ func TestDockTaskExpandContent(t *testing.T) {
 		t.Fatalf("unknown id expands to nothing, got %q", got)
 	}
 }
+
+// With the dock scrolled (selection past the visible window), dockOffsets are
+// window-relative: a click must map through the window base to the displayed
+// task, not to the newest one. And the trailing "+N more" counter row is not
+// a task — clicking it must not move the selection.
+func TestDockClickMapsThroughScrollWindow(t *testing.T) {
+	srv := sseTextServer(t, "ok")
+	defer srv.Close()
+	m := tasksModel(srv.URL)
+	for i := range 8 {
+		tk := m.agent.StartBackground(fmt.Sprintf("probe-%d", i), "p", agent.SubModel{})
+		defer m.agent.Tasks().Cancel(tk.ID)
+	}
+	m.tasksFocus = true
+	m.taskSel = 6 // scrolls the window so lo > 0
+	m.layout()
+	if m.dockLo == 0 {
+		t.Fatalf("test setup: selection 6 should scroll the window, dockLo=%d", m.dockLo)
+	}
+	lo := m.dockLo
+	top := m.dockTop()
+
+	click := func(y int) {
+		tm, _ := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 5, Y: y})
+		m = tm.(*model)
+	}
+	// the top visible row is task lo, not task 0
+	click(top)
+	if m.taskSel != lo {
+		t.Fatalf("clicking the top visible row should select task %d (window base), got %d", lo, m.taskSel)
+	}
+	// the "+N more" row sits right after the task rows: a click there is inert
+	m.layout()
+	before := m.taskSel
+	dock := stripAll(m.tasksDock())
+	if !strings.Contains(dock, "more") {
+		t.Fatalf("test setup: dock should show the +N more counter, got %q", dock)
+	}
+	click(m.dockTop() + m.dockTaskRows)
+	if m.taskSel != before {
+		t.Fatalf("clicking the +N more row must not change the selection: %d → %d", before, m.taskSel)
+	}
+}
