@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -187,9 +188,7 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 		// var behind a header is unset (codex prefers the env value, but falls
 		// back to the literal rather than dropping the header).
 		c.Headers = envHeaders
-		for k, v := range litHeaders {
-			c.Headers[k] = v
-		}
+		maps.Copy(c.Headers, litHeaders)
 		// "$VAR" references in env/headers stay REFERENCES: they resolve at
 		// connect time via config.ResolveSecret (defaultTransport). Expanding
 		// here would bake a var that's missing at import time into an empty

@@ -189,7 +189,7 @@ func TestExpandTemplate(t *testing.T) {
 		{"dash default on unset", "${WHIP_TMPL_UNSET-fallback}", "fallback", false},
 		{"set var ignores default", "${WHIP_TMPL_KEY:-fallback}", "tok", false},
 		{"dollar digits literal", "price is $5", "price is $5", false},
-		{"dollar dollar escape", "pa$$word", "pa$word", false},
+		{"double dollar escape", "pa$$word", "pa$word", false},
 		{"trailing dollar literal", "ends with $", "ends with $", false},
 		{"unset without default errors", "Bearer $WHIP_TMPL_UNSET", "", true},
 		{"unterminated brace errors", "Bearer ${WHIP_TMPL_KEY", "", true},

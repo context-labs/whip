@@ -677,7 +677,7 @@ func TestDockScrollsWithSelection(t *testing.T) {
 	// counter shared across tests in the process, so count the rendered task
 	// rows instead of pinning a specific ID at the window's edge.
 	rendered := 0
-	for _, line := range strings.Split(dock, "\n") {
+	for line := range strings.Lines(dock) {
 		if strings.Contains(line, "probe-") && !strings.Contains(line, "more") {
 			rendered++
 		}
