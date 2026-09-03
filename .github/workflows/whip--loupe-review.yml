@@ -28,7 +28,6 @@ concurrency:
 
 env:
   INFISICAL_IDENTITY_ID: "46f034e9-14e7-49ad-b3f7-f0d8ad8a989f" # Github-Ci
-  WHIP_VERSION: "v0.5.5"
 
 jobs:
   loupe:
@@ -41,11 +40,15 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v5
-      - name: Install whip (release binary)
+      - name: Install whip (latest release)
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          tag=$(gh release view --repo context-labs/whip --json tagName -q .tagName)
+          echo "Installing whip $tag"
           curl -fsSL -o whip \
-            "https://github.com/context-labs/whip/releases/download/${WHIP_VERSION}/whip-linux-x64"
+            "https://github.com/context-labs/whip/releases/download/${tag}/whip-linux-x64"
           chmod +x whip
           sudo mv whip /usr/local/bin/whip
           whip --version || true
