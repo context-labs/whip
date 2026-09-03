@@ -4,7 +4,7 @@ Everything that used to crowd the top-level README: full setup, config
 reference, MCP, browser/computer-use, and the map of how whip works.
 
 Start with [architecture.md](architecture.md) for the moving parts and
-[rlm-runtime.md](rlm-runtime.md) for the default runtime mode, limits, recovery,
+[rlm-runtime.md](rlm-runtime.md) for the recursive runtime, limits, recovery,
 and troubleshooting.
 
 ## Install
@@ -55,28 +55,16 @@ whip -m kimi-k3-fast -p inference   # pick model AND provider
 
 `task --list` shows the rest (build, test, acceptance, fmt, vet, tidy).
 
-In-session: `/model <name> [provider]`, `/tasks` (background subagents), `/clear`, `/help`, `/quit`. ctrl+c once interrupts; ctrl+c twice quits (and kills any agent-spawned child processes).
-
-Classic tool batches run in **parallel** (per-path file-mutation coordination
-keeps edits to the same file serial). The `subagent` tool supports
-`background: true`; RLM sessions use `agents.spawn` for the same durable child
-lifecycle.
+In-session: `/model <name> [provider]`, `/agents`, `/clear`, `/help`, and
+`/quit`. ctrl+c once interrupts; twice quits. The model creates retained
+children with `agents.spawn` inside `rlm_exec`.
 
 See [features.md](features.md) for the full feature map and [concurrency.md](concurrency.md) for the channel design.
 
 ## Config — `~/.whip/config.json`
 
-New sessions use RLM mode unless explicitly disabled. Existing sessions keep
-their persisted mode. To create Classic sessions instead:
-
-```json
-{
-  "rlm": { "enabled": false }
-}
-```
-
-RLM worker limits are configurable under the same block; see
-[rlm-runtime.md](rlm-runtime.md#configuration-and-modes).
+RLM worker limits are configurable under the `rlm` block; there is no runtime
+mode switch. See [rlm-runtime.md](rlm-runtime.md#limits).
 
 Models are routed to providers: a model lists the providers that serve it, and
 you can switch providers without touching the model. Written with defaults for
@@ -120,8 +108,8 @@ in `~/.inf/config.json` by the `inf` CLI.
 
 ## MCP
 
-whip connects to MCP servers and their tools appear in the agent as
-`mcp__<server>__<tool>`. Three config styles all work — whip reads your
+whip connects to MCP servers and exposes them through `mcp.list_servers`,
+`mcp.list_tools`, and `mcp.call` inside Starlark. Three config styles all work — whip reads your
 existing setup:
 
 - **claude-style**: a `.mcp.json` in the project root (`{"mcpServers": {...}}`)
@@ -204,14 +192,14 @@ How it works, from the top down:
 - [architecture.md](architecture.md) — the moving parts and how a
   command moves through clients, the daemon, policy, workers, and storage.
   Start here.
-- [rlm-runtime.md](rlm-runtime.md) — RLM and Classic modes, Starlark modules,
+- [rlm-runtime.md](rlm-runtime.md) — recursive sessions, Starlark modules,
   limits, permissions, reconnect/recovery behavior, release verification,
   and troubleshooting.
 - [agent-loop.md](agent-loop.md) — `Agent.Turn` in detail: the
   stream-tools-repeat cycle, parallel tool execution, compaction, steering.
 - [concurrency.md](concurrency.md) — root actors, stable commands, replay,
   fan-out, mutation ordering, child broadcasts, and process lifetime.
-- [tools.md](tools.md) — Classic tools, RLM modules, and their shared
+- [tools.md](tools.md) — the model-facing tool, host modules, and shared
   dispatcher-owned execution rules.
 - [models-providers.md](models-providers.md) — provider routing,
   live model discovery, token/cost bookkeeping.

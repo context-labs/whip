@@ -2,32 +2,32 @@
         ▄ ▄   ▄ ▄ ▄ ▄   ▄
         █ █   █   █ █▀▀▀█▀▀▄
         ▀█▀ ▄▄█   █ █   █
-        whip — a fast coding-agent harness in Go
+        whip — a recursive coding-agent runtime in Go
 ```
 
-An LLM tool-use loop (bash / read / write / edit / subagent), an interactive
-bubbletea session, and provider-routable models. One binary, no runtime,
-config you can read.
+whip gives every model session one interface: `rlm_exec`. Short, bounded
+Starlark cells use host modules for files, shell, MCP, state, artifacts,
+messages, and recursive agents. Root and child sessions have the same model
+loop and tool surface; identity, capabilities, budgets, and ancestry are the
+only differences.
+
+The local daemon owns model turns, side effects, child processes, and durable
+state. The TUI, `whip run`, ACP, and MCP bridge are clients, so disconnecting a
+UI does not abandon or duplicate admitted work.
 
 ## Why whip
 
-- **Agent harnesses should be FAST** — literally as fast as possible. whip is
-  built in Go around that constraint: parallel tool calls, streaming
-  everything, nothing between you and the model but a loop.
-- **Defaults across other harnesses suck.** They all have awesome patterns,
-  but none of them bring them all together. whip cherry-picks the best ideas
-  from pi, opencode, codex, and exo into one opinionated harness
-  (see [docs/roadmap.md](docs/roadmap.md) — every feature cites its source).
-- **Go is great for networking-heavy applications**, and harnesses do a whole
-  lot of networking. whip leans on channels where the TypeScript reference
-  designs hand-roll promises — per-path file locks and background subagents
-  collapse into primitives the compiler checks
-  ([docs/concurrency.md](docs/concurrency.md)).
-- **whip is focused on a future where open-source models are the preferred
-  models.** Keeping up with those models is hard — whip brings you an
-  opinion on what model you should be using: live discovery from every
-  provider's catalog, new models surfaced in the picker, a fast default that
-  tracks the frontier.
+- **Large context stays addressable.** History, corpora, and large outputs are
+  stored behind handles and read in bounded, cited slices.
+- **Delegation is recursive, not a second agent type.** A child can inspect,
+  act, use MCP, create children, and receive later turns through the same
+  interface as the root.
+- **Coordination is explicit.** A child’s ordinary response finishes its local
+  turn. Durable `messages.send/list/read/ack` is the communication contract.
+- **Authority is centralized.** File, shell, browser, computer, and state
+  operations cross daemon-owned capability, budget, and permission checks.
+- **Recovery is conservative.** Stable command IDs deduplicate client retry;
+  committed state survives restart and uncertain effects are not replayed.
 
 ## Install
 
@@ -35,49 +35,44 @@ config you can read.
 curl -fsSL https://raw.githubusercontent.com/context-labs/whip/main/install.sh | sh
 ```
 
-Checksum-verified prebuilt binaries (Linux/macOS, x64/arm64). Or from source
-(Go ≥ 1.27):
+Or build from source with Go 1.27 or newer:
 
 ```sh
 go install github.com/context-labs/whip/cmd/whip@latest
 ```
 
-Then `whip` and you're in. Defaults to inference.net models — any
-OpenAI-compatible endpoint works as a provider. One command wires up
-OpenRouter's whole catalog (`/model` lists every model, no per-model
-config):
+Then run `whip`. It defaults to inference.net models, and any
+OpenAI-compatible endpoint can be configured as a provider.
 
 ```sh
-whip auth openrouter   # masked key prompt — or /auth openrouter in-session
+whip auth openrouter
+whip run "inspect this repository and explain its architecture"
 ```
 
-To update to the latest release later, run `whip update` — it re-runs the
-install script above.
+Drop a `.mcp.json` in a repository to make its servers available through the
+Starlark `mcp` module. Use `/mcp` for connection status and `/agents` for the
+durable recursive tree.
 
-## First things to try
+Manage the local runtime daemon directly when testing or upgrading a checkout:
 
+```sh
+whip daemon status [--json]
+whip daemon start
+whip daemon stop [--timeout 10s] [--force]
+whip daemon restart [--timeout 10s] [--force]
+whip daemon logs [-f] [-n 200]
 ```
-/context-doctor     audit what a fresh session injects, in tokens
-/goal <text>        work until done
-/model              pick a model — type to filter (new) entries come from the
-                    provider catalog, no config needed
-```
 
-Drop a `.mcp.json` in your repo and MCP servers just appear (`/mcp` to see
-them). ctrl+c once interrupts; twice quits.
+`restart` replaces the running daemon with the currently invoked `whip`
+binary. Normal stop and restart checkpoint durable state first; `--force` is
+only a fallback for an unresponsive daemon.
 
-## Docs
+## Documentation
 
-The full setup, config reference, MCP, browser/computer-use, and how
-everything works: **[docs/README.md](docs/README.md)**.
-
-Highlights:
-
-- [docs/architecture.md](docs/architecture.md) — the moving parts, keystroke
-  to tool call
-- [docs/agent-loop.md](docs/agent-loop.md) — one loop, one function
-- [docs/concurrency.md](docs/concurrency.md) — channels where others use
-  promises
-- [docs/features.md](docs/features.md) — full feature map, linked to code
-  and tests
-- [docs/roadmap.md](docs/roadmap.md) — shipped vs. next, sources cited
+- [Manual](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Recursive runtime](docs/rlm-runtime.md)
+- [Tools and modules](docs/tools.md)
+- [Agent loop](docs/agent-loop.md)
+- [Concurrency and ownership](docs/concurrency.md)
+- [Feature map](docs/features.md)

@@ -1,214 +1,198 @@
-# RLM runtime
+# Recursive runtime
 
-whip runs model work in a local background daemon. New sessions use RLM mode
-by default: the root model sees one `rlm_exec` tool and uses bounded Starlark
-cells to inspect context, delegate work, and call daemon-owned capabilities.
-Classic mode keeps the existing JSON tool loop and never starts a Starlark
-worker.
+RLM is whip’s execution model, not an optional mode. Every root and child
+model sees `rlm_exec`; its Starlark cells call daemon-hosted modules. There is
+no direct-tool agent mode and no mode field on a session.
 
-The point is not “more agents” by itself. The runtime keeps large inputs out
-of the root prompt, makes delegation and shared state durable, gives built-in
-file and shell effects one authorization path, and lets work survive a UI or
-protocol client disconnect without guessing whether a command ran twice.
+The design has four goals:
 
-## Ownership and data flow
+1. keep large context available without repeatedly placing it in the prompt;
+2. make recursive delegation use one understandable session abstraction;
+3. make coordination, authority, budgets, and recovery durable;
+4. keep all side effects behind one daemon-owned policy boundary.
 
-The daemon is the only process that opens `sessions.db`, owns live agents,
-invokes capabilities, starts helper processes, and commits runtime state.
-The TUI, `whip run`, `whip sessions`, `whip mcp serve`, and `whip acp` are
-protocol clients. They render, submit stable commands, answer permission
-requests when authorized, and reconstruct state from replay or a snapshot.
+## Session identity and recursion
 
-```mermaid
-flowchart LR
-    C["TUI / run / sessions / MCP / ACP"]
-    P["owner-only Unix protocol"]
-    D["daemon: roots, policy, budgets, journal"]
-    A["Classic Agent.Turn"]
-    R["RLM root model: rlm_exec only"]
-    K["bounded Starlark worker"]
-    X["shared capability dispatcher"]
-    S["SQLite + content store"]
+Root and child nodes use the same `AgentSession` type. Each has:
 
-    C <--> P <--> D
-    D --> A --> X
-    D --> R --> K --> X
-    D <--> S
+- a provider route and reasoning effort;
+- exactly one model-facing tool;
+- one bounded kernel and disposable Starlark global scope;
+- a durable transcript and private state;
+- an agent ID, parent ID, capabilities, and effective budgets.
+
+Capabilities omitted at spawn inherit the parent’s set. An explicit list only
+narrows it. The default maximum depth is two edges. Child names must be unique
+under one parent, and child admission fails before persistence if no kernel
+worker is available.
+
+## Durable communication
+
+Spawn returns immediately with the child’s admission metadata. The child’s
+assistant response stays in its transcript. To communicate, either side uses:
+
+```python
+messages.send(recipient=parent_id, subject="review", body="Findings…", delivery="queued")
+messages.list(status="pending", sender="", limit=50)
+messages.read(id=message_id)
+messages.complete(ids=[message_id])
+messages.defer(id=message_id, seconds=600)
 ```
 
-An RLM turn receives the current request, at most four recent user/assistant
-exchanges, an at-most-8-KiB summary, and handles for full history or supplied
-content. Reads return bounded excerpts with source identifiers and byte spans.
-Interpreter globals can survive between cells in one worker, but they are
-scratch space: only daemon-hosted state, content, messages, artifacts, and
-child records survive a worker restart.
+`agent_messages` is the only "notify" table. A message carries a delivery
+class: `steer` is injected at the recipient's next loop boundary (or starts a
+turn when idle), `queued` gets its own turn when the recipient is idle, and
+`next_turn` rides along with whatever turn comes next. Messages move
+`pending → delivered → done`: a message is `delivered` only when the turn that
+showed it commits (a failed turn shows it again), `messages.read` delivers it
+explicitly, `messages.complete` finishes it, and `messages.defer` returns it
+to `pending` at a later time.
 
-## Runtime files and local security
+Bodies are never pushed whole into another model's prompt. A turn that starts
+with ready mail receives a bounded digest: one line per pending message with
+sender, kind, subject, size, and a 2 KiB excerpt. Child turn results reach the
+parent the same way as runtime-authored `agent.completed`, `agent.failed`, or
+`agent.cancelled` messages with a short preview and an evidence handle for the
+full text; blackboard subscriptions post `state.changed` messages upserted per
+subscription. Readiness is derived from durable state (`queued` inbox rows and
+`pending` mail), so an in-memory wake is only an optimization.
 
-The default home is `~/.whip`; `WHIP_HOME` overrides it. The daemon creates
-the directory owner-only and uses these runtime files:
+Every node's system prompt ends with an identity block (id, name, parent,
+depth, report mode) and a child's first input is `[task from parent <name>
+(<id>)]` plus the prompt, so `messages.send(recipient="parent")` always works;
+a direct relative's name or id is accepted too. Messages travel one hop
+(parent, child, sibling), so there is no `root` alias. Parents steer children with
+`agents.submit(id, text, delivery="steer"|"queued")` and can block briefly on
+`agents.wait(ids, timeout_ms)` (default 10 s, capped at 25 s so it stays under
+the 30 s cell wall clock; the result carries per-child status plus `settled`
+and `timed_out`, never the reply itself). The
+system prompt tells every node that mail wakes it, so the expected pattern
+after a spawn or submit is to end the turn and let the reply arrive as a
+mailbox-triggered turn. `agents.spawn(report=...)` picks how a child's
+turn end reaches the parent: `notice` (default, 160-byte preview plus evidence
+handle), `inline` (4 KiB preview), or `message` (only failures; the child must
+report explicitly). Sender caps: 16 KiB body (use an evidence handle above
+that), 20 pending messages per sender→recipient pair, 30 sends per 10 seconds.
 
-| Path | Purpose |
-| --- | --- |
-| `daemon.sock` | owner-only (`0600`) Unix socket; a long home path uses an owner-specific hashed directory under the system temp directory |
-| `daemon.lock` | non-blocking process lock acquired before SQLite is opened or inspected |
-| `daemon.log` | owner-only detached-daemon stdout/stderr |
-| `sessions.db`, `sessions.db-wal`, `sessions.db-shm` | durable session, command, event, swarm, capability, budget, permission, and reference metadata |
-| `artifacts/sha256/` | immutable content-addressed bodies kept outside SQLite; references and grants live in the database |
+## Context and handles
 
-Clients reject a socket that is not a Unix socket, is not `0600`, or has a
-different owner. Stable client identities and Ed25519 private keys live in the
-OS credential store; there is no plaintext credential fallback. A connection
-must prove possession of its key before it can make a human permission
-decision. Approval resumes only the exact persisted request after authority,
-scope, budget, path, and digest are revalidated.
+A turn starts with at most four recent user/assistant exchanges, one bounded
+summary, and handles for full history or oversized input. Host results above
+the inline limit also become handles. Reads return a source identifier and
+exact byte span so an answer can cite what it inspected.
 
-This is an owner-only, same-user trust boundary, not a sandbox against another
-hostile process already running as that user or against an adversarial trusted
-workspace. Interactive clients receive signed permission prompts by default;
-headless `run` and MCP clients explicitly deny effects that require a human
-decision. Process groups, cancellation, and resource limits provide operational
-containment, but cannot guarantee that a deliberately daemonized descendant is
-terminated after it escapes the original process group.
+Starlark globals persist across cells and survive worker restarts. After
+every cell the kernel snapshots the worker's globals as Starlark source
+(`name = repr(value)` for data, the original text for top-level `def`s and
+lambda assignments, `b = a` for aliases) into the `agent_scratch` table, and
+a fresh worker executes that program before its first cell, whether the old
+worker was evicted by the pool, killed by the cell deadline, or lost to a
+daemon restart. Closures, self-referential values, non-finite floats, values
+over 256 KiB, and anything past a 768 KiB aggregate are skipped by name, and
+the restart notice lists what was not restored. Every restore also appends a
+`scratch.restored` actor event carrying the restored and not-restored names,
+so a worker restart is auditable from the event log rather than from the
+model's account of its ephemeral notice; the TUI renders it as a dim line. Helpers see globals as bound
+when they were defined, so agents mutate containers in place or pass values
+rather than rebinding a name a helper reads. Shared or long-lived information
+still belongs in `state`, `artifacts`, messages, files, or child transcripts.
 
-The Starlark worker is a re-execution of the `whip` binary in hidden kernel
-mode. It receives an allowlisted environment, closed unintended descriptors,
-no daemon/client credentials, and no ambient filesystem, process, network,
-provider, or database primitive. All useful work crosses the typed host-module
-boundary. File and shell calls enter the same dispatcher used by Classic
-built-ins; state, messages, artifacts, schedules, budgets, and children enter
-daemon-owned root APIs.
+## MCP
 
-## Configuration and modes
+MCP servers are daemon-owned integrations available from every authorized
+node through `mcp.list_servers`, `mcp.list_tools`, and `mcp.call`. Their tools
+are not appended to the provider’s tool catalog. Root and child therefore keep
+the same stable interface even as MCP servers connect, fail, or reconnect.
 
-RLM is enabled by default. To make newly created sessions Classic, add this to
-`~/.whip/config.json`:
+## Limits
 
-```json
-{
-  "rlm": {
-    "enabled": false
-  }
-}
-```
-
-Mode is persisted per session. Changing the default does not silently convert
-existing sessions.
-
-Zero or omitted limits use these defaults:
+Omitted or zero values use these defaults:
 
 | Config field | Default | Scope |
 | --- | ---: | --- |
 | `rlm.steps` | 1,000,000 | Starlark steps per cell |
 | `rlm.hostRequests` | 1,024 | host calls per cell |
 | `rlm.wallMillis` | 30,000 | wall time per cell |
-| `rlm.memoryMiB` | 256 | worker address-space/RSS limit |
+| `rlm.memoryMiB` | 256 | worker memory ceiling |
 | `rlm.outputBytes` | 65,536 | captured cell output |
-| `rlm.frameBytes` | 1,048,576 | worker control frame |
-| `rlm.maxWorkers` | 4 | daemon-wide concurrent kernel workers |
+| `rlm.frameBytes` | 1,048,576 | worker protocol frame |
+| `rlm.maxWorkers` | 4 | daemon-wide live kernels |
 
-The durable root budget ledger is independent of those interpreter limits.
-It accounts tokens, cost, elapsed time, content bytes, record count, schedules
-and subscriptions, active operations, active children, concurrent child turns,
-and tree depth. Descendant limits clamp inherited authority; reservations are
-settled or released atomically and roll up to the root.
+These are execution bounds. The durable ledger separately accounts token,
+cost, elapsed, content, record, operation, child, schedule, and depth budgets.
 
-## Starlark modules
+## Files and migration boundary
 
-Every operation uses keyword arguments. Large arguments and results become
-handles instead of crossing the protocol inline.
+The runtime uses:
 
-| Module | Operations |
+| Path | Purpose |
 | --- | --- |
-| `context` | `inspect`, `search`, `read` |
-| `files` | `list`, `search`, `read`, `write`, `patch` |
-| `shell` | `run`, `read` |
-| `models` | `call`, `batch` — stateless calls; batches fan out concurrently and do not create agent identities |
-| `agents` | `spawn`, `inspect`, `list`, `steer`, `stop`, `await` — durable children |
-| `messages` | `send`, `receive` |
-| `state` | private and blackboard get/set/append/CAS/list, history, subscribe/list/cancel |
-| `artifacts` | `put`, `inspect`, `read` |
-| `schedules` | `create`, `list`, `cancel` |
-| `permissions` | `request`, `status`; a kernel can never approve its own request |
-| `answer` | `submit` with grounded source handles and spans |
+| `~/.whip/runtime-v2/daemon.sock` | owner-only local protocol socket |
+| `~/.whip/runtime-v2/daemon.lock` | single-daemon ownership lock |
+| `~/.whip/runtime-v2/daemon.log` | detached daemon diagnostics |
+| `~/.whip/runtime-v2/sessions.db*` | commands, agents, transcripts, messages, policy, events |
+| `~/.whip/runtime-v2/artifacts/sha256/` | immutable large bodies |
 
-File and shell calls do not bypass normal tool policy. Mutations are ordered
-by the daemon-wide workspace coordinator, and shell authority is separate
-because arbitrary shell effects cannot be proven path-contained. Child agents
-receive explicit, non-escalating capabilities and budgets.
+The daemon can be inspected and managed without entering the TUI:
 
-## Disconnects, replay, and recovery
+```sh
+whip daemon status [--json]
+whip daemon start
+whip daemon stop [--timeout 10s] [--force]
+whip daemon restart [--timeout 10s] [--force]
+whip daemon logs [-f] [-n 200]
+```
 
-Each logical client command has a stable command ID. The daemon durably admits
-it once, assigns an ingress sequence, and returns the stored outcome on retry.
-A disconnected client moves through `disconnected`, `reconnecting`, and
-`snapshotting` before becoming `live`; it cannot submit new commands until it
-has applied ordered events after its cursor or replaced local state with an
-authoritative snapshot.
+`status` does not auto-start the daemon. Normal stop and restart checkpoint
+durable state and wait for the owner lock to be released. `--force` sends a
+signal only to the PID currently holding that lock.
 
-Closing a client does not cancel daemon-owned work. After reconnect, the
-client sees the same event sequence and one command outcome. If a daemon dies,
-committed outcomes remain committed. Work that may have crossed an external
-side-effect boundary is marked `interrupted` on the next generation and is
-never replayed automatically. Retry means “ask for the outcome of this stable
-command,” not “run it again.”
+`WHIP_HOME` replaces `~/.whip`. The pre-runtime-v2 database is not opened or
+migrated automatically; this is an intentional clean break.
 
-Snapshots contain behavioral state—messages, agents, inbox, shared state,
-budgets, capabilities, permissions, schedules, tasks, and presentation
-events—not just transcript text. Old-generation or unsigned permission
-decisions are rejected.
+## Recovery
+
+On daemon restart, retained non-root agents are reconstructed from metadata,
+capabilities, provider settings, and their transcripts. Running child turns
+become idle and their human input returns to `queued` (three retries, then
+`interrupted`); committed messages remain `pending` until a turn that showed
+them commits. Restore re-derives readiness from those rows, so a restored child
+with pending mail or a queued prompt wakes without any in-memory signal.
+
+In-flight external effects are marked interrupted. Restart never infers that
+an uncommitted write or remote call is safe to repeat.
 
 ## Verification and evaluation
 
-Run the deterministic release suite with:
-
 ```sh
+go test ./...
 task acceptance
 ```
 
-It includes real daemon and kernel subprocesses under isolated storage plus
-the focused swarm, policy, budget, reconnect, ACP, headless, sessions, and MCP
-contract tests. `task ci` includes this suite. Hosted CI also runs the Unix
-runtime subset under the race detector on Linux and macOS, builds all release
-targets, and makes both the runtime matrix and Swift driver prerequisites of
-the aggregate `go` gate.
+The deterministic RLM evaluation expands a large corpus, requires bounded
+handle search plus stateless reviewer fan-out, and records correctness, model
+calls, fan-out, host calls, tokens, latency, and estimated cost:
 
-The comparison fixture is deterministic in normal tests. A release operator
-can run the same oversized-context task against the configured live provider:
+```sh
+go test ./evals/rlm -run '^TestDeterministicRLMEvaluationReport$' -v
+```
+
+The opt-in live run spends provider tokens:
 
 ```sh
 WHIP_RLM_LIVE_EVAL=1 \
-WHIP_RLM_EVAL_REPORT=/tmp/whip-rlm-comparison.json \
-go test ./evals/rlm -run '^TestLiveRLMClassicComparison$' -v
+WHIP_RLM_EVAL_REPORT=/tmp/whip-rlm-eval.json \
+go test ./evals/rlm -run '^TestLiveRLMEvaluation$' -v
 ```
-
-The live comparison defaults to the configured `deepseek-v4-flash-0731`
-task route so the result does not depend on the interactive default model.
-Set `WHIP_RLM_EVAL_MODEL` and, if necessary, `WHIP_RLM_EVAL_PROVIDER` to pin
-a different release candidate.
-
-The report records correctness, latency, total model calls, maximum batch
-fan-out, host calls, input/output/context tokens, and estimated cost for both
-modes under the same root context and model-call cap. This spends provider
-tokens and is intentionally not a per-commit CI gate.
 
 ## Troubleshooting
 
-- **Client stays disconnected:** inspect `~/.whip/daemon.log`, then verify the
-  home, socket, and lock are owned by your user. Do not loosen socket modes.
-- **A new binary keeps reconnecting:** the client asks the old generation to
-  checkpoint and replace itself. A persistent loop usually means the daemon
-  log contains a startup/config error.
-- **Command returns `interrupted`:** the previous daemon generation could not
-  prove that in-flight work was safe to replay. Inspect the workspace and
-  submit a new command only after deciding whether the side effect occurred.
-- **Replay is expired:** the client automatically requests a snapshot and
-  remains unable to submit until replacement completes.
-- **Kernel limit error:** reduce one cell's work or raise the corresponding
-  `rlm` limit deliberately. Prefer bounded reads and smaller batches before
-  increasing memory, frame, or output ceilings.
-- **Permission remains pending:** an attached, paired human client must decide
-  it. MCP stdio and unpaired clients cannot answer permission prompts.
-- **Classic is required:** set `rlm.enabled` to `false` before creating the
-  session. A Classic session uses the daemon and durable journal but creates
-  no kernel worker.
+- **Worker capacity exhausted:** stop/delete an idle subtree or raise
+  `rlm.maxWorkers`; no rejected child record was committed.
+- **A child finished but the parent has no answer:** the parent received an
+  `agent.completed` message with a preview and evidence handle; use
+  `messages.list/read`. Ordinary child output is otherwise local.
+- **MCP unavailable:** call `mcp.list_servers()` or use `/mcp`; reconnect or
+  configuration errors stay isolated from the agent loop.
+- **Interrupted command after restart:** inspect external state before issuing
+  a new command. The runtime will not replay it automatically.

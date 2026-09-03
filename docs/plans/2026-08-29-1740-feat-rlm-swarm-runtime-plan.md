@@ -810,3 +810,171 @@ Verification must include Linux and macOS evidence for socket ownership, process
 | U7 | The TUI is presentation-only and preserves existing terminal behavior across reconnect and snapshots. |
 | U8 | Headless, session-listing, stdio MCP, and ACP surfaces preserve their public contracts without direct runtime ownership. |
 | U9 | Deterministic acceptance, live comparison evidence, Linux/macOS CI parity, and documentation close every success criterion. |
+
+---
+
+## Learnings from U1-U4
+
+This section records the implementation state at the U4 handoff on 2026-09-01. It is an implementation aid for U5-U9, not a replacement for the Product Contract or the unit acceptance criteria above. Paths refer to the current tree at `818d0a6`.
+
+### Handoff Summary
+
+- U1-U4 established the durable schema, content store, capability dispatcher, workspace and process authority, root actor model, recovery transactions, and durable swarm primitives needed by later units.
+- They did not complete the product cutover. The Unix protocol, daemon auto-start, cross-process singleton lock, Starlark kernel, production client migration, acceptance harness, and live comparison do not exist yet.
+- Production session creation still defaults to Classic through `session.Open`, and the TUI, headless runner, session listing, MCP CLI, and ACP paths still own stores or agents directly.
+- Several U1-U4 done signals are therefore foundation-complete rather than product-complete. U5-U9 must close the residual items called out below instead of assuming they were already satisfied.
+- The implementation consolidated several planned files and landed most U1-U4 work in one commit. Review the current package boundaries and invariants rather than using commit boundaries or proposed filenames as the source of truth.
+
+### U1. Durable Store and Content
+
+#### What Landed
+
+- `internal/session/migrations.go` now owns ordered schema migration. The first runtime schema normalizes commands, events, inbox entries, agents, content references and grants, state, operations, permissions, budgets, subscriptions, and recovery records.
+- Historical migration checkpoints WAL, creates and syncs a backup, and migrates under `BEGIN IMMEDIATE`. Failure tests exercise historical schema shapes and recovery boundaries.
+- `internal/content/store.go` publishes immutable SHA-256 bodies with file sync, rename, and directory sync. Equal values deduplicate by digest, authorized reads are sliced, and one response is capped at 64 KiB.
+- `internal/session/runtime.go` stores runtime payloads above 8 KiB as content references and persists root, agent, or subtree grants separately from digest identity.
+- Recovery transaction support marks uncertain commands, turns, children, operations, leases, permissions, and tasks interrupted without replaying side effects.
+
+#### What We Learned
+
+- Database ownership must be acquired before migration or inspection. `Store.AcquireDaemon` in `internal/session/session.go` is deliberately only an in-process atomic lease; U5 must replace it with the real socket/file lock before any losing process opens SQLite.
+- Content publication and database publication are different crash boundaries. Publishing the immutable file first can leave an unreferenced body if the SQLite transaction fails. That orphan is diagnostic, not corruption, and automatic deletion remains deferred.
+- Digest equality proves byte identity, not authority. Every read must continue to revalidate the persisted root, agent, or subtree grant.
+- The 8 KiB runtime-value rule is not yet universal. Classic transcript messages are still marshaled directly into `messages.content` in `internal/session/runtime.go`, and compaction summaries can also exceed the intended inline ceiling. U6 prompt construction and U9 acceptance must not treat the large-value boundary as complete until these paths are handle-backed or explicitly bounded.
+- `commands.ingress_seq` exists in the schema, but current command insertion does not assign it. U5 needs one actor transaction that compares the request digest, assigns the sequence, inserts command state, and admits the inbox item.
+- Events are durable, but there is no exported retention, replay, cursor-expiry, or actor-consistent snapshot API. Those are U5 responsibilities, not properties of the U1 store today.
+
+### U2. Capability, Workspace, and Process Authority
+
+#### What Landed
+
+- `internal/capability/dispatcher.go` is the shared admission path for canonical request digesting, workspace resolution, identity and capability checks, budget reservation, permission revalidation, mutation ordering, handler execution, and durable completion.
+- Classic tool construction in `internal/tools/tools.go` fails closed until bound to dispatcher services and carries root, agent, capability, command, operation, and trace identities after binding.
+- `internal/capability/workspace.go` centralizes canonical workspace and writer coordination instead of leaving file locks on individual agents.
+- `internal/capability/process.go` owns root-scoped process groups, explicit working directories, allowlisted environments, cancellation, and cleanup. MCP, LSP, browser, computer, and shell paths can use this authority through injected services.
+- Session-specific behavior moved away from mutable package-global callbacks toward bound services, which made concurrent-root attribution testable.
+
+#### What We Learned
+
+- The permission gate is consent UX, not the sandbox. A nil gate can intentionally allow, while dispatcher identity, capability, path, budget, and digest checks remain mandatory enforcement.
+- Permission approval is not final admission. Any operation blocked on a human decision must revalidate all authority and resource conditions immediately before execution.
+- Workspace mutation ordering belongs to shared workspace authority. Known canonical paths can lock narrowly; shell and other unknown mutations require the workspace barrier.
+- Child processes need explicit root ownership, cwd, environment, and cleanup registration. Daemon environment inheritance is not an acceptable default because it exposes credentials and cross-root state.
+- Process groups bound cleanup but do not sandbox a deliberately daemonized shell descendant. Shell remains full same-user authority and must continue to require separate shell, writer, and exact permission admission.
+- MCP and LSP managers retain unmanaged fallback construction, chromedp still uses its own allocator, and computer automation still exposes a process-global helper. Do not broaden cleanup speculatively, but U5-U9 isolation tests must fail if a production daemon path silently falls back to unmanaged ownership.
+- U6 should reuse the dispatcher directly for every host module. Adding an RLM-specific policy or handler path would recreate the split U2 removed.
+
+### U3. Root Actors, Inbox, and Recovery
+
+#### What Landed
+
+- `internal/daemon/daemon.go` owns a registry with one live actor per opened root and runs recovery before opening roots.
+- `internal/daemon/session.go` persists inbox admission and registers a receipt before notifying the actor. The actor is not the durability boundary; committed store state is.
+- Root-owned goroutines are supervised, panic-reported, cancelled, awaited, and isolated from unrelated roots.
+- Classic turn completion atomically persists transcript changes, inbox acknowledgement, compactions, goal continuation, and terminal events before settling receipts.
+- Startup recovery interrupts uncertain records without invoking capability handlers or replaying external effects.
+- Wait completion publication and cleanup ordering were hardened after shuffled race CI exposed a lost-publication window. The regression lives in `internal/agent/wait_test.go`.
+
+#### What We Learned
+
+- Persist intent before launching work, and persist outcome before notifying receipts, waiters, streams, or clients. Notification-before-commit creates unrecoverable false observations.
+- The actor is the normal serialization point for root mutations. The registry supervisor is the narrow exception when an actor has died and its root still requires terminalization.
+- Client contexts cannot own daemon work. Detaching a caller may stop its wait, but must not cancel admitted root work or block a producer on output delivery.
+- Panic isolation is a root property, not a goroutine property. Every root-owned worker must be launched through the registry supervisor so failure can cancel and await the whole affected tree while other roots continue.
+- Recovery must classify uncertain effects as interrupted and never automatically retry them. Idempotent client command admission in U5 does not make an external side effect safe to replay.
+- The daemon package is not yet used by production clients. The TUI still owns a duplicate scheduler, and roots with dormant schedules or subscriptions are not discovered automatically at daemon startup.
+- `routeControl` provides in-memory actor serialization but does not durably admit an idempotent protocol command. U5 must not expose it directly as the command-admission contract.
+
+### U4. Durable Swarm, State, Budgets, and Messaging
+
+#### What Landed
+
+- `internal/session/swarm.go` transactionally admits durable children with root and parent lineage, depth and active-child limits, delegated capability subsets, and reserved budget subsets.
+- Relative discovery and authenticated direct-relative messaging persist daemon-assigned sender identity and support queued, next-turn, and immediate delivery.
+- Private agent state, blackboard history, CAS updates, authorship, authorized evidence promotion, subscriptions, durable wakes, capability revocation, and subtree tombstoning are represented durably.
+- All planned budget kinds exist in the storage model, and completed usage and reservations remain inspectable.
+- `internal/daemon/swarm.go` routes live child admission, model work, state, message, budget, revocation, and stop controls through the root actor.
+
+#### What We Learned
+
+- Durable representation is not the same as live consumption. The current root actor scans its Classic root inbox; queued child peer messages and subscription wakes do not yet have a live durable-child consumer.
+- Nested Classic background agents created by `internal/agent/subagent.go` inherit launcher and services but not the durable `SubagentRuntime`. Durability currently covers direct daemon-admitted children, not every nested subagent path.
+- Model budgeting is currently attached only to direct daemon subagents and reconciles tokens. Root calls, monetary cost, elapsed time, durable bytes, records, schedules, subscriptions, and active operations still need reservation and reconciliation at their actual mutation boundaries.
+- Tree identity must remain daemon-assigned. Callers may select a relative recipient but may not supply sender, root, parent, or lineage identity.
+- Stopping or deleting a child should tombstone its live subtree and release live resources without erasing transcripts, content grants, artifacts, usage, or lineage.
+- Subscription wakes must use retained cursors and survive restart exactly once. U5 startup discovery and U6 live child execution must connect the durable records to consumers without introducing a second scheduler.
+
+### Cross-Cutting Invariants Proven by U1-U4
+
+1. Commit intent before work starts; commit outcome before observers are notified.
+2. Route normal root mutation through one actor and keep supervisor terminalization limited to actor-death recovery.
+3. Keep daemon work independent from client connection and cancellation lifetimes.
+4. Treat identifiers and digests as lookup keys, never as proof of authority.
+5. Revalidate identity, capability, path, budget, permission, operation state, and digest at the execution boundary.
+6. Keep workspace mutation ordering and process ownership shared per workspace or root, not embedded in individual agents.
+7. Interrupt uncertain external effects on recovery and never infer replay safety from command retry safety.
+8. Publish only committed immutable events to clients; actors must never write directly to a connection.
+9. Preserve root-local failure isolation by supervising every root-owned goroutine and process.
+10. Use race tests with shuffled execution for publication, receipt, cleanup, cancellation, and actor lifecycle code. Ordinary deterministic package tests did not expose the wait ordering defect.
+
+### Residual Risks Entering U5
+
+| Risk | Current Evidence | Required Closure |
+|---|---|---|
+| Two processes can open or migrate the same database. | `Store.AcquireDaemon` is process-local. | U5 cross-process lock acquired before SQLite inspection, migration, or daemon readiness. |
+| Protocol retries could execute a command twice or accept conflicting payloads. | Command rows exist, but admission does not populate `ingress_seq` atomically with inbox state. | One KTD2 actor transaction for identity, digest comparison, sequence assignment, command insert, and inbox admission. |
+| Reconnect cannot yet reconstruct authoritative state. | Events persist, but replay, retention, cursor expiry, and snapshot APIs are absent. | U5 bounded replay plus actor-consistent chunked snapshot and continuation cursor. |
+| Durable child work can become unread. | Peer and subscription messages persist, but live child consumers are incomplete. | Connect child actors and startup discovery before claiming U4's durable-detach done signal. |
+| Quotas can be bypassed by uninstrumented paths. | Direct child model calls reserve token budget only. | Reserve and reconcile every budget kind at model, durable mutation, process, schedule, subscription, and worker admission boundaries. |
+| Production still has multiple runtime owners. | TUI, run, sessions, MCP, and ACP bypass the daemon. | U7-U8 cutover followed by deletion of each transitional owner and duplicate scheduler. |
+| Process isolation can silently weaken. | Some integrations retain unmanaged fallbacks. | Bind production daemon construction to managed services and prove canary isolation in U9. |
+| Classic history can violate inline limits. | Messages and compaction summaries remain inline. | Bound or handle-back them before asserting the global KTD1 completion signal. |
+
+### Guardrails for U5-U9
+
+#### U5. Protocol and Daemon Lifecycle
+
+- Acquire the owner-only socket/file lock before any client or daemon opens, inspects, checkpoints, backs up, or migrates SQLite. Losers attach to the winner without touching the database.
+- Add one durable command-admission operation that atomically validates `(client ID, command ID, request digest)`, rejects conflicting reuse, assigns the actor ingress sequence, inserts queued state, and admits the inbox item.
+- Keep socket readers, writers, actors, and handlers independent. Actors publish committed immutable events; per-client bounded queues own framing and close only the slow connection on overflow.
+- Implement pre-decode frame limits, initialization deadlines, connection and in-flight limits, 256 KiB snapshot chunks, 10,000-envelope retention, cursor expiry, and snapshot continuation from its committed final cursor.
+- Discover roots with active schedules or subscriptions on startup. Do not retain the TUI scheduler or add another protocol-local scheduler.
+- Make first-human enrollment explicitly TTY-confirmed, keyring-backed, serialized, and fail-closed. Automation may start the daemon but may neither consume enrollment nor approve permissions.
+- Keep generation-aware restart separate from ordinary root commands and make completed versus interrupted outcomes authoritative across handoff.
+- Test crashes before admission commit, after commit before reply, and before handler launch. The same command must produce one durable outcome without replaying an uncertain effect.
+
+#### U6. Bounded Starlark Runtime
+
+- Build and prove the re-executed worker limits before integrating the root prompt. Infinite steps, wall timeout, allocation pressure, output overflow, frame overflow, and daemon-wide worker saturation must all terminate without affecting another root.
+- Expose only `rlm_exec` to RLM sessions and give the worker no ambient filesystem, environment, process, network, credential, provider, database, or daemon authority.
+- Route every host module through daemon APIs and the U2 dispatcher. Do not let the worker call concrete tools, stores, providers, or handlers directly.
+- Extend budget reservation and reconciliation to root and stateless model calls, priced monetary cost, elapsed time, durable bytes and records, schedules and subscriptions, active operations, and daemon worker slots.
+- Keep full history and oversized corpora handle-backed from the first request. Preserve source identifiers and spans so cited handles remain resolvable after worker restart.
+- Treat worker interpreter globals as disposable. Durable state, handles, messages, child identities, and committed operation outcomes remain Go-owned.
+- Run the opt-in oversized-context smoke with fixed prompt and budget before starting U7 or U8. Do not make RLM the production default until the smoke and Classic-zero-kernel subprocess test pass.
+
+#### U7. Thin TUI Client
+
+- Cut over only after U5 replay/snapshot and U6 mode behavior are stable. The TUI should retain draft, viewport, selection, theme, rendering, and terminal bytes only.
+- Implement the explicit `disconnected -> reconnecting -> snapshotting -> live` state machine and disable behavioral commands until synchronization completes atomically.
+- Assign one stable command ID per user action and render authoritative daemon outcomes, especially stale, cancelled, or already-decided permissions.
+- Remove direct store, agent, provider, scheduler, permission, workspace, and process ownership. Closing the TUI must not kill daemon turns, children, waits, MCP, LSP, browser, or shell work.
+- Delete the duplicate five-second TUI scheduler when daemon startup discovery is proven; do not preserve it as a compatibility fallback.
+
+#### U8. Headless, Sessions, MCP, and ACP Cutover
+
+- Preserve public text, JSON, timeout, exit-status, replay-order, and protocol contracts while replacing direct runtime ownership.
+- Make `whip sessions` query the daemon without opening or migrating SQLite.
+- Keep stdio MCP unprivileged: it forwards schemas and dispatcher requests under configured grants, but cannot invoke concrete handlers or answer permission prompts.
+- Complete ACP replay or snapshot replacement before accepting prompts. Keep ACP permission mode distinct from persisted RLM or Classic session mode.
+- Require paired human provenance for ACP approvals, allow-always, and automatic permission mode; automation peers may consume outcomes but may not approve.
+- Remove each direct agent, store, gate, LSP, scheduler, and cleanup path as its client cuts over. Do not retain two production runtime paths for rollback convenience.
+
+#### U9. Acceptance, Evaluation, and Documentation
+
+- Establish deterministic real-daemon and real-kernel acceptance under isolated `WHIP_HOME` before running the live model comparison.
+- Cover detach and reconnect, duplicate commands, actor panic, kernel crash, failed content reads, every quota family, stale permissions, daemon restart, worker restart, and secret canaries.
+- Produce Linux and macOS runtime evidence for socket ownership, process-group termination, worker deadlines, and memory enforcement. Platform checks are release blockers, not optional skips.
+- Add the macOS runtime job and Swift driver to the required aggregate gate; the current aggregate Go gate does not prove either.
+- Compare RLM and Classic with equal root context and budget and record correctness, cost, latency, fan-out, and context use. Provider variance must not substitute for deterministic runtime acceptance.
+- Update operational documentation only after final ownership, command, protocol, and configuration behavior stabilizes, then remove transitional adapters, dead flags, debug paths, and duplicate ownership.

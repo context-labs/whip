@@ -1,157 +1,124 @@
 # Architecture
 
-whip ships as one Go binary with three runtime roles: thin clients, one local
-daemon, and disposable RLM kernel workers. The process boundary matters more
-than the package boundary: only the daemon owns behavioral state and side
-effects.
-
-## The moving parts
+whip is organized around one recursive agent abstraction. A root and a child
+are both `AgentSession`s: each owns a provider loop, a bounded Starlark kernel,
+a durable transcript, and an identity. Every model sees exactly one tool,
+`rlm_exec`.
 
 ```mermaid
 flowchart TB
     subgraph clients["protocol clients"]
-        TUI["tui: Bubble Tea presentation"]
-        RUN["whip run / sessions"]
-        ADAPTERS["MCP server / ACP adapter"]
+        TUI["TUI"]
+        RUN["whip run"]
+        ACP["ACP"]
+        BRIDGE["whip mcp serve"]
     end
 
-    RPC["daemon protocol: commands, events, replay, snapshots"]
+    RPC["owner-only daemon protocol"]
 
-    subgraph owner["whip _daemon — sole runtime owner"]
-        DAEMON["daemon: root actors, command journal, scheduler"]
-        AGENT["agent: Classic loop or RLM root loop"]
-        RLM["rlm host: focused context, swarms, state"]
-        POLICY["capability dispatcher: identity, scope, budget, permission"]
-        STORE["session + content: SQLite metadata, immutable bodies"]
-        SERVICES["built-in tools / LSP / browser / computer"]
-        MCP["external MCP manager"]
+    subgraph daemon["whip _daemon"]
+        ROOT["root actor"]
+        TREE["recursive AgentSession tree"]
+        POLICY["capability + budget + permission policy"]
+        SERVICES["files / shell / browser / computer"]
+        MCP["MCP client manager"]
+        STORE["SQLite journal + content store"]
     end
 
-    KERNEL["whip _kernel: bounded Starlark, no ambient authority"]
-    PROVIDER["OpenAI-compatible model provider"]
+    KERNELS["disposable whip _kernel workers"]
+    MODELS["model providers"]
 
-    TUI <--> RPC
-    RUN <--> RPC
-    ADAPTERS <--> RPC
-    RPC <--> DAEMON
-    DAEMON <--> STORE
-    DAEMON --> AGENT
-    AGENT <--> PROVIDER
-    AGENT --> POLICY
-    AGENT --> MCP
-    AGENT --> RLM <--> KERNEL
-    KERNEL -->|typed host requests| RLM
-    RLM --> POLICY --> SERVICES
+    TUI & RUN & ACP & BRIDGE <--> RPC <--> ROOT
+    ROOT <--> STORE
+    ROOT --> TREE
+    TREE <--> MODELS
+    TREE <--> KERNELS
+    KERNELS -->|typed host calls| POLICY
+    POLICY --> SERVICES
+    KERNELS --> MCP
+    POLICY <--> STORE
 ```
 
-The public clients do not open SQLite, construct an agent, call a provider,
-or invoke a concrete tool. They submit stable protocol commands and render
-authoritative events. The daemon owns one serialized actor mailbox per root,
-while different roots can progress concurrently.
+## Core invariants
 
-RLM and Classic differ only at the model-facing layer:
+1. **One model-facing interface.** Neither root nor child receives direct JSON
+   file, shell, MCP, or child tools. Those capabilities are Starlark modules
+   behind `rlm_exec`.
+2. **One recursive session type.** Children are not one-shot tasks. They are
+   retained sessions that can take later turns and create their own children
+   within the configured depth and budget limits.
+3. **One authority path.** Built-in effects enter the capability dispatcher;
+   state, messages, schedules, and lifecycle changes enter root-actor APIs.
+4. **Admission precedes durable execution.** Client commands are journaled
+   before a turn. Child kernel capacity is reserved before the child record is
+   committed, so a rejected spawn cannot leave a ghost agent.
+5. **Communication is explicit.** An agent response is local to that agent.
+   Parent and child exchange durable messages; notifications contain metadata,
+   never message bodies.
+6. **Large values are referenced.** SQLite holds metadata and small values.
+   Large bodies live in the content store and cross boundaries as handles and
+   bounded excerpts.
+7. **Recovery does not guess.** Committed results survive. Uncertain external
+   effects become interrupted and are not automatically replayed.
 
-- **RLM (default):** the model sees `rlm_exec`. A persistent but disposable
-  Starlark worker calls typed host modules; the daemon remains the source of
-  truth and the only authority.
-- **Classic:** `Agent.Turn` presents the familiar JSON tools directly. It
-  still uses the same daemon, command journal, dispatcher, store, process
-  manager, and event stream. It starts no kernel.
-
-See [rlm-runtime.md](rlm-runtime.md) for the module and operational contract.
-
-## One turn, end to end
+## A root turn
 
 ```mermaid
 sequenceDiagram
-    actor You
-    participant Client as TUI / run / ACP
-    participant Daemon
-    participant Root as root actor
+    actor User
+    participant Client
+    participant RootActor
+    participant Agent as AgentSession
     participant Model
-    participant Kernel as RLM kernel (RLM only)
-    participant Policy as capability dispatcher
-    participant DB as journal + content
+    participant Kernel
+    participant Host
+    participant Store
 
-    You->>Client: submit
-    Client->>Daemon: stable command id + last cursor
-    Daemon->>DB: admit once; assign ingress sequence
-    Daemon->>Root: enqueue command
-    Root->>Model: focused RLM or Classic request
-    opt RLM cell
-        Model->>Kernel: rlm_exec(Starlark)
-        Kernel->>Policy: bounded typed host calls
-    end
-    opt Classic tool call
-        Model->>Policy: JSON tool request
-    end
-    Policy->>DB: validate, reserve, commit outcome
-    Root->>DB: commit turn + ordered events
-    Daemon-->>Client: stream events and stored command outcome
-    Client-->>You: render
+    User->>Client: submit
+    Client->>RootActor: stable command ID
+    RootActor->>Store: admit command + inbox sequence
+    RootActor->>Agent: start turn with focused context
+    Agent->>Model: prompt + rlm_exec definition
+    Model->>Kernel: rlm_exec(Starlark)
+    Kernel->>Host: typed module calls
+    Host->>Store: authorize / reserve / commit
+    Kernel-->>Model: bounded result or handle
+    Model-->>Agent: ordinary response
+    Agent->>Store: atomically commit transcript + outcome
+    RootActor-->>Client: ordered events + stored result
 ```
 
-Key invariants:
+Child turns use the same `AgentSession` model and tool path. Today the root
+actor and child wake path still use different scheduling/commit adapters; the
+single-runtime consolidation plan removes that final lifecycle split. The
+intended differences are only parent ID, delegated capabilities, effective
+budgets, and private transcript.
 
-- **Admission precedes execution.** Stable command IDs make reconnect retries
-  idempotent; per-root ingress sequences define order.
-- **A client never owns a turn.** Closing the TUI or losing an ACP connection
-  does not cancel daemon work unless an explicit cancel command is admitted.
-- **One policy path owns built-in effects.** Classic built-ins and RLM file or
-  shell modules converge on the capability dispatcher, which revalidates
-  identity, grant, scope, path, budget, operation state, and any permission at
-  execution time. Durable state and child operations use root-actor APIs;
-  external MCP tools remain daemon-owned integrations.
-- **Large values are referenced.** SQLite holds metadata, grants, and small
-  values. Larger bodies are immutable content-addressed files and cross model,
-  worker, and protocol boundaries as bounded handles/excerpts.
-- **Recovery is conservative.** Committed results survive. Uncertain in-flight
-  effects become `interrupted` and are never automatically replayed.
-- **Rendering is replaceable.** Every client reaches `live` only after ordered
-  replay or an authoritative behavioral snapshot.
+## Process and storage boundaries
 
-## Where things live on disk
-
-| Path | What | Format |
-| --- | --- | --- |
-| `~/.whip/config.json` | provider, model, RLM, MCP, browser, and computer policy | JSON/JSONC |
-| `~/.whip/daemon.sock` | local owner-only protocol endpoint | Unix socket, `0600` |
-| `~/.whip/daemon.lock` | cross-process daemon ownership | advisory file lock |
-| `~/.whip/daemon.log` | detached daemon diagnostics | text, `0600` |
-| `~/.whip/sessions.db*` | durable runtime metadata and journal | SQLite WAL |
-| `~/.whip/artifacts/sha256/` | immutable large-value bodies | content-addressed files |
-| `~/.whip/models.json` | provider model-catalog cache | JSON |
-| `~/.whip/memory.md` | installation memory | Markdown checkboxes |
-| `.agents/skills/`, `~/.agents/skills/` | project and user skills | `SKILL.md` |
-| `.mcp.json` | project MCP servers | JSON |
-
-`WHIP_HOME` replaces `~/.whip`, primarily for hermetic tests. If that path is
-too long for a Unix socket, the endpoint and lock move to an owner-specific,
-hashed directory under the system temp directory; durable data stays in
-`WHIP_HOME`.
+- `whip _daemon` is the sole owner of the runtime database, live agents,
+  integrations, permissions, and managed processes.
+- `whip _kernel` evaluates Starlark with bounded steps, host calls, memory,
+  wall time, output, and frames. It has no ambient provider credentials or
+  direct filesystem/network API.
+- Clients submit idempotent commands and rebuild presentation state from event
+  replay or a snapshot. A client disconnect is not an execution boundary.
+- New data lives under `~/.whip/runtime-v2/` (or
+  `$WHIP_HOME/runtime-v2/`). The older `~/.whip/sessions.db` is deliberately
+  left untouched by this clean break.
 
 ## Package map
 
 | Package | Responsibility |
 | --- | --- |
-| `internal/daemon` | Unix protocol, auto-start/checkpoint replacement, root actors, reconnect/replay/snapshot clients, scheduler, service lifecycle |
-| `internal/session` | SQLite command/event/swarm/capability/budget/permission metadata and recovery transitions |
-| `internal/content` | immutable SHA-256 bodies outside SQLite |
-| `internal/capability` | shared admission dispatcher, workspace mutation ordering, and managed process ownership |
-| `internal/rlm` | bounded Starlark kernel/worker protocol, module registry, focused prompt/history helpers |
-| `internal/agent` | provider tool-use loop, compaction/decay, subagent machinery, todos |
-| `internal/tui` | presentation, input, reconnect state, event rendering, human permission UX |
-| `internal/llm` | OpenAI-compatible streaming/completion client and usage parsing |
-| `internal/tools` | concrete built-in tools and daemon-owned services |
-| `internal/mcp` | external MCP client manager and thin daemon-backed MCP server surface |
-| `internal/acp` | ACP translation over a reconnecting daemon root client |
-| `internal/lsp`, `internal/browser`, `internal/computer` | daemon-owned integration services |
-| `internal/skills`, `internal/memory`, `internal/schedule` | prompt inputs and durable scheduling helpers |
+| `internal/daemon` | protocol server, root actors, recursive runtime, lifecycle |
+| `internal/session` | durable commands, transcripts, agents, messages, budgets, recovery |
+| `internal/rlm` | kernel process, Starlark modules, focused-context prompt |
+| `internal/capability` | identities, grants, path policy, operation admission |
+| `internal/tools` | concrete built-in services reached through host modules |
+| `internal/mcp` | external MCP connections and named tool calls |
+| `internal/agent` | provider loop, streaming, compaction, usage accounting |
+| `internal/tui`, `internal/acp` | presentation and protocol adapters only |
 
-## Read next
-
-- [rlm-runtime.md](rlm-runtime.md) — modes, modules, limits, recovery, and operations
-- [agent-loop.md](agent-loop.md) — the Classic loop and RLM root loop
-- [concurrency.md](concurrency.md) — actor, channel, and process-lifetime rules
-- [tools.md](tools.md) — model-visible operations and shared dispatch
-- [features.md](features.md) — full feature map linked to code and tests
+Read [rlm-runtime.md](rlm-runtime.md) for the programming model and
+[concurrency.md](concurrency.md) for ownership and ordering.
