@@ -2764,6 +2764,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(scheduleTick(), m.fireDueSchedules())
 	}
 
+	// bubbletea delivers unrecognized escape sequences (shift+enter's CSI,
+	// etc.) as an UNEXPORTED unknownCSISequenceMsg — a []byte, NOT a tea.KeyMsg
+	// — so it never matches `case tea.KeyMsg` and would fall through to
+	// m.input.Update, which ignores non-key msgs: shift+enter was silently
+	// eaten (the isShiftEnterSeq branch in key() was dead code — it only ever
+	// saw synthetic KeyMsgs in tests). Catch it here by its rendered form and
+	// route shift+enter to the newline inserter.
+	if s, ok := msg.(interface{ String() string }); ok {
+		if isShiftEnterString(s.String()) {
+			return m.insertNewline()
+		}
+	}
+
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
@@ -2804,28 +2817,7 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		(msg.Type == tea.KeyEnter && msg.Alt) ||
 		(msg.Type == tea.KeyRunes && msg.Alt && string(msg.Runes) == "\r") ||
 		isShiftEnterSeq(msg) {
-		// bubbles gates InsertNewline on MaxHeight, treating the visual cap as
-		// a content limit — after a paste reaches MaxHeight lines every ctrl+j
-		// would be silently swallowed. Lift the cap for this one call so the
-		// newline always lands (and the textarea's own repositionView scrolls
-		// the new line into view), then reapply the visual cap via SetHeight,
-		// which clamps rendering only, never content.
-		maxHeight := m.input.MaxHeight
-		m.input.MaxHeight = 0
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
-		m.input.MaxHeight = maxHeight
-		m.input.SetHeight(maxHeight)
-		// bubbles' InsertNewline scrolls the internal viewport to follow the
-		// cursor while the box is still 1 line high (YOffset=1); the deferred
-		// growInput rebuild inherits that stale offset and the first line
-		// scrolls out of view. SetValue resets the scroll (Reset inside), and
-		// CursorEnd keeps the caret at the end of the input.
-		v := m.input.Value()
-		m.input.SetValue(v)
-		m.input.CursorEnd()
-		m.refreshMenu()
-		return m, cmd
+		return m.insertNewline()
 	}
 	// an open task detail view owns the keyboard until esc backs out of it
 	if m.taskVP != nil {
@@ -3288,11 +3280,45 @@ var shiftEnterRe = regexp.MustCompile(
 		`|'\[', 'five', 'seven', 'four', 'four', 'one', 'u'`, // legacy: CSI 57441u
 )
 
-// isShiftEnterSeq reports whether msg is a shift+enter sequence bubbletea
-// surfaced as an unknown/unmapped key.
+// isShiftEnterSeq reports whether a KeyMsg is a shift+enter sequence.
+// (bubbletea never actually delivers it as a KeyMsg — see isShiftEnterString —
+// but tests and the alt+enter fallthrough path use this form.)
 func isShiftEnterSeq(msg tea.KeyMsg) bool {
-	s := msg.String()
+	return isShiftEnterString(msg.String())
+}
+
+// isShiftEnterString matches the RENDERED form of a shift+enter sequence,
+// whether it arrived as a KeyMsg (tests) or as bubbletea's unexported
+// unknownCSISequenceMsg (production). This is the matcher that makes the
+// binding actually fire.
+func isShiftEnterString(s string) bool {
 	return (strings.HasPrefix(s, "?CSI[") || strings.HasPrefix(s, "unknown csi sequence:")) && shiftEnterRe.MatchString(s)
+}
+
+// insertNewline splits the input at the cursor, the shared path for ctrl+j /
+// shift+enter / alt+enter. bubbles gates InsertNewline on MaxHeight, treating
+// the visual cap as a content limit — after a paste reaches MaxHeight lines
+// every newline would be silently swallowed. Lift the cap for this one call so
+// the newline always lands (and the textarea's own repositionView scrolls the
+// new line into view), then reapply the visual cap via SetHeight, which clamps
+// rendering only, never content.
+func (m *model) insertNewline() (tea.Model, tea.Cmd) {
+	maxHeight := m.input.MaxHeight
+	m.input.MaxHeight = 0
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m.input.MaxHeight = maxHeight
+	m.input.SetHeight(maxHeight)
+	// bubbles' InsertNewline scrolls the internal viewport to follow the
+	// cursor while the box is still 1 line high (YOffset=1); the deferred
+	// growInput rebuild inherits that stale offset and the first line
+	// scrolls out of view. SetValue resets the scroll (Reset inside), and
+	// CursorEnd keeps the caret at the end of the input.
+	v := m.input.Value()
+	m.input.SetValue(v)
+	m.input.CursorEnd()
+	m.refreshMenu()
+	return m, cmd
 }
 
 // nowFn returns the current time, honoring the test seam when set.
