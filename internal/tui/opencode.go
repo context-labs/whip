@@ -73,15 +73,29 @@ func ocPadTo(content string, width int, bg lipgloss.TerminalColor) string {
 }
 
 // ocOnBg lays a pre-styled line ONTO the box background: the line's inner
-// styles close with full resets, which drop back to the terminal-default
-// background and punch bright chips through the panel. Re-open the box bg at
-// the start and after every reset.
+// styles close with resets that drop back to the terminal-default background
+// and punch bright chips through the panel. Re-open the box bg at the start
+// and after every reset. Three reset forms occur mid-row (issue #100):
+//   - \x1b[0m  full reset (lipgloss closes a bg-carrying style) — drops the bg
+//   - \x1b[49m default-background (lipgloss closes a fg-only style like the
+//     textarea placeholder) — drops the bg explicitly
+//   - \x1b[39m default-foreground (closes a fg-only style) — the bg survives,
+//     but when it directly precedes \x1b[49m / \x1b[0m the pair still ends the
+//     fill; re-opening after it keeps the row continuous in every terminal.
+//
+// Re-opening the bg after all three keeps the fill continuous to the right
+// edge regardless of which reset variant a nested style emitted.
 func ocOnBg(ln string, bg lipgloss.TerminalColor) string {
 	seq := bgSeqOf(bg)
 	if seq == "" || ln == "" {
 		return ln
 	}
-	return seq + strings.ReplaceAll(ln, "\x1b[0m", "\x1b[0m"+seq) + "\x1b[0m"
+	r := strings.NewReplacer(
+		"\x1b[0m", "\x1b[0m"+seq,
+		"\x1b[49m", "\x1b[49m"+seq,
+		"\x1b[39m", "\x1b[39m"+seq,
+	)
+	return seq + r.Replace(ln) + "\x1b[0m"
 }
 
 // bgSeqOf extracts the raw SGR sequence that opens the given background
@@ -323,32 +337,36 @@ func (m *model) opencodePrompt(inner string, width int) string {
 	// content) exceeds width, wraps in the terminal, and grows the alt-screen
 	// frame a row past layout()'s budget — skewing every mouse-Y hit-test
 	row := func(content string) string { return ocPadTo(ansi.Truncate(content, width, ""), width, ebg) }
+	// Seal each box row with ocOnBg so the element background stays open across
+	// the row's nested resets. The textarea's placeholder/cursor styles close
+	// with a full \x1b[0m mid-row, which drops the box background; on real
+	// terminals the trailing fill pad (appended after that reset) then doesn't
+	// re-anchor to the box edge, so the row paints its fill only as far as the
+	// text — a disconnected gray chip instead of a full-width box row (issue
+	// #100). Re-opening the bg after every reset keeps the fill continuous to
+	// the right edge.
+	fill := func(content string) string { return ocOnBg(row(content), ebg) }
 	var b strings.Builder
-	b.WriteString(row(bar) + "\n") // paddingTop (bar continues down the whole box)
+	b.WriteString(fill(bar) + "\n") // paddingTop (bar continues down the whole box)
 	for ln := range strings.SplitSeq(inner, "\n") {
 		// The textarea pads lines to its width with PLAIN spaces (its internal
 		// viewport) — a default-background tail that would punch a white stripe
 		// through the box. Trim it and let ocPadTo re-pad with the box bg.
 		ln = strings.TrimRight(ln, " ")
-		b.WriteString(row(bar+elem.Render("  "+ln)) + "\n")
+		b.WriteString(fill(bar+elem.Render("  "+ln)) + "\n")
 	}
-	b.WriteString(row(bar) + "\n") // padding below the input, above the meta row
+	b.WriteString(fill(bar) + "\n") // padding below the input, above the meta row
 	// model/mode row: mode in the agent color, model in text, provider muted.
 	agent := lipgloss.NewStyle().Foreground(ocAgentCol()).Background(ocElementBg())
 	txt := lipgloss.NewStyle().Foreground(ocTextCol()).Background(ocElementBg())
 	muted := lipgloss.NewStyle().Foreground(ocMutedCol()).Background(ocElementBg())
 	meta := agent.Render(m.ocModeLabel()) + muted.Render(" · ") + txt.Render(m.modelName) + muted.Render("  "+m.provName)
-	b.WriteString(row(bar+elem.Render("  ")+meta) + "\n")
-	// Soft bottom edge: a ╹ tail then a ▀ line the SAME color as the box fill, so
-	// it reads as the box's rounded bottom rather than a bright bar. When the
-	// terminal background is unknown there is no box fill to match — skip the ▀
-	// glyphs (they'd render in the default fg: a solid black bar on a light
-	// terminal) and keep just the bar tail so the row count stays stable.
-	b.WriteString(lipgloss.NewStyle().Foreground(ocAgentCol()).Render("╹"))
-	if ocThemeKnown() {
-		shadow := lipgloss.NewStyle().Foreground(ocElementBg())
-		b.WriteString(shadow.Render(strings.Repeat("▀", max(width-1, 0))))
-	}
+	b.WriteString(fill(bar+elem.Render("  ")+meta) + "\n")
+	// Straight bottom edge: one last filled box row so the fill runs all the
+	// way to the bottom of the box — no ╹ tail, no ▀ shadow (the half-block
+	// shadow read as a solid extra slab with a black notch at bottom-left on
+	// real terminals, issue #100).
+	b.WriteString(fill(bar))
 	return b.String()
 }
 
