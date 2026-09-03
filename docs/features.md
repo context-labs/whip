@@ -1015,11 +1015,25 @@ constructed. Combined with `--resume` the replayed history renders first and
 the prompt fires as the next turn, matching `whip run`'s
 prompt-after-resume order.
 
+The folder-trust gate (`internal/tui/trust.go`) normally asks *before* the TUI
+starts. When there's no terminal to ask on — stdin piped and `/dev/tty`
+unavailable, e.g. an editor spawning `whip up` — `checkTrust` returns
+`trustDeferred` instead of aborting: the TUI opens, parks the `up` prompt in
+`model.heldPrompt`, and asks the question inline via the `namePrompt` widget
+(Enter commits, Esc cancels → `trustAnswerMsg`). Approving records the folder
+(`config.Trust`) and submits the held prompt as the first turn; declining
+drops the prompt and quits. When stdin is piped but `/dev/tty` answers, the
+gate prompts on `/dev/tty` directly (`git diff | whip up` still asks).
+
 Tests: `internal/tui/up_test.go` — `TestInitialPromptSubmitsFirstTurn` (Init
 kickoff → busy turn, authored user message, history entry, one-shot
 consumption), `TestNoInitialPromptNoKickoff` (bare blink Init, empty msg is
 a no-op), `TestInitialPromptMsgIgnoredWhileBusy` (a replayed msg can't
-double-submit mid-turn).
+double-submit mid-turn), `TestDeferredTrustOpensPromptAndHolds` (Init opens
+the trust prompt, no kickoff, no turn), `TestTrustApprovedSubmitsHeldPrompt`
+(trust recorded + held prompt submits), `TestTrustDeclinedQuits` (drops the
+prompt, `tea.Quit`); `internal/tui/trust_test.go` — `TestTrustGate`,
+`TestTrustGateDefersWhenNoTerminal`, `TestTrustGateAsksOnDevTTY`.
 
 ## ACP agent mode
 

@@ -267,10 +267,27 @@ type model struct {
 	// initialPrompt (whip up <words>) is submitted as the first turn from
 	// Init — late enough that m.prog exists for the turn goroutine's p.Send.
 	initialPrompt string
+
+	// trustPending is the cwd when checkTrust deferred (non-TTY stdin): the
+	// trust question moves into the TUI as an inline prompt. While set, Init
+	// holds the initialPrompt (in heldPrompt) instead of kicking off the turn.
+	trustPending string
+	// heldPrompt is the `whip up` prompt parked while the in-TUI trust gate is
+	// open; approved trust submits it, declined trust exits without it.
+	heldPrompt string
 }
 
 // initialPromptMsg is Init's one-shot kickoff of a `whip up` first turn.
 type initialPromptMsg struct{}
+
+// trustOpenMsg is Init's one-shot signal to open the in-TUI trust prompt. It's
+// a msg (not a cmd that mutates) so openTrustPrompt runs on the Update thread,
+// not a tea.Batch cmd goroutine racing the first WindowSizeMsg/View.
+type trustOpenMsg struct{}
+
+// trustAnswerMsg carries the in-TUI trust-gate answer back through Update so
+// it can return tea.Quit on decline (a namePrompt onOK callback can't).
+type trustAnswerMsg struct{ approved bool }
 
 // picker is the /resume session browser. metas is newest-first; the list is
 // rendered oldest-at-top so newest sits at the bottom.
@@ -335,11 +352,22 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 
 	// Trust gate first: before whip reads a single file, ask whether this
 	// folder's contents may steer the model. Persisted per absolute path in
-	// ~/.whip/trusted.json (claude-code's per-project trust dialog).
-	if ok, err := checkTrust(stdinR); err != nil {
+	// ~/.whip/trusted.json (claude-code's per-project trust dialog). When stdin
+	// isn't a terminal the pre-TUI prompt can't render, so checkTrust defers:
+	// the TUI opens and asks the question inline (model.trustPending) instead
+	// of dying here with a prompt nobody can answer.
+	var deferredTrustDir string
+	switch outcome, err := checkTrust(stdinR); {
+	case err != nil:
 		return "", err
-	} else if !ok {
+	case outcome == trustDenied:
 		return "", errors.New("folder not trusted")
+	case outcome == trustDeferred:
+		wd, wdErr := os.Getwd()
+		if wdErr != nil {
+			return "", wdErr
+		}
+		deferredTrustDir = wd
 	}
 
 	// First run only: the setup wizard (provider, thinking display, MCP
@@ -393,6 +421,12 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		skillScan:     func() []skills.Skill { return skills.Scan(skills.DefaultDirs()...) },
 		initialPrompt: initialPrompt,
 	}
+	// A deferred trust gate (non-TTY stdin) parks the `whip up` prompt until
+	// the user answers the in-TUI trust question; Init opens that prompt.
+	if deferredTrustDir != "" {
+		m.trustPending = deferredTrustDir
+		m.heldPrompt, m.initialPrompt = m.initialPrompt, ""
+	}
 	m.applyCompactModel()
 	m.applyTaskModel()
 	m.agent.CompactThreshold = compactThresholdFor(cfg)
@@ -404,18 +438,18 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// the background. Tool calls block on that server's first settle only, so a
 	// slow/hung server never delays startup. Discovery problems (a broken
 	// .mcp.json) land as a transcript note, not a startup failure.
+	//
+	// While the trust gate is deferred (trustPending), MCP stays OFF entirely —
+	// even whip's own config: discovery reads the untrusted folder's .mcp.json
+	// and Start exec-spawns its stdio servers, which is exactly the arbitrary
+	// code execution the gate exists to prevent (the pre-TUI gate used to
+	// hard-fail before any of this ran). Approval runs m.mcpStart(); a decline
+	// quits, so nothing is lost. The deferred startupReport just shows no MCP
+	// line — servers start AFTER the report, and the on-change redraw shows
+	// them settling in /mcp.
 	if wd, wdErr := os.Getwd(); wdErr == nil {
-		disc := mcp.LoadMergedFiltered(wd, mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-		merged, mcpErrs := disc.Merged, disc.Errs
-		if len(merged) > 0 || len(disc.Blocked) > 0 || len(mcpErrs) > 0 {
-			m.mcpMgr = mcp.NewManager(merged)
-			m.mcpMgr.SetBlocked(disc.Blocked)
-			m.mcpMgr.SetOnChange(m.mcpOnChange())
-			m.mcpMgr.Start(context.Background())
-			ag.SetMCPTools(m.mcpMgr.Tools())
-			for src, derr := range mcpErrs {
-				m.append(errStyle.Render(fmt.Sprintf("mcp: %s: %s", src, derr)))
-			}
+		if m.trustPending == "" {
+			m.mcpStart(wd)
 		}
 		// LSP: build the diagnostics manager (built-ins merged under the
 		// config's "lsp" block) and install it for write/edit tool output.
@@ -1429,7 +1463,15 @@ func (m *model) Init() tea.Cmd {
 		// appearance flip mid-session is picked up without a restart
 		cmds = append(cmds, themePollTick())
 	}
-	if m.initialPrompt != "" {
+	if m.trustPending != "" {
+		// Deferred trust gate (no terminal): ask the question inline instead of
+		// kicking off a turn. The `whip up` prompt sits in heldPrompt until the
+		// answer lands. We emit a msg rather than mutating here — tea.Batch runs
+		// cmds on their own goroutines, and openTrustPrompt touches m.blocks /
+		// m.vp / m.input, which would race the first WindowSizeMsg/View. Update
+		// handles it on the UI thread (the initialPromptMsg pattern).
+		cmds = append(cmds, func() tea.Msg { return trustOpenMsg{} })
+	} else if m.initialPrompt != "" {
 		// Batch blink with the kickoff; the turn's p.Send is nil-safe in headless tests.
 		cmds = append(cmds, func() tea.Msg { return initialPromptMsg{} })
 	}
@@ -1806,6 +1848,37 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		text := m.initialPrompt
 		m.initialPrompt = "" // one-shot: no re-submit on replays
+		m.hist = append(m.hist, text)
+		m.histIdx = len(m.hist)
+		return m.submit(text)
+
+	case trustOpenMsg:
+		// One-shot: consume so a replayed Init can't reopen over the gate.
+		if m.trustPending == "" {
+			return m, nil
+		}
+		m.openTrustPrompt()
+		return m, nil
+
+	case trustAnswerMsg:
+		dir := m.trustPending
+		m.trustPending = ""
+		if !msg.approved {
+			m.heldPrompt = "" // declined: don't run the prompt in an untrusted folder
+			return m, tea.Quit
+		}
+		if err := config.Trust(dir); err != nil {
+			m.append(errStyle.Render("trust: " + err.Error()))
+		}
+		// MCP was held back while the gate was open (startup discovery would
+		// read, and Start would exec, the then-untrusted folder's .mcp.json).
+		// Trust granted: start it now.
+		m.mcpStart(dir)
+		if m.heldPrompt == "" || m.busy {
+			return m, nil
+		}
+		text := m.heldPrompt
+		m.heldPrompt = ""
 		m.hist = append(m.hist, text)
 		m.histIdx = len(m.hist)
 		return m.submit(text)
@@ -2689,7 +2762,12 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case m.namePrompt != nil: // cancel the inline fork/rename/auth prompt
 			masked := m.namePrompt.mask
+			onCancel := m.namePrompt.onCancel
 			m.closeNamePrompt()
+			if onCancel != nil { // e.g. the trust gate treats Esc as decline
+				onCancel()
+				return m, nil
+			}
 			if masked { // the draft stash must not record a key into history
 				m.escClr = false
 				return m, nil
