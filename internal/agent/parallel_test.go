@@ -45,7 +45,11 @@ func parallelServer(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if call == 1 {
 			for i, id := range []string{"a", "b", "c"} {
-				args := fmt.Sprintf(`{\"s\":%q}`, id)
+				// arguments must be a JSON object: the streaming client
+				// (internal/llm) discards tool calls whose args aren't valid
+				// JSON before they reach the tool layer, so the raw value has
+				// to be {"s":"a"}, not the backslash-escaped {\"s\":\"a\"}.
+				args := fmt.Sprintf(`{"s":%q}`, id)
 				fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":%d,"id":%q,"type":"function","function":{"name":"slow","arguments":%q}}]}}]}`+"\n\n", i, id, args)
 			}
 			fmt.Fprint(w, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`+"\n\n")
