@@ -697,7 +697,8 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 
 	msg := Message{Role: "assistant"}
 	var usage Usage      // from the terminal chunk (include_usage); zero if omitted
-	var calls []ToolCall // indexed by stream tool_call index
+	var calls []ToolCall // arrival order; providers may use sparse stream indexes
+	callPositions := make(map[int]int)
 	finish := ""
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
@@ -742,10 +743,13 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 			}
 		}
 		for _, tc := range d.ToolCalls {
-			for len(calls) <= tc.Index {
+			pos, ok := callPositions[tc.Index]
+			if !ok {
+				pos = len(calls)
+				callPositions[tc.Index] = pos
 				calls = append(calls, ToolCall{Type: "function"})
 			}
-			cur := &calls[tc.Index]
+			cur := &calls[pos]
 			if tc.ID != "" {
 				cur.ID = tc.ID
 			}
