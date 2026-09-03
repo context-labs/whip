@@ -17,6 +17,7 @@ flowchart TB
         WRITE["write<br/>create/overwrite"]
         EDIT["edit<br/>exact-string replacement"]
         SUGGEST["suggest<br/>file completions"]
+        QUESTION["question<br/>selectable options modal,<br/>main agent only"]
     end
 
     subgraph agents["agents & planning — internal/agent"]
@@ -63,6 +64,16 @@ Runs through `internal/tools/bashrun` so the agent can:
   command after 15s of no input.
 - **suggest next steps** — the schema nudges the model toward batching
   independent calls in one turn, which the loop then runs in parallel.
+
+## question
+
+The model asks the user to pick from 2-6 options when a decision is theirs
+(opencode's `question` tool, one question per call). The TUI shows a modal:
+numbered rows with dim descriptions, a "type your own answer" row, `multiple`
+for checkbox selection. Same hand-off as the permission gate: the tool
+goroutine blocks on `tools.Ask` until the UI answers; esc dismisses and the
+model is told so. Registered for the main agent only — subagents are told not
+to ask, and the MCP server has no user.
 
 ## Subagents (`subagent`)
 

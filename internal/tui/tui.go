@@ -246,6 +246,7 @@ type model struct {
 
 	perms      permRules   // saved allow-always rules
 	permDialog *permDialog // open permission modal; the turn is paused on it
+	askDialog  *askDialog  // open question modal; the turn is paused on it
 
 	tasksFocus bool      // the tasks dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
 	taskSel    int       // selected row in the dock (index into newest-first tasks)
@@ -427,6 +428,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// computer-use: the per-app consent prompt — installed once, here, where
 	// the model exists (buildAgent is package-level and has no m).
 	tools.ComputerApprover = m.computerConsent
+	m.installAskHook() // the question tool always needs a user; nil Ask = tool errors
 	// Permission prompts are opt-in (--cautious); without it tools run free.
 	if cautious {
 		m.installPermGate()
@@ -1733,6 +1735,9 @@ func (m *model) layout() {
 	if m.iactive != nil {
 		chrome += lipgloss.Height(m.interactiveView()) + 1
 	}
+	if m.askDialog != nil {
+		chrome += lipgloss.Height(m.askView()) + 1
+	}
 	if m.permDialog != nil {
 		chrome += lipgloss.Height(m.permView()) + 1 // viewBody emits "\n"+permView(); unbudgeted it clips the alt-screen frame and shifts mouse rows
 	}
@@ -1897,6 +1902,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case permRequest:
 		m.permDialog = &permDialog{req: msg.req, reply: msg.reply}
+		return m, nil
+
+	case askRequest:
+		m.askDialog = &askDialog{req: msg.req, reply: msg.reply, picked: map[int]bool{}}
+		return m, nil
+
+	case askClose:
+		if m.askDialog != nil && m.askDialog.reply == msg.reply {
+			m.askDialog = nil
+		}
 		return m, nil
 
 	case selScrollTick:
@@ -2542,6 +2557,10 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// a single esc to the child (many prompts use esc to cancel).
 	if m.iactive != nil {
 		return m.iactiveKey(msg)
+	}
+	if m.askDialog != nil {
+		m.askKey(msg)
+		return m, nil
 	}
 	if m.permDialog != nil {
 		m.permKey(msg)
@@ -4444,6 +4463,9 @@ func (m *model) viewBody() string {
 	}
 	if m.permDialog != nil {
 		b.WriteString("\n" + m.permView() + "\n")
+	}
+	if m.askDialog != nil {
+		b.WriteString("\n" + m.askView() + "\n")
 	}
 	if m.busy && m.uiMode != opencodeMode { // opencode mode: the status bar carries the spinner + esc hint
 		hint := " thinking… (enter queues · /theme /mouse /effort run now · esc interrupts · ctrl+c ctrl+c interrupts)"

@@ -283,7 +283,7 @@ func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *
 		MaxTokens: maxTokens,
 		Messages:  []llm.Message{{Role: "system", Content: systemPrompt}},
 	}
-	a.Tools = tools.All()
+	a.Tools = append(tools.All(), tools.QuestionTool())
 	if !a.BrowserDisabled {
 		a.Tools = append(a.Tools, tools.BrowserExec())
 	}
