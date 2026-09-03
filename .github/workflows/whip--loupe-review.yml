@@ -28,7 +28,7 @@ concurrency:
 
 env:
   INFISICAL_IDENTITY_ID: "46f034e9-14e7-49ad-b3f7-f0d8ad8a989f" # Github-Ci
-  WHIP_VERSION: "v0.5.4"
+  WHIP_VERSION: "v0.5.5"
 
 jobs:
   loupe:
