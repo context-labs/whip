@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -166,7 +168,115 @@ func (a *Agent) decay() int {
 		m.Content = decayNotice(a.Messages, i, turns)
 		rewritten++
 	}
+
+	// Pass 3: image decay. An image part past the hot window costs thousands
+	// of tokens per request and is almost never looked at again — screenshots
+	// of a UI the user has since iterated on, error dialogs already fixed.
+	// Swap the part for a text placeholder pointing at the spilled file on
+	// disk; the model re-attaches it via @mention if it genuinely needs the
+	// pixels again. Text parts of the message stay inline (the prompt that
+	// accompanied the image is semantic glue). Runs after Pass 2 so turns
+	// already reflects authored-user distance.
+	for i := boundary - 1; i > 0; i-- {
+		m := &a.Messages[i]
+		if len(m.Parts) == 0 {
+			continue
+		}
+		n := stripImageParts(m)
+		if n > 0 {
+			rewritten += n
+		}
+	}
 	return rewritten
+}
+
+// stripImageParts replaces every image part of m with a text placeholder
+// naming the image's pixel size and the disk path the bytes were spilled to.
+// Returns the number of parts stripped. A message whose images were all
+// stripped keeps its text parts; if it had no text at all the placeholder
+// also becomes Content so the message still reads coherently.
+func stripImageParts(m *llm.Message) int {
+	stripped := 0
+	var kept []llm.ContentPart
+	for _, p := range m.Parts {
+		if p.Type != "image_url" || p.ImageURL == nil {
+			kept = append(kept, p)
+			continue
+		}
+		path := spillImage(p.ImageURL.URL)
+		w, h := p.Dimensions()
+		size := "image"
+		if w > 0 {
+			size = fmt.Sprintf("%d×%d image", w, h)
+		}
+		note := decayedMarker + size + " omitted"
+		if path != "" {
+			note += " — bytes at " + path + " (re-attach with @" + path + " if needed)"
+		}
+		note += "⟩"
+		kept = append(kept, llm.ContentPart{Type: "text", Text: note})
+		stripped++
+	}
+	if stripped == 0 {
+		return 0
+	}
+	m.Parts = kept
+	// Mirror the first placeholder into Content when the message was pure
+	// image (Content mirrors the text part for multimodal messages).
+	if m.Content == "" {
+		for _, p := range kept {
+			if p.Type == "text" {
+				m.Content = p.Text
+				break
+			}
+		}
+	}
+	return stripped
+}
+
+// spillImage writes a base64 data URL's bytes to disk and returns the path,
+// or "" on any failure (the placeholder then just says the image is gone —
+// a failed spill must never break decay). Files live beside bash spills.
+func spillImage(dataURL string) string {
+	const prefix = ";base64,"
+	i := strings.Index(dataURL, prefix)
+	if i < 0 {
+		return ""
+	}
+	mime := dataURL[len("data:"):i]
+	ext := "png"
+	switch mime {
+	case "image/jpeg":
+		ext = "jpg"
+	case "image/gif":
+		ext = "gif"
+	case "image/webp":
+		ext = "webp"
+	case "image/bmp":
+		ext = "bmp"
+	}
+	raw, err := base64.StdEncoding.DecodeString(dataURL[i+len(prefix):])
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(os.TempDir(), fmt.Sprintf("whip-img-%d", os.Getpid()))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return ""
+	}
+	f, err := os.CreateTemp(dir, "*."+ext)
+	if err != nil {
+		return ""
+	}
+	if _, err := f.Write(raw); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return ""
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return ""
+	}
+	return f.Name()
 }
 
 // hotBoundary returns the index in msgs where the hot window begins. Walking

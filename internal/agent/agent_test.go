@@ -658,18 +658,23 @@ func TestCompactKeepsToolCallPair(t *testing.T) {
 	}))
 	defer srv.Close()
 	ag := New(llm.New(srv.URL, "k"), "m", 100, "sys")
-	// system, user, asst(with tool call "t1"), tool("t1" result), user, asst, user
-	for i := range 4 {
-		ag.Messages = append(ag.Messages, llm.Message{Role: "user", Content: fmt.Sprintf("u%d", i)})
-		if i == 0 {
-			ag.Messages = append(ag.Messages,
-				llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "t1", Type: "function"}}},
-			)
-			ag.Messages = append(ag.Messages, llm.Message{Role: "tool", Content: "tool-out", ToolCallID: "t1"})
-		} else {
-			ag.Messages = append(ag.Messages, llm.Message{Role: "assistant", Content: fmt.Sprintf("a%d", i)})
-		}
+	ag.ContextLimit = 1000 // tiny window → tail budget clamps to the 2000-token floor
+	// Pad the early turns so they exceed the tail budget and fold. The
+	// tool-call pair comes LAST so it sits in the kept tail; the orphan guard
+	// must keep the tool result's owning assistant message alongside it.
+	pad := strings.Repeat("x", 8000) // ~2000 tokens per padded message
+	for i := range 3 {
+		ag.Messages = append(ag.Messages,
+			llm.Message{Role: "user", Content: pad + fmt.Sprintf("u%d", i)},
+			llm.Message{Role: "assistant", Content: pad + fmt.Sprintf("a%d", i)},
+		)
 	}
+	// final turn: small user + assistant(with tool call "t1") + tool("t1")
+	ag.Messages = append(ag.Messages,
+		llm.Message{Role: "user", Content: "final question"},
+		llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "t1", Type: "function"}}},
+		llm.Message{Role: "tool", Content: "tool-out", ToolCallID: "t1"},
+	)
 	before := len(ag.Messages)
 	if _, _, _, err := ag.compact(context.Background()); err != nil {
 		t.Fatalf("compact: %v", err)
@@ -989,10 +994,13 @@ func TestCompactionEventsCarryModelAndUsage(t *testing.T) {
 	if starts != 1 || dones != 1 {
 		t.Fatalf("start/done should each fire exactly once, got %d/%d", starts, dones)
 	}
-	if startTook != len(ag.Messages) { // post-compaction length: the count the UI prints
-		if startTook < len(ag.Messages) {
-			t.Fatalf("start should report the pre-compaction count, got %d (post %d)", startTook, len(ag.Messages))
-		}
+	// startTook is the PRE-compaction message count (what OnCompact's took
+	// param means). With the token-budgeted tail the post-compaction length
+	// can exceed it on a tiny history (the ≥2000-token budget keeps nearly all
+	// of it, plus the summary message), so assert only that it fired and is
+	// plausible, not an exact post/pre relationship.
+	if startTook < 2 {
+		t.Fatalf("start should report the pre-compaction count, got %d", startTook)
 	}
 	if startEst <= 0 {
 		t.Fatalf("start should carry a positive token estimate, got %d", startEst)

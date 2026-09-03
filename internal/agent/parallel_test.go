@@ -507,7 +507,12 @@ func TestSubscribeUnknownTask(t *testing.T) {
 
 // Usage from a background subagent's API calls folds into the parent's
 // session totals (the FanIn second leg alongside the event emitter).
-func TestBackgroundTaskUsageRollsIntoParent(t *testing.T) {
+// A background subagent's spend is persisted on its own attributed
+// task-session transcript, so it must NOT also roll into the parent's
+// cumulative totals — folding it in counted the same tokens twice (one real
+// session's row read ~2× the provider bill). The parent's Usage() reports
+// only the session's own requests.
+func TestBackgroundTaskUsageNotDoubleCounted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\n")
@@ -523,8 +528,8 @@ func TestBackgroundTaskUsageRollsIntoParent(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("task never settled")
 	}
-	if u := ag.Usage(); u.PromptTokens != 50 || u.CompletionTokens != 5 {
-		t.Fatalf("subagent usage should roll into the parent: %+v", u)
+	if u := ag.Usage(); u.PromptTokens != 0 || u.CompletionTokens != 0 {
+		t.Fatalf("background subagent usage must not roll into the parent (double count): %+v", u)
 	}
 }
 

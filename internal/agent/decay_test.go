@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"strings"
 	"testing"
@@ -250,4 +253,73 @@ func TestSpillPathOfParsesBothMarkerShapes(t *testing.T) {
 	if got := spillPathOf("no marker here"); got != "" {
 		t.Errorf("no marker should give empty, got %q", got)
 	}
+}
+
+// Image parts past the hot window are swapped for a text placeholder naming
+// the pixel size and the spilled file; text parts and Content stay. The image
+// is recoverable by re-attaching the spilled path.
+func TestDecayStripsColdImageParts(t *testing.T) {
+	png := pngFixtureForDecay(t, 640, 480) // ⌈640/28⌉=23, ⌈480/28⌉=18 → 414 tokens
+	img := llm.ImagePart("png", png)
+
+	a := &Agent{}
+	a.Messages = padHotWindow([]llm.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "look at this", Parts: []llm.ContentPart{{Type: "text", Text: "look at this"}, img}},
+	})
+	before := EstimateTokens(a.Messages)
+	n := a.decay()
+	if n == 0 {
+		t.Fatal("image past the hot window should be stripped")
+	}
+	m := a.Messages[1]
+	// no image parts remain
+	for _, p := range m.Parts {
+		if p.Type == "image_url" {
+			t.Fatal("image part should be replaced")
+		}
+	}
+	// a placeholder text part names the dims and the spill path
+	var placeholder string
+	for _, p := range m.Parts {
+		if p.Type == "text" && strings.Contains(p.Text, "omitted") {
+			placeholder = p.Text
+		}
+	}
+	if !strings.Contains(placeholder, "640×480") {
+		t.Errorf("placeholder should name the pixel size, got %q", placeholder)
+	}
+	if !strings.Contains(placeholder, "whip-img-") {
+		t.Errorf("placeholder should point at the spilled file, got %q", placeholder)
+	}
+	// text part survives
+	foundText := false
+	for _, p := range m.Parts {
+		if p.Type == "text" && p.Text == "look at this" {
+			foundText = true
+		}
+	}
+	if !foundText {
+		t.Error("the accompanying text part must stay inline")
+	}
+	// the estimate dropped by roughly the image's token cost
+	after := EstimateTokens(a.Messages)
+	if before-after < 300 {
+		t.Errorf("stripping should drop the estimate (before=%d after=%d)", before, after)
+	}
+	// idempotent
+	if n := a.decay(); n != 0 {
+		t.Errorf("second decay should be a no-op, rewrote %d", n)
+	}
+}
+
+// pngFixtureForDecay builds a real PNG so ImagePart can record dims.
+func pngFixtureForDecay(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+	return buf.Bytes()
 }

@@ -393,7 +393,15 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 	id, description, prompt := t.ID, t.Description, t.Prompt
 	taskCtx := t.ctx
 	go func() {
-		report, err := t.sub.Turn(taskCtx, prompt, FanIn(a.bg.emitter(id), Events{OnUsage: a.AddUsage}))
+		// No OnUsage fan-in to the parent: the background subagent's spend is
+		// persisted on its own attributed task-session transcript (OnRecord →
+		// SaveSubagentTranscript), and each sub runs its own Turn/AddUsage, so
+		// folding it into the parent's totals too double-counts it (this drove
+		// one session's reported spend to ~2× the provider bill). The parent's
+		// Usage() reports the session's own requests; per-sub spend is on the
+		// task sessions. The sub compacts on its own real usage, so dropping
+		// the fan-in doesn't blind the compaction trigger either.
+		report, err := t.sub.Turn(taskCtx, prompt, FanIn(a.bg.emitter(id), Events{}))
 		status := TaskDone
 		text := report
 		switch {

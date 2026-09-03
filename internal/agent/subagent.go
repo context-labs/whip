@@ -227,7 +227,10 @@ func (a *Agent) FollowupTask(ctx context.Context, id, text string, ev Events) (s
 	if t.sub == nil {
 		return "", fmt.Errorf("subagent %s is not live (restored from a previous session)", id)
 	}
-	out, err := t.sub.Turn(ctx, text, FanIn(ev, Events{OnUsage: a.AddUsage}))
+	// No OnUsage fan-in: the follow-up's spend is persisted on the task's own
+	// session transcript (refreshTranscript below), so adding it to the
+	// parent's totals would count it twice.
+	out, err := t.sub.Turn(ctx, text, ev)
 	// The follow-up grew the sub's conversation; refresh the persisted
 	// transcript so a resume sees it (no-op without a store).
 	r.refreshTranscript(id, t.sub)

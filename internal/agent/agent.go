@@ -125,6 +125,14 @@ type Agent struct {
 	// consistent slice. Mutations hold it only for the append.
 	msgsMu sync.Mutex
 
+	// Doom-loop bookkeeping: the last tool call's identity and how many times
+	// in a row it has run. Any different call resets the run, so a legit
+	// test→fix→test alternation never trips the guard — only the pure
+	// stuck-on-repeat pattern (a subagent sleep-polling git 500×) does.
+	loopMu      sync.Mutex
+	lastCallKey string
+	lastCallRun int
+
 	files *fileLocks // per-path mutation locks for parallel tool calls
 	bg    *taskRegistry
 
@@ -170,6 +178,11 @@ type Agent struct {
 
 	usageMu sync.Mutex
 	usage   llm.Usage // session totals across every API call (PromptTokens = input)
+	// lastPrompt is the provider-reported prompt tokens of the most recent
+	// request that returned usage — the real context size the next request
+	// starts from. Drives the compaction trigger (the chars/4 estimate
+	// undercounts images ~7×; real usage is the provider's bill).
+	lastPrompt int
 }
 
 // TurnRunning reports whether a turn is currently in flight. The wait
@@ -230,11 +243,17 @@ func (a *Agent) drainPending() []pendingSteer {
 	return p
 }
 
-// AddUsage folds one request's usage into the session totals.
+// AddUsage folds one request's usage into the session totals. It also
+// remembers the request's prompt size: that is the provider's own measure of
+// the context the NEXT request starts from, and maybeCompact triggers off it
+// (the chars/4 estimate is a fallback for providers that report no usage).
 func (a *Agent) AddUsage(u llm.Usage) {
 	a.usageMu.Lock()
 	a.usage.PromptTokens += u.PromptTokens
 	a.usage.CompletionTokens += u.CompletionTokens
+	if u.PromptTokens > 0 {
+		a.lastPrompt = u.PromptTokens
+	}
 	if u.PromptTokensDetails != nil {
 		if a.usage.PromptTokensDetails == nil {
 			a.usage.PromptTokensDetails = &struct {
@@ -508,6 +527,18 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			a.msgsMu.Unlock()
 		}
 		if len(msg.ToolCalls) == 0 && len(steered) == 0 {
+			// Final round: the response that just landed may have pushed the
+			// real context over the threshold (its usage is now in lastPrompt)
+			// without a round-2 maybeCompact ever running — a single-round turn
+			// returns immediately otherwise. Fold now so the NEXT request
+			// doesn't pay for an over-threshold prefix. Skip when this turn
+			// already compacted (a.fold set a.compacted): the history is
+			// already small, and a second summary would re-fold a fresh fold.
+			if !a.compacted {
+				if cerr := a.maybeCompact(ctx, ev); cerr != nil {
+					return "", cerr
+				}
+			}
 			a.compacted = false // reset for the next Turn
 			return msg.Content, nil
 		}
@@ -570,12 +601,23 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, ev Events) [
 	}
 	outCh := make(chan outcome, len(calls)) // buffered: never blocks the workers
 
+	// Doom-loop guard: mark (in the batch's own order, before any goroutine
+	// scrambles completion order) which calls are stuck-on-repeat refusals.
+	// A refused call returns the refusal text without executing.
+	refused := a.markDoomLoops(calls)
+
 	var wg sync.WaitGroup
 	for i, tc := range calls {
 		wg.Add(1)
 		go func(i int, tc llm.ToolCall) {
 			defer wg.Done()
 			name, args := tc.Function.Name, tc.Function.Arguments
+
+			if refused[i] {
+				out := doomLoopRefusal(name)
+				outCh <- outcome{i, out, 0, 1}
+				return
+			}
 
 			// Serialize against other mutations before starting. Acquiring here
 			// (before OnToolStart) keeps "running" rows honest: a tool only
@@ -624,6 +666,49 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, ev Events) [
 	return results
 }
 
+// doomLoopMaxRun is how many consecutive identical (name, args) tool calls
+// are allowed before the guard refuses to execute another. The incident that
+// motivated it: a subagent sleep-polled `git status` 516 times (235 in a
+// row) waiting for an external change, burning 85M tokens. 3 lets a model
+// retry a flaky command once, but stops the pure stuck-on-repeat pattern.
+const doomLoopMaxRun = 3
+
+// doomLoopExempt tools are allowed to repeat identically: repetition is
+// their designed use (wait polls a condition internally and returns only on
+// change/timeout — each call carries fresh information).
+var doomLoopExempt = map[string]bool{"wait": true}
+
+// markDoomLoops walks the batch in issue order, updates the consecutive-run
+// counter per call, and returns the set of calls to refuse. Any call that
+// differs from the last resets the run, so test→edit→test alternation never
+// trips the guard — only an unbroken streak of identical calls does.
+func (a *Agent) markDoomLoops(calls []llm.ToolCall) []bool {
+	refused := make([]bool, len(calls))
+	a.loopMu.Lock()
+	defer a.loopMu.Unlock()
+	for i, tc := range calls {
+		key := tc.Function.Name + "\x00" + tc.Function.Arguments
+		if key == a.lastCallKey {
+			a.lastCallRun++
+		} else {
+			a.lastCallKey = key
+			a.lastCallRun = 1
+		}
+		if a.lastCallRun >= doomLoopMaxRun && !doomLoopExempt[tc.Function.Name] {
+			refused[i] = true
+		}
+	}
+	return refused
+}
+
+// doomLoopRefusal is the tool-result text a refused call returns. It names
+// the pattern and the two ways out so the model recovers instead of just
+// retrying (which would hit the guard again) or giving up.
+func doomLoopRefusal(name string) string {
+	return fmt.Sprintf("Error: refused to run %s — this exact call (same arguments) has already run %d times in a row with no other tool call in between. Repeating it will not produce new information. Change the approach: adjust the command/arguments, do the work instead of polling for it, or ask the user for guidance.",
+		name, doomLoopMaxRun)
+}
+
 // toolExitCode infers an exit status from a tool's output. Tools signal errors
 // by prefixing their output; 0 means success, 1 means the tool reported a
 // failure. Best-effort: the exact status lives in the tool, not the output.
@@ -634,11 +719,18 @@ func toolExitCode(out string) int {
 	return 0
 }
 
-// compactKeepBack counts assistant turns (and any tool results they pulled in)
-// preserved verbatim at the tail of the history. Keeping recent context means
-// any in-flight task the model is working on keeps its tool results in view,
-// and we never leave an orphaned tool_call whose result the summary dropped.
-const compactKeepBack = 6
+// Compaction keeps a token-budgeted TAIL of whole user turns verbatim, not a
+// fixed message count: six messages can be six 50KB tool dumps or six one-line
+// acks, and only the token budget treats them alike. The budget scales with
+// the model's usable window (min/max clamped) — a 1M-window model keeps more
+// recent context than a 128k one. Keeping whole turns means any in-flight
+// task the model is working on keeps its tool results in view, and we never
+// leave an orphaned tool_call whose result the summary dropped.
+const (
+	compactTailMinTokens = 2_000  // budget floor: even a tiny window keeps the last exchange
+	compactTailMaxTokens = 15_000 // budget ceiling: recent turns beyond this re-derive via tools
+	compactTailFraction  = 0.25   // of the usable window
+)
 
 // defaultCompactThreshold is the fraction of the provider-advertised context
 // window at which Turn compacts proactively when CompactThreshold is unset.
@@ -653,12 +745,28 @@ func (a *Agent) threshold() float64 {
 	return defaultCompactThreshold
 }
 
-// maybeCompact folds old turns into a summary once the estimated token count
-// crosses the threshold fraction of ContextLimit. It no-ops when the provider
-// didn't advertise a limit (ContextLimit == 0) — the reactive context-limit
-// retry in Turn still covers that case.
+// maybeCompact folds old turns into a summary once the context size crosses
+// the threshold fraction of ContextLimit. The primary measure is the
+// provider-reported prompt size of the last request (real billing truth);
+// the chars/4 estimate is the fallback for providers that return no usage.
+// It no-ops when the provider didn't advertise a limit (ContextLimit == 0) —
+// the reactive context-limit retry in Turn still covers that case.
 func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
-	if a.ContextLimit == 0 || EstimateTokens(a.Messages) < int(a.threshold()*float64(a.ContextLimit)) {
+	if a.ContextLimit == 0 {
+		return nil
+	}
+	limit := int(a.threshold() * float64(a.ContextLimit))
+	a.usageMu.Lock()
+	real := a.lastPrompt
+	a.usageMu.Unlock()
+	if real > 0 {
+		// The last request's prompt is what the next one starts from. Compacts
+		// the moment the real bill crosses the user's compactPct even when the
+		// chars/4 estimate (which undercounts images) says we're below it.
+		if real < limit {
+			return nil
+		}
+	} else if EstimateTokens(a.Messages) < limit {
 		return nil
 	}
 	took := len(a.Messages)
@@ -678,6 +786,10 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	if ev.OnCompacted != nil {
 		ev.OnCompacted(sum, cutoff, info)
 	}
+	// Mark that this turn compacted so the final-round check doesn't fold a
+	// fresh fold again. (Only the proactive path needs this — the reactive
+	// error path sets a.compacted itself.)
+	a.compacted = true
 	return nil
 }
 
@@ -690,7 +802,10 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 func EstimateTokens(msgs []llm.Message) int {
 	total := 0
 	for _, m := range msgs {
-		total += 4 + (len(m.TextContent())+3)/4 + 1200*len(m.Parts) // ~tokens for an image
+		total += 4 + (len(m.TextContent())+3)/4
+		for _, p := range m.Parts {
+			total += llm.PartTokens(p) // pixel-true for images (was: flat 1200)
+		}
 		for _, tc := range m.ToolCalls {
 			total += 8 + (len(tc.Function.Name)+len(tc.Function.Arguments)+3)/4
 		}
@@ -698,12 +813,56 @@ func EstimateTokens(msgs []llm.Message) int {
 	return total
 }
 
+// compactTailBudget is the token budget for the kept tail of a compaction:
+// a quarter of the usable window, clamped to [compactTailMinTokens,
+// compactTailMaxTokens]. usable = ContextLimit minus what the threshold
+// reserves (the headroom we compact INTO); when ContextLimit is unknown the
+// ceiling is the budget.
+func (a *Agent) compactTailBudget() int {
+	budget := compactTailMaxTokens
+	if a.ContextLimit > 0 {
+		usable := float64(a.ContextLimit) * (1 - a.threshold())
+		budget = int(usable * compactTailFraction)
+	}
+	return max(min(budget, compactTailMaxTokens), compactTailMinTokens)
+}
+
+// compactTailStart picks the tail boundary: the index where the kept tail
+// begins. It walks user turns newest→oldest, accumulating each turn's tokens
+// (the user message plus its assistant replies and tool results) until adding
+// one more turn would exceed the budget. Whole turns only — a turn boundary
+// is the only place a summary can start without orphaning a tool_call.
+// Returns len(msgs) when nothing fits the budget (tail of zero), and clamps
+// to sysIdx+2 so the first user message is never dropped entirely.
+func compactTailStart(msgs []llm.Message, budget int) int {
+	if len(msgs) <= 2 {
+		return len(msgs)
+	}
+	acc := 0
+	start := len(msgs)
+	// Walk back turn by turn. A turn starts at each authored (or first) user
+	// message and runs to just before the next one.
+	for i := len(msgs) - 1; i >= 1; i-- {
+		acc += EstimateTokens(msgs[i : i+1])
+		if msgs[i].Role == "user" {
+			if acc > budget && start < len(msgs) {
+				break // adding this turn would bust the budget; tail stays as-is
+			}
+			start = i
+		}
+	}
+	if start <= 1 {
+		start = 2 // keep system + first user message out of the fold
+	}
+	return start
+}
+
 // compact replaces old turns with an LLM-generated summary, keeping the
-// system prompt and the last compactKeepBack (ish) messages so recent tool
-// results and any in-flight assistant action stay intact. It runs a single
-// non-streaming completion — on CompactClient/CompactModel when set, else
-// on the conversation's own client and model — and stores the summary as a
-// system-role message (it must carry no tool_call IDs that the kept tail
+// system prompt and a token-budgeted tail of recent whole turns so recent
+// tool results and any in-flight assistant action stay intact. It runs a
+// single non-streaming completion — on CompactClient/CompactModel when set,
+// else on the conversation's own client and model — and stores the summary as
+// a system-role message (it must carry no tool_call IDs that the kept tail
 // would orphan).
 //
 // It returns the summary text, the cutoff (the index in the pre-compaction
@@ -712,12 +871,13 @@ func EstimateTokens(msgs []llm.Message) int {
 // surface the compaction in the transcript. The caller records the summary
 // and cutoff as a compaction event so the raw log survives on disk.
 func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info CompactInfo, err error) {
-	if len(a.Messages) <= compactKeepBack+2 { // system + ≥1 user + tail: nothing to fold
+	if len(a.Messages) <= 3 { // system + ≥1 user + tail: nothing to fold
 		return "", 0, CompactInfo{}, errors.New("not enough history to compact")
 	}
 	const sysIdx = 0
 	sysPrompt := a.Messages[sysIdx]
-	tailStart := len(a.Messages) - compactKeepBack
+	budget := a.compactTailBudget()
+	tailStart := compactTailStart(a.Messages, budget)
 	if tailStart <= sysIdx+1 {
 		tailStart = sysIdx + 2 // never drop the first user message entirely
 	}
@@ -730,7 +890,17 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 		tailStart--
 	}
 	history := a.Messages[sysIdx+1 : tailStart]
-	summaryPrompt := buildSummaryPrompt(history)
+	// Incremental compaction: when a previous summary message exists it
+	// carries the folded state forward, so the new fold merges into it
+	// instead of re-deriving everything from truncated transcripts. Anything
+	// the merge drops is lost — the prompt says so explicitly.
+	prior := ""
+	if len(history) > 0 && history[0].Role == "system" &&
+		strings.HasPrefix(history[0].Content, summaryPrefix) {
+		prior = strings.TrimPrefix(history[0].Content, summaryPrefix)
+		history = history[1:] // don't re-transcript the summary itself
+	}
+	summaryPrompt := buildSummaryPrompt(history, prior)
 	cli, mdl := a.CompactClient, a.CompactModel
 	dedicated := cli != nil
 	if cli == nil {
@@ -749,7 +919,7 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 	}
 	sum, usage, cerr := cli.Complete(ctx, llm.Request{
 		Model:     mdl,
-		MaxTokens: 1024,
+		MaxTokens: 4096, // room for a real state digest; 1024 clipped multi-hour sessions
 		Messages: []llm.Message{
 			sysPrompt,
 			{Role: "user", Content: summaryPrompt},
@@ -763,23 +933,40 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 	kept := append([]llm.Message(nil), tail...)
 	a.msgsMu.Lock()
 	a.Messages = append(append([]llm.Message{}, sysPrompt,
-		llm.Message{Role: "system", Content: "Summary of the conversation so far:\n\n" + summary},
+		llm.Message{Role: "system", Content: summaryPrefix + summary},
 	), kept...)
 	a.msgsMu.Unlock()
 	return summary, tailStart, CompactInfo{Model: label, Usage: usage}, nil
 }
 
+// summaryPrefix marks the folded-summary system message so a later compaction
+// recognizes and merges it (incremental fold) instead of re-summarizing it.
+const summaryPrefix = "Summary of the conversation so far:\n\n"
+
 // buildSummaryPrompt renders the unsummarized turns as a transcript the model
 // folds into a concise digest. Tool results are truncated so a giant file
 // read doesn't push the summary request over the window we just overflowed.
-func buildSummaryPrompt(msgs []llm.Message) string {
+// When prior is non-empty this is an incremental fold: the model merges the
+// new transcript into the running summary rather than starting over — each
+// fold then stays small and nothing the summary already captured is
+// re-derived from (lossy) truncated tool output.
+func buildSummaryPrompt(msgs []llm.Message, prior string) string {
 	var b strings.Builder
-	b.WriteString("Summarize the following conversation between the user and the assistant. ")
+	if prior != "" {
+		b.WriteString("Here is the running summary of the earlier conversation:\n\n<summary>\n")
+		b.WriteString(prior)
+		b.WriteString("\n</summary>\n\n")
+		b.WriteString("Below are the new turns since that summary was written. Merge them into the summary: ")
+		b.WriteString("keep everything still relevant (decisions, files touched, state), drop what the new turns ")
+		b.WriteString("obsolete, and add the new work. Anything you do not carry into the new summary is lost. ")
+	} else {
+		b.WriteString("Summarize the following conversation between the user and the assistant. ")
+	}
 	b.WriteString("Capture the user's intent, decisions made, work completed, files touched, ")
 	b.WriteString("and any open task the assistant is mid-way through. ")
-	b.WriteString("Be concise (a few short paragraphs at most); use bullet points for code/files. ")
-	b.WriteString("Do not include verbatim tool output. End with a single line: ")
-	b.WriteString("\"Open task: <what the assistant was doing last, or none>\".\n\n")
+	b.WriteString("Use these sections: Objective / Key decisions / Completed / Active (with the exact next step) / Blocked / Relevant files. ")
+	b.WriteString("Be concise; use bullet points for code/files. Do not include verbatim tool output. ")
+	b.WriteString("End with a single line: \"Open task: <what the assistant was doing last, or none>\".\n\n")
 	b.WriteString("---\n\n")
 	writeTranscript(&b, msgs)
 	b.WriteString("\n---\n\nWrite the summary now.")
