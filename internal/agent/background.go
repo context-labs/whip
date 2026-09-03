@@ -340,9 +340,15 @@ func (a *Agent) RegisterBackground(description, prompt string, o SubModel) *Back
 	sub := a.newSub(o)
 	// Scope the subagent's prompt-cache key to the task so its shorter,
 	// churning context never disturbs the parent's cached prefix (and two
-	// concurrent subagents don't collide on the session key).
-	if sid := a.SessionIDValue(); sid != "" {
-		sub.Client.CacheKey = sid + "/" + id
+	// concurrent subagents don't collide on the key). Prefer the session id;
+	// fall back to the parent's cache key so subagents still cache on a
+	// -no-session run (where the session id is empty).
+	scope := a.SessionIDValue()
+	if scope == "" && a.Client != nil {
+		scope = a.Client.CacheKey
+	}
+	if scope != "" {
+		sub.Client.CacheKey = scope + "/" + id
 	}
 	t := &BackgroundTask{
 		ID: id, Description: description, Prompt: prompt,
