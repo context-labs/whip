@@ -5,3 +5,4 @@
 # copy at internal/computer/bin/, which stays ignored too — the placeholder
 # is force-added instead).
 driver/.build/
+internal/tui/whip-transcript-*.md

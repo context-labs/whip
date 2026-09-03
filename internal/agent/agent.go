@@ -177,7 +177,17 @@ type Agent struct {
 	OnOrphanedSteer func(text string)
 
 	usageMu sync.Mutex
-	usage   llm.Usage // session totals across every API call (PromptTokens = input)
+	usage   llm.Usage // this agent's own API calls (PromptTokens = input), incl. its compaction summaries
+	// subUsage is the spend of every subagent under this agent (foreground,
+	// background, follow-ups, and their own nested subs), keyed by the sub's
+	// model label so it can be priced per model. Kept apart from usage so
+	// each is counted exactly once: usage is what this conversation's own
+	// requests cost, TotalUsage adds the subs.
+	subUsage map[string]llm.Usage
+	// usageSink, set on subagents, forwards every request this agent (or a
+	// sub of it) makes to the parent's AddSubUsage — a single funnel that
+	// also catches compaction-summary calls, which no Events hook reports.
+	usageSink func(model string, u llm.Usage)
 	// lastPrompt is the provider-reported prompt tokens of this agent's most
 	// recent conversation request — the real context size the next request
 	// starts from. Drives the compaction trigger (the chars/4 estimate
@@ -259,20 +269,52 @@ func (a *Agent) notePrompt(u llm.Usage) {
 	a.usageMu.Unlock()
 }
 
-// AddUsage folds one request's usage into the session totals.
+// AddUsage folds one of this agent's own requests into its totals and, on a
+// subagent, forwards it to the parent's sub-usage ledger.
 func (a *Agent) AddUsage(u llm.Usage) {
 	a.usageMu.Lock()
-	a.usage.PromptTokens += u.PromptTokens
-	a.usage.CompletionTokens += u.CompletionTokens
+	addUsage(&a.usage, u)
+	sink := a.usageSink
+	a.usageMu.Unlock()
+	if sink != nil {
+		sink(a.usageLabel(), u)
+	}
+}
+
+// AddSubUsage folds one request made by a subagent (any depth) under this
+// agent into the per-model sub ledger, forwarding up again if this agent is
+// itself a sub.
+func (a *Agent) AddSubUsage(model string, u llm.Usage) {
+	a.usageMu.Lock()
+	if a.subUsage == nil {
+		a.subUsage = map[string]llm.Usage{}
+	}
+	cur := a.subUsage[model]
+	addUsage(&cur, u)
+	a.subUsage[model] = cur
+	sink := a.usageSink
+	a.usageMu.Unlock()
+	if sink != nil {
+		sink(model, u)
+	}
+}
+
+// usageLabel is the key sub spend is ledgered under: the same "model @
+// provider" form stamped on assistant messages.
+func (a *Agent) usageLabel() string { return a.Model + " @ " + a.Provider }
+
+// addUsage accumulates u into dst, including the cached-token detail.
+func addUsage(dst *llm.Usage, u llm.Usage) {
+	dst.PromptTokens += u.PromptTokens
+	dst.CompletionTokens += u.CompletionTokens
 	if u.PromptTokensDetails != nil {
-		if a.usage.PromptTokensDetails == nil {
-			a.usage.PromptTokensDetails = &struct {
+		if dst.PromptTokensDetails == nil {
+			dst.PromptTokensDetails = &struct {
 				CachedTokens int `json:"cached_tokens"`
 			}{}
 		}
-		a.usage.PromptTokensDetails.CachedTokens += u.PromptTokensDetails.CachedTokens
+		dst.PromptTokensDetails.CachedTokens += u.PromptTokensDetails.CachedTokens
 	}
-	a.usageMu.Unlock()
 }
 
 // SetUsage seeds the session totals with stored values — a resumed session
@@ -283,26 +325,69 @@ func (a *Agent) SetUsage(u llm.Usage) {
 	a.usageMu.Unlock()
 }
 
+// SetSubUsage seeds the per-model subagent ledger from a stored session.
+func (a *Agent) SetSubUsage(m map[string]llm.Usage) {
+	a.usageMu.Lock()
+	a.subUsage = copyUsageMap(m)
+	a.usageMu.Unlock()
+}
+
 // ResetUsage zeroes the session totals — /clear starts the spend counter
 // over along with the conversation.
 func (a *Agent) ResetUsage() {
 	a.usageMu.Lock()
 	a.usage = llm.Usage{}
+	a.subUsage = nil
 	a.usageMu.Unlock()
 }
 
-// Usage returns the session's cumulative token usage: input, output, and
-// cached-input tokens across every streamed call (plus compaction and
-// subagent calls on this agent).
+// Usage returns this agent's own cumulative token usage: input, output, and
+// cached-input tokens across every request it made itself (streamed turns
+// and compaction summaries). Subagent spend is in SubUsage; TotalUsage sums
+// both.
 func (a *Agent) Usage() llm.Usage {
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()
-	u := a.usage
-	if a.usage.PromptTokensDetails != nil {
-		d := *a.usage.PromptTokensDetails
+	return copyUsage(a.usage)
+}
+
+// SubUsage returns the spend of every subagent under this agent, by model
+// label (see usageLabel). Nil when no sub has run.
+func (a *Agent) SubUsage() map[string]llm.Usage {
+	a.usageMu.Lock()
+	defer a.usageMu.Unlock()
+	return copyUsageMap(a.subUsage)
+}
+
+// TotalUsage is Usage plus every subagent's spend: the session's whole bill
+// in tokens. For dollars price each SubUsage entry at its own model's rates.
+func (a *Agent) TotalUsage() llm.Usage {
+	a.usageMu.Lock()
+	defer a.usageMu.Unlock()
+	t := copyUsage(a.usage)
+	for _, u := range a.subUsage {
+		addUsage(&t, u)
+	}
+	return t
+}
+
+func copyUsage(u llm.Usage) llm.Usage {
+	if u.PromptTokensDetails != nil {
+		d := *u.PromptTokensDetails
 		u.PromptTokensDetails = &d
 	}
 	return u
+}
+
+func copyUsageMap(m map[string]llm.Usage) map[string]llm.Usage {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]llm.Usage, len(m))
+	for k, u := range m {
+		out[k] = copyUsage(u)
+	}
+	return out
 }
 
 func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {

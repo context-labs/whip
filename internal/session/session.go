@@ -99,6 +99,14 @@ var extraColumns = []struct{ name, def string }{
 	{"usage_out", "usage_out INTEGER NOT NULL DEFAULT 0"},       // cumulative output tokens
 	{"todos", "todos TEXT NOT NULL DEFAULT ''"},                 // todowrite plan JSON ([]agent.Todo)
 	{"task_id", "task_id TEXT NOT NULL DEFAULT ''"},             // non-empty = this session is a subagent's transcript; the value is the task id
+	{"sub_usage", "sub_usage TEXT NOT NULL DEFAULT ''"},         // JSON {"model @ provider": llm.Usage}: spend of every subagent under this session, by model
+}
+
+// compactionColumns are the compactions table's post-schema additions,
+// migrated the same way as extraColumns.
+var compactionColumns = []struct{ name, def string }{
+	{"model", "model TEXT NOT NULL DEFAULT ''"}, // route that wrote the summary ("model @ provider")
+	{"usage", "usage TEXT NOT NULL DEFAULT ''"}, // JSON llm.Usage of the summary request
 }
 
 // Meta is a session's bookkeeping row.
@@ -117,7 +125,11 @@ type Meta struct {
 	UsageIn     int      // cumulative input tokens across the session's API calls
 	UsageCached int      // of UsageIn, tokens served from the provider's prompt cache
 	UsageOut    int      // cumulative output tokens
-	UpdatedAt   time.Time
+	// SubUsage is the spend of every subagent under this session by model
+	// label, kept apart from UsageIn/Out (this session's own requests) so the
+	// two sum to the whole bill without double counting.
+	SubUsage  map[string]llm.Usage
+	UpdatedAt time.Time
 	// TaskID is non-empty when this session is a subagent's persisted
 	// transcript (the value is the task id, e.g. "survey-context-3"); the
 	// parent session id is ForkedFrom. Empty for ordinary sessions.
@@ -151,6 +163,9 @@ func Open(path string) (*Store, error) {
 	// duplicate-column-tolerant migration as goal
 	for _, c := range extraColumns {
 		_, _ = db.ExecContext(context.Background(), `ALTER TABLE sessions ADD COLUMN `+c.def)
+	}
+	for _, c := range compactionColumns {
+		_, _ = db.ExecContext(context.Background(), `ALTER TABLE compactions ADD COLUMN `+c.def)
 	}
 	return &Store{db: db}, nil
 }
@@ -189,8 +204,16 @@ func (s *Store) SetEffort(id, effort string) error {
 // deltas) so a resumed session keeps its spend across restarts and
 // compactions. Rows from before this column existed read as zero and get
 // stamped with real totals on the next save.
-func (s *Store) SetUsage(id string, in, cached, out int) error {
-	_, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET usage_in=?, usage_cached=?, usage_out=? WHERE id=?`, in, cached, out, id)
+func (s *Store) SetUsage(id string, in, cached, out int, sub map[string]llm.Usage) error {
+	subJSON := ""
+	if len(sub) > 0 {
+		b, err := json.Marshal(sub)
+		if err != nil {
+			return err
+		}
+		subJSON = string(b)
+	}
+	_, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET usage_in=?, usage_cached=?, usage_out=?, sub_usage=? WHERE id=?`, in, cached, out, subJSON, id)
 	return err
 }
 
@@ -351,7 +374,7 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 
 // Load resolves idOrPrefix to a session and returns its metadata and messages.
 func (s *Store) Load(idOrPrefix string) (Meta, []llm.Message, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, updated_at FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, sub_usage, updated_at FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
 	if err != nil {
 		return Meta{}, nil, err
 	}
@@ -493,7 +516,7 @@ func answerDanglingToolCalls(msgs []llm.Message) []llm.Message {
 
 // Recent returns up to n sessions, newest first.
 func (s *Store) Recent(n int) ([]Meta, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, updated_at FROM sessions
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, sub_usage, updated_at FROM sessions
 		WHERE EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)
 		ORDER BY updated_at DESC LIMIT ?`, n)
 	if err != nil {
@@ -687,22 +710,29 @@ func (s *Store) ClearSnapshots(id string) error {
 
 // Compaction is one recorded compaction event.
 type Compaction struct {
-	Seq     int    // generation (1-based)
-	Cutoff  int    // raw-log seq the summary replaces
-	Summary string // the generated summary text
+	Seq     int       // generation (1-based)
+	Cutoff  int       // raw-log seq the summary replaces
+	Summary string    // the generated summary text
+	Model   string    // route that wrote the summary ("model @ provider"; "" on old rows)
+	Usage   llm.Usage // the summary request's own usage (zero on old rows)
 }
 
-// RecordCompaction appends a compaction event. The raw messages stay.
-func (s *Store) RecordCompaction(id string, cutoff int, summary string) error {
-	_, err := s.db.ExecContext(context.Background(), `INSERT INTO compactions (session_id, seq, cutoff, summary, created_at)
-		SELECT ?, COALESCE(MAX(seq),0)+1, ?, ?, ? FROM compactions WHERE session_id=?`,
-		id, cutoff, summary, now(), id)
+// RecordCompaction appends a compaction event with the route and usage of the
+// summary request, so the fold's own cost is auditable. The raw messages stay.
+func (s *Store) RecordCompaction(id string, cutoff int, summary, model string, usage llm.Usage) error {
+	u, err := json.Marshal(usage)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(context.Background(), `INSERT INTO compactions (session_id, seq, cutoff, summary, created_at, model, usage)
+		SELECT ?, COALESCE(MAX(seq),0)+1, ?, ?, ?, ?, ? FROM compactions WHERE session_id=?`,
+		id, cutoff, summary, now(), model, string(u), id)
 	return err
 }
 
 // Compactions returns a session's compaction events, oldest first.
 func (s *Store) Compactions(id string) []Compaction {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT seq, cutoff, summary FROM compactions WHERE session_id=? ORDER BY seq`, id)
+	rows, err := s.db.QueryContext(context.Background(), `SELECT seq, cutoff, summary, model, usage FROM compactions WHERE session_id=? ORDER BY seq`, id)
 	if err != nil {
 		return nil
 	}
@@ -710,7 +740,11 @@ func (s *Store) Compactions(id string) []Compaction {
 	var out []Compaction
 	for rows.Next() {
 		var c Compaction
-		if rows.Scan(&c.Seq, &c.Cutoff, &c.Summary) == nil {
+		var u string
+		if rows.Scan(&c.Seq, &c.Cutoff, &c.Summary, &c.Model, &u) == nil {
+			if u != "" {
+				_ = json.Unmarshal([]byte(u), &c.Usage)
+			}
 			out = append(out, c)
 		}
 	}
@@ -807,7 +841,7 @@ func (s *Store) SetPinned(id string, pinned bool) error {
 // ForksOf lists sessions forked from id, newest first — the session tree's
 // children of one node.
 func (s *Store) ForksOf(id string) ([]Meta, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, updated_at
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, sub_usage, updated_at
 		FROM sessions WHERE forked_from=? ORDER BY updated_at DESC`, id)
 	if err != nil {
 		return nil, err
@@ -867,15 +901,18 @@ func scanMetas(rows *sql.Rows) ([]Meta, error) {
 	var out []Meta
 	for rows.Next() {
 		var m Meta
-		var updated, tags string
+		var updated, tags, subUsage string
 		var pinned int
 		if err := rows.Scan(&m.ID, &m.Title, &m.Model, &m.Provider, &m.CWD, &m.Goal,
 			&m.ForkedFrom, &m.ForkSeq, &tags, &pinned, &m.Effort,
-			&m.UsageIn, &m.UsageCached, &m.UsageOut, &m.TaskID, &updated); err != nil {
+			&m.UsageIn, &m.UsageCached, &m.UsageOut, &m.TaskID, &subUsage, &updated); err != nil {
 			return nil, err
 		}
 		if tags != "" {
 			m.Tags = strings.Split(tags, ",")
+		}
+		if subUsage != "" {
+			_ = json.Unmarshal([]byte(subUsage), &m.SubUsage)
 		}
 		m.Pinned = pinned != 0
 		m.UpdatedAt, _ = time.Parse(time.RFC3339, updated)

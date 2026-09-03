@@ -61,6 +61,11 @@ type BackgroundTask struct {
 	// after settle, and a shared slice would let a follow-up mutate an
 	// already-saved snapshot. nil while running and on restored tasks.
 	SubMessages []llm.Message
+	// SubUsage is the sub's own spend and SubSubUsage its nested subs' spend
+	// (by model label), snapshotted with SubMessages so the task's session
+	// row carries its bill.
+	SubUsage    llm.Usage
+	SubSubUsage map[string]llm.Usage
 
 	// SubModel names the route the subagent actually ran on, for transcript
 	// attribution — the sub often runs a DIFFERENT model than the parent
@@ -393,14 +398,11 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 	id, description, prompt := t.ID, t.Description, t.Prompt
 	taskCtx := t.ctx
 	go func() {
-		// No OnUsage fan-in to the parent: the background subagent's spend is
-		// persisted on its own attributed task-session transcript (OnRecord →
-		// SaveSubagentTranscript), and each sub runs its own Turn/AddUsage, so
-		// folding it into the parent's totals too double-counts it (this drove
-		// one session's reported spend to ~2× the provider bill). The parent's
-		// Usage() reports the session's own requests; per-sub spend is on the
-		// task sessions. The sub compacts on its own real usage, so dropping
-		// the fan-in doesn't blind the compaction trigger either.
+		// No OnUsage fan-in into the parent's own totals: the sub's spend
+		// reaches parent.SubUsage through usageSink (set in newSub), so it is
+		// counted once there, and once more only on the task's own session
+		// row — never in the parent's usage_* columns (that double count once
+		// drove a session's reported spend to ~2× the provider bill).
 		report, err := t.sub.Turn(taskCtx, prompt, a.bg.emitter(id))
 		status := TaskDone
 		text := report
@@ -416,7 +418,15 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		// every Update, so an unlocked write here is a live data race.
 		a.bg.mu.Lock()
 		t.SubMessages = t.sub.MessagesSnapshot()
+		// Snapshot the transcript and bill BEFORE settle: settle fires OnRecord
+		// (which persists them), so they must be populated first. Under the
+		// registry lock: List copies *t under it on every dock redraw, so an
+		// unlocked write here is a live data race.
+		a.bg.mu.Lock()
+		t.SubMessages = t.sub.MessagesSnapshot()
+		t.SubUsage, t.SubSubUsage = t.sub.Usage(), t.sub.SubUsage()
 		a.bg.mu.Unlock()
+		a.bg.settle(id, status, text)
 		a.bg.settle(id, status, text)
 		// subscribers stop here; late events after settle go nowhere (Subscribe
 		// rejects non-running tasks, and settled state is visible via List/Get)
@@ -439,6 +449,7 @@ func (r *taskRegistry) refreshTranscript(id string, sub *Agent) {
 	t, ok := r.tasks[id]
 	if ok {
 		t.SubMessages = sub.MessagesSnapshot()
+		t.SubUsage, t.SubSubUsage = sub.Usage(), sub.SubUsage()
 	}
 	r.mu.Unlock()
 	if !ok || r.OnRecord == nil {

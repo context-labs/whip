@@ -53,7 +53,8 @@ a85be57 feat(agent): real-usage compaction trigger, budgeted tail, doom-loop gua
 e57ad57 feat(tui): normalize pasted and @-mentioned images at ingest
 f3ba3a8 lint: goimports grouping in images.go, drop predeclared 'real', remove unused encodePNG
 fb61707 docs: handoff doc for the context-cost work
-(HEAD)  fix(agent): lastPrompt only from own requests + reset on fold; refused calls fire tool events; cleanup
+2d593bb fix(agent): lastPrompt only from own requests + reset on fold; refused calls fire tool events; cleanup
+(HEAD)  feat(usage): per-model subagent ledger — accurate totals, persisted on session/task/compaction rows
 ```
 
 ### Item 1 — real-usage compaction trigger
@@ -120,15 +121,28 @@ fb61707 docs: handoff doc for the context-cost work
 - A refused call still fires `OnToolStart`/`OnToolEnd` so the TUI's queued
   row (opened on `OnToolCall`) closes instead of sticking at "⋯".
 
-### Item 7 — usage single-count
-`internal/agent/background.go` (`launchBackground`), `internal/agent/subagent.go`
-(follow-up path)
-- Removed the `OnUsage: parent.AddUsage` fan-in for **background** subagents
-  and follow-ups (their spend persists on the task's own attributed session
-  via `SaveSubagentTranscript`). **Foreground** subs keep `AddUsage` — their
-  spend has no other persisted record.
-- Net: each session row now reflects its own conversation's spend; the ~2×
-  cost-UI inflation is gone. Each sub still compacts on its own real usage.
+### Item 7 — usage accounting: accurate totals, counted once
+`internal/agent/agent.go`, `internal/agent/subagent.go`, `internal/session/session.go`, `internal/tui/tui.go`
+- `Agent.usage` = this agent's **own** requests (turns + its compaction
+  summaries). `Agent.subUsage` = a per-model ledger (`"model @ provider"` →
+  `llm.Usage`) of every subagent under it. `TotalUsage()` = own + subs.
+- Every sub gets `usageSink = parent.AddSubUsage` in `newSub`. `AddUsage`
+  and `AddSubUsage` forward through the sink, so foreground, background,
+  follow-up, **nested** subs and their compaction calls all reach the root
+  ledger exactly once. The old `OnUsage: parent.AddUsage` fan-ins are gone
+  (they mixed sub spend into the parent's own counter — the ~2× inflation).
+- **Persisted:** `sessions.usage_*` = own; new `sessions.sub_usage` JSON =
+  the ledger. Task rows (`task-<parent>-<id>`) now get their own `usage_*`
+  + `sub_usage` stamped via `BackgroundTask.SubUsage/SubSubUsage`.
+  `compactions` gains `model` + `usage` columns (the summary request's bill).
+  Resume and fork restore the ledger (`SetSubUsage`).
+- **Displayed:** header/status/opencode sidebar/context doctor show
+  `TotalUsage()`. `sessionCost` prices own spend at the session model's
+  rates plus each ledger entry at **its** model's rates (falls back to any
+  catalog that knows the model when the sub has no provider); if any
+  component is unpriceable the cost segment hides rather than under-report.
+- Old rows have an empty ledger; historical sub spend before this change is
+  only recoverable from the task sessions' per-message `usage` blobs.
 
 ---
 
@@ -188,8 +202,8 @@ govulncheck, `go`, build ×4 platforms).
 - 5: `TestDecayStripsColdImageParts`
 - 6: `TestDoomLoopGuard`, `TestDoomLoopRefusalText`,
   `TestDoomLoopRefusalSkipsExecution`
-- 7: `TestBackgroundTaskUsageNotDoubleCounted` (rewrote the old
-  `TestBackgroundTaskUsageRollsIntoParent`)
+- 7: `TestBackgroundTaskUsageNotDoubleCounted`, `TestSubUsageForwardsThroughNestedSubs`,
+  session `TestRecordCompactionCarriesModelAndUsage` + sub_usage round-trip in the usage test
 - Updated for the budgeted tail: `TestCompactKeepsToolCallPair`,
   `TestCompactionEventsCarryModelAndUsage`
 

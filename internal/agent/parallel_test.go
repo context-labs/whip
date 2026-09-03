@@ -507,11 +507,10 @@ func TestSubscribeUnknownTask(t *testing.T) {
 
 // Usage from a background subagent's API calls folds into the parent's
 // session totals (the FanIn second leg alongside the event emitter).
-// A background subagent's spend is persisted on its own attributed
-// task-session transcript, so it must NOT also roll into the parent's
-// cumulative totals — folding it in counted the same tokens twice (one real
-// session's row read ~2× the provider bill). The parent's Usage() reports
-// only the session's own requests.
+// A background subagent's spend lands in the parent's per-model SUB ledger,
+// never in its own Usage(): the two are disjoint so TotalUsage counts each
+// token once (fanning subs into Usage once made a session's row read ~2× the
+// provider bill).
 func TestBackgroundTaskUsageNotDoubleCounted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -529,7 +528,46 @@ func TestBackgroundTaskUsageNotDoubleCounted(t *testing.T) {
 		t.Fatal("task never settled")
 	}
 	if u := ag.Usage(); u.PromptTokens != 0 || u.CompletionTokens != 0 {
-		t.Fatalf("background subagent usage must not roll into the parent (double count): %+v", u)
+		t.Fatalf("background subagent usage must not roll into the parent's own Usage: %+v", u)
+	}
+	if u := ag.SubUsage()["m @ "]; u.PromptTokens != 50 || u.CompletionTokens != 5 {
+		t.Fatalf("background subagent usage should be ledgered under its model: %+v", ag.SubUsage())
+	}
+	if u := ag.TotalUsage(); u.PromptTokens != 50 || u.CompletionTokens != 5 {
+		t.Fatalf("TotalUsage should be own + subs: %+v", u)
+	}
+}
+
+// Sub spend forwards up through every level: a sub's own request and a
+// sub-of-a-sub's request both land in the root's ledger, keyed by the model
+// that made them, and only there.
+func TestSubUsageForwardsThroughNestedSubs(t *testing.T) {
+	root := New(llm.New("http://x", "k"), "root", 100, "sys")
+	sub := root.newSub(SubModel{})
+	sub.Model = "sub-m"
+	subsub := sub.newSub(SubModel{})
+	subsub.Model = "leaf-m"
+
+	sub.AddUsage(llm.Usage{PromptTokens: 10, CompletionTokens: 1})
+	subsub.AddUsage(llm.Usage{PromptTokens: 20, CompletionTokens: 2})
+
+	if u := root.Usage(); u.PromptTokens != 0 {
+		t.Fatalf("root's own usage must stay 0, got %+v", u)
+	}
+	got := root.SubUsage()
+	if got["sub-m @ "].PromptTokens != 10 || got["leaf-m @ "].PromptTokens != 20 {
+		t.Fatalf("root ledger should hold both levels by model: %+v", got)
+	}
+	if u := root.TotalUsage(); u.PromptTokens != 30 || u.CompletionTokens != 3 {
+		t.Fatalf("root total should be 30/3, got %+v", u)
+	}
+	// The middle sub sees only its child, in its own ledger.
+	if u := sub.SubUsage()["leaf-m @ "]; u.PromptTokens != 20 {
+		t.Fatalf("sub ledger should hold the leaf's spend: %+v", sub.SubUsage())
+	}
+	root.ResetUsage()
+	if root.SubUsage() != nil {
+		t.Fatal("ResetUsage should clear the sub ledger too")
 	}
 }
 
