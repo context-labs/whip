@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"image"
+
 	// Register the decoders image.DecodeConfig dispatches on. whip builds and
 	// sends these formats everywhere (paste.go, mentions, browser
 	// screenshots), so the blank imports carry no new dependency.

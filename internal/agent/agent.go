@@ -757,13 +757,13 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	}
 	limit := int(a.threshold() * float64(a.ContextLimit))
 	a.usageMu.Lock()
-	real := a.lastPrompt
+	reported := a.lastPrompt
 	a.usageMu.Unlock()
-	if real > 0 {
+	if reported > 0 {
 		// The last request's prompt is what the next one starts from. Compacts
 		// the moment the real bill crosses the user's compactPct even when the
 		// chars/4 estimate (which undercounts images) says we're below it.
-		if real < limit {
+		if reported < limit {
 			return nil
 		}
 	} else if EstimateTokens(a.Messages) < limit {

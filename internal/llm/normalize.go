@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"image"
 	"image/jpeg"
-	"image/png"
 
 	"golang.org/x/image/draw"
 )
@@ -112,11 +111,4 @@ func scaleToFit(src image.Image, maxW, maxH int) image.Image {
 // extension they don't know (browser screenshot sinks).
 func NormalizeImagePNG(data []byte) (string, []byte) {
 	return NormalizeImage("png", data)
-}
-
-// encodePNG is exported for tests that build fixtures.
-func encodePNG(img image.Image) ([]byte, error) {
-	var buf bytes.Buffer
-	err := png.Encode(&buf, img)
-	return buf.Bytes(), err
 }
