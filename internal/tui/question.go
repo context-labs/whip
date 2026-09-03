@@ -60,7 +60,7 @@ func (m *model) askKey(msg tea.KeyMsg) bool {
 		d.reply <- a
 		m.askDialog = nil
 	}
-	submit := func() {
+	submit := func() bool {
 		var out []string
 		for i, o := range d.req.Options {
 			if d.picked[i] {
@@ -71,9 +71,10 @@ func (m *model) askKey(msg tea.KeyMsg) bool {
 			out = append(out, c)
 		}
 		if len(out) == 0 {
-			return // nothing chosen yet
+			return false // nothing chosen yet
 		}
 		answer(askAnswer{answers: out, ok: true})
+		return true
 	}
 	choose := func(i int) {
 		if i == n { // custom row
@@ -91,10 +92,10 @@ func (m *model) askKey(msg tea.KeyMsg) bool {
 		switch msg.Type {
 		case tea.KeyEnter:
 			d.editing = false
-			if !d.req.Multiple {
-				if c := strings.TrimSpace(d.custom); c != "" {
-					answer(askAnswer{answers: []string{c}, ok: true})
-				}
+			if d.req.Multiple {
+				submit() // custom text and/or toggles; no-op when both empty
+			} else if c := strings.TrimSpace(d.custom); c != "" {
+				answer(askAnswer{answers: []string{c}, ok: true})
 			}
 		case tea.KeyEsc:
 			d.editing = false
@@ -102,11 +103,8 @@ func (m *model) askKey(msg tea.KeyMsg) bool {
 			if len(d.custom) > 0 {
 				d.custom = d.custom[:len(d.custom)-1]
 			}
-		case tea.KeyRunes, tea.KeySpace:
+		case tea.KeyRunes, tea.KeySpace: // KeySpace arrives with Runes == " "
 			d.custom += string(msg.Runes)
-			if msg.Type == tea.KeySpace {
-				d.custom += " "
-			}
 		}
 		return true
 	}
@@ -117,7 +115,7 @@ func (m *model) askKey(msg tea.KeyMsg) bool {
 		d.sel = (d.sel + 1) % rows
 	case tea.KeyEnter:
 		if d.req.Multiple && d.sel != n {
-			submit()
+			submit() // on the custom row enter edits; enter while editing submits
 			return true
 		}
 		choose(d.sel)

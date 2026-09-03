@@ -54,6 +54,19 @@ func TestQuestionCustomAndMulti(t *testing.T) {
 		t.Fatalf("multi: got %+v", got)
 	}
 
+	// multi + custom row: enter edits, type, enter submits (was an edit loop)
+	m, reply = newAskModel(true)
+	m.askKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	m.askKey(tea.KeyMsg{Type: tea.KeyUp}) // wraps to the custom row
+	m.askKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m.askKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("my")})
+	m.askKey(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune(" ")})
+	m.askKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("own")})
+	m.askKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := <-reply; !got.ok || len(got.answers) != 2 || got.answers[1] != "my own" {
+		t.Fatalf("multi custom: got %+v", got)
+	}
+
 	// esc dismisses
 	m, reply = newAskModel(false)
 	m.askKey(tea.KeyMsg{Type: tea.KeyEsc})

@@ -428,10 +428,10 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// computer-use: the per-app consent prompt — installed once, here, where
 	// the model exists (buildAgent is package-level and has no m).
 	tools.ComputerApprover = m.computerConsent
+	m.installAskHook() // the question tool always needs a user; nil Ask = tool errors
 	// Permission prompts are opt-in (--cautious); without it tools run free.
 	if cautious {
 		m.installPermGate()
-		m.installAskHook()
 	}
 	if dir, derr := config.Dir(); derr == nil {
 		if st, serr := session.Open(dir + "/sessions.db"); serr == nil {
