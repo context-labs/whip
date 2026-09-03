@@ -142,3 +142,24 @@ func TestKeyboardEnhancementWiredIntoRun(t *testing.T) {
 		t.Error("opencode mode must schedule the post-altscreen terminal init push")
 	}
 }
+
+// procHasAncestor walks /proc parent chains looking for a named process.
+// The current process's own chain is guaranteed to contain itself, so
+// matching the test binary's comm is a reliable positive; a name that can't
+// exist is a reliable negative.
+func TestProcHasAncestor(t *testing.T) {
+	self, err := os.ReadFile("/proc/self/comm")
+	if err != nil {
+		t.Skip("/proc unavailable")
+	}
+	name := strings.TrimSpace(string(self))
+	if !procHasAncestor(os.Getpid(), name) {
+		t.Errorf("own process %q should be found walking its own chain", name)
+	}
+	if procHasAncestor(os.Getpid(), "no-such-proc-xyzzy") {
+		t.Error("a nonexistent process name must not match")
+	}
+	if procHasAncestor(1, name) { // init's chain contains only init
+		t.Error("walking from pid 1 must not find the test binary")
+	}
+}

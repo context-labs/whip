@@ -23,5 +23,10 @@ func TestMain(m *testing.M) {
 	// renders the dark style they expect. Per-test overrides (SetLightTheme,
 	// SetUnknownTheme) apply on top.
 	SetLightTheme(false)
+	// The mosh shift+enter startup warning must not fire in tests: the test
+	// binary runs under whatever environment the dev machine has (including
+	// mosh), and the report tests assert exact contents. Pin detection off;
+	// the detection logic itself is covered by TestDetectMosh* (proc-walk).
+	moshDetect = func() bool { return false }
 	os.Exit(m.Run())
 }

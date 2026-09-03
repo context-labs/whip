@@ -601,6 +601,14 @@ func (m *model) startupReport() {
 		// contrast — so say why and how to fix it instead of failing silently
 		m.append(dimStyle.Render("◐ terminal background unknown — panels have no contrast; run /theme light (or dark) once to fix (mosh blocks background detection)"))
 	}
+	if inMoshEnv() {
+		// mosh's terminal emulator doesn't implement the kitty keyboard
+		// protocol or forward modified-key CSI sequences, so no setting whip
+		// or tmux toggles can deliver shift+enter — it arrives as plain CR
+		// (enter). Say so up front instead of failing silently; ctrl+j and
+		// alt+enter still insert newlines.
+		m.append(dimStyle.Render("◐ shift+enter unavailable over mosh — mosh collapses it to enter (no keyboard-protocol support); use ctrl+j or alt+enter for a newline"))
+	}
 	sk, problems := skills.ScanDetailed(skills.DefaultDirs()...)
 	var b strings.Builder
 	var warned bool
@@ -1683,6 +1691,79 @@ func inTmuxEnv() bool {
 	return os.Getenv("TMUX") != "" ||
 		strings.HasPrefix(os.Getenv("TERM"), "screen") ||
 		strings.HasPrefix(os.Getenv("TERM"), "tmux")
+}
+
+// procHasAncestor reports whether walking pid's parent chain via /proc finds
+// a process named want (matched on /proc/PID/comm). Linux-only; returns false
+// on any read error.
+func procHasAncestor(pid int, want string) bool {
+	for i := 0; i < 64 && pid > 1; i++ {
+		comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+		if err != nil {
+			return false
+		}
+		if strings.TrimSpace(string(comm)) == want {
+			return true
+		}
+		stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+		if err != nil {
+			return false
+		}
+		// ppid is field 4 of /proc/PID/stat; the (comm) field before it may
+		// contain spaces/parens, so split after the LAST ')'. Fields after it
+		// are: state ppid ... — ppid is fields[1] of the remainder.
+		idx := strings.LastIndexByte(string(stat), ')')
+		if idx < 0 {
+			return false
+		}
+		fields := strings.Fields(string(stat[idx+1:]))
+		if len(fields) < 2 {
+			return false
+		}
+		ppid, err := strconv.Atoi(fields[1])
+		if err != nil || ppid == pid || ppid <= 1 {
+			return false
+		}
+		pid = ppid
+	}
+	return false
+}
+
+// moshDetect is the test seam for inMoshEnv — tests run under whatever
+// environment the developer's machine has (including mosh), so the startup
+// report can't depend on the real answer. Reassigned in tests.
+var moshDetect = detectMosh
+
+// inMoshEnv reports whether whip runs under mosh, via the test seam.
+func inMoshEnv() bool { return moshDetect() }
+
+// detectMosh is the real mosh check behind inMoshEnv. Mosh runs its own
+// terminal emulator that re-renders input/output between the user's terminal
+// and the shell; it does NOT implement the kitty keyboard protocol or forward
+// modified-key CSI sequences, so shift+enter arrives as plain CR no matter
+// what whip or tmux request. Detected so whip can say so instead of failing
+// silently.
+//
+// Mosh leaks no env marker into the inner shell (MOSH_KEY stays on the
+// mosh-server process), so detection walks /proc ancestor chains. Two chains
+// are checked: whip's own (covers ssh+mosh without tmux, or mosh directly
+// under a non-daemonized tmux) and, under a daemonized tmux server (whose
+// ppid is 1, hiding mosh on the client side), the tmux CLIENT's chain.
+func detectMosh() bool {
+	if procHasAncestor(os.Getpid(), "mosh-server") {
+		return true
+	}
+	if inTmuxEnv() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{client_pid}").Output()
+		if err == nil {
+			if cpid, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && cpid > 1 {
+				return procHasAncestor(cpid, "mosh-server")
+			}
+		}
+	}
+	return false
 }
 
 func detectColorScheme() string {
