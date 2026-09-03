@@ -2841,6 +2841,16 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		isShiftEnterSeq(msg) {
 		return m.insertNewline()
 	}
+	// bubbles v1.0.0 textarea.wordLeft spins forever when everything before
+	// the cursor on the current line is blank: characterLeft(insideLine) can't
+	// move at col 0 and the loop has no other exit. macOS option+left sends
+	// alt+b, and shift+enter makes blank lines common — that combination froze
+	// whip at 100% CPU. Hop to the end of the previous line ourselves instead.
+	if k := msg.String(); k == "alt+b" || k == "alt+left" {
+		if m.wordLeftFromBlank() {
+			return m, nil
+		}
+	}
 	// an open task detail view owns the keyboard until esc backs out of it
 	if m.taskVP != nil {
 		return m.taskViewKey(msg)
@@ -3386,6 +3396,31 @@ func csiUKey(rendered string) (tea.KeyMsg, bool) {
 		return tea.KeyMsg{Type: tea.KeySpace, Alt: alt}, true
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: alt}, true
+}
+
+// wordLeftFromBlank handles alt+b / alt+left when the text before the cursor
+// on the current line is blank (the case that hangs bubbles' wordLeft): moves
+// to the end of the previous line, or to column 0 on the first line, and
+// reports true. Otherwise reports false so the textarea does the real word
+// motion, which is safe once a non-space precedes the cursor.
+func (m *model) wordLeftFromBlank() bool {
+	lines := strings.Split(m.input.Value(), "\n")
+	row := m.input.Line()
+	if row < 0 || row >= len(lines) {
+		return false
+	}
+	li := m.input.LineInfo()
+	col := min(li.StartColumn+li.CharOffset, len([]rune(lines[row])))
+	if strings.TrimSpace(string([]rune(lines[row])[:col])) != "" {
+		return false
+	}
+	if row == 0 {
+		m.input.CursorStart()
+	} else {
+		m.input.CursorUp()
+		m.input.CursorEnd()
+	}
+	return true
 }
 
 // insertNewline splits the input at the cursor, the shared path for ctrl+j /

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -83,5 +84,48 @@ func TestCSIUKeysDecodeToLegacyKeys(t *testing.T) {
 	m.input.InsertString("Y")
 	if got := m.input.Value(); got != "XabcY" {
 		t.Errorf("ctrl+a/ctrl+e via CSI u: want %q, got %q", "XabcY", got)
+	}
+}
+
+// bubbles v1.0.0 textarea.wordLeft loops forever when the cursor sits in the
+// blank prefix of a line (e.g. an empty line made by shift+enter). macOS
+// option+left arrives as alt+b, so this froze whip at 100% CPU. The guard must
+// return promptly and land at the end of the previous line.
+func TestAltBOnBlankLineDoesNotHang(t *testing.T) {
+	for _, k := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune{'b'}, Alt: true},
+		{Type: tea.KeyLeft, Alt: true},
+	} {
+		m := compactCmdModel()
+		m.input.SetValue("abc\n\nxyz")
+		m.Update(mkWinSize(80, 24)) // let the box grow to 3 lines first, as typing would
+		m.input.CursorUp()          // row 1: the empty line
+		done := make(chan *model, 1)
+		go func() {
+			tm, _ := m.Update(k)
+			done <- tm.(*model)
+		}()
+		select {
+		case mm := <-done:
+			if mm.input.Line() != 0 {
+				t.Errorf("%s: want cursor on row 0, got row %d", k, mm.input.Line())
+			}
+			mm.input.InsertString("!")
+			if got := mm.input.Value(); got != "abc!\n\nxyz" {
+				t.Errorf("%s: want cursor at end of previous line, got %q", k, got)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s on a blank line hung (bubbles wordLeft infinite loop)", k)
+		}
+	}
+	// non-blank prefix still uses the textarea's real word motion
+	m := compactCmdModel()
+	m.input.SetValue("foo bar")
+	m.input.CursorEnd()
+	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}, Alt: true})
+	m = tm.(*model)
+	m.input.InsertString("!")
+	if got := m.input.Value(); got != "foo !bar" {
+		t.Errorf("alt+b word motion broken: %q", got)
 	}
 }
