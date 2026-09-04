@@ -11,7 +11,7 @@ import (
 // the tui package still carries outside theme/ and ui/. Padding comes from
 // th.Space (Gutter, PadX, PadY, Gap) through ui components; this number only
 // goes down. Lower it when you remove sites, never raise it.
-const literalPadBaseline = 39
+const literalPadBaseline = 36
 
 func TestLiteralPaddingOnlyShrinks(t *testing.T) {
 	files, err := filepath.Glob("*.go")

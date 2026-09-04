@@ -42,13 +42,16 @@ type replCell struct {
 	errText string
 	steps   uint64
 	// restart is a marker row ("restarted · restored 9") instead of a cell.
-	restart string
+	restart  string
+	finished bool // stream.tool.completed seen (replayed cells have no ended time)
 }
 
 type replAgent struct {
-	cells []replCell
-	count int
-	seq   int64 // newest event seq folded in; snapshots replay older ones, which are skipped
+	cells  []replCell
+	count  int
+	seq    int64     // newest event seq folded in; snapshots replay older ones, which are skipped
+	tool   string    // the tool the agent is running now ("" between tools); rlm_exec shows as a cell instead
+	toolAt time.Time // when that tool started (zero on replay)
 }
 
 // panelWidth is the right panel's width: the REPL panel takes half the
@@ -122,8 +125,10 @@ func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
 		ensure().code = codeFromPartialArgs(event.Args)
 	case "stream.tool.started":
 		if event.Name != "rlm_exec" {
+			agent.tool, agent.toolAt = event.Name, m.replNow() // activity for the agent rows
 			return
 		}
+		agent.tool = ""
 		cell := ensure()
 		if code := codeFromPartialArgs(event.Args); code != "" {
 			cell.code = code
@@ -144,10 +149,12 @@ func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
 			cell.hosts = append(cell.hosts, replHost{name: event.Name, summary: event.Args, duration: event.Text, err: event.Result})
 		}
 	case "stream.tool.completed":
+		agent.tool = ""
 		if event.Name != "rlm_exec" {
 			return
 		}
 		cell := ensure()
+		cell.finished = true
 		if cell.n == 0 {
 			agent.count++
 			cell.n = agent.count
@@ -283,7 +290,7 @@ func (m *model) replCurrentCell(agentID string) string {
 	}
 	for index := len(history.cells) - 1; index >= 0; index-- {
 		cell := history.cells[index]
-		if cell.restart != "" || !cell.ended.IsZero() {
+		if cell.restart != "" || cell.finished || !cell.ended.IsZero() {
 			continue
 		}
 		cellNo := "·"
@@ -374,7 +381,7 @@ func (m *model) replPanelView(height int) string {
 		st.dim.Render(cut(stats, inner)),
 	}
 
-	if agents := m.agentTreeRows(inner, st, true); len(agents) > 0 {
+	if agents, _ := m.agentRows(inner, nil, agentsDockHeight); len(agents) > 0 {
 		top = append(top, "")
 		top = append(top, agents...)
 	}
@@ -600,4 +607,35 @@ func (h *starlarkHighlighter) line(text string, st replStyles) string {
 		}
 	}
 	return b.String()
+}
+
+// agentActivity is what an agent is doing right now, for the row's right
+// slot: the running REPL cell with its elapsed time, else the running tool.
+func (m *model) agentActivity(agentID string) string {
+	history := m.repl[agentID]
+	if history == nil {
+		return ""
+	}
+	for index := len(history.cells) - 1; index >= 0; index-- {
+		cell := history.cells[index]
+		if cell.restart != "" || cell.finished || !cell.ended.IsZero() {
+			continue
+		}
+		cellNo := "·"
+		if cell.n > 0 {
+			cellNo = fmt.Sprint(cell.n)
+		}
+		line := "In[" + cellNo + "] " + firstLine(cell.code)
+		if !cell.started.IsZero() {
+			line += "  " + replDuration(m.replNow().Sub(cell.started))
+		}
+		return strings.TrimSpace(line)
+	}
+	if history.tool != "" {
+		if history.toolAt.IsZero() {
+			return history.tool
+		}
+		return history.tool + " " + replDuration(m.replNow().Sub(history.toolAt))
+	}
+	return ""
 }

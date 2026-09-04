@@ -153,9 +153,12 @@ func (m *model) sidebarView(height int) string {
 	b.WriteString(head.Render("LSP") + "\n")
 	b.WriteString(dim.Render(m.lspSummary()) + "\n")
 
-	// Agent tree (opencode mode has no dock under the input).
-	if agents := m.agentTreeRows(sidebarWidth-3, newReplStyles(bg), false); len(agents) > 0 {
-		b.WriteString("\n" + strings.Join(agents, "\n") + "\n")
+	// Agent tree (the narrow dock's rows live here on wide terminals).
+	if agents, more := m.agentRows(sidebarWidth-3, bg, agentsDockHeight); len(agents) > 0 {
+		b.WriteString("\n" + head.Render("Agents") + "\n" + strings.Join(agents, "\n") + "\n")
+		if more {
+			b.WriteString(dim.Render(" …") + "\n")
+		}
 	}
 
 	// Top content (title + Context + LSP), clipped if the sidebar is very short.
@@ -305,9 +308,9 @@ func (m *model) footerLeft(th *theme.Theme) string {
 		}
 		return m.spin.View() + " " + ui.Hints(th, nil, "esc", hint)
 	case m.leaderPending():
-		return th.On(th.Text, nil).Render("ctrl+x") + " " + ui.Hints(th, nil, "r", "repl", "b", "sidebar", "t", "themes", "m", "model", "l", "sessions", "n", "new", "c", "compact", "g", "rewind", "y", "copy")
+		return th.On(th.Text, nil).Render("ctrl+x") + " " + ui.Hints(th, nil, "r", "repl", "b", "sidebar", "s", "stop", "t", "themes", "m", "model", "l", "sessions", "n", "new", "c", "compact", "g", "rewind", "y", "copy")
 	case m.agentsFocus:
-		return ui.Hints(th, nil, "↑↓", "select", "enter", "open", "ctrl+x", "stop", "esc", "back")
+		return ui.Hints(th, nil, "↑↓", "select", "enter", "open", "ctrl+x s", "stop", "esc", "back")
 	case m.agentOpen != "":
 		return th.On(th.Muted, nil).Render(m.completionRoot()) + " " + ui.Hints(th, nil, "esc", "back")
 	}
@@ -585,6 +588,17 @@ func (m *model) ocLeaderChord(k string) (tea.Model, tea.Cmd, bool) {
 	case "r": // REPL panel in the sidebar
 		m.replPanel = !m.replPanel
 		m.recalcWidth()
+	case "s": // stop the selected agent (tree focused) or the open one; the root is never stoppable
+		target := m.agentOpen
+		if m.agentsFocus {
+			if children := m.runtimeChildren(); len(children) > 0 {
+				target = children[min(m.agentSel, len(children)-1)].ID
+			}
+		}
+		if a, ok := m.runtimeAgent(target); !ok || a.ParentID == "" {
+			return m, nil, true
+		}
+		return mcCmd(m.submitClientAction("agent.control", map[string]string{"args": "stop " + target}, ""))
 	case "t": // theme list
 		m.openThinThemePalette()
 	case "c": // compact

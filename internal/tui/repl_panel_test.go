@@ -57,7 +57,7 @@ func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 	m.replApply("child", "stream.tool.call", daemon.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
 	m.replApply("child", "stream.tool.started", daemon.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
 	running := m.replPanelView(30)
-	for _, want := range []string{"REPL · root", "In [1]", "files.list", "→ files.list(path=.) 12ms", "a.go", "⚙ w3", "In[1] shell.run"} {
+	for _, want := range []string{"REPL · root", "In [1]", "files.list", "→ files.list(path=.) 12ms", "a.go", "w3", "In[1]"} {
 		if !strings.Contains(running, want) {
 			t.Fatalf("running panel missing %q:\n%s", want, running)
 		}
@@ -127,8 +127,8 @@ func TestReplRebuildsFromStoredPresentation(t *testing.T) {
 	}}
 	m.agentOpen = "child"
 	m.replRebuild()
-	if view := m.replPanelView(12); !strings.Contains(view, "In [1]") || !strings.Contains(view, "memo = 1") || !strings.Contains(view, "3 steps") {
-		t.Fatalf("rebuilt child panel:\n%s", view)
+	if view := ansi.Strip(m.replPanelView(12)); !strings.Contains(view, "In [1]") || !strings.Contains(view, "memo = 1") || !strings.Contains(view, "3 steps") || strings.Contains(view, "In[1]") {
+		t.Fatalf("rebuilt child panel (a replayed, completed cell is not current activity):\n%s", view)
 	}
 }
 
@@ -299,7 +299,7 @@ func TestAgentTreeReturnsToRoot(t *testing.T) {
 	if len(rows) != 2 || rows[0].agent.ID != "root-agent" || rows[1].depth != 1 {
 		t.Fatalf("tree rows = %+v", rows)
 	}
-	if view := m.replPanelView(20); !strings.Contains(view, "⚙ root (root-agent) — running") || !strings.Contains(view, "⚙ w3 (child) — running · open") {
+	if view := ansi.Strip(m.replPanelView(20)); !strings.Contains(view, "running") || !strings.Contains(view, "root") || !strings.Contains(view, "w3") {
 		t.Fatalf("tree rendering:\n%s", view)
 	}
 	// ctrl+t starts on the first child; ↑ reaches the root; enter goes back to it.
@@ -327,13 +327,32 @@ func TestAgentTreeReturnsToRoot(t *testing.T) {
 	if m.agentOpen != "" || m.agentsFocus {
 		t.Fatalf("esc with the tree focused: open=%q focus=%v", m.agentOpen, m.agentsFocus)
 	}
-	// ctrl+x on the root row is a no-op rather than a stop request.
+	// ctrl+x s on the root row is a no-op rather than a stop request; on the
+	// child it stops it.
 	next, _ = m.thinKey(ctrlKey('t'))
 	m = next.(*model)
 	next, _ = m.thinKey(keyMsg(tea.KeyUp))
 	m = next.(*model)
-	if _, command := m.thinKey(ctrlKey('x')); command != nil {
-		t.Fatal("ctrl+x on the root row should not submit a stop")
+	m.thinKey(ctrlKey('x'))
+	if _, command := m.thinKey(keyRunes("s")); command != nil {
+		t.Fatal("ctrl+x s on the root row should not submit a stop")
+	}
+	next, _ = m.thinKey(keyMsg(tea.KeyDown))
+	m = next.(*model)
+	m.client, m.clientState = &Client{}, ClientLive // the stop is a daemon action
+	m.thinKey(ctrlKey('x'))
+	_, command := m.thinKey(keyRunes("s"))
+	if command == nil {
+		t.Fatal("ctrl+x s on a child should submit a stop")
+	}
+	if msg, ok := command().(clientCommandMsg); !ok || msg.action.Operation != "agent.control" {
+		t.Fatalf("stop chord sent %T", command())
+	}
+	// the leader works while the tree is focused: ctrl+x b hides the sidebar
+	m.thinKey(ctrlKey('x'))
+	m.thinKey(keyRunes("b"))
+	if !m.sidebarHide {
+		t.Fatal("ctrl+x b should work while the agent tree is focused")
 	}
 }
 

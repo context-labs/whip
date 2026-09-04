@@ -532,30 +532,6 @@ func (m *model) recordTurnFailure(action Action, message string) {
 	m.restoreTerminalMarker()
 }
 
-func runtimeAgentLine(value session.RuntimeAgent) string {
-	phase := value.LifecyclePhase
-	if phase == "" {
-		phase = value.Status
-	}
-	name := value.Name
-	if name == "" {
-		name = shortAgentID(value.ID)
-	} else {
-		name += " (" + shortAgentID(value.ID) + ")"
-	}
-	line := fmt.Sprintf("⚙ %s — %s", name, phase)
-	if value.BlockingReason != "" {
-		line += " · blocked: " + value.BlockingReason
-	}
-	if value.TerminalCause != "" {
-		line += " · terminal: " + value.TerminalCause
-	}
-	if value.PendingMail > 0 {
-		line += fmt.Sprintf(" · mail %d", value.PendingMail)
-	}
-	return line
-}
-
 // shortAgentID abbreviates "<root>:<suffix>" ids to "ba06…c16d" for one-line
 // displays; agentDetails keeps the full id.
 func shortAgentID(id string) string {
@@ -1144,7 +1120,7 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 			if next, command, handled := m.ocLeaderChord(msg.String()); handled {
 				return next, command
 			}
-		} else if msg.String() == "ctrl+x" && !m.agentsFocus { // focused tree: ctrl+x stops the agent
+		} else if msg.String() == "ctrl+x" { // arms the leader everywhere, including the focused tree (ctrl+x s stops)
 			m.leaderAt = m.nowFn()
 			return m, nil
 		}
@@ -1174,16 +1150,6 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 		case "down":
 			m.agentSel = min(m.agentSel+1, len(children)-1)
 			return m, nil
-		case "ctrl+x":
-			if len(children) == 0 {
-				m.agentsFocus = false
-				return m, nil
-			}
-			child := children[min(m.agentSel, len(children)-1)]
-			if child.ParentID == "" {
-				return m, nil // the root is not stoppable from the tree
-			}
-			return m.submitClientAction("agent.control", map[string]string{"args": "stop " + child.ID}, "")
 		case "enter":
 			if len(children) > 0 {
 				child := children[min(m.agentSel, len(children)-1)]

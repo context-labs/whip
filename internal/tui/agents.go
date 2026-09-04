@@ -2,13 +2,16 @@ package tui
 
 import (
 	"fmt"
-
-	"github.com/charmbracelet/x/ansi"
+	"image/color"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tui/theme"
+	"github.com/context-labs/whip/internal/tui/ui"
 )
 
 const agentsDockHeight = 6
@@ -65,9 +68,9 @@ func (m *model) runtimeAgentRows() []runtimeAgentRow {
 		}
 	}
 	walk(rootID, 1)
-	// The root heads the tree so there is always a row to return to; a
-	// session without descendants has no tree at all.
-	if root, ok := m.runtimeAgent(rootID); ok && len(rows) > 0 {
+	// The root heads the tree so there is always a row to return to — and so
+	// the Agents panel shows what the session is doing before any child exists.
+	if root, ok := m.runtimeAgent(rootID); ok {
 		if root.Name == "" {
 			root.Name = "root"
 		}
@@ -116,96 +119,100 @@ func (m *model) clampAgentSel() {
 	}
 }
 
-func (m *model) agentsDock() string {
-	if m.sidebarVisible() {
-		return "" // the tree lives in the right panel (agentTreeRows)
+// agentBadge is the state word and colour for an agent row: the lifecycle
+// phase, or the status when the phase is not known yet.
+func agentBadge(th *theme.Theme, a session.RuntimeAgent) (string, color.Color) {
+	phase := a.LifecyclePhase
+	if phase == "" {
+		phase = a.Status
 	}
-	agents := m.runtimeAgentRows()
-	if len(agents) == 0 {
-		return ""
-	}
-	m.clampAgentSel()
-	rows := make([]string, 0, len(agents)+1)
-	if m.agentsFocus {
-		rows = append(rows, dimStyle.Render(" ⚙ agents — ↑/↓ select · enter open · ctrl+x stop · esc back"))
-	}
-	budget := agentsDockHeight - len(rows)
-	if len(agents) > budget {
-		budget--
-	}
-	lo := 0
-	if m.agentsFocus && m.agentSel >= budget {
-		lo = m.agentSel - budget + 1
-	}
-	hi := min(lo+budget, len(agents))
-	for index := lo; index < hi; index++ {
-		row := agents[index]
-		line := strings.Repeat("  ", row.depth) + runtimeAgentLine(row.agent)
-		if row.agent.ID == m.agentOpen {
-			line += " · open"
+	switch phase {
+	case "running":
+		return "running", th.Success
+	case "blocked":
+		return "blocked", th.Warning
+	case "idle":
+		return "idle", th.Muted
+	case "terminal":
+		switch a.TerminalCause {
+		case "failed", "interrupted":
+			return a.TerminalCause, th.Error
+		case "succeeded", "":
+			return "done", th.Text
 		}
-		if m.width > 3 { // unsized before the first WindowSizeMsg
-			line = ansi.Truncate(line, m.width-3, "…")
-		}
-		if m.agentsFocus && index == m.agentSel {
-			line = botStyle.Render(" → " + line)
-		} else {
-			line = "   " + line
-		}
-		rows = append(rows, line)
+		return a.TerminalCause, th.Muted
+	case "failed", "interrupted":
+		return phase, th.Error
+	case "succeeded":
+		return "done", th.Text
+	case "":
+		return "queued", th.Info
 	}
-	if more := len(agents) - hi; more > 0 {
-		rows = append(rows, dimStyle.Render(fmt.Sprintf("   … +%d more", more)))
-	}
-	return strings.Join(rows, "\n")
+	return phase, th.Muted
 }
 
-// agentTreeRows is the opencode right-panel form of the dock: an "Agents"
-// header (with the key hint while focused), the tree with the same selection
-// and open markers, and, for the REPL panel, each agent's running cell.
-func (m *model) agentTreeRows(inner int, st replStyles, withCells bool) []string {
+// agentRows renders the tree as ui.ListRows of the given band width on bg:
+// badge, name (short id when unnamed), depth indent, and the agent's current
+// activity or pending mail on the right. budget rows are shown, windowed
+// around the selection; the boolean reports whether rows were left out.
+func (m *model) agentRows(width int, bg color.Color, budget int) ([]string, bool) {
 	agents := m.runtimeAgentRows()
 	if len(agents) == 0 {
-		return nil
+		return nil, false
 	}
 	m.clampAgentSel()
-	cut := func(s string) string { return ansi.Truncate(s, max(inner, 1), "…") }
-	header := "Agents"
-	if m.agentsFocus {
-		header += "  ↑/↓ · enter open · ctrl+x stop · esc"
+	th := currentTheme()
+	lo, hi := 0, len(agents)
+	if budget > 0 && budget < len(agents) {
+		lo, hi = ui.ListWindow(len(agents), m.agentSel, budget)
 	}
-	rows := []string{st.head.Render(cut(header))}
-	budget := agentsDockHeight
-	if len(agents) > budget {
-		budget--
+	badges := make([]string, len(agents))
+	colors := make([]color.Color, len(agents))
+	widest := 0
+	for i := lo; i < hi; i++ {
+		badges[i], colors[i] = agentBadge(th, agents[i].agent)
+		widest = max(widest, len(badges[i]))
 	}
-	lo := 0
-	if m.agentsFocus && m.agentSel >= budget {
-		lo = m.agentSel - budget + 1
-	}
-	hi := min(lo+budget, len(agents))
-	for index := lo; index < hi; index++ {
-		row := agents[index]
-		line := strings.Repeat("  ", row.depth) + runtimeAgentLine(row.agent)
-		if row.agent.ID == m.agentOpen {
-			line += " · open"
+	rows := make([]string, 0, hi-lo)
+	for i := lo; i < hi; i++ {
+		a := agents[i].agent
+		name := a.Name
+		if name == "" {
+			name = shortAgentID(a.ID)
 		}
-		if withCells {
-			line += m.replCurrentCell(row.agent.ID)
+		right := m.agentActivity(a.ID)
+		if right == "" && a.PendingMail > 0 {
+			right = fmt.Sprintf("mail %d", a.PendingMail)
 		}
-		style, marker := st.dim, "  "
-		switch {
-		case m.agentsFocus && index == m.agentSel:
-			style, marker = st.accent, "→ "
-		case row.agent.LifecyclePhase == "running":
-			style = st.text
-		}
-		rows = append(rows, style.Render(cut(marker+line)))
+		rows = append(rows, ui.ListRow{
+			Badge: badges[i] + strings.Repeat(" ", widest-len(badges[i])), BadgeColor: colors[i],
+			Label: name, Right: right, Depth: agents[i].depth,
+			Selected: m.agentsFocus && i == m.agentSel, Open: a.ID == m.agentOpen && a.ParentID != "",
+			Width: width,
+		}.Render(th, bg))
 	}
-	if more := len(agents) - hi; more > 0 {
-		rows = append(rows, st.dim.Render(fmt.Sprintf("  … +%d more", more)))
+	return rows, hi-lo < len(agents)
+}
+
+// agentsDock is the narrow-terminal form of the tree: rows glued under the
+// prompt when there is no left column to hold the Agents panel.
+func (m *model) agentsDock() string {
+	if m.sidebarVisible() {
+		return "" // the tree lives in the side panel
 	}
-	return rows
+	width := m.width
+	if width < 20 { // unsized before the first WindowSizeMsg
+		width = 80
+	}
+	rows, more := m.agentRows(width, nil, agentsDockHeight)
+	if len(rows) == 0 {
+		return ""
+	}
+	if more {
+		th := currentTheme()
+		rows = append(rows, th.On(th.Muted, nil).Render(" …"))
+	}
+	return strings.Join(rows, "\n")
 }
 
 func (m *model) agentDetails() string {
@@ -269,11 +276,32 @@ func (m *model) agentDetails() string {
 	if m.visibleAgentReadOnly() {
 		rows = append(rows, dimStyle.Render("  read-only — this agent cannot accept more turns"))
 	}
-	rows = append(rows, dimStyle.Render("  esc returns to root · ctrl+c twice cancels this turn · ctrl+t opens agent tree"))
 	if m.width > 0 { // a row wider than the chat column would push the sidebar over
 		for index := range rows {
 			rows[index] = ansi.Truncate(rows[index], m.width, "…")
 		}
 	}
 	return strings.Join(rows, "\n")
+}
+
+// anyAgentRunning reports whether some agent in the tree is mid-turn (the
+// spinner and activity rows keep ticking for sub-agents while the root idles).
+func (m *model) anyAgentRunning() bool {
+	for _, a := range m.clientView.agents {
+		if a.LifecyclePhase == "running" {
+			return true
+		}
+	}
+	return false
+}
+
+// agentLine is the plain one-line form of an agent for transcript output
+// (the /agents list): "<state> <name>".
+func agentLine(a session.RuntimeAgent) string {
+	badge, _ := agentBadge(currentTheme(), a)
+	name := a.Name
+	if name == "" {
+		name = shortAgentID(a.ID)
+	}
+	return badge + " " + name
 }

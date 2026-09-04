@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
@@ -550,21 +551,39 @@ func TestSnapshotReplacementPreservesPresentationState(t *testing.T) {
 }
 
 func TestLifecycleRenderingUsesDaemonVocabulary(t *testing.T) {
-	line := runtimeAgentLine(session.RuntimeAgent{
-		ID: "child", LifecyclePhase: "blocked", BlockingReason: "budget denial",
-		TerminalCause: "limit reached", AllowedControls: []string{"stop", "cap-spend"},
-	})
-	for _, want := range []string{"child", "blocked", "budget denial", "limit reached"} {
-		if !strings.Contains(line, want) {
-			t.Fatalf("lifecycle line %q omits %q", line, want)
+	th := currentTheme()
+	for _, tc := range []struct {
+		agent session.RuntimeAgent
+		want  string
+	}{
+		{session.RuntimeAgent{LifecyclePhase: "running"}, "running"},
+		{session.RuntimeAgent{LifecyclePhase: "blocked", BlockingReason: "permission"}, "blocked"},
+		{session.RuntimeAgent{LifecyclePhase: "idle"}, "idle"},
+		{session.RuntimeAgent{LifecyclePhase: "terminal", Status: "failed", TerminalCause: "failed"}, "failed"},
+		{session.RuntimeAgent{LifecyclePhase: "terminal", TerminalCause: "succeeded"}, "done"},
+		{session.RuntimeAgent{Status: "stopped"}, "stopped"},
+		{session.RuntimeAgent{}, "queued"},
+	} {
+		if got, _ := agentBadge(th, tc.agent); got != tc.want {
+			t.Fatalf("badge for %+v = %q, want %q", tc.agent, got, tc.want)
 		}
 	}
-	if strings.Contains(line, "cap-spend") {
-		t.Fatalf("one-line form should leave controls to the details view: %q", line)
+	m := &model{clientView: clientPresentation{agents: []session.RuntimeAgent{
+		{ID: "root-agent", LifecyclePhase: "running"},
+		{ID: "1d8b891ce03ce84162252322c06189b4:ba06cc4c6983c16d", ParentID: "root-agent", LifecyclePhase: "blocked", BlockingReason: "budget denial", AllowedControls: []string{"stop", "cap-spend"}},
+	}}}
+	rows, more := m.agentRows(40, nil, 6)
+	if more || len(rows) != 2 {
+		t.Fatalf("rows = %d (more %v)", len(rows), more)
 	}
-	long := runtimeAgentLine(session.RuntimeAgent{ID: "1d8b891ce03ce84162252322c06189b4:ba06cc4c6983c16d", Name: "file-reader", LifecyclePhase: "running"})
-	if long != "⚙ file-reader (ba06…c16d) — running" {
-		t.Fatalf("long id not abbreviated: %q", long)
+	plain := ansi.Strip(strings.Join(rows, "\n"))
+	for _, want := range []string{"running", "root", "blocked", "ba06…c16d"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("agent rows %q omit %q", plain, want)
+		}
+	}
+	if strings.Contains(plain, "cap-spend") || strings.Contains(plain, "budget denial") {
+		t.Fatalf("rows should leave controls and reasons to the details view: %q", plain)
 	}
 }
 
@@ -789,10 +808,11 @@ func TestThinPaletteAndAgentControlsStayDaemonBacked(t *testing.T) {
 	}
 	m.palette = nil
 	_, _ = m.thinKey(ctrlKey('t'))
-	if !m.agentsFocus || !strings.Contains(m.agentsDock(), "blocked: permission") {
+	if !m.agentsFocus || !strings.Contains(ansi.Strip(m.agentsDock()), "blocked") {
 		t.Fatalf("daemon lifecycle dock focus=%v view=%q", m.agentsFocus, m.agentsDock())
 	}
-	_, command := m.thinKey(ctrlKey('x'))
+	_, _ = m.thinKey(ctrlKey('x')) // arms the leader from the focused tree
+	_, command := m.thinKey(keyRunes("s"))
 	if command == nil {
 		t.Fatal("agent stop did not create a daemon action")
 	}

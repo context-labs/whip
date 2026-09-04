@@ -46,7 +46,7 @@ func (r ListRow) Render(th *theme.Theme, bg color.Color) string {
 	indent := strings.Repeat(" ", r.Depth*2)
 	right := ""
 	if r.Right != "" {
-		right = on(th.Muted).Render(r.Right)
+		right = on(th.Muted).Render(ansi.Truncate(r.Right, max(r.Width/2-1, 6), "…"))
 	}
 	// [1 cell][badge][1][indent][label][gap][right][1 cell]
 	labelMax := r.Width - 2 - lipgloss.Width(badge) - 1 - len(indent) - lipgloss.Width(right)

@@ -343,7 +343,7 @@ func TestSnapshotPreservesQueuesFocusModalAndToolExpansion(t *testing.T) {
 	}
 	snapshot := session.RootSnapshot{
 		RootID: "root", Cursor: 2, Meta: session.Meta{ID: "root", Model: "kimi-k3-fast", Provider: "inference"},
-		Agents: []session.RuntimeAgent{{ID: "root-agent"}}, Presentation: presentation,
+		Agents: []session.RuntimeAgent{{ID: "root-agent"}, {ID: "child", ParentID: "root-agent", LifecyclePhase: "idle"}}, Presentation: presentation,
 	}
 	m := compactCmdModel()
 	m.sessionID = "root"
@@ -354,7 +354,7 @@ func TestSnapshotPreservesQueuesFocusModalAndToolExpansion(t *testing.T) {
 		}
 	}
 	m.agentsFocus = true
-	m.agentSel = 3
+	m.agentSel = 1 // the child row
 	m.openThinPalette()
 	m.palette.idx = 2
 	m.input.SetValue("draft")
@@ -362,7 +362,7 @@ func TestSnapshotPreservesQueuesFocusModalAndToolExpansion(t *testing.T) {
 
 	snapshot.Cursor = 3
 	m.applyClientSnapshot(snapshot)
-	if !m.agentsFocus || m.agentSel != 3 {
+	if !m.agentsFocus || m.agentSel != 1 {
 		t.Fatalf("snapshot changed local focus: focus=%t agent=%d", m.agentsFocus, m.agentSel)
 	}
 	if m.palette == nil || m.palette.idx != 2 || m.input.Value() != "draft" || m.follow {

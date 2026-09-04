@@ -38,6 +38,10 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case clientUpdateMsg:
 		var commands []tea.Cmd
+		if m.anyAgentRunning() && !m.spinning { // sub-agent activity keeps the rows' elapsed times moving
+			m.spinning = true
+			commands = append(commands, m.spin.Tick)
+		}
 		if msg.StateChanged {
 			wasLive := m.clientState == ClientLive
 			m.clientState, m.clientErr = msg.State, msg.Err
@@ -231,7 +235,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.append(dimStyle.Render("(no descendant agents)"))
 			} else {
 				for _, value := range values {
-					m.append(dimStyle.Render(runtimeAgentLine(value) + "  " + value.ID))
+					m.append(dimStyle.Render(agentLine(value) + "  " + value.ID))
 				}
 			}
 		}
@@ -482,7 +486,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case spinner.TickMsg:
-		if !m.busy {
+		if !m.busy && !m.anyAgentRunning() {
 			m.spinning = false // the loop lapses; Update re-arms it when the next turn starts
 			return m, nil
 		}

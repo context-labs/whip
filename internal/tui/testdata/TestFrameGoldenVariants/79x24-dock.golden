@@ -18,7 +18,7 @@
   ┃                                                                            
   ┃  Off · kimi-k3-fast  inference                                             
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
-     ⚙ root (root-agent) — running                                             
-       ⚙ file-reader (ba06…c16d) — idle                                        
+   running root                                                                
+   idle      file-reader                                                       
                                                                                
  /work/whip                   ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar 
