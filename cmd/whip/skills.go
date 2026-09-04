@@ -120,14 +120,26 @@ func skillsImportCLI(args []string) error {
 		}
 		return nil
 	}
+	var imported, failed []string
 	for _, c := range importable {
 		dst := filepath.Join(dest, c.name)
 		if err := copyDir(c.srcDir, dst); err != nil {
-			return fmt.Errorf("import %s: %w", c.name, err)
+			// One bad skill (a symlink loop, an unreadable file) must not
+			// abort the rest of the import — and a partial copy must not
+			// linger as a broken skill (and block a future import via the
+			// dedup pass). Remove the half-written destination and continue.
+			os.RemoveAll(dst)
+			fmt.Fprintf(os.Stderr, "✗ %-24s %v\n", c.name, err)
+			failed = append(failed, c.name)
+			continue
 		}
 		fmt.Printf("✓ %-24s → %s\n", c.name, dst)
+		imported = append(imported, c.name)
 	}
-	fmt.Printf("imported %d skill(s) into %s — available on next whip launch\n", len(importable), dest)
+	fmt.Printf("imported %d skill(s) into %s — available on next whip launch\n", len(imported), dest)
+	if len(failed) > 0 {
+		return fmt.Errorf("%d skill(s) failed to copy: %s", len(failed), strings.Join(failed, ", "))
+	}
 	return nil
 }
 

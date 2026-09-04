@@ -108,6 +108,63 @@ func TestSkillsImportNothingToDo(t *testing.T) {
 	}
 }
 
+// TestSkillsImportContinuesPastFailure: one unreadable skill must not abort
+// the rest of the import — the good skill lands, the error names only the
+// failed one.
+func TestSkillsImportContinuesPastFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+
+	// A good skill and a bad one (unreadable SKILL.md) in claude's dir.
+	writeSkill(t, filepath.Join(home, ".claude", "skills"), "good", "fine")
+	badDir := filepath.Join(home, ".claude", "skills", "bad")
+	if err := os.MkdirAll(badDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	badFile := filepath.Join(badDir, "SKILL.md")
+	if err := os.WriteFile(badFile, []byte("---\nname: bad\ndescription: x\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A subdirectory with an unreadable file inside the otherwise-parseable
+	// skill: Scan succeeds, copyFile fails.
+	sub := filepath.Join(badDir, "refs")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unreadable := filepath.Join(sub, "secret.md")
+	if err := os.WriteFile(unreadable, []byte("x"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(unreadable, 0o600) }) // let TempDir clean up
+	if _, err := os.Open(unreadable); err == nil {
+		t.Skip("running with permission to read 0o000 files (root)")
+	}
+
+	err := skillsCLI([]string{"import"})
+	if err == nil {
+		t.Fatal("import should report the failed skill")
+	}
+	if !strings.Contains(err.Error(), "bad") {
+		t.Errorf("error should name the failed skill, got %v", err)
+	}
+	// The good skill still imported.
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "good", "SKILL.md")); err != nil {
+		t.Errorf("good skill not imported despite the failure: %v", err)
+	}
+	// The bad skill must not linger as a half-copied dir.
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "bad")); err == nil {
+		// copyDir creates the dest dir before failing — that's fine as long as
+		// it's empty (no partial SKILL.md shipped).
+		entries, _ := os.ReadDir(filepath.Join(home, ".agents", "skills", "bad"))
+		for _, e := range entries {
+			if e.Name() == "SKILL.md" {
+				t.Error("partial import: bad skill's SKILL.md copied despite the failure")
+			}
+		}
+	}
+}
+
 // TestSkillsListCLI: `whip skills list` renders loaded skills and their
 // source dirs without error.
 func TestSkillsListCLI(t *testing.T) {
