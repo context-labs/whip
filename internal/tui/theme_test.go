@@ -8,16 +8,16 @@ import (
 )
 
 // On a light terminal the markdown body must render in the light style's
-// dark color (234), not the dark style's 252 (near-invisible on white).
+// dark text color (#1a1a1a), not the dark style's #eeeeee (near-invisible on white).
 func TestLightThemeRendersDarkText(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	out := renderMarkdown("plain body text", 60)
-	if !strings.Contains(out, "\x1b[38;5;234m") {
-		t.Errorf("light theme should render body in color 234, got %q", out)
+	if !strings.Contains(out, "\x1b[38;2;26;26;26m") {
+		t.Errorf("light theme should render body in the light text color, got %q", out)
 	}
-	if strings.Contains(out, "\x1b[38;5;252m") {
-		t.Errorf("light theme must not use dark-style color 252: %q", out)
+	if strings.Contains(out, "\x1b[38;2;238;238;238m") {
+		t.Errorf("light theme must not use the dark text color: %q", out)
 	}
 	// width behavior unchanged
 	for l := range strings.SplitSeq(out, "\n") {
@@ -154,7 +154,7 @@ func TestThemeSwitchAfterUnknown(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	out := renderMarkdown("plain body text", 60)
-	if !strings.Contains(out, "\x1b[38;5;234m") {
-		t.Errorf("switching unknown→light should re-render in light (234): %q", out)
+	if !strings.Contains(out, "\x1b[38;2;26;26;26m") {
+		t.Errorf("switching unknown→light should re-render in the light text color: %q", out)
 	}
 }

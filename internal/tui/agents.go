@@ -117,7 +117,7 @@ func (m *model) clampAgentSel() {
 }
 
 func (m *model) agentsDock() string {
-	if m.uiMode == opencodeMode && m.sidebarVisible() {
+	if m.sidebarVisible() {
 		return "" // the tree lives in the right panel (agentTreeRows)
 	}
 	agents := m.runtimeAgentRows()

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -98,47 +97,6 @@ func (m *model) paletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *model) paletteView() string {
-	p := m.palette
-	if p == nil {
-		return ""
-	}
-	var out strings.Builder
-	out.WriteString(botStyle.Render(" Commands"))
-	out.WriteString("\n\n " + youStyle.Render(glyphUser) + p.filter + dimStyle.Render("█") + "\n\n")
-	lastCategory := ""
-	for index, item := range p.items {
-		if item.category != lastCategory {
-			if lastCategory != "" {
-				out.WriteByte('\n')
-			}
-			out.WriteString(dimStyle.Render("  " + item.category))
-			out.WriteByte('\n')
-			lastCategory = item.category
-		}
-		marker := " "
-		if index == p.idx {
-			marker = botStyle.Render("→")
-		}
-		line := marker + " " + item.title
-		if item.dynDesc != nil {
-			line += dimStyle.Render(" — " + item.dynDesc(m))
-		}
-		if item.dynHint != nil {
-			line += dimStyle.Render("  " + item.dynHint(m))
-		}
-		out.WriteString(line + "\n")
-	}
-	if len(p.items) == 0 {
-		out.WriteString(dimStyle.Render("  (no matches)") + "\n")
-	}
-	out.WriteString("\n" + dimStyle.Render(fmt.Sprintf("  (%d/%d) ↑/↓ select · enter run · esc close", min(p.idx+1, len(p.items)), len(p.items))))
-	return m.paletteChrome(out.String())
-}
-
 func (m *model) paletteChrome(value string) string {
-	if m.uiMode != opencodeMode {
-		return value
-	}
 	return lipgloss.NewStyle().PaddingLeft(3).Render(value)
 }

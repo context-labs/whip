@@ -120,6 +120,7 @@ func SetLightTheme(light bool) {
 	mdLight, mdKnown = light, true
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
+	resetLinkSGRs()
 }
 
 // SetUnknownTheme records that the terminal background could NOT be determined
@@ -132,6 +133,7 @@ func SetUnknownTheme() {
 	mdKnown = false
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
+	resetLinkSGRs()
 }
 
 // setSchemeOverride records an explicit scheme pick ("light"/"dark", "" = back
@@ -177,6 +179,7 @@ func invalidateMDRenderer() {
 	mdMu.Lock()
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
+	resetLinkSGRs() // link SGR prefixes follow the style
 }
 
 // mdStyle picks the glamour style for the detected background. The light

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -202,12 +203,62 @@ func absFileURIAt(root, path, line string) string {
 // place. Width-independent: the merge is structural, not adjacency-at-one-
 // width.
 const (
+	// glamour's stock dark/light link colors, kept as fallback candidates so
+	// hand-built strings and the neutral style keep working
 	linkTextSGRDark  = "\x1b[38;5;35;1m"
 	linkTextSGRLight = "\x1b[38;5;29;1m"
 	linkSGRDark      = "\x1b[38;5;30;4m"
 	linkSGRLight     = "\x1b[38;5;36;4m"
 	sgrReset         = "\x1b[0m"
 )
+
+// linkSGR caches the SGR prefixes the CURRENT markdown style emits for link
+// labels (LinkText) and hrefs (Link). The opencode palette uses truecolor,
+// so the stock constants above never matched it and links stayed inert;
+// rendering a one-link probe through the live renderer learns the real
+// prefixes for whatever style is active. invalidateMDRenderer resets it.
+var linkSGR struct {
+	mu          sync.Mutex
+	valid       bool
+	label, href string
+}
+
+func resetLinkSGRs() {
+	linkSGR.mu.Lock()
+	linkSGR.valid = false
+	linkSGR.mu.Unlock()
+}
+
+// linkSGRs returns the label and href SGR prefixes for the active style
+// ("" when the probe could not determine one).
+func linkSGRs() (label, href string) {
+	linkSGR.mu.Lock()
+	defer linkSGR.mu.Unlock()
+	if linkSGR.valid {
+		return linkSGR.label, linkSGR.href
+	}
+	if r := mdRenderer(120); r != nil {
+		if out, err := r.Render("[LinkLabelProbe](http://probe.invalid/p)"); err == nil {
+			label = sgrBefore(out, "LinkLabelProbe")
+			href = sgrBefore(out, "http://probe.invalid/p")
+		}
+	}
+	linkSGR.valid, linkSGR.label, linkSGR.href = true, label, href
+	return label, href
+}
+
+// sgrBefore returns the SGR sequence immediately preceding text in s.
+func sgrBefore(s, text string) string {
+	i := strings.Index(s, text)
+	if i < 0 {
+		return ""
+	}
+	j := strings.LastIndex(s[:i], "\x1b[")
+	if j < 0 || !strings.HasSuffix(s[j:i], "m") || strings.ContainsAny(s[j+2:i-1], "\x1b") {
+		return ""
+	}
+	return s[j:i]
+}
 
 // linkAtom is one parsed glamour word atom: its SGR span, visible text, and
 // byte range in the source. text ends at an embedded newline (word wrap).
@@ -391,15 +442,21 @@ func hyperlinkGlamourLinksWith(s string, exists func(string) bool, uri func(stri
 // linkAtomAt reports whether s starts with a link SGR span, returning the
 // span and 't' (LinkText/label) or 'h' (Link/href).
 func linkAtomAt(s string) (string, byte) {
+	label, href := linkSGRs()
 	for _, cand := range []struct {
 		sgr  string
 		kind byte
 	}{
+		{label, 't'},
+		{href, 'h'},
 		{linkTextSGRDark, 't'},
 		{linkTextSGRLight, 't'},
 		{linkSGRDark, 'h'},
 		{linkSGRLight, 'h'},
 	} {
+		if cand.sgr == "" {
+			continue
+		}
 		if strings.HasPrefix(s, cand.sgr) {
 			return cand.sgr, cand.kind
 		}

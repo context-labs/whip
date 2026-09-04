@@ -31,7 +31,7 @@ func TestCtrlJFirstLineStaysVisible(t *testing.T) {
 		p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		time.Sleep(30 * time.Millisecond)
 	}
-	p.Send(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	p.Send(keyMsg(tea.KeyCtrlJ))
 
 	// read the input view inside the event loop (race-safe)
 	ch := make(chan string, 1)

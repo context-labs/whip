@@ -37,7 +37,7 @@ func TestCtrlJFirstLineVisibleWithTranscript(t *testing.T) {
 		p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		time.Sleep(30 * time.Millisecond)
 	}
-	p.Send(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	p.Send(keyMsg(tea.KeyCtrlJ))
 
 	ch := make(chan string, 1)
 	p.Send(viewProbe{fn: func(m *model) { ch <- m.input.View() }})

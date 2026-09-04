@@ -91,8 +91,8 @@ func TestAppendAssistantRendersMarkdown(t *testing.T) {
 		t.Fatalf("assistant text should be stored raw (blockAssistant), got %v", m.blocks[0].kind)
 	}
 	rendered := ansi.Strip(m.blocks[0].render(80))
-	if !strings.HasPrefix(rendered, "● ") {
-		t.Errorf("first line should carry the marker: %q", rendered)
+	if !strings.HasPrefix(rendered, "   results:") {
+		t.Errorf("first line should be the indented body without a marker: %q", rendered)
 	}
 	if !strings.Contains(rendered, "• one") || !strings.Contains(rendered, "• two") {
 		t.Errorf("list should be rendered: %q", rendered)
@@ -106,8 +106,8 @@ func TestAppendAssistantRendersMarkdown(t *testing.T) {
 		t.Fatalf("continuation should merge into the open block, got %d blocks", len(m.blocks))
 	}
 	full := ansi.Strip(m.blocks[0].render(80))
-	if strings.Count(full, "● ") != 1 {
-		t.Errorf("continuation segment must not add a second marker:\n%s", full)
+	if strings.Count(full, "results:") != 1 {
+		t.Errorf("continuation segment must render as one document:\n%s", full)
 	}
 	if !strings.Contains(full, "more text") {
 		t.Errorf("merged content missing: %q", full)

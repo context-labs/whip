@@ -292,15 +292,12 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
-		width := msg.Width
-		if m.uiMode == opencodeMode {
-			width -= opencodeLeftMargin
-			if msg.Width >= sidebarMinWidth && !m.sidebarHide {
-				width -= m.panelWidth() + opencodeRightGap
-			}
+		width := msg.Width - opencodeLeftMargin
+		if msg.Width >= sidebarMinWidth && !m.sidebarHide {
+			width -= m.panelWidth() + opencodeRightGap
 		}
 		resized := width != m.width
-		m.width, m.height, m.viewTop = width, msg.Height, 1<<30
+		m.width, m.height = width, msg.Height
 		m.input.SetWidth(width - 2)
 		if resized {
 			m.refreshVP()
@@ -322,9 +319,7 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		SetLightTheme(msg.light)
-		if m.uiMode == opencodeMode {
-			m.applyUIMode(opencodeMode)
-		}
+		m.applyOpencodeStyles()
 		m.refreshVP()
 		return m, nil
 	case toastClearMsg:
@@ -350,12 +345,15 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case thinkMsg:
 		if m.showThinking {
+			// reasoning streams into one expandable "+ Thought" block: the
+			// transient "+ Thinking…" line shows while it runs (viewBody) and
+			// flushThink collapses the text with its duration when it ends
 			m.flushCurrent()
-			m.curThink += string(msg)
-			if i := strings.LastIndexByte(m.curThink, '\n'); i >= 0 {
-				m.appendThink(m.curThink[:i])
-				m.curThink = m.curThink[i+1:]
+			if m.thinkStart.IsZero() {
+				m.thinkStart = m.nowFn()
 			}
+			m.ocThink += string(msg)
+			m.inThink = true
 		}
 		return m, nil
 	case toolCallMsg:
@@ -508,14 +506,7 @@ func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if inPanel {
 		return m, nil
 	}
-	if m.uiMode != opencodeMode && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft &&
-		msg.Y == m.viewTop && msg.X >= m.effortX {
-		next := nextEffort(m.effortsFor(), m.displayEffort())
-		return m.submitClientAction("session.effort", map[string]string{
-			"args": effortLabel(next), "persist_default": "true",
-		}, "")
-	}
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && msg.Y-m.viewTop > 1 {
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && msg.Y > 1 {
 		m.clickAt(msg.X, msg.Y)
 		return m, nil
 	}

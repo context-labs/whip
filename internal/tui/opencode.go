@@ -2,8 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"math/rand/v2"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,19 +18,14 @@ import (
 // layout inspired by opencode's TUI (github.com/sst/opencode) — full-screen,
 // a right-hand sidebar, and the block-glyph wordmark. It deliberately keeps
 // whip's own theming (light/dark/auto) and colors; only the layout/structure
-// changes. Enabled with config UIMode == "opencode" or via the command palette
+// changes. It is the only UI since 2026-09 (the inline mode was removed).
 // (Display → UI mode).
 
-// opencodeMode is the config/UIMode value that selects this render mode.
-const opencodeMode = "opencode"
-
-// whipPlaceholder is whip's default prompt placeholder, restored when leaving
-// opencode mode. Keep in sync with newInput.
-const whipPlaceholder = "Ask whip anything… (/ for commands, tab completes)"
-
-// ocActive mirrors m.uiMode == opencodeMode at package scope so block.render (a
-// method on block, not model) can branch on the render mode. Set by applyUIMode.
-var ocActive bool
+// ocActive is always true now that the full-screen UI is the only UI; it
+// remains a variable until the classic render branches are deleted. It is
+// package scope so block.render (a
+// method on block, not model) can branch on the render mode.
+var ocActive = true
 
 // opencode's own theme palette (packages/tui/src/theme/assets/opencode.json),
 // resolved against whip's OWN detected theme (mdLight/mdKnown) rather than
@@ -213,7 +206,7 @@ func opencodeHome(width, height int) string {
 // sidebarVisible reports whether the opencode-mode sidebar should render: the
 // mode is on and the terminal is wide enough to spare sidebarWidth columns.
 func (m *model) sidebarVisible() bool {
-	return m.uiMode == opencodeMode && m.termWidth >= sidebarMinWidth && !m.sidebarHide
+	return m.termWidth >= sidebarMinWidth && !m.sidebarHide
 }
 
 // sidebarView renders the opencode right sidebar: session title, a Context
@@ -843,7 +836,7 @@ func mcCmd(mod tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd, bool) { return mod, 
 // ocRecalcWidth recomputes the content width from the terminal width (mirrors
 // the WindowSizeMsg math) — needed when the sidebar is toggled at runtime.
 func (m *model) ocRecalcWidth() {
-	if m.uiMode != opencodeMode || m.termWidth == 0 {
+	if m.termWidth == 0 {
 		return
 	}
 	w := m.termWidth - opencodeLeftMargin
@@ -894,25 +887,15 @@ func (m *model) msgActionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // vpTopRows is the number of chrome rows above the transcript viewport —
 // mouse row math must match viewBody exactly (opencode mode drops the header
 // and tips lines).
-func (m *model) vpTopRows() int {
-	if m.uiMode == opencodeMode {
-		return 0
-	}
-	return 3
-}
+func (m *model) vpTopRows() int { return 0 }
 
 // vpXOff is the columns the main body is shifted right (opencode's left margin).
-func (m *model) vpXOff() int {
-	if m.uiMode == opencodeMode {
-		return opencodeLeftMargin
-	}
-	return 0
-}
+func (m *model) vpXOff() int { return opencodeLeftMargin }
 
 // updateHover tracks the message block under the pointer (opencode's hover
 // effect on user cards) and re-renders when it changes.
 func (m *model) updateHover(x, y int) {
-	row := y - m.viewTop - m.vpTopRows() - m.contentPad() + m.vp.YOffset + m.vpLead
+	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset + m.vpLead
 	idx := -1
 	if x >= m.vpXOff() && x < m.vpXOff()+m.width {
 		for i := range m.blocks {
@@ -1021,102 +1004,25 @@ func (m *model) ocModeLabel() string {
 	return strings.ToUpper(eff[:1]) + eff[1:]
 }
 
-// applyUIMode points the live render state at the given UI mode. opencode mode
-// is purely structural — it does not touch whip's theme, colors, glyphs, or
-// spinner — so this only records the flag.
-func (m *model) applyUIMode(mode string) {
-	invalidateMDRenderer() // opencode markdown style differs; rebuild on mode change
-	if mode == opencodeMode {
-		m.uiMode = opencodeMode
-		ocActive = true
-		m.spin = spinner.New(spinner.WithSpinner(ocKnightRider))
-		m.spin.Style = lipgloss.NewStyle().Foreground(ocAgentCol())
-		m.input.Prompt = "" // opencodePrompt supplies the ┃ bar per line
-		// opencode's placeholder carries a random example (picked once, not cycled)
-		examples := []string{"Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"}
-		m.input.Placeholder = fmt.Sprintf("Ask anything… %q", examples[rand.IntN(len(examples))]) //nolint:gosec // G404: cosmetic placeholder pick, not security-sensitive
-		// Fill the textarea with the element background so the input box reads as
-		// a filled panel (opencode's prompt box).
-		elem := lipgloss.NewStyle().Background(ocElementBg())
-		m.input.FocusedStyle.Text = elem
-		m.input.FocusedStyle.CursorLine = elem
-		m.input.FocusedStyle.Placeholder = dimStyle.Background(ocElementBg())
-		m.input.BlurredStyle.Text = elem
-		m.input.BlurredStyle.Placeholder = dimStyle.Background(ocElementBg())
-		if tuiRunning && m.mouseOn {
-			// a runtime toggle INTO opencode mode must arm all-motion tracking
-			// itself — Run's ?1003h only covers sessions that start here
-			fmt.Fprint(os.Stdout, "\x1b[?1003h")
-		}
-	} else {
-		m.uiMode = ""
-		ocActive = false
-		m.spin = spinner.New(spinner.WithSpinner(spinner.Dot))
-		m.input.Prompt = "┃ "
-		m.input.Placeholder = whipPlaceholder
-		m.input.FocusedStyle.Text = lipgloss.NewStyle()
-		m.input.FocusedStyle.CursorLine = lipgloss.NewStyle()
-		m.input.FocusedStyle.Placeholder = dimStyle
-		m.input.BlurredStyle.Text = lipgloss.NewStyle()
-		m.input.BlurredStyle.Placeholder = dimStyle
-		if tuiRunning && m.mouseOn {
-			fmt.Fprint(os.Stdout, "\x1b[?1003l") // drop all-motion tracking with the mode
-		}
-		// clear any stuck hover highlight left behind by the mode switch
-		if m.hoverIdx >= 0 && m.hoverIdx < len(m.blocks) {
-			m.blocks[m.hoverIdx].hover, m.blocks[m.hoverIdx].stale = false, true
-		}
-		m.hoverIdx = -1
-	}
+// applyOpencodeStyles installs the full-screen UI's input chrome and spinner.
+// It runs at startup and again whenever the color scheme changes, because the
+// input box fill is derived from the detected terminal background.
+func (m *model) applyOpencodeStyles() {
+	invalidateMDRenderer() // the markdown style follows the scheme; rebuild
+	ocActive = true
+	m.spin = spinner.New(spinner.WithSpinner(ocKnightRider))
+	m.spin.Style = lipgloss.NewStyle().Foreground(ocAgentCol())
+	// Fill the textarea with the element background so the input box reads as
+	// a filled panel (opencode's prompt box).
+	elem := lipgloss.NewStyle().Background(ocElementBg())
+	m.input.FocusedStyle.Text = elem
+	m.input.FocusedStyle.CursorLine = elem
+	m.input.FocusedStyle.Placeholder = dimStyle.Background(ocElementBg())
+	m.input.BlurredStyle.Text = elem
+	m.input.BlurredStyle.Placeholder = dimStyle.Background(ocElementBg())
 	// The textarea reads styles through a pointer snapshotted at Focus() time
 	// (style = &m.FocusedStyle). The struct has been copied since newInput's
 	// Focus(), so the writes above land in a field View() never reads.
 	// Re-focus to re-snapshot the pointer at the CURRENT struct.
 	m.input.Focus()
-}
-
-// setUIMode switches render mode live, persists the choice, and redraws. It
-// returns the bubbletea command that enters/exits the alternate screen so the
-// full-screen state tracks the mode.
-func (m *model) setUIMode(mode string) tea.Cmd {
-	if mode != opencodeMode {
-		mode = ""
-	}
-	// a mid-stream toggle must not strand reasoning in the old mode's fields:
-	// flush under the OLD uiMode (each branch drains its own accumulator),
-	// then clear the opencode fields a zero thinkStart would leave behind
-	m.flushThink()
-	m.thinkStart, m.ocThink = time.Time{}, ""
-	m.applyUIMode(mode)
-	// leaving the alt screen restores a bottom-anchored inline view, but only
-	// WindowSizeMsg resets the re-anchor sentinel — without it viewTop stays
-	// at opencode's pinned 0 and every mouse row maps above the pointer until
-	// the next resize. View() recomputes viewTop from this sentinel.
-	m.viewTop = 1 << 30
-	m.cfg.UIMode = mode
-	if m.cfgExtra == nil {
-		m.cfgExtra = map[string]string{}
-	}
-	if mode == "" {
-		delete(m.cfgExtra, "uiMode")
-	} else {
-		m.cfgExtra["uiMode"] = mode
-	}
-	if err := m.cfg.Save(); err != nil {
-		m.append(errStyle.Render("config save failed: " + err.Error()))
-	}
-	m.refreshVP()
-	m.append(dimStyle.Render("◐ ui mode: " + uiModeLabel(mode)))
-	if mode == opencodeMode {
-		return tea.EnterAltScreen
-	}
-	return tea.ExitAltScreen
-}
-
-// uiModeLabel is the display name for a UI mode value.
-func uiModeLabel(mode string) string {
-	if mode == opencodeMode {
-		return "opencode"
-	}
-	return "default"
 }

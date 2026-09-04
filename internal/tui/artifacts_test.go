@@ -15,7 +15,7 @@ func TestNoArtifacts(t *testing.T) {
 	m.Update(mkWinSize(70, 30))
 	m.appendAssistant("Found the bug. Fixes:\n\n1. isolate HOME\n\n```go\nx := 1\n```")
 	m.append("some status line")
-	v := m.View()
+	v := viewStr(m)
 	for i, l := range strings.Split(v, "\n") {
 		if strings.Contains(l, "\x1b[m") {
 			t.Errorf("row %d still has bare SGR: %q", i, l)

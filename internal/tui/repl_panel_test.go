@@ -34,7 +34,7 @@ func TestCodeFromPartialArgs(t *testing.T) {
 func replTestModel(t *testing.T, termWidth int) *model {
 	t.Helper()
 	m := &model{
-		cfg: &config.Config{}, input: newInput(), uiMode: opencodeMode, termWidth: termWidth, now: time.Now,
+		cfg: &config.Config{}, input: newInput(), termWidth: termWidth, now: time.Now,
 		sessTitle: "Repl session", replPanel: true,
 		clientView: clientPresentation{agents: []session.RuntimeAgent{
 			{ID: "root-agent", LifecyclePhase: "running"},
@@ -97,10 +97,10 @@ func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 
 func TestReplPanelToggleChordAndCommand(t *testing.T) {
 	const term = 160
-	m := &model{cfg: &config.Config{}, input: newInput(), uiMode: opencodeMode, termWidth: term, now: time.Now, clientState: ClientDisconnected}
-	next, _ := m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlX})
+	m := &model{cfg: &config.Config{}, input: newInput(), termWidth: term, now: time.Now, clientState: ClientDisconnected}
+	next, _ := m.thinKey(keyMsg(tea.KeyCtrlX))
 	m = next.(*model)
-	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	next, _ = m.thinKey(keyRunes("r"))
 	m = next.(*model)
 	if !m.replPanel || m.width != term-opencodeLeftMargin-term/2-opencodeRightGap {
 		t.Fatalf("chord toggle replPanel=%v width=%d", m.replPanel, m.width)
@@ -183,8 +183,7 @@ func TestReplPanelScrollsIndependentlyOfChat(t *testing.T) {
 
 func TestReplPanelPressDoesNotSelectChat(t *testing.T) {
 	m := compactCmdModel()
-	m.applyUIMode(opencodeMode)
-	t.Cleanup(func() { ocActive = false })
+	m.applyOpencodeStyles()
 	m.replPanel = true
 	m.Update(mkWinSize(160, 30))
 	if !m.sidebarVisible() || m.panelWidth() != 80 {
@@ -192,24 +191,24 @@ func TestReplPanelPressDoesNotSelectChat(t *testing.T) {
 	}
 	m.append("hello world")
 	m.append("second block here")
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // settle layout
+	next, _ := m.Update(keyRunes(" ")) // settle layout
 	m = next.(*model)
 	m.input.SetValue("")
-	m.View()
-	rowY := func(r int) int { return m.viewTop + m.vpTopRows() + (r + m.contentPad() - m.vp.YOffset) - m.vpLead }
+	viewStr(m)
+	rowY := func(r int) int { return m.vpTopRows() + (r + m.contentPad() - m.vp.YOffset) - m.vpLead }
 	y0, y1 := rowY(m.blocks[0].y0), rowY(m.blocks[1].y0)
 	panelX := m.termWidth - 10
-	next, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: panelX, Y: y0})
+	next, _ = m.Update(clickMsg(panelX, y0))
 	m = next.(*model)
-	next, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: panelX, Y: y1})
+	next, _ = m.Update(dragMsg(panelX, y1))
 	m = next.(*model)
 	if m.sel != nil {
 		t.Fatalf("a press in the REPL panel started a chat selection: %+v", m.sel)
 	}
 	// A drag that starts in the chat still completes when it ends over the panel.
-	next, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 3, Y: y0})
+	next, _ = m.Update(clickMsg(3, y0))
 	m = next.(*model)
-	next, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: panelX, Y: y1})
+	next, _ = m.Update(dragMsg(panelX, y1))
 	m = next.(*model)
 	if m.sel == nil || m.sel.anchor == m.sel.cur {
 		t.Fatalf("chat drag ending over the panel lost its selection: %+v", m.sel)
@@ -258,7 +257,7 @@ func TestReplHistorySurvivesSnapshotsAndKeepsScroll(t *testing.T) {
 	}
 	inPanel := 140 - m.panelWidth()
 	for range 5 {
-		next, _ := m.thinMouse(tea.MouseMsg{X: inPanel, Y: 5, Action: tea.MouseActionPress, Button: tea.MouseButtonWheelUp})
+		next, _ := m.thinMouse(wheelMsg(inPanel, 5, true))
 		m = next.(*model)
 	}
 	before := m.replPanelView(20)
@@ -304,36 +303,36 @@ func TestAgentTreeReturnsToRoot(t *testing.T) {
 		t.Fatalf("tree rendering:\n%s", view)
 	}
 	// ctrl+t starts on the first child; ↑ reaches the root; enter goes back to it.
-	next, _ := m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlT})
+	next, _ := m.thinKey(keyMsg(tea.KeyCtrlT))
 	m = next.(*model)
 	if !m.agentsFocus || m.agentSel != 1 {
 		t.Fatalf("focus=%v sel=%d", m.agentsFocus, m.agentSel)
 	}
-	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyUp})
+	next, _ = m.thinKey(keyMsg(tea.KeyUp))
 	m = next.(*model)
-	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ = m.thinKey(keyMsg(tea.KeyEnter))
 	m = next.(*model)
 	if m.agentOpen != "" || m.agentsFocus {
 		t.Fatalf("enter on the root row did not return to root: open=%q focus=%v", m.agentOpen, m.agentsFocus)
 	}
 	// esc while the tree is focused also leaves an open child.
 	m.agentOpen = "child"
-	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyDown})
+	next, _ = m.thinKey(keyMsg(tea.KeyDown))
 	m = next.(*model)
 	if !m.agentsFocus {
 		t.Fatal("↓ on an empty input should focus the tree")
 	}
-	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.thinKey(keyMsg(tea.KeyEsc))
 	m = next.(*model)
 	if m.agentOpen != "" || m.agentsFocus {
 		t.Fatalf("esc with the tree focused: open=%q focus=%v", m.agentOpen, m.agentsFocus)
 	}
 	// ctrl+x on the root row is a no-op rather than a stop request.
-	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlT})
+	next, _ = m.thinKey(keyMsg(tea.KeyCtrlT))
 	m = next.(*model)
-	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyUp})
+	next, _ = m.thinKey(keyMsg(tea.KeyUp))
 	m = next.(*model)
-	if _, command := m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlX}); command != nil {
+	if _, command := m.thinKey(keyMsg(tea.KeyCtrlX)); command != nil {
 		t.Fatal("ctrl+x on the root row should not submit a stop")
 	}
 }

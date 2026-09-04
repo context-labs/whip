@@ -52,10 +52,9 @@ type selection struct {
 }
 
 // selPoint converts ABSOLUTE screen coords to a selection endpoint. Content
-// row r renders at screen row viewTop + 3 (header + hint + blank) +
-// (r + contentPad - YOffset) - vpLead, where vpLead is the top blank rows
-// viewportView dropped. Invert that:
-// content row = y - viewTop - 3 - contentPad + YOffset + vpLead.
+// row r renders at screen row vpTopRows + (r + contentPad - YOffset) - vpLead,
+// where vpLead is the top blank rows viewportView dropped. Invert that:
+// content row = y - vpTopRows - contentPad + YOffset + vpLead.
 //
 // clamp=false (a press): rows outside the block range return ok=false — a
 // press on the header, input box, or dock must NOT start a selection (it
@@ -66,7 +65,7 @@ func (m *model) selPoint(x, y int, clamp bool) (selPos, bool) {
 	if len(m.blocks) == 0 || m.viewH == 0 { // viewH 0: nothing rendered yet
 		return selPos{}, false
 	}
-	row := y - m.viewTop - m.vpTopRows() - m.contentPad() + m.vp.YOffset + m.vpLead
+	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset + m.vpLead
 	first, last := m.blocks[0].y0, m.blocks[len(m.blocks)-1].y1
 	if !clamp && (row < first || row > last) {
 		return selPos{}, false
@@ -88,9 +87,7 @@ func (m *model) inputPoint(x, y int, clamp bool) (selPos, bool) {
 	if m.inputTop < 0 || len(m.inputLines) == 0 {
 		return selPos{}, false
 	}
-	if m.uiMode == opencodeMode {
-		x -= m.vpXOff() + 3 // the box chrome shifts the raw input right: margin + "┃  "
-	}
+	x -= m.vpXOff() + 3 // the box chrome shifts the raw input right: margin + "┃  "
 	row := y - m.inputTop
 	if !clamp && (row < 0 || row >= len(m.inputLines)) {
 		return selPos{}, false
@@ -380,10 +377,10 @@ func (m *model) selEdgeScroll() tea.Cmd {
 	if m.sel == nil || m.sel.done {
 		return nil
 	}
-	top := m.viewTop + m.vpTopRows() // header + tips + blank (0 in opencode mode)
+	top := m.vpTopRows()
 	bottom := top + m.vp.Height - 1
 	switch {
-	case m.selDragY < top && m.vp.YOffset > 0:
+	case m.selDragY <= top && m.vp.YOffset > 0: // the top row is the edge (nothing above it)
 		m.vp.SetYOffset(m.vp.YOffset - 1)
 	case m.selDragY > bottom && !m.vp.AtBottom():
 		m.vp.SetYOffset(m.vp.YOffset + 1)
@@ -402,7 +399,6 @@ func (m *model) selEdgeScroll() tea.Cmd {
 // are handled before handleMouseSelect sees the event, so only the transcript
 // area reaches here. Row math matches selPoint (y is an absolute screen row).
 func (m *model) clickAt(x, y int) {
-	y -= m.viewTop
 	if y <= m.vpTopRows()-2 || m.palette != nil || m.menu != nil || m.viewH == 0 {
 		return
 	}

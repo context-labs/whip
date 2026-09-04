@@ -11,39 +11,27 @@ import (
 	"github.com/context-labs/whip/internal/config"
 )
 
-func TestOpencodeModeRetainsLayoutAndLiveSwitching(t *testing.T) {
+func TestFullScreenLayoutFitsTerminal(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
 	m := fullModel()
 	m.cfg = &config.Config{}
 	m.termWidth = 200
-	t.Cleanup(func() { m.applyUIMode("") })
-
-	command := m.setUIMode(opencodeMode)
-	if command == nil || m.uiMode != opencodeMode || m.cfg.UIMode != opencodeMode || !ocActive {
-		t.Fatalf("enable opencode command=%v mode=%q config=%q active=%t", command != nil, m.uiMode, m.cfg.UIMode, ocActive)
-	}
-	if m.input.Prompt != "" || !strings.Contains(m.input.Placeholder, "Ask anything") || !m.sidebarVisible() {
-		t.Fatalf("opencode input/sidebar prompt=%q placeholder=%q sidebar=%t", m.input.Prompt, m.input.Placeholder, m.sidebarVisible())
+	m.applyOpencodeStyles()
+	if m.input.Prompt != "" || !strings.Contains(m.input.Placeholder, "Ask whip anything") || !m.sidebarVisible() {
+		t.Fatalf("input/sidebar prompt=%q placeholder=%q sidebar=%t", m.input.Prompt, m.input.Placeholder, m.sidebarVisible())
 	}
 	m.layout()
-	if got := lipgloss.Height(m.View()); got != m.height {
-		t.Fatalf("opencode view renders %d rows on a %d-row terminal", got, m.height)
-	}
-
-	command = m.setUIMode("default")
-	if command == nil || m.uiMode != "" || m.cfg.UIMode != "" || ocActive || m.input.Prompt != "┃ " {
-		t.Fatalf("disable opencode command=%v mode=%q config=%q active=%t prompt=%q", command != nil, m.uiMode, m.cfg.UIMode, ocActive, m.input.Prompt)
+	if got := lipgloss.Height(viewStr(m)); got != m.height {
+		t.Fatalf("view renders %d rows on a %d-row terminal", got, m.height)
 	}
 }
 
 func TestOpencodeLeaderChordsUseDaemonCommands(t *testing.T) {
 	m, _ := liveQueueModel(t)
 	m.busy = false
-	m.uiMode = opencodeMode
 	m.termWidth, m.width = 200, 150
 	m.cfg = &config.Config{}
 	m.now = time.Now
-	t.Cleanup(func() { m.applyUIMode("") })
 
 	for key, operation := range map[string]string{
 		"l": "session.list",
@@ -71,7 +59,7 @@ func TestOpencodeDialogsUseRecursiveCommandSurface(t *testing.T) {
 	m := &model{cfg: &config.Config{MCPServers: map[string]config.MCPServer{"local": {}}}, input: newInput(), width: 80, height: 30, termWidth: 80}
 	m.openThinPalette()
 	out := strings.Join(m.ocDialogRows(), "\n")
-	for _, want := range []string{"Commands", "Authentication", "Session", "MCPs", "Browser", "UI mode", "Theme"} {
+	for _, want := range []string{"Commands", "Authentication", "Session", "MCPs", "Browser", "Theme"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("opencode command dialog missing %q:\n%s", want, out)
 		}
@@ -84,27 +72,6 @@ func TestOpencodeDialogsUseRecursiveCommandSurface(t *testing.T) {
 	m.openThinMCPPalette()
 	if out := strings.Join(m.ocDialogRows(), "\n"); !strings.Contains(out, "MCP import status") || !strings.Contains(out, "Enable Codex imports") || !strings.Contains(out, "Reconnect local") {
 		t.Fatalf("MCP subpanel is incomplete:\n%s", out)
-	}
-}
-
-func TestOpencodeModeSwitchPreservesStreamedReasoning(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
-	m := &model{cfg: &config.Config{}, input: newInput(), width: 80, height: 30, uiMode: opencodeMode}
-	m.applyUIMode(opencodeMode)
-	t.Cleanup(func() { m.applyUIMode("") })
-	m.thinkStart = time.Now().Add(-time.Second)
-	m.ocThink = "reasoning before the switch"
-	m.inThink = true
-	m.setUIMode("")
-	if !m.thinkStart.IsZero() || m.ocThink != "" || m.inThink {
-		t.Fatalf("mode switch retained stale reasoning state: start=%v text=%q active=%t", m.thinkStart, m.ocThink, m.inThink)
-	}
-	found := false
-	for _, value := range m.blocks {
-		found = found || value.kind == blockThought && strings.Contains(value.text, "reasoning before the switch")
-	}
-	if !found {
-		t.Fatal("mode switch discarded streamed reasoning")
 	}
 }
 
@@ -129,14 +96,13 @@ func TestOpencodeHomePromptAndSidebarRemainUsable(t *testing.T) {
 	// The real leader-key path should arm, dispatch, and clear the chord.
 	m.cfg = &config.Config{}
 	m.clientState = ClientDisconnected
-	m.uiMode = opencodeMode
 	m.now = time.Now
-	next, _ := m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlX})
+	next, _ := m.thinKey(keyMsg(tea.KeyCtrlX))
 	m = next.(*model)
 	if m.leaderAt.IsZero() {
 		t.Fatal("ctrl+x did not arm the OpenCode leader")
 	}
-	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	next, _ = m.thinKey(keyRunes("b"))
 	m = next.(*model)
 	if !m.leaderAt.IsZero() || !m.sidebarHide {
 		t.Fatal("OpenCode leader did not dispatch and clear")
@@ -163,10 +129,7 @@ func TestOpencodeOverlayAndDialogsStayWithinNarrowFrames(t *testing.T) {
 }
 
 func TestOpencodeMessageActionsHoverAndToolPresentation(t *testing.T) {
-	previous := ocActive
-	t.Cleanup(func() { ocActive = previous })
-	ocActive = true
-	m := &model{input: newInput(), width: 80, height: 20, viewH: 20, uiMode: opencodeMode, hoverIdx: -1}
+	m := &model{input: newInput(), width: 80, height: 20, viewH: 20, hoverIdx: -1}
 	m.vp.Width, m.vp.Height = 80, 10
 	m.blocks = []block{{kind: blockUser, text: "hello"}, {kind: blockAssistant, text: "answer"}}
 	m.refreshVP()
@@ -191,9 +154,8 @@ func TestOpencodeMessageActionsHoverAndToolPresentation(t *testing.T) {
 }
 
 func TestOpencodeResizeAndSidebarThresholds(t *testing.T) {
-	m := &model{cfg: &config.Config{}, input: newInput(), uiMode: opencodeMode}
-	t.Cleanup(func() { m.applyUIMode("") })
-	m.applyUIMode(opencodeMode)
+	m := &model{cfg: &config.Config{}, input: newInput()}
+	m.applyOpencodeStyles()
 	next, _ := m.Update(tea.WindowSizeMsg{Width: sidebarMinWidth - 1, Height: 24})
 	m = next.(*model)
 	if m.sidebarVisible() || m.width != sidebarMinWidth-1-opencodeLeftMargin {
@@ -202,7 +164,7 @@ func TestOpencodeResizeAndSidebarThresholds(t *testing.T) {
 	next, _ = m.Update(tea.WindowSizeMsg{Width: sidebarMinWidth, Height: 24})
 	m = next.(*model)
 	want := sidebarMinWidth - opencodeLeftMargin - sidebarWidth - opencodeRightGap
-	if !m.sidebarVisible() || m.width != want || lipgloss.Height(m.View()) != 24 {
-		t.Fatalf("wide resize sidebar=%t width=%d want=%d height=%d", m.sidebarVisible(), m.width, want, lipgloss.Height(m.View()))
+	if !m.sidebarVisible() || m.width != want || lipgloss.Height(viewStr(m)) != 24 {
+		t.Fatalf("wide resize sidebar=%t width=%d want=%d height=%d", m.sidebarVisible(), m.width, want, lipgloss.Height(viewStr(m)))
 	}
 }

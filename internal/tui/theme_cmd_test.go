@@ -21,16 +21,16 @@ func TestThemeCommandSwitchesRendering(t *testing.T) {
 		t.Fatalf("theme: %q", CurrentTheme())
 	}
 	out := renderMarkdown("body **bold** `code`\n\n```go\nx := 1\n```", 70)
-	if !strings.Contains(out, "38;5;234") {
-		t.Errorf("light body should be 234: %q", out[:80])
+	if !strings.Contains(out, "38;2;26;26;26") {
+		t.Errorf("light body should use the light text color: %q", out[:80])
 	}
 	m.command("/theme dark")
 	if CurrentTheme() != "dark" {
 		t.Fatalf("theme: %q", CurrentTheme())
 	}
 	out = renderMarkdown("body\n\n```go\nx := 1\n```", 70)
-	if !strings.Contains(out, "38;5;252") || !strings.Contains(out, "38;5;251") {
-		t.Errorf("dark body/code should be 252/251 after switch back: %q", out[:120])
+	if !strings.Contains(out, "38;2;238;238;238") || !strings.Contains(out, "38;5;251") {
+		t.Errorf("dark body/code should be the dark text color and chroma 251 after switch back: %q", out[:120])
 	}
 	// and flip back to light once more — the chroma poisoning case
 	m.command("/theme light")
@@ -54,9 +54,9 @@ func TestThemeBareOpensSwitcher(t *testing.T) {
 		t.Fatalf("theme palette: %+v", m.palette.items)
 	}
 	// navigate to light and apply with enter
-	tm, _ := m.paletteKey(tea.KeyMsg{Type: tea.KeyDown})
+	tm, _ := m.paletteKey(keyMsg(tea.KeyDown))
 	m = tm.(*model)
-	tm, _ = m.paletteKey(tea.KeyMsg{Type: tea.KeyEnter})
+	tm, _ = m.paletteKey(keyMsg(tea.KeyEnter))
 	m = tm.(*model)
 	if CurrentTheme() != "light" {
 		t.Fatalf("selecting light in the switcher should apply it, got %q", CurrentTheme())
@@ -85,7 +85,7 @@ func TestNoArtifactsBothThemes(t *testing.T) {
 		m.Update(mkWinSize(70, 30))
 		m.setTheme(theme)
 		m.appendAssistant("Found it. **Fixed**:\n\n1. one\n2. two\n\n```go\nx := 1\n```")
-		v := m.View()
+		v := viewStr(m)
 		for i, l := range strings.Split(v, "\n") {
 			if strings.Contains(l, "\x1b[m") {
 				t.Errorf("%s: row %d bare SGR: %q", theme, i, l)

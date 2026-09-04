@@ -36,7 +36,6 @@ var (
 	toolStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "136", Dark: "11"})           // amber
 	dimStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})          // mid gray
 	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "124", Dark: "9"})            // red
-	growStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "28", Dark: "10"})            // green
 	// thinkingStyle renders reasoning tokens: dim and italic so they're
 	// visually distinct from the answer.
 	thinkingStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"}).Italic(true)
@@ -165,15 +164,13 @@ type model struct {
 	// Input box selection tracking: View records the input's absolute screen
 	// rows so drag-select can hit-test/extract/highlight it. inputBodyOff is
 	// the line offset within viewBody where the input starts; inputTop is the
-	// absolute screen row (viewTop + inputBodyOff), -1 when hidden.
+	// absolute screen row (the view starts at row 0), -1 when hidden.
 	inputBodyOff int
 	inputTop     int
 	inputLines   []string    // the input box's rendered lines, ANSI-stripped
 	vpLead       int         // top blank rows viewportView last dropped (selection row mapping)
-	viewTop      int         // screen row of the view's first line (View tracks it; mouse Y is absolute)
 	viewH        int         // height of the last rendered view
 	themeHow     string      // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
-	uiMode       string      // "" = default whip look; "opencode" = opencode render mode (see opencode.go)
 	sessTitle    string      // cached session title for the opencode sidebar (from the store; updated on title/rename)
 	msgActions   *msgActions // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
 	hoverIdx     int         // opencode mode: block index under the mouse (hover highlight); -1 = none
@@ -186,7 +183,6 @@ type model struct {
 	// from update.Pending at startup; the notice it renders is durable, so a
 	// check that lands after the report still shows next launch.
 	updateLatest string
-	effortX      int
 	catalogs     map[string]config.Catalog
 	iactive      *interactive
 	permDialog   *permDialog
@@ -232,7 +228,7 @@ type picker struct {
 func newInput() textarea.Model {
 	ti := textarea.New()
 	ti.Placeholder = inputPlaceholder
-	ti.Prompt = "┃ "
+	ti.Prompt = "" // the prompt box (opencodePrompt) draws the ┃ bar per line
 	ti.SetHeight(1)
 	ti.MaxHeight = 24 // input grows with content up to this many lines
 	ti.ShowLineNumbers = false
@@ -272,7 +268,7 @@ func (m *model) startupReport() {
 	// opencode mode keeps the startup clean (quiet): the routine roster lines
 	// are suppressed, but actionable items — skill-scan warnings, failed MCP
 	// servers, the update notice — must still surface, never silently drop.
-	quiet := m.uiMode == opencodeMode
+	quiet := true // the full-screen UI keeps the startup report to the essentials
 	if quiet && !ocThemeKnown() {
 		// an unknown background means the panels render with no fill — zero
 		// contrast — so say why and how to fix it instead of failing silently
@@ -390,10 +386,8 @@ func (m *model) setTheme(theme string) {
 		theme = "auto"
 	}
 	how := m.applyTheme(theme)
-	m.themeHow = how // explicit picks return "" — detection source no longer applies
-	if m.uiMode == opencodeMode {
-		m.applyUIMode(opencodeMode) // refresh opencode styles (input box fill) for the new scheme
-	}
+	m.themeHow = how        // explicit picks return "" — detection source no longer applies
+	m.applyOpencodeStyles() // refresh the input box fill for the new scheme
 	m.cfg.Theme = theme
 	if theme == "auto" {
 		m.cfg.Theme = "" // auto persists as "" (omitted = auto-detect)
@@ -691,35 +685,14 @@ func (m *model) viewportView() string {
 	if m.sel != nil {
 		s = m.highlightSelection(s) // content space, pre-trim
 	}
-	if m.uiMode == opencodeMode {
-		m.vpLead = 0
-		if len(m.blocks) == 0 { // empty transcript: opencode's centered-logo home screen
-			return opencodeHome(m.vp.Width, m.vp.Height)
-		}
-		// Full-height viewport: keep the pad so the transcript is bottom-anchored
-		// (blanks above, content near the prompt) and the prompt/status sit at the
-		// bottom of the screen, like opencode's session layout.
-		return s
+	m.vpLead = 0
+	if len(m.blocks) == 0 { // empty transcript: the centered-logo home screen
+		return opencodeHome(m.vp.Width, m.vp.Height)
 	}
-	lines := strings.Split(s, "\n")
-	// Drop leading pad rows by count: the content starts after the pad, but
-	// the view is scrolled (YOffset) and bottom-anchored, so the number of pad
-	// rows actually visible at the top is pad - YOffset (clamped).
-	drop := max(min(m.contentPad()-m.vp.YOffset, len(lines)), 0)
-	// Only drop rows that are actually blank — if the selection highlight
-	// painted a pad row, that row is content now, stop before it.
-	first := 0
-	for first < drop && strings.TrimSpace(ansi.Strip(lines[first])) == "" {
-		first++
-	}
-	m.vpLead = first // selection maps screen rows through the dropped pad
-	lines = lines[first:]
-	// Drop trailing dead rows (the viewport pads to its full height).
-	last := len(lines) - 1
-	for last >= 0 && strings.TrimSpace(ansi.Strip(lines[last])) == "" {
-		last--
-	}
-	return strings.Join(lines[:last+1], "\n")
+	// Full-height viewport: keep the pad so the transcript is bottom-anchored
+	// (blanks above, content near the prompt) and the prompt/status sit at the
+	// bottom of the screen.
+	return s
 }
 
 func (m *model) Init() tea.Cmd {
@@ -775,24 +748,6 @@ func fmtTok(n int) string {
 	default:
 		return strconv.Itoa(n)
 	}
-}
-
-// fmtUsage renders cumulative or per-request usage as the status line's
-// "in(cached)/out tok" shape; the cached parens appear only when reported.
-func fmtUsage(u llm.Usage) string {
-	if c := u.Cached(); c > 0 {
-		return fmt.Sprintf("%s(%s)/%s tok", fmtTok(u.PromptTokens), fmtTok(c), fmtTok(u.CompletionTokens))
-	}
-	return fmt.Sprintf("%s/%s tok", fmtTok(u.PromptTokens), fmtTok(u.CompletionTokens))
-}
-
-// fmtCost renders a USD spend compactly: 4 decimals under a dollar (where the
-// cents would hide the signal), 2 at or above.
-func fmtCost(d float64) string {
-	if d >= 1 {
-		return fmt.Sprintf("$%.2f", d)
-	}
-	return fmt.Sprintf("$%.4f", d)
 }
 
 func cwd() string {
@@ -990,7 +945,7 @@ func (m *model) growInput() {
 	ti.SetValue(val)
 	ti.CursorEnd()
 	m.input = ti
-	m.input.Focus() // re-snapshot the style pointer at the COPIED struct (see applyUIMode)
+	m.input.Focus() // re-snapshot the style pointer at the COPIED struct (see applyOpencodeStyles)
 }
 
 // layout gives the viewport whatever height the chrome doesn't need,
@@ -1004,19 +959,13 @@ func (m *model) layout() {
 	// every frame scrolls the top rows off-screen, and all mouse math lands
 	// that many rows above the pointer (the off-by-two drag-select bug: the
 	// status line + its blank were never budgeted).
-	chrome := 6 + m.input.Height()
-	if m.uiMode == opencodeMode {
-		// drops the header row and the tips line + its blank (-3); the prompt
-		// panel adds paddingTop, a blank, the model/mode row, and the ▀ tail (+4).
-		chrome++
-	}
+	// the prompt panel adds paddingTop, a blank, the model/mode row, and the ▀
+	// tail around the input; the status line and its blank sit below
+	chrome := 7 + m.input.Height()
 	if m.iactive != nil {
 		// input box is hidden while a command has the terminal; drop its height
 		// and the leading blank line View inserts before it.
 		chrome -= m.input.Height()
-	}
-	if m.busy && m.uiMode != opencodeMode {
-		chrome += 2 // blank line above the spinner + the spinner line itself (opencode mode: status bar spinner instead)
 	}
 	if len(m.plan) > 0 {
 		chrome += len(m.plan) + 1
@@ -1030,7 +979,7 @@ func (m *model) layout() {
 	if m.curThink != "" {
 		chrome += lipgloss.Height(m.thinkView()) + 1
 	}
-	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
+	if m.busy && !m.thinkStart.IsZero() {
 		chrome += 2 // the live "+ Thinking…" line + its blank separator (must match viewBody)
 	}
 	if m.iactive != nil {
@@ -1038,11 +987,6 @@ func (m *model) layout() {
 	}
 	if m.permDialog != nil {
 		chrome += lipgloss.Height(m.permView()) + 1 // viewBody emits "\n"+permView(); unbudgeted it clips the alt-screen frame and shifts mouse rows
-	}
-	if m.menu != nil && m.uiMode != opencodeMode {
-		// measure the actual render (descriptions can word-wrap). opencode mode
-		// takes no rows at all: the menu overlays the frame from View()
-		chrome += lipgloss.Height(m.menuView()) + 1
 	}
 	if m.rew != nil {
 		chrome += lipgloss.Height(m.rewindView()) + 1 // + the extra blank below
@@ -1078,13 +1022,12 @@ func (m *model) layout() {
 // renders below the input as the last dockRows rows above the blank + status
 // line, but dockSkip non-agent rows (the focused hint) sit on top of the agent
 // rows. layout() keeps both in sync with what View renders. The row is an
-// absolute screen row: counted up from the view's bottom (viewTop+viewH),
-// which equals the terminal bottom while the view is bottom-anchored but
-// stays correct when a shrunk view floats above it.
+// absolute screen row counted up from the view's bottom (the view is drawn
+// from row 0 in the alternate screen).
 func (m *model) dockTop() int {
 	bottom := m.height
 	if m.viewH > 0 {
-		bottom = m.viewTop + m.viewH
+		bottom = m.viewH
 	}
 	return bottom - 2 - m.dockRows + m.dockSkip
 }
@@ -1106,25 +1049,6 @@ func (m *model) nowFn() time.Time {
 		return m.now()
 	}
 	return time.Now()
-}
-
-// busyStats renders the busy line's live counters: elapsed time since the
-// turn started, session tokens so far, and the share of the advertised
-// context window. Returns "" when idle (turnStart zero).
-func (m *model) busyStats() string {
-	if m.turnStart.IsZero() {
-		return ""
-	}
-	d := max(m.nowFn().Sub(m.turnStart), 0)
-	elapsed := d.Round(time.Second)
-	stats := fmt.Sprintf(" %d:%02d", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
-	if u := m.displayUsage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
-		stats += fmt.Sprintf(" · %s tok", fmtTok(u.PromptTokens+u.CompletionTokens))
-	}
-	if limit := m.displayContextLimit(); limit > 0 {
-		stats += fmt.Sprintf(" · %d%%", estimateTokens(m.displayMessages())*100/limit)
-	}
-	return stats
 }
 
 // histPrev/histNext recall submitted inputs with the arrow keys.
@@ -1367,16 +1291,6 @@ func indentLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// appendThink writes a reasoning line into the transcript, prefixing the
-// first line of each thinking segment.
-func (m *model) appendThink(s string) {
-	if !m.inThink {
-		s = "◌ " + s
-		m.inThink = true
-	}
-	m.append(thinkingStyle.Render(s))
-}
-
 // flushThink moves any in-flight partial reasoning line into the transcript
 // and ends the current thinking segment.
 // toggleThinking flips reasoning-token display (ctrl+o / palette) and persists
@@ -1401,23 +1315,14 @@ func (m *model) setThinking(on bool) {
 }
 
 func (m *model) flushThink() {
-	if m.uiMode == opencodeMode {
-		if !m.thinkStart.IsZero() { // collapse the reasoning segment to one line (expandable to the text)
-			m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: fmtShortDur(m.nowFn().Sub(m.thinkStart))})
-			m.follow = true
-			m.refreshVP()
-			m.thinkStart = time.Time{}
-			m.ocThink = ""
-		}
-		m.curThink = ""
-		m.inThink = false
-		return
+	if !m.thinkStart.IsZero() { // collapse the reasoning segment to one line (expandable to the text)
+		m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: fmtShortDur(m.nowFn().Sub(m.thinkStart))})
+		m.follow = true
+		m.refreshVP()
+		m.thinkStart = time.Time{}
+		m.ocThink = ""
 	}
-	cur := strings.TrimRight(m.curThink, " \n")
 	m.curThink = ""
-	if cur != "" {
-		m.appendThink(cur)
-	}
 	m.inThink = false
 }
 
@@ -1457,21 +1362,14 @@ func (m *model) currentView() string {
 
 // View renders the frame and tracks WHERE it sits on the screen. Mouse events
 // arrive in absolute screen coordinates, so every click/drag mapping needs the
-// view's top row. The inline view starts bottom-anchored (Run moves the cursor
-// to the last row before the first paint); bubbletea's renderer scrolls the
-// top UP when the view grows past the bottom and keeps it FIXED when the view
-// shrinks — so the top row only ever decreases between resizes:
-// viewTop = min(viewTop, height - viewH). A resize resets the sentinel
-// (WindowSizeMsg handler) and the next render re-anchors to the bottom.
+// view's top row, which is always row 0 in the alternate screen.
 func (m *model) View() string {
 	m.syncInputPlaceholder()
 	v := m.viewBody()
-	if m.uiMode == opencodeMode {
-		// opencode's main-column left margin only — the main area stays on the
-		// terminal's native background so whip keeps light/dark/auto (no forced
-		// backdrop; only the panels below carry a subtle contrast shade).
-		v = lipgloss.NewStyle().PaddingLeft(opencodeLeftMargin).Render(v)
-	}
+	// the main-column left margin only — the main area stays on the terminal's
+	// native background so whip keeps light/dark/auto (no forced backdrop;
+	// only the panels carry a subtle contrast shade)
+	v = lipgloss.NewStyle().PaddingLeft(opencodeLeftMargin).Render(v)
 	if m.sidebarVisible() {
 		gap := strings.Repeat(" ", opencodeRightGap) // breathing room between the panels
 		if m.replPanel {
@@ -1482,30 +1380,23 @@ func (m *model) View() string {
 		}
 		v = lipgloss.JoinHorizontal(lipgloss.Top, v, gap, m.sidebarView(lipgloss.Height(v)))
 	}
-	if m.uiMode == opencodeMode {
-		switch { // floating dialogs over the dimmed session, opencode-style
-		case m.palette != nil:
-			v = m.ocOverlay(v) // Commands
-		case m.msgActions != nil:
-			v = m.ocOverlayRows(v, m.ocMsgActionRows())
-		case m.mpicker != nil:
-			v = m.ocOverlayRows(v, m.ocModelDialogRows())
-		case m.picker != nil:
-			v = m.ocOverlayRows(v, m.ocSessionDialogRows())
-		case m.menu != nil:
-			v = m.ocMenuOverlay(v) // completion popup floats above the input, no reflow
-		}
-		if m.toast != "" {
-			v = m.ocSpliceToast(v) // top-right toast, over everything
-		}
+	switch { // floating dialogs over the dimmed session
+	case m.palette != nil:
+		v = m.ocOverlay(v) // Commands
+	case m.msgActions != nil:
+		v = m.ocOverlayRows(v, m.ocMsgActionRows())
+	case m.mpicker != nil:
+		v = m.ocOverlayRows(v, m.ocModelDialogRows())
+	case m.picker != nil:
+		v = m.ocOverlayRows(v, m.ocSessionDialogRows())
+	case m.menu != nil:
+		v = m.ocMenuOverlay(v) // completion popup floats above the input, no reflow
+	}
+	if m.toast != "" {
+		v = m.ocSpliceToast(v) // top-right toast, over everything
 	}
 	if m.height > 0 {
 		m.viewH = lipgloss.Height(v)
-		if m.uiMode == opencodeMode {
-			m.viewTop = 0 // altscreen: the view is drawn from row 0, so mouse Y maps directly
-		} else {
-			m.viewTop = max(min(m.viewTop, m.height-m.viewH), 0)
-		}
 	}
 	// Record the input box's absolute screen rows for drag-select. The input is
 	// hidden during interactive bash (iactive), so there's nothing to select.
@@ -1513,10 +1404,7 @@ func (m *model) View() string {
 		m.inputTop = -1
 		m.inputLines = nil
 	} else {
-		m.inputTop = m.viewTop + m.inputBodyOff
-		if m.uiMode == opencodeMode {
-			m.inputTop++ // the opencode prompt box opens with a padding row above the input
-		}
+		m.inputTop = m.inputBodyOff + 1 // the prompt box opens with a padding row above the input
 		iv := m.input.View()
 		if m.namePrompt != nil && m.namePrompt.mask {
 			iv = m.namePrompt.label + " ┃ " + m.namePrompt.maskedValue(m.input.Value())
@@ -1532,78 +1420,6 @@ func (m *model) View() string {
 
 func (m *model) viewBody() string {
 	var b strings.Builder
-	workingDir := m.clientView.workingDir
-	if workingDir == "" {
-		workingDir = cwd()
-	}
-	left := fmt.Sprintf(" whip · %s @ %s · %s", m.modelName, m.provName, workingDir)
-	if m.agentOpen != "" {
-		if value, ok := m.runtimeAgent(m.agentOpen); ok {
-			name := value.Name
-			if name == "" {
-				name = value.ID
-			}
-			left = fmt.Sprintf(" whip · root / %s · %s @ %s · %s", name, value.Model, value.Provider, value.CWD)
-		}
-	}
-	if m.clientState != ClientLive {
-		left += " · " + m.clientState.String()
-	}
-	if m.goal != "" {
-		left += " · ◎ " + truncLine(m.goal, 40)
-	}
-	if !m.follow {
-		left += fmt.Sprintf(" · ↑ %d%%", int(m.vp.ScrollPercent()*100))
-	}
-	// session token usage, provider-reported: in (cached of it) / out, then
-	// the share of the advertised context window the conversation occupies
-	u := m.displayUsage()
-	if u.PromptTokens > 0 || u.CompletionTokens > 0 {
-		left += fmt.Sprintf(" · ⣿ %s in", fmtTok(u.PromptTokens))
-		if c := u.Cached(); c > 0 {
-			left += fmt.Sprintf(" (%s cached)", fmtTok(c))
-		}
-		left += fmt.Sprintf(" · %s out", fmtTok(u.CompletionTokens))
-	}
-	if limit := m.displayContextLimit(); limit > 0 {
-		left += fmt.Sprintf(" · %d%% ctx", estimateTokens(m.displayMessages())*100/limit)
-	}
-	if count := m.dockCount(); count > 0 {
-		left += fmt.Sprintf(" · ⚙ %d agents", count)
-	}
-	// right-aligned clickable effort control; ◌ marks thinking display
-	right := "⚡ " + effortLabel(m.displayEffort()) + " "
-	if m.showThinking {
-		right = "◌ on  " + right
-	}
-	m.effortX = max(m.width-len(right)-1, 0) // ⚡ renders 2 cells wide
-	left = truncLine(left, max(m.width-len(right)-2, 0))
-	pad := max(m.width-len(left)-len(right)-1, 1)
-	if m.uiMode != opencodeMode { // opencode has no top header bar
-		b.WriteString(dimStyle.Render(left+strings.Repeat(" ", pad)) + toolStyle.Render(right) + "\n")
-	}
-	if m.palette != nil && m.uiMode != opencodeMode {
-		// opencode mode renders the session as usual and View() overlays the
-		// Commands dialog on top of the dimmed frame (ocOverlay)
-		b.WriteString(m.paletteView())
-		return b.String()
-	}
-	if m.picker != nil && m.uiMode != opencodeMode { // opencode mode: floating Sessions dialog via View overlay
-		b.WriteString(m.pickerView())
-		return b.String()
-	}
-	if m.mpicker != nil && m.uiMode == opencodeMode {
-		// floating Select-model dialog via View overlay
-	} else if m.mpicker != nil {
-		b.WriteString(m.modelPickerView())
-		return b.String()
-	}
-	// One compact hint up top — the full roster lives behind the ctrl+p palette
-	// and the /help command. The bottom hint covers the busy/interactive states.
-	if m.uiMode != opencodeMode { // opencode keeps the top clean; the hint lives in the prompt row
-		tips := "`ctrl+p` commands"
-		b.WriteString(dimStyle.Render(tips) + "\n\n")
-	}
 	if details := m.agentDetails(); details != "" {
 		b.WriteString(details + "\n\n")
 	}
@@ -1611,8 +1427,8 @@ func (m *model) viewBody() string {
 	if m.curThink != "" {
 		b.WriteString("\n" + m.thinkView() + "\n")
 	}
-	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
-		// reasoning is streaming: opencode shows a transient "Thinking" line
+	if m.busy && !m.thinkStart.IsZero() {
+		// reasoning is streaming: a transient "Thinking" line
 		// where the collapsed "+ Thought: {dur}" will land on flush
 		b.WriteString("\n   " + lipgloss.NewStyle().Foreground(ocWarnCol()).Render("+ Thinking…") + "\n")
 	}
@@ -1627,15 +1443,6 @@ func (m *model) viewBody() string {
 	}
 	if len(m.plan) > 0 {
 		b.WriteString("\n" + m.planView() + "\n")
-	}
-	if m.busy && m.uiMode != opencodeMode { // opencode mode: the status bar carries the spinner + esc hint
-		hint := " thinking… (enter steers · safe panels run now · esc interrupts · ctrl+c ctrl+c interrupts)"
-		if m.iactive != nil {
-			hint = " bash (interactive) — type to respond · ctrl+c ctrl+c to cancel"
-		} else if m.interrupt1 {
-			hint = " thinking… (esc or ctrl+c again to interrupt)"
-		}
-		b.WriteString("\n" + m.spin.View() + dimStyle.Render(m.busyStats()+hint) + "\n")
 	}
 	b.WriteString("\n")
 	if m.rew != nil {
@@ -1655,12 +1462,10 @@ func (m *model) viewBody() string {
 			} else {
 				b.WriteString(m.highlightInput(m.input.View()))
 			}
-		} else if m.uiMode == opencodeMode {
+		} else {
 			// highlight BEFORE the box chrome is added, so the reverse-video
 			// ranges land on the same raw lines inputPoint hit-tests
 			b.WriteString(m.opencodePrompt(m.highlightInput(m.input.View()), m.width))
-		} else {
-			b.WriteString(m.highlightInput(m.input.View()))
 		}
 	}
 	if m.quit1 {
@@ -1671,11 +1476,6 @@ func (m *model) viewBody() string {
 		b.WriteString("\n" + errStyle.Render("esc again: clear the input (↑ recalls it)"))
 	} else if m.esc1 && m.rew == nil && m.namePrompt == nil {
 		b.WriteString("\n" + dimStyle.Render("esc again: rewind the conversation"))
-	}
-	if m.menu != nil && m.uiMode != opencodeMode {
-		// opencode mode: View() overlays the menu ABOVE the input instead —
-		// drawn on top of the frame, so nothing reflows while typing
-		b.WriteString("\n" + m.menuView())
 	}
 	// The retained-agent strip is daemon-fed snapshot state.
 	if dock := m.agentsDock(); dock != "" {
@@ -1722,101 +1522,9 @@ func (m *model) planView() string {
 // directory, model (effort), provider, and session token spend. It mirrors
 // the header's data but stays put while the transcript scrolls, so the four
 // facts are always visible no matter where the viewport sits.
-func (m *model) statusView() string {
-	if m.uiMode == opencodeMode {
-		return m.opencodeStatus()
-	}
-	model := m.modelName
-	if e := effortLabel(m.displayEffort()); e != "off" {
-		model += " (" + e + ")"
-	}
-	u := m.displayUsage()
-	spend := fmtUsage(u)
-	if cost, ok := m.sessionCost(); ok {
-		spend += " · " + fmtCost(cost)
-	}
-	// The last response's own counts, so the size of the most recent API call
-	// (its output especially) is readable without doing mental subtraction
-	// from the session totals. Hidden until the first response arrives.
-	if last := m.lastResp; last.PromptTokens > 0 || last.CompletionTokens > 0 {
-		spend += " · last " + fmtUsage(last)
-	}
-	// The fixed segments (model/provider/spend) are the data that matters; the
-	// cwd is what yields. Old code truncated the whole assembled line from the
-	// right, dropping the completion-token count whenever the path was long.
-	// Instead give the cwd only the space left after the fixed segments —
-	// truncating it to its tail, then dropping it entirely — so the spend
-	// survives whenever the fixed segments fit at all.
-	right := fmt.Sprintf("   %s   %s   %s", model, m.provName, spend)
-	dir := shortCWD(m.clientView.workingDir)
-	if value, ok := m.runtimeAgent(m.agentOpen); ok {
-		dir = shortCWD(value.CWD)
-	}
-	switch budget := max(m.width, 0) - len(" ") - len(right); {
-	case len(dir) <= budget:
-		// fits as-is
-	case budget > 1:
-		dir = "…" + dir[len(dir)-budget+1:] // keep the tail, the recognizable part
-	default:
-		dir = "" // no room for the path at all; show only the fixed segments
-	}
-	line := fmt.Sprintf(" %s%s", dir, right)
-	return dimStyle.Render(truncLine(line, max(m.width, 0)))
-}
-
-// shortCWD renders the working directory compactly for the status line: the
-// home directory collapses to ~ and only the last two path segments survive,
-// so a deep path doesn't crowd out the rest of the status.
-func shortCWD(dir string) string {
-	if dir == "" {
-		dir = cwd()
-	}
-	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(dir, home) {
-		dir = "~" + strings.TrimPrefix(dir, home)
-	}
-	parts := strings.Split(strings.Trim(dir, "/"), "/")
-	if len(parts) > 3 {
-		return "…/" + strings.Join(parts[len(parts)-3:], "/")
-	}
-	return dir
-}
+func (m *model) statusView() string { return m.opencodeStatus() }
 
 const previewLines = 5
-
-// pickerView renders the /resume browser: oldest at top, newest at bottom,
-// the selected session expanded with previews of its last exchange.
-func (m *model) pickerView() string {
-	p := m.picker
-	rows := []string{}
-	expanded := 3 + 2*previewLines // meta + previews
-	// how many collapsed rows fit alongside the expanded selection + footer
-	budget := max(m.height-2-expanded-1, 2)
-	lo := max(p.idx-budget/2, 0)
-	hi := min(lo+budget+1, len(p.metas))
-
-	for i := hi - 1; i >= lo; i-- { // metas is newest-first; render oldest on top
-		meta := p.metas[i]
-		title := meta.Title
-		if title == "" {
-			title = "(untitled)"
-		}
-		line := fmt.Sprintf("%s  %s · %s · %s @ %s", meta.ID, title, ago(meta.UpdatedAt), meta.Model, meta.Provider)
-		if i != p.idx {
-			rows = append(rows, wrap("    "+line, m.width))
-			continue
-		}
-		rows = append(rows, wrap(botStyle.Render("  → ")+line, m.width))
-		prev := p.previews[meta.ID]
-		rows = append(rows, previewBlock(youStyle.Render(glyphUser), prev[0], m.width)...)
-		rows = append(rows, previewBlock(botStyle.Render(glyphAssistant), prev[1], m.width)...)
-	}
-	rows = append(rows, dimStyle.Render(fmt.Sprintf("  (%d/%d) ↑ older · ↓ newer · enter resume · esc cancel", p.idx+1, len(p.metas))))
-	// pad so the footer stays at the bottom of the screen
-	for len(rows) < m.height-1 {
-		rows = append(rows, "")
-	}
-	return strings.Join(rows, "\n")
-}
 
 // previewBlock renders up to previewLines lines of a message under a prefix.
 // previewBlock renders up to previewLines *rendered* lines of a message
@@ -1872,10 +1580,10 @@ func (m *model) menuView() string {
 	for _, c := range m.menu.cands[start:end] {
 		nameW = max(nameW, len(c.Text))
 	}
-	if m.uiMode == opencodeMode {
-		// opencode's autocomplete popup: a panel with the selected row in the
-		// primary fill. Long descriptions word-wrap onto a second line (capped
-		// at two — the menu stays scannable) instead of being chopped.
+	{
+		// the autocomplete popup: a panel with the selected row in the primary
+		// fill. Long descriptions word-wrap onto a second line (capped at two
+		// — the menu stays scannable) instead of being chopped.
 		bg := ocPanelBg()
 		text := lipgloss.NewStyle().Foreground(ocTextCol()).Background(bg)
 		muted := lipgloss.NewStyle().Foreground(ocMutedCol()).Background(bg)
@@ -1907,23 +1615,6 @@ func (m *model) menuView() string {
 		rows = append(rows, ocPadTo(muted.Render(fmt.Sprintf("  %d/%d", m.menu.idx+1, len(m.menu.cands))), m.width, bg))
 		return strings.Join(rows, "\n")
 	}
-	var b strings.Builder
-	for i := start; i < end; i++ {
-		c := m.menu.cands[i]
-		line := fmt.Sprintf("%-*s  ", nameW, c.Text)
-		var row string
-		if i == m.menu.idx {
-			row = botStyle.Render("→ "+line) + dimStyle.Render(c.Desc)
-		} else {
-			row = "  " + line + dimStyle.Render(c.Desc)
-		}
-		// clamp to the content width: an untruncated description widens the
-		// whole frame (in opencode mode it shoved the sidebar off-screen)
-		b.WriteString(ansi.Truncate(row, max(m.width, 8), "…"))
-		b.WriteByte('\n')
-	}
-	b.WriteString(dimStyle.Render(fmt.Sprintf("  (%d/%d)", m.menu.idx+1, len(m.menu.cands))))
-	return b.String()
 }
 
 func wrap(s string, width int) string {

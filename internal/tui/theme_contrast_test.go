@@ -138,11 +138,11 @@ func TestInlineCodeLightChip(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	out := renderMarkdown("use `config.Save` here", 60)
-	if !strings.Contains(out, "48;5;255") {
-		t.Errorf("light inline code should sit on a 255 chip: %q", out)
+	if !strings.Contains(out, "48;2;245;245;245") {
+		t.Errorf("light inline code should sit on the light chip (#f5f5f5): %q", out)
 	}
-	if !strings.Contains(out, "38;5;124") {
-		t.Errorf("light inline code text should be dark red 124: %q", out)
+	if !strings.Contains(out, "38;2;60;154;87") {
+		t.Errorf("light inline code text should be the light code green (#3d9a57): %q", out)
 	}
 }
 

@@ -69,3 +69,36 @@ func (m *model) transcriptText() string {
 	}
 	return out.String()
 }
+
+// Input and view helpers: tests build key and mouse messages through these
+// (and keyRunes in input_test.go) so the Bubble Tea v2 migration changes one
+// place, not eighty call sites.
+
+func keyMsg(k tea.KeyType) tea.KeyMsg { return tea.KeyMsg{Type: k} }
+
+func mouseMsg(action tea.MouseAction, button tea.MouseButton, x, y int) tea.MouseMsg {
+	return tea.MouseMsg{Action: action, Button: button, X: x, Y: y}
+}
+
+func clickMsg(x, y int) tea.MouseMsg {
+	return mouseMsg(tea.MouseActionPress, tea.MouseButtonLeft, x, y)
+}
+
+func dragMsg(x, y int) tea.MouseMsg {
+	return mouseMsg(tea.MouseActionMotion, tea.MouseButtonLeft, x, y)
+}
+
+func releaseMsg(x, y int) tea.MouseMsg {
+	return mouseMsg(tea.MouseActionRelease, tea.MouseButtonLeft, x, y)
+}
+
+func wheelMsg(x, y int, up bool) tea.MouseMsg {
+	button := tea.MouseButtonWheelDown
+	if up {
+		button = tea.MouseButtonWheelUp
+	}
+	return mouseMsg(tea.MouseActionPress, button, x, y)
+}
+
+// viewStr renders a model to its frame string.
+func viewStr(m tea.Model) string { return m.View() }

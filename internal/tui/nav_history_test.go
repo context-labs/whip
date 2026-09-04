@@ -36,7 +36,7 @@ func TestUpDownMovesWithinMultilineInput(t *testing.T) {
 
 	// cursor is on the last line; ↑ should move up within the input, not history
 	startIdx := m.histIdx
-	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyUp})
+	tm, _ := m.key(keyMsg(tea.KeyUp))
 	m = tm.(*model)
 	if m.input.Line() != 0 {
 		t.Fatalf("↑ from the last line should move up within the input, got line %d (%q)", m.input.Line(), m.input.Value())
@@ -47,7 +47,7 @@ func TestUpDownMovesWithinMultilineInput(t *testing.T) {
 
 	// now on the first line; a DELIBERATE ↑ (after a pause) rolls over to history
 	clk.advance(500 * time.Millisecond)
-	tm, _ = m.key(tea.KeyMsg{Type: tea.KeyUp})
+	tm, _ = m.key(keyMsg(tea.KeyUp))
 	m = tm.(*model)
 	if m.histIdx != 1 {
 		t.Fatalf("↑ on the first line should recall history, want histIdx 1, got %d (value=%q)", m.histIdx, m.input.Value())
@@ -65,7 +65,7 @@ func TestDownOnLastLineRecallsNewerHistory(t *testing.T) {
 	m.histIdx = 0
 	m.input.CursorEnd()
 
-	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyDown})
+	tm, _ := m.key(keyMsg(tea.KeyDown))
 	m = tm.(*model)
 	if m.histIdx != 1 {
 		t.Fatalf("↓ should recall newer history, want histIdx 1, got %d (value=%q)", m.histIdx, m.input.Value())
@@ -80,7 +80,7 @@ func TestUpOnFirstLineOfSingleLineInputRecallsHistory(t *testing.T) {
 	m.input.SetValue("editing")
 	m.input.CursorEnd()
 
-	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyUp})
+	tm, _ := m.key(keyMsg(tea.KeyUp))
 	m = tm.(*model)
 	if m.input.Value() != "solo" {
 		t.Fatalf("↑ on a single-line input should recall history, got %q", m.input.Value())
@@ -94,7 +94,7 @@ func TestDownOnLastLineOfSingleLineInputOutsideHistoryIsNoop(t *testing.T) {
 	m.input.CursorEnd()
 
 	startVal := m.input.Value()
-	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyDown})
+	tm, _ := m.key(keyMsg(tea.KeyDown))
 	m = tm.(*model)
 	if m.input.Value() != startVal {
 		t.Fatalf("↓ past the newest history entry should leave input unchanged, got %q", m.input.Value())
@@ -112,7 +112,7 @@ func TestUpDownSoftWrapRowsCountAsLines(t *testing.T) {
 	// cursor is on the last wrapped row; ↑ should move up visually,
 	// not recall history
 	startIdx := m.histIdx
-	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyUp})
+	tm, _ := m.key(keyMsg(tea.KeyUp))
 	m = tm.(*model)
 	if m.histIdx != startIdx {
 		t.Fatalf("↑ within a soft-wrapped line must not walk history, histIdx %d→%d", startIdx, m.histIdx)
@@ -135,7 +135,7 @@ func TestUpCyclesGlobalCrossSessionHistory(t *testing.T) {
 
 	var got []string
 	for range 3 {
-		tm, _ := m.key(tea.KeyMsg{Type: tea.KeyUp})
+		tm, _ := m.key(keyMsg(tea.KeyUp))
 		m = tm.(*model)
 		got = append(got, m.input.Value())
 		clk.advance(500 * time.Millisecond) // deliberate presses, not a held key
@@ -147,7 +147,7 @@ func TestUpCyclesGlobalCrossSessionHistory(t *testing.T) {
 		}
 	}
 	// a 4th ↑ at the oldest entry is a no-op (stays put)
-	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyUp})
+	tm, _ := m.key(keyMsg(tea.KeyUp))
 	m = tm.(*model)
 	if m.input.Value() != "oldest across sessions" {
 		t.Fatalf("↑ past the oldest entry should stay, got %q", m.input.Value())
@@ -164,7 +164,7 @@ func TestHeldUpStaysOnCurrentMessage(t *testing.T) {
 
 	// hold ↑: repeats arrive 40ms apart. The cursor climbs to the top line…
 	for range 2 {
-		tm, _ := m.key(tea.KeyMsg{Type: tea.KeyUp})
+		tm, _ := m.key(keyMsg(tea.KeyUp))
 		m = tm.(*model)
 		clk.advance(40 * time.Millisecond)
 	}
@@ -173,7 +173,7 @@ func TestHeldUpStaysOnCurrentMessage(t *testing.T) {
 	}
 	// …and keeps going: every repeated press must be swallowed, never recall
 	for range 10 {
-		tm, _ := m.key(tea.KeyMsg{Type: tea.KeyUp})
+		tm, _ := m.key(keyMsg(tea.KeyUp))
 		m = tm.(*model)
 		clk.advance(40 * time.Millisecond)
 	}
@@ -186,7 +186,7 @@ func TestHeldUpStaysOnCurrentMessage(t *testing.T) {
 
 	// releasing and deliberately pressing again DOES recall history
 	clk.advance(500 * time.Millisecond)
-	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyUp})
+	tm, _ := m.key(keyMsg(tea.KeyUp))
 	m = tm.(*model)
 	if m.input.Value() != "newer" {
 		t.Fatalf("deliberate ↑ after a pause should recall history, got %q", m.input.Value())

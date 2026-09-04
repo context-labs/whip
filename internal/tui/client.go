@@ -149,25 +149,17 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	}
 	m.updateLatest = update.Pending(Version)
 	m.themeHow = m.applyTheme(cfg.Theme)
-	if cfg.UIMode == opencodeMode {
-		m.applyUIMode(opencodeMode)
-	}
+	m.applyOpencodeStyles()
 	m.startupReport()
 	m.append(dimStyle.Render("daemon: connecting…"))
 	if identityWarning != "" {
 		m.append(errStyle.Render(identityWarning))
 	}
 
-	options := []bubbletea.ProgramOption{}
-	if cfg.UIMode == opencodeMode {
-		options = append(options, bubbletea.WithAltScreen())
-	}
-	fmt.Fprint(os.Stdout, "\x1b[9999;1H")
+	options := []bubbletea.ProgramOption{bubbletea.WithAltScreen()}
 	if m.mouseOn {
 		enableClickWheelMouse(os.Stdout)
-		if cfg.UIMode == opencodeMode {
-			fmt.Fprint(os.Stdout, "\x1b[?1003h")
-		}
+		fmt.Fprint(os.Stdout, "\x1b[?1003h") // hover tracking for the card hover state
 	}
 	if info, statErr := os.Stat(filepath.Join(home, "config.json")); statErr == nil {
 		m.cfgMod = info.ModTime()
@@ -1112,7 +1104,7 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 		m.refreshMenu()
 		return m, command
 	}
-	if m.uiMode == opencodeMode {
+	{ // ctrl+x leader chords
 		if !m.leaderAt.IsZero() && m.nowFn().Sub(m.leaderAt) < 2*time.Second {
 			m.leaderAt = time.Time{}
 			if msg.String() == "esc" {
@@ -1632,15 +1624,6 @@ func (m *model) openThinPalette() {
 			},
 		},
 		{
-			title: "UI mode", category: "Display",
-			dynDesc: func(value *model) string { return "current: " + uiModeLabel(value.uiMode) },
-			dynHint: func(*model) string { return "/ui-mode" },
-			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
-				value.openThinUIModePalette()
-				return value, nil
-			},
-		},
-		{
 			title: "Theme", category: "Display",
 			dynDesc: func(value *model) string {
 				current := ""
@@ -1816,31 +1799,6 @@ func (m *model) openThinBrowserPalette() {
 	m.palette.applyFilter(m)
 }
 
-func (m *model) openThinUIModePalette() {
-	items := make([]paletteItem, 0, 2)
-	for _, mode := range []string{"default", opencodeMode} {
-		mode := mode
-		items = append(items, paletteItem{
-			title: "UI mode: " + mode, category: "Display",
-			dynDesc: func(value *model) string {
-				if uiModeLabel(value.uiMode) == mode {
-					return "current"
-				}
-				return "switch rendering mode"
-			},
-			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
-				value.palette = nil
-				if mode == opencodeMode {
-					return value, value.setUIMode(opencodeMode)
-				}
-				return value, value.setUIMode("")
-			},
-		})
-	}
-	m.palette = &palette{all: items}
-	m.palette.applyFilter(m)
-}
-
 func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 	fields := strings.Fields(text)
 	name := strings.TrimPrefix(fields[0], "/")
@@ -1869,25 +1827,10 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 	case "repl":
 		m.replPanel = !m.replPanel
 		m.ocRecalcWidth()
-		if m.uiMode != opencodeMode {
-			m.append(dimStyle.Render("(the REPL panel renders in the opencode sidebar: /ui-mode opencode)"))
+		if !m.sidebarVisible() {
+			m.append(dimStyle.Render("(the REPL panel needs a terminal at least 120 columns wide)"))
 		}
 		return m, nil
-	case "ui-mode":
-		switch args {
-		case "", "toggle":
-			if m.uiMode == opencodeMode {
-				return m, m.setUIMode("")
-			}
-			return m, m.setUIMode(opencodeMode)
-		case "default":
-			return m, m.setUIMode("")
-		case "opencode":
-			return m, m.setUIMode(opencodeMode)
-		default:
-			m.append(errStyle.Render("usage: /ui-mode [default|opencode]"))
-			return m, nil
-		}
 	case "quit", "exit", "q":
 		return m, bubbletea.Quit
 	case "goal-from-context":

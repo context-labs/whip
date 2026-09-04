@@ -34,8 +34,8 @@ func TestToolRowCollapsesOnCompletion(t *testing.T) {
 	if strings.Count(got, "\n") > 0 {
 		t.Fatalf("completed row should collapse to one line, got %q", got)
 	}
-	// the collapse keeps the call visible, claude-style: Verb(subject)
-	if !strings.Contains(got, "Read(foo.go)") {
+	// the collapse keeps the call visible: "icon Verb subject"
+	if !strings.Contains(got, "Read foo.go") {
 		t.Fatalf("completed row should keep the call header, got %q", got)
 	}
 	// the result renders in the blockTool below, tied by the ⎿ marker
@@ -43,8 +43,8 @@ func TestToolRowCollapsesOnCompletion(t *testing.T) {
 	if res.kind != blockTool {
 		t.Fatal("the result block should follow the run row")
 	}
-	if got := ansi.Strip(res.render(m.width)); !strings.Contains(got, "⎿ file body") {
-		t.Fatalf("result block should show the result under ⎿, got %q", got)
+	if got := ansi.Strip(res.render(m.width)); !strings.Contains(got, "↳ 6 lines") {
+		t.Fatalf("collapsed result block should show the lines hint, got %q", got)
 	}
 	if !row.toggle() {
 		t.Fatal("ctrl+e should still toggle the collapsed row")
@@ -66,7 +66,7 @@ func TestToolRowFailureIsRed(t *testing.T) {
 	if run == nil || !run.toolFailed {
 		t.Fatal("a failed tool should mark the collapsed row")
 	}
-	if got := ansi.Strip(run.render(m.width)); !strings.Contains(got, "Bash(false)") {
+	if got := ansi.Strip(run.render(m.width)); !strings.Contains(got, "Bash false") {
 		t.Fatalf("failed row should keep the call header, got %q", got)
 	}
 	// the error text renders red in the result block below

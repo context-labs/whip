@@ -33,7 +33,7 @@ func TestInputGrowsOnCtrlJ(t *testing.T) {
 	m.input.CursorEnd()
 
 	// press ctrl+j through the real key handler, then type the next line
-	tm, _ := m.key(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	tm, _ := m.key(keyMsg(tea.KeyCtrlJ))
 	m = tm.(*model)
 	m.input.InsertString("second line")
 	m.layout()
@@ -46,7 +46,7 @@ func TestInputGrowsOnCtrlJ(t *testing.T) {
 	}
 
 	// a third line keeps it growing
-	tm, _ = m.key(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	tm, _ = m.key(keyMsg(tea.KeyCtrlJ))
 	m = tm.(*model)
 	m.input.InsertString("third line")
 	m.layout()
@@ -105,7 +105,7 @@ func TestInputShowsAllLinesAfterGrowth(t *testing.T) {
 	lines := []string{"line one", "line two", "line three", "line four"}
 	for i, ln := range lines {
 		if i > 0 {
-			tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+			tm, _ := m.Update(keyMsg(tea.KeyCtrlJ))
 			m = tm.(*model)
 		}
 		for _, r := range ln {
@@ -143,9 +143,9 @@ func TestCtrlJWorksAfterLargePaste(t *testing.T) {
 	}
 
 	// now ctrl+j must still insert newlines past the visual cap
-	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	tm, _ = m.Update(keyMsg(tea.KeyCtrlJ))
 	m = tm.(*model)
-	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("typed after")})
+	tm, _ = m.Update(keyRunes("typed after"))
 	m = tm.(*model)
 	if got, want := m.input.LineCount(), len(lines)+1; got != want {
 		t.Fatalf("ctrl+j after a large paste was swallowed: LineCount=%d want %d\nvalue tail: %q",
@@ -171,7 +171,7 @@ func TestInputScrollsWhenCapped(t *testing.T) {
 	m := newGrowModel()
 	for i := range m.input.MaxHeight + 5 {
 		if i > 0 {
-			tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+			tm, _ := m.Update(keyMsg(tea.KeyCtrlJ))
 			m = tm.(*model)
 		}
 		tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(fmt.Sprintf("row%d", i))})

@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -16,7 +15,7 @@ func fullModel() *model {
 	for i := range 60 {
 		m.append(strings.Repeat("x", 10) + "-" + string(rune('a'+i%26)))
 	}
-	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // settle layout
+	tm, _ := m.Update(keyRunes(" ")) // settle layout
 	m = tm.(*model)
 	m.input.SetValue("")
 	return m
@@ -30,13 +29,8 @@ func fullModel() *model {
 // height+2.) A full transcript must render EXACTLY the terminal height.
 func TestViewNeverTallerThanTerminal(t *testing.T) {
 	m := fullModel()
-	if got := lipgloss.Height(m.View()); got != m.height {
+	if got := lipgloss.Height(viewStr(m)); got != m.height {
 		t.Fatalf("full view renders %d rows on a %d-row terminal", got, m.height)
-	}
-	// header and tips must therefore still be the top rows on screen
-	lines := strings.Split(m.View(), "\n")
-	if !strings.Contains(lines[0], "whip") || !strings.Contains(lines[1], "ctrl+p") {
-		t.Fatalf("header/tips scrolled off: top rows %q / %q", lines[0], lines[1])
 	}
 
 	// the invariant holds across the chrome-changing states too (layout()
@@ -45,7 +39,7 @@ func TestViewNeverTallerThanTerminal(t *testing.T) {
 		t.Helper()
 		mut()
 		m.layout()
-		if got := lipgloss.Height(m.View()); got != m.height {
+		if got := lipgloss.Height(viewStr(m)); got != m.height {
 			t.Fatalf("%s view renders %d rows on a %d-row terminal", name, got, m.height)
 		}
 	}
@@ -59,7 +53,7 @@ func TestViewNeverTallerThanTerminal(t *testing.T) {
 func TestDragSelectOnFullTranscript(t *testing.T) {
 	m := fullModel()
 	m.appendAssistantBlock("FULL-MARKER")
-	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	tm, _ := m.Update(keyRunes(" "))
 	m = tm.(*model)
 	m.input.SetValue("")
 	if m.contentPad() != 0 || m.vp.YOffset == 0 {
@@ -68,9 +62,9 @@ func TestDragSelectOnFullTranscript(t *testing.T) {
 
 	last := len(m.blocks) - 1
 	y := blockRowY(m, m.blocks[last].y0)
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 0, Y: y})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: 79, Y: y})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 79, Y: y})
+	m.handleMouseSelect(clickMsg(0, y))
+	m.handleMouseSelect(dragMsg(79, y))
+	m.handleMouseSelect(releaseMsg(79, y))
 	if got := m.selText(*m.sel); !strings.Contains(got, "FULL-MARKER") {
 		t.Fatalf("drag on the marker row copied %q, want FULL-MARKER", got)
 	}

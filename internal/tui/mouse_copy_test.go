@@ -23,9 +23,9 @@ func TestShiftMousePassesThrough(t *testing.T) {
 		t.Fatal("shift+click must not toggle the block — it belongs to native selection")
 	}
 	// plain click still toggles (release-without-drag replays it)
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 5, Y: rowY})
+	tm, _ = m.Update(clickMsg(5, rowY))
 	m = tm.(*model)
-	tm, _ = m.Update(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: 5, Y: rowY})
+	tm, _ = m.Update(releaseMsg(5, rowY))
 	m = tm.(*model)
 	if m.blocks[0].expanded == before {
 		t.Fatal("plain click should toggle the block")

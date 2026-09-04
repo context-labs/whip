@@ -463,13 +463,13 @@ func TestThinTabCompletionPreservesTheTerminalMenu(t *testing.T) {
 	if m.menu == nil || len(m.menu.cands) < 2 {
 		t.Fatalf("thin completion menu = %+v", m.menu)
 	}
-	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.thinKey(keyMsg(tea.KeyTab))
 	first := m.input.Value()
-	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyTab})
+	_, _ = m.thinKey(keyMsg(tea.KeyTab))
 	if second := m.input.Value(); first == second {
 		t.Fatalf("thin tab did not cycle from %q", first)
 	}
-	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyEsc})
+	_, _ = m.thinKey(keyMsg(tea.KeyEsc))
 	if m.menu != nil || m.input.Value() != first {
 		t.Fatalf("thin menu dismissal menu=%+v input=%q want=%q", m.menu, m.input.Value(), first)
 	}
@@ -535,7 +535,7 @@ func TestDaemonBackedModelRendersWithoutAnAgent(t *testing.T) {
 		Messages: []llm.Message{{Role: "assistant", Content: "hello"}},
 	})
 	_, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	if rendered := m.View(); !strings.Contains(rendered, "model") || !strings.Contains(rendered, "provider") {
+	if rendered := viewStr(m); !strings.Contains(rendered, "model") || !strings.Contains(rendered, "provider") {
 		t.Fatalf("daemon-backed render = %q", rendered)
 	}
 }
@@ -580,7 +580,7 @@ func TestClientStreamEventsRenderLiveAndSnapshotRestoresThem(t *testing.T) {
 func TestThinKeyKeepsDraftWhileSynchronizing(t *testing.T) {
 	m := &model{client: &Client{}, clientState: ClientSnapshotting, input: newInput()}
 	m.input.SetValue("keep me")
-	_, command := m.thinKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, command := m.thinKey(keyMsg(tea.KeyEnter))
 	if command != nil || m.input.Value() != "keep me" {
 		t.Fatalf("snapshotting submit command=%v draft=%q", command, m.input.Value())
 	}
@@ -610,11 +610,11 @@ func TestThinPermissionSendsOneStableSignedDecision(t *testing.T) {
 	if view := m.permView(); !strings.Contains(view, "Allow bash") || !strings.Contains(view, "sleep 5") || !strings.Contains(view, "always: bash sleep") {
 		t.Fatalf("permission view = %q", view)
 	}
-	_, command := m.thinKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	_, command := m.thinKey(keyRunes("t"))
 	if command == nil || !m.permDialog.deciding {
 		t.Fatal("permission decision was not started")
 	}
-	if _, duplicate := m.thinKey(tea.KeyMsg{Type: tea.KeyEnter}); duplicate != nil {
+	if _, duplicate := m.thinKey(keyMsg(tea.KeyEnter)); duplicate != nil {
 		t.Fatal("deciding permission accepted a duplicate action")
 	}
 	message := command().(clientPermissionMsg)
@@ -630,7 +630,7 @@ func TestThinPermissionSendsOneStableSignedDecision(t *testing.T) {
 		ID: "permission-2", AgentID: "agent", OperationID: "operation-2", Operation: "write",
 		CanonicalPath: "/work/file", Command: "/work/file", Rule: "/work/file", RequestDigest: "digest-2", Status: "pending",
 	}})
-	_, command = m.thinKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	_, command = m.thinKey(keyRunes("a"))
 	if command == nil {
 		t.Fatal("second permission decision was not started")
 	}
@@ -658,16 +658,16 @@ func TestThinPermissionWithoutRuleOffersOnlyOnceAndReject(t *testing.T) {
 	if !strings.Contains(view, "/work/file") || strings.Contains(view, "always") || strings.Contains(view, "(t)") {
 		t.Fatalf("permission view = %q", view)
 	}
-	if command, _ := m.thinKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")}); command == nil || m.permDialog.deciding {
+	if command, _ := m.thinKey(keyRunes("t")); command == nil || m.permDialog.deciding {
 		t.Fatal("\"t\" acted on a prompt without a rule")
 	}
-	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyDown})
-	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.thinKey(keyMsg(tea.KeyDown))
+	_, _ = m.thinKey(keyMsg(tea.KeyDown))
 	if m.permDialog.sel != 0 {
 		t.Fatalf("two options should cycle back to 0, sel = %d", m.permDialog.sel)
 	}
-	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyDown})
-	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = m.thinKey(keyMsg(tea.KeyDown))
+	_, _ = m.thinKey(keyMsg(tea.KeyEnter))
 	if !m.permDialog.rejecting {
 		t.Fatal("second option did not open the reject prompt")
 	}
@@ -697,11 +697,11 @@ func TestThinSessionPickerSwitchesBetweenPersistedModes(t *testing.T) {
 	if m.picker == nil {
 		t.Fatal("session list did not open the daemon-backed picker")
 	}
-	view := m.pickerView()
+	view := strings.Join(m.ocSessionDialogRows(), "\n")
 	if !strings.Contains(view, "New work") || !strings.Contains(view, "Older work") {
 		t.Fatalf("session picker omits sessions: %q", view)
 	}
-	_, command := m.pickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, command := m.pickerKey(keyMsg(tea.KeyEnter))
 	if command == nil {
 		t.Fatal("session picker did not send an open action")
 	}
@@ -735,16 +735,16 @@ func TestThinPaletteAndAgentControlsStayDaemonBacked(t *testing.T) {
 			{ID: "child", ParentID: "root-agent", LifecyclePhase: "blocked", BlockingReason: "permission", AllowedControls: []string{"stop"}},
 		}},
 	}
-	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlP})
-	if m.palette == nil || !strings.Contains(m.paletteView(), "Resume session") {
+	_, _ = m.thinKey(keyMsg(tea.KeyCtrlP))
+	if m.palette == nil || !strings.Contains(strings.Join(m.ocDialogRows(), "\n"), "Resume session") {
 		t.Fatal("client-safe command palette did not open")
 	}
 	m.palette = nil
-	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlT})
+	_, _ = m.thinKey(keyMsg(tea.KeyCtrlT))
 	if !m.agentsFocus || !strings.Contains(m.agentsDock(), "blocked: permission") {
 		t.Fatalf("daemon lifecycle dock focus=%v view=%q", m.agentsFocus, m.agentsDock())
 	}
-	_, command := m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlX})
+	_, command := m.thinKey(keyMsg(tea.KeyCtrlX))
 	if command == nil {
 		t.Fatal("agent stop did not create a daemon action")
 	}
@@ -785,7 +785,7 @@ func TestThinInteractiveTerminalRestoresAndForwardsBytes(t *testing.T) {
 		t.Fatalf("restored terminal id=%q state=%+v", m.clientTerminalID, m.iactive)
 	}
 
-	_, command := m.thinInteractiveKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	_, command := m.thinInteractiveKey(keyRunes("s"))
 	if command == nil {
 		t.Fatal("interactive key did not create a daemon action")
 	}

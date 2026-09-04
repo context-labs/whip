@@ -65,7 +65,7 @@ func clientCommandFrom(t *testing.T, command tea.Cmd) clientCommandMsg {
 func TestTypedInputWhileBusySteersThroughDaemon(t *testing.T) {
 	m, _ := liveQueueModel(t)
 	m.input.SetValue("first follow-up")
-	next, command := m.thinKey(tea.KeyMsg{Type: tea.KeyEnter})
+	next, command := m.thinKey(keyMsg(tea.KeyEnter))
 	m = next.(*model)
 	if command == nil || m.input.Value() != "" {
 		t.Fatalf("typed text while busy was not sent: command=%v draft=%q", command != nil, m.input.Value())
@@ -74,7 +74,7 @@ func TestTypedInputWhileBusySteersThroughDaemon(t *testing.T) {
 		t.Fatalf("enter while busy sent %q, want steer", message.action.Operation)
 	}
 	m.input.SetValue("/compact")
-	next, command = m.thinKey(tea.KeyMsg{Type: tea.KeyEnter})
+	next, command = m.thinKey(keyMsg(tea.KeyEnter))
 	m = next.(*model)
 	if command != nil || m.input.Value() != "/compact" {
 		t.Fatalf("mutating command while busy: command=%v draft=%q", command != nil, m.input.Value())
@@ -241,7 +241,7 @@ func TestTerminalAgentViewRetainsDraftReadOnly(t *testing.T) {
 		}},
 	}
 	m.input.SetValue("do not lose me")
-	next, command := m.thinKey(tea.KeyMsg{Type: tea.KeyEnter})
+	next, command := m.thinKey(keyMsg(tea.KeyEnter))
 	m = next.(*model)
 	if command != nil || m.input.Value() != "do not lose me" {
 		t.Fatalf("terminal submit command=%v draft=%q", command != nil, m.input.Value())
@@ -260,19 +260,19 @@ func TestEscapeLeavesRunningAgentViewWithoutCancellingIt(t *testing.T) {
 		ID: "child", ParentID: "root-agent", LifecyclePhase: "running",
 	})
 	m.busy = true
-	next, command := m.thinKey(tea.KeyMsg{Type: tea.KeyEsc})
+	next, command := m.thinKey(keyMsg(tea.KeyEsc))
 	m = next.(*model)
 	if command != nil || m.agentOpen != "" {
 		t.Fatalf("escape cancelled instead of closing child view: command=%v agent=%q", command != nil, m.agentOpen)
 	}
 	m.agentOpen = "child"
 	m.busy = true
-	next, command = m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	next, command = m.thinKey(keyMsg(tea.KeyCtrlC))
 	m = next.(*model)
 	if command != nil || !m.interrupt1 {
 		t.Fatal("first ctrl+c did not arm child cancellation")
 	}
-	next, command = m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	next, command = m.thinKey(keyMsg(tea.KeyCtrlC))
 	m = next.(*model)
 	if command == nil {
 		t.Fatal("second ctrl+c did not cancel child turn")

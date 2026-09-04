@@ -114,14 +114,18 @@ root prompt (`evals/rlm`).
   `/browser`, and `/computer-use` are daemon commands.
 - ACP maps editor sessions and permission decisions onto the same root
   protocol. It does not own a second agent loop.
-- In opencode mode, `ctrl+x r` (or `/repl`) turns the right sidebar into a
+- The TUI is a single full-screen (alternate-screen) interface: a left
+  margin, the transcript, an input box, and a right sidebar on terminals of
+  120 columns or more. On exit it prints a resume line to the scrollback. The
+  former inline mode and the `uiMode` config key are gone.
+- `ctrl+x r` (or `/repl`) turns the right sidebar into a
   live Starlark REPL for the visible agent: code as the model writes it,
   print output as it happens, each host call with its duration, results,
   errors, and worker restarts. Cells are cards on the panel shade, a hairline
   separates the REPL from the chat, and the mouse wheel over the REPL scrolls
   it independently of the chat (it follows the newest cell until you scroll
-  up). In opencode mode the agent tree lives in the
-  right panel (Context and REPL modes alike) instead of under the input;
+  up). The agent tree lives in the right panel (Context and REPL modes
+  alike), or under the input when the terminal is too narrow for a sidebar;
   `ctrl+t` or ↓ on an empty input focuses it, ↑/↓ select, enter opens,
   `ctrl+x` stops, esc leaves. The root heads the tree: enter on it, or esc
   with an empty input, returns from a child to the main transcript. The REPL
