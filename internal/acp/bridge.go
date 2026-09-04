@@ -80,7 +80,6 @@ type acpSession struct {
 	mode      string
 	titleSent bool
 	toolArgs  map[string]toolInput
-	allowed   map[string]bool
 }
 
 type toolInput struct{ name, args string }
@@ -90,7 +89,7 @@ func newACPSession(root *daemon.RootClient) *acpSession {
 	return &acpSession{
 		id: acp.SessionId(root.RootID()), root: root, lifecycle: lifecycle, stop: stop,
 		done: make(chan struct{}), turnCh: make(chan struct{}, 1), mode: ModeAsk,
-		toolArgs: make(map[string]toolInput), allowed: make(map[string]bool),
+		toolArgs: make(map[string]toolInput),
 	}
 }
 
@@ -294,6 +293,7 @@ func (b *Bridge) LoadSession(ctx context.Context, params acp.LoadSessionRequest)
 		payload, err := json.Marshal(pendingPermission{
 			PermissionID: permission.ID, OperationID: permission.OperationID,
 			Operation: permission.Operation, CanonicalPath: permission.CanonicalPath,
+			Command: permission.Command, Rule: permission.Rule,
 		})
 		if err == nil {
 			go b.handlePermission(s, payload)

@@ -28,7 +28,7 @@ func TestFreshStoreUsesOnlyRecursiveSchema(t *testing.T) {
 	if err := store.db.QueryRowContext(t.Context(), `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil || identity != schemaIdentity {
 		t.Fatalf("schema identity=%q err=%v", identity, err)
 	}
-	for _, table := range []string{"sessions", "agents", "turns", "transcript_messages", "agent_messages", "inbox", "commands", "events"} {
+	for _, table := range []string{"sessions", "agents", "turns", "transcript_messages", "agent_messages", "inbox", "commands", "events", "permission_rules"} {
 		var present int
 		if err := store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?`, table).Scan(&present); err != nil || present != 1 {
 			t.Fatalf("table %s count=%d err=%v", table, present, err)

@@ -190,6 +190,15 @@ type Config struct {
 	// Computer configures computer-use (internal/computer): which apps
 	// computer_exec may drive.
 	Computer ComputerConfig `json:"computer,omitzero"`
+	// Permissions is the global "always allow" list consulted before a
+	// permission prompt.
+	Permissions PermissionsConfig `json:"permissions,omitzero"`
+}
+
+// PermissionsConfig entries are "operation:rule", e.g. "bash:go test" — the
+// rule is the arity-collapsed command prefix or the canonical path.
+type PermissionsConfig struct {
+	Allow []string `json:"allow,omitempty"`
 }
 
 // RLMConfig controls the disposable Starlark worker. Zero limit values use

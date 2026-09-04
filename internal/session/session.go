@@ -59,6 +59,7 @@ type Store struct {
 	workspaces  *capability.Workspaces
 	processes   *capability.ProcessManager
 	daemonOwned atomic.Bool
+	globalRules atomic.Pointer[[]string] // config permissions.allow, "operation:rule" entries
 }
 
 // AcquireDaemon is the in-process guard for one Daemon per Store. The runtime
@@ -420,6 +421,7 @@ func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
 		`DELETE FROM blackboard WHERE root_id=?`,
 		`DELETE FROM leases WHERE root_id=?`,
 		`DELETE FROM permission_requests WHERE root_id=?`,
+		`DELETE FROM permission_rules WHERE root_id=?`,
 		`DELETE FROM subscriptions WHERE root_id=?`,
 		`DELETE FROM operations WHERE root_id=?`,
 		`DELETE FROM usage_charges WHERE root_id=?`,

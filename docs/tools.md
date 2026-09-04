@@ -87,6 +87,9 @@ daemon-owned tool services directly and does not create a model agent.
 - Omitted child capabilities inherit the parent set; an explicit list may
   only narrow it.
 - Permission approval is human/protocol-side and revalidates the exact
-  operation before it resumes.
+  operation before it resumes. Approving "always" installs a rule (the
+  arity-collapsed command prefix, or the canonical path) for the session
+  tree; `permissions.allow` in the config holds the global `operation:rule`
+  allowlist, and `/permissions` lists or forgets tree rules.
 - Inline output is bounded. Larger content is stored immutably and returned
   with a handle, source, size, and readable spans.

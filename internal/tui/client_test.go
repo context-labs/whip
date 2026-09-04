@@ -423,6 +423,7 @@ func TestThinCommandsMapOneUserActionToOneDaemonCommand(t *testing.T) {
 		"/lsp list": "lsp.control", "/browser status": "browser.control", "/computer status": "computer.control",
 		"/context-doctor": "context.audit", "/agents budget child tokens 10": "budget.cap",
 		"/agents revoke cap-1": "capability.revoke", "/agents delete child": "agent.delete",
+		"/permissions": "permission.rules", "/permissions forget rule-1": "permission.forget",
 	}
 	for input, operation := range cases {
 		_, command := m.thinCommand(input)
@@ -603,13 +604,13 @@ func TestThinPermissionSendsOneStableSignedDecision(t *testing.T) {
 	waitClientState(t, client, ClientLive)
 	m := &model{client: client, clientState: ClientLive, input: newInput()}
 	m.applyClientPermissions([]session.PermissionSnapshot{{
-		ID: "permission", AgentID: "agent", OperationID: "operation", Operation: "write",
-		CanonicalPath: "/work/file", RequestDigest: "digest", Status: "pending",
+		ID: "permission", AgentID: "agent", OperationID: "operation", Operation: "bash",
+		Command: "sleep 5", Rule: "sleep", RequestDigest: "digest", Status: "pending",
 	}})
-	if view := m.permView(); !strings.Contains(view, "Allow write") || !strings.Contains(view, "/work/file") {
+	if view := m.permView(); !strings.Contains(view, "Allow bash") || !strings.Contains(view, "sleep 5") || !strings.Contains(view, "always: bash sleep") {
 		t.Fatalf("permission view = %q", view)
 	}
-	_, command := m.thinKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	_, command := m.thinKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
 	if command == nil || !m.permDialog.deciding {
 		t.Fatal("permission decision was not started")
 	}
@@ -620,10 +621,55 @@ func TestThinPermissionSendsOneStableSignedDecision(t *testing.T) {
 	if message.err != nil || message.action.CommandID == "" {
 		t.Fatalf("permission message = %+v", message)
 	}
+	_, _ = m.Update(message)
+	if m.permDialog != nil {
+		t.Fatal("decided permission dialog stayed open")
+	}
+	// a second prompt without "always" sends a plain allow
+	m.applyClientPermissions([]session.PermissionSnapshot{{
+		ID: "permission-2", AgentID: "agent", OperationID: "operation-2", Operation: "write",
+		CanonicalPath: "/work/file", Command: "/work/file", Rule: "/work/file", RequestDigest: "digest-2", Status: "pending",
+	}})
+	_, command = m.thinKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if command == nil {
+		t.Fatal("second permission decision was not started")
+	}
+	_ = command()
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
-	if len(connection.decisions) != 1 || connection.decisions[0].CommandID != message.action.CommandID || connection.decisions[0].PermissionID != "permission" {
+	if len(connection.decisions) != 2 || connection.decisions[0].CommandID != message.action.CommandID || connection.decisions[0].PermissionID != "permission" {
 		t.Fatalf("permission decisions = %+v", connection.decisions)
+	}
+	if connection.decisions[0].Remember != "tree" || !connection.decisions[0].Allow {
+		t.Fatalf("always decision = %+v", connection.decisions[0])
+	}
+	if connection.decisions[1].Remember != "" || !connection.decisions[1].Allow || connection.decisions[1].PermissionID != "permission-2" {
+		t.Fatalf("once decision = %+v", connection.decisions[1])
+	}
+}
+
+func TestThinPermissionWithoutRuleOffersOnlyOnceAndReject(t *testing.T) {
+	m := &model{client: &Client{}, clientState: ClientLive, input: newInput()}
+	m.applyClientPermissions([]session.PermissionSnapshot{{
+		ID: "permission", AgentID: "agent", OperationID: "operation", Operation: "read",
+		CanonicalPath: "/work/file", RequestDigest: "digest", Status: "pending",
+	}})
+	view := m.permView()
+	if !strings.Contains(view, "/work/file") || strings.Contains(view, "always") || strings.Contains(view, "(t)") {
+		t.Fatalf("permission view = %q", view)
+	}
+	if command, _ := m.thinKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")}); command == nil || m.permDialog.deciding {
+		t.Fatal("\"t\" acted on a prompt without a rule")
+	}
+	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyDown})
+	if m.permDialog.sel != 0 {
+		t.Fatalf("two options should cycle back to 0, sel = %d", m.permDialog.sel)
+	}
+	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyDown})
+	_, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !m.permDialog.rejecting {
+		t.Fatal("second option did not open the reject prompt")
 	}
 }
 

@@ -321,7 +321,7 @@ func TestACPDaemonBackendAndMCPToolsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, err := root.DecidePermission(ctx, decisionAction, permissionID, true, "approved in ACP")
+	decision, err := root.DecidePermission(ctx, decisionAction, permissionID, true, "approved in ACP", "")
 	if err != nil || decision.OperationID == "" {
 		t.Fatalf("permission decision = %+v, %v", decision, err)
 	}

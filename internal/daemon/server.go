@@ -409,7 +409,7 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 			ClientID: connection.client.ClientID, CommandID: params.Decision.CommandID, RequestDigest: digest,
 			Payload: session.RuntimePayload{Data: payload, MediaType: "application/json", Source: "permission decision"},
 		}, params.Decision.PermissionID, capability.Decision{
-			Allow: params.Decision.Allow, PrincipalID: connection.client.ClientID, Reason: params.Decision.Reason,
+			Allow: params.Decision.Allow, PrincipalID: connection.client.ClientID, Reason: params.Decision.Reason, Remember: params.Decision.Remember,
 		})
 		if err != nil {
 			return nil, rpcFromError(err)

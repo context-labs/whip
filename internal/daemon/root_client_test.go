@@ -279,10 +279,10 @@ func TestRootClientValidationAndDisconnectedSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.DecidePermission(t.Context(), permission, "", true, ""); err == nil {
+	if _, err := client.DecidePermission(t.Context(), permission, "", true, "", ""); err == nil {
 		t.Fatal("permission without an id should fail")
 	}
-	if _, err := client.DecidePermission(t.Context(), permission, "permission", true, ""); err == nil {
+	if _, err := client.DecidePermission(t.Context(), permission, "permission", true, "", ""); err == nil {
 		t.Fatal("permission without a private key should fail")
 	}
 	mode, err := client.NewAction("permission.mode", map[string]bool{"external_permissions": false})
@@ -484,7 +484,7 @@ func TestRootClientRetriesAndUsesPrivilegedConnection(t *testing.T) {
 		t.Fatalf("automatic mode = %+v, %v", result, err)
 	}
 	permission, _ := client.NewAction("permission.decide", struct{}{})
-	decision, err := client.DecidePermission(t.Context(), permission, "permission-1", true, "approved")
+	decision, err := client.DecidePermission(t.Context(), permission, "permission-1", true, "approved", "")
 	if err != nil || decision.LeaseID != "lease" {
 		t.Fatalf("permission decision = %+v, %v", decision, err)
 	}
@@ -512,7 +512,7 @@ func TestRootClientReportsUnsupportedPrivilegesAndCommandFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	permission, _ := client.NewAction("permission.decide", struct{}{})
-	if _, err := client.DecidePermission(t.Context(), permission, "permission", true, ""); err == nil {
+	if _, err := client.DecidePermission(t.Context(), permission, "permission", true, "", ""); err == nil {
 		t.Fatal("plain connection should not approve permissions")
 	}
 	mode, _ := client.NewAction("permission.mode", map[string]bool{"external_permissions": false})

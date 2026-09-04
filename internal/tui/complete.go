@@ -32,7 +32,7 @@ func completionTable() []cand {
 // sensibly with no arguments); others insert themselves for arguments.
 var execNow = map[string]bool{
 	"/clear": true, "/compact": true, "/computer-use": true, "/computer": true, "/context-doctor": true, "/effort": true, "/goal": true, "/goal-from-context": true, "/help": true,
-	"/agents": true, "/mcp": true, "/model": true, "/mouse": true, "/pwd": true, "/quit": true, "/report": true, "/resume": true,
+	"/agents": true, "/mcp": true, "/model": true, "/mouse": true, "/permissions": true, "/pwd": true, "/quit": true, "/report": true, "/resume": true,
 	"/ui-mode": true, "/repl": true,
 }
 

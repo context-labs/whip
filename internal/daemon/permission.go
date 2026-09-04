@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/config"
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
@@ -16,6 +19,7 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 	command.RootID = s.meta.ID
 	command.AgentID = s.authority.AgentID
 	command.Kind = "permission.decide"
+	var rememberErr error
 	err = s.routeControl(ctx, func(actorCtx context.Context) error {
 		admitted, admitErr := s.store.AdmitControlCommand(actorCtx, command)
 		if admitErr != nil {
@@ -38,18 +42,15 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 		if decisionErr == nil && admission.Request.RootID != s.meta.ID {
 			decisionErr = capability.ErrDenied
 		}
+		var rules []string
 		if decisionErr == nil {
-			if runner, ok := s.runner.(clientPermissionRunner); ok && runner.ExternalPermissionsEnabled() {
-				resolver := s.permissionResolver(admission.Request.AgentID)
-				if resolver == nil || !resolver.ExternalPermissionsEnabled() {
-					decisionErr = errors.New("permission owner is not live in external permission mode")
-				} else {
-					decisionErr = resolver.ResolvePermission(permissionID, decision)
-				}
-				ticket.OperationID = admission.Request.OperationID
-			} else {
-				ticket, decisionErr = s.store.Decide(actorCtx, admission, permissionID, decision)
-			}
+			rules, decisionErr = rememberedRules(admission, decision)
+		}
+		if decisionErr == nil {
+			ticket, decisionErr = s.resolvePermission(actorCtx, admission, permissionID, decision)
+		}
+		if decisionErr == nil && len(rules) > 0 {
+			rememberErr = s.rememberPermissionRules(actorCtx, permissionID, admission.Request.Operation, rules, decision)
 		}
 		status := "succeeded"
 		var outcome []byte
@@ -71,7 +72,99 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 		// A decision may have unblocked a waiting node; re-derive readiness.
 		s.reconcileAgentWork()
 	}
-	return ticket, err
+	// The decision itself landed even when remembering it did not; the
+	// command outcome stays authoritative and the caller hears about the rest.
+	return ticket, errors.Join(err, rememberErr)
+}
+
+// rememberedRules validates decision.Remember and names the rules an approval
+// installs; nil when nothing is to be remembered.
+func rememberedRules(admission capability.Admission, decision capability.Decision) ([]string, error) {
+	switch decision.Remember {
+	case "":
+		return nil, nil
+	case "tree", "global":
+	default:
+		return nil, fmt.Errorf("unknown remember scope %q", decision.Remember)
+	}
+	if !decision.Allow {
+		return nil, nil
+	}
+	_, rules, ok := capability.PermissionRule(admission.Request.Operation, admission.Request.Arguments, admission.CanonicalPath)
+	if !ok {
+		return nil, errors.New("this permission has no rule to remember")
+	}
+	return rules, nil
+}
+
+// resolvePermission settles one prompt: through the live agent's resolver in
+// external permission mode, otherwise through the store.
+func (s *Session) resolvePermission(ctx context.Context, admission capability.Admission, permissionID string, decision capability.Decision) (capability.Ticket, error) {
+	if runner, ok := s.runner.(clientPermissionRunner); ok && runner.ExternalPermissionsEnabled() {
+		resolver := s.permissionResolver(admission.Request.AgentID)
+		if resolver == nil || !resolver.ExternalPermissionsEnabled() {
+			return capability.Ticket{}, errors.New("permission owner is not live in external permission mode")
+		}
+		return capability.Ticket{OperationID: admission.Request.OperationID}, resolver.ResolvePermission(permissionID, decision)
+	}
+	return s.store.Decide(ctx, admission, permissionID, decision)
+}
+
+// rememberPermissionRules installs the rules behind an approval and settles
+// the other prompts the rules now cover. Those are best effort: a prompt that
+// fails to resolve simply stays pending for the human.
+func (s *Session) rememberPermissionRules(ctx context.Context, permissionID, operation string, rules []string, decision capability.Decision) error {
+	for _, rule := range rules {
+		if _, err := s.store.AddPermissionRule(ctx, s.meta.ID, operation, rule, decision.PrincipalID); err != nil {
+			return err
+		}
+	}
+	if decision.Remember == "global" {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		added := false
+		for _, rule := range rules {
+			if entry := operation + ":" + rule; !slices.Contains(cfg.Permissions.Allow, entry) {
+				cfg.Permissions.Allow = append(cfg.Permissions.Allow, entry)
+				added = true
+			}
+		}
+		if added {
+			if err := cfg.Save(); err != nil {
+				return err
+			}
+		}
+		s.store.SetGlobalPermissionRules(cfg.Permissions.Allow)
+	}
+	pending, err := s.store.ListPendingPermissions(ctx, s.meta.ID)
+	if err != nil {
+		return err
+	}
+	covered := capability.Decision{Allow: true, PrincipalID: decision.PrincipalID, Reason: "covered by rule " + operation + " " + capability.RuleLabel(rules)}
+	for _, prompt := range pending {
+		// In external mode the dispatcher commits the primary decision
+		// asynchronously, so the store may still list it as pending here.
+		if prompt.ID == permissionID || prompt.Operation != operation {
+			continue
+		}
+		admission, err := s.store.Pending(ctx, prompt.ID)
+		if err != nil {
+			continue
+		}
+		// Re-run the check Begin would make now, so a chain whose other
+		// commands are still uncovered keeps waiting for the human.
+		_, promptRules, ok := capability.PermissionRule(admission.Request.Operation, admission.Request.Arguments, admission.CanonicalPath)
+		if !ok {
+			continue
+		}
+		if source, err := s.store.PermissionRuleSource(ctx, s.meta.ID, operation, promptRules); err != nil || source == "" {
+			continue
+		}
+		_, _ = s.resolvePermission(ctx, admission, prompt.ID, covered)
+	}
+	return nil
 }
 
 func (s *Session) permissionResolver(agentID string) clientPermissionRunner {

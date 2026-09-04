@@ -118,6 +118,22 @@ func TestTurnFailureIsVisibleOnce(t *testing.T) {
 	}
 }
 
+func TestAutoApprovedPermissionRendersOneDimLineForTheVisibleAgent(t *testing.T) {
+	m, _ := liveQueueModel(t)
+	m.clientView.agents = append(m.clientView.agents, session.RuntimeAgent{ID: "child", ParentID: "root-agent", LifecyclePhase: "running"})
+	hidden, _ := json.Marshal(session.LifecycleEvent{AgentID: "child", Operation: "bash", Command: "go test ./...", Rule: "go test", RuleSource: "tree"})
+	if handled, _ := m.applyClientLifecycle("permission.auto_approved", hidden); !handled || strings.Contains(m.transcriptText(), "auto-approved") {
+		t.Fatalf("hidden agent's auto-approval handled=%v transcript=%q", handled, m.transcriptText())
+	}
+	visible, _ := json.Marshal(session.LifecycleEvent{AgentID: "root-agent", Operation: "bash", Command: "ls -la", Rule: "ls", RuleSource: "global"})
+	if handled, _ := m.applyClientLifecycle("permission.auto_approved", visible); !handled {
+		t.Fatal("auto-approved lifecycle was not handled")
+	}
+	if !strings.Contains(m.transcriptText(), "(auto-approved bash ls -la by global rule ls)") {
+		t.Fatalf("transcript = %q", m.transcriptText())
+	}
+}
+
 func TestLifecycleReducerTracksQueuedRunningAndTerminalInbox(t *testing.T) {
 	m, _ := liveQueueModel(t)
 	m.agentOpen = "child"

@@ -991,6 +991,11 @@ func (m *model) applyClientLifecycle(kind string, payload []byte) (bool, bubblet
 		}
 		m.append(errStyle.Render("session reload: " + event.Error))
 		return true, nil
+	case "permission.auto_approved":
+		if event.AgentID == m.visibleAgentID() {
+			m.append(dimStyle.Render("(auto-approved " + event.Operation + " " + event.Command + " by " + event.RuleSource + " rule " + event.Rule + ")"))
+		}
+		return true, nil
 	}
 	return false, nil
 }
@@ -1390,7 +1395,7 @@ func clientCommandRunsWhileBusy(text string) bool {
 	name := strings.TrimPrefix(fields[0], "/")
 	args := strings.TrimSpace(strings.TrimPrefix(text, fields[0]))
 	switch name {
-	case "help", "theme", "mouse", "pwd", "fork", "agents", "report", "export", "me", "memory", "context-doctor":
+	case "help", "theme", "mouse", "pwd", "fork", "agents", "permissions", "report", "export", "me", "memory", "context-doctor":
 		return true
 	case "effort":
 		return args == ""
@@ -1454,9 +1459,9 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubble
 	if dialog == nil || dialog.daemon == nil || dialog.deciding {
 		return m, nil
 	}
-	decide := func(allow bool, reason string) (bubbletea.Model, bubbletea.Cmd) {
+	decide := func(allow bool, reason, remember string) (bubbletea.Model, bubbletea.Cmd) {
 		action, err := m.client.NewAction("permission.decide", map[string]any{
-			"permission_id": dialog.daemon.ID, "allow": allow, "reason": reason,
+			"permission_id": dialog.daemon.ID, "allow": allow, "reason": reason, "remember": remember,
 		})
 		if err != nil {
 			m.append(errStyle.Render("permission: " + err.Error()))
@@ -1468,14 +1473,14 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubble
 		return m, func() bubbletea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			result, decisionErr := m.client.DecidePermission(ctx, action, permissionID, allow, reason)
+			result, decisionErr := m.client.DecidePermission(ctx, action, permissionID, allow, reason, remember)
 			return clientPermissionMsg{action: action, permissionID: permissionID, result: result, err: decisionErr}
 		}
 	}
 	if dialog.rejecting {
 		switch msg.Type {
 		case bubbletea.KeyEnter:
-			return decide(false, strings.TrimSpace(dialog.rejectIn))
+			return decide(false, strings.TrimSpace(dialog.rejectIn), "")
 		case bubbletea.KeyEsc:
 			dialog.rejecting, dialog.rejectIn = false, ""
 		case bubbletea.KeyBackspace:
@@ -1490,23 +1495,34 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubble
 		}
 		return m, nil
 	}
+	options := len(permOptions(dialog.daemon))
 	switch msg.Type {
-	case bubbletea.KeyLeft, bubbletea.KeyUp, bubbletea.KeyRight, bubbletea.KeyDown:
-		dialog.sel = (dialog.sel + 1) % 2
+	case bubbletea.KeyLeft, bubbletea.KeyUp:
+		dialog.sel = (dialog.sel + options - 1) % options
+	case bubbletea.KeyRight, bubbletea.KeyDown:
+		dialog.sel = (dialog.sel + 1) % options
 	case bubbletea.KeyEnter:
-		if dialog.sel == 0 {
-			return decide(true, "")
+		switch {
+		case dialog.sel == 0:
+			return decide(true, "", "")
+		case dialog.sel == 1 && dialog.daemon.Rule != "":
+			return decide(true, "", "tree")
+		default:
+			dialog.rejecting = true
 		}
-		dialog.rejecting = true
 	case bubbletea.KeyRunes:
 		switch string(msg.Runes) {
 		case "a", "A":
-			return decide(true, "")
+			return decide(true, "", "")
+		case "t", "T":
+			if dialog.daemon.Rule != "" {
+				return decide(true, "", "tree")
+			}
 		case "r":
 			dialog.rejecting = true
 		}
 	case bubbletea.KeyEsc:
-		return decide(false, "rejected without a reason")
+		return decide(false, "rejected without a reason", "")
 	}
 	return m, nil
 }
@@ -1569,6 +1585,7 @@ func (m *model) openThinPalette() {
 		},
 		commandItem("Context doctor", "Session", "/context-doctor", false),
 		commandItem("Agents", "Session", "/agents", false),
+		commandItem("Permission rules", "Session", "/permissions", false),
 		commandItem("Schedules", "Session", "/schedule list", false),
 		{
 			title: "MCPs", category: "Session",
@@ -1951,6 +1968,16 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			return m.submitClientAction("capability.revoke", map[string]string{"args": parts[1]}, "")
 		}
 		m.append(errStyle.Render("usage: /agents [list|stop <id>|delete <id>|budget <id> <kind> <limit>|revoke <capability-id>]"))
+		return m, nil
+	case "permissions":
+		parts := strings.Fields(args)
+		if len(parts) == 0 || (len(parts) == 1 && parts[0] == "list") {
+			return m.submitClientAction("permission.rules", map[string]string{}, "")
+		}
+		if len(parts) == 2 && parts[0] == "forget" {
+			return m.submitClientAction("permission.forget", map[string]string{"args": parts[1]}, "")
+		}
+		m.append(errStyle.Render("usage: /permissions [list|forget <id>]"))
 		return m, nil
 	case "goal":
 		switch args {

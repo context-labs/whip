@@ -19,6 +19,8 @@ type pendingPermission struct {
 	OperationID   string `json:"operation_id"`
 	Operation     string `json:"operation"`
 	CanonicalPath string `json:"canonical_path"`
+	Command       string `json:"command"`
+	Rule          string `json:"rule"`
 }
 
 func (b *Bridge) handlePermission(s *acpSession, payload []byte) {
@@ -28,7 +30,6 @@ func (b *Bridge) handlePermission(s *acpSession, payload []byte) {
 	}
 	s.mu.Lock()
 	mode := s.mode
-	covered := s.allowed[pending.Operation+":"+pending.CanonicalPath]
 	s.mu.Unlock()
 	if mode != ModeAsk {
 		return
@@ -37,25 +38,21 @@ func (b *Bridge) handlePermission(s *acpSession, payload []byte) {
 		_ = b.update(s.lifecycle, s.id, acp.UpdateAgentMessageText(fmt.Sprintf("\n[Permission %s is pending for %s; approve it from a paired whip client.]\n", pending.PermissionID, pending.Operation)))
 		return
 	}
-	if covered {
-		b.decidePermission(s, pending, true, "covered by this session's allow-always rule")
-		return
-	}
 	if b.conn == nil {
-		b.decidePermission(s, pending, false, "permission client is unavailable")
+		b.decidePermission(s, pending, false, "permission client is unavailable", "")
 		return
 	}
 	name := pending.Operation
-	if pending.CanonicalPath != "" {
-		name += " " + pending.CanonicalPath
+	if pending.Command != "" {
+		name += " " + pending.Command
 	}
 	options := []acp.PermissionOption{
 		{OptionId: optAllowOnce, Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
 		{OptionId: optReject, Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce},
 	}
-	if pending.CanonicalPath != "" {
+	if pending.Rule != "" {
 		options = append(options, acp.PermissionOption{
-			OptionId: optAllowAlways, Name: "Always allow this path", Kind: acp.PermissionOptionKindAllowAlways,
+			OptionId: optAllowAlways, Name: "Always allow " + pending.Operation + " " + pending.Rule + " in this tree", Kind: acp.PermissionOptionKindAllowAlways,
 		})
 	}
 	response, err := b.conn.RequestPermission(s.lifecycle, acp.RequestPermissionRequest{
@@ -71,32 +68,29 @@ func (b *Bridge) handlePermission(s *acpSession, payload []byte) {
 		if err != nil && s.lifecycle.Err() == nil {
 			reason = "permission request failed: " + err.Error()
 		}
-		b.decidePermission(s, pending, false, reason)
+		b.decidePermission(s, pending, false, reason, "")
 		return
 	}
 	switch string(response.Outcome.Selected.OptionId) {
 	case optAllowOnce:
-		b.decidePermission(s, pending, true, "approved by paired ACP client")
+		b.decidePermission(s, pending, true, "approved by paired ACP client", "")
 	case optAllowAlways:
-		if pending.CanonicalPath == "" {
-			b.decidePermission(s, pending, false, "allow-always requires an exact path")
+		if pending.Rule == "" {
+			b.decidePermission(s, pending, false, "allow-always requires a rule", "")
 			return
 		}
-		s.mu.Lock()
-		s.allowed[pending.Operation+":"+pending.CanonicalPath] = true
-		s.mu.Unlock()
-		b.decidePermission(s, pending, true, "approved by session allow-always rule")
+		b.decidePermission(s, pending, true, "approved by paired ACP client for this tree", "tree")
 	default:
-		b.decidePermission(s, pending, false, "the user rejected this action")
+		b.decidePermission(s, pending, false, "the user rejected this action", "")
 	}
 }
 
-func (b *Bridge) decidePermission(s *acpSession, pending pendingPermission, allow bool, reason string) {
+func (b *Bridge) decidePermission(s *acpSession, pending pendingPermission, allow bool, reason, remember string) {
 	ctx, cancel := context.WithCancel(s.lifecycle)
 	defer cancel()
 	action, err := s.root.NewAction("permission.decide", struct{}{})
 	if err != nil {
 		return
 	}
-	_, _ = s.root.DecidePermission(ctx, action, pending.PermissionID, allow, reason)
+	_, _ = s.root.DecidePermission(ctx, action, pending.PermissionID, allow, reason, remember)
 }

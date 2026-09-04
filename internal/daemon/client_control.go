@@ -90,7 +90,7 @@ func isClientOperation(operation string) bool {
 		"provider.catalogs",
 		"agent.control", "agent.delete", "budget.cap", "capability.revoke", "shell.run",
 		"context.audit", "mcp.control", "lsp.control", "browser.control", "computer.control", "terminal.input",
-		"tool.configure", "tool.schema", "tool.call", "permission.mode", "mcp.attach":
+		"tool.configure", "tool.schema", "tool.call", "permission.mode", "permission.rules", "permission.forget", "mcp.attach":
 		return true
 	default:
 		return false
@@ -897,6 +897,28 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 	case "capability.revoke":
 		record, err := s.store.RevokeCapabilityFor(ctx, s.meta.ID, s.authority.AgentID, strings.TrimSpace(payload.Args))
 		return marshalClientOutput(record, err)
+	case "permission.rules":
+		rules, err := s.store.ListPermissionRules(ctx, s.meta.ID)
+		if err != nil {
+			return "", err
+		}
+		var lines []string
+		for _, rule := range rules {
+			lines = append(lines, fmt.Sprintf("%s  %s  %s  (%s, %s)", rule.ID, rule.Operation, rule.Rule, rule.PrincipalID, rule.CreatedAt))
+		}
+		for _, entry := range s.store.GlobalPermissionRules() {
+			lines = append(lines, "global  "+entry)
+		}
+		if len(lines) == 0 {
+			return "(no permission rules)", nil
+		}
+		return strings.Join(lines, "\n"), nil
+	case "permission.forget":
+		id := strings.TrimSpace(payload.Args)
+		if err := s.store.DeletePermissionRule(ctx, s.meta.ID, id); err != nil {
+			return "", err
+		}
+		return "forgot rule " + id, nil
 	case "context.audit":
 		if runner, ok := s.runner.(interface{ ContextAudit() ContextAuditResult }); ok {
 			return marshalClientOutput(runner.ContextAudit(), nil)

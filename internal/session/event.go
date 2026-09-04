@@ -75,6 +75,8 @@ type PermissionSnapshot struct {
 	CapabilityID         string
 	CapabilityGeneration int64
 	Status               string
+	Command              string
+	Rule                 string
 }
 
 // ReplayEvents returns retained envelopes strictly after cursor. A cursor
@@ -215,7 +217,7 @@ func (s *Store) SnapshotRoot(ctx context.Context, rootID string) (RootSnapshot, 
 	if err := readSnapshotSchedules(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
-	if err := s.readSnapshotPermissions(ctx, tx, rootID, &snapshot); err != nil {
+	if snapshot.Permissions, err = s.pendingPermissions(ctx, tx, rootID); err != nil {
 		return RootSnapshot{}, err
 	}
 	deriveSnapshotAgentState(&snapshot)
@@ -454,12 +456,14 @@ func readSnapshotSchedules(ctx context.Context, tx *sql.Tx, rootID string, snaps
 	return rows.Err()
 }
 
-func (s *Store) readSnapshotPermissions(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
+// pendingPermissions lists the root's open prompts with the provenance a
+// client needs to decide them. Shared by the snapshot and by rule auto-resolve.
+func (s *Store) pendingPermissions(ctx context.Context, tx *sql.Tx, rootID string) ([]PermissionSnapshot, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT p.id,p.agent_id,p.operation_id,p.status,o.payload_inline,o.payload_ref
 		FROM permission_requests p JOIN operations o ON o.root_id=p.root_id AND o.id=p.operation_id
 		WHERE p.root_id=? AND p.status='pending' ORDER BY p.created_at,p.id`, rootID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	type pendingPermission struct {
@@ -468,37 +472,40 @@ func (s *Store) readSnapshotPermissions(ctx context.Context, tx *sql.Tx, rootID 
 		reference  sql.NullString
 	}
 	var pending []pendingPermission
+	var permissions []PermissionSnapshot
 	for rows.Next() {
 		var item pendingPermission
 		if err := rows.Scan(&item.permission.ID, &item.permission.AgentID, &item.permission.OperationID,
 			&item.permission.Status, &item.inline, &item.reference); err != nil {
-			return err
+			return nil, err
 		}
 		pending = append(pending, item)
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := rows.Close(); err != nil {
-		return err
+		return nil, err
 	}
 	for _, item := range pending {
 		payload, err := s.readRuntimeValueTx(ctx, tx, item.inline, item.reference)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var admission capability.Admission
 		if err := json.Unmarshal(payload, &admission); err != nil {
-			return err
+			return nil, err
 		}
 		item.permission.Operation = admission.Request.Operation
 		item.permission.CanonicalPath = admission.CanonicalPath
 		item.permission.RequestDigest = admission.RequestDigest
 		item.permission.CapabilityID = admission.Request.CapabilityID
 		item.permission.CapabilityGeneration = admission.Request.CapabilityGeneration
-		snapshot.Permissions = append(snapshot.Permissions, item.permission)
+		command, rules, _ := capability.PermissionRule(admission.Request.Operation, admission.Request.Arguments, admission.CanonicalPath)
+		item.permission.Command, item.permission.Rule = command, capability.RuleLabel(rules)
+		permissions = append(permissions, item.permission)
 	}
-	return nil
+	return permissions, nil
 }
 
 func deriveSnapshotAgentState(snapshot *RootSnapshot) {

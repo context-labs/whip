@@ -266,16 +266,27 @@ func (s *Store) RevokeCapability(ctx context.Context, capabilityID string) error
 }
 
 func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capability.Ticket, error) {
-	payload, err := json.Marshal(admission)
-	if err != nil {
-		return capability.Ticket{}, err
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return capability.Ticket{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := validateCapabilityAgent(ctx, tx, admission.Request.RootID, admission.Request.AgentID); err != nil {
+		return capability.Ticket{}, err
+	}
+	// A remembered rule turns the prompt into a lease before the admission is
+	// stored, so the durable record says the operation never needed a human.
+	command, rules, hasRule := capability.PermissionRule(admission.Request.Operation, admission.Request.Arguments, admission.CanonicalPath)
+	rule := capability.RuleLabel(rules)
+	var ruleSource string
+	if admission.RequirePermission && hasRule {
+		if ruleSource, err = s.permissionRuleSource(ctx, tx, admission.Request.RootID, admission.Request.Operation, rules); err != nil {
+			return capability.Ticket{}, err
+		}
+		admission.RequirePermission = ruleSource == ""
+	}
+	payload, err := json.Marshal(admission)
+	if err != nil {
 		return capability.Ticket{}, err
 	}
 	prepared, err := s.prepareRuntimeValue(RuntimePayload{Data: payload, MediaType: "application/json", Source: "capability operation"}, ContentGrant{
@@ -329,12 +340,23 @@ func (s *Store) Begin(ctx context.Context, admission capability.Admission) (capa
 			PermissionID: ticket.PermissionID, Operation: admission.Request.Operation,
 			CanonicalPath: admission.CanonicalPath, RequestDigest: admission.RequestDigest,
 			CapabilityID: admission.Request.CapabilityID, Generation: admission.Request.CapabilityGeneration,
-			Status: "pending",
+			Status: "pending", Command: command, Rule: rule,
 		}, stamp); err != nil {
 			return capability.Ticket{}, err
 		}
-	} else if err := insertCapabilityLease(ctx, tx, ticket.LeaseID, admission, stamp); err != nil {
-		return capability.Ticket{}, err
+	} else {
+		if err := insertCapabilityLease(ctx, tx, ticket.LeaseID, admission, stamp); err != nil {
+			return capability.Ticket{}, err
+		}
+		if ruleSource != "" {
+			if _, err := s.insertActorEventTx(ctx, tx, admission.Request.RootID, "permission.auto_approved", actorEvent{
+				AgentID: admission.Request.AgentID, OperationID: admission.Request.OperationID,
+				Operation: admission.Request.Operation, CanonicalPath: admission.CanonicalPath,
+				Command: command, Rule: rule, RuleSource: ruleSource, Status: "approved",
+			}, stamp); err != nil {
+				return capability.Ticket{}, err
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return capability.Ticket{}, err
@@ -472,6 +494,9 @@ func (s *Store) Finish(ctx context.Context, completion capability.Completion) er
 	if err := json.Unmarshal(payload, &stored); err != nil {
 		return err
 	}
+	// Begin stores require_permission=false when a remembered rule approved the
+	// operation; the dispatcher still finishes with the admission it proposed.
+	completion.Admission.RequirePermission = stored.RequirePermission
 	if !sameCapabilityAdmission(stored, completion.Admission) {
 		return capability.ErrStaleAdmission
 	}

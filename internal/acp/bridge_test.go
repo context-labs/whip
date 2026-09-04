@@ -41,6 +41,7 @@ type fakeRoot struct {
 	events       []daemon.ProtocolEvent
 	presentation []session.SnapshotEvent
 	permissions  []session.PermissionSnapshot
+	remember     string
 	external     bool
 	lastSubmit   daemon.SubmitPayload
 	cancel       chan struct{}
@@ -194,7 +195,7 @@ func (c *fakeConnection) submit(ctx context.Context, params daemon.CommandParams
 		c.emit("stream.plan", daemon.StreamEvent{Result: string(plan)})
 	}
 	if strings.Contains(payload.Text, "permission") {
-		c.emitRaw("permission.pending", []byte(`{"permission_id":"permission-1","operation_id":"operation-1","operation":"write","canonical_path":"/tmp/a.go"}`))
+		c.emitRaw("permission.pending", []byte(`{"permission_id":"permission-1","operation_id":"operation-1","operation":"write","canonical_path":"/tmp/a.go","command":"/tmp/a.go","rule":"/tmp/a.go"}`))
 		select {
 		case allow := <-c.root.permission:
 			if !allow {
@@ -268,6 +269,7 @@ func (c *fakeConnection) DecidePermission(_ context.Context, _ ed25519.PrivateKe
 	}
 	c.root.mu.Lock()
 	c.root.decisions++
+	c.root.remember = decision.Remember
 	c.root.mu.Unlock()
 	select {
 	case c.root.permission <- decision.Allow:
@@ -533,10 +535,16 @@ func TestBridgePairedPermissionAndModes(t *testing.T) {
 	root := backend.roots[string(id)]
 	backend.mu.Unlock()
 	root.mu.Lock()
-	decisions := root.decisions
+	decisions, remember := root.decisions, root.remember
 	root.mu.Unlock()
-	if permissionRequests != 1 || decisions != 1 {
-		t.Fatalf("permission requests=%d decisions=%d", permissionRequests, decisions)
+	if permissionRequests != 1 || decisions != 1 || remember != "tree" {
+		t.Fatalf("permission requests=%d decisions=%d remember=%q", permissionRequests, decisions, remember)
+	}
+	client.mu.Lock()
+	options := client.perms[0].Options
+	client.mu.Unlock()
+	if len(options) != 3 || string(options[2].OptionId) != optAllowAlways || options[2].Name != "Always allow write /tmp/a.go in this tree" {
+		t.Fatalf("permission options = %+v", options)
 	}
 	if _, err := fixture.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: id, ModeId: ModeAuto}); err != nil {
 		t.Fatalf("paired auto mode: %v", err)

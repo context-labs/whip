@@ -68,6 +68,7 @@ func runDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	store.SetGlobalPermissionRules(cfg.Permissions.Allow)
 	generation, err := store.BeginDaemonGeneration(context.Background(), version)
 	if err != nil {
 		_ = store.Close()
@@ -81,6 +82,8 @@ func runDaemon(ctx context.Context, args []string) error {
 		if err != nil {
 			return daemon.Components{}, err
 		}
+		// Hand edits to the allowlist take effect on the next session.
+		store.SetGlobalPermissionRules(runtimeCfg.Permissions.Allow)
 		switch meta.Kind {
 		case session.SessionKindToolHost:
 			services := daemonToolServices(runtimeCfg, meta, "mcp")

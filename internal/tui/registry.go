@@ -44,6 +44,7 @@ var registry = []registryEntry{
 	{Name: "/model", Hint: "<name> [provider] — switch model (refresh pulls the catalog)", Category: "Agent"},
 	{Name: "/model-for-session", Hint: "<name> — switch model for this session only", Category: "Agent"},
 	{Name: "/mouse", Hint: "— toggle mouse capture", Category: "Display"},
+	{Name: "/permissions", Hint: "[list|forget <id>] — list or forget remembered permission rules", Category: "Session"},
 	{Name: "/pwd", Hint: "— print working directory", Category: "Session"},
 	{Name: "/quit", Hint: "— exit", Keybind: "ctrl+c ctrl+c", Category: "App"},
 	{Name: "/rename", Hint: "[title] — retitle this session", Category: "Session"},

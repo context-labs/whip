@@ -15,6 +15,15 @@ type permDialog struct {
 	deciding  bool
 }
 
+// permOptions lists the dialog's choices; "always" exists only when the
+// daemon named a rule for the request.
+func permOptions(permission *session.PermissionSnapshot) []string {
+	if permission.Rule == "" {
+		return []string{"allow once (a)", "reject (r)"}
+	}
+	return []string{"allow once (a)", "allow always for this tree (t)", "reject (r)"}
+}
+
 func (m *model) applyClientPermissions(permissions []session.PermissionSnapshot) {
 	if m.permDialog != nil {
 		for i := range permissions {
@@ -39,11 +48,17 @@ func (m *model) permView() string {
 	permission := m.permDialog.daemon
 	var out strings.Builder
 	out.WriteString(youStyle.Render("⚠ Allow " + permission.Operation + "?"))
-	detail := permission.CanonicalPath
+	detail := permission.Command
+	if detail == "" {
+		detail = permission.CanonicalPath
+	}
 	if detail == "" {
 		detail = "request " + permission.RequestDigest
 	}
 	out.WriteString("\n  " + ansiTruncate(detail, m.width-4))
+	if permission.Rule != "" {
+		out.WriteString(dimStyle.Render("\n  always: " + permission.Operation + " " + permission.Rule))
+	}
 	out.WriteString(dimStyle.Render("\n  agent " + permission.AgentID + " · permission " + permission.ID))
 	if m.permDialog.deciding {
 		out.WriteString(dimStyle.Render("\n  sending signed decision…"))
@@ -54,9 +69,8 @@ func (m *model) permView() string {
 		out.WriteString(dimStyle.Render("\n  enter sends · esc back"))
 		return out.String()
 	}
-	options := []string{"allow once (a)", "reject (r)"}
 	out.WriteString("\n  ")
-	for i, option := range options {
+	for i, option := range permOptions(permission) {
 		if i == m.permDialog.sel {
 			out.WriteString(youStyle.Render(glyphUser + option + "  "))
 		} else {

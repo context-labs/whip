@@ -189,6 +189,10 @@ type LifecycleEvent struct {
 	Operation     string        `json:"operation,omitempty"`
 	CanonicalPath string        `json:"canonical_path,omitempty"`
 	RequestDigest string        `json:"request_digest,omitempty"`
+	// Permission prompts: what the human sees and the rule "always" installs.
+	Command    string `json:"command,omitempty"`
+	Rule       string `json:"rule,omitempty"`
+	RuleSource string `json:"rule_source,omitempty"`
 }
 
 type actorEvent = LifecycleEvent

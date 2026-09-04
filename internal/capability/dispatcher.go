@@ -115,6 +115,7 @@ type Decision struct {
 	Allow       bool
 	PrincipalID string
 	Reason      string
+	Remember    string // "", "tree", or "global": install the prompt's rule at that scope
 }
 
 type PermissionPrompt struct {

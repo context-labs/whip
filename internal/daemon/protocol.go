@@ -259,6 +259,7 @@ type PermissionDecision struct {
 	PermissionID string `json:"permission_id"`
 	Allow        bool   `json:"allow"`
 	Reason       string `json:"reason,omitempty"`
+	Remember     string `json:"remember,omitempty"` // "", "tree", or "global"
 }
 
 type IdentityStatusResult struct {

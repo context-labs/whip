@@ -307,7 +307,7 @@ func (c *RootClient) ValidateProvider(ctx context.Context, params ProviderValida
 	}
 }
 
-func (c *RootClient) DecidePermission(ctx context.Context, action RootAction, permissionID string, allow bool, reason string) (PermissionDecisionResult, error) {
+func (c *RootClient) DecidePermission(ctx context.Context, action RootAction, permissionID string, allow bool, reason, remember string) (PermissionDecisionResult, error) {
 	if action.CommandID == "" || action.Operation != "permission.decide" || action.RootID == "" || permissionID == "" {
 		return PermissionDecisionResult{}, errors.New("permission action requires stable command and permission identities")
 	}
@@ -334,7 +334,7 @@ func (c *RootClient) DecidePermission(ctx context.Context, action RootAction, pe
 			return PermissionDecisionResult{}, errors.New("daemon connection cannot approve permissions")
 		}
 		result, err := privileged.DecidePermission(ctx, c.privateKey, PermissionDecision{
-			CommandID: action.CommandID, RootID: action.RootID, PermissionID: permissionID, Allow: allow, Reason: reason,
+			CommandID: action.CommandID, RootID: action.RootID, PermissionID: permissionID, Allow: allow, Reason: reason, Remember: remember,
 		})
 		if err == nil {
 			return result, nil

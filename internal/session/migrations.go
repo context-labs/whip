@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 3
-	schemaIdentity       = "whip-recursive-runtime-v3"
+	currentSchemaVersion = 4
+	schemaIdentity       = "whip-recursive-runtime-v4"
 )
 
 // MaxInboxRetries bounds how many times a failed turn may return its claimed
@@ -203,6 +203,10 @@ CREATE TABLE permission_requests (
 	request_ref TEXT REFERENCES content_references(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
 	CHECK(NOT(request_inline IS NOT NULL AND request_ref IS NOT NULL)),
 	FOREIGN KEY(root_id,agent_id) REFERENCES agents(root_id,id)
+);
+CREATE TABLE permission_rules (
+	id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES sessions(id), operation TEXT NOT NULL, rule TEXT NOT NULL,
+	principal_id TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(root_id,operation,rule)
 );
 CREATE TABLE usage_charges (
 	id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL DEFAULT '',

@@ -21,6 +21,12 @@ import (
 type permissionModeRunner struct {
 	*fakeRunner
 	external bool
+	resolved []resolvedPermission
+}
+
+type resolvedPermission struct {
+	id       string
+	decision capability.Decision
 }
 
 func (r *permissionModeRunner) SetExternalPermissions(enabled bool) {
@@ -31,7 +37,8 @@ func (r *permissionModeRunner) ExternalPermissionsEnabled() bool {
 	return r.external
 }
 
-func (*permissionModeRunner) ResolvePermission(string, capability.Decision) error {
+func (r *permissionModeRunner) ResolvePermission(permissionID string, decision capability.Decision) error {
+	r.resolved = append(r.resolved, resolvedPermission{permissionID, decision})
 	return nil
 }
 

@@ -120,6 +120,31 @@ Jobs outlive cells and turns, are killed when their agent stops or is deleted
 and when the root shuts down, and do not survive a daemon restart. At most 8
 jobs run per agent at once.
 
+## Permission rules
+
+A permission prompt names its rules: for shell operations (`bash`,
+`workspace_process`, `shell_start`) every command on the line is collapsed to
+its arity prefix (`go test ./...` -> `go test`, `ls -la` -> `ls`), so
+`go build ./... && go test ./...` has two rules and is skipped only when both
+are covered; an `ls` rule never approves `ls && rm -rf ~`. Lines with command
+substitution, backticks, or a redirect other than a stderr merge or
+`/dev/null` have no rule and always prompt. For `write` and `edit` the rule
+is the canonical path. Approving with "always" installs the prompt's rules for
+the session tree: each is stored in SQLite as a `permission_rules` row keyed
+by root, operation, and rule, and deleted with the session. The global allowlist lives in the config
+key `permissions.allow` as `operation:rule` entries (for example
+`"bash:go test"`); the daemon reloads it on each new session, so hand edits
+take effect on the next session.
+
+When an admission matches a rule the daemon skips the prompt, stores the
+admission with `require_permission=false`, and emits
+`permission.auto_approved` with the operation, command, rule, and
+`rule_source` (`tree` or `global`). Installing rules also resolves every
+other pending prompt in the root that they now cover. Rules never
+widen a capability: the operation is still validated against the agent's
+grants. `/permissions` (or `/permissions list`) prints the tree rules and the
+global allowlist; `/permissions forget <id>` deletes a tree rule.
+
 ## MCP
 
 MCP servers are daemon-owned integrations available from every authorized
