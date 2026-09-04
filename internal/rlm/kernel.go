@@ -428,11 +428,30 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 		kernel.stop()
 		return Result{}, err
 	}
-	evalCtx, cancel := context.WithTimeout(ctx, kernel.limits.Wall)
-	defer cancel()
+	// The wall clock charges Starlark compute only: time the worker spends
+	// running code between frames. Time inside a host call (shell, a
+	// permission prompt, agents.wait, MCP) is not counted; each host call is
+	// bounded by its own limit and by turn cancellation.
+	budget := kernel.limits.Wall
+	var consumed time.Duration
+	exhausted := func() (Result, error) {
+		kernel.stop()
+		return Result{}, fmt.Errorf("RLM cell deadline: %s of Starlark compute exceeded (time inside host calls is not counted)", budget)
+	}
 	for {
-		response, err := kernel.read(evalCtx)
+		remaining := budget - consumed
+		if remaining <= 0 {
+			return exhausted()
+		}
+		readCtx, cancel := context.WithTimeout(ctx, remaining)
+		started := time.Now()
+		response, err := kernel.read(readCtx)
+		cancel()
+		consumed += time.Since(started)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				return exhausted()
+			}
 			kernel.stop()
 			return Result{}, err
 		}
@@ -447,7 +466,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 			if kernel.host == nil {
 				callErr = errors.New("RLM host is not bound")
 			} else {
-				value, callErr = kernel.host.Call(evalCtx, response.Module, response.Operation, response.Arguments)
+				value, callErr = kernel.host.Call(ctx, response.Module, response.Operation, response.Arguments)
 			}
 			reply := frame{Type: "host_response", ID: response.ID, Value: value}
 			if callErr != nil {

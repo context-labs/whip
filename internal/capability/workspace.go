@@ -9,15 +9,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
-
-	"golang.org/x/sync/semaphore"
 )
 
-const workspaceMutationSlots = 1 << 30
-
-// Workspaces coordinates mutations across every daemon workspace.
+// Workspaces coordinates same-path file mutations across every daemon
+// workspace. Shell commands take no lock: they run concurrently with each
+// other and with edits, and their authority is checked at admission instead.
 type Workspaces struct {
-	gate *semaphore.Weighted
 	mu   sync.Mutex
 	path map[string]*pathLock
 }
@@ -34,7 +31,7 @@ type pathLock struct {
 }
 
 func NewWorkspaces() *Workspaces {
-	return &Workspaces{gate: semaphore.NewWeighted(workspaceMutationSlots), path: make(map[string]*pathLock)}
+	return &Workspaces{path: make(map[string]*pathLock)}
 }
 
 // Open requires an existing directory and resolves its symlinks once.
@@ -126,26 +123,12 @@ func (w *Workspace) LockPath(ctx context.Context, path string) (string, func(), 
 		w.releasePath(canonical, lock)
 		return "", nil, err
 	}
-	if err := w.owner.gate.Acquire(ctx, 1); err != nil {
-		<-lock.token
-		w.releasePath(canonical, lock)
-		return "", nil, err
-	}
 
 	release := sync.OnceFunc(func() {
-		w.owner.gate.Release(1)
 		<-lock.token
 		w.releasePath(canonical, lock)
 	})
 	return canonical, release, nil
-}
-
-// LockAll excludes every path mutation for shell or otherwise unknown effects.
-func (w *Workspace) LockAll(ctx context.Context) (func(), error) {
-	if err := w.owner.gate.Acquire(ctx, workspaceMutationSlots); err != nil {
-		return nil, err
-	}
-	return sync.OnceFunc(func() { w.owner.gate.Release(workspaceMutationSlots) }), nil
 }
 
 func (w *Workspace) releasePath(path string, lock *pathLock) {

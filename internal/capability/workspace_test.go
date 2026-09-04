@@ -110,70 +110,15 @@ func TestWorkspaceLocks(t *testing.T) {
 	}()
 	assertBlocked(t, alias, "symlink alias acquired the same canonical path")
 
-	all := make(chan func(), 1)
-	go func() {
-		release, lockErr := w.LockAll(context.Background())
-		if lockErr == nil {
-			all <- release
-		}
-	}()
-	assertBlocked(t, all, "global mutation overlapped a path mutation")
-
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if _, _, err := w.LockPath(ctx, filepath.Join(root, "alias", "same")); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("contended LockPath error = %v, want deadline exceeded", err)
 	}
-	if _, err := w.LockAll(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("contended LockAll error = %v, want deadline exceeded", err)
-	}
 
 	unlock()
-	releaseAll := <-all
-
-	blockedPath := make(chan func(), 1)
-	go func() {
-		_, release, lockErr := w.LockPath(context.Background(), filepath.Join(dir, "third"))
-		if lockErr == nil {
-			blockedPath <- release
-		}
-	}()
-	assertBlocked(t, blockedPath, "path mutation overlapped a global mutation")
-	pathCtx, pathCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer pathCancel()
-	if _, _, err := w.LockPath(pathCtx, filepath.Join(dir, "fourth")); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("path behind global mutation error = %v, want deadline exceeded", err)
-	}
-	releaseAll()
 	releaseAlias := <-alias
 	releaseAlias()
-	(<-blockedPath)()
-}
-
-func TestWorkspaceBarrierSpansRoots(t *testing.T) {
-	workspaces := NewWorkspaces()
-	one, err := workspaces.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	two, err := workspaces.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, releasePath, err := one.LockPath(context.Background(), "file")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lockedAll := make(chan func(), 1)
-	go func() {
-		release, lockErr := two.LockAll(context.Background())
-		if lockErr == nil {
-			lockedAll <- release
-		}
-	}()
-	assertBlocked(t, lockedAll, "root-wide mutation did not wait for another root's path mutation")
-	releasePath()
-	(<-lockedAll)()
 }
 
 func TestWorkspaceFilesystemErrors(t *testing.T) {

@@ -214,6 +214,31 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 			t.Fatalf("wall error = %v", err)
 		}
 	})
+	t.Run("host calls are not charged", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.Wall = 100 * time.Millisecond
+		slow := HostFunc(func(context.Context, string, string, map[string]any) (any, error) {
+			time.Sleep(3 * limits.Wall)
+			return "ok", nil
+		})
+		kernel := testKernel(t, limits, slow)
+		if result, err := kernel.Exec(context.Background(), "files.read(path='a')"); err != nil || result.Value != "ok" {
+			t.Fatalf("slow host call tripped the cell clock: %+v err=%v", result, err)
+		}
+	})
+	t.Run("compute after a host call is charged", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.Steps = ^uint64(0)
+		limits.Wall = 100 * time.Millisecond
+		slow := HostFunc(func(context.Context, string, string, map[string]any) (any, error) {
+			time.Sleep(limits.Wall / 2)
+			return "ok", nil
+		})
+		kernel := testKernel(t, limits, slow)
+		if _, err := kernel.Exec(context.Background(), "files.read(path='a')\nwhile True:\n  pass"); err == nil || !strings.Contains(err.Error(), "Starlark compute exceeded") {
+			t.Fatalf("compute after host call error = %v", err)
+		}
+	})
 	t.Run("output", func(t *testing.T) {
 		limits := DefaultLimits()
 		limits.OutputBytes = 32

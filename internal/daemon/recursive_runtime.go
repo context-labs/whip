@@ -1177,9 +1177,10 @@ func (runtime *RecursiveRuntime) submit(ctx context.Context, caller *AgentSessio
 	return map[string]any{"id": id, "inbox_seq": seq, "kind": kind, "status": "queued"}, nil
 }
 
-// maxAgentWaitMS keeps agents.wait under the 30 s kernel cell wall clock so a
-// long wait times out cleanly instead of killing the cell.
-// ponytail: fixed cap; derive from Limits.Wall if the wall clock becomes configurable per node.
+// maxAgentWaitMS bounds how long a blocked cell may hold its kernel pool slot.
+// Host-call time is not charged to the cell clock, so this is pool fairness,
+// not deadline safety.
+// ponytail: fixed cap; make it configurable if pools grow beyond a handful of slots.
 const maxAgentWaitMS = 25000
 
 // wait polls direct children until each is idle with no runnable work, or the

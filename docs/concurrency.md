@@ -56,10 +56,15 @@ child's transcript into a parent turn.
 
 ## Host operations
 
-- Same-path file mutations serialize through the workspace coordinator.
-- Unrelated paths can proceed concurrently.
-- Shell and unknown mutations take broader workspace authority because their
-  effects cannot be proven path-local.
+- Same-path file mutations serialize through the workspace coordinator;
+  unrelated paths proceed concurrently.
+- Shell commands take no lock. They run concurrently with each other and with
+  edits, as in Prime; their authority (a writer capability scoped to the root)
+  is checked at admission. Keeping parallel editors off the same files is the
+  parent's decomposition job, not the coordinator's.
+- A cell's 30 s wall clock charges Starlark compute only. Time inside host
+  calls (shell, permission prompts, `agents.wait`, MCP) is not counted; each
+  host call is bounded by its own limit and by turn cancellation.
 - `models.batch` fans out stateless calls and returns results in input order.
 - MCP calls serialize per server and obey connection/tool deadlines.
 - Every managed process belongs to a root and is cancelled on root shutdown.

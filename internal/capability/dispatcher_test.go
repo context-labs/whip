@@ -228,18 +228,15 @@ func TestDispatcherCancellationRejectsPendingPermission(t *testing.T) {
 	}
 }
 
-func TestDispatcherWorkspaceMutationBlocksPathMutations(t *testing.T) {
+// Shell commands take no workspace lock: they overlap each other and any
+// in-flight path mutation. Only same-path edits serialize.
+func TestDispatcherWorkspaceMutationRunsAlongsidePathMutations(t *testing.T) {
 	root := t.TempDir()
 	dispatcher := NewDispatcher(immediateLedger{root: root}, NewWorkspaces(), nil)
 	pathEntered := make(chan struct{})
 	releasePath := make(chan struct{})
-	released := false
-	defer func() {
-		if !released {
-			close(releasePath)
-		}
-	}()
-	workspaceEntered := make(chan struct{})
+	shellEntered := make(chan struct{}, 2)
+	releaseShell := make(chan struct{})
 	if err := dispatcher.Register(Registration{
 		Operation: "write", Mutation: MutationPath,
 		Path: func(json.RawMessage) (string, error) { return "file", nil },
@@ -254,13 +251,14 @@ func TestDispatcherWorkspaceMutationBlocksPathMutations(t *testing.T) {
 	if err := dispatcher.Register(Registration{
 		Operation: "bash", Mutation: MutationWorkspace,
 		Handler: func(context.Context, Call) (string, error) {
-			close(workspaceEntered)
+			shellEntered <- struct{}{}
+			<-releaseShell
 			return "workspace", nil
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	go func() {
 		_, err := dispatcher.Dispatch(context.Background(), Request{
 			RootID: "root", AgentID: "agent", CapabilityID: "writer", OperationID: "path", TraceID: "trace", Operation: "write", Arguments: json.RawMessage(`{"path":"file"}`),
@@ -268,25 +266,24 @@ func TestDispatcherWorkspaceMutationBlocksPathMutations(t *testing.T) {
 		errCh <- err
 	}()
 	<-pathEntered
-	go func() {
-		_, err := dispatcher.Dispatch(context.Background(), Request{
-			RootID: "root", AgentID: "agent", CapabilityID: "shell", WriterCapabilityID: "writer", OperationID: "workspace", TraceID: "trace", Operation: "bash", Arguments: json.RawMessage(`{"command":"true"}`),
-		})
-		errCh <- err
-	}()
-	select {
-	case <-workspaceEntered:
-		t.Fatal("workspace mutation overlapped a path mutation")
-	case <-time.After(50 * time.Millisecond):
-	}
-	close(releasePath)
-	released = true
-	select {
-	case <-workspaceEntered:
-	case <-time.After(time.Second):
-		t.Fatal("workspace mutation did not run after the path mutation released")
+	for _, id := range []string{"shell-1", "shell-2"} {
+		go func() {
+			_, err := dispatcher.Dispatch(context.Background(), Request{
+				RootID: "root", AgentID: "agent", CapabilityID: "shell", WriterCapabilityID: "writer", OperationID: id, TraceID: "trace", Operation: "bash", Arguments: json.RawMessage(`{"command":"true"}`),
+			})
+			errCh <- err
+		}()
 	}
 	for range 2 {
+		select {
+		case <-shellEntered:
+		case <-time.After(time.Second):
+			t.Fatal("a shell command waited behind a path mutation or another shell command")
+		}
+	}
+	close(releaseShell)
+	close(releasePath)
+	for range 3 {
 		if err := <-errCh; err != nil {
 			t.Fatal(err)
 		}

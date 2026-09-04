@@ -374,15 +374,17 @@ func (d *Dispatcher) admission(ctx context.Context, request Request, registratio
 func (d *Dispatcher) execute(ctx context.Context, registration Registration, admission Admission, workspace *Workspace, ticket Ticket) (Response, error) {
 	var release func()
 	var err error
-	switch admission.Mutation {
-	case MutationPath:
+	// Only path mutations lock, and only against the same canonical path.
+	// Workspace mutations (shell, processes) run concurrently: their effects
+	// cannot be proven path-local, so serializing them would block every
+	// read-only command in the tree for no gain. Their authority (a writer
+	// capability scoped to the root) was checked at admission.
+	if admission.Mutation == MutationPath {
 		var canonicalPath string
 		canonicalPath, release, err = workspace.LockPath(ctx, admission.CanonicalPath)
 		if err == nil && canonicalPath != admission.CanonicalPath {
 			err = ErrStaleAdmission
 		}
-	case MutationWorkspace:
-		release, err = workspace.LockAll(ctx)
 	}
 	if release != nil {
 		defer release()

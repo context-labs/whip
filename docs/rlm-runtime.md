@@ -63,9 +63,10 @@ depth, report mode) and a child's first input is `[task from parent <name>
 a direct relative's name or id is accepted too. Messages travel one hop
 (parent, child, sibling), so there is no `root` alias. Parents steer children with
 `agents.submit(id, text, delivery="steer"|"queued")` and can block briefly on
-`agents.wait(ids, timeout_ms)` (default 10 s, capped at 25 s so it stays under
-the 30 s cell wall clock; the result carries per-child status plus `settled`
-and `timed_out`, never the reply itself). The
+`agents.wait(ids, timeout_ms)` (default 10 s, capped at 25 s so a blocked cell
+releases its kernel pool slot promptly; host-call time is not charged to the
+cell clock; the result carries per-child status plus `settled` and
+`timed_out`, never the reply itself). The
 system prompt tells every node that mail wakes it, so the expected pattern
 after a spawn or submit is to end the turn and let the reply arrive as a
 mailbox-triggered turn. `agents.spawn(report=...)` picks how a child's
