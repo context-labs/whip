@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image/color"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/colorprofile"
@@ -34,6 +35,12 @@ func TestComponentGoldens(t *testing.T) {
 				"toast":           Toast{Text: "config saved", Kind: Success, Width: 30}.Render(th),
 				"toast-error":     Toast{Text: "daemon unreachable: connection refused on the socket", Kind: Error, Width: 30}.Render(th),
 				"text":            Heading(th, "Heading") + "\n" + Label(th, "LABEL") + " " + Muted(th, "muted") + " " + Kbd(th, "ctrl+x"),
+				"list": strings.Join(List{Title: "Commands", Hint: "esc", Search: true, Sel: 1, Width: 44, Empty: "No results found",
+					Groups: []ListGroup{{Title: "Session", Items: []ListItem{{"New session", "/new"}, {"Resume session", "/resume"}}}, {Title: "Display", Items: []ListItem{{"Theme: auto", "/theme auto"}}}},
+					Footer: []string{"enter", "select", "type", "to filter"}}.Render(th), "\n"),
+				"list-window": strings.Join(List{Title: "Sessions", Hint: "esc", Sel: 5, Width: 40, Window: 3,
+					Groups: []ListGroup{{Title: "Today", Items: []ListItem{{"one", "1m"}, {"two", "2m"}, {"three", "3m"}, {"four", "4m"}, {"five", "5m"}, {"six", "6m"}, {"seven", "7m"}}}}}.Render(th), "\n"),
+				"list-empty": strings.Join(List{Title: "Select model", Hint: "esc", Search: true, Query: "zzz", Width: 40, Empty: "No results found"}.Render(th), "\n"),
 			}
 			for cname, out := range cases {
 				t.Run(cname, func(t *testing.T) {

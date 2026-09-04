@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"github.com/context-labs/whip/internal/tui/ui"
-	"image/color"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -334,84 +333,28 @@ func estimateTokens(messages []llm.Message) int {
 	return (bytes + 3) / 4
 }
 
-// ocBoxKit bundles the styles and row builders every floating opencode dialog
-// shares (Commands, Message Actions): a fixed-width panel with lr rows.
-type ocBoxKit struct {
-	w                              int
-	bg                             color.Color
-	pnl, text, head, muted, accent lipgloss.Style
-	blank                          string
-}
-
-func (m *model) newOcBox() ocBoxKit {
-	th := currentTheme()
-	bg := th.Surface.Panel
-	w := min(64, max(m.width-2, 20))
-	text := th.On(th.Text, bg)
-	return ocBoxKit{
-		w: w, bg: bg,
-		pnl:    th.On(nil, bg),
-		text:   text,
-		head:   text.Bold(true),
-		muted:  th.On(th.Muted, bg),
-		accent: th.On(th.Accent, bg).Bold(true),
-		blank:  ui.PadRow("", w, bg),
-	}
-}
-
-// lr assembles left+right onto one padded row: left at col 2, right at the edge.
-func (k ocBoxKit) lr(left, right string) string {
-	gap := max(k.w-2-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
-	return ui.PadRow(k.pnl.Render("  ")+left+k.pnl.Render(strings.Repeat(" ", gap))+right, k.w, k.bg)
-}
-
-// dialog rows: a panel on the panel background with a bold "Commands" header +
-// right-aligned esc, a Search line, accent category headers, and name-left /
-// hint-right rows; the selected row is a full-width primary fill. Each row is
-// exactly w cells wide — ocOverlay splices them over the dimmed session.
+// ocDialogRows renders the command palette as a ui.List: bold "Commands" +
+// esc, a Search row, accent category headers, name-left / hint-right rows
+// with the selection as a full-width primary fill.
 func (m *model) ocDialogRows() []string {
 	p := m.palette
-	k := m.newOcBox()
-	w := k.w
-	text, head, muted, accent := k.text, k.head, k.muted, k.accent
-	lr := k.lr
-	blank := k.blank
-
-	rows := []string{blank, lr(head.Render("Commands"), muted.Render("esc")), blank}
-	if p.filter == "" {
-		rows = append(rows, lr(muted.Render("Search"), ""))
-	} else {
-		rows = append(rows, lr(text.Render(p.filter), ""))
-	}
-	rows = append(rows, blank)
-
-	sel := currentTheme().Selected
-	lastCat := ""
-	for i, it := range p.items {
-		if it.category != lastCat {
-			if lastCat != "" {
-				rows = append(rows, blank)
-			}
-			rows = append(rows, lr(accent.Render(it.category), ""))
-			lastCat = it.category
-		}
+	var groups []ui.ListGroup
+	for _, it := range p.items {
 		hint := ""
 		if it.dynHint != nil {
-			hint = truncLine(it.dynHint(m), max(w-4-len(it.title)-2, 0))
+			hint = it.dynHint(m)
 		}
-		if i == p.idx {
-			// full-width primary fill, opencode's selected-row treatment
-			row := sel.Render("  "+it.title) + sel.Render(strings.Repeat(" ", max(w-2-len(it.title)-lipgloss.Width(hint)-2, 1))) + sel.Render(hint+"  ")
-			rows = append(rows, ui.PadRow(row, w, currentTheme().Primary))
-		} else {
-			rows = append(rows, lr(text.Render(it.title), muted.Render(hint)))
+		if n := len(groups); n == 0 || groups[n-1].Title != it.category {
+			groups = append(groups, ui.ListGroup{Title: it.category})
 		}
+		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: it.title, Right: hint})
 	}
-	if len(p.items) == 0 {
-		rows = append(rows, lr(muted.Render("No results found"), ""))
-	}
-	return append(rows, blank)
+	return ui.List{Title: "Commands", Hint: "esc", Search: true, Query: p.filter, Groups: groups, Sel: p.idx,
+		Empty: "No results found", Width: m.dialogWidth()}.Render(currentTheme())
 }
+
+// dialogWidth is the floating dialogs' panel width.
+func (m *model) dialogWidth() int { return min(64, max(m.width-2, 20)) }
 
 // ocToolIcon maps a tool to opencode's inline-tool icon glyphs.
 func ocToolIcon(name string) string {
@@ -519,38 +462,12 @@ func (a *msgActions) items() []msgAction {
 // ocMsgActionRows renders the Message Actions dialog box rows.
 func (m *model) ocMsgActionRows() []string {
 	a := m.msgActions
-	k := m.newOcBox()
-	rows := []string{k.blank, k.lr(k.head.Render("Message Actions"), k.muted.Render("esc")), k.blank}
-	if a.filter == "" {
-		rows = append(rows, k.lr(k.muted.Render("Search"), ""))
-	} else {
-		rows = append(rows, k.lr(k.text.Render(a.filter), ""))
+	var items []ui.ListItem
+	for _, it := range a.items() {
+		items = append(items, ui.ListItem{Left: it.name, Right: it.desc})
 	}
-	rows = append(rows, k.blank)
-	items := a.items()
-	sel := currentTheme().Selected
-	for i, it := range items {
-		if i == a.sel {
-			rows = append(rows, ui.PadRow(sel.Render("  "+it.name+" "+it.desc), k.w, currentTheme().Primary))
-		} else {
-			rows = append(rows, k.lr(k.text.Render(it.name)+k.muted.Render(" "+it.desc), ""))
-		}
-	}
-	if len(items) == 0 {
-		rows = append(rows, k.lr(k.muted.Render("No results found"), ""))
-	}
-	return append(rows, k.blank)
-}
-
-// ocWindow returns the [lo,hi) slice bounds showing up to budget rows
-// centered on idx.
-func ocWindow(n, idx, budget int) (int, int) {
-	if budget >= n {
-		return 0, n
-	}
-	lo := max(idx-budget/2, 0)
-	hi := min(lo+budget, n)
-	return max(hi-budget, 0), hi
+	return ui.List{Title: "Message Actions", Hint: "esc", Search: true, Query: a.filter, Groups: []ui.ListGroup{{Items: items}},
+		Sel: a.sel, Empty: "No results found", Width: m.dialogWidth()}.Render(currentTheme())
 }
 
 // ocModelDialogRows renders the model picker as opencode's "Select model"
@@ -558,48 +475,24 @@ func ocWindow(n, idx, budget int) (int, int) {
 // row a primary fill, catalog-only routes marked (new).
 func (m *model) ocModelDialogRows() []string {
 	p := m.mpicker
-	k := m.newOcBox()
-	rows := []string{k.blank, k.lr(k.head.Render("Select model"), k.muted.Render("esc")), k.blank}
-	if p.filter.query == "" {
-		rows = append(rows, k.lr(k.muted.Render("Search"), ""))
-	} else {
-		rows = append(rows, k.lr(k.text.Render(p.filter.query), ""))
-	}
-	rows = append(rows, k.blank)
-
-	items := p.view()
-	sel := currentTheme().Selected
-	lo, hi := ocWindow(len(items), p.idx, max(m.height-14, 4))
-	lastProv := ""
-	for i := lo; i < hi; i++ {
-		it := items[i]
-		if it.provider != lastProv {
-			if lastProv != "" {
-				rows = append(rows, k.blank)
-			}
-			rows = append(rows, k.lr(k.accent.Render(it.provider), ""))
-			lastProv = it.provider
-		}
+	var groups []ui.ListGroup
+	for _, it := range p.view() {
 		mark := ""
 		if it.fromCatalog {
 			mark = "(new)"
 		}
 		cur := "  "
 		if it.model == m.modelName && it.provider == m.provName {
-			cur = "● " // opencode's current-model gutter
+			cur = "● " // the current-model gutter
 		}
-		if i == p.idx {
-			rows = append(rows, ui.PadRow(sel.Render("  "+cur+it.model), k.w, currentTheme().Primary))
-		} else {
-			rows = append(rows, k.lr(k.text.Render(cur+it.model), k.muted.Render(mark)))
+		if n := len(groups); n == 0 || groups[n-1].Title != it.provider {
+			groups = append(groups, ui.ListGroup{Title: it.provider})
 		}
+		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: cur + it.model, Right: mark})
 	}
-	if len(items) == 0 {
-		rows = append(rows, k.lr(k.muted.Render("No results found"), ""))
-	}
-	rows = append(rows, k.blank,
-		k.lr(k.text.Render("enter")+k.muted.Render(" select")+k.pnl.Render("  ")+k.text.Render("type")+k.muted.Render(" to filter"), ""))
-	return append(rows, k.blank)
+	return ui.List{Title: "Select model", Hint: "esc", Search: true, Query: p.filter.query, Groups: groups, Sel: p.idx,
+		Empty: "No results found", Footer: []string{"enter", "select", "type", "to filter"},
+		Width: m.dialogWidth(), Window: max(m.height-14, 4)}.Render(currentTheme())
 }
 
 // ocSessionDialogRows renders the resume picker as opencode's "Sessions"
@@ -607,41 +500,25 @@ func (m *model) ocModelDialogRows() []string {
 // a primary fill.
 func (m *model) ocSessionDialogRows() []string {
 	p := m.picker
-	k := m.newOcBox()
-	rows := []string{k.blank, k.lr(k.head.Render("Sessions"), k.muted.Render("esc")), k.blank}
-	sel := currentTheme().Selected
-	lo, hi := ocWindow(len(p.metas), p.idx, max(m.height-12, 4))
-	lastDay := ""
-	for i := lo; i < hi; i++ {
-		meta := p.metas[i]
+	var groups []ui.ListGroup
+	today := m.nowFn().Format("Mon Jan 2 2006")
+	for _, meta := range p.metas {
 		day := meta.UpdatedAt.Format("Mon Jan 2 2006")
-		if day == m.nowFn().Format("Mon Jan 2 2006") {
+		if day == today {
 			day = "Today"
-		}
-		if day != lastDay {
-			if lastDay != "" {
-				rows = append(rows, k.blank)
-			}
-			rows = append(rows, k.lr(k.accent.Render(day), ""))
-			lastDay = day
 		}
 		title := meta.Title
 		if title == "" {
 			title = "(untitled)"
 		}
-		title = truncLine(title, k.w-16)
-		if i == p.idx {
-			rows = append(rows, ui.PadRow(sel.Render("  "+title), k.w, currentTheme().Primary))
-		} else {
-			rows = append(rows, k.lr(k.text.Render(title), k.muted.Render(ago(meta.UpdatedAt))))
+		title = ansi.Truncate(title, max(m.dialogWidth()-16, 4), "…")
+		if n := len(groups); n == 0 || groups[n-1].Title != day {
+			groups = append(groups, ui.ListGroup{Title: day})
 		}
+		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: title, Right: ago(meta.UpdatedAt)})
 	}
-	if len(p.metas) == 0 {
-		rows = append(rows, k.lr(k.muted.Render("No sessions"), ""))
-	}
-	rows = append(rows, k.blank,
-		k.lr(k.text.Render("enter")+k.muted.Render(" resume")+k.pnl.Render("  ")+k.text.Render("↑/↓")+k.muted.Render(" select"), ""))
-	return append(rows, k.blank)
+	return ui.List{Title: "Sessions", Hint: "esc", Groups: groups, Sel: p.idx, Empty: "No sessions",
+		Footer: []string{"enter", "resume", "↑/↓", "select"}, Width: m.dialogWidth(), Window: max(m.height-12, 4)}.Render(currentTheme())
 }
 
 // toastClearMsg expires the toast set by showToast.
