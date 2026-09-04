@@ -2,10 +2,13 @@ package llm
 
 import (
 	"bytes"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/png"
 	"math/rand"
 	"testing"
+	"time"
 )
 
 // bigNoisyPNG builds a photo-like PNG (per-pixel noise) so the encoded size
@@ -113,5 +116,58 @@ func TestNormalizeImageTransparentFlattensToWhite(t *testing.T) {
 	r, g, b, _ := dec.At(10, 10).RGBA()
 	if r>>8 < 240 || g>>8 < 240 || b>>8 < 240 {
 		t.Fatalf("transparent pixels should flatten to white, got rgb(%d,%d,%d)", r>>8, g>>8, b>>8)
+	}
+}
+
+// Alpha flattens to white on the byte-budget path too: an in-cap canvas that
+// is over 5MiB re-encodes without scaling and must still composite onto white.
+func TestNormalizeImageTransparentInCapOverBytesFlattensToWhite(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 1500, 1500))
+	rng := rand.New(rand.NewSource(2))
+	for i := 0; i < len(img.Pix); i += 4 {
+		img.Pix[i], img.Pix[i+1], img.Pix[i+2], img.Pix[i+3] = byte(rng.Intn(256)), byte(rng.Intn(256)), byte(rng.Intn(256)), 0
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() <= NormalizeMaxBytes {
+		t.Skipf("fixture compressed to %d bytes, under the budget", buf.Len())
+	}
+	ext, out := NormalizeImage("png", buf.Bytes())
+	if ext != "jpg" {
+		t.Fatalf("over-budget image should re-encode, got %q", ext)
+	}
+	dec, _, err := image.Decode(bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := dec.At(700, 700).RGBA()
+	if r>>8 < 240 || g>>8 < 240 || b>>8 < 240 {
+		t.Fatalf("fully transparent pixels should flatten to white, got rgb(%d,%d,%d)", r>>8, g>>8, b>>8)
+	}
+}
+
+// A tiny file whose header declares an absurd canvas is passed through, never
+// pixel-decoded (image.Decode would allocate for the declared size).
+func TestNormalizeImageDeclaredBombPassesThrough(t *testing.T) {
+	data := pngFixture(t, 8, 8)
+	// IHDR: bytes 16..19 width, 20..23 height, CRC over "IHDR"+13 data bytes at 29..32
+	binary.BigEndian.PutUint32(data[16:], 100000)
+	binary.BigEndian.PutUint32(data[20:], 100000)
+	binary.BigEndian.PutUint32(data[29:], crc32.ChecksumIEEE(data[12:29]))
+	if w, h, ok := DecodeImageSize(data); !ok || w != 100000 || h != 100000 {
+		t.Fatalf("fixture: header should decode as 100000², got %d×%d ok=%v", w, h, ok)
+	}
+	done := make(chan struct{})
+	go func() { NormalizeImage("png", data); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("NormalizeImage tried to decode the declared canvas")
+	}
+	ext, out := NormalizeImage("png", data)
+	if ext != "png" || !bytes.Equal(out, data) {
+		t.Fatal("bomb-shaped header must pass through untouched")
 	}
 }

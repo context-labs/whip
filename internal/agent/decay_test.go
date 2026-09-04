@@ -279,12 +279,11 @@ func TestDecayStripsColdImageParts(t *testing.T) {
 			t.Fatal("image part should be replaced")
 		}
 	}
-	// a placeholder text part names the dims and the spill path
-	var placeholder string
-	for _, p := range m.Parts {
-		if p.Type == "text" && strings.Contains(p.Text, "omitted") {
-			placeholder = p.Text
-		}
+	// the placeholder lands in Content (the one text field that survives a
+	// persist/reload round trip) after the user's own text
+	placeholder := m.Content
+	if !strings.HasPrefix(placeholder, "look at this\n") || !strings.Contains(placeholder, "omitted") {
+		t.Fatalf("Content should keep the user's text and append the placeholder, got %q", placeholder)
 	}
 	if !strings.Contains(placeholder, "640×480") {
 		t.Errorf("placeholder should name the pixel size, got %q", placeholder)
@@ -292,15 +291,9 @@ func TestDecayStripsColdImageParts(t *testing.T) {
 	if !strings.Contains(placeholder, "whip-img-") {
 		t.Errorf("placeholder should point at the spilled file, got %q", placeholder)
 	}
-	// text part survives
-	foundText := false
-	for _, p := range m.Parts {
-		if p.Type == "text" && p.Text == "look at this" {
-			foundText = true
-		}
-	}
-	if !foundText {
-		t.Error("the accompanying text part must stay inline")
+	// collapsed to plain text: no parts left, the user's text leads Content
+	if len(m.Parts) != 0 {
+		t.Errorf("stripped message should carry no parts, got %+v", m.Parts)
 	}
 	// the estimate dropped by roughly the image's token cost
 	after := EstimateTokens(a.Messages)
@@ -337,16 +330,44 @@ func TestDecayImageOnlyMessagesSpendHotWindow(t *testing.T) {
 	if n := a.decay(); n == 0 {
 		t.Fatal("the oldest image-only message should fall past the hot window and be stripped")
 	}
-	if len(a.Messages[1].Parts) != 1 || a.Messages[1].Parts[0].Type != "text" {
-		t.Fatalf("oldest message should now hold a text placeholder, got %+v", a.Messages[1].Parts)
+	if len(a.Messages[1].Parts) != 0 || !strings.Contains(a.Messages[1].Content, "omitted") {
+		t.Fatalf("oldest message should now be a text placeholder in Content, got parts=%+v content=%q", a.Messages[1].Parts, a.Messages[1].Content)
 	}
 	last := a.Messages[len(a.Messages)-1]
 	if last.Parts[0].Type != "image_url" {
 		t.Fatal("the newest image must stay hot")
 	}
-	// Content stays empty: the wire form prepends Content as a text part, so
-	// mirroring the placeholder there would send it twice.
-	if a.Messages[1].Content != "" {
-		t.Fatalf("placeholder must live in Parts only, Content=%q", a.Messages[1].Content)
+}
+
+// The decayed message must survive a persist/reload round trip with the
+// user's text intact: UnmarshalJSON keeps only the last text part as Content.
+func TestDecayedImageMessageRoundTripsKeepingText(t *testing.T) {
+	img := llm.ImagePart("png", pngFixtureForDecay(t, 640, 480))
+	m := llm.Message{Role: "user", Content: "look at this", Parts: []llm.ContentPart{{Type: "text", Text: "look at this"}, img}}
+	if stripImageParts(&m) != 1 {
+		t.Fatal("one image should strip")
+	}
+	raw, err := m.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back llm.Message
+	if err := back.UnmarshalJSON(raw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(back.TextContent(), "look at this") || !strings.Contains(back.TextContent(), "omitted") {
+		t.Fatalf("reload should keep the user's text and the placeholder, got %q", back.TextContent())
+	}
+	if strings.Count(string(raw), "omitted") != 1 {
+		t.Fatalf("placeholder must be sent once on the wire, got %d in %s", strings.Count(string(raw), "omitted"), raw)
+	}
+}
+
+// spillImage must never panic on a persisted URL that isn't one we built.
+func TestSpillImageRejectsNonDataURL(t *testing.T) {
+	for _, u := range []string{"x;base64,y", ";base64,abcd", "http://example/img.png", ""} {
+		if got := spillImage(u); got != "" {
+			t.Errorf("spillImage(%q) = %q, want \"\"", u, got)
+		}
 	}
 }

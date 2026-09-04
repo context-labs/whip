@@ -412,12 +412,6 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		case err != nil:
 			status, text = TaskError, err.Error()
 		}
-		// Snapshot the transcript BEFORE settle: settle fires OnRecord (which
-		// persists SubMessages), so it must be populated first. Under the
-		// registry lock: List copies *t under it, and the dock calls List on
-		// every Update, so an unlocked write here is a live data race.
-		a.bg.mu.Lock()
-		t.SubMessages = t.sub.MessagesSnapshot()
 		// Snapshot the transcript and bill BEFORE settle: settle fires OnRecord
 		// (which persists them), so they must be populated first. Under the
 		// registry lock: List copies *t under it on every dock redraw, so an
@@ -426,7 +420,6 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		t.SubMessages = t.sub.MessagesSnapshot()
 		t.SubUsage, t.SubSubUsage = t.sub.Usage(), t.sub.SubUsage()
 		a.bg.mu.Unlock()
-		a.bg.settle(id, status, text)
 		a.bg.settle(id, status, text)
 		// subscribers stop here; late events after settle go nowhere (Subscribe
 		// rejects non-running tasks, and settled state is visible via List/Get)

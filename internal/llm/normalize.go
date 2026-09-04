@@ -28,6 +28,10 @@ const (
 	// stays under ~6.9MB of wire payload (opencode's 5MiB base64 budget
 	// translated to pre-encode bytes).
 	NormalizeMaxBytes = 5 * 1024 * 1024
+	// NormalizeMaxPixels bounds what NormalizeImage will pixel-decode at all:
+	// 64 megapixels (~256MiB RGBA) covers any real display capture; a header
+	// declaring more is a decompression bomb, not an image to re-encode.
+	NormalizeMaxPixels = 64_000_000
 	// normalizeMinScale bounds the quality-fallback loop: below this the
 	// image would be illegible anyway, so we stop and return what we have.
 	normalizeMinScale = 0.05
@@ -60,6 +64,12 @@ func NormalizeImage(ext string, data []byte) (string, []byte) {
 	}
 	if len(data) <= NormalizeMaxBytes && w <= NormalizeMaxDim && h <= NormalizeMaxDim {
 		return ext, data // already cheap enough; keep the original encoding
+	}
+	if w*h > NormalizeMaxPixels {
+		// A header can declare a canvas no real capture has (a 40-byte PNG
+		// claiming 100000²) and image.Decode would allocate for all of it.
+		// Pass it through untouched: the provider rejects it, whip stays up.
+		return ext, data
 	}
 	src, err := decodeAny(data)
 	if err != nil {
@@ -100,15 +110,19 @@ func decodeAny(data []byte) (image.Image, error) {
 	return img, err
 }
 
-// scaleToFit returns src scaled down to fit inside maxW×maxH, preserving
-// aspect. A src already inside the box is returned unchanged (no resample).
+// scaleToFit returns src drawn onto an opaque white canvas, scaled down to
+// fit inside maxW×maxH (aspect preserved) when it does not already.
 func scaleToFit(src image.Image, maxW, maxH int) image.Image {
 	w, h := src.Bounds().Dx(), src.Bounds().Dy()
-	if w <= maxW && h <= maxH {
-		return src
+	nw, nh := w, h
+	if w > maxW || h > maxH {
+		scale := min(float64(maxW)/float64(w), float64(maxH)/float64(h))
+		nw, nh = max(int(float64(w)*scale), 1), max(int(float64(h)*scale), 1)
 	}
-	scale := min(float64(maxW)/float64(w), float64(maxH)/float64(h))
-	nw, nh := max(int(float64(w)*scale), 1), max(int(float64(h)*scale), 1)
+	// Always redraw, even at the same size: the result is JPEG-encoded, and
+	// JPEG has no alpha, so the source must be composited onto opaque white
+	// (transparent pixels otherwise encode black). An in-cap image reaches
+	// here when it is over the byte budget.
 	dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
 	// JPEG has no alpha: composite onto opaque white first, or transparent
 	// pixels (logos, UI exports) come out black after the re-encode.

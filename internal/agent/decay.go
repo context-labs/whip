@@ -183,13 +183,14 @@ func (a *Agent) decay() int {
 	return rewritten
 }
 
-// stripImageParts replaces every image part of m with a text placeholder
-// naming the image's pixel size and the disk path the bytes were spilled to.
-// Returns the number of parts stripped. The message's text parts (and
-// Content) are untouched.
+// stripImageParts removes every image part of m and rewrites it as a plain
+// text message: its own text, then one placeholder per image naming the pixel
+// size and the disk path the bytes were spilled to. Returns the number of
+// parts stripped.
 func stripImageParts(m *llm.Message) int {
 	stripped := 0
 	var kept []llm.ContentPart
+	var notes []string
 	for _, p := range m.Parts {
 		if p.Type != "image_url" || p.ImageURL == nil {
 			kept = append(kept, p)
@@ -205,16 +206,28 @@ func stripImageParts(m *llm.Message) int {
 			note += " — bytes at " + path + " (re-attach with @" + path + " if needed)"
 		}
 		note += "⟩"
-		kept = append(kept, llm.ContentPart{Type: "text", Text: note})
+		notes = append(notes, note)
 		stripped++
 	}
 	if stripped == 0 {
 		return 0
 	}
-	// Content stays as it was: the wire form prepends a non-empty Content as
-	// its own text part, so mirroring the placeholder there would send it
-	// twice. TextContent() already reads text parts for a pure-image message.
-	m.Parts = kept
+	// Every image is gone, so collapse to a plain text message: Content is
+	// the one text field that survives a persist/reload round trip (a
+	// multimodal row reloads with its LAST text part as Content, see
+	// Message.UnmarshalJSON), so leaving a text part behind — or adding the
+	// placeholder as one — would replace the user's own text on resume.
+	texts := []string{}
+	if m.Content != "" {
+		texts = append(texts, m.Content)
+	}
+	for _, p := range kept {
+		if p.Type == "text" && p.Text != "" && p.Text != m.Content { // Content usually mirrors the text part
+			texts = append(texts, p.Text)
+		}
+	}
+	m.Content = strings.Join(append(texts, notes...), "\n")
+	m.Parts = nil
 	return stripped
 }
 
@@ -224,8 +237,8 @@ func stripImageParts(m *llm.Message) int {
 func spillImage(dataURL string) string {
 	const prefix = ";base64,"
 	i := strings.Index(dataURL, prefix)
-	if i < 0 {
-		return ""
+	if !strings.HasPrefix(dataURL, "data:") || i < len("data:") {
+		return "" // not a data URL we built (persisted rows are loaded verbatim)
 	}
 	mime := dataURL[len("data:"):i]
 	ext := "png"
