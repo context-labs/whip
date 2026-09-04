@@ -226,6 +226,42 @@ func TestCopyFileErrorPaths(t *testing.T) {
 	}
 }
 
+// TestSkillsImportKeepsPreExistingDirOnConflict: when a foreign skill name
+// collides with a pre-existing non-skill directory in ~/.agents/skills (no
+// SKILL.md, so the dedup pass never registered it), the import must report
+// the conflict and leave the user's folder untouched — not delete it.
+func TestSkillsImportKeepsPreExistingDirOnConflict(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+
+	// A pre-existing user folder with no SKILL.md (invisible to the scan, so
+	// the dedup set misses it) that shares a name with a foreign skill.
+	userDir := filepath.Join(home, ".agents", "skills", "notes")
+	if err := os.MkdirAll(userDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	userFile := filepath.Join(userDir, "keep-me.txt")
+	if err := os.WriteFile(userFile, []byte("precious"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The foreign skill named "notes" that would collide.
+	writeSkill(t, filepath.Join(home, ".claude", "skills"), "notes", "claude copy")
+
+	err := skillsCLI([]string{"import"})
+	if err == nil {
+		t.Fatal("import should report the destination conflict")
+	}
+	// The user's folder and its contents must survive.
+	if _, err := os.Stat(userFile); err != nil {
+		t.Errorf("pre-existing user folder was deleted or modified: %v", err)
+	}
+	data, _ := os.ReadFile(userFile)
+	if string(data) != "precious" {
+		t.Errorf("user file contents changed: %q", data)
+	}
+}
+
 // TestSkillsImportPathTraversal: a skill whose frontmatter name contains path
 // separators (../, ../../pwned) must be rejected — the name becomes the
 // destination directory, and without the guard it escapes ~/.agents/skills.

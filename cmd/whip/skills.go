@@ -132,14 +132,22 @@ func skillsImportCLI(args []string) error {
 			continue
 		}
 		dst := filepath.Join(dest, c.name)
+		// Only clean up a partial copy when copyDir actually created dst. A
+		// pre-existing user folder at dst (e.g. ~/.agents/skills/notes with no
+		// SKILL.md) makes copyDir return "already exists" without writing —
+		// removing it would be data loss.
+		_, statErr := os.Stat(dst)
+		dstPreExisted := statErr == nil
 		if err := copyDir(c.srcDir, dst); err != nil {
 			// One bad skill (a symlink loop, an unreadable file) must not
 			// abort the rest of the import — and a partial copy must not
 			// linger as a broken skill (and block a future import via the
-			// dedup pass). Remove the half-written destination and continue;
-			// a cleanup failure is logged but doesn't mask the copy error.
-			if rmErr := os.RemoveAll(dst); rmErr != nil {
-				fmt.Fprintf(os.Stderr, "  (cleanup of partial copy failed: %v)\n", rmErr)
+			// dedup pass). Remove only the half-written destination copyDir
+			// created; a cleanup failure is logged but doesn't mask the error.
+			if !dstPreExisted {
+				if rmErr := os.RemoveAll(dst); rmErr != nil {
+					fmt.Fprintf(os.Stderr, "  (cleanup of partial copy failed: %v)\n", rmErr)
+				}
 			}
 			fmt.Fprintf(os.Stderr, "✗ %-24s %v\n", c.name, err)
 			failed = append(failed, c.name)
