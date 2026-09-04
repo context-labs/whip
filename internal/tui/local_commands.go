@@ -26,13 +26,15 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 			m.openThinThemePalette()
 			return m, nil
 		}
-		errs := loadUserThemes()
-		for _, err := range errs {
-			m.append(errStyle.Render(err.Error()))
+		var problems []string
+		for _, err := range loadUserThemes() {
+			problems = append(problems, err.Error())
 		}
 		if !knownThemeName(fields[1]) {
-			m.append(errStyle.Render("usage: /theme " + strings.Join(themeNames(), "|") + " (user themes: ~/.whip/themes/<name>.json)"))
-			return m, nil
+			problems = append(problems, "usage: /theme "+strings.Join(themeNames(), "|")+" (user themes: ~/.whip/themes/<name>.json)")
+		}
+		if len(problems) > 0 {
+			return m, m.toastError(strings.Join(problems, " · "))
 		}
 		m.setTheme(fields[1])
 	case "/mouse":
@@ -40,8 +42,7 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		enabled := m.mouseOn
 		m.cfg.Mouse = &enabled
 		if err := m.cfg.Save(); err != nil {
-			m.append(errStyle.Render("config save failed: " + err.Error()))
-			return m, nil
+			return m, m.toastError("config save failed: " + err.Error())
 		}
 		m.append(dimStyle.Render("mouse capture: " + onOff(enabled))) // View() reflects m.mouseOn
 	case "/export":
@@ -49,7 +50,7 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 	case "/report":
 		m.append(m.reportBlock())
 	default:
-		m.append(errStyle.Render(fmt.Sprintf("unknown command: %s", fields[0])))
+		return m, m.toastError(fmt.Sprintf("unknown command: %s", fields[0]))
 	}
 	return m, nil
 }

@@ -178,7 +178,9 @@ type model struct {
 	sessTitle   string           // cached session title for the opencode sidebar (from the store; updated on title/rename)
 	msgActions  *msgActions      // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
 	ocThink     string           // opencode mode: reasoning text accumulated for the expandable "+ Thought" block
-	toast       string           // opencode mode: top-right toast text; "" = none
+	toast       string           // top-right toast text; "" = none
+	toastKind   ui.Kind          // success (copies, confirmations) or error (a failed local command)
+	lastClick   clickMark        // for double/triple-click selection
 	toastAt     time.Time        // when the current toast was shown (stale clears are ignored)
 	leaderAt    time.Time        // opencode mode: when ctrl+x armed the leader chord; zero = not pending
 	sidebarHide bool             // opencode mode: ctrl+x b hides the sidebar

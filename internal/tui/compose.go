@@ -1,12 +1,15 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/context-labs/whip/internal/tui/ui"
 )
 
 // The frame is composed by drawing regions into one cell buffer at explicit
@@ -25,6 +28,7 @@ type frameRects struct {
 	transcript            uv.Rectangle // the viewport
 	input, inputText      uv.Rectangle // the prompt box, and the textarea rows inside it
 	status                uv.Rectangle // the status line
+	pill                  uv.Rectangle // the "↓ N more lines" chip over the transcript's last row (scrolled up only)
 }
 
 // measure is every main-column region except the transcript, in viewBody's
@@ -109,6 +113,8 @@ func (m *model) layoutFrame(w, h int) frameRects {
 		pw := m.panelWidth()
 		r.gap = rect(w-pw-opencodeRightGap, 0, opencodeRightGap, h)
 		r.side = rect(w-pw, 0, pw, h)
+	} else {
+		r.gap = rect(w-opencodeRightMargin, 0, opencodeRightMargin, h)
 	}
 	mm := m.measure()
 	x, y := r.main.Min.X, 0
@@ -117,6 +123,10 @@ func (m *model) layoutFrame(w, h int) frameRects {
 		y += mm.details + 1
 	}
 	r.transcript = rect(x, y, m.width, m.vp.Height())
+	if below := m.rowsBelow(); below > 0 {
+		pw := lipgloss.Width(pillLabel(below)) + 2
+		r.pill = rect(r.transcript.Max.X-pw, r.transcript.Max.Y-1, pw, 1)
+	}
 	y += m.vp.Height()
 	for _, rows := range mm.optional {
 		y += 1 + rows
@@ -167,6 +177,7 @@ type region uint8
 const (
 	regNone       region = iota
 	regInput             // the textarea rows inside the prompt box
+	regPill              // the "↓ N more lines" chip
 	regTranscript        // the viewport
 	regSide              // the sidebar / REPL panel
 )
@@ -182,7 +193,7 @@ func (m *model) hit(x, y int) (reg region, lx, ly int) {
 	for _, c := range []struct {
 		reg region
 		rc  uv.Rectangle
-	}{{regInput, r.inputText}, {regTranscript, margin}, {regSide, r.side}} {
+	}{{regInput, r.inputText}, {regPill, r.pill}, {regTranscript, margin}, {regSide, r.side}} {
 		if inRect(c.rc, x, y) {
 			return c.reg, x - r.transcript.Min.X*boolToInt(c.reg == regTranscript) - c.rc.Min.X*boolToInt(c.reg != regTranscript), y - c.rc.Min.Y
 		}
@@ -236,6 +247,10 @@ func (m *model) View() tea.View {
 	// so later layers must be the ones on top.
 	uv.NewStyledString(body).Draw(scr, r.main)
 	m.paintSelection(scr, r)
+	m.drawScrollbar(scr, r)
+	if !r.pill.Empty() {
+		drawRows(scr, []string{ui.Kbd(currentTheme(), pillLabel(m.rowsBelow()))}, r.pill.Min.X, r.pill.Min.Y)
+	}
 	if m.sidebarVisible() {
 		if m.replPanel { // the REPL sits on the native background like the chat: a hairline tells the columns apart
 			rule := &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: currentTheme().Muted}}
@@ -370,5 +385,40 @@ func reverseCells(scr uv.Screen, area uv.Rectangle) {
 			n.Style.Attrs |= uv.AttrReverse
 			scr.SetCell(x, y, &n)
 		}
+	}
+}
+
+// rowsBelow is how many transcript rows sit under the window (0 when the
+// newest rows are in view).
+func (m *model) rowsBelow() int {
+	if len(m.blocks) == 0 {
+		return 0
+	}
+	return max(m.vp.TotalLineCount()-(m.vp.YOffset()+m.vp.Height()), 0)
+}
+
+func pillLabel(below int) string { return fmt.Sprintf("↓ %d more lines", below) }
+
+// drawScrollbar marks the transcript's scroll position in the column right of
+// the main text (the gap before the sidebar, or the right margin): a faint
+// track with a thumb sized to the visible share. Nothing is drawn when the
+// transcript fits.
+func (m *model) drawScrollbar(scr uv.Screen, r frameRects) {
+	total, h := m.vp.TotalLineCount(), r.transcript.Dy()
+	if total <= h || h <= 0 || r.gap.Empty() {
+		return
+	}
+	th := currentTheme()
+	x := r.gap.Min.X
+	thumb := max(h*h/total, 1)
+	top := r.transcript.Min.Y + m.vp.YOffset()*(h-thumb)/max(total-h, 1)
+	track := &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: th.Faint}}
+	grip := &uv.Cell{Content: "┃", Width: 1, Style: uv.Style{Fg: th.Muted}}
+	for y := r.transcript.Min.Y; y < r.transcript.Max.Y; y++ {
+		c := track
+		if y >= top && y < top+thumb {
+			c = grip
+		}
+		scr.SetCell(x, y, c)
 	}
 }

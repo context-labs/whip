@@ -149,6 +149,18 @@ On restart:
 See [architecture.md](architecture.md), [rlm-runtime.md](rlm-runtime.md), and
 [concurrency.md](concurrency.md) for the contracts behind these features.
 
+## Transcript navigation
+
+The transcript scrolls with the wheel and PgUp/PgDn. When it is longer than
+the window a scrollbar sits in the column right of the text; scrolled away from
+the newest rows, a "↓ N more lines" chip marks how far, and clicking it (or a
+new turn, when following) jumps back to the bottom. Drag to select and copy
+(OSC 52, with a clipboard tool fallback); double-click selects a word,
+triple-click a row, both copying immediately. Clicking a user or assistant
+message opens Message Actions (revert, copy, fork); clicking a tool result
+expands it. Failed local commands report in the top-right toast rather than in
+the conversation.
+
 ## Themes
 
 Every color whip paints comes from one theme: text, muted, accents, the

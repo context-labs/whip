@@ -249,7 +249,7 @@ func TestCopyKeepsParagraphBreaks(t *testing.T) {
 // the renderer's word-aware wrap (a space consumed by the break is gone).
 func TestContentLineWrapped(t *testing.T) {
 	m := compactCmdModel()
-	m.Update(mkWinSize(12, 30))   // 12 columns minus the 2-column left margin
+	m.Update(mkWinSize(13, 30))   // 13 columns minus the 2-column left margin and the 1-column right margin
 	m.append("abcdefghij klmnop") // wraps at width 10: "abcdefghij" / "klmnop"
 	b := m.blocks[0]
 	if got := m.contentLine(b.y0); got != "abcdefghij" {

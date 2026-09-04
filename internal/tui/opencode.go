@@ -53,6 +53,9 @@ const (
 	// opencodeRightGap separates the main column from the sidebar (opencode's
 	// main-column paddingRight=2) so the panels don't touch.
 	opencodeRightGap = 2
+	// opencodeRightMargin keeps text off the terminal edge when there is no
+	// sidebar; the transcript scrollbar draws in it.
+	opencodeRightMargin = 1
 )
 
 // The "whip" block-glyph wordmark, drawn in the same ▀▄█ pixel font as
@@ -526,8 +529,14 @@ type toastClearMsg struct{ at time.Time }
 
 // showToast displays opencode's top-right toast for 5s (a new toast replaces
 // the current one and resets the timer).
-func (m *model) showToast(msg string) tea.Cmd {
-	m.toast = msg
+func (m *model) showToast(msg string) tea.Cmd { return m.toastOf(ui.Success, msg) }
+
+// toastError reports a failed local command in the toast instead of writing
+// into the transcript, which is the conversation.
+func (m *model) toastError(msg string) tea.Cmd { return m.toastOf(ui.Error, msg) }
+
+func (m *model) toastOf(kind ui.Kind, msg string) tea.Cmd {
+	m.toast, m.toastKind = msg, kind
 	at := m.nowFn()
 	m.toastAt = at
 	return tea.Tick(5*time.Second, toastClear(at))
@@ -543,7 +552,7 @@ func toastClear(at time.Time) func(time.Time) tea.Msg {
 // places it top-right.
 func (m *model) toastRows() []string {
 	w := min(lipgloss.Width(m.toast)+5, max(m.termWidth-10, 12))
-	return []string{ui.Toast{Text: m.toast, Kind: ui.Success, Width: w}.Render(currentTheme())}
+	return []string{ui.Toast{Text: m.toast, Kind: m.toastKind, Width: w}.Render(currentTheme())}
 }
 
 // ocLeaderChord dispatches an opencode leader chord (ctrl+x then a key,
@@ -595,6 +604,8 @@ func (m *model) recalcWidth() {
 	w := m.termWidth - opencodeLeftMargin
 	if m.termWidth >= sidebarMinWidth && !m.sidebarHide {
 		w -= m.panelWidth() + opencodeRightGap
+	} else {
+		w -= opencodeRightMargin
 	}
 	if w != m.width {
 		m.width = w

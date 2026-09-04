@@ -157,7 +157,7 @@ func TestOpencodeResizeAndSidebarThresholds(t *testing.T) {
 	m.applyOpencodeStyles()
 	next, _ := m.Update(tea.WindowSizeMsg{Width: sidebarMinWidth - 1, Height: 24})
 	m = next.(*model)
-	if m.sidebarVisible() || m.width != sidebarMinWidth-1-opencodeLeftMargin {
+	if m.sidebarVisible() || m.width != sidebarMinWidth-1-opencodeLeftMargin-opencodeRightMargin {
 		t.Fatalf("narrow resize sidebar=%t width=%d", m.sidebarVisible(), m.width)
 	}
 	next, _ = m.Update(tea.WindowSizeMsg{Width: sidebarMinWidth, Height: 24})

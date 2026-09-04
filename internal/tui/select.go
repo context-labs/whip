@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -240,6 +241,11 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 		if mouse.Button != tea.MouseLeft {
 			return false, nil
 		}
+		if reg, _, _ := m.hit(mouse.X, mouse.Y); reg == regPill { // "↓ N more lines": back to the newest rows
+			m.vp.GotoBottom()
+			m.follow = true
+			return true, nil
+		}
 		// Input box: a press there starts an input-region selection. The textarea
 		// doesn't use mouse for editing, so consuming it costs nothing.
 		if p, ok := m.inputPoint(mouse.X, mouse.Y, false); ok {
@@ -249,6 +255,13 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 		p, ok := m.selPoint(mouse.X, mouse.Y, false)
 		if !ok {
 			return false, nil
+		}
+		if n := m.clickCount(mouse.X, mouse.Y); n >= 2 {
+			if sel, ok := m.selectAround(p, n); ok { // double: the word, triple: the row
+				m.sel = &sel
+				copyText(m.selText(sel))
+				return true, m.showToast("Copied to clipboard")
+			}
 		}
 		m.sel = &selection{anchor: p, cur: p}
 		return true, nil // consumed: the viewport must not scroll on this press
@@ -352,4 +365,78 @@ func (m *model) clickAt(x, y int) {
 			return
 		}
 	}
+}
+
+// clickMark remembers the last press for multi-click detection.
+type clickMark struct {
+	at   time.Time
+	x, y int
+	n    int
+}
+
+// multiClickWindow is how quickly presses on the same cell chain into a
+// double or triple click.
+const multiClickWindow = 400 * time.Millisecond
+
+// clickCount records a press and returns its position in the chain: 1 for a
+// single click, 2 for a double, 3 for a triple (then it wraps).
+func (m *model) clickCount(x, y int) int {
+	now := m.nowFn()
+	lc := m.lastClick
+	if lc.n > 0 && lc.x == x && lc.y == y && now.Sub(lc.at) <= multiClickWindow && lc.n < 3 {
+		lc.n++
+	} else {
+		lc.n = 1
+	}
+	lc.at, lc.x, lc.y = now, x, y
+	m.lastClick = lc
+	return lc.n
+}
+
+// selectAround builds a completed selection of the word (n == 2) or the whole
+// row (n >= 3) at a transcript point.
+func (m *model) selectAround(p selPos, n int) (selection, bool) {
+	line := m.contentLine(p.row)
+	width := ansi.StringWidth(line)
+	if width == 0 {
+		return selection{}, false
+	}
+	start, end := 0, width
+	if n == 2 {
+		start, end = wordBounds(line, p.col)
+		if start >= end {
+			return selection{}, false
+		}
+	}
+	return selection{anchor: selPos{row: p.row, col: start}, cur: selPos{row: p.row, col: end}, done: true}, true
+}
+
+// wordBounds returns the [start, end) cell range of the word under cell col:
+// a run of non-space cells.
+func wordBounds(line string, col int) (int, int) {
+	cells := []int{} // start cell of every rune
+	var widths []int
+	c := 0
+	for _, r := range line {
+		cells = append(cells, c)
+		w := runewidth.RuneWidth(r)
+		widths = append(widths, w)
+		c += w
+	}
+	runes := []rune(line)
+	i := 0
+	for i < len(runes) && cells[i]+widths[i] <= col {
+		i++
+	}
+	if i >= len(runes) || unicode.IsSpace(runes[i]) {
+		return 0, 0
+	}
+	lo, hi := i, i
+	for lo > 0 && !unicode.IsSpace(runes[lo-1]) {
+		lo--
+	}
+	for hi+1 < len(runes) && !unicode.IsSpace(runes[hi+1]) {
+		hi++
+	}
+	return cells[lo], cells[hi] + widths[hi]
 }

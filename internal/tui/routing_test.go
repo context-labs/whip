@@ -124,7 +124,7 @@ func TestRecalcWidthMatchesResize(t *testing.T) {
 	withSidebar := m.width
 	m.sidebarHide = true
 	m.recalcWidth()
-	if m.width != 140-opencodeLeftMargin {
+	if m.width != 140-opencodeLeftMargin-opencodeRightMargin {
 		t.Fatalf("hidden sidebar width = %d", m.width)
 	}
 	m.sidebarHide = false
