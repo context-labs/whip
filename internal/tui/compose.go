@@ -27,25 +27,25 @@ type frameRects struct {
 	status                uv.Rectangle // the status line
 }
 
-// layoutFrame lays out a w×h frame: a left margin, the main column at
-// m.width with its regions stacked in viewBody's order, and (when visible)
-// the gap and the sidebar/REPL panel on the right.
-func (m *model) layoutFrame(w, h int) frameRects {
-	r := frameRects{area: rect(0, 0, w, h), main: rect(opencodeLeftMargin, 0, m.width, h)}
-	if m.sidebarVisible() {
-		pw := m.panelWidth()
-		r.gap = rect(w-pw-opencodeRightGap, 0, opencodeRightGap, h)
-		r.side = rect(w-pw, 0, pw, h)
-	}
-	x, y := r.main.Min.X, 0
+// measure is every main-column region except the transcript, in viewBody's
+// row order. layout() gives the transcript what these leave over, and
+// layoutFrame stacks the rectangles from the same numbers, so the budget and
+// the geometry cannot drift apart.
+type measure struct {
+	details  int   // agent details banner rows (0 = none); followed by a blank row
+	optional []int // each present transient region: a blank row, then its rows
+	rewind   int   // rewind picker rows (0 = none); followed by a blank row
+	input    int   // prompt rows: the box (textarea + 4) or the bare name-prompt row; 0 while a command owns the terminal
+	inputTxt int   // textarea rows inside the prompt
+	hints    int   // quit / esc hint rows
+	dock     int   // agents dock rows (narrow terminals)
+}
+
+func (m *model) measure() measure {
+	var mm measure
 	if details := m.agentDetails(); details != "" {
-		dh := lipgloss.Height(details)
-		r.details = rect(x, y, m.width, dh)
-		y += dh + 1 // details, then a blank row
+		mm.details = lipgloss.Height(details)
 	}
-	r.transcript = rect(x, y, m.width, m.vp.Height())
-	y += m.vp.Height()
-	// each optional region is a blank row and then its rows (viewBody's "\n"+X+"\n")
 	for _, opt := range []struct {
 		on   bool
 		rows func() int
@@ -58,39 +58,87 @@ func (m *model) layoutFrame(w, h int) frameRects {
 		{len(m.plan) > 0, func() int { return lipgloss.Height(m.planView()) }},
 	} {
 		if opt.on {
-			y += 1 + opt.rows()
+			mm.optional = append(mm.optional, opt.rows())
 		}
 	}
-	y++ // the blank row above the rewind picker / the input
 	if m.rew != nil {
-		y += lipgloss.Height(m.rewindView()) + 1
+		mm.rewind = lipgloss.Height(m.rewindView())
 	}
 	if m.iactive == nil {
-		n := m.input.Height()
-		if m.namePrompt != nil { // a bare "label ▏value" row, no box chrome
+		mm.inputTxt = m.input.Height()
+		mm.input = mm.inputTxt + 4 // padding row, textarea, padding row, meta row, tail
+		if m.namePrompt != nil {
+			mm.input = mm.inputTxt // a bare "label ▏value" row, no box chrome
+		}
+	}
+	if m.quit1 {
+		mm.hints++
+	}
+	if m.escClr || (m.esc1 && m.rew == nil && m.namePrompt == nil) {
+		mm.hints++
+	}
+	if dock := m.agentsDock(); dock != "" {
+		mm.dock = lipgloss.Height(dock)
+	}
+	return mm
+}
+
+// fixed is the number of rows everything but the transcript needs.
+func (mm measure) fixed() int {
+	n := 0
+	if mm.details > 0 {
+		n += mm.details + 1
+	}
+	for _, rows := range mm.optional {
+		n += 1 + rows
+	}
+	n++ // the blank row above the rewind picker / the input
+	if mm.rewind > 0 {
+		n += mm.rewind + 1
+	}
+	return n + mm.input + mm.hints + mm.dock + 2 // + a blank row and the status line
+}
+
+// layoutFrame lays out a w×h frame: a left margin, the main column at
+// m.width with its regions stacked in viewBody's order around the transcript
+// (whose height the viewport already holds), and (when visible) the gap and
+// the sidebar/REPL panel on the right.
+func (m *model) layoutFrame(w, h int) frameRects {
+	r := frameRects{area: rect(0, 0, w, h), main: rect(opencodeLeftMargin, 0, m.width, h)}
+	if m.sidebarVisible() {
+		pw := m.panelWidth()
+		r.gap = rect(w-pw-opencodeRightGap, 0, opencodeRightGap, h)
+		r.side = rect(w-pw, 0, pw, h)
+	}
+	mm := m.measure()
+	x, y := r.main.Min.X, 0
+	if mm.details > 0 {
+		r.details = rect(x, y, m.width, mm.details)
+		y += mm.details + 1
+	}
+	r.transcript = rect(x, y, m.width, m.vp.Height())
+	y += m.vp.Height()
+	for _, rows := range mm.optional {
+		y += 1 + rows
+	}
+	y++
+	if mm.rewind > 0 {
+		y += mm.rewind + 1
+	}
+	if mm.input > 0 {
+		r.input = rect(x, y, m.width, mm.input)
+		if m.namePrompt != nil {
 			tx := x + lipgloss.Width(m.namePrompt.label) + 1
 			if m.namePrompt.mask {
 				tx += 2 // the "┃ " the mask view prepends
 			}
-			r.input = rect(x, y, m.width, n)
-			r.inputText = rect(tx, y, x+m.width-tx, n)
-		} else { // the prompt box: a padding row, the textarea, a padding row, the meta row, the tail
-			r.input = rect(x, y, m.width, n+4)
-			r.inputText = rect(x+3, y+1, m.width-3, n) // "┃  " gutter
+			r.inputText = rect(tx, y, x+m.width-tx, mm.inputTxt)
+		} else {
+			r.inputText = rect(x+3, y+1, m.width-3, mm.inputTxt) // "┃  " gutter
 		}
+		y += mm.input
 	}
-	if !r.input.Empty() {
-		y = r.input.Max.Y
-	}
-	if m.quit1 {
-		y++
-	}
-	if m.escClr || (m.esc1 && m.rew == nil && m.namePrompt == nil) {
-		y++
-	}
-	if dock := m.agentsDock(); dock != "" {
-		y += lipgloss.Height(dock)
-	}
+	y += mm.hints + mm.dock
 	r.status = rect(x, y+1, m.width, 1) // a blank row, then the status line
 	return r
 }
@@ -208,7 +256,7 @@ func (m *model) View() tea.View {
 		}
 	} else if m.menu != nil { // the completion popup floats above the input; the frame beneath never reflows
 		menu := strings.Split(m.menuView(), "\n")
-		drawRows(scr, menu, opencodeLeftMargin, m.inputBodyOff-len(menu)) // rows above the frame clip
+		drawRows(scr, menu, opencodeLeftMargin, r.input.Min.Y-len(menu)) // rows above the frame clip
 	}
 	if m.toast != "" {
 		toast := m.toastRows()

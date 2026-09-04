@@ -173,20 +173,17 @@ type model struct {
 	selDragX int        // last drag pointer position (edge auto-scroll re-checks it)
 	selDragY int
 	// Input box selection tracking: View records the input's absolute screen
-	// rows so drag-select can hit-test/extract/highlight it. inputBodyOff is
-	// the line offset within viewBody where the input starts; inputTop is the
-	// absolute screen row (the view starts at row 0), -1 when hidden.
-	inputBodyOff int
-	inputLines   []string         // the input box's rendered lines, ANSI-stripped
-	scr          *uv.ScreenBuffer // the frame buffer View draws into (reused across frames)
-	themeHow     string           // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
-	sessTitle    string           // cached session title for the opencode sidebar (from the store; updated on title/rename)
-	msgActions   *msgActions      // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
-	ocThink      string           // opencode mode: reasoning text accumulated for the expandable "+ Thought" block
-	toast        string           // opencode mode: top-right toast text; "" = none
-	toastAt      time.Time        // when the current toast was shown (stale clears are ignored)
-	leaderAt     time.Time        // opencode mode: when ctrl+x armed the leader chord; zero = not pending
-	sidebarHide  bool             // opencode mode: ctrl+x b hides the sidebar
+	// rows so drag-select can hit-test/extract/highlight it.
+	inputLines  []string         // the input box's rendered lines, ANSI-stripped
+	scr         *uv.ScreenBuffer // the frame buffer View draws into (reused across frames)
+	themeHow    string           // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
+	sessTitle   string           // cached session title for the opencode sidebar (from the store; updated on title/rename)
+	msgActions  *msgActions      // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
+	ocThink     string           // opencode mode: reasoning text accumulated for the expandable "+ Thought" block
+	toast       string           // opencode mode: top-right toast text; "" = none
+	toastAt     time.Time        // when the current toast was shown (stale clears are ignored)
+	leaderAt    time.Time        // opencode mode: when ctrl+x armed the leader chord; zero = not pending
+	sidebarHide bool             // opencode mode: ctrl+x b hides the sidebar
 	// updateLatest is a pending newer release tag ("" when none), picked up
 	// from update.Pending at startup; the notice it renders is durable, so a
 	// check that lands after the report still shows next launch.
@@ -928,65 +925,16 @@ func (m *model) growInput() {
 	m.input.Focus() // re-snapshot the style pointer at the COPIED struct (see applyOpencodeStyles)
 }
 
-// layout gives the viewport whatever height the chrome doesn't need,
+// layout gives the viewport whatever height the other regions don't need,
 // growing the input box with its content so the whole prompt stays visible.
+// The same measurements place the region rectangles (layoutFrame), so a
+// full transcript can never overflow the terminal or shift the mouse rows.
 func (m *model) layout() {
 	m.growInput()
-	// Always-on rows around the viewport: header, tips, blank below tips,
-	// blank above the input, the input itself, blank above the status line,
-	// and the status line. This count MUST match viewBody exactly: if chrome
-	// undercounts, a full transcript renders MORE rows than the terminal has,
-	// every frame scrolls the top rows off-screen, and all mouse math lands
-	// that many rows above the pointer (the off-by-two drag-select bug: the
-	// status line + its blank were never budgeted).
-	// the prompt panel adds paddingTop, a blank, the model/mode row, and the ▀
-	// tail around the input; the status line and its blank sit below
-	chrome := 7 + m.input.Height()
-	if m.namePrompt != nil {
-		chrome -= 4 // the bare prompt row has no box (padding rows, meta row, tail)
-	}
-	if m.iactive != nil {
-		// input box is hidden while a command has the terminal; drop its height
-		// and the leading blank line View inserts before it.
-		chrome -= m.input.Height()
-	}
-	if len(m.plan) > 0 {
-		chrome += len(m.plan) + 1
-	}
-	if details := m.agentDetails(); details != "" {
-		chrome += lipgloss.Height(details) + 1
-	}
-	if m.current != "" {
-		chrome += lipgloss.Height(m.currentView()) + 1 // + its blank separator
-	}
-	if m.curThink != "" {
-		chrome += lipgloss.Height(m.thinkView()) + 1
-	}
-	if m.busy && !m.thinkStart.IsZero() {
-		chrome += 2 // the live "+ Thinking…" line + its blank separator (must match viewBody)
-	}
-	if m.iactive != nil {
-		chrome += lipgloss.Height(m.interactiveView()) + 1
-	}
-	if m.permDialog != nil {
-		chrome += lipgloss.Height(m.permView()) + 1 // viewBody emits "\n"+permView(); unbudgeted it clips the alt-screen frame and shifts mouse rows
-	}
-	if m.rew != nil {
-		chrome += lipgloss.Height(m.rewindView()) + 1 // + the extra blank below
-	}
-	if m.quit1 {
-		chrome++ // "press ctrl+c again to quit"
-	}
-	if m.escClr || (m.esc1 && m.rew == nil && m.namePrompt == nil) {
-		chrome++ // esc hint line (same conditions as viewBody)
-	}
-	if dock := m.agentsDock(); dock != "" { // lipgloss.Height("") is 1, not 0
-		chrome += lipgloss.Height(dock) // the blank above the input is already in the base
-	}
 	// Floor the viewport width too: a degenerate m.width (1–4 cols) would set
 	// the viewport to 1 col and re-slice the transcript into a one-char strip,
 	// regardless of the render floor in refreshVP.
-	w, h := max(m.width, minRenderWidth), max(m.height-chrome, 1)
+	w, h := max(m.width, minRenderWidth), max(m.height-m.measure().fixed(), 1)
 	if m.vp.Width() != w || m.vp.Height() != h {
 		m.vp.SetWidth(w)
 		m.vp.SetHeight(h)
@@ -1363,9 +1311,6 @@ func (m *model) viewBody() string {
 	if m.rew != nil {
 		b.WriteString(m.rewindView() + "\n\n")
 	}
-	// Record where the input box starts (line offset within this viewBody) so
-	// View can convert it to an absolute screen row for drag-select hit-testing.
-	m.inputBodyOff = strings.Count(b.String(), "\n")
 	if m.iactive == nil {
 		if m.namePrompt != nil {
 			b.WriteString(m.namePrompt.label + " ")

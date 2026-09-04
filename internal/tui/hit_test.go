@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -151,5 +152,55 @@ func TestSidebarPressDoesNotSelectChat(t *testing.T) {
 	m.clickAt(x, y)
 	if m.msgActions != nil {
 		t.Fatal("sidebar press opened message actions")
+	}
+}
+
+// The region rectangles partition the main column top to bottom and the
+// status line lands on the last row in every layout state: the budget layout()
+// gives the viewport and the geometry View draws come from one measurement.
+func TestLayoutRectsPartitionMainColumn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		prep func(m *model)
+	}{
+		{"idle", func(*model) {}},
+		{"details", func(m *model) { m.agentOpen = "root-agent:ba06cc4c6983c16d" }},
+		{"thinking", func(m *model) { m.busy = true; m.thinkStart = m.now() }},
+		{"thought", func(m *model) { m.curThink = "considering the options" }},
+		{"current", func(m *model) { m.current = "streaming partial answer" }},
+		{"quit-hint", func(m *model) { m.quit1 = true }},
+		{"esc-hint", func(m *model) { m.escClr = true }},
+		{"rewind", func(m *model) { m.rew = &rewindState{entries: []rewindEntry{{cut: 0, text: "x"}}} }},
+		{"name-prompt", func(m *model) { m.openNamePrompt("name:", "", func(string) {}) }},
+		{"tall-input", func(m *model) { m.input.SetValue("one\ntwo\nthree\nfour") }},
+	} {
+		for _, w := range []int{140, 79} {
+			t.Run(fmt.Sprintf("%s/%d", tc.name, w), func(t *testing.T) {
+				m := goldenModel(w, 40)
+				tc.prep(m)
+				m.layout()
+				frame := viewStr(m)
+				r := m.frameNow()
+				if h := lipgloss.Height(frame); h != 40 {
+					t.Fatalf("frame is %d rows", h)
+				}
+				y := 0
+				for _, rc := range []uv.Rectangle{r.details, r.transcript, r.input, r.status} {
+					if rc.Empty() {
+						continue
+					}
+					if rc.Min.Y < y {
+						t.Fatalf("%s: %v overlaps the region above (y=%d)", tc.name, rc, y)
+					}
+					y = rc.Max.Y
+				}
+				if r.status.Min.Y != 39 {
+					t.Fatalf("%s: status on row %d, want 39 (frame %v)", tc.name, r.status.Min.Y, r)
+				}
+				if r.transcript.Dy() != m.vp.Height() || r.transcript.Dy() < 1 {
+					t.Fatalf("%s: transcript rect %v vs viewport height %d", tc.name, r.transcript, m.vp.Height())
+				}
+			})
+		}
 	}
 }
