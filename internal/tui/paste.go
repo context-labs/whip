@@ -321,6 +321,12 @@ type pastedImage struct {
 	display string // original basename for the chip; "" for an anonymous clipboard paste
 }
 
+// chipSentinel is an invisible zero-width space inserted before the closing
+// bracket of every paste-inserted chip. The user can't type it, so the
+// expandImageChips regex requires it — pattern-matching only real chips, not
+// hand-typed "[Image 1]" text that would otherwise attach images[0].
+const chipSentinel = "\u200b"
+
 // chipText renders the compact chip for the image, e.g. "[Image 1]" for an
 // anonymous paste or "[Image 1: Screenshot 2026-09-04…png]" when a source
 // filename is known. The number is what maps back to the stored copy at
@@ -328,12 +334,13 @@ type pastedImage struct {
 // identity. A literal ] in the filename would close the chip early for the
 // expandImageChips regex and silently drop the attachment, so brackets are
 // stripped from the display snippet (cosmetic only — resolution uses n).
+// The invisible chipSentinel before ] marks the chip as paste-inserted.
 func (p pastedImage) chipText() string {
 	if p.display == "" {
-		return fmt.Sprintf("[Image %d]", p.n)
+		return fmt.Sprintf("[Image %d%s]", p.n, chipSentinel)
 	}
 	display := strings.NewReplacer("[", "(", "]", ")").Replace(p.display)
-	return fmt.Sprintf("[Image %d: %s]", p.n, truncateImageName(display, maxImageNameRunes))
+	return fmt.Sprintf("[Image %d: %s%s]", p.n, truncateImageName(display, maxImageNameRunes), chipSentinel)
 }
 
 // maxImageNameRunes is the widest a chip filename snippet may be before the
@@ -392,5 +399,7 @@ func (m *model) expandImageChips(text string) string {
 
 // imageChipRe matches the [Image N] / [Image N: name] chips inserted by paste.
 // Only the leading number matters for resolving back to the stored copy; the
-// display-name part (opaque to the model) is ignored.
-var imageChipRe = regexp.MustCompile(`\[Image\s+(\d+)(?::[^\]]*)?\]`)
+// display-name part (opaque to the model) is ignored. The trailing zero-width
+// sentinel (chipSentinel) is required, so hand-typed "[Image 1]" text — which
+// lacks it — never matches and never attaches an image the user didn't paste.
+var imageChipRe = regexp.MustCompile(`\[Image\s+(\d+)(?::[^\]\x{200b}]*)?\x{200b}\]`)

@@ -25,7 +25,7 @@ func TestChipDisplayNameSanitizesBrackets(t *testing.T) {
 	tm, _ = m.Update(cmd())
 	m = tm.(*model)
 	chip := m.input.Value()
-	if !strings.Contains(chip, "[Image 1: a)b.png]") {
+	if !strings.Contains(chip, "[Image 1: a)b.png"+chipSentinel+"]") {
 		t.Errorf("chip should sanitize ] to ), got %q", chip)
 	}
 	// And the chip must still resolve back to the stored copy at submit.

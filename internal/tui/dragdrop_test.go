@@ -30,7 +30,7 @@ func TestFinderDragImagePathDetected(t *testing.T) {
 	if len(m.images) != 1 {
 		t.Fatalf("Finder drag produced %d images, want 1", len(m.images))
 	}
-	if !strings.Contains(m.input.Value(), "[Image 1: Screenshot") || !strings.Contains(m.input.Value(), ".png]") {
+	if !strings.Contains(m.input.Value(), "[Image 1: Screenshot") || !strings.Contains(m.input.Value(), ".png"+chipSentinel+"]") {
 		t.Errorf("input = %q, want the [Image 1: <name>…png] chip", m.input.Value())
 	}
 }

@@ -31,7 +31,7 @@ func TestPastedScreenshotPathAttachesImage(t *testing.T) {
 	tm, _ = m.Update(cmd())
 	m = tm.(*model)
 	// The input shows a compact chip, not the raw path or file contents.
-	if !strings.Contains(m.input.Value(), "[Image 1: Screenshot]") {
+	if !strings.Contains(m.input.Value(), "[Image 1: Screenshot"+chipSentinel+"]") {
 		t.Fatalf("input should show a chip, got %q", m.input.Value())
 	}
 	// The on-disk copy (auto-numbered as this session's image 1) holds the
@@ -115,24 +115,24 @@ func TestPasteCollapseShortPasteIgnored(t *testing.T) {
 func TestImageChipRendering(t *testing.T) {
 	// Anonymous clipboard paste → bare number, no filename.
 	anon := pastedImage{n: 2, path: "/tmp/copy.png", display: ""}
-	if got := anon.chipText(); got != "[Image 2]" {
-		t.Fatalf("anonymous chip = %q, want %q", got, "[Image 2]")
+	if got := anon.chipText(); got != "[Image 2"+chipSentinel+"]" {
+		t.Fatalf("anonymous chip = %q, want %q", got, "[Image 2"+chipSentinel+"]")
 	}
 
 	// Short source filename fits whole.
 	short := pastedImage{n: 1, path: "/tmp/copy.png", display: "shot.png"}
-	if got := short.chipText(); got != "[Image 1: shot.png]" {
-		t.Fatalf("short chip = %q, want %q", got, "[Image 1: shot.png]")
+	if got := short.chipText(); got != "[Image 1: shot.png"+chipSentinel+"]" {
+		t.Fatalf("short chip = %q, want %q", got, "[Image 1: shot.png"+chipSentinel+"]")
 	}
 
 	// Long screenshot name truncates, keeping the extension.
 	long := pastedImage{n: 3, path: "/tmp/copy.png", display: "Screenshot 2026-09-04 at 10.21.33 AM.png"}
 	got := long.chipText()
-	if strings.Contains(got, "10.21.33") || !strings.HasSuffix(got, ".png]") || !strings.Contains(got, "…") {
+	if strings.Contains(got, "10.21.33") || !strings.HasSuffix(got, ".png"+chipSentinel+"]") || !strings.Contains(got, "…") {
 		t.Fatalf("long chip = %q, want a truncated stem + ellipsis + .png", got)
 	}
 	// The snippet between "colon " and the closing bracket respects the budget.
-	inner := strings.TrimSuffix(strings.TrimPrefix(got, "[Image 3: "), "]")
+	inner := strings.TrimSuffix(strings.TrimPrefix(got, "[Image 3: "), chipSentinel+"]")
 	if runewidth.StringWidth(inner) > maxImageNameRunes {
 		t.Fatalf("chip snippet %q exceeds the %d-rune budget", inner, maxImageNameRunes)
 	}
@@ -162,7 +162,7 @@ func TestImageChipsNumberAndResolve(t *testing.T) {
 	paste(src1)
 	paste(src2)
 
-	if !strings.Contains(m.input.Value(), "[Image 1: first.png]") || !strings.Contains(m.input.Value(), "[Image 2: second.png]") {
+	if !strings.Contains(m.input.Value(), "[Image 1: first.png"+chipSentinel+"]") || !strings.Contains(m.input.Value(), "[Image 2: second.png"+chipSentinel+"]") {
 		t.Fatalf("chips should number 1 and 2, got %q", m.input.Value())
 	}
 	if m.imageSeq != 2 || len(m.images) != 2 {
@@ -179,8 +179,17 @@ func TestImageChipsNumberAndResolve(t *testing.T) {
 		t.Fatal("expandImageChips mutating the input value")
 	}
 	// A chip with an unknown number stays literal rather than guessing.
-	if got := m.expandImageChips("[Image 99: nope.png]"); got != "[Image 99: nope.png]" {
+	if got := m.expandImageChips("[Image 99: nope.png" + chipSentinel + "]"); got != "[Image 99: nope.png"+chipSentinel+"]" {
 		t.Fatalf("unknown chip should stay literal, got %q", got)
+	}
+	// Hand-typed "[Image 1]" (no sentinel) must NOT expand — it would silently
+	// attach images[0] the user never pasted.
+	if got := m.expandImageChips("[Image 1]"); got != "[Image 1]" {
+		t.Fatalf("hand-typed [Image 1] without sentinel should stay literal, got %q", got)
+	}
+	// Same for a hand-typed chip with a display name.
+	if got := m.expandImageChips("[Image 1: fake.png]"); got != "[Image 1: fake.png]" {
+		t.Fatalf("hand-typed chip without sentinel should stay literal, got %q", got)
 	}
 }
 
@@ -211,7 +220,7 @@ func TestTempImageCopiedBeforeSourceVanishes(t *testing.T) {
 		t.Fatal("the paste must copy out of the transient staging dir, not reference it")
 	}
 	// The chip still shows the original staging filename.
-	if !strings.Contains(m.input.Value(), "[Image 1: Screenshot temp]") {
+	if !strings.Contains(m.input.Value(), "[Image 1: Screenshot temp"+chipSentinel+"]") {
 		t.Fatalf("chip should carry the staging display name, got %q", m.input.Value())
 	}
 
