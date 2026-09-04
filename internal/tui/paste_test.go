@@ -206,8 +206,8 @@ func TestTempImageCopiedBeforeSourceVanishes(t *testing.T) {
 	if len(m.images) != 1 {
 		t.Fatalf("expected one pasted image, got %d", len(m.images))
 	}
-	copy := m.images[0].path
-	if copy == source {
+	copied := m.images[0].path
+	if copied == source {
 		t.Fatal("the paste must copy out of the transient staging dir, not reference it")
 	}
 	// The chip still shows the original staging filename.
@@ -219,7 +219,7 @@ func TestTempImageCopiedBeforeSourceVanishes(t *testing.T) {
 	if err := os.Remove(source); err != nil {
 		t.Fatal(err)
 	}
-	got, err := os.ReadFile(copy)
+	got, err := os.ReadFile(copied)
 	if err != nil {
 		t.Fatalf("copied image should survive the source vanishing: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestTempImageCopiedBeforeSourceVanishes(t *testing.T) {
 	}
 
 	// And prepareTurn can still resolve the chip to the surviving copy.
-	if !strings.Contains(m.expandImageChips(m.input.Value()), "@"+copy) {
+	if !strings.Contains(m.expandImageChips(m.input.Value()), "@"+copied) {
 		t.Fatalf("chip should resolve to the surviving copy, got %q", m.expandImageChips(m.input.Value()))
 	}
 }

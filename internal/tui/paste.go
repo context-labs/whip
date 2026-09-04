@@ -337,17 +337,17 @@ const maxImageNameRunes = 24
 // truncateImageName shortens a display name for a chip to at most max runes of
 // display width, keeping the file extension and as much of the stem as fits,
 // joined by "…" so a long screenshot name collapses readably.
-func truncateImageName(name string, max int) string {
-	if runewidth.StringWidth(name) <= max {
+func truncateImageName(name string, limit int) string {
+	if runewidth.StringWidth(name) <= limit {
 		return name
 	}
 	ext := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
 	const ellipsis = "…"
-	budget := max - runewidth.StringWidth(ellipsis) - runewidth.StringWidth(ext)
+	budget := limit - runewidth.StringWidth(ellipsis) - runewidth.StringWidth(ext)
 	if budget < 1 {
 		// No room for any stem + "…" + ext; keep just the extension if it fits.
-		if runewidth.StringWidth(ext) <= max {
+		if runewidth.StringWidth(ext) <= limit {
 			return ext
 		}
 		return ellipsis
