@@ -185,6 +185,9 @@ func bashTool() Tool {
 			if a.Interactive && InteractiveBash != nil {
 				keys := make(chan []byte, 16)
 				out := InteractiveBash.Run(ctx, a.Command, dur, keys)
+				if isBinary([]byte(out)) {
+					return binaryPlaceholder("", len(out)), nil
+				}
 				return TruncateTail(out), nil
 			}
 
@@ -198,6 +201,9 @@ func bashTool() Tool {
 				OnUpdate: onUpdate,
 			})
 
+			if isBinary([]byte(res.Output)) {
+				return binaryPlaceholder("", len(res.Output)), nil
+			}
 			s := TruncateTail(res.Output)
 			if len(res.Output) > maxOutput {
 				// The model only sees the tail; give it a way to reach the
@@ -237,6 +243,9 @@ func readTool() Tool {
 			data, err := os.ReadFile(a.Path)
 			if err != nil {
 				return "", err
+			}
+			if isBinary(data) {
+				return binaryPlaceholder(a.Path, len(data)), nil
 			}
 			lines := strings.Split(string(data), "\n")
 			start := max(a.Offset-1, 0)

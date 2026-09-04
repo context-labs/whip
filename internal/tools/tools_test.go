@@ -1,9 +1,11 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -229,5 +231,61 @@ func TestWriteToolDiffOnOverwrite(t *testing.T) {
 	}
 	if !strings.Contains(out, "```diff") || !strings.Contains(out, "2 - b") || !strings.Contains(out, "2 + c") {
 		t.Fatalf("overwrite should diff with absolute line numbers: %q", out)
+	}
+}
+
+// Binary tool output must be replaced with a compact placeholder instead of
+// having raw NUL/control bytes or base64 garbage injected into the
+// conversation. isBinary drives the read/bash gate; read exercises the full
+// path with a real binary file, bash with a synthetic binary stream.
+func TestBinaryOutputPlaceholder(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []byte
+		want bool
+	}{
+		{name: "empty text", in: nil, want: false},
+		{name: "plain text", in: []byte("package main\nimport \"fmt\"\nfunc main() { fmt.Println(\"hi\") }\n"), want: false},
+		{name: "utf8 text", in: []byte("héllo wörld → ütf8 ✓\n"), want: false},
+		{name: "single nul", in: []byte{0x00}, want: true},
+		{name: "nul in text", in: append([]byte("abc"), 0x00, 'd', 'e', 'f'), want: true},
+		{name: "invalid utf8", in: []byte{0xff, 0xfe, 0x00, 'x'}, want: true}, // BOM-ish, not valid
+		{name: "control heavy", in: bytes.Repeat([]byte{0x01}, 100), want: true},
+		{name: "whitespace controls ok", in: []byte("line1\n\tline2\rline3\f\v"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isBinary(tt.in); got != tt.want {
+				t.Fatalf("isBinary(%q) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+
+	// read: a real binary file straight through the read tool.
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "blob.bin")
+	raw := append(bytes.Repeat([]byte{0x01, 0x02, 0x03}, 40), 0x00, 0x00, 0x00) // ~120 bytes binary
+	if err := os.WriteFile(bin, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := run(t, "read", fmt.Sprintf(`{"path":%q}`, bin))
+	want := fmt.Sprintf("[binary: %s, %s]", bin, bytesHuman(len(raw)))
+	if out != want {
+		t.Fatalf("read placeholder:\n got %q\nwant %q", out, want)
+	}
+
+	// bash: a command that streams binary bytes. NULs can't travel through a
+	// shell string argument, so write a binary file and cat it.
+	if out := run(t, "bash", fmt.Sprintf(`{"command":"cat %s | head -c 200"}`, bin)); !strings.Contains(out, "not shown") {
+		t.Fatalf("bash binary output not replaced: %q", out)
+	}
+
+	// A plain-text read still returns line-numbered content.
+	txt := filepath.Join(dir, "text.txt")
+	if err := os.WriteFile(txt, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out := run(t, "read", fmt.Sprintf(`{"path":%q}`, txt)); !strings.Contains(out, "2\ttwo") {
+		t.Fatalf("text read should stay intact: %q", out)
 	}
 }
