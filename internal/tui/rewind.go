@@ -118,7 +118,7 @@ func (m *model) rewindKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	state := m.rew
 	selected := func() rewindEntry { return state.entries[state.sel] }
 	switch msg.String() {
-	case "esc":
+	case "esc", "ctrl+c":
 		m.vp.SetYOffset(state.savedVP)
 		m.rew = nil
 	case "up":

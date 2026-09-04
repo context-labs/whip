@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 const (
@@ -95,8 +94,4 @@ func (m *model) paletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		p.applyFilter(m)
 	}
 	return m, nil
-}
-
-func (m *model) paletteChrome(value string) string {
-	return lipgloss.NewStyle().PaddingLeft(3).Render(value)
 }

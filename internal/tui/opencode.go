@@ -22,12 +22,6 @@ import (
 // changes. It is the only UI since 2026-09 (the inline mode was removed).
 // (Display → UI mode).
 
-// ocActive is always true now that the full-screen UI is the only UI; it
-// remains a variable until the classic render branches are deleted. It is
-// package scope so block.render (a
-// method on block, not model) can branch on the render mode.
-var ocActive = true
-
 // opencode's own theme palette (packages/tui/src/theme/assets/opencode.json),
 // resolved against whip's OWN detected theme (mdLight/mdKnown) rather than
 // lipgloss.AdaptiveColor — AdaptiveColor reads lipgloss's separate background
@@ -46,30 +40,6 @@ func ocPadTo(content string, width int, bg color.Color) string {
 		content += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", pad))
 	}
 	return content
-}
-
-// ocOnBg lays a pre-styled line ONTO the box background: the line's inner
-// styles close with full resets, which drop back to the terminal-default
-// background and punch bright chips through the panel. Re-open the box bg at
-// the start and after every reset.
-func ocOnBg(ln string, bg color.Color) string {
-	seq := bgSeqOf(bg)
-	if seq == "" || ln == "" {
-		return ln
-	}
-	ln = bareSGR.Replace(ln)
-	return seq + strings.ReplaceAll(ln, "\x1b[0m", "\x1b[0m"+seq) + "\x1b[0m"
-}
-
-// bgSeqOf extracts the raw SGR sequence that opens the given background
-// ("" when the color is a no-op, e.g. NoColor on an unknown theme).
-func bgSeqOf(bg color.Color) string {
-	r := lipgloss.NewStyle().Background(bg).Render("x")
-	i := strings.IndexByte(r, 'x')
-	if i <= 0 {
-		return ""
-	}
-	return r[:i]
 }
 
 // ocThemeKnown reports whether whip resolved the terminal background — glyph
@@ -291,14 +261,11 @@ func (m *model) opencodePrompt(inner string, width int) string {
 // bar (accent color) with one blank padding row above and below the text.
 // Themed with whip's styles (no forced background), so the bar + padding give
 // the card impression while honoring light/dark/auto.
-func opencodeUserCard(text string, width int, hover bool) string {
+func opencodeUserCard(text string, width int) string {
 	if width < 4 {
 		return text
 	}
 	bg := ocPanelBg()
-	if hover {
-		bg = ocElementBg() // opencode's hover state: the card lifts to the element shade
-	}
 	bar := lipgloss.NewStyle().Foreground(ocAgentCol()).Background(bg).Render("┃")
 	txt := lipgloss.NewStyle().Foreground(ocTextCol()).Background(bg)
 	lines := strings.Split(wrap(text, width-3), "\n")
@@ -517,13 +484,9 @@ func ocToolPending(name, args string) string {
 
 // ocToolResult renders a tool result block: collapsed to a single muted "↳ N
 // lines" hint (opencode tucks results away behind the tool row), the full body
-// indented when expanded. Errors keep the error color; hover brightens the
-// hint (opencode's clickable-row hover).
-func ocToolResult(lines []string, expanded, isErr, hover bool, width int) string {
+// indented when expanded. Errors keep the error color.
+func ocToolResult(lines []string, expanded, isErr bool, width int) string {
 	style := lipgloss.NewStyle().Foreground(ocMutedCol())
-	if hover {
-		style = lipgloss.NewStyle().Foreground(ocTextCol())
-	}
 	if isErr {
 		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75"))
 	}
@@ -757,10 +720,10 @@ func (m *model) ocLeaderChord(k string) (tea.Model, tea.Cmd, bool) {
 		return mcCmd(m.thinCommand("/clear"))
 	case "b": // sidebar toggle
 		m.sidebarHide = !m.sidebarHide
-		m.ocRecalcWidth()
+		m.recalcWidth()
 	case "r": // REPL panel in the sidebar
 		m.replPanel = !m.replPanel
-		m.ocRecalcWidth()
+		m.recalcWidth()
 	case "t": // theme list
 		m.openThinThemePalette()
 	case "c": // compact
@@ -784,9 +747,10 @@ func (m *model) ocLeaderChord(k string) (tea.Model, tea.Cmd, bool) {
 // mcCmd adapts a (model, cmd) pair to the chord-dispatch triple.
 func mcCmd(mod tea.Model, cmd tea.Cmd) (tea.Model, tea.Cmd, bool) { return mod, cmd, true }
 
-// ocRecalcWidth recomputes the content width from the terminal width (mirrors
-// the WindowSizeMsg math) — needed when the sidebar is toggled at runtime.
-func (m *model) ocRecalcWidth() {
+// recalcWidth derives the main-column width from the terminal width and the
+// sidebar state (the one place this math lives: WindowSizeMsg and the
+// runtime sidebar/REPL toggles both call it).
+func (m *model) recalcWidth() {
 	if m.termWidth == 0 {
 		return
 	}
@@ -842,34 +806,6 @@ func (m *model) vpTopRows() int { return 0 }
 
 // vpXOff is the columns the main body is shifted right (opencode's left margin).
 func (m *model) vpXOff() int { return opencodeLeftMargin }
-
-// updateHover tracks the message block under the pointer (opencode's hover
-// effect on user cards) and re-renders when it changes.
-func (m *model) updateHover(x, y int) {
-	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset() + m.vpLead
-	idx := -1
-	if x >= m.vpXOff() && x < m.vpXOff()+m.width {
-		for i := range m.blocks {
-			k := m.blocks[i].kind
-			clickable := k == blockUser || k == blockTool || k == blockThought // rows with a click affordance highlight on hover
-			if clickable && row >= m.blocks[i].y0 && row <= m.blocks[i].y1 {
-				idx = i
-				break
-			}
-		}
-	}
-	if idx == m.hoverIdx {
-		return
-	}
-	if m.hoverIdx >= 0 && m.hoverIdx < len(m.blocks) {
-		m.blocks[m.hoverIdx].hover, m.blocks[m.hoverIdx].stale = false, true
-	}
-	if idx >= 0 {
-		m.blocks[idx].hover, m.blocks[idx].stale = true, true
-	}
-	m.hoverIdx = idx
-	m.refreshVP()
-}
 
 // ocOverlay draws the Commands dialog OVER the live session, opencode-style:
 // the whole frame keeps rendering behind the modal, dimmed, with the dialog
@@ -960,7 +896,6 @@ func (m *model) ocModeLabel() string {
 // input box fill is derived from the detected terminal background.
 func (m *model) applyOpencodeStyles() {
 	invalidateMDRenderer() // the markdown style follows the scheme; rebuild
-	ocActive = true
 	th := currentTheme()
 	m.spin = spinner.New(spinner.WithSpinner(ocKnightRider))
 	m.spin.Style = th.Spinner

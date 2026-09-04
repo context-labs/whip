@@ -141,7 +141,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 			messages: []llm.Message{{Role: "system", Content: sysPrompt}},
 		},
 		modelName: modelName, provName: provName, sysPrompt: sysPrompt,
-		input: newInput(), spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true, hoverIdx: -1,
+		input: newInput(), spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true,
 		catalogs: catalogs, mouseOn: mouseOn, now: time.Now, showThinking: showThinking,
 		sidebarHide:   cfg.Sidebar != nil && !*cfg.Sidebar,
 		initialPrompt: initialPrompt, cfgExtra: map[string]string{},
@@ -1082,6 +1082,9 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 	if m.mpicker != nil {
 		return m.modelPickerKey(msg)
 	}
+	if m.msgActions != nil {
+		return m.msgActionsKey(msg)
+	}
 	if key := msg.String(); key == "ctrl+j" || key == "alt+enter" || key == "shift+enter" {
 		maxHeight := m.input.MaxHeight
 		m.input.MaxHeight = 0
@@ -1524,7 +1527,7 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, b
 		case "r":
 			dialog.rejecting = true
 		}
-	case "esc":
+	case "esc", "ctrl+c":
 		return decide(false, "rejected without a reason", "")
 	}
 	return m, nil
@@ -1824,7 +1827,7 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 		return m.command(text)
 	case "repl":
 		m.replPanel = !m.replPanel
-		m.ocRecalcWidth()
+		m.recalcWidth()
 		if !m.sidebarVisible() {
 			m.append(dimStyle.Render("(the REPL panel needs a terminal at least 120 columns wide)"))
 		}

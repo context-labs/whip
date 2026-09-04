@@ -291,17 +291,8 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyCfgSync(msg)
 		return m, nil
 	case tea.WindowSizeMsg:
-		m.termWidth = msg.Width
-		width := msg.Width - opencodeLeftMargin
-		if msg.Width >= sidebarMinWidth && !m.sidebarHide {
-			width -= m.panelWidth() + opencodeRightGap
-		}
-		resized := width != m.width
-		m.width, m.height = width, msg.Height
-		m.input.SetWidth(width - 2)
-		if resized {
-			m.refreshVP()
-		}
+		m.termWidth, m.height = msg.Width, msg.Height
+		m.recalcWidth()
 		return m, nil
 	case themePollMsg:
 		if m.cfg.Theme != "" {

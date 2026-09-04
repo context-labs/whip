@@ -16,7 +16,6 @@ import (
 )
 
 var (
-	toolHeadStyle = lipgloss.NewStyle().Bold(true)
 	// diff bands (set by refreshBaseStyles): colored background across the
 	// full row, terminal-default foreground on top (legible on both themes).
 	diffAddStyle, diffDelStyle lipgloss.Style
@@ -76,18 +75,9 @@ func toolSubject(name, args string) string {
 // queuedSubject is the first line shown for a still-streaming tool call.
 func queuedSubject(_ string, args string) string { return firstLine(args) }
 
-// toolHeaderRow renders the completed call's header: "● Update(path)"
-// (opencode mode: an indent-3 icon row, see ocToolRow).
-func toolHeaderRow(name, args string, failed bool) string {
-	if ocActive {
-		return ocToolRow(name, args, failed)
-	}
-	head := toolHeaderName(name) + "(" + toolSubject(name, args) + ")"
-	if failed {
-		return errStyle.Render(glyphAssistant + head)
-	}
-	return toolStyle.Render(glyphAssistant) + toolHeadStyle.Render(toolHeaderName(name)) + "(" + toolSubject(name, args) + ")"
-}
+// toolHeaderRow renders the completed call's header: an indent-3 icon row
+// ("Update path"), see ocToolRow.
+func toolHeaderRow(name, args string, failed bool) string { return ocToolRow(name, args, failed) }
 
 // extractDiff splits a tool result into its fenced ```diff block and the
 // text around it. diff is "" when the result carries none.

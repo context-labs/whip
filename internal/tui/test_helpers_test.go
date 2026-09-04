@@ -21,7 +21,7 @@ func compactCmdModel() *model {
 		},
 	}
 	m := &model{
-		cfg: cfg, input: newInput(), mouseOn: true, follow: true, hoverIdx: -1,
+		cfg: cfg, input: newInput(), mouseOn: true, follow: true,
 		client:    &Client{},
 		modelName: "kimi-k3-fast", provName: "inference", now: time.Now,
 		clientView: clientPresentation{modelID: "kimi-k3-fast", contextLimit: 131072},

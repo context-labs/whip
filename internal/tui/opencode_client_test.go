@@ -89,7 +89,7 @@ func TestOpencodeHomePromptAndSidebarRemainUsable(t *testing.T) {
 	if sidebar := m.sidebarView(20); !strings.Contains(sidebar, "Recursive session") || !strings.Contains(sidebar, "Context") || !strings.Contains(sidebar, "managed by daemon") {
 		t.Fatalf("opencode sidebar=%q", sidebar)
 	}
-	if card := opencodeUserCard("hello", 40, false); !strings.Contains(card, "┃") || !strings.Contains(card, "hello") {
+	if card := opencodeUserCard("hello", 40); !strings.Contains(card, "┃") || !strings.Contains(card, "hello") {
 		t.Fatalf("opencode user card=%q", card)
 	}
 
@@ -128,17 +128,13 @@ func TestOpencodeOverlayAndDialogsStayWithinNarrowFrames(t *testing.T) {
 	}
 }
 
-func TestOpencodeMessageActionsHoverAndToolPresentation(t *testing.T) {
-	m := &model{input: newInput(), width: 80, height: 20, viewH: 20, hoverIdx: -1}
+func TestOpencodeMessageActionsAndToolPresentation(t *testing.T) {
+	m := &model{input: newInput(), width: 80, height: 20, viewH: 20}
 	m.vp.SetWidth(80)
 	m.vp.SetHeight(10)
 	m.blocks = []block{{kind: blockUser, text: "hello"}, {kind: blockAssistant, text: "answer"}}
 	m.refreshVP()
-	m.updateHover(5, m.contentPad())
-	if m.hoverIdx < 0 || !m.blocks[m.hoverIdx].hover {
-		t.Fatalf("user hover was not tracked: index=%d", m.hoverIdx)
-	}
-	clicked := m.hoverIdx
+	clicked := 0
 	m.clickAt(5, m.blocks[clicked].y0+m.contentPad())
 	if m.msgActions == nil || m.msgActions.block != clicked {
 		t.Fatalf("message click did not open actions: %+v", m.msgActions)
@@ -149,7 +145,7 @@ func TestOpencodeMessageActionsHoverAndToolPresentation(t *testing.T) {
 	if row := ocToolRow("read", `{"path":"main.go"}`, false); !strings.Contains(row, "Read") || !strings.Contains(row, "main.go") {
 		t.Fatalf("tool row=%q", row)
 	}
-	if result := ocToolResult([]string{"one", "two", "three"}, false, false, false, 80); !strings.Contains(result, "3 lines") {
+	if result := ocToolResult([]string{"one", "two", "three"}, false, false, 80); !strings.Contains(result, "3 lines") {
 		t.Fatalf("collapsed tool result=%q", result)
 	}
 }

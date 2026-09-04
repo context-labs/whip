@@ -312,10 +312,13 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 	mouse := msg.Mouse()
 	switch msg.(type) {
 	case tea.MouseWheelMsg:
-		m.sel = nil // like any press: drops the old highlight, scrolls as usual
-		return false, nil
+		m.sel = nil                // like any press: drops the old highlight, scrolls as usual
+		return m.dialogOpen(), nil // a dialog owns the wheel: nothing scrolls underneath it
 	case tea.MouseClickMsg:
 		m.sel = nil // any new press drops the old highlight
+		if m.dialogOpen() || m.menu != nil {
+			return true, nil // presses never reach what a dialog or the completion menu covers
+		}
 		if mouse.Button != tea.MouseLeft {
 			return false, nil
 		}
@@ -355,10 +358,7 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 		if m.sel.anchor != m.sel.cur { // a real drag: copy, keep the highlight
 			m.sel.done = true
 			copyText(m.selText(*m.sel))
-			if ocActive {
-				return true, m.showToast("Copied to clipboard")
-			}
-			return true, nil
+			return true, m.showToast("Copied to clipboard")
 		}
 		inputClick := m.sel.anchor.input
 		m.sel = nil
@@ -403,10 +403,10 @@ func (m *model) selEdgeScroll() tea.Cmd {
 // are handled before handleMouseSelect sees the event, so only the transcript
 // area reaches here. Row math matches selPoint (y is an absolute screen row).
 func (m *model) clickAt(x, y int) {
-	if y <= m.vpTopRows()-2 || m.palette != nil || m.menu != nil || m.viewH == 0 {
+	if y <= m.vpTopRows()-2 || m.dialogOpen() || m.menu != nil || m.viewH == 0 {
 		return
 	}
-	// bound x like updateHover does: a click in the sidebar or the gap
+	// bound x: a click in the sidebar or the gap
 	// columns must not act on the transcript block sharing that row
 	if x < m.vpXOff() || x >= m.vpXOff()+m.width {
 		return
@@ -416,8 +416,8 @@ func (m *model) clickAt(x, y int) {
 		if row < m.blocks[i].y0 || row > m.blocks[i].y1 {
 			continue
 		}
-		// opencode mode: clicking a message opens the Message Actions dialog
-		if ocActive && (m.blocks[i].kind == blockUser || m.blocks[i].kind == blockAssistant) {
+		// clicking a message opens the Message Actions dialog
+		if m.blocks[i].kind == blockUser || m.blocks[i].kind == blockAssistant {
 			m.msgActions = &msgActions{block: i}
 			return
 		}

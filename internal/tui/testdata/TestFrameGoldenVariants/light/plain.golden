@@ -1,0 +1,40 @@
+                                                                                                    Golden session                          
+                                                                                                                                            
+                                                                                                    Context                                 
+                                                                                                    0 tokens                                
+                                                                                                    0% used                                 
+                                                                                                    $0.00 spent                             
+                                                                                                                                            
+                                                                                                    LSP                                     
+                                                                                                    managed by daemon                       
+                                                                                                                                            
+                                                                                                    Agents                                  
+                                                                                                      ⚙ root (root-agent) — running         
+                                                                                                        ⚙ file-reader (ba06…c16d) — idle    
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+   ❯ find the config loader                                                                                                                 
+                                                                                                                                            
+     ← Read internal/config/config.go                                                                                                       
+                                                                                                                                            
+     ↳ 5 lines · ctrl+e or click expands                                                                                                    
+                                                                                                                                            
+     Found it. Load reads the JSON file:                                                                                                    
+                                                                                                                                            
+     1. resolve the directory                                                                                                               
+     2. decode the file                                                                                                                     
+                                                                                                                                            
+       cfg, err := config.Load()                                                                                                            
+                                                                                                                                            
+     See the docs.                                                                                                                          
+                                                                                                                                            
+  ┃                                                                                                                                         
+  ┃  Ask whip anything… (/ for commands, tab completes)                                                                                     
+  ┃                                                                                                                                         
+  ┃  Off · kimi-k3-fast  inference                                                                                                          
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                            
+                                                                                                                                            
+   /Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.worktrees/feat/rlm-ru… ctrl+p commands    • whip dev                              

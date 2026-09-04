@@ -15,12 +15,12 @@ func (m *model) pickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc", "ctrl+c":
 		m.picker = nil
 	case "up", "ctrl+p", "shift+tab":
-		picker.idx = min(picker.idx+1, len(picker.metas)-1)
+		picker.idx = max(picker.idx-1, 0)
 		if _, ok := picker.previews[picker.metas[picker.idx].ID]; !ok {
 			return m.submitClientAction("session.preview", map[string]string{"id": picker.metas[picker.idx].ID}, "")
 		}
 	case "down", "ctrl+n", "tab":
-		picker.idx = max(picker.idx-1, 0)
+		picker.idx = min(picker.idx+1, len(picker.metas)-1)
 		if _, ok := picker.previews[picker.metas[picker.idx].ID]; !ok {
 			return m.submitClientAction("session.preview", map[string]string{"id": picker.metas[picker.idx].ID}, "")
 		}

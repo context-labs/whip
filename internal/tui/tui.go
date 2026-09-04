@@ -183,7 +183,6 @@ type model struct {
 	themeHow     string      // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
 	sessTitle    string      // cached session title for the opencode sidebar (from the store; updated on title/rename)
 	msgActions   *msgActions // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
-	hoverIdx     int         // opencode mode: block index under the mouse (hover highlight); -1 = none
 	ocThink      string      // opencode mode: reasoning text accumulated for the expandable "+ Thought" block
 	toast        string      // opencode mode: top-right toast text; "" = none
 	toastAt      time.Time   // when the current toast was shown (stale clears are ignored)
@@ -207,8 +206,6 @@ type model struct {
 	replViewAgent string                // agent the REPL panel last rendered (a switch resets the scroll)
 	replBodyLen   int                   // REPL body rows at the last render (keeps scrolled-up content anchored)
 	replReplaying bool                  // replRebuild in progress: replayed events carry no clock
-	dockSkip      int                   // non-agent rows at the dock's top (focused hint) — click math skips them
-	dockRows      int                   // rendered dock height; layout() maintains it for click math
 
 	rew    *rewindState // open rewind picker (double-esc while idle)
 	esc1   bool         // first idle esc pressed; second opens the rewind picker
@@ -249,15 +246,7 @@ func newInput() textarea.Model {
 	// ctrl+k clears the conversation (handled in (*model).key); don't let the
 	// textarea's default delete-after-cursor shadow it.
 	ti.KeyMap.DeleteAfterCursor = key.NewBinding()
-	// The default adaptive styles misdetect the background over mosh/tmux;
-	// use plain ANSI colors and no cursor-line background.
-	st := ti.Styles()
-	st.Focused.CursorLine = lipgloss.NewStyle()
-	st.Focused.Placeholder = dimStyle
-	st.Blurred.Placeholder = dimStyle
-	st.Focused.Prompt = botStyle
-	st.Blurred.Prompt = dimStyle
-	ti.SetStyles(st)
+	ti.SetStyles(currentTheme().Textarea) // applyOpencodeStyles re-applies on every theme change
 	ti.Focus()
 	return ti
 }
@@ -484,10 +473,10 @@ type block struct {
 	// y0/y1 are the block's line range in the last rendered content (set by
 	// refreshVP); used to map a mouse click to the block under it.
 	y0, y1 int
-	// cache of the last render: valid while !stale and width matches.
-	hover bool // opencode mode: pointer is over this block (user cards highlight)
-
+	// cache of the last render: valid while !stale, width matches and the
+	// theme generation is unchanged (a runtime /theme repaints every block).
 	rendered string
+	gen      int
 	lines    int
 	width    int
 	stale    bool
@@ -497,12 +486,13 @@ type block struct {
 // cache is cold (first render, width change, or text/expand mutation). This
 // is what makes appends and resume cheap: unchanged blocks never re-render.
 func (b *block) renderAt(width int) string {
-	if !b.stale && b.width == width {
+	gen := themeGeneration()
+	if !b.stale && b.width == width && b.gen == gen {
 		return b.rendered
 	}
 	b.rendered = b.render(width)
 	b.lines = lipgloss.Height(b.rendered)
-	b.width, b.stale = width, false
+	b.width, b.gen, b.stale = width, gen, false
 	return b.rendered
 }
 
@@ -511,10 +501,7 @@ func (b *block) renderAt(width int) string {
 func (b block) render(width int) string {
 	switch b.kind {
 	case blockUser:
-		if ocActive {
-			return opencodeUserCard(b.text, width, b.hover)
-		}
-		return wrap(youStyle.Render(glyphUser)+b.text, width)
+		return opencodeUserCard(b.text, width)
 	case blockOCMeta:
 		return b.text // pre-indented; verbatim so wrap() can't trim the indent
 	case blockThought:
@@ -527,20 +514,12 @@ func (b block) render(width int) string {
 		body := lipgloss.NewStyle().Foreground(ocMutedCol()).Italic(true).Render(strings.TrimSpace(b.text))
 		return head + "\n" + wrap(body, width)
 	case blockAssistant:
-		if ocActive {
-			// opencode assistant messages carry no bullet: the body is indented 3.
-			w := width - 3
-			if w <= 0 {
-				w = 80
-			}
-			return indentLines(renderMarkdownAt(b.text, w, b.fileRoot), 3)
-		}
-		w := width - 2 // body indents under the "● " marker
+		// assistant messages carry no bullet: the body is indented 3
+		w := width - 3
 		if w <= 0 {
 			w = 80 // no terminal size yet: sane default
 		}
-		body := indentLines(renderMarkdownAt(b.text, w, b.fileRoot), 2)
-		return botStyle.Render(glyphAssistant) + strings.TrimPrefix(body, "  ")
+		return indentLines(renderMarkdownAt(b.text, w, b.fileRoot), 3)
 	case blockTool:
 		// A result carrying a fenced diff (write/edit) renders claude-style:
 		// "⎿ Added N lines, removed M lines" over a colored, line-numbered
@@ -549,23 +528,9 @@ func (b block) render(width int) string {
 			return renderDiffResult(diff, rest, b.expanded, width)
 		}
 		lines := strings.Split(strings.TrimRight(b.text, "\n"), "\n")
-		if ocActive {
-			// opencode tucks results behind the tool row: a muted one-line hint
-			// collapsed, the full body only when expanded
-			return ocToolResult(lines, b.expanded, strings.HasPrefix(b.text, "Error"), b.hover, width)
-		}
-		lines[0] = "⎿ " + lines[0] // tie the result to its header row above
-		style := dimStyle
-		if strings.HasPrefix(b.text, "Error") {
-			style = errStyle // failures read at a glance, like the red header
-		}
-		if b.expanded || len(lines) <= toolPreviewLines {
-			return wrap(style.Render("  "+strings.Join(lines, "\n  ")), width)
-		}
-		preview := lines[:toolPreviewLines]
-		out := style.Render("  " + strings.Join(preview, "\n  "))
-		hint := fmt.Sprintf("\n  … +%d lines (ctrl+e or click to expand)", len(lines)-toolPreviewLines)
-		return wrap(out+dimStyle.Render(hint), width)
+		// results tuck behind the tool row: a muted one-line hint collapsed,
+		// the full body only when expanded
+		return ocToolResult(lines, b.expanded, strings.HasPrefix(b.text, "Error"), width)
 	case blockToolRun:
 		// While running, the verb line shows in full with the live output
 		// tail under it. On completion the same block collapses in place to
@@ -1013,16 +978,8 @@ func (m *model) layout() {
 	if m.escClr || (m.esc1 && m.rew == nil && m.namePrompt == nil) {
 		chrome++ // esc hint line (same conditions as viewBody)
 	}
-	m.dockRows = 0
 	if dock := m.agentsDock(); dock != "" { // lipgloss.Height("") is 1, not 0
-		m.dockRows = lipgloss.Height(dock)
-		// clicking computes agent rows from the strip's top; a focused dock's
-		// hint row isn't an agent — skip it
-		m.dockSkip = 0
-		if m.agentsFocus {
-			m.dockSkip++
-		}
-		chrome += m.dockRows // the blank above the input is already in the base
+		chrome += lipgloss.Height(dock) // the blank above the input is already in the base
 	}
 	// Floor the viewport width too: a degenerate m.width (1–4 cols) would set
 	// the viewport to 1 col and re-slice the transcript into a one-char strip,
@@ -1033,20 +990,6 @@ func (m *model) layout() {
 		m.vp.SetHeight(h)
 		m.refreshVP()
 	}
-}
-
-// dockTop returns the screen row of the first agent row in the dock: the dock
-// renders below the input as the last dockRows rows above the blank + status
-// line, but dockSkip non-agent rows (the focused hint) sit on top of the agent
-// rows. layout() keeps both in sync with what View renders. The row is an
-// absolute screen row counted up from the view's bottom (the view is drawn
-// from row 0 in the alternate screen).
-func (m *model) dockTop() int {
-	bottom := m.height
-	if m.viewH > 0 {
-		bottom = m.viewH
-	}
-	return bottom - 2 - m.dockRows + m.dockSkip
 }
 
 // nowFn returns the current time, honoring the test seam when set.
