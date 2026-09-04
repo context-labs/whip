@@ -1313,14 +1313,27 @@ func (m *model) appendAssistantBlock(s string) {
 	m.appendRaw(blockAssistant, s)
 }
 
-func (m *model) appendRaw(kind blockKind, text string) {
-	// Only stay pinned to the bottom if we were already following. A user who
-	// scrolled up to read reasoning must not be yanked to the bottom by every
-	// streamed line that lands — follow is re-engaged by scrolling back down
-	// (m.follow = m.vp.AtBottom()), not by new content arriving.
-	if m.vp.AtBottom() {
+// wantFollow reports whether an append should keep the transcript pinned to
+// the bottom: only when the user is already following (at the bottom). A user
+// scrolled up to read reasoning must not be yanked to the bottom by streamed
+// content landing — follow is re-engaged by scrolling back down (m.follow =
+// m.vp.AtBottom() in the scroll handlers), never by new content arriving.
+// Every append path (raw blocks, assistant merges, tool results, thinking
+// flushes) goes through this so the no-yank guarantee is uniform.
+func (m *model) wantFollow() bool {
+	return m.follow || m.vp.AtBottom()
+}
+
+// keepFollow re-arms follow iff the user was already following; a no-op when
+// scrolled up. Call after appending, before refreshVP.
+func (m *model) keepFollow() {
+	if m.wantFollow() {
 		m.follow = true
 	}
+}
+
+func (m *model) appendRaw(kind blockKind, text string) {
+	m.keepFollow()
 	m.blocks = append(m.blocks, block{kind: kind, text: text})
 	m.refreshVP()
 }
@@ -2184,7 +2197,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.blocks = append(m.blocks, result)
 		}
-		m.follow = true
+		m.keepFollow()
 		m.refreshVP()
 		return m, nil
 
@@ -3591,7 +3604,7 @@ func (m *model) appendAssistant(s string) {
 	if m.inMsg && len(m.blocks) > 0 && m.blocks[len(m.blocks)-1].kind == blockAssistant {
 		m.blocks[len(m.blocks)-1].text += "\n\n" + s // same message: merge
 		m.blocks[len(m.blocks)-1].stale = true
-		m.follow = true
+		m.keepFollow()
 		m.refreshVP()
 		return
 	}
@@ -3656,7 +3669,7 @@ func (m *model) flushThink() {
 	if m.uiMode == opencodeMode {
 		if !m.thinkStart.IsZero() { // collapse the reasoning segment to one line (expandable to the text)
 			m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: fmtShortDur(m.nowFn().Sub(m.thinkStart))})
-			m.follow = true
+			m.keepFollow()
 			m.refreshVP()
 			m.thinkStart = time.Time{}
 			m.ocThink = ""
