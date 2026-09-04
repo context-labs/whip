@@ -141,7 +141,7 @@ func TestInlineCodeLightChip(t *testing.T) {
 	if !strings.Contains(out, "48;2;245;245;245") {
 		t.Errorf("light inline code should sit on the light chip (#f5f5f5): %q", out)
 	}
-	if !strings.Contains(out, "38;2;60;154;87") {
+	if !strings.Contains(out, "38;2;61;154;87") { // #3d9a57 as glamour v2 emits it
 		t.Errorf("light inline code text should be the light code green (#3d9a57): %q", out)
 	}
 }

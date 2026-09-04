@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // interactive is a rendered view of a daemon-owned terminal process.
@@ -14,7 +14,7 @@ type interactive struct {
 	awaitcd int
 }
 
-func arrowBytes(key tea.KeyType) string {
+func arrowBytes(key rune) string {
 	switch key {
 	case tea.KeyUp:
 		return "\x1b[A"

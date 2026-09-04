@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/context-labs/whip/internal/llm"
 )
@@ -24,20 +24,20 @@ func TestCtrlJFirstLineVisibleWithTranscript(t *testing.T) {
 	m.seedTranscript(messages, 1)
 	m.height = 24
 	m.layout()
-	t.Logf("layout: vp.Height=%d inputHeight=%d", m.vp.Height, m.input.Height())
+	t.Logf("layout: vp.Height=%d inputHeight=%d", m.vp.Height(), m.input.Height())
 	_ = lipgloss.Height // keep import
 
-	p := tea.NewProgram(m, tea.WithOutput(nopWriter{}), tea.WithInput(strings.NewReader("")), tea.WithoutSignalHandler())
+	p := tea.NewProgram(m, tea.WithOutput(nopWriter{}), tea.WithInput(strings.NewReader("")), tea.WithoutSignalHandler(), tea.WithWindowSize(80, 24))
 	done := make(chan struct{})
 	go func() { p.Run(); close(done) }()
 	defer func() { p.Kill(); <-done }()
 	time.Sleep(100 * time.Millisecond)
 
 	for _, r := range "hello first line" {
-		p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		p.Send(keyRunes(string(r)))
 		time.Sleep(30 * time.Millisecond)
 	}
-	p.Send(keyMsg(tea.KeyCtrlJ))
+	p.Send(ctrlKey('j'))
 
 	ch := make(chan string, 1)
 	p.Send(viewProbe{fn: func(m *model) { ch <- m.input.View() }})

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
@@ -329,7 +329,13 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case selScrollTick:
 		return m, m.selEdgeScroll()
-	case tea.KeyMsg:
+	case tea.BackgroundColorMsg:
+		m.applyDetectedBackground(msg)
+		return m, nil
+	case tea.PasteMsg:
+		m.sel = nil
+		return m.thinPaste(msg)
+	case tea.KeyPressMsg:
 		m.sel = nil
 		return m.thinKey(msg)
 	case tea.MouseMsg:
@@ -477,10 +483,14 @@ func clientCommandNeedsSnapshot(operation string) bool {
 }
 
 func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if msg.Shift {
+	mouse := msg.Mouse()
+	if mouse.Mod.Contains(tea.ModShift) {
 		return m, nil
 	}
-	if m.msgActions != nil && msg.Action == tea.MouseActionPress {
+	_, isClick := msg.(tea.MouseClickMsg)
+	_, isWheel := msg.(tea.MouseWheelMsg)
+	press := isClick || isWheel
+	if m.msgActions != nil && press {
 		m.msgActions = nil
 		return m, nil
 	}
@@ -488,14 +498,14 @@ func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// a press there never seeds a chat selection (selPoint/inputPoint only
 	// bound Y). Motion and release still flow to handleMouseSelect so a drag
 	// that started in the chat completes wherever the pointer ends.
-	inPanel := m.replPanel && m.sidebarVisible() && msg.X >= m.termWidth-m.panelWidth()
-	if inPanel && msg.Action == tea.MouseActionPress {
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
+	inPanel := m.replPanel && m.sidebarVisible() && mouse.X >= m.termWidth-m.panelWidth()
+	if inPanel && press {
+		switch mouse.Button {
+		case tea.MouseWheelUp:
 			m.replScroll += 3 // the view clamps to the history
-		case tea.MouseButtonWheelDown:
+		case tea.MouseWheelDown:
 			m.replScroll = max(m.replScroll-3, 0)
-		case tea.MouseButtonLeft:
+		case tea.MouseLeft:
 			m.sel = nil // like any press: drop the old highlight
 		}
 		return m, nil
@@ -506,8 +516,8 @@ func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if inPanel {
 		return m, nil
 	}
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft && msg.Y > 1 {
-		m.clickAt(msg.X, msg.Y)
+	if isClick && mouse.Button == tea.MouseLeft && mouse.Y > 1 {
+		m.clickAt(mouse.X, mouse.Y)
 		return m, nil
 	}
 	var command tea.Cmd
@@ -545,4 +555,4 @@ func (m *model) finishTool(msg toolEndMsg) {
 	m.refreshVP()
 }
 
-func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) { return m.thinKey(msg) }
+func (m *model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return m.thinKey(msg) }

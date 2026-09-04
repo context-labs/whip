@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // fullModel builds a model whose transcript FILLS the viewport (the resumed-
@@ -56,8 +56,8 @@ func TestDragSelectOnFullTranscript(t *testing.T) {
 	tm, _ := m.Update(keyRunes(" "))
 	m = tm.(*model)
 	m.input.SetValue("")
-	if m.contentPad() != 0 || m.vp.YOffset == 0 {
-		t.Fatalf("test setup: expected a scrolled full viewport (pad=%d yoff=%d)", m.contentPad(), m.vp.YOffset)
+	if m.contentPad() != 0 || m.vp.YOffset() == 0 {
+		t.Fatalf("test setup: expected a scrolled full viewport (pad=%d yoff=%d)", m.contentPad(), m.vp.YOffset())
 	}
 
 	last := len(m.blocks) - 1

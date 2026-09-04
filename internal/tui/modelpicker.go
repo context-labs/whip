@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/config"
 )
@@ -338,25 +338,25 @@ func (m *model) openModelPicker(sessionOnly bool) {
 	m.mpicker = mp
 }
 
-func (m *model) modelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) modelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	p := m.mpicker
-	switch msg.Type {
-	case tea.KeyEsc, tea.KeyCtrlC:
+	switch msg.String() {
+	case "esc", "ctrl+c":
 		m.mpicker = nil
-	case tea.KeyUp, tea.KeyCtrlP, tea.KeyShiftTab:
+	case "up", "ctrl+p", "shift+tab":
 		if p.idx > 0 {
 			p.idx--
 		}
-	case tea.KeyDown, tea.KeyCtrlN, tea.KeyTab:
+	case "down", "ctrl+n", "tab":
 		if p.idx < len(p.view())-1 {
 			p.idx++
 		}
-	case tea.KeyBackspace:
+	case "backspace":
 		if p.filter.backspace() {
 			p.applyQuery()
 			p.idx = 0
 		}
-	case tea.KeyEnter:
+	case "enter":
 		v := p.view()
 		if len(v) == 0 {
 			return m, nil
@@ -366,8 +366,11 @@ func (m *model) modelPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.submitClientAction("session.model", map[string]string{
 			"args": strings.TrimSpace(it.model + " " + it.provider), "persist_default": strconv.FormatBool(!p.sessionOnly),
 		}, "")
-	case tea.KeyRunes, tea.KeySpace:
-		p.filter.typeRunes(msg.Runes)
+	default:
+		if msg.Text == "" {
+			return m, nil
+		}
+		p.filter.typeRunes([]rune(msg.Text))
 		p.applyQuery()
 		if p.idx >= len(p.view()) {
 			p.idx = max(len(p.view())-1, 0)

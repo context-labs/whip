@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -29,7 +28,7 @@ func selTestModel() *model {
 // tests must aim there too.
 func blockRowY(m *model, r int) int {
 	viewStr(m) // ensure vpLead is current (View/viewportView record it)
-	return m.vpTopRows() + (r + m.contentPad() - m.vp.YOffset) - m.vpLead
+	return m.vpTopRows() + (r + m.contentPad() - m.vp.YOffset()) - m.vpLead
 }
 
 // Full Update-path drag: press, motion, release must select + copy the
@@ -141,7 +140,7 @@ func TestPressOutsideTranscriptNotConsumed(t *testing.T) {
 		}
 	}
 	// but a drag that starts on the transcript and overshoots below clamps
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: 0, Y: blockRowY(m, m.blocks[0].y0)})
+	m.handleMouseSelect(clickMsg(0, blockRowY(m, m.blocks[0].y0)))
 	m.handleMouseSelect(dragMsg(80, m.height-1))
 	m.handleMouseSelect(releaseMsg(80, m.height-1))
 	if got := m.selText(*m.sel); got != "hello world\n\nsecond block here" {
@@ -220,9 +219,9 @@ func TestInputClickThenType(t *testing.T) {
 // blocks pastes as a blank line, exactly like a terminal's native copy.
 func TestDragAcrossBlocks(t *testing.T) {
 	m := selTestModel()
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: m.vpXOff() + 6, Y: blockRowY(m, m.blocks[0].y0)})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: m.vpXOff() + 6, Y: blockRowY(m, m.blocks[1].y0)})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: m.vpXOff() + 6, Y: blockRowY(m, m.blocks[1].y0)})
+	m.handleMouseSelect(clickMsg(m.vpXOff()+6, blockRowY(m, m.blocks[0].y0)))
+	m.handleMouseSelect(dragMsg(m.vpXOff()+6, blockRowY(m, m.blocks[1].y0)))
+	m.handleMouseSelect(releaseMsg(m.vpXOff()+6, blockRowY(m, m.blocks[1].y0)))
 	if got := m.selText(*m.sel); got != "world\n\nsecond" {
 		t.Fatalf("cross-block drag selected %q, want %q", got, "world\n\nsecond")
 	}
@@ -239,9 +238,9 @@ func TestCopyKeepsParagraphBreaks(t *testing.T) {
 	m = tm.(*model)
 	m.input.SetValue("")
 	b := m.blocks[0]
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, X: m.vpXOff() + 0, Y: blockRowY(m, b.y0)})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft, X: m.vpXOff() + 8, Y: blockRowY(m, b.y1)})
-	m.handleMouseSelect(tea.MouseMsg{Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft, X: m.vpXOff() + 8, Y: blockRowY(m, b.y1)})
+	m.handleMouseSelect(clickMsg(m.vpXOff()+0, blockRowY(m, b.y0)))
+	m.handleMouseSelect(dragMsg(m.vpXOff()+8, blockRowY(m, b.y1)))
+	m.handleMouseSelect(releaseMsg(m.vpXOff()+8, blockRowY(m, b.y1)))
 	if got := m.selText(*m.sel); got != "para one\n\npara two" {
 		t.Fatalf("paragraph break lost: copied %q", got)
 	}
@@ -296,10 +295,10 @@ func TestDragEdgeAutoScroll(t *testing.T) {
 	m = tm.(*model)
 	m.input.SetValue("")
 	viewStr(m)
-	if m.vp.YOffset == 0 {
+	if m.vp.YOffset() == 0 {
 		t.Fatal("test setup: viewport must start scrolled to the bottom")
 	}
-	start := m.vp.YOffset
+	start := m.vp.YOffset()
 
 	// press inside the transcript, then drag up past the header
 	m.handleMouseSelect(clickMsg(2, 5))
@@ -307,15 +306,15 @@ func TestDragEdgeAutoScroll(t *testing.T) {
 	if !handled || cmd == nil {
 		t.Fatalf("edge drag must be handled and arm the scroll tick (handled=%v cmd=%v)", handled, cmd != nil)
 	}
-	if m.vp.YOffset != start-1 {
-		t.Fatalf("edge drag must scroll up one line: %d -> %d", start, m.vp.YOffset)
+	if m.vp.YOffset() != start-1 {
+		t.Fatalf("edge drag must scroll up one line: %d -> %d", start, m.vp.YOffset())
 	}
 
 	// parked pointer: each tick keeps scrolling until the top, then disarms
 	for i := 0; i < 200 && m.selEdgeScroll() != nil; i++ {
 	}
-	if m.vp.YOffset != 0 {
-		t.Fatalf("ticks must scroll to the top, YOffset=%d", m.vp.YOffset)
+	if m.vp.YOffset() != 0 {
+		t.Fatalf("ticks must scroll to the top, YOffset=%d", m.vp.YOffset())
 	}
 	if m.selEdgeScroll() != nil {
 		t.Fatal("at the top the tick must disarm")
@@ -330,8 +329,8 @@ func TestDragEdgeAutoScroll(t *testing.T) {
 	if m.selEdgeScroll() == nil {
 		t.Fatal("drag below the viewport must scroll down")
 	}
-	if m.vp.YOffset != 1 {
-		t.Fatalf("bottom edge must scroll down one line, YOffset=%d", m.vp.YOffset)
+	if m.vp.YOffset() != 1 {
+		t.Fatalf("bottom edge must scroll down one line, YOffset=%d", m.vp.YOffset())
 	}
 
 	// release ends the drag: the tick no-ops from then on

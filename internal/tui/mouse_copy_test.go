@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // shift+mouse must pass through unconsumed so the terminal's native
@@ -17,7 +17,7 @@ func TestShiftMousePassesThrough(t *testing.T) {
 	before := m.blocks[0].expanded
 	rowY := blockRowY(m, m.blocks[0].y0)
 	// shift+click on the tool block must NOT expand it (native selection owns it)
-	tm, _ := m.Update(tea.MouseMsg{Action: tea.MouseActionPress, Button: tea.MouseButtonLeft, Shift: true, X: 5, Y: rowY})
+	tm, _ := m.Update(tea.MouseClickMsg{X: 5, Y: rowY, Button: tea.MouseLeft, Mod: tea.ModShift})
 	m = tm.(*model)
 	if m.blocks[0].expanded != before {
 		t.Fatal("shift+click must not toggle the block — it belongs to native selection")

@@ -4,14 +4,14 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // Paste collapse is opt-in (config collapsePaste): off by default a paste
 // lands verbatim; on, a ≥3-line paste becomes a placeholder whose real text
 // swaps back in at submit.
 func TestPasteCollapseOptIn(t *testing.T) {
-	paste := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("line1\nline2\nline3"), Paste: true}
+	paste := tea.PasteMsg{Content: "line1\nline2\nline3"}
 
 	// default (nil) — off: the textarea takes the raw paste
 	m := compactCmdModel()
@@ -50,7 +50,7 @@ func TestPasteCollapseShortPasteIgnored(t *testing.T) {
 	on := true
 	m := compactCmdModel()
 	m.cfg.CollapsePaste = &on
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("just one line"), Paste: true})
+	m.Update(tea.PasteMsg{Content: "just one line"})
 	if strings.Contains(m.input.Value(), "[Pasted") {
 		t.Fatal("a one-line paste should not collapse")
 	}

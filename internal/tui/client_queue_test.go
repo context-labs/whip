@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
@@ -267,12 +267,12 @@ func TestEscapeLeavesRunningAgentViewWithoutCancellingIt(t *testing.T) {
 	}
 	m.agentOpen = "child"
 	m.busy = true
-	next, command = m.thinKey(keyMsg(tea.KeyCtrlC))
+	next, command = m.thinKey(ctrlKey('c'))
 	m = next.(*model)
 	if command != nil || !m.interrupt1 {
 		t.Fatal("first ctrl+c did not arm child cancellation")
 	}
-	next, command = m.thinKey(keyMsg(tea.KeyCtrlC))
+	next, command = m.thinKey(ctrlKey('c'))
 	m = next.(*model)
 	if command == nil {
 		t.Fatal("second ctrl+c did not cancel child turn")

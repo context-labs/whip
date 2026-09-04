@@ -2,10 +2,9 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // command handles UI-local commands only. Everything that can affect an
@@ -40,12 +39,7 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 			m.append(errStyle.Render("config save failed: " + err.Error()))
 			return m, nil
 		}
-		if enabled {
-			enableClickWheelMouse(os.Stdout)
-		} else {
-			disableClickWheelMouse(os.Stdout)
-		}
-		m.append(dimStyle.Render("mouse capture: " + onOff(enabled)))
+		m.append(dimStyle.Render("mouse capture: " + onOff(enabled))) // View() reflects m.mouseOn
 	case "/export":
 		m.exportCommand(args)
 	case "/report":

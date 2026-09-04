@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	bubbletea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	bubbletea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
@@ -156,11 +156,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		m.append(errStyle.Render(identityWarning))
 	}
 
-	options := []bubbletea.ProgramOption{bubbletea.WithAltScreen()}
-	if m.mouseOn {
-		enableClickWheelMouse(os.Stdout)
-		fmt.Fprint(os.Stdout, "\x1b[?1003h") // hover tracking for the card hover state
-	}
+	options := []bubbletea.ProgramOption{} // alt screen and mouse mode are View fields
 	if info, statErr := os.Stat(filepath.Join(home, "config.json")); statErr == nil {
 		m.cfgMod = info.ModTime()
 	}
@@ -178,9 +174,6 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	_, runErr := program.Run()
 	tuiRunning = false
 	closeErr := client.Close()
-	if m.mouseOn {
-		disableClickWheelMouse(os.Stdout)
-	}
 	rootID := client.RootID()
 	if resumeID == "" && !m.clientTouched {
 		rootID = ""
@@ -308,7 +301,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 		return
 	}
 	draft := m.input.Value()
-	follow, offset, selection := m.follow, m.vp.YOffset, m.sel
+	follow, offset, selection := m.follow, m.vp.YOffset(), m.sel
 	selectedAgentID := ""
 	if rows := m.runtimeAgentRows(); m.agentsFocus && m.agentSel >= 0 && m.agentSel < len(rows) {
 		selectedAgentID = rows[m.agentSel].agent.ID
@@ -1027,7 +1020,7 @@ func (m *model) openClientNamePrompt(label, value, operation string, cut int) {
 	m.openNamePrompt(label, value, func(string) {})
 }
 
-func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
+func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.Cmd) {
 	if m.permDialog != nil && m.permDialog.daemon != nil {
 		return m.thinPermissionKey(msg)
 	}
@@ -1036,11 +1029,11 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 	}
 	if m.namePrompt != nil {
 		if m.clientPromptOp == "" {
-			switch msg.Type {
-			case bubbletea.KeyEsc, bubbletea.KeyCtrlC:
+			switch msg.String() {
+			case "esc", "ctrl+c":
 				m.closeNamePrompt()
 				return m, nil
-			case bubbletea.KeyEnter:
+			case "enter":
 				onOK := m.namePrompt.onOK
 				value := strings.TrimSpace(m.input.Value())
 				m.closeNamePrompt()
@@ -1052,12 +1045,12 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 				return m, command
 			}
 		}
-		switch msg.Type {
-		case bubbletea.KeyEsc, bubbletea.KeyCtrlC:
+		switch msg.String() {
+		case "esc", "ctrl+c":
 			m.closeNamePrompt()
 			m.clientPromptOp, m.clientPromptCut = "", 0
 			return m, nil
-		case bubbletea.KeyEnter:
+		case "enter":
 			value, operation, cut := strings.TrimSpace(m.input.Value()), m.clientPromptOp, m.clientPromptCut
 			m.closeNamePrompt()
 			m.clientPromptOp, m.clientPromptCut = "", 0
@@ -1088,14 +1081,11 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 	if m.mpicker != nil {
 		return m.modelPickerKey(msg)
 	}
-	if msg.Type == bubbletea.KeyCtrlJ ||
-		(msg.Type == bubbletea.KeyEnter && msg.Alt) ||
-		(msg.Type == bubbletea.KeyRunes && msg.Alt && string(msg.Runes) == "\r") ||
-		isShiftEnterSeq(msg) {
+	if key := msg.String(); key == "ctrl+j" || key == "alt+enter" || key == "shift+enter" {
 		maxHeight := m.input.MaxHeight
 		m.input.MaxHeight = 0
 		var command bubbletea.Cmd
-		m.input, command = m.input.Update(bubbletea.KeyMsg{Type: bubbletea.KeyCtrlJ})
+		m.input, command = m.input.Update(bubbletea.KeyPressMsg{Code: 'j', Mod: bubbletea.ModCtrl})
 		m.input.MaxHeight = maxHeight
 		m.input.SetHeight(maxHeight)
 		value := m.input.Value()
@@ -1118,41 +1108,32 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 			return m, nil
 		}
 	}
-	if msg.Paste && m.cfg != nil && m.cfg.CollapsePaste != nil && *m.cfg.CollapsePaste {
-		if lines := strings.Count(string(msg.Runes), "\n"); lines >= 2 {
-			m.pasteBuf = string(msg.Runes)
-			m.input.SetValue(m.input.Value() + fmt.Sprintf("[Pasted ~%d lines]", lines+1))
-			m.input.CursorEnd()
-			m.growInput()
-			return m, nil
-		}
-	}
 	children := m.runtimeChildren()
 	if m.agentsFocus && len(children) == 0 {
 		m.agentsFocus = false
 	}
 	if m.agentsFocus {
-		switch msg.Type {
-		case bubbletea.KeyCtrlT:
+		switch msg.String() {
+		case "ctrl+t":
 			m.agentsFocus = false
 			return m, nil
-		case bubbletea.KeyEsc: // esc means "back": drop focus and leave an open child
+		case "esc": // esc means "back": drop focus and leave an open child
 			m.agentsFocus = false
 			if m.agentOpen != "" && strings.TrimSpace(m.input.Value()) == "" {
 				m.closeAgent()
 			}
 			return m, nil
-		case bubbletea.KeyUp:
+		case "up":
 			if m.agentSel == 0 {
 				m.agentsFocus = false
 			} else {
 				m.agentSel--
 			}
 			return m, nil
-		case bubbletea.KeyDown:
+		case "down":
 			m.agentSel = min(m.agentSel+1, len(children)-1)
 			return m, nil
-		case bubbletea.KeyCtrlX:
+		case "ctrl+x":
 			if len(children) == 0 {
 				m.agentsFocus = false
 				return m, nil
@@ -1162,7 +1143,7 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 				return m, nil // the root is not stoppable from the tree
 			}
 			return m.submitClientAction("agent.control", map[string]string{"args": "stop " + child.ID}, "")
-		case bubbletea.KeyEnter:
+		case "enter":
 			if len(children) > 0 {
 				child := children[min(m.agentSel, len(children)-1)]
 				m.agentsFocus = false
@@ -1177,8 +1158,8 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 			m.agentsFocus = false
 		}
 	}
-	switch msg.Type {
-	case bubbletea.KeyCtrlC:
+	switch msg.String() {
+	case "ctrl+c":
 		if m.busy && m.clientState == ClientLive {
 			if !m.interrupt1 {
 				m.interrupt1 = true
@@ -1192,7 +1173,7 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 		}
 		m.quit1 = true
 		return m, bubbletea.Tick(2*time.Second, func(time.Time) bubbletea.Msg { return quitArmMsg{} })
-	case bubbletea.KeyEsc:
+	case "esc":
 		if m.menu != nil {
 			if m.menu.cyc {
 				m.input.SetValue(m.menu.base)
@@ -1226,17 +1207,17 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 		}
 		m.esc1 = true
 		return m, bubbletea.Tick(time.Second, func(time.Time) bubbletea.Msg { return escArmMsg{} })
-	case bubbletea.KeyPgUp, bubbletea.KeyPgDown:
+	case "pgup", "pgdown":
 		var command bubbletea.Cmd
 		m.vp, command = m.vp.Update(msg)
 		m.follow = m.vp.AtBottom()
 		return m, command
-	case bubbletea.KeyCtrlV:
+	case "ctrl+v":
 		return m, pasteImageCmd
-	case bubbletea.KeyCtrlO:
+	case "ctrl+o":
 		m.toggleThinking()
 		return m, nil
-	case bubbletea.KeyCtrlE:
+	case "ctrl+e":
 		for i := len(m.blocks) - 1; i >= 0; i-- {
 			if m.blocks[i].kind == blockTool {
 				m.blocks[i].toggle()
@@ -1245,31 +1226,31 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 			}
 		}
 		return m, nil
-	case bubbletea.KeyCtrlP:
+	case "ctrl+p":
 		m.openThinPalette()
 		return m, nil
-	case bubbletea.KeyTab:
+	case "tab":
 		if m.menu != nil {
 			m.menuCycle(1)
 		} else {
 			m.openMenu()
 		}
 		return m, nil
-	case bubbletea.KeyShiftTab:
+	case "shift+tab":
 		if m.menu != nil {
 			m.menuCycle(-1)
 		}
 		return m, nil
-	case bubbletea.KeyCtrlK:
+	case "ctrl+k":
 		return m.thinCommand("/clear")
-	case bubbletea.KeyCtrlT:
+	case "ctrl+t":
 		if len(children) > 0 {
 			m.agentsFocus = true
 			m.agentSel = max(m.agentSel, m.firstChildSel())
 			m.clampAgentSel()
 		}
 		return m, nil
-	case bubbletea.KeyDown:
+	case "down":
 		if m.menu != nil {
 			m.menu.idx = (m.menu.idx + 1) % len(m.menu.cands)
 			return m, nil
@@ -1286,7 +1267,7 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 		}
 		m.histNext()
 		return m, nil
-	case bubbletea.KeyUp:
+	case "up":
 		if m.menu != nil {
 			m.menu.idx = (m.menu.idx + len(m.menu.cands) - 1) % len(m.menu.cands)
 			return m, nil
@@ -1304,7 +1285,7 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 		m.lastUp = m.nowFn()
 		m.histPrev()
 		return m, nil
-	case bubbletea.KeyEnter:
+	case "enter":
 		if m.menu != nil {
 			candidate := m.menu.cands[m.menu.idx]
 			if m.menu.cyc && m.menu.head == "" && execNow[candidate.Text] {
@@ -1415,8 +1396,27 @@ func clientCommandRunsWhileBusy(text string) bool {
 	}
 }
 
-func (m *model) thinInteractiveKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
-	if msg.Type == bubbletea.KeyCtrlC {
+// thinPaste handles bracketed paste: a big paste collapses to a placeholder
+// (expanded on submit, see paste.go) when configured; otherwise it goes to
+// the textarea like typed text.
+func (m *model) thinPaste(msg bubbletea.PasteMsg) (bubbletea.Model, bubbletea.Cmd) {
+	if m.cfg != nil && m.cfg.CollapsePaste != nil && *m.cfg.CollapsePaste {
+		if lines := strings.Count(msg.Content, "\n"); lines >= 2 {
+			m.pasteBuf = msg.Content
+			m.input.SetValue(m.input.Value() + fmt.Sprintf("[Pasted ~%d lines]", lines+1))
+			m.input.CursorEnd()
+			m.growInput()
+			return m, nil
+		}
+	}
+	var command bubbletea.Cmd
+	m.input, command = m.input.Update(msg)
+	m.growInput()
+	return m, command
+}
+
+func (m *model) thinInteractiveKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.Cmd) {
+	if msg.String() == "ctrl+c" {
 		if !m.interrupt1 {
 			m.interrupt1 = true
 			return m, nil
@@ -1424,25 +1424,23 @@ func (m *model) thinInteractiveKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbl
 		return m.cancelVisibleTurn()
 	}
 	var input []byte
-	switch msg.Type {
-	case bubbletea.KeyEsc:
+	switch msg.String() {
+	case "esc":
 		input = []byte{0x1b}
-	case bubbletea.KeyEnter, bubbletea.KeyCtrlJ:
+	case "enter", "ctrl+j":
 		input = []byte("\r")
-	case bubbletea.KeyTab:
+	case "tab":
 		input = []byte("\t")
-	case bubbletea.KeyBackspace, bubbletea.KeyDelete:
+	case "backspace", "delete":
 		input = []byte{0x7f}
-	case bubbletea.KeyUp, bubbletea.KeyDown, bubbletea.KeyLeft, bubbletea.KeyRight:
-		input = []byte(arrowBytes(msg.Type))
-	case bubbletea.KeyRunes, bubbletea.KeySpace:
-		if msg.Alt {
-			input = append(input, 0x1b)
-		}
-		if msg.Type == bubbletea.KeySpace && len(msg.Runes) == 0 {
-			input = append(input, ' ')
-		} else {
-			input = append(input, []byte(string(msg.Runes))...)
+	case "up", "down", "left", "right":
+		input = []byte(arrowBytes(msg.Code))
+	default:
+		if msg.Text != "" {
+			if msg.Mod.Contains(bubbletea.ModAlt) {
+				input = append(input, 0x1b)
+			}
+			input = append(input, msg.Text...)
 		}
 	}
 	if len(input) == 0 {
@@ -1461,7 +1459,7 @@ func (m *model) thinInteractiveKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbl
 	}
 }
 
-func (m *model) thinPermissionKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
+func (m *model) thinPermissionKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.Cmd) {
 	dialog := m.permDialog
 	if dialog == nil || dialog.daemon == nil || dialog.deciding {
 		return m, nil
@@ -1485,30 +1483,27 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubble
 		}
 	}
 	if dialog.rejecting {
-		switch msg.Type {
-		case bubbletea.KeyEnter:
+		switch msg.String() {
+		case "enter":
 			return decide(false, strings.TrimSpace(dialog.rejectIn), "")
-		case bubbletea.KeyEsc:
+		case "esc":
 			dialog.rejecting, dialog.rejectIn = false, ""
-		case bubbletea.KeyBackspace:
+		case "backspace":
 			if len(dialog.rejectIn) > 0 {
 				dialog.rejectIn = dialog.rejectIn[:len(dialog.rejectIn)-1]
 			}
-		case bubbletea.KeyRunes, bubbletea.KeySpace:
-			dialog.rejectIn += string(msg.Runes)
-			if msg.Type == bubbletea.KeySpace {
-				dialog.rejectIn += " "
-			}
+		default:
+			dialog.rejectIn += msg.Text
 		}
 		return m, nil
 	}
 	options := len(permOptions(dialog.daemon))
-	switch msg.Type {
-	case bubbletea.KeyLeft, bubbletea.KeyUp:
+	switch msg.String() {
+	case "left", "up":
 		dialog.sel = (dialog.sel + options - 1) % options
-	case bubbletea.KeyRight, bubbletea.KeyDown:
+	case "right", "down":
 		dialog.sel = (dialog.sel + 1) % options
-	case bubbletea.KeyEnter:
+	case "enter":
 		switch {
 		case dialog.sel == 0:
 			return decide(true, "", "")
@@ -1517,8 +1512,8 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubble
 		default:
 			dialog.rejecting = true
 		}
-	case bubbletea.KeyRunes:
-		switch string(msg.Runes) {
+	default:
+		switch msg.Text {
 		case "a", "A":
 			return decide(true, "", "")
 		case "t", "T":
@@ -1528,7 +1523,7 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubble
 		case "r":
 			dialog.rejecting = true
 		}
-	case bubbletea.KeyEsc:
+	case "esc":
 		return decide(false, "rejected without a reason", "")
 	}
 	return m, nil

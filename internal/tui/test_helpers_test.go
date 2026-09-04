@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/context-labs/whip/internal/config"
 )
 
@@ -43,7 +43,7 @@ func modelCmdModel() *model {
 func typeStr(t *testing.T, m *model, value string) *model {
 	t.Helper()
 	for _, char := range value {
-		next, _ := m.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{char}})
+		next, _ := m.key(keyRunes(string(char)))
 		m = next.(*model)
 	}
 	return m
@@ -71,34 +71,35 @@ func (m *model) transcriptText() string {
 }
 
 // Input and view helpers: tests build key and mouse messages through these
-// (and keyRunes in input_test.go) so the Bubble Tea v2 migration changes one
+// (and keyRunes in input_test.go) so a Bubble Tea API change touches one
 // place, not eighty call sites.
 
-func keyMsg(k tea.KeyType) tea.KeyMsg { return tea.KeyMsg{Type: k} }
+func keyMsg(code rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code} }
 
-func mouseMsg(action tea.MouseAction, button tea.MouseButton, x, y int) tea.MouseMsg {
-	return tea.MouseMsg{Action: action, Button: button, X: x, Y: y}
+// ctrlKey is ctrl plus a letter, e.g. ctrlKey('x').
+func ctrlKey(letter rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: letter, Mod: tea.ModCtrl} }
+
+func shiftTab() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift} }
+
+func mouseAt(x, y int, button tea.MouseButton) tea.Mouse {
+	return tea.Mouse{X: x, Y: y, Button: button}
 }
 
-func clickMsg(x, y int) tea.MouseMsg {
-	return mouseMsg(tea.MouseActionPress, tea.MouseButtonLeft, x, y)
+func clickMsg(x, y int) tea.MouseClickMsg { return tea.MouseClickMsg(mouseAt(x, y, tea.MouseLeft)) }
+
+func dragMsg(x, y int) tea.MouseMotionMsg { return tea.MouseMotionMsg(mouseAt(x, y, tea.MouseLeft)) }
+
+func releaseMsg(x, y int) tea.MouseReleaseMsg {
+	return tea.MouseReleaseMsg(mouseAt(x, y, tea.MouseLeft))
 }
 
-func dragMsg(x, y int) tea.MouseMsg {
-	return mouseMsg(tea.MouseActionMotion, tea.MouseButtonLeft, x, y)
-}
-
-func releaseMsg(x, y int) tea.MouseMsg {
-	return mouseMsg(tea.MouseActionRelease, tea.MouseButtonLeft, x, y)
-}
-
-func wheelMsg(x, y int, up bool) tea.MouseMsg {
-	button := tea.MouseButtonWheelDown
+func wheelMsg(x, y int, up bool) tea.MouseWheelMsg {
+	button := tea.MouseWheelDown
 	if up {
-		button = tea.MouseButtonWheelUp
+		button = tea.MouseWheelUp
 	}
-	return mouseMsg(tea.MouseActionPress, button, x, y)
+	return tea.MouseWheelMsg(mouseAt(x, y, button))
 }
 
 // viewStr renders a model to its frame string.
-func viewStr(m tea.Model) string { return m.View() }
+func viewStr(m tea.Model) string { return m.View().Content }

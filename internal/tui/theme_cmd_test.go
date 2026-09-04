@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/config"
@@ -87,9 +87,6 @@ func TestNoArtifactsBothThemes(t *testing.T) {
 		m.appendAssistant("Found it. **Fixed**:\n\n1. one\n2. two\n\n```go\nx := 1\n```")
 		v := viewStr(m)
 		for i, l := range strings.Split(v, "\n") {
-			if strings.Contains(l, "\x1b[m") {
-				t.Errorf("%s: row %d bare SGR: %q", theme, i, l)
-			}
 			if strings.TrimSpace(ansi.Strip(l)) == "" && strings.Contains(l, "\x1b[") {
 				t.Errorf("%s: row %d styled blank: %q", theme, i, l)
 			}

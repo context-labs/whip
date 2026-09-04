@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
@@ -478,7 +478,7 @@ func TestThinTabCompletionPreservesTheTerminalMenu(t *testing.T) {
 func TestSnapshotReplacementPreservesPresentationState(t *testing.T) {
 	m := &model{client: &Client{}, input: newInput(), follow: false}
 	m.input.SetValue("unsent draft")
-	m.vp.YOffset = 4
+	m.vp.SetYOffset(4)
 	m.sel = &selection{}
 	selection := m.sel
 	m.applyClientSnapshot(session.RootSnapshot{
@@ -735,16 +735,16 @@ func TestThinPaletteAndAgentControlsStayDaemonBacked(t *testing.T) {
 			{ID: "child", ParentID: "root-agent", LifecyclePhase: "blocked", BlockingReason: "permission", AllowedControls: []string{"stop"}},
 		}},
 	}
-	_, _ = m.thinKey(keyMsg(tea.KeyCtrlP))
+	_, _ = m.thinKey(ctrlKey('p'))
 	if m.palette == nil || !strings.Contains(strings.Join(m.ocDialogRows(), "\n"), "Resume session") {
 		t.Fatal("client-safe command palette did not open")
 	}
 	m.palette = nil
-	_, _ = m.thinKey(keyMsg(tea.KeyCtrlT))
+	_, _ = m.thinKey(ctrlKey('t'))
 	if !m.agentsFocus || !strings.Contains(m.agentsDock(), "blocked: permission") {
 		t.Fatalf("daemon lifecycle dock focus=%v view=%q", m.agentsFocus, m.agentsDock())
 	}
-	_, command := m.thinKey(keyMsg(tea.KeyCtrlX))
+	_, command := m.thinKey(ctrlKey('x'))
 	if command == nil {
 		t.Fatal("agent stop did not create a daemon action")
 	}

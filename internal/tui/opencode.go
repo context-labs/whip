@@ -2,14 +2,15 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/context-labs/whip/internal/llm"
 )
@@ -35,7 +36,7 @@ var ocActive = true
 // terminal. When the background is unknown, each role falls back to a
 // terminal-palette-safe value (ANSI 0-15, or no fill) so nothing assumes
 // light or dark — mirroring the markdown neutralStyle.
-func ocPick(dark, light, neutral string) lipgloss.TerminalColor {
+func ocPick(dark, light, neutral string) color.Color {
 	mdMu.Lock()
 	l, known := mdLight, mdKnown
 	mdMu.Unlock()
@@ -57,7 +58,7 @@ func ocPick(dark, light, neutral string) lipgloss.TerminalColor {
 // closing resets without re-opening the background, so padded panel rows
 // rendered their tail on the terminal default — a text-width chip instead of a
 // full-width panel.
-func ocPadTo(content string, width int, bg lipgloss.TerminalColor) string {
+func ocPadTo(content string, width int, bg color.Color) string {
 	if pad := width - lipgloss.Width(content); pad > 0 {
 		content += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", pad))
 	}
@@ -68,17 +69,18 @@ func ocPadTo(content string, width int, bg lipgloss.TerminalColor) string {
 // styles close with full resets, which drop back to the terminal-default
 // background and punch bright chips through the panel. Re-open the box bg at
 // the start and after every reset.
-func ocOnBg(ln string, bg lipgloss.TerminalColor) string {
+func ocOnBg(ln string, bg color.Color) string {
 	seq := bgSeqOf(bg)
 	if seq == "" || ln == "" {
 		return ln
 	}
+	ln = bareSGR.Replace(ln)
 	return seq + strings.ReplaceAll(ln, "\x1b[0m", "\x1b[0m"+seq) + "\x1b[0m"
 }
 
 // bgSeqOf extracts the raw SGR sequence that opens the given background
 // ("" when the color is a no-op, e.g. NoColor on an unknown theme).
-func bgSeqOf(bg lipgloss.TerminalColor) string {
+func bgSeqOf(bg color.Color) string {
 	r := lipgloss.NewStyle().Background(bg).Render("x")
 	i := strings.IndexByte(r, 'x')
 	if i <= 0 {
@@ -103,7 +105,7 @@ func ocThemeKnown() bool {
 // anchored to the actual bg so panels read as raised layers on ANY terminal
 // (fixed constants assume opencode's near-black; on a #262a2e terminal they
 // rendered as sunken holes).
-func ocBgShift(delta int) (lipgloss.TerminalColor, bool) {
+func ocBgShift(delta int) (color.Color, bool) {
 	if !bgCache.valid || !bgCache.hasRGB || !ocThemeKnown() {
 		return nil, false
 	}
@@ -123,27 +125,27 @@ func ocBgShift(delta int) (lipgloss.TerminalColor, bool) {
 // and render as sunken holes on the common #202830-ish dark schemes; #343434/
 // #404040 read as raised panels across the whole dark range. When the real
 // bg RGB was captured, ocBgShift supersedes these with exact relative shades.
-func ocPanelBg() lipgloss.TerminalColor { // cards, sidebar (no fill if unknown)
+func ocPanelBg() color.Color { // cards, sidebar (no fill if unknown)
 	if c, ok := ocBgShift(10); ok {
 		return c
 	}
 	return ocPick("#343434", "#ebebeb", "")
 }
 
-func ocElementBg() lipgloss.TerminalColor { // prompt box
+func ocElementBg() color.Color { // prompt box
 	if c, ok := ocBgShift(20); ok {
 		return c
 	}
 	return ocPick("#404040", "#e1e1e1", "")
 }
-func ocAgentCol() lipgloss.TerminalColor   { return ocPick("#5c9cf5", "#7b5bb6", "4") } // bars, ▣
-func ocTextCol() lipgloss.TerminalColor    { return ocPick("#eeeeee", "#1a1a1a", "") }  // text (default fg if unknown)
-func ocMutedCol() lipgloss.TerminalColor   { return ocPick("#808080", "#8a8a8a", "8") } // muted
-func ocWarnCol() lipgloss.TerminalColor    { return ocPick("#f5a742", "#d68c27", "3") } // "+ Thought"
-func ocSuccessCol() lipgloss.TerminalColor { return ocPick("#7fd88f", "#3d9a57", "2") } // footer bullet
-func ocAccentCol() lipgloss.TerminalColor  { return ocPick("#9d7cd8", "#d68c27", "5") } // palette category headers
-func ocSelBg() lipgloss.TerminalColor      { return ocPick("#fab283", "#3b7dd8", "7") } // selected row fill (primary)
-func ocSelFg() lipgloss.TerminalColor      { return ocPick("#0a0a0a", "#ffffff", "0") } // selected row text
+func ocAgentCol() color.Color   { return ocPick("#5c9cf5", "#7b5bb6", "4") } // bars, ▣
+func ocTextCol() color.Color    { return ocPick("#eeeeee", "#1a1a1a", "") }  // text (default fg if unknown)
+func ocMutedCol() color.Color   { return ocPick("#808080", "#8a8a8a", "8") } // muted
+func ocWarnCol() color.Color    { return ocPick("#f5a742", "#d68c27", "3") } // "+ Thought"
+func ocSuccessCol() color.Color { return ocPick("#7fd88f", "#3d9a57", "2") } // footer bullet
+func ocAccentCol() color.Color  { return ocPick("#9d7cd8", "#d68c27", "5") } // palette category headers
+func ocSelBg() color.Color      { return ocPick("#fab283", "#3b7dd8", "7") } // selected row fill (primary)
+func ocSelFg() color.Color      { return ocPick("#0a0a0a", "#ffffff", "0") } // selected row text
 
 // sidebarWidth is the fixed width of the opencode-mode right sidebar, matching
 // opencode (routes/session/sidebar.tsx). The sidebar shows only when the
@@ -446,7 +448,7 @@ func estimateTokens(messages []llm.Message) int {
 // shares (Commands, Message Actions): a fixed-width panel with lr rows.
 type ocBoxKit struct {
 	w                              int
-	bg                             lipgloss.TerminalColor
+	bg                             color.Color
 	pnl, text, head, muted, accent lipgloss.Style
 	blank                          string
 }
@@ -591,6 +593,7 @@ func ocDimLine(s string) string {
 	if s == "" {
 		return s
 	}
+	s = bareSGR.Replace(s)
 	return "\x1b[2m" + strings.ReplaceAll(s, "\x1b[0m", "\x1b[0m\x1b[2m") + "\x1b[0m"
 }
 
@@ -851,7 +854,7 @@ func (m *model) ocRecalcWidth() {
 }
 
 // msgActionsKey handles keys while the Message Actions dialog is open.
-func (m *model) msgActionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) msgActionsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	a := m.msgActions
 	items := a.items()
 	switch msg.String() {
@@ -876,8 +879,8 @@ func (m *model) msgActionsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.sel = 0
 		}
 	default:
-		if msg.Type == tea.KeyRunes {
-			a.filter += string(msg.Runes)
+		if msg.Text != "" {
+			a.filter += msg.Text
 			a.sel = 0
 		}
 	}
@@ -895,7 +898,7 @@ func (m *model) vpXOff() int { return opencodeLeftMargin }
 // updateHover tracks the message block under the pointer (opencode's hover
 // effect on user cards) and re-renders when it changes.
 func (m *model) updateHover(x, y int) {
-	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset + m.vpLead
+	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset() + m.vpLead
 	idx := -1
 	if x >= m.vpXOff() && x < m.vpXOff()+m.width {
 		for i := range m.blocks {
@@ -1015,14 +1018,12 @@ func (m *model) applyOpencodeStyles() {
 	// Fill the textarea with the element background so the input box reads as
 	// a filled panel (opencode's prompt box).
 	elem := lipgloss.NewStyle().Background(ocElementBg())
-	m.input.FocusedStyle.Text = elem
-	m.input.FocusedStyle.CursorLine = elem
-	m.input.FocusedStyle.Placeholder = dimStyle.Background(ocElementBg())
-	m.input.BlurredStyle.Text = elem
-	m.input.BlurredStyle.Placeholder = dimStyle.Background(ocElementBg())
-	// The textarea reads styles through a pointer snapshotted at Focus() time
-	// (style = &m.FocusedStyle). The struct has been copied since newInput's
-	// Focus(), so the writes above land in a field View() never reads.
-	// Re-focus to re-snapshot the pointer at the CURRENT struct.
+	st := m.input.Styles()
+	st.Focused.Text = elem
+	st.Focused.CursorLine = elem
+	st.Focused.Placeholder = dimStyle.Background(ocElementBg())
+	st.Blurred.Text = elem
+	st.Blurred.Placeholder = dimStyle.Background(ocElementBg())
+	m.input.SetStyles(st)
 	m.input.Focus()
 }

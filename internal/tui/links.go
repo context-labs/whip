@@ -239,6 +239,7 @@ func linkSGRs() (label, href string) {
 	}
 	if r := mdRenderer(120); r != nil {
 		if out, err := r.Render("[LinkLabelProbe](http://probe.invalid/p)"); err == nil {
+			out = stripOSC8(bareSGR.Replace(out)) // the same normalization renderMarkdownAt applies
 			label = sgrBefore(out, "LinkLabelProbe")
 			href = sgrBefore(out, "http://probe.invalid/p")
 		}
@@ -246,6 +247,16 @@ func linkSGRs() (label, href string) {
 	linkSGR.valid, linkSGR.label, linkSGR.href = true, label, href
 	return label, href
 }
+
+// osc8RE matches one OSC 8 hyperlink open or close sequence (BEL or ST
+// terminated).
+var osc8RE = regexp.MustCompile("\x1b\\]8;[^\a\x1b]*(?:\a|\x1b\\\\)")
+
+// stripOSC8 removes glamour v2's own hyperlinks from rendered markdown. whip
+// re-links on its own terms below: the label becomes the only clickable text,
+// hrefs stop printing, and file destinations become absolute file:// URIs
+// only when the file exists.
+func stripOSC8(s string) string { return osc8RE.ReplaceAllString(s, "") }
 
 // sgrBefore returns the SGR sequence immediately preceding text in s.
 func sgrBefore(s, text string) string {
@@ -381,6 +392,7 @@ func hyperlinkGlamourLinks(s string, exists func(string) bool) string {
 }
 
 func hyperlinkGlamourLinksWith(s string, exists func(string) bool, uri func(string, string) string) string {
+	s = stripOSC8(bareSGR.Replace(s)) // accept raw glamour v2 output as well as renderMarkdownAt's
 	atoms := parseLinkAtoms(s)
 	if len(atoms) == 0 {
 		return s

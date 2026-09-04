@@ -5,11 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
-func pressKey(m *model, kt tea.KeyType) *model {
-	tm, _ := m.key(tea.KeyMsg{Type: kt})
+func pressKey(m *model, kt rune) *model { return pressMsg(m, keyMsg(kt)) }
+
+func pressMsg(m *model, msg tea.KeyPressMsg) *model {
+	tm, _ := m.key(msg)
 	return tm.(*model)
 }
 
@@ -57,7 +59,7 @@ func TestTabCyclesWithPreview(t *testing.T) {
 	if m.input.Value() != first {
 		t.Fatalf("wrap should return to %q, got %q", first, m.input.Value())
 	}
-	m = pressKey(m, tea.KeyShiftTab) // and back
+	m = pressMsg(m, shiftTab()) // and back
 	if m.input.Value() != second {
 		t.Fatalf("shift+tab should return to %q, got %q", second, m.input.Value())
 	}

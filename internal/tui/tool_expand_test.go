@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -23,7 +22,7 @@ func TestToolExpand(t *testing.T) {
 	}
 
 	// ctrl+e expands the latest tool block
-	tm, _ := m.key(keyMsg(tea.KeyCtrlE))
+	tm, _ := m.key(ctrlKey('e'))
 	m = tm.(*model)
 	out = ansi.Strip(m.blocks[0].render(m.width))
 	if !strings.Contains(out, "line8") || strings.Contains(out, "…") {
@@ -31,7 +30,7 @@ func TestToolExpand(t *testing.T) {
 	}
 
 	// and collapses back
-	tm, _ = m.key(keyMsg(tea.KeyCtrlE))
+	tm, _ = m.key(ctrlKey('e'))
 	m = tm.(*model)
 	if m.blocks[0].expanded {
 		t.Fatal("second ctrl+e should collapse")

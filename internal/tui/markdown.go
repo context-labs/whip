@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
+	"charm.land/glamour/v2"
+	glamouransi "charm.land/glamour/v2/ansi"
+	"charm.land/glamour/v2/styles"
 	chromaStyles "github.com/alecthomas/chroma/v2/styles"
-	"github.com/charmbracelet/glamour"
-	glamouransi "github.com/charmbracelet/glamour/ansi"
-	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -33,7 +33,11 @@ func renderMarkdownAt(s string, width int, root string) string {
 	if err != nil {
 		return s
 	}
-	rendered := stripLinePadding(strings.Trim(out, "\n"))
+	// Lip Gloss v2 (and glamour on top of it) emit the short reset \x1b[m; the
+	// link and path scanners below key on the canonical \x1b[0m form. glamour
+	// v2 also hyperlinks labels and hrefs itself; whip re-links them its own
+	// way (stripOSC8).
+	rendered := stripOSC8(bareSGR.Replace(stripLinePadding(strings.Trim(out, "\n"))))
 	exists := func(path string) bool { return realFileExistsAt(root, path) }
 	uri := func(path, line string) string { return absFileURIAt(root, path, line) }
 	linked := hyperlinkGlamourLinksWith(rendered, exists, uri)
@@ -121,6 +125,15 @@ func SetLightTheme(light bool) {
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
 	resetLinkSGRs()
+	refreshBaseStyles()
+}
+
+// schemeIsLight reports whether the detected (or chosen) scheme is light. An
+// unknown scheme counts as dark, matching the neutral markdown style's bias.
+func schemeIsLight() bool {
+	mdMu.Lock()
+	defer mdMu.Unlock()
+	return mdKnown && mdLight
 }
 
 // SetUnknownTheme records that the terminal background could NOT be determined
@@ -134,6 +147,7 @@ func SetUnknownTheme() {
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
 	resetLinkSGRs()
+	refreshBaseStyles()
 }
 
 // setSchemeOverride records an explicit scheme pick ("light"/"dark", "" = back
@@ -318,10 +332,11 @@ func mdRenderer(width int) *glamour.TermRenderer {
 	return r
 }
 
-// bareSGR is the empty SGR escape (\x1b[m) lipgloss' Width().Render appends
-// before its right-padding; some terminals render the empty parameter list
-// inconsistently, and the styled pad shows up as visual smear. Normalize it
-// to a proper reset.
+// bareSGR normalizes the short reset (\x1b[m), which Lip Gloss v2 emits for
+// every style close, to the canonical \x1b[0m that whip's own scanners
+// (links, self-terminating lines, background re-opening) key on. The frame
+// itself is re-encoded cell by cell by Bubble Tea's renderer, so the form
+// never reaches the terminal verbatim.
 var bareSGR = strings.NewReplacer("\x1b[m", "\x1b[0m")
 
 // sanitizeView cleans one rendered screen: bare SGR escapes become real

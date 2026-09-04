@@ -3,11 +3,12 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 	"unicode"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/daemon"
@@ -314,15 +315,15 @@ func replDuration(d time.Duration) string {
 // itself sits on the native background like the chat, and each cell is a
 // card on the panel shade (the same shade as the chat's turn blocks).
 type replStyles struct {
-	bg                                    lipgloss.TerminalColor
+	bg                                    color.Color
 	head, dim, text, warn, fail, accent   lipgloss.Style
 	keyword, str, num, comment, mod, call lipgloss.Style
 	gutterRun, gutterDone, gutterFail     lipgloss.Style
 }
 
-func newReplStyles(bg lipgloss.TerminalColor) replStyles {
-	on := func(color lipgloss.TerminalColor) lipgloss.Style {
-		return lipgloss.NewStyle().Foreground(color).Background(bg)
+func newReplStyles(bg color.Color) replStyles {
+	on := func(fg color.Color) lipgloss.Style {
+		return lipgloss.NewStyle().Foreground(fg).Background(bg)
 	}
 	return replStyles{
 		bg:         bg,

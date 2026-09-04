@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 )
@@ -65,7 +65,7 @@ func (m *model) selPoint(x, y int, clamp bool) (selPos, bool) {
 	if len(m.blocks) == 0 || m.viewH == 0 { // viewH 0: nothing rendered yet
 		return selPos{}, false
 	}
-	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset + m.vpLead
+	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset() + m.vpLead
 	first, last := m.blocks[0].y0, m.blocks[len(m.blocks)-1].y1
 	if !clamp && (row < first || row > last) {
 		return selPos{}, false
@@ -206,7 +206,7 @@ func (m *model) highlightSelection(view string) string {
 	}
 	lines := strings.Split(view, "\n")
 	lo, hi := selOrder(*m.sel)
-	base := m.contentPad() - m.vp.YOffset // view row = content row + base
+	base := m.contentPad() - m.vp.YOffset() // view row = content row + base
 	for r := lo.row; r <= hi.row; r++ {
 		si := r + base
 		if si < 0 || si >= len(lines) {
@@ -309,42 +309,46 @@ type selScrollTick struct{}
 // tool-block expand still works. cmd is the edge-scroll tick when a drag sits
 // past the viewport's top/bottom.
 func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) {
-	switch msg.Action {
-	case tea.MouseActionPress:
+	mouse := msg.Mouse()
+	switch msg.(type) {
+	case tea.MouseWheelMsg:
+		m.sel = nil // like any press: drops the old highlight, scrolls as usual
+		return false, nil
+	case tea.MouseClickMsg:
 		m.sel = nil // any new press drops the old highlight
-		if msg.Button != tea.MouseButtonLeft {
+		if mouse.Button != tea.MouseLeft {
 			return false, nil
 		}
 		// Input box: a press there starts an input-region selection. The textarea
 		// doesn't use mouse for editing, so consuming it costs nothing.
-		if p, ok := m.inputPoint(msg.X, msg.Y, false); ok {
+		if p, ok := m.inputPoint(mouse.X, mouse.Y, false); ok {
 			m.sel = &selection{anchor: p, cur: p}
 			return true, nil
 		}
-		p, ok := m.selPoint(msg.X, msg.Y, false)
+		p, ok := m.selPoint(mouse.X, mouse.Y, false)
 		if !ok {
 			return false, nil
 		}
 		m.sel = &selection{anchor: p, cur: p}
 		return true, nil // consumed: the viewport must not scroll on this press
-	case tea.MouseActionMotion:
+	case tea.MouseMotionMsg:
 		if m.sel == nil || m.sel.done {
 			return false, nil
 		}
 		// The drag stays in the anchor's region: input-anchored drags clamp into
 		// the input box; transcript-anchored drags clamp into the blocks.
 		if m.sel.anchor.input {
-			if p, ok := m.inputPoint(msg.X, msg.Y, true); ok {
+			if p, ok := m.inputPoint(mouse.X, mouse.Y, true); ok {
 				m.sel.cur = p
 			}
 			return true, nil // the input box doesn't scroll; no edge tick
 		}
-		if p, ok := m.selPoint(msg.X, msg.Y, true); ok {
+		if p, ok := m.selPoint(mouse.X, mouse.Y, true); ok {
 			m.sel.cur = p
 		}
-		m.selDragX, m.selDragY = msg.X, msg.Y
+		m.selDragX, m.selDragY = mouse.X, mouse.Y
 		return true, m.selEdgeScroll()
-	case tea.MouseActionRelease:
+	case tea.MouseReleaseMsg:
 		if m.sel == nil || m.sel.done {
 			return false, nil
 		}
@@ -361,7 +365,7 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 		if inputClick {
 			return true, nil // a no-drag click in the input box is just focus
 		}
-		m.clickAt(msg.X, msg.Y) // no drag: the press was a click all along
+		m.clickAt(mouse.X, mouse.Y) // no drag: the press was a click all along
 		return true, nil
 	}
 	return false, nil
@@ -378,12 +382,12 @@ func (m *model) selEdgeScroll() tea.Cmd {
 		return nil
 	}
 	top := m.vpTopRows()
-	bottom := top + m.vp.Height - 1
+	bottom := top + m.vp.Height() - 1
 	switch {
-	case m.selDragY <= top && m.vp.YOffset > 0: // the top row is the edge (nothing above it)
-		m.vp.SetYOffset(m.vp.YOffset - 1)
+	case m.selDragY <= top && m.vp.YOffset() > 0: // the top row is the edge (nothing above it)
+		m.vp.SetYOffset(m.vp.YOffset() - 1)
 	case m.selDragY > bottom && !m.vp.AtBottom():
-		m.vp.SetYOffset(m.vp.YOffset + 1)
+		m.vp.SetYOffset(m.vp.YOffset() + 1)
 	default:
 		return nil
 	}
@@ -407,7 +411,7 @@ func (m *model) clickAt(x, y int) {
 	if x < m.vpXOff() || x >= m.vpXOff()+m.width {
 		return
 	}
-	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset + m.vpLead
+	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset() + m.vpLead
 	for i := range m.blocks {
 		if row < m.blocks[i].y0 || row > m.blocks[i].y1 {
 			continue

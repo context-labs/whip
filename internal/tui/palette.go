@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 const (
@@ -62,36 +62,36 @@ func (m *model) openPaletteOn(name string) {
 	m.openThinPalette()
 }
 
-func (m *model) paletteKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) paletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	p := m.palette
 	if p == nil {
 		return m, nil
 	}
-	switch msg.Type {
-	case tea.KeyEsc, tea.KeyCtrlC:
+	switch msg.String() {
+	case "esc", "ctrl+c":
 		m.palette = nil
-	case tea.KeyUp:
+	case "up":
 		if len(p.items) > 0 {
 			p.idx = (p.idx + len(p.items) - 1) % len(p.items)
 		}
-	case tea.KeyDown:
+	case "down":
 		if len(p.items) > 0 {
 			p.idx = (p.idx + 1) % len(p.items)
 		}
-	case tea.KeyEnter:
+	case "enter":
 		if len(p.items) > 0 && p.items[p.idx].run != nil {
 			return p.items[p.idx].run(m)
 		}
-	case tea.KeyBackspace, tea.KeyDelete:
+	case "backspace", "delete":
 		if len(p.filter) > 0 {
 			p.filter = p.filter[:len(p.filter)-1]
 			p.applyFilter(m)
 		}
-	case tea.KeyRunes, tea.KeySpace:
-		p.filter += string(msg.Runes)
-		if msg.Type == tea.KeySpace {
-			p.filter += " "
+	default:
+		if msg.Text == "" {
+			return m, nil
 		}
+		p.filter += msg.Text
 		p.applyFilter(m)
 	}
 	return m, nil

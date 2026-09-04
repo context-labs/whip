@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/config"
@@ -98,7 +98,7 @@ func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 func TestReplPanelToggleChordAndCommand(t *testing.T) {
 	const term = 160
 	m := &model{cfg: &config.Config{}, input: newInput(), termWidth: term, now: time.Now, clientState: ClientDisconnected}
-	next, _ := m.thinKey(keyMsg(tea.KeyCtrlX))
+	next, _ := m.thinKey(ctrlKey('x'))
 	m = next.(*model)
 	next, _ = m.thinKey(keyRunes("r"))
 	m = next.(*model)
@@ -144,32 +144,32 @@ func TestReplPanelScrollsIndependentlyOfChat(t *testing.T) {
 	if !strings.Contains(view, "In [30]") || strings.Contains(view, "In [1]") {
 		t.Fatalf("panel should follow the newest cell:\n%s", view)
 	}
-	wheel := func(x int, button tea.MouseButton) {
-		next, _ := m.thinMouse(tea.MouseMsg{X: x, Y: 5, Action: tea.MouseActionPress, Button: button})
+	wheel := func(x int, up bool) {
+		next, _ := m.thinMouse(wheelMsg(x, 5, up))
 		m = next.(*model)
 	}
 	inPanel := 140 - m.panelWidth() // the panel's first column
 	for range 5 {
-		wheel(inPanel, tea.MouseButtonWheelUp)
+		wheel(inPanel, true)
 	}
 	view = m.replPanelView(20)
 	if m.replScroll != 15 || strings.Contains(view, "In [30]") || !strings.Contains(view, "↓ 15 more lines") {
 		t.Fatalf("scroll=%d view:\n%s", m.replScroll, view)
 	}
-	wheel(inPanel-1, tea.MouseButtonWheelUp) // the divider column belongs to the chat side
-	wheel(10, tea.MouseButtonWheelUp)        // over the chat: the panel stays put
+	wheel(inPanel-1, true) // the divider column belongs to the chat side
+	wheel(10, true)        // over the chat: the panel stays put
 	if m.replScroll != 15 {
 		t.Fatalf("chat wheel moved the panel: %d", m.replScroll)
 	}
 	for range 1000 {
-		wheel(inPanel, tea.MouseButtonWheelUp)
+		wheel(inPanel, true)
 	}
 	view = m.replPanelView(20)
 	if !strings.Contains(view, "In [1]") {
 		t.Fatalf("scrolled past the top:\n%s", view)
 	}
 	for range 2000 {
-		wheel(inPanel, tea.MouseButtonWheelDown)
+		wheel(inPanel, false)
 	}
 	if view = m.replPanelView(20); m.replScroll != 0 || !strings.Contains(view, "In [30]") {
 		t.Fatalf("scroll=%d after wheel down:\n%s", m.replScroll, view)
@@ -195,7 +195,7 @@ func TestReplPanelPressDoesNotSelectChat(t *testing.T) {
 	m = next.(*model)
 	m.input.SetValue("")
 	viewStr(m)
-	rowY := func(r int) int { return m.vpTopRows() + (r + m.contentPad() - m.vp.YOffset) - m.vpLead }
+	rowY := func(r int) int { return m.vpTopRows() + (r + m.contentPad() - m.vp.YOffset()) - m.vpLead }
 	y0, y1 := rowY(m.blocks[0].y0), rowY(m.blocks[1].y0)
 	panelX := m.termWidth - 10
 	next, _ = m.Update(clickMsg(panelX, y0))
@@ -303,7 +303,7 @@ func TestAgentTreeReturnsToRoot(t *testing.T) {
 		t.Fatalf("tree rendering:\n%s", view)
 	}
 	// ctrl+t starts on the first child; ↑ reaches the root; enter goes back to it.
-	next, _ := m.thinKey(keyMsg(tea.KeyCtrlT))
+	next, _ := m.thinKey(ctrlKey('t'))
 	m = next.(*model)
 	if !m.agentsFocus || m.agentSel != 1 {
 		t.Fatalf("focus=%v sel=%d", m.agentsFocus, m.agentSel)
@@ -328,11 +328,11 @@ func TestAgentTreeReturnsToRoot(t *testing.T) {
 		t.Fatalf("esc with the tree focused: open=%q focus=%v", m.agentOpen, m.agentsFocus)
 	}
 	// ctrl+x on the root row is a no-op rather than a stop request.
-	next, _ = m.thinKey(keyMsg(tea.KeyCtrlT))
+	next, _ = m.thinKey(ctrlKey('t'))
 	m = next.(*model)
 	next, _ = m.thinKey(keyMsg(tea.KeyUp))
 	m = next.(*model)
-	if _, command := m.thinKey(keyMsg(tea.KeyCtrlX)); command != nil {
+	if _, command := m.thinKey(ctrlKey('x')); command != nil {
 		t.Fatal("ctrl+x on the root row should not submit a stop")
 	}
 }

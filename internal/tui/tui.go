@@ -4,19 +4,19 @@ package tui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
@@ -28,18 +28,31 @@ import (
 	"github.com/muesli/termenv"
 )
 
-// UI styles use AdaptiveColor so they stay legible on both dark and light
-// terminal backgrounds (detected at startup by detectColorScheme).
-var (
-	youStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "21", Dark: "12"}).Bold(true) // blue
-	botStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "90", Dark: "13"}).Bold(true) // purple/magenta
-	toolStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "136", Dark: "11"})           // amber
-	dimStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})          // mid gray
-	errStyle  = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "124", Dark: "9"})            // red
+// UI styles stay legible on both dark and light terminal backgrounds. Lip
+// Gloss v2 has no global background state, so refreshBaseStyles rebuilds
+// them from whip's own scheme detection whenever it changes.
+var youStyle, botStyle, toolStyle, dimStyle, errStyle, thinkingStyle lipgloss.Style
+
+func init() { refreshBaseStyles() }
+
+// refreshBaseStyles picks the light or dark variant of every package-level
+// style for the current scheme (see SetLightTheme / SetUnknownTheme).
+func refreshBaseStyles() {
+	pick := lipgloss.LightDark(!schemeIsLight())
+	ad := func(light, dark string) color.Color { return pick(lipgloss.Color(light), lipgloss.Color(dark)) }
+	youStyle = lipgloss.NewStyle().Foreground(ad("21", "12")).Bold(true) // blue
+	botStyle = lipgloss.NewStyle().Foreground(ad("90", "13")).Bold(true) // purple/magenta
+	toolStyle = lipgloss.NewStyle().Foreground(ad("136", "11"))          // amber
+	dimStyle = lipgloss.NewStyle().Foreground(ad("240", "245"))          // mid gray
+	errStyle = lipgloss.NewStyle().Foreground(ad("124", "9"))            // red
 	// thinkingStyle renders reasoning tokens: dim and italic so they're
 	// visually distinct from the answer.
-	thinkingStyle = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"}).Italic(true)
-)
+	thinkingStyle = lipgloss.NewStyle().Foreground(ad("240", "245")).Italic(true)
+	// diff bands: colored background across the full row, terminal-default
+	// foreground on top (legible on both themes).
+	diffAddStyle = lipgloss.NewStyle().Background(ad("194", "22"))
+	diffDelStyle = lipgloss.NewStyle().Background(ad("224", "52"))
+}
 
 // Marker glyphs prefixing user and assistant turns. Package-level so the
 // opencode render mode can swap them (❯→┃, ●→▣) in one place; both defaults
@@ -241,11 +254,13 @@ func newInput() textarea.Model {
 	ti.KeyMap.DeleteAfterCursor = key.NewBinding()
 	// The default adaptive styles misdetect the background over mosh/tmux;
 	// use plain ANSI colors and no cursor-line background.
-	ti.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ti.FocusedStyle.Placeholder = dimStyle
-	ti.BlurredStyle.Placeholder = dimStyle
-	ti.FocusedStyle.Prompt = botStyle
-	ti.BlurredStyle.Prompt = dimStyle
+	st := ti.Styles()
+	st.Focused.CursorLine = lipgloss.NewStyle()
+	st.Focused.Placeholder = dimStyle
+	st.Blurred.Placeholder = dimStyle
+	st.Focused.Prompt = botStyle
+	st.Blurred.Prompt = dimStyle
+	ti.SetStyles(st)
 	ti.Focus()
 	return ti
 }
@@ -307,30 +322,6 @@ func (m *model) startupReport() {
 	} else {
 		m.append(dimStyle.Render(out))
 	}
-}
-
-// enableClickWheelMouse turns on mouse reporting with SGR coordinates
-// (?1006): click+wheel (?1000) plus button-event motion (?1002) so a held
-// left-drag reports motion events — whip turns those into its own selection
-// (select.go), because enabling ?1000 alone makes most terminals hand the drag
-// to the app WITHOUT starting a native selection (Ghostty, kitty), leaving
-// capture-on users with no drag-to-copy at all. Writing directly to the real
-// TTY keeps bubbletea's output a terminal so terminal-size detection still
-// works (unlike piping output through an os.Pipe). ?1002 (not ?1003) means
-// motion bytes only flow while a button is held — passive moves stay silent.
-//
-// ?1002 alone — NOT ?1000 as well: terminals keep ONE mouse-tracking mode, so
-// writing ?1000h after ?1002h silently downgrades tracking to click-only and
-// drags stop reporting motion (no highlight, no copy). ?1002 is a superset of
-// ?1000 (press/release/wheel all still report).
-func enableClickWheelMouse(w *os.File) {
-	fmt.Fprint(w, "\x1b[?1006h\x1b[?1002h")
-}
-
-// disableClickWheelMouse releases the mouse reporting enableClickWheelMouse
-// set, plus ?1000 defensively (an older whip or a downgrade may have left it).
-func disableClickWheelMouse(w *os.File) {
-	fmt.Fprint(w, "\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l")
 }
 
 // (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whip — tmux's
@@ -420,11 +411,9 @@ func (m *model) applyTheme(theme string) (how string) {
 	switch theme {
 	case "light":
 		SetLightTheme(true)
-		lipgloss.SetHasDarkBackground(false)
 		setSchemeOverride("light")
 	case "dark":
 		SetLightTheme(false)
-		lipgloss.SetHasDarkBackground(true)
 		setSchemeOverride("dark")
 	default: // auto: don't touch m.cfg.Theme — setTheme owns persistence
 		setSchemeOverride("")
@@ -665,10 +654,10 @@ func (m *model) refreshVP() {
 // transcript is shorter than the viewport (click-row mapping accounts for it).
 func (m *model) contentPad() int {
 	if len(m.blocks) == 0 {
-		return m.vp.Height
+		return m.vp.Height()
 	}
 	h := m.blocks[len(m.blocks)-1].y1 + 1 // content height from the last block
-	return max(m.vp.Height-h, 0)
+	return max(m.vp.Height()-h, 0)
 }
 
 // viewportView renders the transcript viewport and drops the dead pad rows.
@@ -687,7 +676,7 @@ func (m *model) viewportView() string {
 	}
 	m.vpLead = 0
 	if len(m.blocks) == 0 { // empty transcript: the centered-logo home screen
-		return opencodeHome(m.vp.Width, m.vp.Height)
+		return opencodeHome(m.vp.Width(), m.vp.Height())
 	}
 	// Full-height viewport: keep the pad so the transcript is bottom-anchored
 	// (blanks above, content near the prompt) and the prompt/status sit at the
@@ -696,7 +685,10 @@ func (m *model) viewportView() string {
 }
 
 func (m *model) Init() tea.Cmd {
-	cmds := []tea.Cmd{textarea.Blink, waitClientUpdate(m.client)}
+	// Bubble Tea's own OSC 11 query is a second scheme signal: whip's pre-run
+	// query stays authoritative (it handles tmux passthrough), and the reply
+	// only matters when that query came back unknown (applyDetectedBackground).
+	cmds := []tea.Cmd{textarea.Blink, waitClientUpdate(m.client), tea.RequestBackgroundColor}
 	if inTmuxEnv() {
 		// live theme tracking: tmux knows the outer terminal's light/dark
 		// (#{client_theme}, via the 996/2031 protocol) — poll it so an OS
@@ -779,6 +771,23 @@ type bgResult struct {
 	hasRGB       bool
 }
 
+// applyDetectedBackground consumes Bubble Tea's background-color reply. It
+// resolves the scheme only when whip's own pre-run query could not (mosh, an
+// old tmux without passthrough) and no theme is pinned in the config; a known
+// scheme is never overridden, so the two signals cannot flip-flop.
+func (m *model) applyDetectedBackground(msg tea.BackgroundColorMsg) {
+	if ocThemeKnown() || msg.Color == nil || (m.cfg != nil && m.cfg.Theme != "") {
+		return
+	}
+	r, g, b, _ := msg.Color.RGBA()
+	light := !msg.IsDark()
+	bgCache = bgResult{light: light, valid: true, hasRGB: true, r: int(r >> 8), g: int(g >> 8), b: int(b >> 8)}
+	SetLightTheme(light)
+	m.themeHow = "terminal reply after startup"
+	m.applyOpencodeStyles()
+	m.refreshVP()
+}
+
 // inTmuxEnv reports whether whip runs inside tmux/screen, where the terminal
 // can't be queried directly.
 func inTmuxEnv() bool {
@@ -789,8 +798,7 @@ func inTmuxEnv() bool {
 
 func detectColorScheme() string {
 	setScheme := func(light bool) {
-		SetLightTheme(light)                  // glamour markdown style
-		lipgloss.SetHasDarkBackground(!light) // AdaptiveColor picks
+		SetLightTheme(light) // glamour markdown style + the package-level styles
 	}
 	switch strings.ToLower(os.Getenv("WHIP_THEME")) {
 	case "light":
@@ -938,8 +946,7 @@ func (m *model) growInput() {
 	// prompt eats 2 content cells — widen the box row past the frame
 	ti.Prompt = m.input.Prompt
 	ti.Placeholder = m.input.Placeholder
-	ti.FocusedStyle = m.input.FocusedStyle
-	ti.BlurredStyle = m.input.BlurredStyle
+	ti.SetStyles(m.input.Styles())
 	ti.SetWidth(m.input.Width() + lipgloss.Width(ti.Prompt)) // Width() is content width; SetWidth takes total
 	ti.SetHeight(h)
 	ti.SetValue(val)
@@ -1012,8 +1019,9 @@ func (m *model) layout() {
 	// the viewport to 1 col and re-slice the transcript into a one-char strip,
 	// regardless of the render floor in refreshVP.
 	w, h := max(m.width, minRenderWidth), max(m.height-chrome, 1)
-	if m.vp.Width != w || m.vp.Height != h {
-		m.vp.Width, m.vp.Height = w, h
+	if m.vp.Width() != w || m.vp.Height() != h {
+		m.vp.SetWidth(w)
+		m.vp.SetHeight(h)
 		m.refreshVP()
 	}
 }
@@ -1030,17 +1038,6 @@ func (m *model) dockTop() int {
 		bottom = m.viewH
 	}
 	return bottom - 2 - m.dockRows + m.dockSkip
-}
-
-var shiftEnterRe = regexp.MustCompile(
-	`'\[', '1', '3', ';', '2', 'u'` +
-		`|'\[', '2', '7', ';', '2', ';', '1', '3', '~'` +
-		`|'\[', 'five', 'seven', 'four', 'four', 'one', 'u'`,
-)
-
-func isShiftEnterSeq(msg tea.KeyMsg) bool {
-	s := msg.String()
-	return strings.HasPrefix(s, "unknown csi sequence:") && shiftEnterRe.MatchString(s)
 }
 
 // nowFn returns the current time, honoring the test seam when set.
@@ -1363,7 +1360,17 @@ func (m *model) currentView() string {
 // View renders the frame and tracks WHERE it sits on the screen. Mouse events
 // arrive in absolute screen coordinates, so every click/drag mapping needs the
 // view's top row, which is always row 0 in the alternate screen.
-func (m *model) View() string {
+func (m *model) View() tea.View {
+	view := tea.NewView(m.viewString())
+	view.AltScreen = true
+	if m.mouseOn {
+		view.MouseMode = tea.MouseModeAllMotion // clicks, wheel, drag, and hover
+	}
+	return view
+}
+
+// viewString renders the frame as one styled string (the View content).
+func (m *model) viewString() string {
 	m.syncInputPlaceholder()
 	v := m.viewBody()
 	// the main-column left margin only — the main area stays on the terminal's

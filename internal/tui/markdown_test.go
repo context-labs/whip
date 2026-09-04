@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -43,8 +43,8 @@ func TestRenderMarkdownFallback(t *testing.T) {
 	// width<=0 is clamped to the minimum render width, never passed through
 	// unwrapped (that was the overflow bug)
 	out := renderMarkdown("plain text", 0)
-	plain := strings.Join(strings.Fields(ansi.Strip(out)), " ")
-	if plain != "plain text" {
+	plain := strings.Join(strings.Fields(ansi.Strip(out)), "")
+	if plain != "plaintext" { // a degenerate width may break a word across rows
 		t.Errorf("content must survive the clamp, got %q", out)
 	}
 	for l := range strings.SplitSeq(out, "\n") {

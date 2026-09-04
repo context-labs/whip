@@ -11,16 +11,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
 var (
 	toolHeadStyle = lipgloss.NewStyle().Bold(true)
-	// diff bands: colored background across the full row, terminal-default
-	// foreground on top (legible on both themes).
-	diffAddStyle = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "194", Dark: "22"})
-	diffDelStyle = lipgloss.NewStyle().Background(lipgloss.AdaptiveColor{Light: "224", Dark: "52"})
+	// diff bands (set by refreshBaseStyles): colored background across the
+	// full row, terminal-default foreground on top (legible on both themes).
+	diffAddStyle, diffDelStyle lipgloss.Style
 )
 
 // toolHeaderName maps a tool to its header verb ("Update" over "edit" — the

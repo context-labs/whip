@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -88,7 +87,7 @@ func TestToolResultFullyVisibleWhenExpanded(t *testing.T) {
 	}
 
 	// expand: every row visible, no truncation
-	tm, _ = m.key(keyMsg(tea.KeyCtrlE))
+	tm, _ = m.key(ctrlKey('e'))
 	m = tm.(*model)
 	joined = strings.Join(m.viewportPlain(), "\n")
 	for i := 1; i <= 12; i++ {

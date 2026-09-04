@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // newGrowModel builds a model with the real input and a known width, as Run
@@ -33,7 +31,7 @@ func TestInputGrowsOnCtrlJ(t *testing.T) {
 	m.input.CursorEnd()
 
 	// press ctrl+j through the real key handler, then type the next line
-	tm, _ := m.key(keyMsg(tea.KeyCtrlJ))
+	tm, _ := m.key(ctrlKey('j'))
 	m = tm.(*model)
 	m.input.InsertString("second line")
 	m.layout()
@@ -46,7 +44,7 @@ func TestInputGrowsOnCtrlJ(t *testing.T) {
 	}
 
 	// a third line keeps it growing
-	tm, _ = m.key(keyMsg(tea.KeyCtrlJ))
+	tm, _ = m.key(ctrlKey('j'))
 	m = tm.(*model)
 	m.input.InsertString("third line")
 	m.layout()
@@ -105,11 +103,11 @@ func TestInputShowsAllLinesAfterGrowth(t *testing.T) {
 	lines := []string{"line one", "line two", "line three", "line four"}
 	for i, ln := range lines {
 		if i > 0 {
-			tm, _ := m.Update(keyMsg(tea.KeyCtrlJ))
+			tm, _ := m.Update(ctrlKey('j'))
 			m = tm.(*model)
 		}
 		for _, r := range ln {
-			tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			tm, _ := m.Update(keyRunes(string(r)))
 			m = tm.(*model)
 		}
 	}
@@ -136,14 +134,14 @@ func TestCtrlJWorksAfterLargePaste(t *testing.T) {
 	}
 	// bracketed paste arrives as one rune batch, like a real terminal paste
 	block := strings.Join(lines, "\n")
-	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(block)})
+	tm, _ := m.Update(keyRunes(block))
 	m = tm.(*model)
 	if got, want := m.input.LineCount(), len(lines); got != want {
 		t.Fatalf("paste should land all lines: LineCount=%d want %d", got, want)
 	}
 
 	// now ctrl+j must still insert newlines past the visual cap
-	tm, _ = m.Update(keyMsg(tea.KeyCtrlJ))
+	tm, _ = m.Update(ctrlKey('j'))
 	m = tm.(*model)
 	tm, _ = m.Update(keyRunes("typed after"))
 	m = tm.(*model)
@@ -171,10 +169,10 @@ func TestInputScrollsWhenCapped(t *testing.T) {
 	m := newGrowModel()
 	for i := range m.input.MaxHeight + 5 {
 		if i > 0 {
-			tm, _ := m.Update(keyMsg(tea.KeyCtrlJ))
+			tm, _ := m.Update(ctrlKey('j'))
 			m = tm.(*model)
 		}
-		tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(fmt.Sprintf("row%d", i))})
+		tm, _ := m.Update(keyRunes(fmt.Sprintf("row%d", i)))
 		m = tm.(*model)
 	}
 	if got := m.input.Height(); got != m.input.MaxHeight {

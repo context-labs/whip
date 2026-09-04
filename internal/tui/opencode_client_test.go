@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/context-labs/whip/internal/config"
 )
@@ -97,7 +97,7 @@ func TestOpencodeHomePromptAndSidebarRemainUsable(t *testing.T) {
 	m.cfg = &config.Config{}
 	m.clientState = ClientDisconnected
 	m.now = time.Now
-	next, _ := m.thinKey(keyMsg(tea.KeyCtrlX))
+	next, _ := m.thinKey(ctrlKey('x'))
 	m = next.(*model)
 	if m.leaderAt.IsZero() {
 		t.Fatal("ctrl+x did not arm the OpenCode leader")
@@ -130,7 +130,8 @@ func TestOpencodeOverlayAndDialogsStayWithinNarrowFrames(t *testing.T) {
 
 func TestOpencodeMessageActionsHoverAndToolPresentation(t *testing.T) {
 	m := &model{input: newInput(), width: 80, height: 20, viewH: 20, hoverIdx: -1}
-	m.vp.Width, m.vp.Height = 80, 10
+	m.vp.SetWidth(80)
+	m.vp.SetHeight(10)
 	m.blocks = []block{{kind: blockUser, text: "hello"}, {kind: blockAssistant, text: "answer"}}
 	m.refreshVP()
 	m.updateHover(5, m.contentPad())

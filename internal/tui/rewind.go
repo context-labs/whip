@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/llm"
 )
@@ -110,24 +110,24 @@ func (m *model) openRewind() {
 		m.append(dimStyle.Render("(nothing to rewind to yet)"))
 		return
 	}
-	m.rew = &rewindState{entries: entries, sel: len(entries) - 1, savedVP: m.vp.YOffset}
+	m.rew = &rewindState{entries: entries, sel: len(entries) - 1, savedVP: m.vp.YOffset()}
 	m.scrollToMsg(entries[len(entries)-1].cut)
 }
 
-func (m *model) rewindKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *model) rewindKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	state := m.rew
 	selected := func() rewindEntry { return state.entries[state.sel] }
-	switch msg.Type {
-	case tea.KeyEsc:
+	switch msg.String() {
+	case "esc":
 		m.vp.SetYOffset(state.savedVP)
 		m.rew = nil
-	case tea.KeyUp:
+	case "up":
 		state.sel = max(state.sel-1, 0)
 		m.scrollToMsg(selected().cut)
-	case tea.KeyDown:
+	case "down":
 		state.sel = min(state.sel+1, len(state.entries)-1)
 		m.scrollToMsg(selected().cut)
-	case tea.KeyEnter:
+	case "enter":
 		entry := selected()
 		m.rew = nil
 		messages := m.displayMessages()
@@ -136,8 +136,8 @@ func (m *model) rewindKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input.CursorEnd()
 		}
 		return m.submitClientAction("history.rewind", map[string]string{"args": strconv.Itoa(entry.cut)}, "")
-	case tea.KeyRunes:
-		if string(msg.Runes) == "f" {
+	case "f":
+		{
 			entry := selected()
 			m.rew = nil
 			name := strings.TrimSpace(m.sessTitle)
