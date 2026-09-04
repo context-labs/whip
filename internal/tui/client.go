@@ -1023,6 +1023,9 @@ func (m *model) openClientNamePrompt(label, value, operation string, cut int) {
 }
 
 func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.Cmd) {
+	if d := m.topDialog(); d != nil { // what is drawn on top owns the keyboard, even over a permission or name prompt
+		return d.key(m, msg)
+	}
 	if m.permDialog != nil && m.permDialog.daemon != nil {
 		return m.thinPermissionKey(msg)
 	}
@@ -1070,9 +1073,6 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 			m.input, command = m.input.Update(msg)
 			return m, command
 		}
-	}
-	if d := m.topDialog(); d != nil { // the topmost floating dialog owns the keyboard
-		return d.key(m, msg)
 	}
 	if m.rew != nil {
 		return m.rewindKey(msg)

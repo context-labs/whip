@@ -609,7 +609,7 @@ func (m *model) recalcWidth() {
 	}
 	if w != m.width {
 		m.width = w
-		m.input.SetWidth(w - 2)
+		m.input.SetWidth(w - 3) // the prompt box gutter "┃  " takes three cells
 		m.refreshVP()
 	}
 }

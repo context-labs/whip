@@ -231,11 +231,11 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 	mouse := msg.Mouse()
 	switch msg.(type) {
 	case tea.MouseWheelMsg:
-		m.sel = nil                // like any press: drops the old highlight, scrolls as usual
-		return m.dialogOpen(), nil // a dialog owns the wheel: nothing scrolls underneath it
+		m.sel = nil                  // like any press: drops the old highlight, scrolls as usual
+		return m.floatingOpen(), nil // a dialog owns the wheel: nothing scrolls underneath it
 	case tea.MouseClickMsg:
 		m.sel = nil // any new press drops the old highlight
-		if m.dialogOpen() || m.menu != nil {
+		if m.floatingOpen() || m.menu != nil {
 			return true, nil // presses never reach what a dialog or the completion menu covers
 		}
 		if mouse.Button != tea.MouseLeft {
@@ -343,7 +343,7 @@ func (m *model) selEdgeScroll() tea.Cmd {
 // the transcript rectangle acts: the sidebar, the gap and the chrome sharing
 // the row never do. Row math matches selPoint (y is an absolute screen row).
 func (m *model) clickAt(x, y int) {
-	if m.dialogOpen() || m.menu != nil {
+	if m.floatingOpen() || m.menu != nil {
 		return
 	}
 	reg, _, ly := m.hit(x, y)

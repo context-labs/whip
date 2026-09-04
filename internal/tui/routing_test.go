@@ -45,8 +45,9 @@ func TestMsgActionsKeyboard(t *testing.T) {
 	}
 }
 
-// Presses and the wheel never reach the transcript under a dialog, an
-// input-slot mode, or the completion menu.
+// Presses and the wheel never reach the transcript under a floating dialog or
+// the completion menu (the inline modes keep it live: see
+// TestInlineModesKeepTranscriptLive).
 func TestClickUnderDialogIsSwallowed(t *testing.T) {
 	m := transcriptModel(t)
 	row := m.blocks[1].y0 + m.contentPad()
@@ -55,7 +56,6 @@ func TestClickUnderDialogIsSwallowed(t *testing.T) {
 		"session picker": func() {
 			m.picker = &picker{metas: []session.Meta{{ID: "a"}}, previews: map[string][2]string{"a": {}}}
 		},
-		"rewind":          func() { m.rew = &rewindState{entries: []rewindEntry{{cut: 0}}} },
 		"completion menu": func() { m.menu = &menu{} },
 		"palette":         func() { m.openThinThemePalette() },
 	} {
@@ -169,5 +169,54 @@ func TestModalSwallowsWheel(t *testing.T) {
 	m = next.(*model)
 	if m.vp.YOffset() != 3 {
 		t.Fatalf("wheel scrolled under the model picker: offset %d", m.vp.YOffset())
+	}
+}
+
+// A dialog drawn on top of a permission or name prompt owns the keyboard:
+// esc closes the dialog instead of rejecting the tool call underneath.
+func TestDialogOverInlinePromptTakesKeys(t *testing.T) {
+	m := transcriptModel(t)
+	m.openThinPalette()
+	m.permDialog = &permDialog{daemon: &session.PermissionSnapshot{ID: "p1", Rule: "x"}}
+	m.layout()
+	m.key(keyMsg(tea.KeyDown))
+	if m.palette == nil || m.palette.idx != 1 || m.permDialog.sel != 0 {
+		t.Fatalf("down should move the palette, not the permission prompt: palette=%+v perm=%+v", m.palette, m.permDialog)
+	}
+	m.key(keyMsg(tea.KeyEscape))
+	if m.palette != nil || m.permDialog.deciding {
+		t.Fatalf("esc should close the palette and leave the permission undecided: palette=%v deciding=%v", m.palette, m.permDialog.deciding)
+	}
+}
+
+// The inline modes leave the transcript live: the wheel scrolls and a press
+// still seeds a selection while a permission prompt or the rewind picker is up.
+func TestInlineModesKeepTranscriptLive(t *testing.T) {
+	for name, open := range map[string]func(m *model){
+		"permission": func(m *model) { m.permDialog = &permDialog{daemon: &session.PermissionSnapshot{ID: "p1"}} },
+		"rewind":     func(m *model) { m.rew = &rewindState{entries: []rewindEntry{{cut: 0}}} },
+	} {
+		m := transcriptModel(t)
+		for range 30 {
+			m.append("filler line")
+		}
+		m.layout()
+		m.vp.SetYOffset(3)
+		m.follow = false
+		open(m)
+		m.layout()
+		viewStr(m)
+		next, _ := m.thinMouse(wheelMsg(m.frameNow().transcript.Min.X+2, m.frameNow().transcript.Min.Y+2, true))
+		m = next.(*model)
+		if m.vp.YOffset() != 0 {
+			t.Fatalf("%s: wheel should scroll the visible transcript, offset %d", name, m.vp.YOffset())
+		}
+		y := blockRowY(m, m.blocks[1].y0)
+		if handled, _ := m.handleMouseSelect(clickMsg(m.frameNow().transcript.Min.X+1, y)); !handled || m.sel == nil {
+			t.Fatalf("%s: a press should seed a selection", name)
+		}
+		if m.View().Cursor != nil {
+			t.Fatalf("%s: the cursor still hides while the prompt owns the keyboard", name)
+		}
 	}
 }

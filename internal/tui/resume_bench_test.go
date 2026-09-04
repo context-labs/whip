@@ -56,8 +56,8 @@ func BenchmarkAppendStream(b *testing.B) {
 }
 
 // BenchmarkView measures one full frame: the number the compositor work must
-// not make worse (allocs/op is the one to watch: a fresh cell buffer per frame
-// would show up here).
+// not make worse (B/op is the one to watch: a fresh 140×40 cell buffer per
+// frame is ~600 KB and would show up there).
 func BenchmarkView(b *testing.B) {
 	m := compactCmdModel()
 	m.clientView.agents = []session.RuntimeAgent{{ID: "root-agent", LifecyclePhase: "running"}}

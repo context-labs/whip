@@ -34,6 +34,7 @@ func TestShiftMousePassesThrough(t *testing.T) {
 
 // /theme auto reports the detected scheme AND the source of the decision.
 func TestThemeAutoReportsSource(t *testing.T) {
+	t.Cleanup(func() { setSchemeOverride(""); SetLightTheme(false) })
 	m := compactCmdModel()
 	m.setTheme("light")
 	m.command("/theme auto")

@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/session"
 )
 
 // The terminal cursor sits on the textarea caret inside the input rectangle,
@@ -33,19 +35,27 @@ func TestRealCursorInsideInputRect(t *testing.T) {
 	}
 	m.input.SetValue("")
 	for name, open := range map[string]func(){
-		"palette":   func() { m.openThinThemePalette() },
-		"rewind":    func() { m.rew = &rewindState{entries: []rewindEntry{{cut: 0}}} },
-		"mask":      func() { m.openNamePrompt("key:", "", func(string) {}); m.namePrompt.mask = true },
-		"msgAction": func() { m.msgActions = &msgActions{block: 0} },
+		"palette":    func() { m.openThinThemePalette() },
+		"rewind":     func() { m.rew = &rewindState{entries: []rewindEntry{{cut: 0}}} },
+		"mask":       func() { m.openNamePrompt("key:", "", func(string) {}); m.namePrompt.mask = true },
+		"msgAction":  func() { m.msgActions = &msgActions{block: 0} },
+		"permission": func() { m.permDialog = &permDialog{daemon: &session.PermissionSnapshot{ID: "p1"}} },
 	} {
-		m.palette, m.rew, m.namePrompt, m.msgActions = nil, nil, nil, nil
+		m.palette, m.rew, m.namePrompt, m.msgActions, m.permDialog = nil, nil, nil, nil, nil
 		open()
 		m.layout()
 		if c := m.View().Cursor; c != nil {
 			t.Fatalf("%s open: cursor should hide, got %+v", name, c)
 		}
 	}
-	m.palette, m.rew, m.namePrompt, m.msgActions = nil, nil, nil, nil
+	m.palette, m.rew, m.namePrompt, m.msgActions, m.permDialog = nil, nil, nil, nil, nil
+	m.input.SetValue(strings.Repeat("a", m.input.Width())) // a full row: the caret sits one past the last cell, still inside the box
+	m.input.CursorEnd()
+	m.layout()
+	if c := m.View().Cursor; c == nil || !inRect(m.frameNow().inputText, c.X, c.Y) {
+		t.Fatalf("full-row caret: cursor %+v outside %v", c, m.frameNow().inputText)
+	}
+	m.input.SetValue("")
 	m.openNamePrompt("name:", "", func(string) {})
 	m.layout()
 	it = m.frameNow().inputText

@@ -17,6 +17,7 @@ import (
 // drift through the Bubble Tea v2 migration and the design-system work.
 // Regenerate deliberately with: go test ./internal/tui -run TestFrameGolden -update
 func TestFrameGolden(t *testing.T) {
+	pinDarkTheme(t)
 	golden.RequireEqual(t, []byte(ansi.Strip(viewStr(goldenModel(140, 40)))))
 }
 
@@ -26,6 +27,7 @@ func goldenModel(w, h int) *model {
 	fixed := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	m.now = func() time.Time { return fixed }
 	m.sessTitle = "Golden session"
+	m.clientView.workingDir = "/work/whip" // the status line shows it: never the checkout path
 	m.clientView.agents = []session.RuntimeAgent{
 		{ID: "root-agent", LifecyclePhase: "running"},
 		{ID: "root-agent:ba06cc4c6983c16d", ParentID: "root-agent", Name: "file-reader", LifecyclePhase: "idle"},
@@ -46,6 +48,7 @@ func goldenModel(w, h int) *model {
 // token changes show up), and the neutral theme on a 16-color terminal.
 // Regenerate deliberately with: go test ./internal/tui -run TestFrameGoldenVariants -update
 func TestFrameGoldenVariants(t *testing.T) {
+	pinDarkTheme(t)
 	plain := func(t *testing.T, m *model) { golden.RequireEqual(t, []byte(ansi.Strip(viewStr(m)))) }
 	t.Run("79x24-dock", func(t *testing.T) { plain(t, goldenModel(79, 24)) })
 	t.Run("160x40-repl", func(t *testing.T) {
@@ -81,4 +84,13 @@ func TestFrameGoldenVariants(t *testing.T) {
 		}()
 		plain(t, goldenModel(140, 40))
 	})
+}
+
+// pinDarkTheme puts the process-global scheme in the state the goldens were
+// recorded under and restores it afterwards, so frame comparisons never
+// depend on which test ran before.
+func pinDarkTheme(t *testing.T) {
+	t.Helper()
+	SetLightTheme(false)
+	t.Cleanup(func() { SetLightTheme(false) })
 }

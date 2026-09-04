@@ -1257,7 +1257,7 @@ func (m *model) recordInputRows() {
 	} else {
 		iv := m.input.View()
 		if m.namePrompt != nil && m.namePrompt.mask {
-			iv = m.namePrompt.label + " ┃ " + m.namePrompt.maskedValue(m.input.Value())
+			iv = m.namePrompt.maskedValue(m.input.Value()) // what the inputText rectangle covers
 		}
 		raw := strings.Split(iv, "\n")
 		m.inputLines = make([]string, len(raw))
@@ -1293,7 +1293,9 @@ func (m *model) viewBody() string {
 	if len(m.plan) > 0 {
 		b.WriteString("\n" + m.planView() + "\n")
 	}
-	b.WriteString("\n")
+	if m.iactive == nil {
+		b.WriteString("\n") // the blank row above the rewind picker / the prompt box (measure counts it once)
+	}
 	if m.rew != nil {
 		b.WriteString(m.rewindView() + "\n\n")
 	}
@@ -1306,7 +1308,7 @@ func (m *model) viewBody() string {
 				// prompt matches how the textarea renders its own first line.
 				b.WriteString("┃ " + m.namePrompt.maskedValue(m.input.Value()))
 			} else {
-				b.WriteString(m.input.View())
+				b.WriteString(indentContinuation(m.input.View(), lipgloss.Width(m.namePrompt.label)+1))
 			}
 		} else {
 			b.WriteString(m.opencodePrompt(m.input.View(), m.width))
@@ -1460,6 +1462,16 @@ func (m *model) menuView() string {
 		rows = append(rows, ui.PadRow(muted.Render(fmt.Sprintf("  %d/%d", m.menu.idx+1, len(m.menu.cands))), m.width, bg))
 		return strings.Join(rows, "\n")
 	}
+}
+
+// indentContinuation indents every row after the first by n cells, so a
+// multi-row textarea written after a label keeps its rows aligned.
+func indentContinuation(s string, n int) string {
+	rows := strings.Split(s, "\n")
+	for i := 1; i < len(rows); i++ {
+		rows[i] = strings.Repeat(" ", n) + rows[i]
+	}
+	return strings.Join(rows, "\n")
 }
 
 // thinkingLabel is the transient "+ Thinking…" line while reasoning streams.

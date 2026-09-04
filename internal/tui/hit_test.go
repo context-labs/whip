@@ -7,7 +7,10 @@ import (
 
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+
 	"github.com/charmbracelet/x/ansi"
+	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/session"
 )
 
 // Every region rectangle answers hit() inside its corners and nowhere one
@@ -80,35 +83,54 @@ func TestLayoutFrameOracle(t *testing.T) {
 		{"esc-hint", func(m *model) { m.esc1 = true }},
 		{"rewind", func(m *model) { m.rew = &rewindState{entries: []rewindEntry{{cut: 0, text: "x"}}} }},
 		{"name-prompt", func(m *model) { m.openNamePrompt("name:", "", func(string) {}) }},
+		{"thinking", func(m *model) { m.busy = true; m.thinkStart = m.now() }},
+		{"thought", func(m *model) { m.curThink = "considering the options" }},
+		{"current", func(m *model) { m.current = "streaming partial answer" }},
+		{"plan", func(m *model) {
+			m.plan = []daemon.PlanItem{{Content: "one", Status: "pending"}, {Content: "two", Status: "done"}}
+		}},
+		{"permission", func(m *model) { m.permDialog = &permDialog{daemon: &session.PermissionSnapshot{ID: "p1", Rule: "x"}} }},
+		{"interactive", func(m *model) { m.iactive = &interactive{output: "$ ls\nfoo\n"} }},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := goldenModel(140, 40)
-			tc.prep(m)
-			m.layout()
-			rows := strings.Split(ansi.Strip(viewStr(m)), "\n")
-			r := m.frameNow()
-			if r.inputText.Empty() {
-				t.Fatal("no input rectangle")
-			}
-			textRow := rows[r.inputText.Min.Y]
-			if m.namePrompt == nil {
-				if bar := rows[r.inputText.Min.Y-1]; !strings.HasPrefix(bar[r.input.Min.X:], "┃") {
-					t.Fatalf("prompt bar not on the row above the input text: %q", bar)
+		for _, w := range []int{140, 79} {
+			t.Run(fmt.Sprintf("%s/%d", tc.name, w), func(t *testing.T) {
+				m := goldenModel(w, 40)
+				tc.prep(m)
+				m.layout()
+				rows := strings.Split(ansi.Strip(viewStr(m)), "\n")
+				r := m.frameNow()
+				if len(rows) != 40 {
+					t.Fatalf("frame has %d rows", len(rows))
 				}
-				idx := strings.Index(textRow, "Ask whip")
-				if idx < 0 || ansi.StringWidth(textRow[:idx]) != r.inputText.Min.X {
-					t.Fatalf("input text does not start at cell %d: %q", r.inputText.Min.X, textRow)
+				if !strings.Contains(rows[r.status.Min.Y], "ctrl+p") || r.status.Min.Y != len(rows)-1 {
+					t.Fatalf("status row %d: %q", r.status.Min.Y, rows[r.status.Min.Y])
 				}
-			} else if !strings.HasPrefix(textRow[r.input.Min.X:], "name:") {
-				t.Fatalf("name prompt row: %q", textRow)
-			}
-			if !strings.Contains(rows[r.status.Min.Y], "ctrl+p") || r.status.Min.Y != len(rows)-1 {
-				t.Fatalf("status row %d: %q", r.status.Min.Y, rows[r.status.Min.Y])
-			}
-			if got := rows[r.transcript.Min.Y+m.contentPad()+m.blocks[0].y0-m.vp.YOffset()]; !strings.Contains(got, "find the config loader") {
-				t.Fatalf("first block not where the transcript rect says: %q", got)
-			}
-		})
+				if got := rows[r.transcript.Min.Y+m.contentPad()+m.blocks[0].y0-m.vp.YOffset()]; !strings.Contains(got, "find the config loader") {
+					t.Fatalf("first block not where the transcript rect says: %q", got)
+				}
+				if m.iactive != nil {
+					if !r.inputText.Empty() {
+						t.Fatal("an interactive command hides the input")
+					}
+					return
+				}
+				if r.inputText.Empty() {
+					t.Fatal("no input rectangle")
+				}
+				textRow := rows[r.inputText.Min.Y]
+				if m.namePrompt == nil {
+					if bar := rows[r.inputText.Min.Y-1]; !strings.HasPrefix(bar[r.input.Min.X:], "┃") {
+						t.Fatalf("prompt bar not on the row above the input text: %q", bar)
+					}
+					idx := strings.Index(textRow, m.input.Placeholder[:8]) // the placeholder changes while busy
+					if idx < 0 || ansi.StringWidth(textRow[:idx]) != r.inputText.Min.X {
+						t.Fatalf("input text does not start at cell %d: %q", r.inputText.Min.X, textRow)
+					}
+				} else if !strings.HasPrefix(textRow[r.input.Min.X:], "name:") {
+					t.Fatalf("name prompt row: %q", textRow)
+				}
+			})
+		}
 	}
 }
 
@@ -173,6 +195,9 @@ func TestLayoutRectsPartitionMainColumn(t *testing.T) {
 		{"rewind", func(m *model) { m.rew = &rewindState{entries: []rewindEntry{{cut: 0, text: "x"}}} }},
 		{"name-prompt", func(m *model) { m.openNamePrompt("name:", "", func(string) {}) }},
 		{"tall-input", func(m *model) { m.input.SetValue("one\ntwo\nthree\nfour") }},
+		{"plan", func(m *model) { m.plan = []daemon.PlanItem{{Content: "one", Status: "pending"}} }},
+		{"permission", func(m *model) { m.permDialog = &permDialog{daemon: &session.PermissionSnapshot{ID: "p1", Rule: "x"}} }},
+		{"interactive", func(m *model) { m.iactive = &interactive{output: "$ ls\nfoo\n"} }},
 	} {
 		for _, w := range []int{140, 79} {
 			t.Run(fmt.Sprintf("%s/%d", tc.name, w), func(t *testing.T) {

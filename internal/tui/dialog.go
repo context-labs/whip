@@ -60,10 +60,16 @@ func (m *model) topDialog() dialog {
 	return ds[len(ds)-1]
 }
 
-// dialogOpen reports whether a dialog or an input-slot mode owns the screen:
-// presses and the wheel must not reach the transcript underneath. (The
-// completion menu is not a dialog: keys fall through to the textarea, but
-// presses on it are swallowed by the callers that check m.menu.)
+// floatingOpen reports whether a dialog is drawn over the transcript: presses
+// and the wheel must not reach what it covers. (The completion menu is not a
+// dialog: keys fall through to the textarea, but presses are swallowed by the
+// callers that check m.menu.) The inline modes — permission prompt, rewind
+// picker — leave the transcript fully visible, so it stays scrollable and
+// clickable under them.
+func (m *model) floatingOpen() bool { return len(m.dialogs()) > 0 }
+
+// dialogOpen reports whether something other than the textarea owns the
+// keyboard: a floating dialog or an inline mode. The terminal cursor hides.
 func (m *model) dialogOpen() bool {
-	return len(m.dialogs()) > 0 || m.rew != nil || (m.permDialog != nil && m.permDialog.daemon != nil)
+	return m.floatingOpen() || m.rew != nil || (m.permDialog != nil && m.permDialog.daemon != nil)
 }

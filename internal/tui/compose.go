@@ -96,7 +96,7 @@ func (mm measure) fixed() int {
 	for _, rows := range mm.optional {
 		n += 1 + rows
 	}
-	n++ // the blank row above the rewind picker / the input
+	n++ // the blank row above the rewind picker / the input (viewBody writes it exactly once; the "\n\n" before the status line adds the other)
 	if mm.rewind > 0 {
 		n += mm.rewind + 1
 	}

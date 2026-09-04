@@ -99,8 +99,10 @@ func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 
 	ta := textarea.DefaultStyles(t.Dark)
 	// The real terminal cursor: keep the user's own cursor colour (nil = no
-	// OSC 12 repaint); a blinking block is what terminals show at a prompt.
-	ta.Cursor = textarea.CursorStyle{Color: nil, Shape: tea.CursorBlock, Blink: true}
+	// OSC 12 repaint) and a steady block — Blink:true encodes as DECSCUSR 1,
+	// which Bubble Tea treats as the default and never resets, so the user's
+	// own cursor shape would not come back after whip exits.
+	ta.Cursor = textarea.CursorStyle{Color: nil, Shape: tea.CursorBlock, Blink: false}
 	elem := t.On(nil, t.Surface.Element)
 	for _, st := range []*textarea.StyleState{&ta.Focused, &ta.Blurred} {
 		st.Base = lipgloss.NewStyle()

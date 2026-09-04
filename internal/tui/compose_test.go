@@ -18,7 +18,7 @@ func TestComposeKeepsFrameSize(t *testing.T) {
 			m := compactCmdModel()
 			m.Update(mkWinSize(w, h))
 			m.append(" ❯ hello there")
-			m.appendAssistant("a **bold** reply with a longer line that certainly wraps at narrow widths")
+			m.appendAssistant("a **bold** reply ❤️ 👍🏽 🇺🇸 with a longer line that certainly wraps at narrow widths") // grapheme clusters: wcwidth and grapheme width differ
 			m.layout()
 			lines := strings.Split(ansi.Strip(viewStr(m)), "\n")
 			if len(lines) != h {
