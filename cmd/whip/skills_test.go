@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/skills"
 )
 
 // writeSkill plants a minimal valid skill at <root>/<name>/SKILL.md.
@@ -103,5 +105,66 @@ func TestSkillsImportNothingToDo(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := skillsCLI([]string{"import"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSkillsListCLI: `whip skills list` renders loaded skills and their
+// source dirs without error.
+func TestSkillsListCLI(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	wd := t.TempDir()
+	t.Chdir(wd)
+	writeSkill(t, filepath.Join(home, ".agents", "skills"), "linear", "whip's copy")
+	writeSkill(t, filepath.Join(home, ".claude", "skills"), "cloudflare", "claude copy")
+
+	if err := skillsCLI([]string{"list"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSkillsCLIUnknownSubcommand: an unknown subcommand errors clearly.
+func TestSkillsCLIUnknownSubcommand(t *testing.T) {
+	if err := skillsCLI([]string{"nope"}); err == nil {
+		t.Error("expected error for unknown subcommand")
+	}
+}
+
+// TestSkillsForeignDirs: the foreign skill dirs point at codex and claude.
+func TestSkillsForeignDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dirs := skills.ForeignDirs()
+	if len(dirs) != 2 {
+		t.Fatalf("got %d foreign dirs, want 2", len(dirs))
+	}
+	if !strings.HasSuffix(dirs[0], ".codex/skills") {
+		t.Errorf("first foreign dir = %q, want codex", dirs[0])
+	}
+	if !strings.HasSuffix(dirs[1], ".claude/skills") {
+		t.Errorf("second foreign dir = %q, want claude", dirs[1])
+	}
+}
+
+// TestCopyDirErrorPaths: copyDir fails on a non-directory source and a
+// destination that already exists.
+func TestCopyDirErrorPaths(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := copyDir(src, filepath.Join(t.TempDir(), "dst")); err == nil {
+		t.Error("copyDir of a non-directory should fail")
+	}
+	dst := filepath.Join(t.TempDir(), "exists")
+	if err := os.MkdirAll(dst, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyDir(t.TempDir(), dst); err == nil {
+		t.Error("copyDir to an existing destination should fail")
+	}
+}
+
+// TestCopyFileErrorPaths: copyFile fails on a missing source.
+func TestCopyFileErrorPaths(t *testing.T) {
+	if err := copyFile(filepath.Join(t.TempDir(), "missing"), filepath.Join(t.TempDir(), "dst")); err == nil {
+		t.Error("copyFile of a missing source should fail")
 	}
 }
