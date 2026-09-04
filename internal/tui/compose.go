@@ -409,27 +409,13 @@ func (m *model) rowsBelow() int {
 func pillLabel(below int) string { return fmt.Sprintf("↓ %d more lines", below) }
 
 // drawScrollbar marks the transcript's scroll position in the column right of
-// the main text (the gap before the sidebar, or the right margin): a faint
-// track with a thumb sized to the visible share. Nothing is drawn when the
-// transcript fits.
+// the main text (the gap before the sidebar, or the right margin) with the
+// shared thick bar. Nothing is drawn when the transcript fits.
 func (m *model) drawScrollbar(scr uv.Screen, r frameRects) {
-	total, h := m.vp.TotalLineCount(), r.transcript.Dy()
-	if total <= h || h <= 0 || r.gap.Empty() {
+	if r.gap.Empty() {
 		return
 	}
-	th := currentTheme()
-	x := r.gap.Min.X
-	thumb := max(h*h/total, 1)
-	top := r.transcript.Min.Y + m.vp.YOffset()*(h-thumb)/max(total-h, 1)
-	track := &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: th.Faint}}
-	grip := &uv.Cell{Content: "┃", Width: 1, Style: uv.Style{Fg: th.Muted}}
-	for y := r.transcript.Min.Y; y < r.transcript.Max.Y; y++ {
-		c := track
-		if y >= top && y < top+thumb {
-			c = grip
-		}
-		scr.SetCell(x, y, c)
-	}
+	ui.Scrollbar(scr, currentTheme(), r.gap.Min.X, r.transcript.Min.Y, r.transcript.Dy(), m.vp.TotalLineCount(), m.vp.YOffset(), false)
 }
 
 // paintBase gives every cell nothing else painted the theme's background and

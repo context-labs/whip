@@ -26,15 +26,17 @@ func TestScrollbarAndMoreLinesPill(t *testing.T) {
 	col := func(rows []string, x, y int) string { return string([]rune(rows[y])[x]) }
 	sawTrack, sawThumb := false, false
 	for y := r.transcript.Min.Y; y < r.transcript.Max.Y; y++ {
-		switch col(frame, r.gap.Min.X, y) {
-		case "│":
-			sawTrack = true
-		case "┃":
+		if col(frame, r.gap.Min.X, y) == "█" { // the solid thumb; the track is a filled column (invisible once stripped)
 			sawThumb = true
+		} else {
+			sawTrack = true
 		}
 	}
 	if !sawTrack || !sawThumb {
 		t.Fatalf("scrollbar missing (track %v thumb %v)", sawTrack, sawThumb)
+	}
+	if c := m.scr.CellAt(r.gap.Min.X, r.transcript.Min.Y+r.transcript.Dy()/2); c == nil || (c.Content != "█" && c.Style.Bg == nil) {
+		t.Fatal("track cells must carry the element surface")
 	}
 	m.vp.ScrollUp(7)
 	m.follow = false
