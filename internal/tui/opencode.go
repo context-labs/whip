@@ -327,6 +327,9 @@ func (m *model) footerView(width int) string {
 // footerRight lists the global chords; "ctrl+p commands" joins on terminals
 // wide enough to hold four hints beside the left side.
 func (m *model) footerRight(width int) []string {
+	if m.leaderPending() {
+		return nil // the left side lists every chord; the right would only repeat and crowd it
+	}
 	pairs := []string{"ctrl+x r", "repl", "ctrl+x t", "themes", "ctrl+x b", "sidebar"}
 	if width >= sidebarMinWidth {
 		pairs = append(pairs, "ctrl+p", "commands")
