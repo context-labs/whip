@@ -65,7 +65,7 @@ func TestThinkingAndResponseScrollFullyOnSmallTerminal(t *testing.T) {
 		if m.vp.AtBottom() {
 			break
 		}
-		m.vp.LineDown(1)
+		m.vp.ScrollDown(1)
 	}
 	var missing []string
 	for i := range 10 {
@@ -123,7 +123,7 @@ func TestFrameHeightDuringLongInflightResponse(t *testing.T) {
 			m = um.(*model)
 		}
 		// An in-flight response with embedded newlines that never flushed.
-		m.current = "answer\nanswer\nanswer\nanswer\nanswer\nanswer\nanswer\nanswer"
+		m.current = "answer one\nanswer two\nanswer three\nanswer four\nanswer five\nanswer six\nanswer seven\nanswer eight"
 		m.layout()
 		return m
 	}
