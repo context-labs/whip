@@ -79,7 +79,7 @@ func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 			OnPrimary: col(p.OnPrimary), Border: col(p.Border), BorderFocus: col(p.BorderFocus),
 			Bg: col(p.Bg), DiffAdd: col(p.DiffAdd), DiffDel: col(p.DiffDel),
 		},
-		Space: Spacing{Gutter: 2, PadX: 1, PadY: 0, Gap: 1},
+		Space: Spacing{Gutter: 3, PadX: 2, PadY: 1, Gap: 1}, // Gutter: the "┃  " bar+gutter; PadX: text inset from a fill edge; PadY: rows above/below a panel body; Gap: between panes
 	}
 	base := t.Bg
 	if base == nil {

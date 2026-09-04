@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 
@@ -27,9 +28,13 @@ func TestComponentGoldens(t *testing.T) {
 		th := th
 		t.Run(name, func(t *testing.T) {
 			cases := map[string]string{
-				"panel":           Panel{Title: "Agents", Width: 32}.Render(th, "root\n  ├ worker-1  running\n  └ worker-2  idle"),
-				"panel-focused":   Panel{Title: "Agents", Width: 32, Focused: true}.Render(th, "root\n  ├ worker-1  running"),
+				"panel":           Panel{Title: "Agents", Key: "1", Count: "3", Width: 32, Height: 9}.Render(th, "running  root\nidle     worker-1\nblocked  worker-2"),
+				"panel-focused":   Panel{Title: "Agents", Key: "1", Count: "3", Width: 32, Focused: true, Band: true}.Render(th, strings.Join([]string{ListRow{Badge: "running", BadgeColor: th.Success, Label: "root", Open: true, Width: 29}.Render(th, th.Surface.Panel), ListRow{Badge: "idle   ", BadgeColor: th.Muted, Label: "worker-1", Depth: 1, Right: "In[2] 0.3s", Selected: true, Width: 29}.Render(th, th.Surface.Panel), ListRow{Badge: "blocked", BadgeColor: th.Warning, Label: "worker-2", Depth: 1, Right: "mail 1", Width: 29}.Render(th, th.Surface.Panel)}, "\n")),
+				"panel-collapsed": Panel{Title: "Context", Key: "2", Count: "12%", Width: 32, Collapsed: true}.Render(th, ""),
 				"panel-border":    Panel{Title: "Confirm", Width: 32, Bordered: true, Focused: true}.Render(th, "Run `rm -rf build`?\n\n[y] yes  [n] no"),
+				"listrow":         ListRow{Badge: "running", BadgeColor: th.Success, Label: "file-reader", Right: "In[3] 1.2s", Width: 40}.Render(th, nil) + "\n" + ListRow{Badge: "idle   ", BadgeColor: th.Muted, Label: "a-very-long-agent-name-that-will-not-fit", Depth: 2, Right: "mail 2", Selected: true, Width: 40}.Render(th, nil),
+				"hints":           Hints(th, nil, "↑↓", "select", "enter", "open", "ctrl+x s", "stop", "esc", "back"),
+				"scrollbar":       renderScrollbars(th),
 				"codeblock":       CodeBlock{Lang: "go", Source: src, Width: 40, LineNumbers: true, MaxLines: 6}.Render(th),
 				"statusbar":       StatusBar{Left: Muted(th, " ~/src/whip · main · sonnet"), Right: Kbd(th, "ctrl+p") + Muted(th, " commands"), Width: 60}.Render(th),
 				"statusbar-tight": StatusBar{Left: Muted(th, "a very long left side that will need truncating to fit"), Right: Muted(th, "? help"), Width: 40}.Render(th),
@@ -69,4 +74,15 @@ func TestFillPaintsEveryCell(t *testing.T) {
 	if plain != "ab    \ncd    " {
 		t.Fatalf("fill padded wrong: %q", plain)
 	}
+}
+
+// renderScrollbars draws three bars (top, middle, bottom of a 20-row content
+// in a 6-row pane) and one that must stay empty (content fits) side by side.
+func renderScrollbars(th *theme.Theme) string {
+	scr := uv.NewScreenBuffer(7, 6)
+	Scrollbar(scr, th, 0, 0, 6, 20, 0, false)
+	Scrollbar(scr, th, 2, 0, 6, 20, 7, true)
+	Scrollbar(scr, th, 4, 0, 6, 20, 14, false)
+	Scrollbar(scr, th, 6, 0, 6, 5, 0, false)
+	return scr.Render()
 }

@@ -1,6 +1,6 @@
 ╭──────────────────────────────╮
-│ Confirm                      │
-│ Run `rm -rf build`?          │
+│  Confirm                     │
+│  Run `rm -rf build`?         │
 │                              │
-│ [y] yes  [n] no              │
+│  [y] yes  [n] no             │
 ╰──────────────────────────────╯

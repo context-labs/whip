@@ -1,4 +1,9 @@
- Agents                         
- root                           
-   ├ worker-1  running          
-   └ worker-2  idle             
+                                
+   [1] Agents                3  
+                                
+   running  root                
+   idle     worker-1            
+   blocked  worker-2            
+                                
+                                
+                                

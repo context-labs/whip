@@ -1,3 +1,7 @@
- Agents                         
- root                           
-   ├ worker-1  running          
+┃                               
+┃  [1] Agents                3  
+┃                               
+┃  running root                 
+┃  idle      worke… In[2] 0.3s  
+┃  blocked   worker-2   mail 1  
+┃                               

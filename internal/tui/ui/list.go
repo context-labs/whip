@@ -75,7 +75,7 @@ func (l List) Render(th *theme.Theme) []string {
 		rows := append([]string(nil), prefix...)
 		lo, hi := 0, total
 		if win > 0 && win < total {
-			lo, hi = listWindow(total, l.Sel, win)
+			lo, hi = ListWindow(total, l.Sel, win)
 		}
 		idx, lastTitle, started := 0, "", false
 		for _, g := range l.Groups {
@@ -114,14 +114,7 @@ func (l List) Render(th *theme.Theme) []string {
 			rows = append(rows, lr(muted.Render(l.Empty), ""))
 		}
 		if len(l.Footer) > 0 {
-			var f strings.Builder
-			for i := 0; i+1 < len(l.Footer); i += 2 {
-				if i > 0 {
-					f.WriteString(th.On(nil, bg).Render("  "))
-				}
-				f.WriteString(text.Render(l.Footer[i]) + muted.Render(" "+l.Footer[i+1]))
-			}
-			rows = append(rows, blank, lr(f.String(), ""))
+			rows = append(rows, blank, lr(Hints(th, bg, l.Footer...), ""))
 		}
 		return append(rows, blank)
 	}
@@ -137,9 +130,9 @@ func (l List) Render(th *theme.Theme) []string {
 	return rows
 }
 
-// listWindow returns the [lo,hi) item range showing up to budget rows
+// ListWindow returns the [lo,hi) item range showing up to budget rows
 // centered on idx.
-func listWindow(n, idx, budget int) (int, int) {
+func ListWindow(n, idx, budget int) (int, int) {
 	if budget >= n {
 		return 0, n
 	}
