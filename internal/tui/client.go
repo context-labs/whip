@@ -1070,20 +1070,11 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 			return m, command
 		}
 	}
-	if m.palette != nil {
-		return m.paletteKey(msg)
-	}
-	if m.picker != nil {
-		return m.pickerKey(msg)
+	if d := m.topDialog(); d != nil { // the topmost floating dialog owns the keyboard
+		return d.key(m, msg)
 	}
 	if m.rew != nil {
 		return m.rewindKey(msg)
-	}
-	if m.mpicker != nil {
-		return m.modelPickerKey(msg)
-	}
-	if m.msgActions != nil {
-		return m.msgActionsKey(msg)
 	}
 	if key := msg.String(); key == "ctrl+j" || key == "alt+enter" || key == "shift+enter" {
 		maxHeight := m.input.MaxHeight

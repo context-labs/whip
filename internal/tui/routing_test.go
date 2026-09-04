@@ -133,3 +133,41 @@ func TestRecalcWidthMatchesResize(t *testing.T) {
 		t.Fatalf("restored width = %d, want %d", m.width, withSidebar)
 	}
 }
+
+// Two dialogs open at once (a session list arriving while the model picker is
+// up): the same fixed order decides who is drawn on top and who gets the keys.
+func TestDialogZOrder(t *testing.T) {
+	m := transcriptModel(t)
+	m.picker = &picker{metas: []session.Meta{{ID: "a"}}, previews: map[string][2]string{"a": {}}}
+	m.mpicker = &modelPicker{}
+	if ds := m.dialogs(); len(ds) != 2 || ds[0] != m.picker || ds[1] != m.mpicker {
+		t.Fatalf("z-order = %#v", ds)
+	}
+	m.key(keyMsg(tea.KeyEscape)) // the top dialog takes the key
+	if m.mpicker != nil || m.picker == nil {
+		t.Fatalf("esc should close the model picker first: mpicker=%v picker=%v", m.mpicker, m.picker)
+	}
+	m.key(keyMsg(tea.KeyEscape))
+	if m.picker != nil {
+		t.Fatal("second esc should close the session picker")
+	}
+	if m.dialogOpen() {
+		t.Fatal("no dialog should be open")
+	}
+}
+
+// The wheel under any open dialog leaves the transcript where it was.
+func TestModalSwallowsWheel(t *testing.T) {
+	m := transcriptModel(t)
+	for range 30 {
+		m.append("filler line")
+	}
+	m.layout()
+	m.vp.SetYOffset(3)
+	m.mpicker = &modelPicker{}
+	next, _ := m.thinMouse(wheelMsg(10, 5, true))
+	m = next.(*model)
+	if m.vp.YOffset() != 3 {
+		t.Fatalf("wheel scrolled under the model picker: offset %d", m.vp.YOffset())
+	}
+}

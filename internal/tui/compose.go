@@ -196,23 +196,17 @@ func (m *model) View() tea.View {
 		}
 		uv.NewStyledString(m.sidebarView(h)).Draw(scr, r.side)
 	}
-	var rows []string
-	switch { // one floating dialog over the dimmed session
-	case m.palette != nil:
-		rows = m.ocDialogRows()
-	case m.msgActions != nil:
-		rows = m.ocMsgActionRows()
-	case m.mpicker != nil:
-		rows = m.ocModelDialogRows()
-	case m.picker != nil:
-		rows = m.ocSessionDialogRows()
-	}
-	switch {
-	case len(rows) > 0:
+	if ds := m.dialogs(); len(ds) > 0 { // floating dialogs over the dimmed session, bottom→top
 		dimArea(scr, r.area)
-		dw := lipgloss.Width(rows[0])
-		drawRows(scr, rows, max((max(w, dw)-dw)/2, 0), max((h-len(rows))/3, 0)) // centered, upper third
-	case m.menu != nil: // the completion popup floats above the input; the frame beneath never reflows
+		for _, d := range ds {
+			rows := d.rows(m)
+			if len(rows) == 0 {
+				continue
+			}
+			dw := lipgloss.Width(rows[0])
+			drawRows(scr, rows, max((max(w, dw)-dw)/2, 0), max((h-len(rows))/3, 0)) // centered, upper third
+		}
+	} else if m.menu != nil { // the completion popup floats above the input; the frame beneath never reflows
 		menu := strings.Split(m.menuView(), "\n")
 		drawRows(scr, menu, opencodeLeftMargin, m.inputBodyOff-len(menu)) // rows above the frame clip
 	}
