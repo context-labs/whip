@@ -122,6 +122,15 @@ func skillsImportCLI(args []string) error {
 	}
 	var imported, failed []string
 	for _, c := range importable {
+		// The frontmatter name becomes the destination directory. A spec-
+		// invalid name with path separators (../, ../../pwned) would escape
+		// ~/.agents/skills — validate() only warns, so enforce it here: the
+		// name must be a single path component matching the spec regex.
+		if filepath.Base(c.name) != c.name || !skills.ValidName(c.name) {
+			fmt.Fprintf(os.Stderr, "✗ %-24s invalid skill name %q (path traversal guard)\n", c.name, c.name)
+			failed = append(failed, c.name)
+			continue
+		}
 		dst := filepath.Join(dest, c.name)
 		if err := copyDir(c.srcDir, dst); err != nil {
 			// One bad skill (a symlink loop, an unreadable file) must not
@@ -146,11 +155,12 @@ func skillsImportCLI(args []string) error {
 	return nil
 }
 
-// copyDir recursively copies src into dst (created if missing). Symlinks are
-// followed (an imported skill should be real files, not a link back into
-// another harness's dir). Destination must not already exist — the dedup
-// pass guarantees the name is free, and refusing to clobber keeps a racing
-// user edit safe.
+// copyDir recursively copies src into dst (created if missing). os.ReadDir's
+// IsDir is lstat-based, so a symlinked subdirectory falls through to copyFile
+// and fails with EISDIR — symlinked dirs are not importable (documented, not
+// silently half-copied). Destination must not already exist — the dedup pass
+// guarantees the name is free, and refusing to clobber keeps a racing user
+// edit safe.
 func copyDir(src, dst string) error {
 	info, err := os.Stat(src)
 	if err != nil {

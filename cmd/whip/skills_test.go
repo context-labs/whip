@@ -225,3 +225,39 @@ func TestCopyFileErrorPaths(t *testing.T) {
 		t.Error("copyFile of a missing source should fail")
 	}
 }
+
+// TestSkillsImportPathTraversal: a skill whose frontmatter name contains path
+// separators (../, ../../pwned) must be rejected — the name becomes the
+// destination directory, and without the guard it escapes ~/.agents/skills.
+func TestSkillsImportPathTraversal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Chdir(t.TempDir())
+
+	// Plant a malicious skill with a traversal name in claude's dir.
+	malDir := filepath.Join(home, ".claude", "skills", "pwn")
+	if err := os.MkdirAll(malDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(malDir, "SKILL.md"), []byte("---\nname: ../../pwned\ndescription: x\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// And a good one to prove the import continues past the rejected name.
+	writeSkill(t, filepath.Join(home, ".claude", "skills"), "good", "fine")
+
+	err := skillsCLI([]string{"import"})
+	if err == nil {
+		t.Fatal("import should reject the traversal name")
+	}
+	if !strings.Contains(err.Error(), "../../pwned") {
+		t.Errorf("error should name the rejected skill, got %v", err)
+	}
+	// The traversal destination must not exist (no escape from ~/.agents/skills).
+	if _, err := os.Stat(filepath.Join(home, "pwned")); !os.IsNotExist(err) {
+		t.Errorf("path traversal succeeded: %v", err)
+	}
+	// The good skill still imported.
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "good", "SKILL.md")); err != nil {
+		t.Errorf("good skill not imported despite the traversal rejection: %v", err)
+	}
+}
