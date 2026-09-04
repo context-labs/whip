@@ -252,6 +252,12 @@ func TestBinaryOutputPlaceholder(t *testing.T) {
 		{name: "invalid utf8", in: []byte{0xff, 0xfe, 0x00, 'x'}, want: true}, // BOM-ish, not valid
 		{name: "control heavy", in: bytes.Repeat([]byte{0x01}, 100), want: true},
 		{name: "whitespace controls ok", in: []byte("line1\n\tline2\rline3\f\v"), want: false},
+		// Regression: a multi-byte rune straddling the 1024-byte probe cut must
+		// not read as binary — the sample backs off to the last complete rune.
+		{name: "utf8 straddles probe cut", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-1), []byte("é世界")...), want: false},
+		// Regression: ANSI-colored output (ls/grep --color) is ESC-heavy but not
+		// binary — ESC is excluded from the control-byte count.
+		{name: "ansi colored output", in: []byte("\x1b[31mred\x1b[0m \x1b[32mgreen\x1b[0m \x1b[1mBold\x1b[0m normal text here\n"), want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -21,13 +21,20 @@ const binaryProbeSize = 1024
 //   - any NUL byte is a strong binary signal (NUL is itself valid UTF-8, so
 //     this is a separate check);
 //   - a high density of other C0 control bytes (>10%, excluding the benign
-//     whitespace ones like \t \n \r \f \v) is treated as binary too.
+//     whitespace ones like \t \n \r \f \v and ESC for ANSI-colored output) is
+//     treated as binary too.
 func isBinary(data []byte) bool {
 	if len(data) == 0 {
 		return false
 	}
 	n := min(len(data), binaryProbeSize)
 	sample := data[:n]
+	// A multi-byte rune can straddle the probe boundary — a 1024-byte cut can
+	// end mid-rune and read as invalid UTF-8 for a plain text file (CJK/emoji
+	// hit this constantly). Back the sample off to the last complete rune.
+	if len(data) > binaryProbeSize {
+		sample = trimToLastRune(sample)
+	}
 
 	if !utf8.Valid(sample) {
 		return true
@@ -38,6 +45,9 @@ func isBinary(data []byte) bool {
 		switch {
 		case b == 0x00:
 			nul++
+		case b == 0x1b:
+			// ESC starts ANSI escape sequences (ls --color, grep --color) —
+			// colored text is not binary, so don't count it as a control byte.
 		case b < 0x20 && b != '\t' && b != '\n' && b != '\r' && b != 0x0b && b != 0x0c:
 			ctrl++
 		}
@@ -46,6 +56,23 @@ func isBinary(data []byte) bool {
 		return true
 	}
 	return ctrl*10 > len(sample)
+}
+
+// trimToLastRune shortens s to end on a complete UTF-8 rune. Used when the
+// sample was cut at a fixed byte count that may land mid-rune; the tail is
+// dropped only when the final bytes are an incomplete encoding.
+func trimToLastRune(s []byte) []byte {
+	for len(s) > 0 {
+		if utf8.Valid(s) {
+			return s
+		}
+		_, size := utf8.DecodeLastRune(s)
+		if size == 0 {
+			size = 1
+		}
+		s = s[:len(s)-size]
+	}
+	return s
 }
 
 // bytesHuman renders a byte count compactly for placeholders, e.g. "88 KB".
