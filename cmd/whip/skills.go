@@ -127,8 +127,11 @@ func skillsImportCLI(args []string) error {
 			// One bad skill (a symlink loop, an unreadable file) must not
 			// abort the rest of the import — and a partial copy must not
 			// linger as a broken skill (and block a future import via the
-			// dedup pass). Remove the half-written destination and continue.
-			os.RemoveAll(dst)
+			// dedup pass). Remove the half-written destination and continue;
+			// a cleanup failure is logged but doesn't mask the copy error.
+			if rmErr := os.RemoveAll(dst); rmErr != nil {
+				fmt.Fprintf(os.Stderr, "  (cleanup of partial copy failed: %v)\n", rmErr)
+			}
 			fmt.Fprintf(os.Stderr, "✗ %-24s %v\n", c.name, err)
 			failed = append(failed, c.name)
 			continue
