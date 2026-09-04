@@ -966,6 +966,7 @@ func (m *model) resume(id string) error {
 		}
 		m.agent.SetUsage(u)
 	}
+	m.agent.SetSubUsage(meta.SubUsage)
 	if slices.Contains(m.effortsFor(), effort) {
 		m.agent.Effort = effort
 	}
@@ -1083,8 +1084,10 @@ func (m *model) persist() {
 	_ = m.store.SetGoal(m.sessionID, m.goal)
 	_ = m.store.SetEffort(m.sessionID, m.agent.Effort)
 	_ = m.store.SetTodos(m.sessionID, m.agent.TodosJSON())
-	if u := m.agent.Usage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
-		_ = m.store.SetUsage(m.sessionID, u.PromptTokens, u.Cached(), u.CompletionTokens)
+	// Own requests in usage_*, subagent spend (by model) in sub_usage: the
+	// two columns sum to the session's whole bill without double counting.
+	if u, subs := m.agent.Usage(), m.agent.SubUsage(); u.PromptTokens > 0 || u.CompletionTokens > 0 || len(subs) > 0 {
+		_ = m.store.SetUsage(m.sessionID, u.PromptTokens, u.Cached(), u.CompletionTokens, subs)
 	}
 	if len(m.agent.Messages) <= m.saved {
 		return
@@ -1269,7 +1272,10 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 		tools.ScreenshotSink = func(jpegs [][]byte) {
 			parts := make([]llm.ContentPart, 0, len(jpegs))
 			for _, j := range jpegs {
-				parts = append(parts, llm.ImagePart("jpg", j))
+				// a HiDPI full-display capture exceeds both the dim and byte
+				// caps; bound it like every other image entering history
+				ext, data := llm.NormalizeImage("jpg", j)
+				parts = append(parts, llm.ImagePart(ext, data))
 			}
 			ag.SteerImages("browser_exec screenshots attached:", parts)
 		}
@@ -2557,7 +2563,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.store != nil && m.sessionID != "" {
 				// the agent's cutoff is in compacted coordinates; store the raw
 				// seq so Load never double-folds a summary
-				if err := m.store.RecordCompaction(m.sessionID, m.rawCutoff(msg.cutoff), msg.summary); err != nil {
+				if err := m.store.RecordCompaction(m.sessionID, m.rawCutoff(msg.cutoff), msg.summary, msg.info.Model, msg.info.Usage); err != nil {
 					config.LogEvent("session.compact", "record failed: "+err.Error())
 				} else {
 					recorded = true
@@ -3498,7 +3504,7 @@ func (m *model) busyStats() string {
 	d := max(m.nowFn().Sub(m.turnStart), 0)
 	elapsed := d.Round(time.Second)
 	stats := fmt.Sprintf(" %d:%02d", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
-	if u := m.agent.Usage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
+	if u := m.agent.TotalUsage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
 		stats += fmt.Sprintf(" · %s tok", fmtTok(u.PromptTokens+u.CompletionTokens))
 	}
 	if m.agent.ContextLimit > 0 {
@@ -3563,16 +3569,41 @@ func (m *model) contextLimitFor(provName, apiID string) int {
 // sessionCost returns the session's cumulative USD spend at the current
 // model's advertised rates; ok is false when the provider's catalog has no
 // pricing for the model, in which case the status line hides the segment.
+// The figure is the whole bill: own requests at this model's rates plus each
+// subagent's spend at ITS model's rates. Any unpriceable component hides the
+// segment rather than showing a number that is knowingly low.
 func (m *model) sessionCost() (float64, bool) {
-	cat, ok := m.catalogs[m.provName]
+	total, ok := m.usageCost(m.agent.Model, m.provName, m.agent.Usage())
 	if !ok {
 		return 0, false
 	}
-	in, out, cacheRead, ok := cat.Pricing(m.agent.Model)
-	if !ok {
+	for label, u := range m.agent.SubUsage() {
+		model, prov, _ := strings.Cut(label, " @ ")
+		c, ok := m.usageCost(model, prov, u)
+		if !ok {
+			return 0, false
+		}
+		total += c
+	}
+	return total, true
+}
+
+// usageCost prices u at model's rates from the provider's catalog. A sub may
+// carry no provider (or one without a loaded catalog); then any catalog that
+// knows the model prices it.
+func (m *model) usageCost(model, prov string, u llm.Usage) (float64, bool) {
+	if cat, ok := m.catalogs[prov]; ok {
+		if in, out, cacheRead, ok := cat.Pricing(model); ok {
+			return llm.SessionCost(u, in, out, cacheRead), true
+		}
 		return 0, false
 	}
-	return llm.SessionCost(m.agent.Usage(), in, out, cacheRead), true
+	for _, cat := range m.catalogs {
+		if in, out, cacheRead, ok := cat.Pricing(model); ok {
+			return llm.SessionCost(u, in, out, cacheRead), true
+		}
+	}
+	return 0, false
 }
 
 // compactThresholdFor converts the config's compactPct preference into the
@@ -3644,8 +3675,14 @@ func (m *model) wireTasks() {
 		// Attribute it to the sub's own route (t.SubModel): a model-overridden
 		// subagent must not be recorded under the parent's model/provider.
 		if t.Status != agent.TaskRunning && t.SubMessages != nil {
-			if _, err := st.SaveSubagentTranscript(sessionID, t.ID, t.SubMessages, t.SubModel, ""); err != nil {
+			id, err := st.SaveSubagentTranscript(sessionID, t.ID, t.SubMessages, t.SubModel, "")
+			if err != nil {
 				config.LogEvent("session.task", "transcript save failed: "+err.Error())
+			} else if id != "" {
+				// The task row carries the sub's own bill (and its nested subs'),
+				// like any session row; the parent's sub_usage is the rollup.
+				u := t.SubUsage
+				_ = st.SetUsage(id, u.PromptTokens, u.Cached(), u.CompletionTokens, t.SubSubUsage)
 			}
 		}
 	}
@@ -4818,9 +4855,10 @@ func (m *model) viewBody() string {
 	if !m.follow {
 		left += fmt.Sprintf(" · ↑ %d%%", int(m.vp.ScrollPercent()*100))
 	}
-	// session token usage, provider-reported: in (cached of it) / out, then
-	// the share of the advertised context window the conversation occupies
-	u := m.agent.Usage()
+	// session token usage, provider-reported and including every subagent's
+	// requests: in (cached of it) / out, then the share of the advertised
+	// context window the conversation occupies
+	u := m.agent.TotalUsage()
 	if u.PromptTokens > 0 || u.CompletionTokens > 0 {
 		left += fmt.Sprintf(" · ⣿ %s in", fmtTok(u.PromptTokens))
 		if c := u.Cached(); c > 0 {
@@ -5005,7 +5043,7 @@ func (m *model) statusView() string {
 	if e := effortLabel(m.agent.Effort); e != "off" {
 		model += " (" + e + ")"
 	}
-	u := m.agent.Usage()
+	u := m.agent.TotalUsage() // whole bill: own requests plus every subagent's
 	spend := fmtUsage(u)
 	if cost, ok := m.sessionCost(); ok {
 		spend += " · " + fmtCost(cost)

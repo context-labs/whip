@@ -395,7 +395,7 @@ func TestCompactionEvent(t *testing.T) {
 	rawBefore := len(st.RawMessages(id))
 
 	// compact: fold q1/a1/q2 into a summary, keep the tail from seq 4
-	if err := st.RecordCompaction(id, 4, "q1/q2 were about testing"); err != nil {
+	if err := st.RecordCompaction(id, 4, "q1/q2 were about testing", "", llm.Usage{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -495,7 +495,8 @@ func TestTodosAndUsagePersistence(t *testing.T) {
 	}
 
 	// usage totals are absolute and survive a reload
-	if err := st.SetUsage(id, 100, 40, 7); err != nil {
+	subs := map[string]llm.Usage{"sub-m @ p": {PromptTokens: 9, CompletionTokens: 3}}
+	if err := st.SetUsage(id, 100, 40, 7, subs); err != nil {
 		t.Fatal(err)
 	}
 	meta, _, err := st.Load(id)
@@ -504,6 +505,32 @@ func TestTodosAndUsagePersistence(t *testing.T) {
 	}
 	if meta.UsageIn != 100 || meta.UsageCached != 40 || meta.UsageOut != 7 {
 		t.Fatalf("usage did not round-trip: %+v", meta)
+	}
+	if u := meta.SubUsage["sub-m @ p"]; u.PromptTokens != 9 || u.CompletionTokens != 3 {
+		t.Fatalf("sub usage did not round-trip: %+v", meta.SubUsage)
+	}
+	// An empty ledger clears the column.
+	if err := st.SetUsage(id, 100, 40, 7, nil); err != nil {
+		t.Fatal(err)
+	}
+	if meta, _, _ = st.Load(id); meta.SubUsage != nil {
+		t.Fatalf("nil ledger should clear sub_usage, got %+v", meta.SubUsage)
+	}
+}
+
+// A compaction event records the route and usage of the summary request.
+func TestRecordCompactionCarriesModelAndUsage(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := st.Create("/tmp", "m", "p")
+	if err := st.RecordCompaction(id, 2, "sum", "cheap @ p", llm.Usage{PromptTokens: 500, CompletionTokens: 50}); err != nil {
+		t.Fatal(err)
+	}
+	evs := st.Compactions(id)
+	if len(evs) != 1 || evs[0].Model != "cheap @ p" || evs[0].Usage.PromptTokens != 500 || evs[0].Usage.CompletionTokens != 50 {
+		t.Fatalf("compaction should carry model+usage: %+v", evs)
 	}
 }
 

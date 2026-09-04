@@ -282,4 +282,24 @@ func TestSessionCostUsesFetchedPricing(t *testing.T) {
 	if want := 0.064215; fast != want {
 		t.Errorf("kimi-k3-fast cost = %v, want %v", fast, want)
 	}
+
+	// Subagent spend is priced at ITS model's rates, not the session's: a
+	// fast-variant sub under a standard-variant parent costs the fast price.
+	// The sub carries no provider (label "model @ "), so the catalog is found
+	// by scanning for the model.
+	m.agent.AddSubUsage("kimi-k3-fast @ ", llm.Usage{PromptTokens: 1000, CompletionTokens: 100})
+	withSub, ok := m.sessionCost()
+	if !ok {
+		t.Fatal("sub under a known model should be priced")
+	}
+	subCost := 1000*4.5e-6 + 100*22.5e-6 // 0.0045 + 0.00225
+	if diff := withSub - std - subCost; diff > 1e-12 || diff < -1e-12 {
+		t.Errorf("cost with sub = %v, want own %v + sub %v", withSub, std, subCost)
+	}
+	// A sub on a model no catalog prices makes the whole figure unknown:
+	// hide it rather than show a number that is knowingly low.
+	m.agent.AddSubUsage("mystery-model @ elsewhere", llm.Usage{PromptTokens: 1})
+	if _, ok := m.sessionCost(); ok {
+		t.Error("an unpriceable sub must hide the cost segment")
+	}
 }

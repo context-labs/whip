@@ -57,6 +57,9 @@ func (a *Agent) newSub(o SubModel) *Agent {
 	}
 	sub.ContextLimit = o.ContextLimit
 	sub.Tools = tools.All()
+	// Every request the sub (or its own subs) makes lands in the parent's
+	// per-model sub ledger — the one place sub spend is counted.
+	sub.usageSink = a.AddSubUsage
 	return sub
 }
 
@@ -142,9 +145,8 @@ func taskTool(parent *Agent) tools.Tool {
 				}
 				return fmt.Sprintf("Started background subagent %s: %s. Keep working on something else; the report will arrive as a message when it finishes. Do not poll for it.", t.ID, desc), nil
 			}
-			sub := parent.newSub(o)
-			// roll the subagent's spend into the parent's session totals
-			report, err := sub.Turn(ctx, prompt, Events{OnUsage: parent.AddUsage})
+			sub := parent.newSub(o) // its spend reaches parent.SubUsage via usageSink
+			report, err := sub.Turn(ctx, prompt, Events{})
 			if err != nil {
 				return report, err
 			}
@@ -227,7 +229,7 @@ func (a *Agent) FollowupTask(ctx context.Context, id, text string, ev Events) (s
 	if t.sub == nil {
 		return "", fmt.Errorf("subagent %s is not live (restored from a previous session)", id)
 	}
-	out, err := t.sub.Turn(ctx, text, FanIn(ev, Events{OnUsage: a.AddUsage}))
+	out, err := t.sub.Turn(ctx, text, ev) // spend reaches the parent via usageSink
 	// The follow-up grew the sub's conversation; refresh the persisted
 	// transcript so a resume sees it (no-op without a store).
 	r.refreshTranscript(id, t.sub)

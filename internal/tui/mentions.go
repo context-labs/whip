@@ -101,6 +101,10 @@ func imageParts(text string) ([]llm.ContentPart, string) {
 			continue
 		}
 		ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(abs)), ".")
+		// Normalize before inlining: a HiDPI screenshot at full resolution
+		// costs 4–10× the tokens of the capped re-encode, with no legibility
+		// gain the model can use.
+		ext, data = llm.NormalizeImage(ext, data)
 		parts = append(parts, llm.ImagePart(ext, data))
 		names = append(names, abs)
 	}
