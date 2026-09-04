@@ -249,10 +249,12 @@ func (m *model) sidebarView(height int) string {
 	var b strings.Builder
 	b.WriteString(head.Render(truncLine(title, sidebarWidth-4)) + "\n\n")
 
-	// Context: tokens used, share of the window, spend.
+	// Context: share of the window the conversation occupies, then the
+	// session's spend (all requests, subagents included) — two different
+	// quantities, each labeled as what it is.
 	b.WriteString(head.Render("Context") + "\n")
 	u := m.agent.TotalUsage()
-	b.WriteString(dim.Render(fmtTok(u.PromptTokens+u.CompletionTokens)+" tokens") + "\n")
+	b.WriteString(dim.Render(fmtTok(u.PromptTokens+u.CompletionTokens)+" tokens spent") + "\n")
 	if m.agent.ContextLimit > 0 {
 		pct := agent.EstimateTokens(m.agent.Messages) * 100 / m.agent.ContextLimit
 		b.WriteString(dim.Render(fmt.Sprintf("%d%% used", pct)) + "\n")
@@ -426,10 +428,13 @@ func (m *model) opencodeStatus() string {
 	txt := lipgloss.NewStyle().Foreground(ocTextCol())
 	// right side: "{tokens} ({pct})  " muted, then "ctrl+p" in text, " commands" muted.
 	rightRaw := ""
-	if u := m.agent.TotalUsage(); u.PromptTokens+u.CompletionTokens > 0 {
-		rightRaw = strings.ToUpper(fmtTok(u.PromptTokens + u.CompletionTokens)) // opencode uses uppercase (15.8K)
+	// "{tokens} ({pct})" is opencode's CONTEXT readout: both numbers describe
+	// the current conversation size, not the session bill (the sidebar shows
+	// spend, labeled as such).
+	if ctx := agent.EstimateTokens(m.agent.Messages); ctx > 0 && len(m.agent.Messages) > 1 {
+		rightRaw = strings.ToUpper(fmtTok(ctx)) // opencode uses uppercase (15.8K)
 		if m.agent.ContextLimit > 0 {
-			rightRaw += fmt.Sprintf(" (%d%%)", agent.EstimateTokens(m.agent.Messages)*100/m.agent.ContextLimit)
+			rightRaw += fmt.Sprintf(" (%d%%)", ctx*100/m.agent.ContextLimit)
 		}
 		rightRaw += "  "
 	}
