@@ -1136,10 +1136,19 @@ func (m *model) setUIMode(mode string) tea.Cmd {
 	}
 	m.refreshVP()
 	m.append(dimStyle.Render("◐ ui mode: " + uiModeLabel(mode)))
+	// The kitty keyboard stack is per-screen, so the push whip made at startup
+	// does not follow the alt-screen switch: re-push AFTER the switch lands
+	// (terminalInitMsg, the same path Init uses) or shift+enter silently dies
+	// for the rest of the session. Entering the alt screen from inline first
+	// pops the main screen's entry so the stack stays balanced for the pop
+	// Run does on exit; leaving it re-pushes on main for that same pop.
 	if mode == opencodeMode {
-		return tea.EnterAltScreen
+		if tuiRunning {
+			disableKeyboardEnhancement(os.Stdout)
+		}
+		return tea.Sequence(tea.EnterAltScreen, func() tea.Msg { return terminalInitMsg{} })
 	}
-	return tea.ExitAltScreen
+	return tea.Sequence(tea.ExitAltScreen, func() tea.Msg { return terminalInitMsg{} })
 }
 
 // uiModeLabel is the display name for a UI mode value.
