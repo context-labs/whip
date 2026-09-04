@@ -15,12 +15,26 @@ import (
 // from it, so prose and code share one theme.
 type Syntax struct{ Keyword, Type, Func, String, Number, Comment, Punct, Op color.Color }
 
-// Syntax derives the code roles from the semantic palette.
+// Syntax derives the code roles from the semantic palette, unless the spec
+// pins them.
 func (t *Theme) Syntax() Syntax {
-	return Syntax{
+	s := Syntax{
 		Keyword: t.Primary, Type: t.Info, Func: t.Accent, String: t.Success,
 		Number: t.Warning, Comment: t.Faint, Punct: t.Muted, Op: t.Text,
 	}
+	if p := t.spec.Syntax; p != nil {
+		s.Keyword, s.Type, s.Func, s.String = or(p.Keyword, s.Keyword), or(p.Type, s.Type), or(p.Function, s.Func), or(p.String, s.String)
+		s.Number, s.Comment, s.Punct, s.Op = or(p.Number, s.Number), or(p.Comment, s.Comment), or(p.Punctuation, s.Punct), or(p.Operator, s.Op)
+	}
+	return s
+}
+
+// or is the pinned color when the spec names one, else the derived one.
+func or(pinned string, derived color.Color) color.Color {
+	if pinned == "" {
+		return derived
+	}
+	return col(pinned)
 }
 
 // ChromaName is the registered chroma style for this theme: the user's pick
@@ -79,9 +93,13 @@ func (t *Theme) Markdown() ansi.StyleConfig {
 	if !t.Dark {
 		st = styles.LightStyleConfig
 	}
+	heading, strong, code, quote := p.Accent, p.Warning, p.Success, p.Muted
+	if md := t.spec.Markdown; md != nil {
+		heading, strong, code, quote = orStr(md.Heading, heading), orStr(md.Strong, strong), orStr(md.Code, code), orStr(md.Quote, quote)
+	}
 	st.Document.Color = optStr(p.Text) // "" = terminal default foreground
-	st.Heading.Color = optStr(p.Accent)
-	st.H1.Color, st.H1.BackgroundColor = optStr(p.Accent), nil // no color chip
+	st.Heading.Color = optStr(heading)
+	st.H1.Color, st.H1.BackgroundColor = optStr(heading), nil // no color chip
 	st.H1.Prefix, st.H1.Suffix = "# ", ""
 	st.H6.Color = optStr(p.Muted)
 	st.HorizontalRule.Color = optStr(p.Border)
@@ -89,10 +107,11 @@ func (t *Theme) Markdown() ansi.StyleConfig {
 	st.LinkText.Color = optStr(p.Link)
 	st.Image.Color = optStr(p.Primary)
 	st.ImageText.Color = optStr(p.Muted)
-	st.Strong.Color = optStr(p.Warning)
+	st.Strong.Color = optStr(strong)
 	st.Emph.Color = optStr(p.Emphasis)
 	st.Item.Color = optStr(p.Primary)
-	st.Code.Color = optStr(p.Success)
+	st.BlockQuote.Color = optStr(quote)
+	st.Code.Color = optStr(code)
 	st.Code.BackgroundColor = optStr(hexOf(t.Surface.Element)) // nil chip when no surfaces
 	st.Table.ColumnSeparator = ptr("│")
 	st.Table.CenterSeparator = ptr("┼")
@@ -109,6 +128,13 @@ func (t *Theme) Markdown() ansi.StyleConfig {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func orStr(pinned, derived string) string {
+	if pinned == "" {
+		return derived
+	}
+	return pinned
+}
 
 func optStr(s string) *string {
 	if s == "" {

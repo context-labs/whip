@@ -1,0 +1,44 @@
+{
+  "name": "kanagawa",
+  "dark": true,
+  "palette": {
+    "text": "#dcd7ba",
+    "muted": "#727169",
+    "faint": "#363646",
+    "primary": "#7e9cd8",
+    "accent": "#d27e99",
+    "success": "#98bb6c",
+    "warning": "#d7a657",
+    "error": "#e82424",
+    "info": "#76946a",
+    "link": "#76946a",
+    "emphasis": "#c38d9d",
+    "border": "#54546d",
+    "borderFocus": "#c38d9d",
+    "bg": "#1f1f28",
+    "diffAdd": "#252e25",
+    "diffDel": "#362020",
+    "onPrimary": "#1f1f28"
+  },
+  "surfaces": {
+    "panel": "#2a2a37",
+    "element": "#363646",
+    "hover": "#424251"
+  },
+  "syntax": {
+    "keyword": "#957fb8",
+    "string": "#98bb6c",
+    "number": "#d7a657",
+    "comment": "#727169",
+    "function": "#7e9cd8",
+    "type": "#c38d9d",
+    "operator": "#d27e99",
+    "punctuation": "#dcd7ba"
+  },
+  "markdown": {
+    "heading": "#957fb8",
+    "strong": "#d7a657",
+    "code": "#98bb6c",
+    "quote": "#727169"
+  }
+}

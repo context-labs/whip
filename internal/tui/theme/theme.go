@@ -52,11 +52,12 @@ type Theme struct {
 	Spinner  lipgloss.Style
 }
 
-// Resolve builds a Theme from a spec. bg is the terminal's real background
-// when known (the OSC 11 reply), nil otherwise; profile is the detected color
-// depth. Surfaces step away from the real background so cards read as raised
-// layers on any terminal, and vanish under 16 colors, where the nearest match
-// for a subtle gray is plain black and borders must carry the layering.
+// Resolve builds a Theme from a spec. The theme's own background (Bg) is what
+// View paints under everything, so the surfaces step away from it; bg, the
+// terminal's real background (the OSC 11 reply, nil when unknown), only
+// stands in for a theme without a Bg. Surfaces vanish under 16 colors, where
+// the nearest match for a subtle gray is plain black and borders must carry
+// the layering.
 func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 	if err := spec.Validate(); err != nil {
 		// callers validate on load; a spec that still fails here is a built-in
@@ -80,7 +81,11 @@ func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 		},
 		Space: Spacing{Gutter: 2, PadX: 1, PadY: 0, Gap: 1},
 	}
-	t.Surface = surfaces(spec, bg, profile)
+	base := t.Bg
+	if base == nil {
+		base = bg
+	}
+	t.Surface = surfaces(spec, base, profile)
 
 	body := lipgloss.NewStyle()
 	if t.Text != nil {

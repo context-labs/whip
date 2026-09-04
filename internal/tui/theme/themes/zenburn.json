@@ -1,0 +1,44 @@
+{
+  "name": "zenburn",
+  "dark": true,
+  "palette": {
+    "text": "#dcdccc",
+    "muted": "#9f9f9f",
+    "faint": "#4f4f4f",
+    "primary": "#8cd0d3",
+    "accent": "#93e0e3",
+    "success": "#7f9f7f",
+    "warning": "#f0dfaf",
+    "error": "#cc9393",
+    "info": "#dfaf8f",
+    "link": "#93e0e3",
+    "emphasis": "#e0cf9f",
+    "border": "#5f5f5f",
+    "borderFocus": "#8cd0d3",
+    "bg": "#3f3f3f",
+    "diffAdd": "#4f5f4f",
+    "diffDel": "#5f4f4f",
+    "onPrimary": "#3f3f3f"
+  },
+  "surfaces": {
+    "panel": "#4f4f4f",
+    "element": "#5f5f5f",
+    "hover": "#696969"
+  },
+  "syntax": {
+    "keyword": "#f0dfaf",
+    "string": "#cc9393",
+    "number": "#8fb28f",
+    "comment": "#7f9f7f",
+    "function": "#8cd0d3",
+    "type": "#93e0e3",
+    "operator": "#f0dfaf",
+    "punctuation": "#dcdccc"
+  },
+  "markdown": {
+    "heading": "#f0dfaf",
+    "strong": "#dfaf8f",
+    "code": "#7f9f7f",
+    "quote": "#9f9f9f"
+  }
+}

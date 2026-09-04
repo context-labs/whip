@@ -402,11 +402,11 @@ func (m *model) applyTheme(theme string) (how string) {
 	case "", "auto": // don't touch m.cfg.Theme — setTheme owns persistence
 		setSchemeOverride("")
 		how = detectColorScheme()
-	default: // a user theme: its darkness picks the scheme, its name pins the palette
-		spec := userThemeSpec(theme)
+	default: // a catalog or user theme: its darkness picks the scheme, its name pins the palette
+		spec := pinnedSpec(theme)
 		if spec == nil {
 			loadUserThemes()
-			spec = userThemeSpec(theme)
+			spec = pinnedSpec(theme)
 		}
 		if spec == nil {
 			setSchemeOverride("")

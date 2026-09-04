@@ -1,0 +1,44 @@
+{
+  "name": "everforest-light",
+  "dark": false,
+  "palette": {
+    "text": "#5c6a72",
+    "muted": "#a6b0a0",
+    "faint": "#a6b0a0",
+    "primary": "#8da101",
+    "accent": "#df69ba",
+    "success": "#8da101",
+    "warning": "#f57d26",
+    "error": "#f85552",
+    "info": "#35a77c",
+    "link": "#35a77c",
+    "emphasis": "#dfa000",
+    "border": "#939f91",
+    "borderFocus": "#829181",
+    "bg": "#fdf6e3",
+    "diffAdd": "#d5e5d5",
+    "diffDel": "#f7d8db",
+    "onPrimary": "#fdf6e3"
+  },
+  "surfaces": {
+    "panel": "#efebd4",
+    "element": "#f4f0d9",
+    "hover": "#e5e2cc"
+  },
+  "syntax": {
+    "keyword": "#df69ba",
+    "string": "#8da101",
+    "number": "#f57d26",
+    "comment": "#a6b0a0",
+    "function": "#8da101",
+    "type": "#dfa000",
+    "operator": "#35a77c",
+    "punctuation": "#5c6a72"
+  },
+  "markdown": {
+    "heading": "#df69ba",
+    "strong": "#f57d26",
+    "code": "#8da101",
+    "quote": "#dfa000"
+  }
+}

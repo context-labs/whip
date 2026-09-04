@@ -1,0 +1,44 @@
+{
+  "name": "synthwave84-light",
+  "dark": false,
+  "palette": {
+    "text": "#262335",
+    "muted": "#5c5c8a",
+    "faint": "#f0f0f0",
+    "primary": "#00bcd4",
+    "accent": "#9c27b0",
+    "success": "#4caf50",
+    "warning": "#ff9800",
+    "error": "#f44336",
+    "info": "#ff5722",
+    "link": "#9c27b0",
+    "emphasis": "#ff9800",
+    "border": "#e0e0e0",
+    "borderFocus": "#00bcd4",
+    "bg": "#fafafa",
+    "diffAdd": "#e8f5e9",
+    "diffDel": "#ffebee",
+    "onPrimary": "#fafafa"
+  },
+  "surfaces": {
+    "panel": "#f5f5f5",
+    "element": "#eeeeee",
+    "hover": "#e0e0e0"
+  },
+  "syntax": {
+    "keyword": "#e91e63",
+    "string": "#ff9800",
+    "number": "#9c27b0",
+    "comment": "#5c5c8a",
+    "function": "#ff5722",
+    "type": "#00bcd4",
+    "operator": "#e91e63",
+    "punctuation": "#262335"
+  },
+  "markdown": {
+    "heading": "#e91e63",
+    "strong": "#ff5722",
+    "code": "#4caf50",
+    "quote": "#5c5c8a"
+  }
+}

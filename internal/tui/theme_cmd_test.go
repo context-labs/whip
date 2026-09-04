@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/config"
 )
@@ -52,9 +51,9 @@ func TestThemeBareOpensSwitcher(t *testing.T) {
 	if m.palette == nil {
 		t.Fatal("bare /theme should open the palette")
 	}
-	if len(m.palette.items) != 3 || m.palette.items[0].title != "Theme: auto" ||
+	if len(m.palette.items) < 60 || m.palette.items[0].title != "Theme: auto" ||
 		m.palette.items[1].title != "Theme: light" || m.palette.items[2].title != "Theme: dark" {
-		t.Fatalf("theme palette: %+v", m.palette.items)
+		t.Fatalf("theme palette should list auto, light, dark and the catalog: %d items", len(m.palette.items))
 	}
 	// navigate to light and apply with enter
 	tm, _ := m.paletteKey(keyMsg(tea.KeyDown))
@@ -88,15 +87,7 @@ func TestNoArtifactsBothThemes(t *testing.T) {
 		m.Update(mkWinSize(70, 30))
 		m.setTheme(theme)
 		m.appendAssistant("Found it. **Fixed**:\n\n1. one\n2. two\n\n```go\nx := 1\n```")
-		v := viewStr(m)
-		for i, l := range strings.Split(v, "\n") {
-			if strings.TrimSpace(ansi.Strip(l)) == "" && strings.Contains(l, "\x1b[") {
-				t.Errorf("%s: row %d styled blank: %q", theme, i, l)
-			}
-			if ansi.StringWidth(l) > 70 {
-				t.Errorf("%s: row %d overflows (%d)", theme, i, ansi.StringWidth(l))
-			}
-		}
+		assertNoArtifacts(t, m, 70)
 		m.setTheme("dark")
 	}
 	setSchemeOverride("") // theme state is process-global: restore detection mode

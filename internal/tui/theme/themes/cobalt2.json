@@ -1,0 +1,44 @@
+{
+  "name": "cobalt2",
+  "dark": true,
+  "palette": {
+    "text": "#ffffff",
+    "muted": "#adb7c9",
+    "faint": "#0e1e2e",
+    "primary": "#0088ff",
+    "accent": "#2affdf",
+    "success": "#9eff80",
+    "warning": "#ffc600",
+    "error": "#ff0088",
+    "info": "#ff9d00",
+    "link": "#2affdf",
+    "emphasis": "#ff9d00",
+    "border": "#1f4662",
+    "borderFocus": "#0088ff",
+    "bg": "#193549",
+    "diffAdd": "#1a3a2a",
+    "diffDel": "#3a1a2a",
+    "onPrimary": "#193549"
+  },
+  "surfaces": {
+    "panel": "#122738",
+    "element": "#1f4662",
+    "hover": "#2c516b"
+  },
+  "syntax": {
+    "keyword": "#ff9d00",
+    "string": "#9eff80",
+    "number": "#ff628c",
+    "comment": "#0088ff",
+    "function": "#ffc600",
+    "type": "#2affdf",
+    "operator": "#ff9d00",
+    "punctuation": "#ffffff"
+  },
+  "markdown": {
+    "heading": "#ffc600",
+    "strong": "#ff628c",
+    "code": "#9eff80",
+    "quote": "#adb7c9"
+  }
+}

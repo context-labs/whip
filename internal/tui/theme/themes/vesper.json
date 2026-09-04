@@ -1,0 +1,39 @@
+{
+  "name": "vesper",
+  "dark": true,
+  "palette": {
+    "muted": "#a0a0a0",
+    "faint": "#1c1c1c",
+    "primary": "#ffc799",
+    "accent": "#ffc799",
+    "success": "#99ffe4",
+    "warning": "#ffc799",
+    "error": "#ff8080",
+    "info": "#ffc799",
+    "link": "#a0a0a0",
+    "border": "#282828",
+    "borderFocus": "#ffc799",
+    "bg": "#101010",
+    "diffAdd": "#0d2818",
+    "diffDel": "#281a1a",
+    "onPrimary": "#101010"
+  },
+  "surfaces": {
+    "panel": "#101010",
+    "element": "#101010",
+    "hover": "#1e1e1e"
+  },
+  "syntax": {
+    "keyword": "#a0a0a0",
+    "string": "#99ffe4",
+    "number": "#ffc799",
+    "comment": "#8b8b8b",
+    "function": "#ffc799",
+    "type": "#ffc799",
+    "operator": "#a0a0a0"
+  },
+  "markdown": {
+    "heading": "#ffc799",
+    "code": "#a0a0a0"
+  }
+}

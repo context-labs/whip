@@ -57,7 +57,7 @@ func TestOpencodeLeaderChordsUseDaemonCommands(t *testing.T) {
 }
 
 func TestOpencodeDialogsUseRecursiveCommandSurface(t *testing.T) {
-	m := &model{cfg: &config.Config{MCPServers: map[string]config.MCPServer{"local": {}}}, input: newInput(), width: 80, height: 30, termWidth: 80}
+	m := &model{cfg: &config.Config{MCPServers: map[string]config.MCPServer{"local": {}}}, input: newInput(), width: 80, height: 80, termWidth: 80} // tall: the list windows around the selection on short terminals
 	m.openThinPalette()
 	out := strings.Join(m.ocDialogRows(), "\n")
 	for _, want := range []string{"Commands", "Authentication", "Session", "MCPs", "Browser", "Theme"} {

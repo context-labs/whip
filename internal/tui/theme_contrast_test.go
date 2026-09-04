@@ -138,8 +138,11 @@ func TestInlineCodeLightChip(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	out := renderMarkdown("use `config.Save` here", 60)
-	if !strings.Contains(out, "48;2;225;225;225") { // the light theme's Element surface (#e1e1e1), same fill as the prompt box
-		t.Errorf("light inline code should sit on the light chip (#e1e1e1): %q", out)
+	elem := currentTheme().Surface.Element
+	r, g, b, _ := elem.RGBA()
+	chip := fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8) // the light theme's Element surface, same fill as the prompt box
+	if !strings.Contains(out, chip) {
+		t.Errorf("light inline code should sit on the element chip (%s): %q", chip, out)
 	}
 	if !strings.Contains(out, "38;2;61;154;87") { // #3d9a57 as glamour v2 emits it
 		t.Errorf("light inline code text should be the light code green (#3d9a57): %q", out)

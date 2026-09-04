@@ -1,0 +1,44 @@
+{
+  "name": "solarized-light",
+  "dark": false,
+  "palette": {
+    "text": "#657b83",
+    "muted": "#93a1a1",
+    "faint": "#eee8d5",
+    "primary": "#268bd2",
+    "accent": "#2aa198",
+    "success": "#859900",
+    "warning": "#b58900",
+    "error": "#dc322f",
+    "info": "#cb4b16",
+    "link": "#6c71c4",
+    "emphasis": "#b58900",
+    "border": "#eee8d5",
+    "borderFocus": "#93a1a1",
+    "bg": "#fdf6e3",
+    "diffAdd": "#eee8d5",
+    "diffDel": "#eee8d5",
+    "onPrimary": "#fdf6e3"
+  },
+  "surfaces": {
+    "panel": "#eee8d5",
+    "element": "#eee8d5",
+    "hover": "#e0dac8"
+  },
+  "syntax": {
+    "keyword": "#859900",
+    "string": "#2aa198",
+    "number": "#d33682",
+    "comment": "#93a1a1",
+    "function": "#268bd2",
+    "type": "#b58900",
+    "operator": "#859900",
+    "punctuation": "#657b83"
+  },
+  "markdown": {
+    "heading": "#268bd2",
+    "strong": "#cb4b16",
+    "code": "#859900",
+    "quote": "#93a1a1"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "material-light",
+  "dark": false,
+  "palette": {
+    "text": "#263238",
+    "muted": "#90a4ae",
+    "faint": "#eeeeee",
+    "primary": "#6182b8",
+    "accent": "#39adb5",
+    "success": "#91b859",
+    "warning": "#ffb300",
+    "error": "#e53935",
+    "info": "#f4511e",
+    "link": "#7c4dff",
+    "emphasis": "#ffb300",
+    "border": "#e0e0e0",
+    "borderFocus": "#6182b8",
+    "bg": "#fafafa",
+    "diffAdd": "#e8f5e9",
+    "diffDel": "#ffebee",
+    "onPrimary": "#fafafa"
+  },
+  "surfaces": {
+    "panel": "#f5f5f5",
+    "element": "#e7e7e8",
+    "hover": "#d9d9da"
+  },
+  "syntax": {
+    "keyword": "#7c4dff",
+    "string": "#91b859",
+    "number": "#f4511e",
+    "comment": "#90a4ae",
+    "function": "#6182b8",
+    "type": "#ffb300",
+    "operator": "#39adb5",
+    "punctuation": "#263238"
+  },
+  "markdown": {
+    "heading": "#6182b8",
+    "strong": "#f4511e",
+    "code": "#91b859",
+    "quote": "#90a4ae"
+  }
+}

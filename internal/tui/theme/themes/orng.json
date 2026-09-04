@@ -1,0 +1,44 @@
+{
+  "name": "orng",
+  "dark": true,
+  "palette": {
+    "text": "#eeeeee",
+    "muted": "#808080",
+    "faint": "#3c3c3c",
+    "primary": "#ec5b2b",
+    "accent": "#fff7f1",
+    "success": "#6ba1e6",
+    "warning": "#ec5b2b",
+    "error": "#e06c75",
+    "info": "#56b6c2",
+    "link": "#56b6c2",
+    "emphasis": "#e5c07b",
+    "border": "#ec5b2b",
+    "borderFocus": "#ee7948",
+    "bg": "#0a0a0a",
+    "diffAdd": "#1a2a3d",
+    "diffDel": "#37222c",
+    "onPrimary": "#0a0a0a"
+  },
+  "surfaces": {
+    "panel": "#141414",
+    "element": "#1e1e1e",
+    "hover": "#2c2c2c"
+  },
+  "syntax": {
+    "keyword": "#ec5b2b",
+    "string": "#6ba1e6",
+    "number": "#fff7f1",
+    "comment": "#808080",
+    "function": "#ee7948",
+    "type": "#e5c07b",
+    "operator": "#56b6c2",
+    "punctuation": "#eeeeee"
+  },
+  "markdown": {
+    "heading": "#ec5b2b",
+    "strong": "#ee7948",
+    "code": "#6ba1e6",
+    "quote": "#fff7f1"
+  }
+}

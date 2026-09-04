@@ -9,6 +9,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/tui/ui"
 )
 
@@ -278,10 +279,13 @@ func (m *model) View() tea.View {
 		toast := m.toastRows()
 		drawRows(scr, toast, max(w-lipgloss.Width(toast[0])-2, 0), 2) // top-right, over everything
 	}
+	th := currentTheme()
+	paintBase(scr, th)
 	m.recordInputRows()
 
 	view := tea.NewView(scr.Render())
 	view.Cursor = m.cursor(r)
+	view.BackgroundColor, view.ForegroundColor = th.Bg, th.Text // the terminal follows the theme too (restored on exit)
 	view.AltScreen = true
 	if m.mouseOn {
 		// Button-motion (?1002) reports drags without the hover flood of
@@ -420,5 +424,30 @@ func (m *model) drawScrollbar(scr uv.Screen, r frameRects) {
 			c = grip
 		}
 		scr.SetCell(x, y, c)
+	}
+}
+
+// paintBase gives every cell nothing else painted the theme's background and
+// text colour, so the whole view is the theme's — not the terminal's — and a
+// light theme reads on a dark terminal. A theme without a background (the
+// neutral theme on an unknown terminal) leaves the terminal's own.
+func paintBase(scr uv.Screen, th *theme.Theme) {
+	if th.Bg == nil && th.Text == nil {
+		return
+	}
+	area := scr.Bounds()
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			c := scr.CellAt(x, y)         // a pointer into the buffer: paint in place (SetCell copies a cell per call)
+			if c == nil || c.Width == 0 { // Clear() leaves EmptyCell spaces; width 0 is a wide glyph's continuation
+				continue
+			}
+			if c.Style.Bg == nil {
+				c.Style.Bg = th.Bg
+			}
+			if c.Style.Fg == nil {
+				c.Style.Fg = th.Text
+			}
+		}
 	}
 }

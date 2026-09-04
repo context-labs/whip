@@ -1,0 +1,44 @@
+{
+  "name": "solarized",
+  "dark": true,
+  "palette": {
+    "text": "#839496",
+    "muted": "#586e75",
+    "faint": "#073642",
+    "primary": "#268bd2",
+    "accent": "#2aa198",
+    "success": "#859900",
+    "warning": "#b58900",
+    "error": "#dc322f",
+    "info": "#cb4b16",
+    "link": "#6c71c4",
+    "emphasis": "#b58900",
+    "border": "#073642",
+    "borderFocus": "#586e75",
+    "bg": "#002b36",
+    "diffAdd": "#073642",
+    "diffDel": "#073642",
+    "onPrimary": "#002b36"
+  },
+  "surfaces": {
+    "panel": "#073642",
+    "element": "#073642",
+    "hover": "#16424d"
+  },
+  "syntax": {
+    "keyword": "#859900",
+    "string": "#2aa198",
+    "number": "#d33682",
+    "comment": "#586e75",
+    "function": "#268bd2",
+    "type": "#b58900",
+    "operator": "#859900",
+    "punctuation": "#839496"
+  },
+  "markdown": {
+    "heading": "#268bd2",
+    "strong": "#cb4b16",
+    "code": "#859900",
+    "quote": "#586e75"
+  }
+}

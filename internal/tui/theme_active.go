@@ -49,8 +49,8 @@ func rebuildTheme() {
 	}
 	spec := theme.Neutral()
 	switch {
-	case userThemeSpec(pick) != nil:
-		spec = *userThemeSpec(pick)
+	case pinnedSpec(pick) != nil:
+		spec = *pinnedSpec(pick)
 	case !known:
 		bg = nil
 	case light:
@@ -88,6 +88,18 @@ func loadUserThemes() []error {
 	userThemes = specs
 	themeMu.Unlock()
 	return errs
+}
+
+// pinnedSpec resolves a theme name the user pinned: whip's built-ins and the
+// embedded catalog first, then the user's own files.
+func pinnedSpec(name string) *theme.Spec {
+	if name == "" {
+		return nil
+	}
+	if s, ok := theme.Builtin(name); ok {
+		return &s
+	}
+	return userThemeSpec(name)
 }
 
 func userThemeSpec(name string) *theme.Spec {

@@ -1,0 +1,44 @@
+{
+  "name": "opencode-light",
+  "dark": false,
+  "palette": {
+    "text": "#1a1a1a",
+    "muted": "#8a8a8a",
+    "faint": "#d4d4d4",
+    "primary": "#3b7dd8",
+    "accent": "#d68c27",
+    "success": "#3d9a57",
+    "warning": "#d68c27",
+    "error": "#d1383d",
+    "info": "#318795",
+    "link": "#318795",
+    "emphasis": "#b0851f",
+    "border": "#b8b8b8",
+    "borderFocus": "#a0a0a0",
+    "bg": "#ffffff",
+    "diffAdd": "#d5e5d5",
+    "diffDel": "#f7d8db",
+    "onPrimary": "#ffffff"
+  },
+  "surfaces": {
+    "panel": "#fafafa",
+    "element": "#f5f5f5",
+    "hover": "#e6e6e6"
+  },
+  "syntax": {
+    "keyword": "#d68c27",
+    "string": "#3d9a57",
+    "number": "#d68c27",
+    "comment": "#8a8a8a",
+    "function": "#3b7dd8",
+    "type": "#b0851f",
+    "operator": "#318795",
+    "punctuation": "#1a1a1a"
+  },
+  "markdown": {
+    "heading": "#d68c27",
+    "strong": "#d68c27",
+    "code": "#3d9a57",
+    "quote": "#b0851f"
+  }
+}

@@ -23,9 +23,9 @@ func TestBuiltinsResolveAndDeriveSurfaces(t *testing.T) {
 	if light.Dark || hexOf(light.Surface.Panel) >= "#ffffff" {
 		t.Fatalf("light panel should be darker than white: %s", hexOf(light.Surface.Panel))
 	}
-	// no background RGB: the built-in fallback fills
-	if fb := Resolve(Dark(), nil, colorprofile.TrueColor); hexOf(fb.Surface.Panel) != "#343434" {
-		t.Fatalf("fallback panel = %s", hexOf(fb.Surface.Panel))
+	// no terminal background: the surfaces derive from the theme's own Bg
+	if fb := Resolve(Dark(), nil, colorprofile.TrueColor); fb.Surface.Panel == nil || hexOf(fb.Surface.Panel) <= hexOf(fb.Bg) || hexOf(fb.Surface.Base) != hexOf(fb.Bg) {
+		t.Fatalf("surfaces should step up from the theme bg %s: %+v", hexOf(fb.Bg), fb.Surface)
 	}
 	// 16 colors: no fills at all, borders carry the layering
 	if ansi := Resolve(Dark(), color.RGBA{A: 0xff}, colorprofile.ANSI); ansi.Surface.Panel != nil || ansi.Surface.Element != nil {
@@ -103,5 +103,45 @@ func TestLoadUserThemes(t *testing.T) {
 	pinned := Resolve(specs[1], color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}, colorprofile.TrueColor)
 	if hexOf(pinned.Surface.Panel) != "#eeeeee" {
 		t.Fatalf("pinned surfaces must win over derivation: %s", hexOf(pinned.Surface.Panel))
+	}
+}
+
+// Every embedded catalog theme parses, validates, resolves with a background
+// and pinned surfaces, and pins its syntax and markdown colours.
+func TestCatalogLoads(t *testing.T) {
+	specs, errs := Catalog()
+	if len(errs) > 0 {
+		t.Fatalf("catalog errors: %v", errs)
+	}
+	if len(specs) < 60 {
+		t.Fatalf("expected the opencode catalog (dark and light variants), got %d themes", len(specs))
+	}
+	seen := map[string]bool{}
+	for _, s := range specs {
+		if seen[s.Name] {
+			t.Fatalf("duplicate theme %q", s.Name)
+		}
+		seen[s.Name] = true
+		if strings.HasSuffix(s.Name, "-light") == s.Dark {
+			t.Fatalf("%s: dark=%v does not match its name", s.Name, s.Dark)
+		}
+		th := Resolve(s, nil, colorprofile.TrueColor)
+		if th.Bg == nil || th.Surface.Panel == nil || th.Surface.Element == nil || th.Text == nil || th.Primary == nil {
+			t.Fatalf("%s: missing background, surfaces or core tokens: %+v", s.Name, th.Palette)
+		}
+		if th.Markdown().Document.Color == nil {
+			t.Fatalf("%s: markdown has no text colour", s.Name)
+		}
+	}
+	tn, ok := Builtin("tokyonight")
+	if !ok {
+		t.Fatal("tokyonight missing from the built-ins")
+	}
+	th := Resolve(tn, nil, colorprofile.TrueColor)
+	if hexOf(th.Syntax().Keyword) != "#c099ff" || *th.Markdown().Heading.Color != "#c099ff" || hexOf(th.Bg) != "#1a1b26" {
+		t.Fatalf("tokyonight pins: keyword=%s heading=%s bg=%s", hexOf(th.Syntax().Keyword), *th.Markdown().Heading.Color, hexOf(th.Bg))
+	}
+	if l, ok := Builtin("tokyonight-light"); !ok || l.Dark {
+		t.Fatalf("tokyonight-light: %+v", l)
 	}
 }

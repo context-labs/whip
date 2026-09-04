@@ -8,15 +8,18 @@
 package theme
 
 import (
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
 )
@@ -26,12 +29,34 @@ import (
 // optional chroma style name for code. Colors are "#rrggbb" or an ANSI
 // palette index "0".."255".
 type Spec struct {
-	Name     string       `json:"name"`
-	Dark     bool         `json:"dark"`
-	Palette  PaletteSpec  `json:"palette"`
-	Surfaces *SurfaceSpec `json:"surfaces,omitempty"` // omitted: derived from the terminal background
-	Chroma   string       `json:"chroma,omitempty"`   // omitted: generated from the palette
-	neutral  bool         // the unknown-background theme: ANSI palette colors, no fills
+	Name     string        `json:"name"`
+	Dark     bool          `json:"dark"`
+	Palette  PaletteSpec   `json:"palette"`
+	Surfaces *SurfaceSpec  `json:"surfaces,omitempty"` // omitted: derived from the background
+	Syntax   *SyntaxSpec   `json:"syntax,omitempty"`   // omitted: derived from the palette
+	Markdown *MarkdownSpec `json:"markdown,omitempty"` // omitted: derived from the palette
+	Chroma   string        `json:"chroma,omitempty"`   // omitted: generated from the palette / syntax
+	neutral  bool          // the unknown-background theme: ANSI palette colors, no fills
+}
+
+// SyntaxSpec pins the code-highlighting roles instead of deriving them.
+type SyntaxSpec struct {
+	Keyword     string `json:"keyword"`
+	String      string `json:"string"`
+	Number      string `json:"number"`
+	Comment     string `json:"comment"`
+	Function    string `json:"function"`
+	Type        string `json:"type"`
+	Operator    string `json:"operator"`
+	Punctuation string `json:"punctuation"`
+}
+
+// MarkdownSpec pins the prose accents instead of deriving them.
+type MarkdownSpec struct {
+	Heading string `json:"heading"` // else Accent
+	Strong  string `json:"strong"`  // else Warning
+	Code    string `json:"code"`    // else Success
+	Quote   string `json:"quote"`   // else Muted
 }
 
 // PaletteSpec names every semantic color a component may ask for.
@@ -110,8 +135,52 @@ func Neutral() Spec {
 	}
 }
 
-// Builtins lists the themes that ship with whip, in menu order.
-func Builtins() []Spec { return []Spec{Light(), Dark()} }
+// catalog holds the themes embedded from themes/*.json: opencode's theme
+// collection converted by themes/convert_opencode.py, one spec per dark and
+// light variant.
+//
+//go:embed themes/*.json
+var catalogFS embed.FS
+
+var (
+	catalogOnce sync.Once
+	catalog     []Spec
+	catalogErrs []error
+)
+
+// Catalog returns the embedded themes, sorted by name. Errors are only
+// possible from a broken embedded file; TestCatalogLoads guards them.
+func Catalog() ([]Spec, []error) {
+	catalogOnce.Do(func() {
+		entries, _ := fs.ReadDir(catalogFS, "themes")
+		for _, e := range entries {
+			if !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			data, err := catalogFS.ReadFile("themes/" + e.Name())
+			if err != nil {
+				catalogErrs = append(catalogErrs, err)
+				continue
+			}
+			spec, err := parseSpec(data, e.Name())
+			if err != nil {
+				catalogErrs = append(catalogErrs, err)
+				continue
+			}
+			catalog = append(catalog, spec)
+		}
+		sort.Slice(catalog, func(i, j int) bool { return catalog[i].Name < catalog[j].Name })
+	})
+	return catalog, catalogErrs
+}
+
+// Builtins lists the themes that ship with whip, in menu order: whip's own
+// light and dark, then the embedded catalog.
+func Builtins() []Spec {
+	specs := []Spec{Light(), Dark()}
+	cat, _ := Catalog()
+	return append(specs, cat...)
+}
 
 // Builtin returns a shipped theme by name.
 func Builtin(name string) (Spec, bool) {
@@ -154,20 +223,30 @@ func loadFile(path string) (Spec, error) {
 	if err != nil {
 		return Spec{}, err
 	}
-	dec := json.NewDecoder(strings.NewReader(string(data)))
-	dec.DisallowUnknownFields()
-	var spec Spec
-	if err := dec.Decode(&spec); err != nil {
-		return Spec{}, fmt.Errorf("theme %s: %w (allowed keys: %s)", filepath.Base(path), err, strings.Join(allowedKeys(), ", "))
-	}
-	if spec.Name == "" {
-		spec.Name = strings.TrimSuffix(filepath.Base(path), ".json")
+	spec, err := parseSpec(data, filepath.Base(path))
+	if err != nil {
+		return Spec{}, err
 	}
 	if _, builtin := Builtin(spec.Name); builtin {
 		return Spec{}, fmt.Errorf("theme %s: %q is a built-in name; pick another", filepath.Base(path), spec.Name)
 	}
+	return spec, nil
+}
+
+// parseSpec decodes and validates one theme file (strict keys; the file name
+// is the fallback theme name).
+func parseSpec(data []byte, file string) (Spec, error) {
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec.DisallowUnknownFields()
+	var spec Spec
+	if err := dec.Decode(&spec); err != nil {
+		return Spec{}, fmt.Errorf("theme %s: %w (allowed keys: %s)", file, err, strings.Join(allowedKeys(), ", "))
+	}
+	if spec.Name == "" {
+		spec.Name = strings.TrimSuffix(file, ".json")
+	}
 	if err := spec.Validate(); err != nil {
-		return Spec{}, fmt.Errorf("theme %s: %w", filepath.Base(path), err)
+		return Spec{}, fmt.Errorf("theme %s: %w", file, err)
 	}
 	return spec, nil
 }
@@ -193,11 +272,18 @@ func (s *Spec) Validate() error {
 			problems = append(problems, fmt.Sprintf("palette.%s=%q is not #rrggbb or an ANSI index 0-255", jsonName(pv.Type().Field(i)), field.String()))
 		}
 	}
-	if s.Surfaces != nil {
-		sv := reflect.ValueOf(*s.Surfaces)
+	for _, block := range []struct {
+		name string
+		v    any
+	}{{"surfaces", s.Surfaces}, {"syntax", s.Syntax}, {"markdown", s.Markdown}} {
+		rv := reflect.ValueOf(block.v)
+		if !rv.IsValid() || rv.IsNil() {
+			continue
+		}
+		sv := rv.Elem()
 		for i := 0; i < sv.NumField(); i++ {
 			if v := sv.Field(i).String(); v != "" && !colorRE.MatchString(v) {
-				problems = append(problems, fmt.Sprintf("surfaces.%s=%q is not #rrggbb or an ANSI index 0-255", jsonName(sv.Type().Field(i)), v))
+				problems = append(problems, fmt.Sprintf("%s.%s=%q is not #rrggbb or an ANSI index 0-255", block.name, jsonName(sv.Type().Field(i)), v))
 			}
 		}
 	}
@@ -217,7 +303,7 @@ func jsonName(f reflect.StructField) string {
 }
 
 func allowedKeys() []string {
-	keys := []string{"name", "dark", "surfaces{panel,element,hover}", "chroma"}
+	keys := []string{"name", "dark", "surfaces{panel,element,hover}", "syntax{keyword,string,number,comment,function,type,operator,punctuation}", "markdown{heading,strong,code,quote}", "chroma"}
 	t := reflect.TypeOf(PaletteSpec{})
 	for i := 0; i < t.NumField(); i++ {
 		keys = append(keys, "palette."+jsonName(t.Field(i)))

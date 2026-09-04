@@ -1,0 +1,44 @@
+{
+  "name": "osaka-jade",
+  "dark": true,
+  "palette": {
+    "text": "#c1c497",
+    "muted": "#53685b",
+    "faint": "#23372b",
+    "primary": "#2dd5b7",
+    "accent": "#549e6a",
+    "success": "#549e6a",
+    "warning": "#e5c736",
+    "error": "#ff5345",
+    "info": "#2dd5b7",
+    "link": "#549e6a",
+    "emphasis": "#d2689c",
+    "border": "#3d4a44",
+    "borderFocus": "#2dd5b7",
+    "bg": "#111c18",
+    "diffAdd": "#15241c",
+    "diffDel": "#241515",
+    "onPrimary": "#111c18"
+  },
+  "surfaces": {
+    "panel": "#1a2520",
+    "element": "#23372b",
+    "hover": "#304338"
+  },
+  "syntax": {
+    "keyword": "#2dd5b7",
+    "string": "#63b07a",
+    "number": "#d2689c",
+    "comment": "#53685b",
+    "function": "#509475",
+    "type": "#549e6a",
+    "operator": "#459451",
+    "punctuation": "#c1c497"
+  },
+  "markdown": {
+    "heading": "#2dd5b7",
+    "strong": "#c1c497",
+    "code": "#63b07a",
+    "quote": "#53685b"
+  }
+}

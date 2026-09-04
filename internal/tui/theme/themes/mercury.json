@@ -1,0 +1,44 @@
+{
+  "name": "mercury",
+  "dark": true,
+  "palette": {
+    "text": "#dddde5",
+    "muted": "#9d9da8",
+    "faint": "#23242e",
+    "primary": "#8da4f5",
+    "accent": "#8da4f5",
+    "success": "#77c599",
+    "warning": "#fc9b6f",
+    "error": "#fc92b4",
+    "info": "#77becf",
+    "link": "#a7b6f8",
+    "emphasis": "#fc9b6f",
+    "border": "#2a2a35",
+    "borderFocus": "#8da4f5",
+    "bg": "#171721",
+    "diffAdd": "#2a3a39",
+    "diffDel": "#45303e",
+    "onPrimary": "#171721"
+  },
+  "surfaces": {
+    "panel": "#10101a",
+    "element": "#272735",
+    "hover": "#343441"
+  },
+  "syntax": {
+    "keyword": "#8da4f5",
+    "string": "#77c599",
+    "number": "#fc9b6f",
+    "comment": "#9d9da8",
+    "function": "#8da4f5",
+    "type": "#77becf",
+    "operator": "#8da4f5",
+    "punctuation": "#dddde5"
+  },
+  "markdown": {
+    "heading": "#ffffff",
+    "strong": "#f4f5f9",
+    "code": "#77c599",
+    "quote": "#9d9da8"
+  }
+}

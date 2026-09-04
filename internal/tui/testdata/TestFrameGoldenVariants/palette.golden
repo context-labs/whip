@@ -1,38 +1,38 @@
                                                                                                     Golden session                          
                                                                                                                                             
-                                                                                                    Context                                 
-                                                                                                    0 tokens                                
-                                                                                                    0% used                                 
-                                                                                                    $0.00 spent                             
-                                                                                                                                            
-                                                                                                    LSP                                     
-                                                                                                    managed by daemon                       
-                                                                                                                                            
-                                                                                                      ents                                  
-                                        Commands                                                 esc  ⚙ root (root-agent) — running         
-                                                                                                        ⚙ file-reader (ba06…c16d) — idle    
-                                        Search                                                                                              
-                                                                                                                                            
+                                        Commands                                                 esc  ntext                                 
+                                                                                                      tokens                                
+                                        Search                                                         used                                 
+                                                                                                      .00 spent                             
                                         Display                                                                                             
-                                        Theme: auto                                      /theme auto                                        
-                                        Theme: light                                    /theme light                                        
-   ❯ find the config loader             Theme: dark                                      /theme dark                                        
-                                                                                                                                            
-     ← Read internal/config/config.go                                                                                                       
-                                                                                                                                            
-     ↳ 5 lines · ctrl+e or click expands                                                                                                    
-                                                                                                                                            
-     Found it. Load reads the JSON file:                                                                                                    
-                                                                                                                                            
-     1. resolve the directory                                                                                                               
-     2. decode the file                                                                                                                     
-                                                                                                                                            
-       cfg, err := config.Load()                                                                                                            
-                                                                                                                                            
-     See the docs.                                                                                                                          
-                                                                                                                                            
-  ┃                                                                                                                                         
-  ┃  Ask whip anything… (/ for commands, tab completes)                                                                                     
+                                        Theme: auto                                      /theme auto  P                                     
+                                        Theme: light                                    /theme light  naged by daemon                       
+                                        Theme: dark                                      /theme dark                                        
+                                        Theme: aura                                      /theme aura  ents                                  
+                                        Theme: aura-light                          /theme aura-light  ⚙ root (root-agent) — running         
+                                        Theme: ayu                                        /theme ayu    ⚙ file-reader (ba06…c16d) — idle    
+                                        Theme: ayu-light                            /theme ayu-light                                        
+                                        Theme: carbonfox                            /theme carbonfox                                        
+                                        Theme: carbonfox-light                /theme carbonfox-light                                        
+                                        Theme: catppuccin                          /theme catppuccin                                        
+                                        Theme: catppuccin-frappe            /theme catppuccin-frappe                                        
+   ❯ find the config loader             Theme: catppuccin-frappe-light  /theme catppuccin-frappe-li…                                        
+                                        Theme: catppuccin-light              /theme catppuccin-light                                        
+     ← Read internal/config/config.go   Theme: catppuccin-macchiato      /theme catppuccin-macchiato                                        
+                                        Theme: catppuccin-macchiato-light  /theme catppuccin-macchi…                                        
+     ↳ 5 lines · ctrl+e or click expan  Theme: cobalt2                                /theme cobalt2                                        
+                                        Theme: cobalt2-light                    /theme cobalt2-light                                        
+     Found it. Load reads the JSON fil  Theme: cursor                                  /theme cursor                                        
+                                        Theme: cursor-light                      /theme cursor-light                                        
+     1. resolve the directory           Theme: dracula                                /theme dracula                                        
+     2. decode the file                 Theme: dracula-light                    /theme dracula-light                                        
+                                        Theme: everforest                          /theme everforest                                        
+       cfg, err := config.Load()        Theme: everforest-light              /theme everforest-light                                        
+                                        Theme: flexoki                                /theme flexoki                                        
+     See the docs.                      Theme: flexoki-light                    /theme flexoki-light                                        
+                                        Theme: github                                  /theme github                                        
+  ┃                                     Theme: github-light                      /theme github-light                                        
+  ┃  Ask whip anything… (/ for command  Theme: gruvbox                                /theme gruvbox                                        
   ┃                                                                                                                                         
   ┃  Off · kimi-k3-fast  inference                                                                                                          
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                            

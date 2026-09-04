@@ -1,0 +1,44 @@
+{
+  "name": "mercury-light",
+  "dark": false,
+  "palette": {
+    "text": "#363644",
+    "muted": "#70707d",
+    "faint": "#f7f7f9",
+    "primary": "#5266eb",
+    "accent": "#8da4f5",
+    "success": "#036e43",
+    "warning": "#a44200",
+    "error": "#b0175f",
+    "info": "#007f95",
+    "link": "#5266eb",
+    "emphasis": "#a44200",
+    "border": "#f0f1f4",
+    "borderFocus": "#5266eb",
+    "bg": "#ffffff",
+    "diffAdd": "#e7f3ee",
+    "diffDel": "#faeaf1",
+    "onPrimary": "#ffffff"
+  },
+  "surfaces": {
+    "panel": "#fbfcfd",
+    "element": "#f4f5f9",
+    "hover": "#e5e6ea"
+  },
+  "syntax": {
+    "keyword": "#465bd1",
+    "string": "#036e43",
+    "number": "#a44200",
+    "comment": "#70707d",
+    "function": "#5266eb",
+    "type": "#007f95",
+    "operator": "#465bd1",
+    "punctuation": "#363644"
+  },
+  "markdown": {
+    "heading": "#1e1e2a",
+    "strong": "#1e1e2a",
+    "code": "#036e43",
+    "quote": "#70707d"
+  }
+}

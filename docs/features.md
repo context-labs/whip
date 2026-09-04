@@ -171,6 +171,18 @@ follows the terminal background; `light` and `dark` pin the built-ins.
 `/theme` with no argument opens the switcher. `/theme <name>` pins a theme and
 saves it to the config (`"theme": "<name>"`).
 
+The whole view is painted with the theme's background and text colour, so a
+light theme reads on a dark terminal and the terminal's own colours follow
+the theme while whip runs (they are restored on exit). Besides whip's `light`
+and `dark`, the switcher lists opencode's theme catalog, converted from its
+assets with `internal/tui/theme/themes/convert_opencode.py`: aura, ayu,
+carbonfox, catppuccin (latte/frappe/macchiato), cobalt2, cursor, dracula,
+everforest, flexoki, github, gruvbox, kanagawa, lucent-orng, material, matrix,
+mercury, monokai, nightowl, nord, one-dark, opencode, orng, osaka-jade,
+palenight, rosepine, solarized, synthwave84, tokyonight, vercel, vesper and
+zenburn — each as `<name>` (dark) and `<name>-light`. Catalog themes pin their
+surfaces, syntax colours and markdown accents; whip's own themes derive them.
+
 User themes are JSON files in `~/.whip/themes/<name>.json` (or under
 `$WHIP_HOME`). Any token you leave out defaults from the built-in of the same
 darkness; unknown keys and malformed colors are reported with the allowed keys
@@ -193,7 +205,10 @@ when you run `/theme`. Colors are `#rrggbb` or an ANSI palette index `0`-`255`.
 ```
 
 `diffAdd`/`diffDel` are the background tints behind added and removed diff
-lines. `surfaces` is optional: without it the card and prompt fills are derived from
+lines. Optional `syntax` (`keyword`, `string`, `number`, `comment`, `function`,
+`type`, `operator`, `punctuation`) and `markdown` (`heading`, `strong`, `code`,
+`quote`) blocks pin those colours instead of deriving them from the palette.
+`surfaces` is optional: without it the card and prompt fills are derived from
 the terminal's real background so they read as raised layers on any terminal.
 `chroma` is optional: without it the code colors are generated from the
 palette; with it, that registered chroma style is used instead.
