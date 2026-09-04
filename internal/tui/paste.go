@@ -325,12 +325,15 @@ type pastedImage struct {
 // anonymous paste or "[Image 1: Screenshot 2026-09-04…png]" when a source
 // filename is known. The number is what maps back to the stored copy at
 // submit, so the display name is truncated aggressively without losing the
-// identity.
+// identity. A literal ] in the filename would close the chip early for the
+// expandImageChips regex and silently drop the attachment, so brackets are
+// stripped from the display snippet (cosmetic only — resolution uses n).
 func (p pastedImage) chipText() string {
 	if p.display == "" {
 		return fmt.Sprintf("[Image %d]", p.n)
 	}
-	return fmt.Sprintf("[Image %d: %s]", p.n, truncateImageName(p.display, maxImageNameRunes))
+	display := strings.NewReplacer("[", "(", "]", ")").Replace(p.display)
+	return fmt.Sprintf("[Image %d: %s]", p.n, truncateImageName(display, maxImageNameRunes))
 }
 
 // maxImageNameRunes is the widest a chip filename snippet may be before the
