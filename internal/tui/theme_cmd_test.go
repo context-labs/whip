@@ -14,6 +14,7 @@ import (
 // 234) immediately, and /theme dark back — and both must survive a render of
 // every sample kind (the chroma registry poisoning case).
 func TestThemeCommandSwitchesRendering(t *testing.T) {
+	t.Cleanup(func() { setSchemeOverride(""); SetLightTheme(false) }) // theme state is process-global
 	m := compactCmdModel()
 	m.Update(mkWinSize(80, 30))
 	m.command("/theme light")

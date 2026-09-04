@@ -119,10 +119,11 @@ type model struct {
 	cfgExtra map[string]string
 	cfgMod   time.Time // last observed config.json mod time (watcher baseline)
 
-	input  textarea.Model
-	spin   spinner.Model
-	vp     transcriptView
-	blocks []block // finalized transcript (raw; rendered at the current width)
+	input    textarea.Model
+	spin     spinner.Model
+	spinning bool // a spinner tick is in flight (the busy animation loop is armed)
+	vp       transcriptView
+	blocks   []block // finalized transcript (raw; rendered at the current width)
 	// msgBlock[i] is the block index rendering agent.Messages[i] (-1: none) —
 	// rewind live-scroll uses it to jump to a message's transcript position.
 	msgBlock  []int

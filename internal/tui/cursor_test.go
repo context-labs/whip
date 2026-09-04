@@ -17,8 +17,8 @@ func TestRealCursorInsideInputRect(t *testing.T) {
 	if view.Cursor == nil || view.Cursor.X != it.Min.X || view.Cursor.Y != it.Min.Y {
 		t.Fatalf("empty input: cursor %+v, want top-left of %v", view.Cursor, it)
 	}
-	if view.Cursor.Color != nil {
-		t.Fatalf("cursor colour must stay the terminal's own, got %v", view.Cursor.Color)
+	if view.Cursor.Color != currentTheme().Primary {
+		t.Fatalf("cursor colour must be the theme's primary, got %v", view.Cursor.Color)
 	}
 	m.input.SetValue("hello")
 	m.input.CursorEnd()
@@ -65,7 +65,7 @@ func TestRealCursorInsideInputRect(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	m.applyOpencodeStyles()
-	if c := m.View().Cursor; c == nil || c.Color != nil {
-		t.Fatalf("light theme: cursor %+v", c)
+	if c := m.View().Cursor; c == nil || c.Color != currentTheme().Primary {
+		t.Fatalf("light theme: cursor %+v, want primary %v", c, currentTheme().Primary)
 	}
 }

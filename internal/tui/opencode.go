@@ -684,7 +684,7 @@ func (m *model) ocModeLabel() string {
 func (m *model) applyOpencodeStyles() {
 	invalidateMDRenderer() // the markdown style follows the scheme; rebuild
 	th := currentTheme()
-	m.spin = spinner.New(spinner.WithSpinner(ocKnightRider))
+	m.spin.Spinner = ocKnightRider // keep the model (and its tick ID): a new one would orphan the running loop
 	m.spin.Style = th.Spinner
 	// Fill the textarea with the element background so the input box reads as
 	// a filled panel (opencode's prompt box).

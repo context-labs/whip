@@ -19,6 +19,17 @@ import (
 // persistence, tool routing, and process ownership never enter this package.
 func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	defer m.layout()
+	next, command := m.update(message)
+	// The busy spinner animates through a tick loop: arm it whenever a turn is
+	// running and no tick is in flight (the loop lapses when the turn ends).
+	if mm, ok := next.(*model); ok && mm.busy && !mm.spinning {
+		mm.spinning = true
+		command = tea.Batch(command, mm.spin.Tick)
+	}
+	return next, command
+}
+
+func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	if probe, ok := message.(viewProbe); ok {
 		probe.fn(m)
 		return m, nil
@@ -454,10 +465,14 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case spinner.TickMsg:
 		if !m.busy {
+			m.spinning = false // the loop lapses; Update re-arms it when the next turn starts
 			return m, nil
 		}
 		var command tea.Cmd
 		m.spin, command = m.spin.Update(msg)
+		if command == nil { // a tick for a spinner that no longer exists: let Update re-arm
+			m.spinning = false
+		}
 		return m, command
 	}
 

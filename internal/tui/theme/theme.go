@@ -98,11 +98,11 @@ func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 	t.Spinner = lipgloss.NewStyle().Foreground(t.Info)
 
 	ta := textarea.DefaultStyles(t.Dark)
-	// The real terminal cursor: keep the user's own cursor colour (nil = no
-	// OSC 12 repaint) and a steady block — Blink:true encodes as DECSCUSR 1,
-	// which Bubble Tea treats as the default and never resets, so the user's
-	// own cursor shape would not come back after whip exits.
-	ta.Cursor = textarea.CursorStyle{Color: nil, Shape: tea.CursorBlock, Blink: false}
+	// The real terminal cursor follows the theme (Primary, like the selection
+	// fill; Bubble Tea resets the colour on exit) as a steady block —
+	// Blink:true encodes as DECSCUSR 1, which Bubble Tea treats as the default
+	// and never resets, so the user's own cursor shape would not come back.
+	ta.Cursor = textarea.CursorStyle{Color: t.Primary, Shape: tea.CursorBlock, Blink: false}
 	elem := t.On(nil, t.Surface.Element)
 	for _, st := range []*textarea.StyleState{&ta.Focused, &ta.Blurred} {
 		st.Base = lipgloss.NewStyle()

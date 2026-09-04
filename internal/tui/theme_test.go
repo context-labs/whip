@@ -96,6 +96,7 @@ func TestParseOSCBg(t *testing.T) {
 // render in the neutral default style — NOT a forced dark/light guess — so
 // body text carries no hardcoded color (stays at the terminal default).
 func TestUnknownThemeIsNeutral(t *testing.T) {
+	setSchemeOverride("") // detection mode: no pinned theme from an earlier test
 	SetUnknownTheme()
 	defer SetLightTheme(false)
 	out := renderMarkdown("plain body text", 60)
