@@ -965,3 +965,108 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 		t.Fatalf("noticed=%v answered=%v requests=%d last=%s", noticed, answered, len(requests), encoded)
 	}
 }
+
+// TestCellHostCallsAndOutputReachPresentation pins the two live signals the
+// REPL panel renders: print output streams while a cell runs, and each host
+// call inside the cell is published with a bounded summary.
+func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var input llm.Request
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		last := input.Messages[len(input.Messages)-1]
+		if last.Role == "user" && strings.Contains(last.Content, "trace") {
+			streamToolCall(w, "trace", "print('working')\nfiles.list(path=\".\")\nprint('done')")
+			return
+		}
+		streamText(w, "done")
+	}))
+	defer server.Close()
+	store, root, _ := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4)
+	receipt, err := root.Submit(t.Context(), "trace")
+	if err != nil || waitReceipt(t, receipt).Err != nil {
+		t.Fatalf("turn err=%v", err)
+	}
+	events, _, err := store.ReplayEvents(t.Context(), root.ID(), 0, session.MaxEventReplay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostSeen, outputSeen := false, false
+	for _, envelope := range events {
+		var event StreamEvent
+		if json.Unmarshal(envelope.Payload.Inline, &event) != nil {
+			continue
+		}
+		switch envelope.Kind {
+		case "stream.cell.host":
+			if event.ID == "trace" && event.Name == "files.list" && strings.Contains(event.Args, "path=.") && event.Text != "" {
+				hostSeen = true
+			}
+		case "stream.tool.output":
+			if event.ID == "trace" && strings.Contains(event.Text, "working") {
+				outputSeen = true
+			}
+		}
+	}
+	if !hostSeen || !outputSeen {
+		t.Fatalf("host event=%v live output=%v", hostSeen, outputSeen)
+	}
+}
+
+// TestBackgroundShellJobOutlivesTheCellAndTurn pins shell.start semantics: the
+// cell returns while the job runs, and a later turn can still poll and kill it.
+func TestBackgroundShellJobOutlivesTheCellAndTurn(t *testing.T) {
+	var mu sync.Mutex
+	var requests []llm.Request
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		var input llm.Request
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		requests = append(requests, input)
+		mu.Unlock()
+		last := input.Messages[len(input.Messages)-1]
+		for index := len(input.Messages) - 1; index >= 0 && last.Role == "system"; index-- {
+			last = input.Messages[index]
+		}
+		switch {
+		case last.Role == "user" && strings.Contains(last.Content, "start it"):
+			streamToolCall(w, "start", "job = shell.start(command=\"sleep 30\")\nshell.poll(id=job[\"id\"])[\"running\"]")
+		case last.Role == "user" && strings.Contains(last.Content, "stop it"):
+			streamToolCall(w, "stop", "r = shell.kill(id=job[\"id\"])\n[r[\"running\"], r[\"killed\"], len(shell.list())]")
+		default:
+			streamText(w, "done")
+		}
+	}))
+	defer server.Close()
+	_, root, _ := openRecursiveRuntime(t, llm.New(server.URL, "key"), 4)
+	started := time.Now()
+	first, err := root.Submit(t.Context(), "start it")
+	if err != nil || waitReceipt(t, first).Err != nil {
+		t.Fatalf("start turn err=%v", err)
+	}
+	if time.Since(started) > 10*time.Second {
+		t.Fatal("shell.start blocked the cell on the sleeping job")
+	}
+	second, err := root.Submit(t.Context(), "stop it")
+	if err != nil || waitReceipt(t, second).Err != nil {
+		t.Fatalf("stop turn err=%v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	var results []string
+	for _, request := range requests {
+		for _, message := range request.Messages {
+			if message.Role == "tool" {
+				results = append(results, message.Content)
+			}
+		}
+	}
+	if len(results) < 2 || !strings.Contains(results[0], `"value":true`) || !strings.Contains(results[len(results)-1], `"value":[false,true,1]`) {
+		t.Fatalf("tool results = %q", results)
+	}
+}

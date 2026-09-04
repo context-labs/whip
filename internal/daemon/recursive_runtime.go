@@ -172,6 +172,20 @@ func (store scratchStore) Load(ctx context.Context) (string, rlm.SnapshotManifes
 	return program, manifest, err
 }
 
+// emitHostCall publishes one host call made inside a cell as a presentation
+// event: module.operation, a bounded argument summary, and the duration. It
+// lets a client show what a cell is doing while it runs.
+func (node *AgentSession) emitHostCall(call rlm.HostCall) {
+	emit := node.emit
+	if emit == nil {
+		return
+	}
+	emit("stream.cell.host", StreamEvent{
+		ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
+		Text: call.Duration.Round(time.Millisecond).String(), Result: call.Err,
+	})
+}
+
 // recordScratchRestore persists the restore outcome off the kernel lock; the
 // event is an audit trail, so ordering against the turn does not matter.
 func (node *AgentSession) recordScratchRestore(_ context.Context, report rlm.RestoreReport) {
@@ -202,7 +216,7 @@ func (runtime *RecursiveRuntime) newNode(value *agent.Agent, parentID, name stri
 	host := &recursiveHost{session: node}
 	kernel, err := rlm.NewKernel(rlm.KernelOptions{
 		Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
-		OnRestore: node.recordScratchRestore,
+		OnRestore: node.recordScratchRestore, OnHostCall: node.emitHostCall,
 	})
 	if err != nil {
 		return nil, err
@@ -888,14 +902,122 @@ func (host *recursiveHost) files(ctx context.Context, operation string, argument
 	return host.invoke(ctx, tool, arguments)
 }
 
+// maxJobWaitMS bounds shell.wait like agents.wait: the wait is a host call the
+// cell clock does not charge, but a blocked cell still holds a kernel slot.
+const maxJobWaitMS = 25000
+
 func (host *recursiveHost) shell(ctx context.Context, operation string, arguments map[string]any) (any, error) {
-	if operation == "run" {
+	node := host.session
+	switch operation {
+	case "run":
 		return host.invoke(ctx, "bash", arguments)
-	}
-	if operation == "read" {
+	case "read":
 		return host.context(ctx, "read", arguments)
+	case "start":
+		data, err := json.Marshal(arguments)
+		if err != nil {
+			return nil, err
+		}
+		output, err := node.agent.Services.Invoke(ctx, "shell_start", data)
+		if err != nil {
+			return nil, err
+		}
+		var status tools.JobStatus
+		if err := json.Unmarshal([]byte(output), &status); err != nil {
+			return nil, err
+		}
+		return host.jobView(ctx, status, false)
+	case "poll", "kill", "wait":
+		id, _ := stringArgument(arguments, "id")
+		status, ok := node.agent.Services.JobStatus(id)
+		if !ok {
+			return nil, fmt.Errorf("no such job %q (jobs do not survive a daemon restart)", id)
+		}
+		if operation == "kill" {
+			if err := node.agent.Services.KillJob(id); err != nil {
+				return nil, err
+			}
+		}
+		timedOut := false
+		if operation == "wait" && status.Running {
+			job, _ := node.agent.Services.Job(id)
+			timeout := time.Duration(min(max(intArgument(arguments, "timeout_ms", 10000), 0), maxJobWaitMS)) * time.Millisecond
+			select {
+			case <-job.Done():
+			case <-time.After(timeout):
+				timedOut = true
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if operation == "kill" {
+			if job, _ := node.agent.Services.Job(id); job != nil {
+				select {
+				case <-job.Done():
+				case <-time.After(2 * time.Second):
+				}
+			}
+		}
+		status, _ = node.agent.Services.JobStatus(id)
+		view, err := host.jobView(ctx, status, !status.Running)
+		if err == nil && operation == "wait" {
+			view["timed_out"] = timedOut
+		}
+		return view, err
+	case "tail":
+		id, _ := stringArgument(arguments, "id")
+		job, ok := node.agent.Services.Job(id)
+		if !ok {
+			return nil, fmt.Errorf("no such job %q (jobs do not survive a daemon restart)", id)
+		}
+		limit := min(max(intArgument(arguments, "bytes", 4096), 1), sessionstore.InlineValueLimit)
+		text, total := job.Output(limit)
+		return map[string]any{"id": id, "running": job.Running(), "tail": text, "bytes": total}, nil
+	case "list":
+		statuses := node.agent.Services.Jobs()
+		result := make([]any, 0, len(statuses))
+		for _, status := range statuses {
+			view, err := host.jobView(ctx, status, false)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, view)
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("unknown shell operation %q", operation)
 	}
-	return nil, fmt.Errorf("unknown shell operation %q", operation)
+}
+
+// jobView renders a job for the model; a finished job carries its output as
+// inline text or, above the inline limit, as a handle with a preview.
+func (host *recursiveHost) jobView(ctx context.Context, status tools.JobStatus, withOutput bool) (map[string]any, error) {
+	view := map[string]any{
+		"id": status.ID, "pid": status.PID, "command": status.Command, "running": status.Running,
+		"bytes": status.Bytes, "started_at": status.StartedAt.UTC().Format(time.RFC3339),
+	}
+	if status.Exit != "" {
+		view["exit"] = status.Exit
+	}
+	if status.Killed {
+		view["killed"] = true
+	}
+	if !status.EndedAt.IsZero() {
+		view["ended_at"] = status.EndedAt.UTC().Format(time.RFC3339)
+	}
+	if withOutput {
+		if job, ok := host.session.agent.Services.Job(status.ID); ok {
+			text, _ := job.Output(0)
+			bounded, err := host.boundedText(ctx, "shell job output", text)
+			if err != nil {
+				return nil, err
+			}
+			for key, value := range bounded {
+				view[key] = value
+			}
+		}
+	}
+	return view, nil
 }
 
 func (host *recursiveHost) invoke(ctx context.Context, operation string, arguments map[string]any) (any, error) {
@@ -1126,7 +1248,7 @@ func capabilityDelegations(parent *AgentSession, child capability.Authority, nam
 		case "write":
 			fileOps = append(fileOps, "read", "write", "edit", "workspace.write")
 		case "shell":
-			shellOps = append(shellOps, "bash", "workspace_process")
+			shellOps = append(shellOps, "bash", "shell_start", "workspace_process")
 		case "browser":
 			shellOps = append(shellOps, "browser_exec")
 		case "computer":

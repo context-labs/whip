@@ -221,6 +221,9 @@ func (m *model) sidebarVisible() bool {
 // the number of rows to fill so the sidebar spans the body. All styling uses
 // whip's theme styles, so it honors light/dark/auto.
 func (m *model) sidebarView(height int) string {
+	if m.replPanel {
+		return m.replPanelView(height)
+	}
 	// Every style carries the panel background so text doesn't punch holes in the
 	// filled panel column; opencode's exact text/muted colors for readability.
 	head := lipgloss.NewStyle().Bold(true).Foreground(ocTextCol()).Background(ocPanelBg())
@@ -254,6 +257,11 @@ func (m *model) sidebarView(height int) string {
 	// LSP status.
 	b.WriteString(head.Render("LSP") + "\n")
 	b.WriteString(dim.Render(m.lspSummary()) + "\n")
+
+	// Agent tree (opencode mode has no dock under the input).
+	if agents := m.agentTreeRows(sidebarWidth-3, newReplStyles(ocPanelBg()), false); len(agents) > 0 {
+		b.WriteString("\n" + strings.Join(agents, "\n") + "\n")
+	}
 
 	// Top content (title + Context + LSP), clipped if the sidebar is very short.
 	top := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
@@ -806,6 +814,9 @@ func (m *model) ocLeaderChord(k string) (tea.Model, tea.Cmd, bool) {
 	case "b": // sidebar toggle
 		m.sidebarHide = !m.sidebarHide
 		m.ocRecalcWidth()
+	case "r": // REPL panel in the sidebar
+		m.replPanel = !m.replPanel
+		m.ocRecalcWidth()
 	case "t": // theme list
 		m.openThinThemePalette()
 	case "c": // compact
@@ -837,7 +848,7 @@ func (m *model) ocRecalcWidth() {
 	}
 	w := m.termWidth - opencodeLeftMargin
 	if m.termWidth >= sidebarMinWidth && !m.sidebarHide {
-		w -= sidebarWidth + opencodeRightGap
+		w -= m.panelWidth() + opencodeRightGap
 	}
 	if w != m.width {
 		m.width = w

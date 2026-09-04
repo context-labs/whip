@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/tools"
 )
 
 func TestWorkerProcess(t *testing.T) {
@@ -710,4 +712,57 @@ func TestKernelScratchSurvivesSuspensionAndMidTurnRestart(t *testing.T) {
 		t.Fatalf("mid-turn restore = %+v err=%v", result, err)
 	}
 	release()
+}
+
+func TestKernelStreamsOutputAndReportsHostCalls(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls []HostCall
+	host := HostFunc(func(context.Context, string, string, map[string]any) (any, error) { return nil, nil })
+	kernel, err := NewKernel(KernelOptions{
+		Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Limits: DefaultLimits(), Host: host,
+		OnHostCall: func(call HostCall) { calls = append(calls, call) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+	var snapshots []string
+	ctx := tools.WithOnUpdate(tools.WithToolCallID(context.Background(), "call-1"), func(soFar string) { snapshots = append(snapshots, soFar) })
+	result, err := kernel.Exec(ctx, "print('first')\nfiles.write(path='a.txt', content='secret-body')\nprint('second')")
+	if err != nil || result.Output != "first\nsecond\n" {
+		t.Fatalf("result = %+v err=%v", result, err)
+	}
+	if len(snapshots) == 0 || snapshots[0] != "first\n" {
+		t.Fatalf("output snapshots = %q", snapshots)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("host calls = %+v", calls)
+	}
+	call := calls[0]
+	if call.CallID != "call-1" || call.Module != "files" || call.Operation != "write" || call.Err != "" || call.Duration < 0 {
+		t.Fatalf("host call = %+v", call)
+	}
+	if !strings.Contains(call.Summary, "path=a.txt") || !strings.Contains(call.Summary, "content=<11 bytes>") || strings.Contains(call.Summary, "secret") {
+		t.Fatalf("host call summary leaked or lost detail: %q", call.Summary)
+	}
+}
+
+func TestHostCallSummaryRedactsPayloads(t *testing.T) {
+	summary := hostCallSummary(map[string]any{
+		"path": "/tmp/" + strings.Repeat("x", 100), "content": "top secret", "recipient": "parent", "limit": 50,
+	})
+	for _, want := range []string{"content=<10 bytes>", "recipient=parent", "limit=50", "path=/tmp/"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary %q missing %q", summary, want)
+		}
+	}
+	if strings.Contains(summary, "secret") || strings.Contains(summary, strings.Repeat("x", 90)) {
+		t.Fatalf("summary is unbounded or leaks payload: %q", summary)
+	}
+	if hostCallSummary(nil) != "" {
+		t.Fatal("empty arguments should summarize to nothing")
+	}
 }

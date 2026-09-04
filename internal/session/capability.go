@@ -142,7 +142,7 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 	}
 	fileOperations, _ := json.Marshal([]string{"read", "write", "edit", "workspace.write"})
 	fileScopes, _ := json.Marshal(storedCapabilityScopes{Paths: []string{workspace.Root()}})
-	shellOperations, _ := json.Marshal([]string{"bash", "browser_exec", "computer_exec", "workspace_process"})
+	shellOperations, _ := json.Marshal([]string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process"})
 	shellScopes, _ := json.Marshal(storedCapabilityScopes{})
 	stamp := now()
 	tx, err := s.db.BeginTx(ctx, nil)

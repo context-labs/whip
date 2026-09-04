@@ -154,11 +154,19 @@ func Run(ctx context.Context, opts Options) Result {
 type processHandle interface {
 	Wait() error
 	Kill() error
+	PID() int
 }
 
 type commandProcess struct{ cmd *exec.Cmd }
 
 func (p commandProcess) Wait() error { return p.cmd.Wait() }
+
+func (p commandProcess) PID() int {
+	if p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
 
 func (p commandProcess) Kill() error {
 	if p.cmd.Process == nil {

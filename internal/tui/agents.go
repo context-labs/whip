@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+
+	"github.com/charmbracelet/x/ansi"
 	"slices"
 	"sort"
 	"strings"
@@ -97,6 +99,9 @@ func (m *model) clampAgentSel() {
 }
 
 func (m *model) agentsDock() string {
+	if m.uiMode == opencodeMode && m.sidebarVisible() {
+		return "" // the tree lives in the right panel (agentTreeRows)
+	}
 	agents := m.runtimeAgentRows()
 	if len(agents) == 0 {
 		return ""
@@ -121,6 +126,9 @@ func (m *model) agentsDock() string {
 		if row.agent.ID == m.agentOpen {
 			line += " · open"
 		}
+		if m.width > 3 { // unsized before the first WindowSizeMsg
+			line = ansi.Truncate(line, m.width-3, "…")
+		}
 		if m.agentsFocus && index == m.agentSel {
 			line = botStyle.Render(" → " + line)
 		} else {
@@ -134,6 +142,54 @@ func (m *model) agentsDock() string {
 	return strings.Join(rows, "\n")
 }
 
+// agentTreeRows is the opencode right-panel form of the dock: an "Agents"
+// header (with the key hint while focused), the tree with the same selection
+// and open markers, and, for the REPL panel, each agent's running cell.
+func (m *model) agentTreeRows(inner int, st replStyles, withCells bool) []string {
+	agents := m.runtimeAgentRows()
+	if len(agents) == 0 {
+		return nil
+	}
+	m.clampAgentSel()
+	cut := func(s string) string { return ansi.Truncate(s, max(inner, 1), "…") }
+	header := "Agents"
+	if m.agentsFocus {
+		header += "  ↑/↓ · enter open · ctrl+x stop · esc"
+	}
+	rows := []string{st.head.Render(cut(header))}
+	budget := agentsDockHeight
+	if len(agents) > budget {
+		budget--
+	}
+	lo := 0
+	if m.agentsFocus && m.agentSel >= budget {
+		lo = m.agentSel - budget + 1
+	}
+	hi := min(lo+budget, len(agents))
+	for index := lo; index < hi; index++ {
+		row := agents[index]
+		line := strings.Repeat("  ", row.depth) + runtimeAgentLine(row.agent)
+		if row.agent.ID == m.agentOpen {
+			line += " · open"
+		}
+		if withCells {
+			line += m.replCurrentCell(row.agent.ID)
+		}
+		style, marker := st.dim, "  "
+		switch {
+		case m.agentsFocus && index == m.agentSel:
+			style, marker = st.accent, "→ "
+		case row.agent.LifecyclePhase == "running":
+			style = st.text
+		}
+		rows = append(rows, style.Render(cut(marker+line)))
+	}
+	if more := len(agents) - hi; more > 0 {
+		rows = append(rows, st.dim.Render(fmt.Sprintf("  … +%d more", more)))
+	}
+	return rows
+}
+
 func (m *model) agentDetails() string {
 	value, ok := m.runtimeAgent(m.agentOpen)
 	if !ok {
@@ -141,7 +197,8 @@ func (m *model) agentDetails() string {
 	}
 	rows := []string{
 		botStyle.Render("⚙ " + value.Name),
-		dimStyle.Render("  id " + value.ID + " · parent " + value.ParentID),
+		dimStyle.Render("  id " + value.ID),
+		dimStyle.Render("  parent " + value.ParentID),
 		dimStyle.Render("  " + value.Model + " @ " + value.Provider + " · " + value.Effort + " · " + value.LifecyclePhase),
 		dimStyle.Render("  cwd " + value.CWD),
 	}
@@ -195,5 +252,10 @@ func (m *model) agentDetails() string {
 		rows = append(rows, dimStyle.Render("  read-only — this agent cannot accept more turns"))
 	}
 	rows = append(rows, dimStyle.Render("  esc returns to root · ctrl+c twice cancels this turn · ctrl+t opens agent tree"))
+	if m.width > 0 { // a row wider than the chat column would push the sidebar over
+		for index := range rows {
+			rows[index] = ansi.Truncate(rows[index], m.width, "…")
+		}
+	}
 	return strings.Join(rows, "\n")
 }

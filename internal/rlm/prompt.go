@@ -55,7 +55,7 @@ func BuildPrompt(workingDirectory string, history *ContextHandle) string {
 Available Starlark modules:
 - context.inspect(handle="..."), context.search(handle="...", query="..."), context.read(handle="...", offset=0, length=8192)
 - files.list(path="."), files.search(path=".", query="..."), files.read(path="..."), files.write(path="...", content="..."), files.patch(path="...", old="...", new="...")
-- shell.run(command="..."), shell.read(handle="...", offset=0, length=8192)
+- shell.run(command="...") blocks the cell (120 s cap); shell.read(handle="...", offset=0, length=8192); background jobs: shell.start(command="...", timeout=0) returns a job id, then shell.poll(id="..."), shell.tail(id="...", bytes=4096), shell.wait(id="...", timeout_ms=10000), shell.kill(id="..."), shell.list()
 - browser.run(...), computer.run(...)
 - models.call(prompt="...", max_tokens=N), models.batch(prompts=[...], max_tokens=N); stateless calls, not durable agents
 - agents.spawn(prompt="...", name="...", capabilities=[...], budgets={...}, report="notice"|"inline"|"message"), agents.submit(id="...", text="...", delivery="steer"(default)|"queued"), agents.wait(ids=[...], timeout_ms=N), agents.inspect(id="..."), agents.list(), agents.stop(id="..."), agents.delete(id="...")
@@ -73,6 +73,7 @@ Rules:
 - Large values are handles. Inspect/search/read bounded slices instead of loading an entire corpus.
 - Interpreter globals survive worker and daemon restarts, except closures, self-referential values, and the cell that was running when a worker died; a notice lists anything not restored. Helpers see globals as bound when they were defined: mutate lists and dicts in place or pass values as parameters instead of rebinding a name a helper reads. Shared or long-lived work still belongs in state, artifacts, messages, and children.
 - Cite source identifiers and exact spans returned by context or artifact reads.
+- Builds, test suites, servers, and any command longer than a few seconds go through shell.start, then shell.poll, shell.tail, or shell.wait; kill what you started. A job outlives the cell and the turn but not the daemon, and only its owner can see it.
 
 Messaging and delegation (runtime behavior):
 - Mail wakes you: a queued message to an idle recipient starts a turn whose input is a mailbox digest; a busy recipient gets it as its own turn after the current one ends. If other input is already queued when a turn starts, the digest is prepended to that turn instead. So after agents.spawn or agents.submit, end your turn; the reply or the child's completion notice wakes you. Asynchronous here means exactly that: send, end the turn, handle the reply in the turn it wakes. Reading a reply inside the same cell or turn is synchronous, whatever you call it.

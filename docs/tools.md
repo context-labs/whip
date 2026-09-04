@@ -17,7 +17,7 @@ All operations accept keyword arguments.
 | --- | --- |
 | `context` | `inspect`, `search`, `read` supplied or history handles |
 | `files` | `list`, `search`, `read`, `write`, `patch` |
-| `shell` | `run`, `read` handle-backed output |
+| `shell` | `run` (blocking, 120 s cap), `read` handle-backed output, background jobs: `start`, `poll`, `tail`, `wait`, `kill`, `list` |
 | `browser` | `run` |
 | `computer` | `run` |
 | `models` | `call`, `batch` for stateless model work |

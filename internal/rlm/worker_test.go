@@ -364,3 +364,29 @@ func TestWorkerCrossChunkBindingQuirkUnifiesOnRestore(t *testing.T) {
 		t.Fatalf("restored binding = %+v", restored)
 	}
 }
+
+func TestWorkerStreamsOutputFrames(t *testing.T) {
+	w, output := newUnitWorker("")
+	w.installModules()
+	w.currentEval = 7
+	result := w.evaluate("print('a')\nprint('b')")
+	if result.Error != "" || result.Output != "a\nb\n" {
+		t.Fatalf("result = %+v", result)
+	}
+	reader := bufio.NewReader(output)
+	frame, err := readFrame(reader, 1<<20)
+	if err != nil || frame.Type != "output" || frame.ID != 7 || frame.Output != "a\n" {
+		t.Fatalf("first output frame = %+v err=%v", frame, err)
+	}
+	// The second print landed inside the throttle window: no second frame, and
+	// the result above still carried the complete output.
+	if _, err := readFrame(reader, 1<<20); err == nil {
+		t.Fatal("throttled print produced a second frame")
+	}
+	// In-process evaluation (no frame id) never writes frames.
+	w.currentEval = 0
+	output.Reset()
+	if got := w.evaluate("print('c')"); got.Output != "c\n" || output.Len() != 0 {
+		t.Fatalf("frameless evaluation wrote %q", output.String())
+	}
+}

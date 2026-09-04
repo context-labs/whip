@@ -22,7 +22,7 @@ func (f HostFunc) Call(ctx context.Context, module, operation string, args map[s
 var moduleRegistry = map[string][]string{
 	"context":     {"inspect", "search", "read"},
 	"files":       {"list", "search", "read", "write", "patch"},
-	"shell":       {"run", "read"},
+	"shell":       {"run", "read", "start", "poll", "tail", "wait", "kill", "list"},
 	"browser":     {"run"},
 	"computer":    {"run"},
 	"models":      {"call", "batch"},

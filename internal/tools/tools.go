@@ -66,6 +66,10 @@ type Services struct {
 	externalPermissions bool
 	permissionWaiters   map[string]chan capability.Decision
 	permissionEarly     map[string]capability.Decision
+
+	// Background shell jobs owned by this agent; see jobs.go.
+	jobs     map[string]*bashrun.Job
+	jobOrder []string
 }
 
 func NewServices() *Services { return &Services{} }
@@ -387,6 +391,7 @@ func (s *Services) nativeComputerHelper() (*computer.Helper, error) {
 }
 
 func (s *Services) Close() {
+	s.killJobs()
 	s.mu.RLock()
 	diagnostics, browserManager, computerHelper := s.diagnostics, s.browser, s.computerHelper
 	s.mu.RUnlock()
@@ -449,6 +454,7 @@ var hostToolSpecs = []hostToolSpec{
 	{build: browserExec, shell: true},
 	{build: computerExec, shell: true},
 	{build: workspaceProcessTool, shell: true, writer: true, mutation: capability.MutationWorkspace, permission: true},
+	{build: shellStartTool, shell: true, writer: true, mutation: capability.MutationWorkspace, permission: true},
 }
 
 func hostTool(services *Services, operation string) Tool {
@@ -669,6 +675,28 @@ type updateKey struct{}
 // output snapshots for this one call.
 func WithOnUpdate(ctx context.Context, onUpdate func(outputSoFar string)) context.Context {
 	return context.WithValue(ctx, updateKey{}, onUpdate)
+}
+
+// OnUpdate returns the partial-output callback installed by WithOnUpdate, or
+// nil. The RLM kernel uses it to stream a cell's print output.
+func OnUpdate(ctx context.Context) func(outputSoFar string) {
+	callback, _ := ctx.Value(updateKey{}).(func(string))
+	return callback
+}
+
+type toolCallKey struct{}
+
+// WithToolCallID names the model tool call a ctx belongs to, so runtime
+// events emitted while it runs (host calls inside a Starlark cell) can be
+// attributed to it in the presentation stream.
+func WithToolCallID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, toolCallKey{}, id)
+}
+
+// ToolCallID returns the id set by WithToolCallID, or "".
+func ToolCallID(ctx context.Context) string {
+	id, _ := ctx.Value(toolCallKey{}).(string)
+	return id
 }
 
 // Defs returns the llm.Tool definitions for a tool set.

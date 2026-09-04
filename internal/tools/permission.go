@@ -168,7 +168,7 @@ func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPromp
 		return capability.Decision{}, err
 	}
 	command := args.Path
-	if prompt.Operation == "bash" || prompt.Operation == "workspace_process" {
+	if prompt.Operation == "bash" || prompt.Operation == "workspace_process" || prompt.Operation == "shell_start" {
 		command = args.Command
 	} else if prompt.CanonicalPath != "" {
 		command = prompt.CanonicalPath

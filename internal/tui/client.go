@@ -349,6 +349,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 	m.clientView.permissions = append([]session.PermissionSnapshot(nil), snapshot.Permissions...)
 	m.clientView.presentation = append([]session.SnapshotEvent(nil), snapshot.Presentation...)
 	m.clientView.agentPresentations = snapshot.AgentPresentations
+	m.replRebuild()
 	if selectedAgentID != "" {
 		for index, row := range m.runtimeAgentRows() {
 			if row.agent.ID == selectedAgentID {
@@ -505,9 +506,9 @@ func runtimeAgentLine(value session.RuntimeAgent) string {
 	}
 	name := value.Name
 	if name == "" {
-		name = value.ID
+		name = shortAgentID(value.ID)
 	} else {
-		name += " (" + value.ID + ")"
+		name += " (" + shortAgentID(value.ID) + ")"
 	}
 	line := fmt.Sprintf("⚙ %s — %s", name, phase)
 	if value.BlockingReason != "" {
@@ -519,10 +520,19 @@ func runtimeAgentLine(value session.RuntimeAgent) string {
 	if value.PendingMail > 0 {
 		line += fmt.Sprintf(" · mail %d", value.PendingMail)
 	}
-	if len(value.AllowedControls) > 0 {
-		line += " · controls: " + strings.Join(value.AllowedControls, ", ")
-	}
 	return line
+}
+
+// shortAgentID abbreviates "<root>:<suffix>" ids to "ba06…c16d" for one-line
+// displays; agentDetails keeps the full id.
+func shortAgentID(id string) string {
+	if colon := strings.LastIndexByte(id, ':'); colon >= 0 {
+		id = id[colon+1:]
+	}
+	if len(id) > 12 {
+		id = id[:4] + "…" + id[len(id)-4:]
+	}
+	return id
 }
 
 func (m *model) displayModelID() string {
@@ -555,6 +565,10 @@ func (m *model) recordClientStream(event daemon.ProtocolEvent) {
 	}
 	value := session.SnapshotEvent{Seq: event.Seq, Kind: event.Kind, Payload: append([]byte(nil), event.Payload...)}
 	owner := payload.AgentID
+	if owner == "" {
+		owner = m.rootAgentID()
+	}
+	m.replApply(owner, event.Kind, payload)
 	if owner == "" || owner == m.rootAgentID() {
 		m.clientView.presentation = append(m.clientView.presentation, value)
 		return
@@ -608,6 +622,8 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 	}
 	var message bubbletea.Msg
 	switch kind {
+	case "stream.cell.host":
+		return true, nil // the REPL panel consumes it; the transcript shows the cell
 	case "stream.text":
 		message = textMsg(event.Text)
 	case "stream.reasoning":
@@ -777,6 +793,7 @@ func (m *model) openAgent(result daemon.AgentTranscriptResult) {
 	m.clientView.agentPresentations[result.Agent.ID] = mergePresentation(
 		result.Presentation, m.clientView.agentPresentations[result.Agent.ID], result.Cursor,
 	)
+	m.replRebuild()
 	m.replaceAgentInbox(result.Agent.ID, result.Inbox)
 	m.plan = nil
 	m.rebuildClientTranscript()
@@ -848,6 +865,7 @@ func (m *model) applyClientLifecycle(kind string, payload []byte) (bool, bubblet
 		m.finishAgentInbox(event.AgentID, []int64{event.InboxSeq})
 		return true, nil
 	case "scratch.restored":
+		m.replRestart(event.AgentID, len(event.Restored), len(event.NotRestored))
 		if event.AgentID == m.visibleAgentID() {
 			line := "(worker restarted; scratch restored: " + strings.Join(event.Restored, ", ")
 			if len(event.Restored) == 0 {
@@ -1097,7 +1115,7 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 			if next, command, handled := m.ocLeaderChord(msg.String()); handled {
 				return next, command
 			}
-		} else if msg.String() == "ctrl+x" {
+		} else if msg.String() == "ctrl+x" && !m.agentsFocus { // focused tree: ctrl+x stops the agent
 			m.leaderAt = m.nowFn()
 			return m, nil
 		}
@@ -1816,6 +1834,13 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			return m, nil
 		}
 		return m.command(text)
+	case "repl":
+		m.replPanel = !m.replPanel
+		m.ocRecalcWidth()
+		if m.uiMode != opencodeMode {
+			m.append(dimStyle.Render("(the REPL panel renders in the opencode sidebar: /ui-mode opencode)"))
+		}
+		return m, nil
 	case "ui-mode":
 		switch args {
 		case "", "toggle":

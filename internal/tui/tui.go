@@ -195,8 +195,14 @@ type model struct {
 	agentSel      int  // selected row in the dock (index into newest-first agents)
 	agentOpen     string
 	agentMessages map[string][]llm.Message
-	dockSkip      int // non-agent rows at the dock's top (focused hint) — click math skips them
-	dockRows      int // rendered dock height; layout() maintains it for click math
+	replPanel     bool                  // opencode sidebar shows the live Starlark REPL (ctrl+x r, /repl)
+	repl          map[string]*replAgent // per-agent cell history for the REPL panel
+	replScroll    int                   // REPL panel rows scrolled up from the newest cell (0 follows)
+	replViewAgent string                // agent the REPL panel last rendered (a switch resets the scroll)
+	replBodyLen   int                   // REPL body rows at the last render (keeps scrolled-up content anchored)
+	replReplaying bool                  // replRebuild in progress: replayed events carry no clock
+	dockSkip      int                   // non-agent rows at the dock's top (focused hint) — click math skips them
+	dockRows      int                   // rendered dock height; layout() maintains it for click math
 
 	rew    *rewindState // open rewind picker (double-esc while idle)
 	esc1   bool         // first idle esc pressed; second opens the rewind picker
@@ -1468,6 +1474,12 @@ func (m *model) View() string {
 	}
 	if m.sidebarVisible() {
 		gap := strings.Repeat(" ", opencodeRightGap) // breathing room between the panels
+		if m.replPanel {
+			// the REPL sits on the native background like the chat, so a hairline
+			// tells the two columns apart
+			rule := " " + lipgloss.NewStyle().Foreground(ocMutedCol()).Render("│")
+			gap = strings.TrimSuffix(strings.Repeat(rule+"\n", lipgloss.Height(v)), "\n")
+		}
 		v = lipgloss.JoinHorizontal(lipgloss.Top, v, gap, m.sidebarView(lipgloss.Height(v)))
 	}
 	if m.uiMode == opencodeMode {

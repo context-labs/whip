@@ -98,6 +98,28 @@ when they were defined, so agents mutate containers in place or pass values
 rather than rebinding a name a helper reads. Shared or long-lived information
 still belongs in `state`, `artifacts`, messages, files, or child transcripts.
 
+Cells are observable while they run. The worker publishes its print output
+so far as `stream.tool.output` (throttled to 100 ms; the result carries the
+complete output), and every host call inside a cell emits `stream.cell.host`
+with `module.operation`, a bounded argument summary (identifying keys such as
+`path` and `command` truncated to 80 bytes; payload keys such as `content`,
+`body`, and `code` shown only as their size), the duration, and any error.
+Both are per-agent presentation events, so clients can render a live REPL
+for any node without touching the model's context.
+
+## Background shell jobs
+
+`shell.run` blocks its cell and is capped at 120 seconds. `shell.start`
+launches the command as a background job under the same permission prompt and
+capability checks as `shell.run` and returns immediately with a job id;
+`shell.poll`, `shell.tail`, `shell.wait` (capped at 25 s, not charged to the
+cell clock), `shell.kill`, and `shell.list` operate on jobs the calling agent
+started. A job keeps the last 1 MiB of output in memory; once it ends,
+`shell.poll` returns the output inline or as a handle above the inline limit.
+Jobs outlive cells and turns, are killed when their agent stops or is deleted
+and when the root shuts down, and do not survive a daemon restart. At most 8
+jobs run per agent at once.
+
 ## MCP
 
 MCP servers are daemon-owned integrations available from every authorized

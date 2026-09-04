@@ -114,6 +114,16 @@ root prompt (`evals/rlm`).
   `/browser`, and `/computer-use` are daemon commands.
 - ACP maps editor sessions and permission decisions onto the same root
   protocol. It does not own a second agent loop.
+- In opencode mode, `ctrl+x r` (or `/repl`) turns the right sidebar into a
+  live Starlark REPL for the visible agent: code as the model writes it,
+  print output as it happens, each host call with its duration, results,
+  errors, and worker restarts. Cells are cards on the panel shade, a hairline
+  separates the REPL from the chat, and the mouse wheel over the REPL scrolls
+  it independently of the chat (it follows the newest cell until you scroll
+  up). In opencode mode the agent tree lives in the
+  right panel (Context and REPL modes alike) instead of under the input;
+  `ctrl+t` or ↓ on an empty input focuses it, ↑/↓ select, enter opens,
+  `ctrl+x` stops, esc leaves.
 
 ## Storage and recovery
 

@@ -213,7 +213,7 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.append(dimStyle.Render("(no descendant agents)"))
 			} else {
 				for _, value := range values {
-					m.append(dimStyle.Render(runtimeAgentLine(value)))
+					m.append(dimStyle.Render(runtimeAgentLine(value) + "  " + value.ID))
 				}
 			}
 		}
@@ -296,7 +296,7 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.uiMode == opencodeMode {
 			width -= opencodeLeftMargin
 			if msg.Width >= sidebarMinWidth && !m.sidebarHide {
-				width -= sidebarWidth + opencodeRightGap
+				width -= m.panelWidth() + opencodeRightGap
 			}
 		}
 		resized := width != m.width
@@ -486,8 +486,27 @@ func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.msgActions = nil
 		return m, nil
 	}
+	// The REPL panel owns the mouse over its columns: the wheel scrolls it and
+	// a press there never seeds a chat selection (selPoint/inputPoint only
+	// bound Y). Motion and release still flow to handleMouseSelect so a drag
+	// that started in the chat completes wherever the pointer ends.
+	inPanel := m.replPanel && m.sidebarVisible() && msg.X >= m.termWidth-m.panelWidth()
+	if inPanel && msg.Action == tea.MouseActionPress {
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.replScroll += 3 // the view clamps to the history
+		case tea.MouseButtonWheelDown:
+			m.replScroll = max(m.replScroll-3, 0)
+		case tea.MouseButtonLeft:
+			m.sel = nil // like any press: drop the old highlight
+		}
+		return m, nil
+	}
 	if handled, command := m.handleMouseSelect(msg); handled {
 		return m, command
+	}
+	if inPanel {
+		return m, nil
 	}
 	if m.uiMode != opencodeMode && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft &&
 		msg.Y == m.viewTop && msg.X >= m.effortX {

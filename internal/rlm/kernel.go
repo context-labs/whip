@@ -12,10 +12,14 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"github.com/context-labs/whip/internal/tools"
 )
 
 var (
@@ -321,6 +325,21 @@ type KernelOptions struct {
 	// OnRestore, when set, observes every completed restore (turn start or
 	// mid-turn). It runs while the kernel is locked, so it must return fast.
 	OnRestore func(context.Context, RestoreReport)
+	// OnHostCall, when set, observes every host call a cell makes. It runs
+	// while the kernel is locked, so it must return fast.
+	OnHostCall func(HostCall)
+}
+
+// HostCall describes one host module call made from inside a cell: which
+// model tool call it belongs to, what was called, a bounded argument summary
+// (never raw contents), how long it took, and the error text if it failed.
+type HostCall struct {
+	CallID    string
+	Module    string
+	Operation string
+	Summary   string
+	Duration  time.Duration
+	Err       string
 }
 
 type Result struct {
@@ -354,6 +373,7 @@ type Kernel struct {
 
 	scratch      ScratchStore
 	onRestore    func(context.Context, RestoreReport)
+	onHostCall   func(HostCall)
 	snapshotHash [32]byte
 	needsRestore bool // a fresh process has not loaded the stored scratch yet
 }
@@ -383,7 +403,7 @@ func NewKernel(options KernelOptions) (*Kernel, error) {
 	if options.Manager == nil {
 		options.Manager = NewManager(limits.MaxWorkers)
 	}
-	return &Kernel{command: command, limits: limits, manager: options.Manager, host: options.Host, scratch: options.Scratch, onRestore: options.OnRestore}, nil
+	return &Kernel{command: command, limits: limits, manager: options.Manager, host: options.Host, scratch: options.Scratch, onRestore: options.OnRestore, onHostCall: options.OnHostCall}, nil
 }
 
 func (kernel *Kernel) Exec(ctx context.Context, code string) (Result, error) {
@@ -434,6 +454,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 	// bounded by its own limit and by turn cancellation.
 	budget := kernel.limits.Wall
 	var consumed time.Duration
+	onUpdate, callID := tools.OnUpdate(ctx), tools.ToolCallID(ctx)
 	exhausted := func() (Result, error) {
 		kernel.stop()
 		return Result{}, fmt.Errorf("RLM cell deadline: %s of Starlark compute exceeded (time inside host calls is not counted)", budget)
@@ -456,6 +477,11 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 			return Result{}, err
 		}
 		switch response.Type {
+		case "output":
+			// The cell's print output so far; the result frame repeats it in full.
+			if onUpdate != nil && response.ID == id {
+				onUpdate(response.Output)
+			}
 		case "host_request":
 			if err := validateModuleOperation(response.Module, response.Operation); err != nil {
 				kernel.stop()
@@ -463,10 +489,18 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 			}
 			var value any
 			var callErr error
+			callStarted := time.Now()
 			if kernel.host == nil {
 				callErr = errors.New("RLM host is not bound")
 			} else {
 				value, callErr = kernel.host.Call(ctx, response.Module, response.Operation, response.Arguments)
+			}
+			if kernel.onHostCall != nil {
+				call := HostCall{CallID: callID, Module: response.Module, Operation: response.Operation, Summary: hostCallSummary(response.Arguments), Duration: time.Since(callStarted)}
+				if callErr != nil {
+					call.Err = callErr.Error()
+				}
+				kernel.onHostCall(call)
 			}
 			reply := frame{Type: "host_response", ID: response.ID, Value: value}
 			if callErr != nil {
@@ -842,4 +876,37 @@ func (buffer *limitedBuffer) String() string {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
 	return buffer.buffer.String()
+}
+
+// hostCallSummary renders a host call's arguments for the presentation
+// stream: identifying keys as key=value, bounded to 80 bytes each, and
+// payload keys as their size only, so file contents, message bodies, prompts,
+// and code never enter the event log.
+func hostCallSummary(arguments map[string]any) string {
+	if len(arguments) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(arguments))
+	for key := range arguments {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		text := fmt.Sprint(arguments[key])
+		switch key {
+		case "content", "body", "text", "code", "prompt", "prompts", "value", "old", "new", "arguments":
+			parts = append(parts, fmt.Sprintf("%s=<%d bytes>", key, len(text)))
+		default:
+			if len(text) > 80 {
+				cut := 80
+				for cut > 0 && !utf8.RuneStart(text[cut]) {
+					cut--
+				}
+				text = text[:cut] + "…"
+			}
+			parts = append(parts, key+"="+text)
+		}
+	}
+	return strings.Join(parts, ", ")
 }

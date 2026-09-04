@@ -34,8 +34,9 @@ type Events struct {
 	// may be partial mid-stream), so the UI can show a pending row before
 	// execution starts. Distinct from OnToolStart, which fires at run time.
 	OnToolCall func(id, name, args string)
-	// OnToolOutput streams partial output for a running tool call (bash only —
-	// throttled snapshots, ~100ms apart). Fires from tool worker goroutines.
+	// OnToolOutput streams partial output for a running tool call (bash and
+	// rlm_exec — throttled snapshots, ~100ms apart). Fires from tool worker
+	// goroutines.
 	OnToolOutput func(id, outputSoFar string)
 	// OnBoundary fires at every loop boundary (after a round's tool results,
 	// before the next model call). Messages it returns are appended in order
@@ -647,8 +648,9 @@ func (a *Agent) runTools(ctx context.Context, calls []llm.ToolCall, round int, e
 			start := time.Now()
 			callCtx := tools.WithServices(ctx, a.Services)
 			callCtx = tools.WithOperationIdentity(callCtx, fmt.Sprintf("%d:%s", round, tc.ID))
+			callCtx = tools.WithToolCallID(callCtx, tc.ID)
 			callCtx = tools.WithWorkingDirectory(callCtx, a.WorkingDir)
-			if ev.OnToolOutput != nil && name == "bash" {
+			if ev.OnToolOutput != nil && (name == "bash" || name == "rlm_exec") {
 				callCtx = tools.WithOnUpdate(callCtx, func(soFar string) {
 					ev.OnToolOutput(tc.ID, soFar)
 				})

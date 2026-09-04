@@ -33,7 +33,7 @@ func completionTable() []cand {
 var execNow = map[string]bool{
 	"/clear": true, "/compact": true, "/computer-use": true, "/computer": true, "/context-doctor": true, "/effort": true, "/goal": true, "/goal-from-context": true, "/help": true,
 	"/agents": true, "/mcp": true, "/model": true, "/mouse": true, "/pwd": true, "/quit": true, "/report": true, "/resume": true,
-	"/ui-mode": true,
+	"/ui-mode": true, "/repl": true,
 }
 
 // completions splits val into an untouched head and candidates for its last

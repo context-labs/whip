@@ -505,10 +505,17 @@ func TestLifecycleRenderingUsesDaemonVocabulary(t *testing.T) {
 		ID: "child", LifecyclePhase: "blocked", BlockingReason: "budget denial",
 		TerminalCause: "limit reached", AllowedControls: []string{"stop", "cap-spend"},
 	})
-	for _, want := range []string{"child", "blocked", "budget denial", "limit reached", "stop, cap-spend"} {
+	for _, want := range []string{"child", "blocked", "budget denial", "limit reached"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("lifecycle line %q omits %q", line, want)
 		}
+	}
+	if strings.Contains(line, "cap-spend") {
+		t.Fatalf("one-line form should leave controls to the details view: %q", line)
+	}
+	long := runtimeAgentLine(session.RuntimeAgent{ID: "1d8b891ce03ce84162252322c06189b4:ba06cc4c6983c16d", Name: "file-reader", LifecyclePhase: "running"})
+	if long != "⚙ file-reader (ba06…c16d) — running" {
+		t.Fatalf("long id not abbreviated: %q", long)
 	}
 }
 

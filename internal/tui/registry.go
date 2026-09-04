@@ -53,6 +53,7 @@ var registry = []registryEntry{
 	{Name: "/schedule", Hint: "@every 10m|@at <time> <prompt> — schedule a wakeup; list | cancel", Category: "Session"},
 	{Name: "/theme", Hint: "[light|dark|auto] — color scheme", Category: "Display"},
 	{Name: "/ui-mode", Hint: "[default|opencode] — switch rendering mode", Category: "Display"},
+	{Name: "/repl", Hint: "— toggle the live Starlark REPL panel in the opencode sidebar (ctrl+x r)", Category: "Display"},
 	{Name: "!cmd", Hint: "— run a shell command; output joins the conversation", Category: "App"},
 }
 

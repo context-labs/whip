@@ -22,7 +22,7 @@ func toolKind(name string) acp.ToolKind {
 		return acp.ToolKindRead
 	case "write", "edit":
 		return acp.ToolKindEdit
-	case "bash":
+	case "bash", "shell_start", "workspace_process":
 		return acp.ToolKindExecute
 	default:
 		// browser_exec, computer_exec, mcp__* tools: "other" is honest.

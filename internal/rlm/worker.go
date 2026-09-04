@@ -11,6 +11,7 @@ import (
 	"math"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -83,7 +84,13 @@ type worker struct {
 	sources      map[string]scratchSource // top-level defs and lambdas, for snapshots
 	nextSource   int
 	restoring    bool
+	currentEval  uint64    // id of the eval frame being served; 0 outside the protocol
+	lastOutputAt time.Time // throttles output frames
 }
+
+// outputStreamInterval bounds how often a running cell publishes its print
+// output so far. The result frame carries the complete output regardless.
+const outputStreamInterval = 100 * time.Millisecond
 
 // cellFileOptions is the Starlark dialect for cells and scratch programs.
 var cellFileOptions = &syntax.FileOptions{While: true, TopLevelControl: true, GlobalReassign: true, Recursion: true}
@@ -132,7 +139,9 @@ func (w *worker) run() error {
 		var result frame
 		switch request.Type {
 		case "eval":
+			w.currentEval = request.ID
 			result = w.evaluate(request.Code)
+			w.currentEval = 0
 		case "snapshot":
 			result = w.snapshot()
 		case "restore":
@@ -152,6 +161,7 @@ func (w *worker) evaluate(code string) frame {
 	maps.Copy(w.globals, w.modules)
 	w.requests = 0
 	w.cellOutput.Reset()
+	w.lastOutputAt = time.Time{}
 	thread := &starlark.Thread{Name: "rlm-cell"}
 	thread.SetMaxExecutionSteps(w.steps)
 	thread.Print = func(thread *starlark.Thread, message string) {
@@ -161,6 +171,7 @@ func (w *worker) evaluate(code string) frame {
 		}
 		w.cellOutput.WriteString(message)
 		w.cellOutput.WriteByte('\n')
+		w.streamOutput()
 	}
 
 	file, err := cellFileOptions.Parse("<rlm-cell>", code, 0)
@@ -201,6 +212,21 @@ func (w *worker) evaluate(code string) frame {
 		result.Error = "cell output limit exceeded"
 	}
 	return result
+}
+
+// streamOutput publishes the cell's output so far as an output frame, at most
+// once per outputStreamInterval. Only cells served over the protocol stream;
+// in-process evaluation (tests) has no frame id.
+func (w *worker) streamOutput() {
+	if w.currentEval == 0 {
+		return
+	}
+	now := time.Now()
+	if !w.lastOutputAt.IsZero() && now.Sub(w.lastOutputAt) < outputStreamInterval {
+		return
+	}
+	w.lastOutputAt = now
+	_ = writeFrame(w.output, w.frameBytes, frame{Type: "output", ID: w.currentEval, Output: w.cellOutput.String()})
 }
 
 func (w *worker) hostCall(module, operation string, arguments map[string]any) (starlark.Value, error) {

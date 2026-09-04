@@ -327,5 +327,5 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 }
 
 func isShellOperation(operation string) bool {
-	return operation == "bash" || operation == "browser_exec" || operation == "computer_exec" || operation == "workspace_process"
+	return operation == "bash" || operation == "shell_start" || operation == "browser_exec" || operation == "computer_exec" || operation == "workspace_process"
 }
