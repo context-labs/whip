@@ -282,6 +282,7 @@ func (m *model) View() tea.View {
 	}
 	if !r.side.Empty() {
 		uv.NewStyledString(m.replPanelView(r.side.Dy())).Draw(scr, r.side)
+		m.replScrollbar(scr, r.side)
 	}
 	drawRows(scr, []string{m.footerView(w)}, 0, r.footer.Min.Y) // the key-hint bar spans every column
 	if ds := m.dialogs(); len(ds) > 0 {                         // floating dialogs over the dimmed session, bottom→top

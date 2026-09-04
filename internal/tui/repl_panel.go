@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/tui/ui"
 	"image/color"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"unicode"
 
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/daemon"
@@ -357,48 +359,34 @@ func newReplStyles(bg color.Color) replStyles {
 // the agent and its context stats, a strip of other running agents, then the
 // visible agent's cells with the newest kept in view.
 func (m *model) replPanelView(height int) string {
-	width := m.panelWidth()
-	st := newReplStyles(nil)
-	card := newReplStyles(currentTheme().Surface.Panel)
-	inner := width - 3 // two columns of left padding and one of right margin
-	cut := func(s string, w int) string { return ansi.Truncate(s, max(w, 1), "…") }
-
+	th := currentTheme()
+	card := newReplStyles(th.Surface.Panel)
 	visible := m.visibleAgentID()
 	name := "root"
 	if value, ok := m.runtimeAgent(visible); ok && value.Name != "" {
 		name = value.Name
 	}
-	u := m.displayUsage()
-	stats := fmtTok(u.PromptTokens+u.CompletionTokens) + " tokens"
-	if limit := m.displayContextLimit(); limit > 0 {
-		stats += fmt.Sprintf(" (%d%%)", estimateTokens(m.displayMessages())*100/limit)
-	}
-	if cost, ok := m.sessionCost(); ok {
-		stats += fmt.Sprintf(" · $%.2f", cost)
-	}
-	top := []string{
-		st.head.Render(cut("REPL · "+name, inner)),
-		st.dim.Render(cut(stats, inner)),
-	}
-
-	if agents, _ := m.agentRows(inner, nil, agentsDockHeight); len(agents) > 0 {
-		top = append(top, "")
-		top = append(top, agents...)
-	}
-	top = append(top, "")
+	p := ui.Panel{Title: "REPL · " + name, Width: m.panelWidth(), Height: height}
+	inner := p.Inner(th)
 
 	var body []string
-	history := m.repl[visible]
-	if history == nil || len(history.cells) == 0 {
-		body = append(body, st.dim.Render("no cells yet"))
-	} else {
+	cells := 0
+	if history := m.repl[visible]; history != nil {
 		for _, cell := range history.cells {
 			if cell.restart != "" {
-				body = append(body, "", st.warn.Render(cut("── "+cell.restart+" ──", inner)))
+				body = append(body, "", card.warn.Render(ansi.Truncate(cell.restart, inner, "…")))
 				continue
 			}
+			cells++
 			body = append(body, m.replCellRows(cell, card, inner)...)
 		}
+	}
+	if cells == 0 {
+		body = append(body, card.dim.Render("Cells appear as the agent runs"))
+	}
+	p.Count = fmt.Sprintf("%d cells", cells)
+	if cells == 1 {
+		p.Count = "1 cell"
 	}
 
 	if m.replViewAgent != visible {
@@ -409,13 +397,10 @@ func (m *model) replPanelView(height int) string {
 	}
 	m.replBodyLen = len(body)
 
-	rows := append([]string(nil), top...)
-	if height <= 0 {
-		rows = append(rows, body...)
-	} else {
+	if height > 0 {
 		// The newest cell stays in view unless the wheel scrolled the panel
-		// up; then a footer row says how far from the bottom it is.
-		budget := max(height-len(top), 1)
+		// up; then a pill on the last body row says how far from the bottom it is.
+		budget := max(height-replPanelChrome(th), 1)
 		m.replScroll = min(m.replScroll, max(len(body)-budget, 0))
 		if m.replScroll > 0 {
 			budget = max(budget-1, 1)
@@ -423,19 +408,24 @@ func (m *model) replPanelView(height int) string {
 		end := len(body) - m.replScroll
 		body = body[max(end-budget, 0):end]
 		if m.replScroll > 0 {
-			body = append(body, st.dim.Render(cut(fmt.Sprintf("↓ %d more lines", m.replScroll), inner)))
+			pill := ui.Kbd(th, pillLabel(m.replScroll))
+			body = append(body, th.On(nil, th.Surface.Panel).Render(strings.Repeat(" ", max(inner-lipgloss.Width(pill), 0)))+pill)
 		}
-		rows = append(rows, body...)
-		for len(rows) < height {
-			rows = append(rows, "")
-		}
-		rows = rows[:height]
 	}
-	out := make([]string, len(rows))
-	for index, row := range rows {
-		out[index] = ui.PadRow("  "+row, width, st.bg)
-	}
-	return strings.Join(out, "\n")
+	return p.Render(th, strings.Join(body, "\n"))
+}
+
+// replPanelChrome is the panel's rows around the body: padding, the title row
+// and the blank under it.
+func replPanelChrome(th *theme.Theme) int { return 2*th.Space.PadY + 2 }
+
+// replScrollbar marks the REPL body's scroll position on the panel's last
+// column; nothing shows when the cells fit.
+func (m *model) replScrollbar(scr uv.Screen, side uv.Rectangle) {
+	th := currentTheme()
+	top := side.Min.Y + th.Space.PadY + 2
+	h := side.Dy() - replPanelChrome(th)
+	ui.Scrollbar(scr, th, side.Max.X-1, top, h, m.replBodyLen, max(m.replBodyLen-m.replScroll-h, 0), false)
 }
 
 // replCellRows renders one cell notebook-style: a blank separator, then a

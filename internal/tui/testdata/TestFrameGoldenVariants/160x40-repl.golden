@@ -1,10 +1,10 @@
-                                                                                                                       REPL · root                              
-    [1] Agents                          1                                                                              0 tokens (0%)                            
                                                                                                                                                                 
-    running root                                                                                                        running root                            
-    idle      file-reader                                                                                               idle      file-reader                   
+    [1] Agents                          1                                                                               REPL · root                   0 cells   
                                                                                                                                                                 
-                                                                                                                       no cells yet                             
+    running root                                                                                                        Cells appear as the agent runs          
+    idle      file-reader                                                                                                                                       
+                                                                                                                                                                
+                                                                                                                                                                
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 

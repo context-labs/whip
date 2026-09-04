@@ -58,7 +58,7 @@ func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 	m.replApply("child", "stream.tool.call", daemon.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
 	m.replApply("child", "stream.tool.started", daemon.StreamEvent{ID: "k1", Name: "rlm_exec", Args: `{"code": "shell.run(command=\"sleep 5\")"}`})
 	running := m.replPanelView(30)
-	for _, want := range []string{"REPL · root", "In [1]", "files.list", "→ files.list(path=.) 12ms", "a.go", "w3", "In[1]"} {
+	for _, want := range []string{"REPL · root", "1 cell", "In [1]", "files.list", "→ files.list(path=.) 12ms", "a.go"} {
 		if !strings.Contains(running, want) {
 			t.Fatalf("running panel missing %q:\n%s", want, running)
 		}
@@ -286,7 +286,7 @@ func TestReplHistorySurvivesSnapshotsAndKeepsScroll(t *testing.T) {
 	m.clientView.agentPresentations = nil
 	m.replRebuild()
 	m.agentOpen = "child"
-	if view = m.replPanelView(20); !strings.Contains(view, "REPL · w3") || !strings.Contains(view, "y = 1") {
+	if view = ansi.Strip(m.replPanelView(20)); !strings.Contains(view, "REPL · w3") || !strings.Contains(view, "y = 1") {
 		t.Fatalf("child history lost after snapshot:\n%s", view)
 	}
 }
@@ -298,8 +298,11 @@ func TestAgentTreeReturnsToRoot(t *testing.T) {
 	if len(rows) != 2 || rows[0].agent.ID != "root-agent" || rows[1].depth != 1 {
 		t.Fatalf("tree rows = %+v", rows)
 	}
-	if view := ansi.Strip(m.replPanelView(20)); !strings.Contains(view, "running") || !strings.Contains(view, "root") || !strings.Contains(view, "w3") {
-		t.Fatalf("tree rendering:\n%s", view)
+	if tree, _ := m.agentRows(40, nil, 6); len(tree) != 2 || !strings.Contains(ansi.Strip(tree[0]), "running root") || !strings.Contains(ansi.Strip(tree[1]), "w3") {
+		t.Fatalf("tree rendering: %q", tree)
+	}
+	if view := ansi.Strip(m.replPanelView(20)); strings.Contains(view, "running") || !strings.Contains(view, "REPL · w3") {
+		t.Fatalf("the REPL panel shows the open agent's cells, not the tree:\n%s", view)
 	}
 	// ctrl+t starts on the first child; ↑ reaches the root; enter goes back to it.
 	next, _ := m.thinKey(ctrlKey('t'))
