@@ -87,8 +87,9 @@ func unescapePath(s string) string {
 // are never inlined — the model inspects tagged files with its own tools.
 // Space-containing paths (macOS screenshot names) resolve via mentionPaths.
 func expandMentions(text string) string {
-	var notes []string
-	for _, m := range mentionPaths(text) {
+	mentions := mentionPaths(text)
+	notes := make([]string, 0, len(mentions)) // prealloc: one note per mention
+	for _, m := range mentions {
 		notes = append(notes, m[0]+m[1]) // path + optional " (lines a-b)"
 	}
 	if len(notes) == 0 {
