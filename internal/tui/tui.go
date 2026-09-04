@@ -2637,6 +2637,16 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg { return pasteImageFileCmd(path) }
 		}
 	}
+	// A Finder drag arrives as a single large KeyRunes burst (the whole path
+	// typed at once), not a bracketed paste — the terminal doesn't set
+	// msg.Paste for it. Detect a multi-rune message that resolves to a single
+	// image path and route it through the same copy-off-source flow so the
+	// chip replaces the raw path in the input.
+	if !msg.Paste && msg.Type == tea.KeyRunes && len(msg.Runes) > 1 {
+		if path, ok := pastedImagePath(string(msg.Runes)); ok {
+			return m, func() tea.Msg { return pasteImageFileCmd(path) }
+		}
+	}
 	if msg.Paste && m.cfg != nil && m.cfg.CollapsePaste != nil && *m.cfg.CollapsePaste {
 		if n := strings.Count(string(msg.Runes), "\n"); n >= 2 {
 			m.pasteBuf = string(msg.Runes)
