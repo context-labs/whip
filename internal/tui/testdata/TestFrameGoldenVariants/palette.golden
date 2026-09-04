@@ -1,16 +1,16 @@
-   Golden session                                                                                                                           
                                                                                                                                             
-   Context                                                                                                                                  
-   0 tokens                                                                                                                                 
-   0% used                                                                                                                                  
-   $0.00 spent                                                                                                                              
+    [1] Agents                          1                                                                                                   
+                                                                                                                                            
+    running root                                                                                                                            
+    idle      file-reader                                                                                                                   
+                                                                                                                                            
                                                              Commands                                                 esc                   
-   LSP                                                                                                                                      
-   managed by daemon                                         Search                                                                         
                                                                                                                                             
-   Agents                                                    Themes                                                                         
-    running root                                             auto                                                ████████                   
-    idle      file-reader                                    light                                               ████████                   
+                                                             Search                                                                         
+                                                                                                                                            
+                                                             Themes                                                                         
+                                                             auto                                                ████████                   
+                                                             light                                               ████████                   
                                                              dark                                                ████████                   
                                                              aura                                                ████████                   
                                                              aura-light                                          ████████                   
@@ -30,11 +30,11 @@
                                                  cfg, err :  cursor-light                                        ████████                   
                                                              dracula                                             ████████                   
                                                See the docs  dracula-light                                       ████████                   
-                                                             everforest                                          ████████                   
+    [2] Context                        0%                    everforest                                          ████████                   
                                             ┃                everforest-light                                    ████████                   
                                             ┃  Ask whip any  flexoki                                             ████████                   
                                             ┃                flexoki-light                                       ████████                   
-                                            ┃  Off · kimi-k  github                                              ████████                   
+    [3] LSP                             0   ┃  Off · kimi-k  github                                              ████████                   
                                             ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                                                ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
                                                                                                                                             
  /work/whip                                                               ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar  ctrl+p commands 

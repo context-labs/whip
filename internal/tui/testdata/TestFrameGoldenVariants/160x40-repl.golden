@@ -1,16 +1,16 @@
-   Golden session                                                                                                      REPL · root                              
-                                                                                                                       0 tokens (0%)                            
-   Context                                                                                                                                                      
-   0 tokens                                                                                                             running root                            
-   0% used                                                                                                              idle      file-reader                   
-   $0.00 spent                                                                                                                                                  
-                                                                                                                       no cells yet                             
-   LSP                                                                                                                                                          
-   managed by daemon                                                                                                                                            
+                                                                                                                       REPL · root                              
+    [1] Agents                          1                                                                              0 tokens (0%)                            
                                                                                                                                                                 
-   Agents                                                                                                                                                       
-    running root                                                                                                                                                
-    idle      file-reader                                                                                                                                       
+    running root                                                                                                        running root                            
+    idle      file-reader                                                                                               idle      file-reader                   
+                                                                                                                                                                
+                                                                                                                       no cells yet                             
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 
@@ -30,11 +30,11 @@
                                                  cfg, err := config.Load()                                                                                      
                                                                                                                                                                 
                                                See the docs.                                                                                                    
-                                                                                                                                                                
+    [2] Context                        0%                                                                                                                       
                                             ┃                                                                                                                   
                                             ┃  Ask whip anything… (/ for commands, tab completes)                                                               
                                             ┃                                                                                                                   
-                                            ┃  Off · kimi-k3-fast  inference                                                                                    
+    [3] LSP                             0   ┃  Off · kimi-k3-fast  inference                                                                                    
                                             ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                            
                                                                                                                                                                 
  /work/whip                                                                                   ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar  ctrl+p commands 

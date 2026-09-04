@@ -109,8 +109,8 @@ func TestReplPanelToggleChordAndCommand(t *testing.T) {
 	if m.replPanel || m.width != term-(1+leftWidth+1)-1 {
 		t.Fatalf("command toggle replPanel=%v width=%d", m.replPanel, m.width)
 	}
-	if sidebar := m.sidebarView(10); !strings.Contains(sidebar, "Context") {
-		t.Fatalf("context sidebar did not return after toggling off: %q", sidebar)
+	if sidebar := ansi.Strip(m.sidebarView(20)); !strings.Contains(sidebar, "Context") {
+		t.Fatalf("left column did not return after toggling off: %q", sidebar)
 	}
 }
 

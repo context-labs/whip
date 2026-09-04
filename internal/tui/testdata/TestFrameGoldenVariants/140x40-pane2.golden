@@ -1,12 +1,12 @@
                                                                                                                                             
     [1] Agents                          1                                                                                                   
-                                                                                                                   ▍ Copied to clipboard    
-    running root                                                                                                                            
-    idle      file-reader                                                                                                                   
                                                                                                                                             
                                                                                                                                             
                                                                                                                                             
+    [2] Context                        0%                                                                                                   
                                                                                                                                             
+     tokens                             0                                                                                                   
+     used                              0%                                                                                                   
                                                                                                                                             
                                                                                                                                             
                                                                                                                                             
@@ -30,7 +30,7 @@
                                                  cfg, err := config.Load()                                                                  
                                                                                                                                             
                                                See the docs.                                                                                
-    [2] Context                        0%                                                                                                   
+                                                                                                                                            
                                             ┃                                                                                               
                                             ┃  Ask whip anything… (/ for commands, tab completes)                                           
                                             ┃                                                                                               

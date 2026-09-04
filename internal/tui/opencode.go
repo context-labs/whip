@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/tui/ui"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -121,79 +120,97 @@ func (m *model) mainX() int {
 	return opencodeLeftMargin
 }
 
-// sidebarView renders the opencode right sidebar: session title, a Context
-// block (tokens / % of window / spend), LSP status, and a footer. Height is
-// the number of rows to fill so the sidebar spans the body. All styling uses
-// whip's theme styles, so it honors light/dark/auto.
+// The left column's panels, in order.
+const (
+	paneAgents = iota
+	paneContext
+	paneLSP
+)
+
+// openPane is the expanded panel: Agents while the tree has focus, else the
+// one picked with ctrl+x 1/2/3.
+func (m *model) openPane() int {
+	if m.agentsFocus {
+		return paneAgents
+	}
+	return min(max(m.leftPane, paneAgents), paneLSP)
+}
+
+// paneHeights splits the column's rows between the panels: the open one takes
+// what the two collapsed headers and the gap rows between them leave. A column
+// too short for three headers shows the open panel alone.
+func paneHeights(height, open int) [3]int {
+	collapsed := 2*currentTheme().Space.PadY + 1
+	var out [3]int
+	if height < 3*collapsed+2 {
+		out[open] = height
+		return out
+	}
+	for i := range out {
+		out[i] = collapsed
+	}
+	out[open] = height - 2*(collapsed+1)
+	return out
+}
+
+// sidebarView renders the left column: Agents, Context and LSP panels, one
+// expanded and the rest collapsed to their header row, a gap row between
+// them. height is the column's rows.
 func (m *model) sidebarView(height int) string {
-	// Every style carries the panel background so text doesn't punch holes in
-	// the filled panel column.
 	th := currentTheme()
-	bg := th.Surface.Panel
-	head := th.On(th.Text, bg).Bold(true)
-	dim := th.On(th.Muted, bg)
-
-	title := strings.TrimSpace(m.sessTitle)
-	if value, ok := m.runtimeAgent(m.agentOpen); ok {
-		title = value.Name
-	}
-	if title == "" {
-		title = filepath.Base(m.completionRoot()) // untitled session: fall back to the working dir
-	}
-
-	var b strings.Builder
-	b.WriteString(head.Render(truncLine(title, leftWidth-4)) + "\n\n")
-
-	// Context: tokens used, share of the window, spend.
-	b.WriteString(head.Render("Context") + "\n")
-	u := m.displayUsage()
-	b.WriteString(dim.Render(fmtTok(u.PromptTokens+u.CompletionTokens)+" tokens") + "\n")
-	if limit := m.displayContextLimit(); limit > 0 {
-		pct := estimateTokens(m.displayMessages()) * 100 / limit
-		b.WriteString(dim.Render(fmt.Sprintf("%d%% used", pct)) + "\n")
-	}
-	if cost, ok := m.sessionCost(); ok {
-		b.WriteString(dim.Render(fmt.Sprintf("$%.2f spent", cost)) + "\n\n")
-	} else {
-		b.WriteString(dim.Render("$0.00 spent") + "\n\n")
-	}
-
-	// LSP status.
-	b.WriteString(head.Render("LSP") + "\n")
-	b.WriteString(dim.Render(m.lspSummary()) + "\n")
-
-	// Agent tree (the narrow dock's rows live here on wide terminals).
-	if agents, more := m.agentRows(leftWidth-3, bg, agentsDockHeight); len(agents) > 0 {
-		b.WriteString("\n" + head.Render("Agents") + "\n" + strings.Join(agents, "\n") + "\n")
-		if more {
-			b.WriteString(dim.Render(" …") + "\n")
+	open := m.openPane()
+	var out []string
+	for pane, h := range paneHeights(height, open) {
+		if h == 0 {
+			continue
 		}
-	}
-
-	// Top content (title + Context + LSP), clipped if the sidebar is very short.
-	rows := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
-	if height > 0 {
-		if len(rows) > height {
-			rows = rows[:height]
+		if len(out) > 0 {
+			out = append(out, "") // the gap row shows the frame's own background
 		}
-		for len(rows) < height {
-			rows = append(rows, "")
-		}
-	}
-	// the sidebar is set apart by a panel background (no border); every row is
-	// padded to the column width so the WHOLE column carries the shade
-	pad2 := th.On(nil, bg).Render("  ")
-	out := make([]string, len(rows))
-	for i, r := range rows {
-		out[i] = ui.PadRow(pad2+r, leftWidth, bg)
+		out = append(out, m.paneView(th, pane, h, pane == open))
 	}
 	return strings.Join(out, "\n")
 }
 
-// lspSummary is a one-line LSP status for the sidebar: a connected count, or a
-// disabled note when no LSP manager is configured.
-func (m *model) lspSummary() string {
-	return "managed by daemon"
+// paneView renders one panel at exactly height rows.
+func (m *model) paneView(th *theme.Theme, pane, height int, expanded bool) string {
+	bg := th.Surface.Panel
+	muted := th.On(th.Muted, bg)
+	p := ui.Panel{Key: fmt.Sprint(pane + 1), Width: leftWidth, Height: height, Collapsed: !expanded, Band: true}
+	band := p.Inner(th) + 2
+	var body []string
+	switch pane {
+	case paneAgents:
+		p.Title, p.Focused = "Agents", m.agentsFocus
+		p.Count = fmt.Sprint(max(len(m.runtimeChildren())-1, 0)) // sub-agents; the root row is always listed
+		budget := height - 2*th.Space.PadY - 2                   // header row and the blank under it
+		rows, more := m.agentRows(band, bg, budget)
+		if more && len(rows) > 0 {
+			rows[len(rows)-1] = muted.Render(" …")
+		}
+		if len(rows) == 0 {
+			rows = []string{muted.Render("No agents yet")}
+		}
+		body = rows
+	case paneContext:
+		p.Title = "Context"
+		u := m.displayUsage()
+		tokens := fmtTok(u.PromptTokens + u.CompletionTokens)
+		p.Count = tokens
+		body = append(body, ui.ListRow{Label: "tokens", Right: tokens, Width: band}.Render(th, bg))
+		if limit := m.displayContextLimit(); limit > 0 {
+			used := fmt.Sprintf("%d%%", estimateTokens(m.displayMessages())*100/limit)
+			p.Count = used
+			body = append(body, ui.ListRow{Label: "used", Right: used, Width: band}.Render(th, bg))
+		}
+		if cost, ok := m.sessionCost(); ok {
+			body = append(body, ui.ListRow{Label: "spent", Right: fmt.Sprintf("$%.2f", cost), Width: band}.Render(th, bg))
+		}
+	case paneLSP:
+		p.Title, p.Count = "LSP", "0"
+		body = []string{muted.Render("No LSP servers connected")}
+	}
+	return p.Render(th, strings.Join(body, "\n"))
 }
 
 // opencodePrompt wraps the textarea in opencode's prompt chrome: a ┃ left bar,
@@ -317,7 +334,7 @@ func (m *model) footerLeft(th *theme.Theme) string {
 		}
 		return m.spin.View() + " " + ui.Hints(th, nil, "esc", hint)
 	case m.leaderPending():
-		return th.On(th.Text, nil).Render("ctrl+x") + " " + ui.Hints(th, nil, "r", "repl", "b", "sidebar", "s", "stop", "t", "themes", "m", "model", "l", "sessions", "n", "new", "c", "compact", "g", "rewind", "y", "copy")
+		return th.On(th.Text, nil).Render("ctrl+x") + " " + ui.Hints(th, nil, "r", "repl", "b", "sidebar", "1·2·3", "panels", "s", "stop", "t", "themes", "m", "model", "l", "sessions", "n", "new", "c", "compact", "g", "rewind", "y", "copy")
 	case m.agentsFocus:
 		return ui.Hints(th, nil, "↑↓", "select", "enter", "open", "ctrl+x s", "stop", "esc", "back")
 	case m.agentOpen != "":
@@ -594,6 +611,8 @@ func (m *model) ocLeaderChord(k string) (tea.Model, tea.Cmd, bool) {
 	case "b": // sidebar toggle
 		m.sidebarHide = !m.sidebarHide
 		m.recalcWidth()
+	case "1", "2", "3": // expand a left panel
+		m.leftPane = int(k[0] - '1')
 	case "r": // REPL panel in the sidebar
 		m.replPanel = !m.replPanel
 		m.recalcWidth()

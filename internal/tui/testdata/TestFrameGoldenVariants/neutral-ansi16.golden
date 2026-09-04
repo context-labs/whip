@@ -1,16 +1,16 @@
-   Golden session                                                                                                                           
                                                                                                                                             
-   Context                                                                                                                                  
-   0 tokens                                                                                                                                 
-   0% used                                                                                                                                  
-   $0.00 spent                                                                                                                              
+    [1] Agents                          1                                                                                                   
                                                                                                                                             
-   LSP                                                                                                                                      
-   managed by daemon                                                                                                                        
-                                                                                                                                            
-   Agents                                                                                                                                   
     running root                                                                                                                            
     idle      file-reader                                                                                                                   
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
                                                                                                                                             
                                                                                                                                             
                                                                                                                                             
@@ -30,11 +30,11 @@
                                                  cfg, err := config.Load()                                                                  
                                                                                                                                             
                                                See the docs.                                                                                
-                                                                                                                                            
+    [2] Context                        0%                                                                                                   
                                             ┃                                                                                               
                                             ┃  Ask whip anything… (/ for commands, tab completes)                                           
                                             ┃                                                                                               
-                                            ┃  Off · kimi-k3-fast  inference                                                                
+    [3] LSP                             0   ┃  Off · kimi-k3-fast  inference                                                                
                                             ╹                                                                                               
                                                                                                                                             
  /work/whip                                                               ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar  ctrl+p commands 

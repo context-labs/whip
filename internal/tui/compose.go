@@ -25,14 +25,15 @@ import (
 // testing), so the mouse math never inverts string layout again.
 type frameRects struct {
 	area, main       uv.Rectangle
-	left             uv.Rectangle // the left column of panels (empty when hidden)
-	gap              uv.Rectangle // the chat's scrollbar column, right of main
-	side             uv.Rectangle // the REPL panel (empty when hidden)
-	details          uv.Rectangle // open agent's details banner above the transcript
-	transcript       uv.Rectangle // the viewport
-	input, inputText uv.Rectangle // the prompt box, and the textarea rows inside it
-	footer           uv.Rectangle // the full-width key-hint bar on the last row
-	pill             uv.Rectangle // the "↓ N more lines" chip over the transcript's last row (scrolled up only)
+	left             uv.Rectangle    // the left column of panels (empty when hidden)
+	panels           [3]uv.Rectangle // each panel inside the left column (Agents, Context, LSP)
+	gap              uv.Rectangle    // the chat's scrollbar column, right of main
+	side             uv.Rectangle    // the REPL panel (empty when hidden)
+	details          uv.Rectangle    // open agent's details banner above the transcript
+	transcript       uv.Rectangle    // the viewport
+	input, inputText uv.Rectangle    // the prompt box, and the textarea rows inside it
+	footer           uv.Rectangle    // the full-width key-hint bar on the last row
+	pill             uv.Rectangle    // the "↓ N more lines" chip over the transcript's last row (scrolled up only)
 }
 
 // measure is every main-column region except the transcript, in viewBody's
@@ -117,6 +118,14 @@ func (m *model) layoutFrame(w, h int) frameRects {
 	cols := max(h-2, 0)
 	if m.leftVisible() {
 		r.left = rect(1, 0, leftWidth, cols)
+		py := 0
+		for pane, ph := range paneHeights(cols, m.openPane()) {
+			if ph == 0 {
+				continue
+			}
+			r.panels[pane] = rect(1, py, leftWidth, ph)
+			py += ph + 1 // the gap row
+		}
 	}
 	r.gap = rect(r.main.Max.X, 0, 1, h)
 	if m.replVisible() {

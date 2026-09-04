@@ -87,8 +87,8 @@ func TestOpencodeHomePromptAndSidebarRemainUsable(t *testing.T) {
 	if prompt := m.opencodePrompt("type here", 40); !strings.Contains(prompt, "┃") || !strings.Contains(prompt, "╹") {
 		t.Fatalf("opencode prompt chrome=%q", prompt)
 	}
-	if sidebar := m.sidebarView(20); !strings.Contains(sidebar, "Recursive session") || !strings.Contains(sidebar, "Context") || !strings.Contains(sidebar, "managed by daemon") {
-		t.Fatalf("opencode sidebar=%q", sidebar)
+	if sidebar := ansi.Strip(m.sidebarView(20)); !strings.Contains(sidebar, "[1] Agents") || !strings.Contains(sidebar, "[2] Context") || !strings.Contains(sidebar, "[3] LSP") {
+		t.Fatalf("left column=%q", sidebar)
 	}
 	if card := opencodeUserCard("hello", 40); !strings.Contains(card, "┃") || !strings.Contains(card, "hello") {
 		t.Fatalf("opencode user card=%q", card)

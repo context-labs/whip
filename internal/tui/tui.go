@@ -185,6 +185,7 @@ type model struct {
 	toastAt     time.Time        // when the current toast was shown (stale clears are ignored)
 	leaderAt    time.Time        // opencode mode: when ctrl+x armed the leader chord; zero = not pending
 	sidebarHide bool             // opencode mode: ctrl+x b hides the sidebar
+	leftPane    int              // the expanded left panel (paneAgents…paneLSP; ctrl+x 1/2/3)
 	// updateLatest is a pending newer release tag ("" when none), picked up
 	// from update.Pending at startup; the notice it renders is durable, so a
 	// check that lands after the report still shows next launch.

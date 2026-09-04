@@ -58,6 +58,11 @@ func TestFrameGoldenVariants(t *testing.T) {
 		m.layout()
 		plain(t, m)
 	})
+	t.Run("140x40-pane2", func(t *testing.T) { // Context expanded, Agents and LSP collapsed
+		m := goldenModel(140, 40)
+		m.leftPane = paneContext
+		plain(t, m)
+	})
 	t.Run("120x40-repl", func(t *testing.T) { // the REPL displaces the left column
 		m := goldenModel(120, 40)
 		m.replPanel = true

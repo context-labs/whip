@@ -1251,6 +1251,7 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 	case "ctrl+k":
 		return m.thinCommand("/clear")
 	case "ctrl+t":
+		m.leftPane = paneAgents
 		if len(children) > 0 {
 			m.agentsFocus = true
 			m.agentSel = max(m.agentSel, m.firstChildSel())
