@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 )
 
 // A macOS screenshot preview pastes its temporary file path into the
@@ -29,11 +30,16 @@ func TestPastedScreenshotPathAttachesImage(t *testing.T) {
 
 	tm, _ = m.Update(cmd())
 	m = tm.(*model)
-	got := strings.TrimSpace(strings.TrimPrefix(m.input.Value(), "@"))
-	if filepath.Ext(got) != ".png" {
-		t.Fatalf("attachment extension: %q", got)
+	// The input shows a compact chip, not the raw path or file contents.
+	if !strings.Contains(m.input.Value(), "[Image 1: Screenshot]") {
+		t.Fatalf("input should show a chip, got %q", m.input.Value())
 	}
-	data, err := os.ReadFile(got)
+	// The on-disk copy (auto-numbered as this session's image 1) holds the
+	// pasted bytes verbatim.
+	if len(m.images) != 1 || m.images[0].n != 1 {
+		t.Fatalf("expected one session image, got %+v", m.images)
+	}
+	data, err := os.ReadFile(m.images[0].path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,5 +106,129 @@ func TestPasteCollapseShortPasteIgnored(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("just one line"), Paste: true})
 	if strings.Contains(m.input.Value(), "[Pasted") {
 		t.Fatal("a one-line paste should not collapse")
+	}
+}
+
+// Chip rendering: the input and transcript show a compact [Image N] chip, with
+// the source filename snippet when one exists and a bare number for anonymous
+// (clipboard) pastes. Truncation keeps long screenshot names readable.
+func TestImageChipRendering(t *testing.T) {
+	// Anonymous clipboard paste → bare number, no filename.
+	anon := pastedImage{n: 2, path: "/tmp/copy.png", display: ""}
+	if got := anon.chipText(); got != "[Image 2]" {
+		t.Fatalf("anonymous chip = %q, want %q", got, "[Image 2]")
+	}
+
+	// Short source filename fits whole.
+	short := pastedImage{n: 1, path: "/tmp/copy.png", display: "shot.png"}
+	if got := short.chipText(); got != "[Image 1: shot.png]" {
+		t.Fatalf("short chip = %q, want %q", got, "[Image 1: shot.png]")
+	}
+
+	// Long screenshot name truncates, keeping the extension.
+	long := pastedImage{n: 3, path: "/tmp/copy.png", display: "Screenshot 2026-09-04 at 10.21.33 AM.png"}
+	got := long.chipText()
+	if strings.Contains(got, "10.21.33") || !strings.HasSuffix(got, ".png]") || !strings.Contains(got, "…") {
+		t.Fatalf("long chip = %q, want a truncated stem + ellipsis + .png", got)
+	}
+	// The snippet between "colon " and the closing bracket respects the budget.
+	inner := strings.TrimSuffix(strings.TrimPrefix(got, "[Image 3: "), "]")
+	if runewidth.StringWidth(inner) > maxImageNameRunes {
+		t.Fatalf("chip snippet %q exceeds the %d-rune budget", inner, maxImageNameRunes)
+	}
+}
+
+// Numbered per session: a second paste increments the chip number, and each
+// chip resolves back to its own on-disk copy at prepare time.
+func TestImageChipsNumberAndResolve(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+
+	src1 := filepath.Join(t.TempDir(), "first.png")
+	src2 := filepath.Join(t.TempDir(), "second.png")
+	if err := os.WriteFile(src1, []byte("\x89PNG\r\n\x1a\none"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src2, []byte("\x89PNG\r\n\x1a\ntwo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := compactCmdModel()
+	paste := func(src string) {
+		tm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(src + "\n"), Paste: true})
+		m = tm.(*model)
+		tm, _ = m.Update(cmd())
+		m = tm.(*model)
+	}
+	paste(src1)
+	paste(src2)
+
+	if !strings.Contains(m.input.Value(), "[Image 1: first.png]") || !strings.Contains(m.input.Value(), "[Image 2: second.png]") {
+		t.Fatalf("chips should number 1 and 2, got %q", m.input.Value())
+	}
+	if m.imageSeq != 2 || len(m.images) != 2 {
+		t.Fatalf("session image bookkeeping: seq=%d len=%d", m.imageSeq, len(m.images))
+	}
+
+	// prepareTurn rewrites each chip back to its own @path so imageParts reads
+	// the right bytes; the input value itself is untouched (still chips).
+	expanded := m.expandImageChips(m.input.Value())
+	if !strings.Contains(expanded, "@"+m.images[0].path) || !strings.Contains(expanded, "@"+m.images[1].path) {
+		t.Fatalf("chips should expand to their @paths, got %q", expanded)
+	}
+	if !strings.Contains(m.input.Value(), "[Image 1:") || !strings.Contains(m.input.Value(), "[Image 2:") {
+		t.Fatal("expandImageChips mutating the input value")
+	}
+	// A chip with an unknown number stays literal rather than guessing.
+	if got := m.expandImageChips("[Image 99: nope.png]"); got != "[Image 99: nope.png]" {
+		t.Fatalf("unknown chip should stay literal, got %q", got)
+	}
+}
+
+// macOS temp screenshot hover files live in a transient staging dir that can
+// be swept away before the model call uses them. The paste copies the bytes
+// off immediately, so deleting the source after the paste keeps the attached
+// image intact.
+func TestTempImageCopiedBeforeSourceVanishes(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	// Simulate the transient staging area via t.TempDir().
+	source := filepath.Join(t.TempDir(), "Screenshot temp") // no extension, like hover thumbnails
+	image := []byte("\x89PNG\r\n\x1a\nhover-image")
+	if err := os.WriteFile(source, image, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := compactCmdModel()
+	tm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(source + "\n"), Paste: true})
+	m = tm.(*model)
+	tm, _ = m.Update(cmd())
+	m = tm.(*model)
+
+	if len(m.images) != 1 {
+		t.Fatalf("expected one pasted image, got %d", len(m.images))
+	}
+	copy := m.images[0].path
+	if copy == source {
+		t.Fatal("the paste must copy out of the transient staging dir, not reference it")
+	}
+	// The chip still shows the original staging filename.
+	if !strings.Contains(m.input.Value(), "[Image 1: Screenshot temp]") {
+		t.Fatalf("chip should carry the staging display name, got %q", m.input.Value())
+	}
+
+	// Now the staging file vanished — exactly what happens before the model call.
+	if err := os.Remove(source); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(copy)
+	if err != nil {
+		t.Fatalf("copied image should survive the source vanishing: %v", err)
+	}
+	if string(got) != string(image) {
+		t.Fatalf("copied image = %q, want %q", got, image)
+	}
+
+	// And prepareTurn can still resolve the chip to the surviving copy.
+	if !strings.Contains(m.expandImageChips(m.input.Value()), "@"+copy) {
+		t.Fatalf("chip should resolve to the surviving copy, got %q", m.expandImageChips(m.input.Value()))
 	}
 }

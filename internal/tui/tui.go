@@ -115,9 +115,10 @@ type (
 	orphanSteerMsg string                    // a steer orphaned at turn teardown — submit as a machine turn
 	mcpStatusMsg   struct{}                  // an MCP server changed state — redraw
 	thinkMsg       string                    // streamed reasoning tokens
-	imageMsg       struct {                  // ctrl+v clipboard image result
-		path string // clipboard image saved to disk
-		err  error
+	imageMsg       struct {                  // ctrl+v / paste clipboard image result
+		path    string // clipboard image saved to disk
+		display string // original display name for the chip ("" for anonymous clipboard)
+		err     error
 	}
 )
 
@@ -182,6 +183,8 @@ type model struct {
 
 	hist     []string         // submitted inputs, for up/down recall
 	pasteBuf string           // held paste text for the [Pasted ~N lines] placeholder (config collapsePaste)
+	images   []pastedImage    // pasted images this session, indexed by their [Image N] chip number
+	imageSeq int              // session counter feeding pastedImage.n (1-based)
 	histIdx  int              // len(hist) == not navigating
 	draft    string           // in-progress input saved while navigating history
 	lastUp   time.Time        // last ↑ keypress; repeat detection for history rollover
@@ -2514,7 +2517,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.path == "":
 			m.append(dimStyle.Render("(no image on clipboard)"))
 		default:
-			m.input.InsertString("@" + msg.path + " ")
+			// Register the image under the next session number and drop a
+			// compact [Image N] chip into the input instead of the raw path.
+			m.imageSeq++
+			img := pastedImage{n: m.imageSeq, path: msg.path, display: msg.display}
+			m.images = append(m.images, img)
+			m.input.InsertString(img.chipText() + " ")
 			m.refreshMenu()
 		}
 		return m, nil
@@ -3514,6 +3522,10 @@ func (m *model) prepareTurn(text string) (string, []llm.ContentPart) {
 	}
 	sys += memory.PromptBlock(memory.Installation(), memory.Session(m.sessionID))
 	m.agent.Messages[0].Content = sys
+	// [Image N …] chips pasted this session revert to real @path mentions so
+	// the normal attachment machinery below can read the on-disk copies; the
+	// transcript keeps the chip (it was already appended from the raw input).
+	text = m.expandImageChips(text)
 	expanded := expandMentions(expandSkills(text, sk))
 	if !m.supportsVision() {
 		// text-only model: leave @image tags as pointer notes (from
