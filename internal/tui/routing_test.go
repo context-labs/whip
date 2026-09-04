@@ -69,7 +69,7 @@ func TestClickUnderDialogIsSwallowed(t *testing.T) {
 			t.Fatalf("%s: press should be swallowed (handled=%v sel=%v)", name, handled, m.sel)
 		}
 	}
-	m.menu = nil
+	m.mpicker, m.picker, m.rew, m.menu, m.palette = &modelPicker{}, nil, nil, nil, nil // map order is random: pin one dialog
 	before := m.vp.YOffset()
 	if handled, _ := m.handleMouseSelect(wheelMsg(5, row, true)); !handled || m.vp.YOffset() != before {
 		t.Fatal("the wheel must not scroll the transcript under a dialog")

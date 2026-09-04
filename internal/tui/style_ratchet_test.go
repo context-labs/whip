@@ -7,13 +7,13 @@ import (
 	"testing"
 )
 
-// styleSiteBaseline is how many ad-hoc lipgloss.NewStyle( calls the tui
-// package still has outside theme/ and ui/. New UI code must take its styles
-// from the theme (currentTheme().On, th.Heading, ...) or a ui component, so
-// this number only goes down: lower it when you remove sites, never raise it.
-const styleSiteBaseline = 47
+// Every style in the tui package comes from the theme (currentTheme().On,
+// th.Selected, th.MutedText, ...) or a ui component; ad-hoc lipgloss.NewStyle
+// calls outside theme/ and ui/ are not allowed. This is the Phase 2 exit
+// criterion of the design-system plan, kept as a test.
+const styleSiteBaseline = 0
 
-func TestAdHocStylesOnlyShrink(t *testing.T) {
+func TestNoAdHocStyles(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -34,9 +34,6 @@ func TestAdHocStylesOnlyShrink(t *testing.T) {
 		}
 	}
 	if total > styleSiteBaseline {
-		t.Fatalf("%d ad-hoc lipgloss.NewStyle( sites (baseline %d): route new styles through internal/tui/theme or a ui component\n%v", total, styleSiteBaseline, perFile)
-	}
-	if total < styleSiteBaseline {
-		t.Logf("ad-hoc style sites are down to %d: lower styleSiteBaseline", total)
+		t.Fatalf("%d ad-hoc lipgloss.NewStyle( sites: route new styles through internal/tui/theme or a ui component\n%v", total, perFile)
 	}
 }

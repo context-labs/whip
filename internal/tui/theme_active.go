@@ -4,7 +4,6 @@ import (
 	"image/color"
 	"sync"
 
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 
 	"github.com/context-labs/whip/internal/config"
@@ -126,13 +125,4 @@ func knownThemeName(name string) bool {
 		}
 	}
 	return false
-}
-
-// orNo turns a nil token (terminal default) into lipgloss's explicit no-op
-// color for call sites that hand the value straight to a Style.
-func orNo(c color.Color) color.Color {
-	if c == nil {
-		return lipgloss.NoColor{}
-	}
-	return c
 }

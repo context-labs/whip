@@ -7,6 +7,7 @@ package ui
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -53,4 +54,14 @@ func Fill(body string, width int, bg color.Color) string {
 		}
 	}
 	return scr.Render()
+}
+
+// PadRow pads a single pre-styled row to width with spaces painted in bg (nil
+// bg: plain spaces). Style.Width padding would land after the row's closing
+// reset and drop the fill; this keeps a panel row filled edge to edge.
+func PadRow(row string, width int, bg color.Color) string {
+	if pad := width - lipgloss.Width(row); pad > 0 {
+		row += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", pad))
+	}
+	return row
 }

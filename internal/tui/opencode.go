@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"github.com/context-labs/whip/internal/tui/ui"
 	"image/color"
 	"path/filepath"
 	"slices"
@@ -30,18 +31,6 @@ import (
 // terminal. When the background is unknown, each role falls back to a
 // terminal-palette-safe value (ANSI 0-15, or no fill) so nothing assumes
 // light or dark — mirroring the markdown neutralStyle.
-// ocPadTo pads content to width with spaces EXPLICITLY styled with the panel
-// background. lipgloss's Style.Width padding lands after the nested segments'
-// closing resets without re-opening the background, so padded panel rows
-// rendered their tail on the terminal default — a text-width chip instead of a
-// full-width panel.
-func ocPadTo(content string, width int, bg color.Color) string {
-	if pad := width - lipgloss.Width(content); pad > 0 {
-		content += lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", pad))
-	}
-	return content
-}
-
 // ocThemeKnown reports whether whip resolved the terminal background — glyph
 // art that depends on a bg-matched color (the prompt's ▀ shadow) must skip
 // rendering when it's unknown, or it draws in the default fg (a black bar on a
@@ -51,19 +40,6 @@ func ocThemeKnown() bool {
 	defer mdMu.Unlock()
 	return mdKnown
 }
-
-// Palette accessors: every fill and accent whip paints comes from the active
-// theme (see theme_active.go), so a theme change repaints the whole UI.
-func ocPanelBg() color.Color    { return orNo(currentTheme().Surface.Panel) }   // cards, sidebar (no fill if unknown)
-func ocElementBg() color.Color  { return orNo(currentTheme().Surface.Element) } // prompt box
-func ocAgentCol() color.Color   { return orNo(currentTheme().Info) }            // bars, ▣
-func ocTextCol() color.Color    { return orNo(currentTheme().Text) }            // text (default fg if unknown)
-func ocMutedCol() color.Color   { return orNo(currentTheme().Muted) }
-func ocWarnCol() color.Color    { return orNo(currentTheme().Warning) }   // "+ Thought"
-func ocSuccessCol() color.Color { return orNo(currentTheme().Success) }   // footer bullet
-func ocAccentCol() color.Color  { return orNo(currentTheme().Accent) }    // palette category headers
-func ocSelBg() color.Color      { return orNo(currentTheme().Primary) }   // selected row fill
-func ocSelFg() color.Color      { return orNo(currentTheme().OnPrimary) } // selected row text
 
 // sidebarWidth is the fixed width of the opencode-mode right sidebar, matching
 // opencode (routes/session/sidebar.tsx). The sidebar shows only when the
@@ -101,8 +77,9 @@ var (
 // opencodeLogo renders the wordmark: muted "wh", bold "ip", joined with a
 // single-column gap per line (opencode's two-tone logo treatment).
 func opencodeLogo() string {
-	left := lipgloss.NewStyle().Foreground(ocMutedCol())
-	right := lipgloss.NewStyle().Foreground(ocTextCol()).Bold(true)
+	th := currentTheme()
+	left := th.On(th.Muted, nil)
+	right := th.On(th.Text, nil).Bold(true)
 	var b strings.Builder
 	for i := range ocLogoWh {
 		if i > 0 {
@@ -137,10 +114,12 @@ func (m *model) sidebarView(height int) string {
 	if m.replPanel {
 		return m.replPanelView(height)
 	}
-	// Every style carries the panel background so text doesn't punch holes in the
-	// filled panel column; opencode's exact text/muted colors for readability.
-	head := lipgloss.NewStyle().Bold(true).Foreground(ocTextCol()).Background(ocPanelBg())
-	dim := lipgloss.NewStyle().Foreground(ocMutedCol()).Background(ocPanelBg())
+	// Every style carries the panel background so text doesn't punch holes in
+	// the filled panel column.
+	th := currentTheme()
+	bg := th.Surface.Panel
+	head := th.On(th.Text, bg).Bold(true)
+	dim := th.On(th.Muted, bg)
 
 	title := strings.TrimSpace(m.sessTitle)
 	if value, ok := m.runtimeAgent(m.agentOpen); ok {
@@ -172,13 +151,13 @@ func (m *model) sidebarView(height int) string {
 	b.WriteString(dim.Render(m.lspSummary()) + "\n")
 
 	// Agent tree (opencode mode has no dock under the input).
-	if agents := m.agentTreeRows(sidebarWidth-3, newReplStyles(ocPanelBg()), false); len(agents) > 0 {
+	if agents := m.agentTreeRows(sidebarWidth-3, newReplStyles(bg), false); len(agents) > 0 {
 		b.WriteString("\n" + strings.Join(agents, "\n") + "\n")
 	}
 
 	// Top content (title + Context + LSP), clipped if the sidebar is very short.
 	top := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
-	bullet := lipgloss.NewStyle().Foreground(ocSuccessCol()).Background(ocPanelBg())
+	bullet := th.On(th.Success, bg)
 	footer := bullet.Render("• ") + head.Render("whip") + dim.Render(" "+Version)
 
 	rows := make([]string, 0, height)
@@ -194,14 +173,12 @@ func (m *model) sidebarView(height int) string {
 		}
 		rows = append(rows, footer) // pinned to the bottom row
 	}
-	// opencode's sidebar is set apart by a panel background (no border). Pad each
-	// row manually with bg-styled spaces (ocPadTo) so the WHOLE column carries
-	// the panel shade — style.Width padding drops the bg after nested resets.
-	bg := ocPanelBg()
-	pad2 := lipgloss.NewStyle().Background(bg).Render("  ")
+	// the sidebar is set apart by a panel background (no border); every row is
+	// padded to the column width so the WHOLE column carries the shade
+	pad2 := th.On(nil, bg).Render("  ")
 	out := make([]string, len(rows))
 	for i, r := range rows {
-		out[i] = ocPadTo(pad2+r, sidebarWidth, bg)
+		out[i] = ui.PadRow(pad2+r, sidebarWidth, bg)
 	}
 	return strings.Join(out, "\n")
 }
@@ -221,13 +198,14 @@ func (m *model) opencodePrompt(inner string, width int) string {
 	if width < 6 {
 		return inner
 	}
-	ebg := ocElementBg()
-	elem := lipgloss.NewStyle().Background(ebg)
-	bar := lipgloss.NewStyle().Foreground(ocAgentCol()).Background(ebg).Render("┃")
+	th := currentTheme()
+	ebg := th.Surface.Element
+	elem := th.On(nil, ebg)
+	bar := th.On(th.Info, ebg).Render("┃")
 	// truncate BEFORE padding: a full-width input line (bar + 2-space gutter +
 	// content) exceeds width, wraps in the terminal, and grows the alt-screen
 	// frame a row past layout()'s budget — skewing every mouse-Y hit-test
-	row := func(content string) string { return ocPadTo(ansi.Truncate(content, width, ""), width, ebg) }
+	row := func(content string) string { return ui.PadRow(ansi.Truncate(content, width, ""), width, ebg) }
 	var b strings.Builder
 	b.WriteString(row(bar) + "\n") // paddingTop (bar continues down the whole box)
 	for ln := range strings.SplitSeq(inner, "\n") {
@@ -239,9 +217,9 @@ func (m *model) opencodePrompt(inner string, width int) string {
 	}
 	b.WriteString(row(bar) + "\n") // padding below the input, above the meta row
 	// model/mode row: mode in the agent color, model in text, provider muted.
-	agent := lipgloss.NewStyle().Foreground(ocAgentCol()).Background(ocElementBg())
-	txt := lipgloss.NewStyle().Foreground(ocTextCol()).Background(ocElementBg())
-	muted := lipgloss.NewStyle().Foreground(ocMutedCol()).Background(ocElementBg())
+	agent := th.On(th.Info, ebg)
+	txt := th.On(th.Text, ebg)
+	muted := th.On(th.Muted, ebg)
 	meta := agent.Render(m.ocModeLabel()) + muted.Render(" · ") + txt.Render(m.modelName) + muted.Render("  "+m.provName)
 	b.WriteString(row(bar+elem.Render("  ")+meta) + "\n")
 	// Soft bottom edge: a ╹ tail then a ▀ line the SAME color as the box fill, so
@@ -249,9 +227,9 @@ func (m *model) opencodePrompt(inner string, width int) string {
 	// terminal background is unknown there is no box fill to match — skip the ▀
 	// glyphs (they'd render in the default fg: a solid black bar on a light
 	// terminal) and keep just the bar tail so the row count stays stable.
-	b.WriteString(lipgloss.NewStyle().Foreground(ocAgentCol()).Render("╹"))
-	if ocThemeKnown() {
-		shadow := lipgloss.NewStyle().Foreground(ocElementBg())
+	b.WriteString(th.On(th.Info, nil).Render("╹"))
+	if ebg != nil {
+		shadow := th.On(ebg, nil)
 		b.WriteString(shadow.Render(strings.Repeat("▀", max(width-1, 0))))
 	}
 	return b.String()
@@ -265,9 +243,10 @@ func opencodeUserCard(text string, width int) string {
 	if width < 4 {
 		return text
 	}
-	bg := ocPanelBg()
-	bar := lipgloss.NewStyle().Foreground(ocAgentCol()).Background(bg).Render("┃")
-	txt := lipgloss.NewStyle().Foreground(ocTextCol()).Background(bg)
+	th := currentTheme()
+	bg := th.Surface.Panel
+	bar := th.On(th.Info, bg).Render("┃")
+	txt := th.On(th.Text, bg)
 	lines := strings.Split(wrap(text, width-3), "\n")
 	rows := append([]string{""}, lines...) // blank padding row above
 	rows = append(rows, "")                // blank padding row below
@@ -280,7 +259,7 @@ func opencodeUserCard(text string, width int) string {
 		if ln != "" {
 			content = bar + txt.Render("  "+ln) // two spaces after the bar
 		}
-		b.WriteString(ocPadTo(content, width, bg)) // fill the row to width with the panel bg
+		b.WriteString(ui.PadRow(content, width, bg)) // fill the row to width with the panel bg
 	}
 	return b.String()
 }
@@ -306,8 +285,9 @@ var ocKnightRider = spinner.Spinner{
 // the left (replaced by the knight-rider spinner + "esc interrupt" while the
 // model responds), and "{tokens} ({pct%})  ctrl+p commands" on the right.
 func (m *model) opencodeStatus() string {
-	muted := lipgloss.NewStyle().Foreground(ocMutedCol())
-	txt := lipgloss.NewStyle().Foreground(ocTextCol())
+	th := currentTheme()
+	muted := th.On(th.Muted, nil)
+	txt := th.On(th.Text, nil)
 	// right side: "{tokens} ({pct})  " muted, then "ctrl+p" in text, " commands" muted.
 	rightRaw := ""
 	if u := m.displayUsage(); u.PromptTokens+u.CompletionTokens > 0 {
@@ -337,15 +317,10 @@ func (m *model) opencodeStatus() string {
 		}
 		leftR = muted.Render(" " + left)
 	}
-	pad := max(w-lipgloss.Width(leftR)-rightW, 1)
-	line := leftR + muted.Render(strings.Repeat(" ", pad)) + right
-	if w > 0 {
-		// the busy side (spinner + esc hint) has no width-aware trim of its
-		// own: clamp the row or it wraps the alt-screen frame on a narrow
-		// terminal and shifts all mouse math
-		line = ansi.Truncate(line, w, "")
-	}
-	return line
+	// the busy side (spinner + esc hint) has no width-aware trim of its own:
+	// the bar clamps the row or it wraps the alt-screen frame on a narrow
+	// terminal and shifts all mouse math
+	return ui.StatusBar{Left: leftR, Right: right, Width: w}.Render(th)
 }
 
 func estimateTokens(messages []llm.Message) int {
@@ -369,24 +344,25 @@ type ocBoxKit struct {
 }
 
 func (m *model) newOcBox() ocBoxKit {
-	bg := ocPanelBg()
+	th := currentTheme()
+	bg := th.Surface.Panel
 	w := min(64, max(m.width-2, 20))
-	text := lipgloss.NewStyle().Foreground(ocTextCol()).Background(bg)
+	text := th.On(th.Text, bg)
 	return ocBoxKit{
 		w: w, bg: bg,
-		pnl:    lipgloss.NewStyle().Background(bg),
+		pnl:    th.On(nil, bg),
 		text:   text,
 		head:   text.Bold(true),
-		muted:  lipgloss.NewStyle().Foreground(ocMutedCol()).Background(bg),
-		accent: lipgloss.NewStyle().Foreground(ocAccentCol()).Background(bg).Bold(true),
-		blank:  ocPadTo("", w, bg),
+		muted:  th.On(th.Muted, bg),
+		accent: th.On(th.Accent, bg).Bold(true),
+		blank:  ui.PadRow("", w, bg),
 	}
 }
 
 // lr assembles left+right onto one padded row: left at col 2, right at the edge.
 func (k ocBoxKit) lr(left, right string) string {
 	gap := max(k.w-2-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
-	return ocPadTo(k.pnl.Render("  ")+left+k.pnl.Render(strings.Repeat(" ", gap))+right, k.w, k.bg)
+	return ui.PadRow(k.pnl.Render("  ")+left+k.pnl.Render(strings.Repeat(" ", gap))+right, k.w, k.bg)
 }
 
 // dialog rows: a panel on the panel background with a bold "Commands" header +
@@ -409,7 +385,7 @@ func (m *model) ocDialogRows() []string {
 	}
 	rows = append(rows, blank)
 
-	sel := lipgloss.NewStyle().Foreground(ocSelFg()).Background(ocSelBg())
+	sel := currentTheme().Selected
 	lastCat := ""
 	for i, it := range p.items {
 		if it.category != lastCat {
@@ -426,7 +402,7 @@ func (m *model) ocDialogRows() []string {
 		if i == p.idx {
 			// full-width primary fill, opencode's selected-row treatment
 			row := sel.Render("  "+it.title) + sel.Render(strings.Repeat(" ", max(w-2-len(it.title)-lipgloss.Width(hint)-2, 1))) + sel.Render(hint+"  ")
-			rows = append(rows, ocPadTo(row, w, ocSelBg()))
+			rows = append(rows, ui.PadRow(row, w, currentTheme().Primary))
 		} else {
 			rows = append(rows, lr(text.Render(it.title), muted.Render(hint)))
 		}
@@ -465,19 +441,20 @@ func ocToolLabel(name string) (label, sep string) { return toolHeaderName(name),
 func ocToolRow(name, args string, failed bool) string {
 	icon, subject := ocToolIcon(name), toolSubject(name, args)
 	label, sep := ocToolLabel(name)
+	th := currentTheme()
 	if failed {
-		e := lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75"))
-		return "   " + e.Render(icon+" "+label+sep+subject)
+		return "   " + th.On(th.Error, nil).Render(icon+" "+label+sep+subject)
 	}
-	txt := lipgloss.NewStyle().Foreground(ocTextCol())
-	muted := lipgloss.NewStyle().Foreground(ocMutedCol())
+	txt := th.On(th.Text, nil)
+	muted := th.On(th.Muted, nil)
 	return "   " + muted.Render(icon) + " " + txt.Render(label) + muted.Render(sep+subject)
 }
 
 // ocToolPending renders a queued/running tool call: opencode's "~ " prefix,
 // all muted.
 func ocToolPending(name, args string) string {
-	muted := lipgloss.NewStyle().Foreground(ocMutedCol())
+	th := currentTheme()
+	muted := th.On(th.Muted, nil)
 	label, sep := ocToolLabel(name)
 	return "   " + muted.Render("~ "+label+sep+toolSubject(name, args))
 }
@@ -486,9 +463,10 @@ func ocToolPending(name, args string) string {
 // lines" hint (opencode tucks results away behind the tool row), the full body
 // indented when expanded. Errors keep the error color.
 func ocToolResult(lines []string, expanded, isErr bool, width int) string {
-	style := lipgloss.NewStyle().Foreground(ocMutedCol())
+	th := currentTheme()
+	style := th.On(th.Muted, nil)
 	if isErr {
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#e06c75"))
+		style = th.On(th.Error, nil)
 	}
 	// short results (a launch confirmation, a one-line answer) read inline —
 	// a "↳ 1 line · expand" hint for one line is pure friction
@@ -550,10 +528,10 @@ func (m *model) ocMsgActionRows() []string {
 	}
 	rows = append(rows, k.blank)
 	items := a.items()
-	sel := lipgloss.NewStyle().Foreground(ocSelFg()).Background(ocSelBg())
+	sel := currentTheme().Selected
 	for i, it := range items {
 		if i == a.sel {
-			rows = append(rows, ocPadTo(sel.Render("  "+it.name+" "+it.desc), k.w, ocSelBg()))
+			rows = append(rows, ui.PadRow(sel.Render("  "+it.name+" "+it.desc), k.w, currentTheme().Primary))
 		} else {
 			rows = append(rows, k.lr(k.text.Render(it.name)+k.muted.Render(" "+it.desc), ""))
 		}
@@ -590,7 +568,7 @@ func (m *model) ocModelDialogRows() []string {
 	rows = append(rows, k.blank)
 
 	items := p.view()
-	sel := lipgloss.NewStyle().Foreground(ocSelFg()).Background(ocSelBg())
+	sel := currentTheme().Selected
 	lo, hi := ocWindow(len(items), p.idx, max(m.height-14, 4))
 	lastProv := ""
 	for i := lo; i < hi; i++ {
@@ -611,7 +589,7 @@ func (m *model) ocModelDialogRows() []string {
 			cur = "● " // opencode's current-model gutter
 		}
 		if i == p.idx {
-			rows = append(rows, ocPadTo(sel.Render("  "+cur+it.model), k.w, ocSelBg()))
+			rows = append(rows, ui.PadRow(sel.Render("  "+cur+it.model), k.w, currentTheme().Primary))
 		} else {
 			rows = append(rows, k.lr(k.text.Render(cur+it.model), k.muted.Render(mark)))
 		}
@@ -631,7 +609,7 @@ func (m *model) ocSessionDialogRows() []string {
 	p := m.picker
 	k := m.newOcBox()
 	rows := []string{k.blank, k.lr(k.head.Render("Sessions"), k.muted.Render("esc")), k.blank}
-	sel := lipgloss.NewStyle().Foreground(ocSelFg()).Background(ocSelBg())
+	sel := currentTheme().Selected
 	lo, hi := ocWindow(len(p.metas), p.idx, max(m.height-12, 4))
 	lastDay := ""
 	for i := lo; i < hi; i++ {
@@ -653,7 +631,7 @@ func (m *model) ocSessionDialogRows() []string {
 		}
 		title = truncLine(title, k.w-16)
 		if i == p.idx {
-			rows = append(rows, ocPadTo(sel.Render("  "+title), k.w, ocSelBg()))
+			rows = append(rows, ui.PadRow(sel.Render("  "+title), k.w, currentTheme().Primary))
 		} else {
 			rows = append(rows, k.lr(k.text.Render(title), k.muted.Render(ago(meta.UpdatedAt))))
 		}
@@ -687,15 +665,8 @@ func toastClear(at time.Time) func(time.Time) tea.Msg {
 // toastRows renders the toast box (panel bg, success-colored side bars); View
 // places it top-right.
 func (m *model) toastRows() []string {
-	bg := ocPanelBg()
-	pnl := lipgloss.NewStyle().Background(bg)
-	bar := lipgloss.NewStyle().Foreground(ocSuccessCol()).Background(bg).Render("┃")
-	txt := lipgloss.NewStyle().Foreground(ocTextCol()).Background(bg)
-	inner := truncLine(m.toast, max(min(56, m.termWidth-10), 8))
-	w := lipgloss.Width(inner) + 6
-	mid := bar + pnl.Render("  ") + txt.Render(inner) + pnl.Render("  ") + bar
-	pad := ocPadTo(bar, w-1, bg) + bar // side bars on the padding rows too
-	return []string{pad, mid, pad}
+	w := min(lipgloss.Width(m.toast)+5, max(m.termWidth-10, 12))
+	return []string{ui.Toast{Text: m.toast, Kind: ui.Success, Width: w}.Render(currentTheme())}
 }
 
 // ocLeaderChord dispatches an opencode leader chord (ctrl+x then a key,
@@ -792,9 +763,10 @@ func (m *model) msgActionsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // opencodeAttribution renders opencode's per-response attribution line:
 // "▣  {mode} · {model} · {duration}", indented 3 to sit under the assistant body.
 func (m *model) opencodeAttribution(d time.Duration) string {
-	agent := lipgloss.NewStyle().Foreground(ocAgentCol())
-	txt := lipgloss.NewStyle().Foreground(ocTextCol())
-	muted := lipgloss.NewStyle().Foreground(ocMutedCol())
+	th := currentTheme()
+	agent := th.On(th.Info, nil)
+	txt := th.On(th.Text, nil)
+	muted := th.On(th.Muted, nil)
 	return "   " + agent.Render("▣") + txt.Render("  "+m.ocModeLabel()) + // 3-space indent under the assistant column
 		muted.Render(" · "+m.modelName+" · "+fmtShortDur(d))
 }

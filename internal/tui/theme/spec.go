@@ -50,7 +50,9 @@ type PaletteSpec struct {
 	OnPrimary   string `json:"onPrimary"` // text on a Primary fill
 	Border      string `json:"border"`
 	BorderFocus string `json:"borderFocus"`
-	Bg          string `json:"bg"` // the background the theme was designed on
+	Bg          string `json:"bg"`      // the background the theme was designed on
+	DiffAdd     string `json:"diffAdd"` // background tint behind added diff lines
+	DiffDel     string `json:"diffDel"` // background tint behind removed diff lines
 }
 
 // SurfaceSpec pins the raised-layer fills instead of deriving them from the
@@ -71,6 +73,7 @@ func Dark() Spec {
 			Success: "#7fd88f", Warning: "#f5a742", Error: "#e06c75", Info: "#5c9cf5",
 			Link: "#56b6c2", Emphasis: "#e5c07b",
 			OnPrimary: "#0a0a0a", Border: "#3a3a3a", BorderFocus: "#5c9cf5", Bg: "#1e1e1e",
+			DiffAdd: "22", DiffDel: "52",
 		},
 	}
 }
@@ -85,6 +88,7 @@ func Light() Spec {
 			Success: "#3d9a57", Warning: "#d68c27", Error: "#c4314b", Info: "#7b5bb6",
 			Link: "#318795", Emphasis: "#b0851f",
 			OnPrimary: "#ffffff", Border: "#d0d0d0", BorderFocus: "#3b7dd8", Bg: "#fafafa",
+			DiffAdd: "194", DiffDel: "224",
 		},
 	}
 }
@@ -101,6 +105,7 @@ func Neutral() Spec {
 			Success: "2", Warning: "3", Error: "1", Info: "4",
 			Link: "6", Emphasis: "3",
 			OnPrimary: "0", Border: "8", BorderFocus: "4", Bg: "",
+			DiffAdd: "22", DiffDel: "52",
 		},
 	}
 }

@@ -8,27 +8,24 @@ import (
 	"github.com/context-labs/whip/internal/tui/theme"
 )
 
-// StatusBar is the one-line footer: left-aligned context, right-aligned
-// hints, both muted, on the terminal background. Left is truncated first.
+// StatusBar is the one-line footer: a left-aligned context fragment and
+// right-aligned hints, both already styled by the caller (a spinner, a keycap,
+// muted text), laid out on the terminal background and clamped to Width so
+// the row can never wrap the frame.
 type StatusBar struct {
 	Left, Right string
 	Width       int
 }
 
-func (s StatusBar) Render(th *theme.Theme) string {
-	right := th.MutedText.Render(s.Right)
-	rw := ansi.StringWidth(s.Right)
-	leftMax := s.Width - rw - 1
-	if s.Right == "" {
-		leftMax = s.Width
+func (s StatusBar) Render(_ *theme.Theme) string {
+	left, rw := s.Left, ansi.StringWidth(s.Right)
+	if s.Width > 0 && ansi.StringWidth(left)+rw+1 > s.Width { // the hints survive: the context gets the ellipsis
+		left = ansi.Truncate(left, max(s.Width-rw-1, 0), "…")
 	}
-	left := th.MutedText.Render(ansi.Truncate(s.Left, max(0, leftMax), "…"))
-	gap := s.Width - ansi.StringWidth(s.Left) - rw
-	if gap < 1 {
-		gap = 1
+	gap := max(s.Width-ansi.StringWidth(left)-rw, 1)
+	line := left + strings.Repeat(" ", gap) + s.Right
+	if s.Width > 0 {
+		line = ansi.Truncate(line, s.Width, "")
 	}
-	if s.Right == "" {
-		return left
-	}
-	return left + strings.Repeat(" ", gap) + right
+	return line
 }

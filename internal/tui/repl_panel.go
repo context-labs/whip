@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/context-labs/whip/internal/tui/ui"
 	"image/color"
 	"strings"
 	"time"
@@ -322,26 +323,26 @@ type replStyles struct {
 }
 
 func newReplStyles(bg color.Color) replStyles {
-	on := func(fg color.Color) lipgloss.Style {
-		return lipgloss.NewStyle().Foreground(fg).Background(bg)
-	}
+	th := currentTheme()
+	syn := th.Syntax()
+	on := func(fg color.Color) lipgloss.Style { return th.On(fg, bg) }
 	return replStyles{
 		bg:         bg,
-		head:       on(ocTextCol()).Bold(true),
-		dim:        on(ocMutedCol()),
-		text:       on(ocTextCol()),
-		warn:       on(ocWarnCol()),
-		fail:       on(lipgloss.Color("1")),
-		accent:     on(ocAgentCol()),
-		keyword:    on(ocAccentCol()),
-		str:        on(ocSuccessCol()),
-		num:        on(ocWarnCol()),
-		comment:    on(ocMutedCol()).Italic(true),
-		mod:        on(ocAgentCol()),
-		call:       on(ocTextCol()).Bold(true),
-		gutterRun:  on(ocAgentCol()),
-		gutterDone: on(ocMutedCol()),
-		gutterFail: on(lipgloss.Color("1")),
+		head:       on(th.Text).Bold(true),
+		dim:        on(th.Muted),
+		text:       on(th.Text),
+		warn:       on(th.Warning),
+		fail:       on(th.Error),
+		accent:     on(th.Info),
+		keyword:    on(syn.Keyword),
+		str:        on(syn.String),
+		num:        on(syn.Number),
+		comment:    on(syn.Comment).Italic(true),
+		mod:        on(syn.Type),
+		call:       on(syn.Func).Bold(true),
+		gutterRun:  on(th.Info),
+		gutterDone: on(th.Muted),
+		gutterFail: on(th.Error),
 	}
 }
 
@@ -350,8 +351,8 @@ func newReplStyles(bg color.Color) replStyles {
 // visible agent's cells with the newest kept in view.
 func (m *model) replPanelView(height int) string {
 	width := m.panelWidth()
-	st := newReplStyles(lipgloss.NoColor{})
-	card := newReplStyles(ocPanelBg())
+	st := newReplStyles(nil)
+	card := newReplStyles(currentTheme().Surface.Panel)
 	inner := width - 3 // two columns of left padding and one of right margin
 	cut := func(s string, w int) string { return ansi.Truncate(s, max(w, 1), "…") }
 
@@ -425,7 +426,7 @@ func (m *model) replPanelView(height int) string {
 	}
 	out := make([]string, len(rows))
 	for index, row := range rows {
-		out[index] = ocPadTo("  "+row, width, st.bg)
+		out[index] = ui.PadRow("  "+row, width, st.bg)
 	}
 	return strings.Join(out, "\n")
 }
@@ -507,7 +508,7 @@ func (m *model) replCellRows(cell replCell, st replStyles, inner int) []string {
 		rows = append(rows, row(st.fail.Render(cut("✗ "+replFlat(cell.errText), content))))
 	}
 	for index := 1; index < len(rows); index++ { // rows[0] is the separator
-		rows[index] = ocPadTo(rows[index], inner, st.bg)
+		rows[index] = ui.PadRow(rows[index], inner, st.bg)
 	}
 	return rows
 }

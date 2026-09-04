@@ -18,6 +18,7 @@ type Palette struct {
 	OnPrimary                     color.Color
 	Border, BorderFocus           color.Color
 	Bg                            color.Color
+	DiffAdd, DiffDel              color.Color // background tints behind diff lines
 }
 
 // Surfaces is the raised-layer ladder: terminal background -> Panel (cards,
@@ -75,7 +76,7 @@ func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 			Success: col(p.Success), Warning: col(p.Warning), Error: col(p.Error), Info: col(p.Info),
 			Link: col(p.Link), Emphasis: col(p.Emphasis),
 			OnPrimary: col(p.OnPrimary), Border: col(p.Border), BorderFocus: col(p.BorderFocus),
-			Bg: col(p.Bg),
+			Bg: col(p.Bg), DiffAdd: col(p.DiffAdd), DiffDel: col(p.DiffDel),
 		},
 		Space: Spacing{Gutter: 2, PadX: 1, PadY: 0, Gap: 1},
 	}

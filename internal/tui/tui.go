@@ -22,6 +22,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/skills"
+	"github.com/context-labs/whip/internal/tui/ui"
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -40,16 +41,14 @@ func init() { refreshBaseStyles() }
 func refreshBaseStyles() {
 	rebuildTheme()
 	th := currentTheme()
-	pick := lipgloss.LightDark(th.Dark)
 	youStyle = th.On(th.Info, nil).Bold(true)
 	botStyle = th.On(th.Accent, nil).Bold(true)
 	toolStyle = th.On(th.Warning, nil)
 	dimStyle = th.On(th.Muted, nil)
 	errStyle = th.On(th.Error, nil)
 	thinkingStyle = th.On(th.Muted, nil).Italic(true)
-	// diff bands: low-contrast tints the semantic palette has no token for yet
-	diffAddStyle = lipgloss.NewStyle().Background(pick(lipgloss.Color("194"), lipgloss.Color("22")))
-	diffDelStyle = lipgloss.NewStyle().Background(pick(lipgloss.Color("224"), lipgloss.Color("52")))
+	diffAddStyle = th.On(nil, th.DiffAdd)
+	diffDelStyle = th.On(nil, th.DiffDel)
 }
 
 // Marker glyphs prefixing user and assistant turns. Package-level so the
@@ -504,11 +503,12 @@ func (b block) render(width int) string {
 	case blockThought:
 		// collapsed: opencode's "+ Thought: {dur}" line; expanded (click/ctrl+e):
 		// the reasoning text underneath, muted italic like whip's thinking style
-		head := "   " + lipgloss.NewStyle().Foreground(ocWarnCol()).Render("+ Thought: "+b.live)
+		th := currentTheme()
+		head := "   " + th.On(th.Warning, nil).Render("+ Thought: "+b.live)
 		if !b.expanded {
 			return head
 		}
-		body := lipgloss.NewStyle().Foreground(ocMutedCol()).Italic(true).Render(strings.TrimSpace(b.text))
+		body := th.On(th.Muted, nil).Italic(true).Render(strings.TrimSpace(b.text))
 		return head + "\n" + wrap(body, width)
 	case blockAssistant:
 		// assistant messages carry no bullet: the body is indented 3
@@ -1293,7 +1293,7 @@ func (m *model) viewBody() string {
 	if m.busy && !m.thinkStart.IsZero() {
 		// reasoning is streaming: a transient "Thinking" line
 		// where the collapsed "+ Thought: {dur}" will land on flush
-		b.WriteString("\n   " + lipgloss.NewStyle().Foreground(ocWarnCol()).Render("+ Thinking…") + "\n")
+		b.WriteString("\n   " + thinkingLabel() + "\n")
 	}
 	if m.current != "" {
 		b.WriteString("\n" + m.currentView() + "\n")
@@ -1444,10 +1444,11 @@ func (m *model) menuView() string {
 		// the autocomplete popup: a panel with the selected row in the primary
 		// fill. Long descriptions word-wrap onto a second line (capped at two
 		// — the menu stays scannable) instead of being chopped.
-		bg := ocPanelBg()
-		text := lipgloss.NewStyle().Foreground(ocTextCol()).Background(bg)
-		muted := lipgloss.NewStyle().Foreground(ocMutedCol()).Background(bg)
-		sel := lipgloss.NewStyle().Foreground(ocSelFg()).Background(ocSelBg())
+		th := currentTheme()
+		bg := th.Surface.Panel
+		text := th.On(th.Text, bg)
+		muted := th.On(th.Muted, bg)
+		sel := th.Selected
 		descW := max(m.width-nameW-6, 8)
 		indent := strings.Repeat(" ", nameW+4)
 		var rows []string
@@ -1462,19 +1463,25 @@ func (m *model) menuView() string {
 			for j, d := range descLines {
 				switch {
 				case i == m.menu.idx && j == 0:
-					rows = append(rows, ocPadTo(sel.Render("  "+name+"  "+d), m.width, ocSelBg()))
+					rows = append(rows, ui.PadRow(sel.Render("  "+name+"  "+d), m.width, th.Primary))
 				case i == m.menu.idx:
-					rows = append(rows, ocPadTo(sel.Render("  "+indent+d), m.width, ocSelBg()))
+					rows = append(rows, ui.PadRow(sel.Render("  "+indent+d), m.width, th.Primary))
 				case j == 0:
-					rows = append(rows, ocPadTo(text.Render("  "+name)+muted.Render("  "+d), m.width, bg))
+					rows = append(rows, ui.PadRow(text.Render("  "+name)+muted.Render("  "+d), m.width, bg))
 				default:
-					rows = append(rows, ocPadTo(muted.Render("  "+indent+d), m.width, bg))
+					rows = append(rows, ui.PadRow(muted.Render("  "+indent+d), m.width, bg))
 				}
 			}
 		}
-		rows = append(rows, ocPadTo(muted.Render(fmt.Sprintf("  %d/%d", m.menu.idx+1, len(m.menu.cands))), m.width, bg))
+		rows = append(rows, ui.PadRow(muted.Render(fmt.Sprintf("  %d/%d", m.menu.idx+1, len(m.menu.cands))), m.width, bg))
 		return strings.Join(rows, "\n")
 	}
+}
+
+// thinkingLabel is the transient "+ Thinking…" line while reasoning streams.
+func thinkingLabel() string {
+	th := currentTheme()
+	return th.On(th.Warning, nil).Render("+ Thinking…")
 }
 
 func wrap(s string, width int) string {
