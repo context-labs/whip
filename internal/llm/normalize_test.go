@@ -93,3 +93,25 @@ func TestNormalizeImageHeaderOnlyPassthrough(t *testing.T) {
 		t.Fatal("an in-budget image must pass through on its header alone (no pixel decode)")
 	}
 }
+
+// A transparent source re-encoded to JPEG (no alpha) must land on white, not
+// on the zero-initialized (black) canvas.
+func TestNormalizeImageTransparentFlattensToWhite(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 2400, 100)) // over the dim cap; fully transparent
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	ext, out := NormalizeImage("png", buf.Bytes())
+	if ext != "jpg" {
+		t.Fatalf("oversized image should re-encode, got %q", ext)
+	}
+	dec, _, err := image.Decode(bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := dec.At(10, 10).RGBA()
+	if r>>8 < 240 || g>>8 < 240 || b>>8 < 240 {
+		t.Fatalf("transparent pixels should flatten to white, got rgb(%d,%d,%d)", r>>8, g>>8, b>>8)
+	}
+}

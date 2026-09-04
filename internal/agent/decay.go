@@ -185,9 +185,8 @@ func (a *Agent) decay() int {
 
 // stripImageParts replaces every image part of m with a text placeholder
 // naming the image's pixel size and the disk path the bytes were spilled to.
-// Returns the number of parts stripped. A message whose images were all
-// stripped keeps its text parts; if it had no text at all the placeholder
-// also becomes Content so the message still reads coherently.
+// Returns the number of parts stripped. The message's text parts (and
+// Content) are untouched.
 func stripImageParts(m *llm.Message) int {
 	stripped := 0
 	var kept []llm.ContentPart
@@ -212,17 +211,10 @@ func stripImageParts(m *llm.Message) int {
 	if stripped == 0 {
 		return 0
 	}
+	// Content stays as it was: the wire form prepends a non-empty Content as
+	// its own text part, so mirroring the placeholder there would send it
+	// twice. TextContent() already reads text parts for a pure-image message.
 	m.Parts = kept
-	// Mirror the first placeholder into Content when the message was pure
-	// image (Content mirrors the text part for multimodal messages).
-	if m.Content == "" {
-		for _, p := range kept {
-			if p.Type == "text" {
-				m.Content = p.Text
-				break
-			}
-		}
-	}
 	return stripped
 }
 

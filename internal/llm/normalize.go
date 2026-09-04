@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"image/jpeg"
 
 	"golang.org/x/image/draw"
@@ -109,6 +110,9 @@ func scaleToFit(src image.Image, maxW, maxH int) image.Image {
 	scale := min(float64(maxW)/float64(w), float64(maxH)/float64(h))
 	nw, nh := max(int(float64(w)*scale), 1), max(int(float64(h)*scale), 1)
 	dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
+	// JPEG has no alpha: composite onto opaque white first, or transparent
+	// pixels (logos, UI exports) come out black after the re-encode.
+	draw.Draw(dst, dst.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
 	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 	return dst
 }

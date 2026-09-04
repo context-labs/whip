@@ -344,4 +344,9 @@ func TestDecayImageOnlyMessagesSpendHotWindow(t *testing.T) {
 	if last.Parts[0].Type != "image_url" {
 		t.Fatal("the newest image must stay hot")
 	}
+	// Content stays empty: the wire form prepends Content as a text part, so
+	// mirroring the placeholder there would send it twice.
+	if a.Messages[1].Content != "" {
+		t.Fatalf("placeholder must live in Parts only, Content=%q", a.Messages[1].Content)
+	}
 }
