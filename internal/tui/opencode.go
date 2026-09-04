@@ -695,7 +695,11 @@ func (m *model) ocModeLabel() string {
 	if eff == "" {
 		eff = "off"
 	}
-	return strings.ToUpper(eff[:1]) + eff[1:]
+	label := strings.ToUpper(eff[:1]) + eff[1:]
+	if m.yolo {
+		label += " · yolo"
+	}
+	return label
 }
 
 // applyOpencodeStyles installs the full-screen UI's input chrome and spinner.

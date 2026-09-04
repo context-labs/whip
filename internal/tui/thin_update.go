@@ -39,9 +39,16 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case clientUpdateMsg:
 		var commands []tea.Cmd
 		if msg.StateChanged {
+			wasLive := m.clientState == ClientLive
 			m.clientState, m.clientErr = msg.State, msg.Err
+			if wasLive && msg.State != ClientLive {
+				m.yoloRoot = "" // the daemon we come back to may have forgotten the mode
+			}
 			if msg.State == ClientLive {
 				m.clientErr = nil
+				if command := m.yoloCommand(); command != nil {
+					commands = append(commands, command)
+				}
 				if !m.historyRequested {
 					m.historyRequested = true
 					_, command := m.submitClientAction("history.user.list", map[string]string{}, "")
@@ -269,6 +276,17 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.clientState == ClientLive && clientCommandNeedsSnapshot(msg.action.Operation) {
 			return m, m.requestClientSnapshot()
+		}
+		return m, nil
+
+	case clientYoloMsg:
+		if msg.err != nil {
+			if m.yoloRoot == msg.rootID {
+				m.yoloRoot = "" // retry on the next live transition
+			}
+			m.append(errStyle.Render("yolo: " + msg.err.Error()))
+		} else {
+			m.append(dimStyle.Render("(yolo: permission prompts are approved automatically)"))
 		}
 		return m, nil
 

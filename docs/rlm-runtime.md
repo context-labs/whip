@@ -145,6 +145,14 @@ widen a capability: the operation is still validated against the agent's
 grants. `/permissions` (or `/permissions list`) prints the tree rules and the
 global allowlist; `/permissions forget <id>` deletes a tree rule.
 
+`whip --yolo` starts the TUI with prompts off: every root it opens (and every
+root it reconnects to after a daemon restart) is put into the daemon's
+automatic permission mode through a signed `permission.mode` request, so each
+admission is approved as it arrives under the session's existing grants.
+Capabilities and budgets still apply; the mode cannot change while an agent
+is running. `--cautious` is the opposite and matches the default. The footer
+shows `yolo` while the mode is on.
+
 ## MCP
 
 MCP servers are daemon-owned integrations available from every authorized

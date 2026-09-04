@@ -82,7 +82,12 @@ func main() {
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
 	benchFlag := flag.Bool("bench", false, "measure configuration and provider routing startup, then exit; for `task benchmark`")
 	cautiousFlag := flag.Bool("cautious", false, "ask before running commands / writing files")
+	yoloFlag := flag.Bool("yolo", false, "approve every permission prompt automatically in this TUI's sessions")
 	flag.Parse()
+	if *cautiousFlag && *yoloFlag {
+		fmt.Fprintln(os.Stderr, "whip: --cautious and --yolo are mutually exclusive")
+		os.Exit(2)
+	}
 
 	if *versionFlag {
 		fmt.Println("whip", version)
@@ -196,7 +201,7 @@ func main() {
 	// notice still shows on the next launch.
 	go update.Check(version)
 	tui.Version = version // /report names the build in the bug-report bundle
-	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, systemPrompt(cwd(), time.Now()), *resumeFlag, *cautiousFlag, firstRun, initialPrompt)
+	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, systemPrompt(cwd(), time.Now()), *resumeFlag, *cautiousFlag, *yoloFlag, firstRun, initialPrompt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whip:", err)
 		os.Exit(1)

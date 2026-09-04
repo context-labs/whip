@@ -68,7 +68,7 @@ type clientPresentation struct {
 
 // Run starts the presentation-only TUI. Agent loops, persistence, schedulers,
 // providers, permissions, and child processes remain in the daemon.
-func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool, initialPrompt string) (string, error) {
+func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, yolo, firstRun bool, initialPrompt string) (string, error) {
 	stdin := bufio.NewReader(os.Stdin)
 	if trusted, err := checkTrust(stdin); err != nil {
 		return "", err
@@ -169,10 +169,14 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	m.prog = program
 	client.Start()
 	permissionCtx, cancelPermission := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := configureInteractiveSession(permissionCtx, client, cautious); err != nil {
+	if err := configureInteractiveSession(permissionCtx, client, cautious, yolo); err != nil {
 		cancelPermission()
 		_ = client.Close()
 		return "", err
+	}
+	if yolo {
+		m.yolo, m.yoloRoot = true, client.RootID()
+		m.append(dimStyle.Render("(yolo: permission prompts are approved automatically)"))
 	}
 	cancelPermission()
 	tuiRunning = true
@@ -186,21 +190,59 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	return rootID, errors.Join(runErr, closeErr)
 }
 
-func configureInteractiveSession(ctx context.Context, client *Client, cautious bool) error {
+// setPermissionMode asks the daemon to prompt a human (external) or to approve
+// every permission itself (--yolo). Turning prompts off is a signed request.
+func setPermissionMode(ctx context.Context, client *Client, external bool) error {
+	label := "automatic"
+	if external {
+		label = "cautious"
+	}
+	action, err := client.NewAction("permission.mode", map[string]bool{"external_permissions": external})
+	if err != nil {
+		return fmt.Errorf("configure %s permission mode: %w", label, err)
+	}
+	result, err := client.SetPermissionMode(ctx, action, external)
+	if err != nil {
+		return fmt.Errorf("configure %s permission mode: %w", label, err)
+	}
+	if result.Status != "succeeded" {
+		return fmt.Errorf("configure %s permission mode: %s", label, result.Error)
+	}
+	return nil
+}
+
+type clientYoloMsg struct {
+	rootID string
+	err    error
+}
+
+// yoloCommand re-applies automatic permissions when this TUI reaches a root it
+// has not configured: a session switch, or a daemon restart that forgot the
+// mode. nil when there is nothing to do.
+func (m *model) yoloCommand() bubbletea.Cmd {
+	if !m.yolo || m.client == nil {
+		return nil
+	}
+	rootID := m.client.RootID()
+	if rootID == "" || rootID == m.yoloRoot {
+		return nil
+	}
+	m.yoloRoot = rootID
+	client := m.client
+	return func() bubbletea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return clientYoloMsg{rootID: rootID, err: setPermissionMode(ctx, client, false)}
+	}
+}
+
+func configureInteractiveSession(ctx context.Context, client *Client, cautious, yolo bool) error {
 	if err := client.WaitLive(ctx); err != nil {
 		return fmt.Errorf("connect to daemon: %w", err)
 	}
-	if cautious {
-		action, err := client.NewAction("permission.mode", map[string]bool{"external_permissions": true})
-		if err != nil {
-			return fmt.Errorf("configure cautious permission mode: %w", err)
-		}
-		result, err := client.SetPermissionMode(ctx, action, true)
-		if err != nil {
-			return fmt.Errorf("configure cautious permission mode: %w", err)
-		}
-		if result.Status != "succeeded" {
-			return fmt.Errorf("configure cautious permission mode: %s", result.Error)
+	if cautious || yolo {
+		if err := setPermissionMode(ctx, client, !yolo); err != nil {
+			return err
 		}
 	}
 	action, err := client.NewAction("session.autotitle", map[string]bool{"enabled": true})

@@ -63,6 +63,10 @@ func (f *fakeDaemonConnection) DecidePermission(_ context.Context, _ ed25519.Pri
 	return daemon.PermissionDecisionResult{OperationID: "operation", LeaseID: "lease"}, nil
 }
 
+func (f *fakeDaemonConnection) SetPermissionMode(_ context.Context, _ ed25519.PrivateKey, params daemon.CommandParams) (daemon.CommandResult, error) {
+	return f.Command(context.Background(), params)
+}
+
 func (f *fakeDaemonConnection) Events() <-chan daemon.ProtocolEvent { return f.events }
 func (f *fakeDaemonConnection) Done() <-chan struct{}               { return f.done }
 func (f *fakeDaemonConnection) Err() error                          { return f.err }
@@ -107,13 +111,57 @@ func TestInteractiveSetupAppliesCautiousModeBeforeAutomaticTitles(t *testing.T) 
 	}
 	client.Start()
 	t.Cleanup(func() { _ = client.Close() })
-	if err := configureInteractiveSession(t.Context(), client, true); err != nil {
+	if err := configureInteractiveSession(t.Context(), client, true, false); err != nil {
 		t.Fatal(err)
 	}
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
 	if len(connection.commands) != 2 || connection.commands[0].Operation != "permission.mode" || connection.commands[1].Operation != "session.autotitle" {
 		t.Fatalf("interactive setup command order=%+v", connection.commands)
+	}
+}
+
+func TestInteractiveSetupAppliesYoloModeAndReappliesOnForgottenRoots(t *testing.T) {
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
+	client, err := NewClient(ClientOptions{
+		ClientID: "tui", PrivateKey: private, RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
+		Connector: func(context.Context, map[string]int64) (daemonConnection, error) { return connection, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	if err := configureInteractiveSession(t.Context(), client, false, true); err != nil {
+		t.Fatal(err)
+	}
+	connection.mu.Lock()
+	commands := append([]daemon.CommandParams(nil), connection.commands...)
+	connection.mu.Unlock()
+	if len(commands) != 2 || commands[0].Operation != "permission.mode" || !strings.Contains(string(commands[0].Payload), `"external_permissions":false`) || commands[1].Operation != "session.autotitle" {
+		t.Fatalf("yolo setup commands=%+v", commands)
+	}
+
+	m := &model{client: client, clientState: ClientLive, input: newInput(), yolo: true, yoloRoot: "root"}
+	if m.yoloCommand() != nil {
+		t.Fatal("a configured root was re-applied")
+	}
+	m.yoloRoot = "" // a reconnect: the daemon may have forgotten the mode
+	command := m.yoloCommand()
+	if command == nil || m.yoloRoot != "root" {
+		t.Fatalf("forgotten root was not re-applied (command=%v root=%q)", command != nil, m.yoloRoot)
+	}
+	if msg := command().(clientYoloMsg); msg.err != nil || msg.rootID != "root" {
+		t.Fatalf("yolo message=%+v", msg)
+	}
+	connection.mu.Lock()
+	defer connection.mu.Unlock()
+	if len(connection.commands) != 3 || connection.commands[2].Operation != "permission.mode" || !strings.Contains(string(connection.commands[2].Payload), `"external_permissions":false`) {
+		t.Fatalf("re-applied commands=%+v", connection.commands)
 	}
 }
 
@@ -134,7 +182,7 @@ func TestInteractiveSetupStopsWhenCautiousModeFails(t *testing.T) {
 	}
 	client.Start()
 	t.Cleanup(func() { _ = client.Close() })
-	if err := configureInteractiveSession(t.Context(), client, true); err == nil || !strings.Contains(err.Error(), "identity rejected") {
+	if err := configureInteractiveSession(t.Context(), client, true, false); err == nil || !strings.Contains(err.Error(), "identity rejected") {
 		t.Fatalf("cautious setup error=%v", err)
 	}
 	connection.mu.Lock()
