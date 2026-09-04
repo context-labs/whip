@@ -258,6 +258,10 @@ func TestBinaryOutputPlaceholder(t *testing.T) {
 		// Regression: ANSI-colored output (ls/grep --color) is ESC-heavy but not
 		// binary — ESC is excluded from the control-byte count.
 		{name: "ansi colored output", in: []byte("\x1b[31mred\x1b[0m \x1b[32mgreen\x1b[0m \x1b[1mBold\x1b[0m normal text here\n"), want: false},
+		// Regression: output that starts as clean text but turns binary past
+		// the 1KB probe must still be caught — the NUL scan covers the whole
+		// buffer, not just the prefix.
+		{name: "text then binary past probe", in: append(bytes.Repeat([]byte("a"), binaryProbeSize+100), 0x00, 0x01), want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

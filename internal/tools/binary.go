@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"fmt"
 	"unicode/utf8"
 )
@@ -27,6 +28,15 @@ func isBinary(data []byte) bool {
 	if len(data) == 0 {
 		return false
 	}
+	// NUL anywhere in the output is the strongest binary signal — and cheap to
+	// check over the whole buffer (bytes.IndexByte is SIMD-friendly), so a
+	// text-then-binary stream (cat README.md image.png) is still caught.
+	if bytes.IndexByte(data, 0x00) >= 0 {
+		return true
+	}
+
+	// UTF-8 validity and control-byte density only need a prefix — scanning an
+	// entire huge file buys nothing for those.
 	n := min(len(data), binaryProbeSize)
 	sample := data[:n]
 	// A multi-byte rune can straddle the probe boundary — a 1024-byte cut can
@@ -40,20 +50,15 @@ func isBinary(data []byte) bool {
 		return true
 	}
 
-	var nul, ctrl int
+	ctrl := 0
 	for _, b := range sample {
 		switch {
-		case b == 0x00:
-			nul++
 		case b == 0x1b:
 			// ESC starts ANSI escape sequences (ls --color, grep --color) —
 			// colored text is not binary, so don't count it as a control byte.
 		case b < 0x20 && b != '\t' && b != '\n' && b != '\r' && b != 0x0b && b != 0x0c:
 			ctrl++
 		}
-	}
-	if nul > 0 {
-		return true
 	}
 	return ctrl*10 > len(sample)
 }
