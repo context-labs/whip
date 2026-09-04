@@ -135,7 +135,17 @@ each server's tools automatically. CLI: `whip mcp list|add|remove|import`
 `whip mcp test <name>` to doctor one server (status, timing, tool names,
 stderr tail; non-zero exit — validate a `.mcp.json` in CI). `whip mcp
 serve` runs whip's own tools (read/bash/edit/write) as an MCP server for
-other harnesses.
+other harnesses. Codex configs with `http_headers` and
+`bearer_token_env_var` import correctly (the env var resolves to an
+`Authorization` header at load), and codex's `[mcp_servers.X.tools.*]`
+per-tool approval tables are skipped — they're codex's config, not servers.
+
+`whip skills list` shows loaded skills and where they come from;
+`whip skills import [--dry-run]` copies skills from other harnesses'
+user dirs (`~/.codex/skills`, `~/.claude/skills`) into `~/.agents/skills`,
+deduped by name against everything whip already loads — an existing
+skill is never overwritten, and a name duplicated across codex/claude
+imports once.
 
 ## Browser — drive your real, logged-in Chrome
 

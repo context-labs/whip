@@ -47,6 +47,20 @@ func DefaultDirs() []string {
 	return dirs
 }
 
+// ForeignDirs returns other harnesses' user-level skill locations that an
+// import can pull from — codex (~/.codex/skills) and claude-code
+// (~/.claude/skills). Missing directories are skipped by the scan.
+func ForeignDirs() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	return []string{
+		filepath.Join(home, ".codex", "skills"),
+		filepath.Join(home, ".claude", "skills"),
+	}
+}
+
 // Scan reads <dir>/<skill>/SKILL.md for each dir, skipping anything
 // unreadable. Loaded-but-degraded skills carry a Warning (e.g. description
 // truncated); anything that fails to parse is silently skipped (a SKILL.md
