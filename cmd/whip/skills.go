@@ -147,7 +147,7 @@ func copyDir(src, dst string) error {
 	if _, err := os.Stat(dst); err == nil {
 		return fmt.Errorf("%s already exists", dst)
 	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
+	if err := os.MkdirAll(dst, 0o750); err != nil { // 0o750: imported skills are user config, not world-readable (gosec G301)
 		return err
 	}
 	entries, err := os.ReadDir(src)
@@ -180,7 +180,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm()) //nolint:gosec // G304: dst is inside whip's own ~/.agents/skills (validated by the dedup pass)
 	if err != nil {
 		return err
 	}
