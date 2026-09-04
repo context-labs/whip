@@ -26,10 +26,7 @@ func isBinary(data []byte) bool {
 	if len(data) == 0 {
 		return false
 	}
-	n := len(data)
-	if n > binaryProbeSize {
-		n = binaryProbeSize
-	}
+	n := min(len(data), binaryProbeSize)
 	sample := data[:n]
 
 	if !utf8.Valid(sample) {
