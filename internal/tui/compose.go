@@ -223,6 +223,7 @@ func (m *model) View() tea.View {
 	m.recordInputRows()
 
 	view := tea.NewView(scr.Render())
+	view.Cursor = m.cursor(r)
 	view.AltScreen = true
 	if m.mouseOn {
 		view.MouseMode = tea.MouseModeAllMotion // clicks, wheel, drag
@@ -255,4 +256,23 @@ func dimArea(scr uv.Screen, area uv.Rectangle) {
 			scr.SetCell(x, y, &n)
 		}
 	}
+}
+
+// cursor places the terminal cursor on the textarea's caret, or hides it
+// while something else owns the keyboard (a dialog, the rewind picker, the
+// permission prompt, an interactive command, a masked secret prompt).
+func (m *model) cursor(r frameRects) *tea.Cursor {
+	if m.iactive != nil || m.dialogOpen() || r.inputText.Empty() || (m.namePrompt != nil && m.namePrompt.mask) {
+		return nil
+	}
+	c := m.input.Cursor() // relative to the textarea's own view; whip's textarea is frameless with no prompt
+	if c == nil {
+		return nil
+	}
+	c.X += r.inputText.Min.X
+	c.Y += r.inputText.Min.Y
+	if !inRect(r.inputText, c.X, c.Y) {
+		return nil
+	}
+	return c
 }

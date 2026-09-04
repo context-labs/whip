@@ -834,6 +834,7 @@ func (m *model) applyOpencodeStyles() {
 	st.Focused.Placeholder = th.Textarea.Focused.Placeholder
 	st.Blurred.Text = th.Textarea.Blurred.Text
 	st.Blurred.Placeholder = th.Textarea.Blurred.Placeholder
+	st.Cursor = th.Textarea.Cursor
 	m.input.SetStyles(st)
 	m.input.Focus()
 }

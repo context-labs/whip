@@ -4,6 +4,7 @@ import (
 	"image/color"
 
 	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 )
@@ -96,6 +97,9 @@ func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 	t.Spinner = lipgloss.NewStyle().Foreground(t.Info)
 
 	ta := textarea.DefaultStyles(t.Dark)
+	// The real terminal cursor: keep the user's own cursor colour (nil = no
+	// OSC 12 repaint); a blinking block is what terminals show at a prompt.
+	ta.Cursor = textarea.CursorStyle{Color: nil, Shape: tea.CursorBlock, Blink: true}
 	elem := t.On(nil, t.Surface.Element)
 	for _, st := range []*textarea.StyleState{&ta.Focused, &ta.Blurred} {
 		st.Base = lipgloss.NewStyle()

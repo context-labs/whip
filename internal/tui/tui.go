@@ -246,6 +246,7 @@ func newInput() textarea.Model {
 	// textarea's default delete-after-cursor shadow it.
 	ti.KeyMap.DeleteAfterCursor = key.NewBinding()
 	ti.SetStyles(currentTheme().Textarea) // applyOpencodeStyles re-applies on every theme change
+	ti.SetVirtualCursor(false)            // the terminal draws the cursor where View places it
 	ti.Focus()
 	return ti
 }
@@ -660,7 +661,7 @@ func (m *model) Init() tea.Cmd {
 	// Bubble Tea's own OSC 11 query is a second scheme signal: whip's pre-run
 	// query stays authoritative (it handles tmux passthrough), and the reply
 	// only matters when that query came back unknown (applyDetectedBackground).
-	cmds := []tea.Cmd{textarea.Blink, waitClientUpdate(m.client), tea.RequestBackgroundColor}
+	cmds := []tea.Cmd{waitClientUpdate(m.client), tea.RequestBackgroundColor}
 	if inTmuxEnv() {
 		// live theme tracking: tmux knows the outer terminal's light/dark
 		// (#{client_theme}, via the 996/2031 protocol) — poll it so an OS
