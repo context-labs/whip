@@ -172,14 +172,16 @@ when you run `/theme`. Colors are `#rrggbb` or an ANSI palette index `0`-`255`.
     "primary": "#00aaff", "accent": "#c678dd",
     "success": "#98c379", "warning": "#e5c07b", "error": "#e06c75", "info": "#61afef",
     "link": "#56b6c2", "emphasis": "#e5c07b", "onPrimary": "#0a0a0a",
-    "border": "#3a3a3a", "borderFocus": "#61afef", "bg": "#1e1e1e"
+    "border": "#3a3a3a", "borderFocus": "#61afef", "bg": "#1e1e1e",
+    "diffAdd": "22", "diffDel": "52"
   },
   "surfaces": { "panel": "#262626", "element": "#303030", "hover": "#3a3a3a" },
   "chroma": "dracula"
 }
 ```
 
-`surfaces` is optional: without it the card and prompt fills are derived from
+`diffAdd`/`diffDel` are the background tints behind added and removed diff
+lines. `surfaces` is optional: without it the card and prompt fills are derived from
 the terminal's real background so they read as raised layers on any terminal.
 `chroma` is optional: without it the code colors are generated from the
 palette; with it, that registered chroma style is used instead.
