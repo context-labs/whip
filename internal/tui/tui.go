@@ -1314,8 +1314,14 @@ func (m *model) appendAssistantBlock(s string) {
 }
 
 func (m *model) appendRaw(kind blockKind, text string) {
+	// Only stay pinned to the bottom if we were already following. A user who
+	// scrolled up to read reasoning must not be yanked to the bottom by every
+	// streamed line that lands — follow is re-engaged by scrolling back down
+	// (m.follow = m.vp.AtBottom()), not by new content arriving.
+	if m.vp.AtBottom() {
+		m.follow = true
+	}
 	m.blocks = append(m.blocks, block{kind: kind, text: text})
-	m.follow = true
 	m.refreshVP()
 }
 
@@ -1721,12 +1727,11 @@ func (m *model) layout() {
 	if m.busy && m.uiMode != opencodeMode {
 		chrome += 2 // blank line above the spinner + the spinner line itself (opencode mode: status bar spinner instead)
 	}
-	if m.current != "" {
-		chrome += lipgloss.Height(m.currentView()) + 1 // + its blank separator
-	}
-	if m.curThink != "" {
-		chrome += lipgloss.Height(m.thinkView()) + 1
-	}
+	// The in-flight response/reasoning renders below the viewport and are
+	// unbounded — a long chunk would budget every terminal row into chrome,
+	// collapse the transcript to 1 row, and push its top into scrollback (the
+	// "cut off at the top, reasoning above it" bug). Their height is budgeted
+	// below at m.streamCap(), AFTER fixed chrome is known.
 	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
 		chrome += 2 // the live "+ Thinking…" line + its blank separator (must match viewBody)
 	}
@@ -1767,6 +1772,15 @@ func (m *model) layout() {
 		}
 		chrome += m.dockRows // the blank above the input is already in the base
 	}
+	// Now budget the in-flight streaming area at its cap: fixed chrome + the
+	// capped live rows + the transcript floor must equal the terminal height,
+	// so the frame fits and the transcript keeps a scrollable window. A 0 cap
+	// drops the live area (and its separator) entirely.
+	if m.current != "" || m.curThink != "" {
+		if cap := m.streamCap(chrome); cap > 0 {
+			chrome += cap + 1 // + the blank separator above it
+		}
+	}
 	// Floor the viewport width too: a degenerate m.width (1–4 cols) would set
 	// the viewport to 1 col and re-slice the transcript into a one-char strip,
 	// regardless of the render floor in refreshVP.
@@ -1775,6 +1789,22 @@ func (m *model) layout() {
 		m.vp.Width, m.vp.Height = w, h
 		m.refreshVP()
 	}
+}
+
+// streamCap returns how many rows the in-flight streaming area (response
+// and/or live reasoning) may occupy: what fixed chrome leaves after reserving
+// up to minTranscriptRows for the transcript. The transcript floor wins over
+// the live area — a squeezed terminal trims the live view to its tail (where
+// new tokens land) instead of pushing the transcript off-screen. The floor
+// itself scales down on terminals too short to afford it, and 0 means the
+// live area is dropped entirely (base chrome alone already fills the frame).
+func (m *model) streamCap(fixedChrome int) int {
+	avail := m.height - fixedChrome - 1 // the blank separator above the live area
+	if avail < 2 {
+		return 0
+	}
+	floor := min(minTranscriptRows, avail-1)
+	return avail - floor
 }
 
 // dockTop returns the screen row of the first TASK row in the dock: the dock
@@ -4295,6 +4325,88 @@ func (m *model) currentView() string {
 	return wrap(s, m.width) // streamed mid-flight: plain text; markdown renders on flush
 }
 
+// minTranscriptRows is the smallest window the transcript viewport keeps while
+// a response/reasoning streams below it. Without a floor, a long in-flight
+// chunk budgets every terminal row into chrome, collapses the viewport to 1
+// row, and the over-tall frame pushes the transcript's top into scrollback —
+// the "response cut off at the top, reasoning traces above it" bug.
+const minTranscriptRows = 5
+
+// streamTail keeps the last n rows of s (the growing edge of a streaming
+// render); s is returned unchanged when it already fits.
+func streamTail(s string, n int) string {
+	if n < 1 {
+		n = 1
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
+// fixedChrome mirrors layout()'s chrome count MINUS the streaming area, so
+// the capped views render to the exact height layout budgets. Keep in sync
+// with layout: any always-on row it adds must land here too.
+func (m *model) fixedChrome() int {
+	chrome := 6 + m.input.Height()
+	if m.uiMode == opencodeMode {
+		chrome++
+	}
+	if m.iactive != nil {
+		chrome -= m.input.Height()
+	}
+	if m.busy && m.uiMode != opencodeMode {
+		chrome += 2
+	}
+	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
+		chrome += 2
+	}
+	if m.iactive != nil {
+		chrome += lipgloss.Height(m.interactiveView()) + 1
+	}
+	if m.permDialog != nil {
+		chrome += lipgloss.Height(m.permView()) + 1
+	}
+	if m.menu != nil && m.uiMode != opencodeMode {
+		chrome += lipgloss.Height(m.menuView()) + 1
+	}
+	if len(m.queue) > 0 {
+		chrome += len(m.queue) + 1
+	}
+	if m.rew != nil {
+		chrome += lipgloss.Height(m.rewindView()) + 1
+	}
+	if m.quit1 {
+		chrome++
+	}
+	if m.escClr || (m.esc1 && m.rew == nil && m.namePrompt == nil) {
+		chrome++
+	}
+	return chrome + m.dockRows
+}
+
+// currentViewCapped is currentView trimmed to streamCap; layout budgets this
+// exact height so the frame fits the terminal. The tail is kept because
+// that's where new tokens land. A 0 cap means the terminal is too short to
+// show any of it — return "" so the caller drops the area (and its separator).
+func (m *model) currentViewCapped() string {
+	cap := m.streamCap(m.fixedChrome())
+	if cap == 0 {
+		return ""
+	}
+	return streamTail(m.currentView(), cap)
+}
+
+// thinkViewCapped is thinkView trimmed the same way for the live reasoning line.
+func (m *model) thinkViewCapped() string {
+	cap := m.streamCap(m.fixedChrome())
+	if cap == 0 {
+		return ""
+	}
+	return streamTail(m.thinkView(), cap)
+}
+
 // View renders the frame and tracks WHERE it sits on the screen. Mouse events
 // arrive in absolute screen coordinates, so every click/drag mapping needs the
 // view's top row. The inline view starts bottom-anchored (Run moves the cursor
@@ -4428,16 +4540,21 @@ func (m *model) viewBody() string {
 		b.WriteString(dimStyle.Render(tips) + "\n\n")
 	}
 	b.WriteString(m.viewportView() + "\n") // selection highlight paints inside
-	if m.curThink != "" {
-		b.WriteString("\n" + m.thinkView() + "\n")
+	// Live streaming area: render only when the capped view is non-empty (a 0
+	// cap on a degenerate short terminal drops the area AND its separator, so
+	// layout's chrome count and this paint stay in sync). curThink and current
+	// are never live simultaneously (thinkMsg flushes current first, textMsg
+	// flushes curThink first), so each can safely claim the whole streamCap.
+	if cv := m.thinkViewCapped(); m.curThink != "" && cv != "" {
+		b.WriteString("\n" + cv + "\n")
 	}
 	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
 		// reasoning is streaming: opencode shows a transient "Thinking" line
 		// where the collapsed "+ Thought: {dur}" will land on flush
 		b.WriteString("\n   " + lipgloss.NewStyle().Foreground(ocWarnCol()).Render("+ Thinking…") + "\n")
 	}
-	if m.current != "" {
-		b.WriteString("\n" + m.currentView() + "\n")
+	if cv := m.currentViewCapped(); m.current != "" && cv != "" {
+		b.WriteString("\n" + cv + "\n")
 	}
 	if m.iactive != nil {
 		b.WriteString("\n" + m.interactiveView() + "\n")
