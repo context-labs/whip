@@ -136,11 +136,11 @@ func surfaces(spec Spec, bg color.Color, profile colorprofile.Profile) Surfaces 
 	}
 	if bg != nil {
 		dark := isDark(bg) // the real background decides, so a light theme pinned on a dark terminal still raises
-		step := func(n float64) color.Color {
+		step := func(n float64) color.Color { // lipgloss takes fractions: 4% per step up on dark, 6% down on light
 			if dark {
-				return lipgloss.Lighten(bg, 4*n)
+				return lipgloss.Lighten(bg, 0.04*n)
 			}
-			return lipgloss.Darken(bg, 6*n)
+			return lipgloss.Darken(bg, 0.06*n)
 		}
 		return Surfaces{Base: bg, Panel: step(1), Element: step(2), Hover: step(3)}
 	}

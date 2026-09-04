@@ -23,9 +23,15 @@ func TestBuiltinsResolveAndDeriveSurfaces(t *testing.T) {
 	if light.Dark || hexOf(light.Surface.Panel) >= "#ffffff" {
 		t.Fatalf("light panel should be darker than white: %s", hexOf(light.Surface.Panel))
 	}
-	// no terminal background: the surfaces derive from the theme's own Bg
-	if fb := Resolve(Dark(), nil, colorprofile.TrueColor); fb.Surface.Panel == nil || hexOf(fb.Surface.Panel) <= hexOf(fb.Bg) || hexOf(fb.Surface.Base) != hexOf(fb.Bg) {
-		t.Fatalf("surfaces should step up from the theme bg %s: %+v", hexOf(fb.Bg), fb.Surface)
+	// no terminal background: the surfaces step from the theme's own Bg in
+	// small increments (a whole-number "percent" would clamp to white/black)
+	fb := Resolve(Dark(), nil, colorprofile.TrueColor)
+	if got := [3]string{hexOf(fb.Surface.Panel), hexOf(fb.Surface.Element), hexOf(fb.Surface.Hover)}; got != [3]string{"#282828", "#323232", "#3c3c3c"} || hexOf(fb.Surface.Base) != hexOf(fb.Bg) {
+		t.Fatalf("dark surfaces from bg %s = %v", hexOf(fb.Bg), got)
+	}
+	fl := Resolve(Light(), nil, colorprofile.TrueColor)
+	if got := [3]string{hexOf(fl.Surface.Panel), hexOf(fl.Surface.Element), hexOf(fl.Surface.Hover)}; got != [3]string{"#ebebeb", "#dcdcdc", "#cdcdcd"} {
+		t.Fatalf("light surfaces from bg %s = %v", hexOf(fl.Bg), got)
 	}
 	// 16 colors: no fills at all, borders carry the layering
 	if ansi := Resolve(Dark(), color.RGBA{A: 0xff}, colorprofile.ANSI); ansi.Surface.Panel != nil || ansi.Surface.Element != nil {
