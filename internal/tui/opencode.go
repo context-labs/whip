@@ -350,7 +350,7 @@ func (m *model) ocDialogRows() []string {
 		if n := len(groups); n == 0 || groups[n-1].Title != it.category {
 			groups = append(groups, ui.ListGroup{Title: it.category})
 		}
-		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: it.title, Right: hint})
+		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: it.title, Right: hint, Swatch: it.swatch})
 	}
 	return ui.List{Title: "Commands", Hint: "esc", Search: true, Query: p.filter, Groups: groups, Sel: p.idx,
 		Empty: "No results found", Width: m.dialogWidth(), Window: m.dialogWindow(12)}.Render(currentTheme())

@@ -4,35 +4,35 @@
                                                                                                       tokens                                
                                         Search                                                         used                                 
                                                                                                       .00 spent                             
-                                        Display                                                                                             
-                                        Theme: auto                                      /theme auto  P                                     
-                                        Theme: light                                    /theme light  naged by daemon                       
-                                        Theme: dark                                      /theme dark                                        
-                                        Theme: aura                                      /theme aura  ents                                  
-                                        Theme: aura-light                          /theme aura-light  ⚙ root (root-agent) — running         
-                                        Theme: ayu                                        /theme ayu    ⚙ file-reader (ba06…c16d) — idle    
-                                        Theme: ayu-light                            /theme ayu-light                                        
-                                        Theme: carbonfox                            /theme carbonfox                                        
-                                        Theme: carbonfox-light                /theme carbonfox-light                                        
-                                        Theme: catppuccin                          /theme catppuccin                                        
-                                        Theme: catppuccin-frappe            /theme catppuccin-frappe                                        
-   ❯ find the config loader             Theme: catppuccin-frappe-light  /theme catppuccin-frappe-li…                                        
-                                        Theme: catppuccin-light              /theme catppuccin-light                                        
-     ← Read internal/config/config.go   Theme: catppuccin-macchiato      /theme catppuccin-macchiato                                        
-                                        Theme: catppuccin-macchiato-light  /theme catppuccin-macchi…                                        
-     ↳ 5 lines · ctrl+e or click expan  Theme: cobalt2                                /theme cobalt2                                        
-                                        Theme: cobalt2-light                    /theme cobalt2-light                                        
-     Found it. Load reads the JSON fil  Theme: cursor                                  /theme cursor                                        
-                                        Theme: cursor-light                      /theme cursor-light                                        
-     1. resolve the directory           Theme: dracula                                /theme dracula                                        
-     2. decode the file                 Theme: dracula-light                    /theme dracula-light                                        
-                                        Theme: everforest                          /theme everforest                                        
-       cfg, err := config.Load()        Theme: everforest-light              /theme everforest-light                                        
-                                        Theme: flexoki                                /theme flexoki                                        
-     See the docs.                      Theme: flexoki-light                    /theme flexoki-light                                        
-                                        Theme: github                                  /theme github                                        
-  ┃                                     Theme: github-light                      /theme github-light                                        
-  ┃  Ask whip anything… (/ for command  Theme: gruvbox                                /theme gruvbox                                        
+                                        Themes                                                                                              
+                                        auto                                                ████████  P                                     
+                                        light                                               ████████  naged by daemon                       
+                                        dark                                                ████████                                        
+                                        aura                                                ████████  ents                                  
+                                        aura-light                                          ████████  ⚙ root (root-agent) — running         
+                                        ayu                                                 ████████    ⚙ file-reader (ba06…c16d) — idle    
+                                        ayu-light                                           ████████                                        
+                                        carbonfox                                           ████████                                        
+                                        carbonfox-light                                     ████████                                        
+                                        catppuccin                                          ████████                                        
+                                        catppuccin-frappe                                   ████████                                        
+   ❯ find the config loader             catppuccin-frappe-light                             ████████                                        
+                                        catppuccin-light                                    ████████                                        
+     ← Read internal/config/config.go   catppuccin-macchiato                                ████████                                        
+                                        catppuccin-macchiato-light                          ████████                                        
+     ↳ 5 lines · ctrl+e or click expan  cobalt2                                             ████████                                        
+                                        cobalt2-light                                       ████████                                        
+     Found it. Load reads the JSON fil  cursor                                              ████████                                        
+                                        cursor-light                                        ████████                                        
+     1. resolve the directory           dracula                                             ████████                                        
+     2. decode the file                 dracula-light                                       ████████                                        
+                                        everforest                                          ████████                                        
+       cfg, err := config.Load()        everforest-light                                    ████████                                        
+                                        flexoki                                             ████████                                        
+     See the docs.                      flexoki-light                                       ████████                                        
+                                        github                                              ████████                                        
+  ┃                                     github-light                                        ████████                                        
+  ┃  Ask whip anything… (/ for command  gruvbox                                             ████████                                        
   ┃                                                                                                                                         
   ┃  Off · kimi-k3-fast  inference                                                                                                          
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                            

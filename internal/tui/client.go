@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/color"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,11 +17,13 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	bubbletea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/update"
 )
 
@@ -1726,15 +1729,20 @@ func (m *model) openCommandSubpalette(category string, commands []struct{ title,
 	m.palette.applyFilter(m)
 }
 
+// openThinThemePalette opens the theme picker: every theme by name with its
+// colour chips, previewed live as the selection moves, restored on esc and
+// saved on enter.
 func (m *model) openThinThemePalette() {
 	loadUserThemes()
 	names := themeNames()
 	items := make([]paletteItem, 0, len(names))
 	for _, theme := range names {
 		items = append(items, paletteItem{
-			title: "Theme: " + theme, category: "Display",
-			dynDesc: func(*model) string { return "switch terminal colors to " + theme },
-			dynHint: func(*model) string { return "/theme " + theme },
+			title: theme, category: "Themes",
+			dynDesc: func(*model) string { return "switch colors to " + theme },
+			dynHint: func(*model) string { return "" },
+			swatch:  themeSwatch(theme),
+			preview: func(value *model) { value.previewTheme(theme) },
 			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
 				value.palette = nil
 				value.setTheme(theme)
@@ -1742,8 +1750,39 @@ func (m *model) openThinThemePalette() {
 			},
 		})
 	}
-	m.palette = &palette{all: items}
+	before := m.cfg.Theme // "" = auto
+	if before == "" {
+		before = "auto"
+	}
+	m.palette = &palette{all: items, onCancel: func(value *model) { value.previewTheme(before) }}
 	m.palette.applyFilter(m)
+}
+
+// previewTheme applies a theme to the screen without saving it.
+func (m *model) previewTheme(name string) {
+	m.applyTheme(name)
+	m.applyOpencodeStyles()
+	m.refreshVP()
+}
+
+// themeSwatch is a theme's signature: primary, accent, success and error.
+func themeSwatch(name string) []color.Color {
+	var spec theme.Spec
+	switch {
+	case name == "auto":
+		spec = theme.Dark()
+		if schemeIsLight() {
+			spec = theme.Light()
+		}
+	default:
+		s := pinnedSpec(name)
+		if s == nil {
+			return nil
+		}
+		spec = *s
+	}
+	th := theme.Resolve(spec, nil, colorprofile.TrueColor)
+	return []color.Color{th.Primary, th.Accent, th.Success, th.Error}
 }
 
 func (m *model) openThinEffortPalette() {

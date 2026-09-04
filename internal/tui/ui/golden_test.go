@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
@@ -36,10 +37,12 @@ func TestComponentGoldens(t *testing.T) {
 				"toast-error":     Toast{Text: "daemon unreachable: connection refused on the socket", Kind: Error, Width: 30}.Render(th),
 				"text":            Heading(th, "Heading") + "\n" + Label(th, "LABEL") + " " + Muted(th, "muted") + " " + Kbd(th, "ctrl+x"),
 				"list": strings.Join(List{Title: "Commands", Hint: "esc", Search: true, Sel: 1, Width: 44, Empty: "No results found",
-					Groups: []ListGroup{{Title: "Session", Items: []ListItem{{"New session", "/new"}, {"Resume session", "/resume"}}}, {Title: "Display", Items: []ListItem{{"Theme: auto", "/theme auto"}}}},
+					Groups: []ListGroup{{Title: "Session", Items: []ListItem{{Left: "New session", Right: "/new"}, {Left: "Resume session", Right: "/resume"}}}, {Title: "Display", Items: []ListItem{{Left: "Theme: auto", Right: "/theme auto"}}}},
 					Footer: []string{"enter", "select", "type", "to filter"}}.Render(th), "\n"),
 				"list-window": strings.Join(List{Title: "Sessions", Hint: "esc", Sel: 5, Width: 40, Window: 3,
-					Groups: []ListGroup{{Title: "Today", Items: []ListItem{{"one", "1m"}, {"two", "2m"}, {"three", "3m"}, {"four", "4m"}, {"five", "5m"}, {"six", "6m"}, {"seven", "7m"}}}}}.Render(th), "\n"),
+					Groups: []ListGroup{{Title: "Today", Items: []ListItem{{Left: "one", Right: "1m"}, {Left: "two", Right: "2m"}, {Left: "three", Right: "3m"}, {Left: "four", Right: "4m"}, {Left: "five", Right: "5m"}, {Left: "six", Right: "6m"}, {Left: "seven", Right: "7m"}}}}}.Render(th), "\n"),
+				"list-swatch": strings.Join(List{Title: "Themes", Hint: "esc", Search: true, Sel: 1, Width: 40,
+					Groups: []ListGroup{{Title: "Themes", Items: []ListItem{{Left: "auto", Swatch: []color.Color{th.Primary, th.Accent, th.Success, th.Error}}, {Left: "tokyonight", Swatch: []color.Color{lipgloss.Color("#82aaff"), lipgloss.Color("#ff966c"), lipgloss.Color("#c3e88d"), lipgloss.Color("#ff757f")}}}}}}.Render(th), "\n"),
 				"list-empty": strings.Join(List{Title: "Select model", Hint: "esc", Search: true, Query: "zzz", Width: 40, Empty: "No results found"}.Render(th), "\n"),
 			}
 			for cname, out := range cases {

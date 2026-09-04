@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -9,8 +10,12 @@ import (
 	"github.com/context-labs/whip/internal/tui/theme"
 )
 
-// ListItem is one selectable row: a left label and a right-aligned hint.
-type ListItem struct{ Left, Right string }
+// ListItem is one selectable row: a left label and, right-aligned, either a
+// hint or a row of colour chips (Swatch wins when set).
+type ListItem struct {
+	Left, Right string
+	Swatch      []color.Color
+}
 
 // ListGroup is a run of items under an accent header ("" = no header).
 type ListGroup struct {
@@ -86,8 +91,14 @@ func (l List) Render(th *theme.Theme) []string {
 			right := ansi.Truncate(it.Right, max(l.Width-4-lipgloss.Width(it.Left)-2, 0), "…")
 			if i == l.Sel { // full-width primary fill, the selected-row treatment
 				sel := th.Selected
-				row := sel.Render("  "+it.Left) + sel.Render(strings.Repeat(" ", max(l.Width-2-lipgloss.Width(it.Left)-lipgloss.Width(right)-2, 1))) + sel.Render(right+"  ")
+				tail := sel.Render(right + "  ")
+				if len(it.Swatch) > 0 {
+					tail = swatches(th, it.Swatch, th.Primary) + sel.Render("  ")
+				}
+				row := sel.Render("  "+it.Left) + sel.Render(strings.Repeat(" ", max(l.Width-2-lipgloss.Width(it.Left)-lipgloss.Width(tail), 1))) + tail
 				rows = append(rows, PadRow(row, l.Width, th.Primary))
+			} else if len(it.Swatch) > 0 {
+				rows = append(rows, lr(text.Render(it.Left), swatches(th, it.Swatch, bg)))
 			} else {
 				rows = append(rows, lr(text.Render(it.Left), muted.Render(right)))
 			}
@@ -118,4 +129,13 @@ func listWindow(n, idx, budget int) (int, int) {
 	lo := max(idx-budget/2, 0)
 	hi := min(lo+budget, n)
 	return max(hi-budget, 0), hi
+}
+
+// swatches renders colour chips side by side on bg.
+func swatches(th *theme.Theme, cs []color.Color, bg color.Color) string {
+	var b strings.Builder
+	for _, c := range cs {
+		b.WriteString(th.On(c, bg).Render("██"))
+	}
+	return b.String()
 }

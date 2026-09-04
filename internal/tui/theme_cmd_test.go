@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/config"
 )
@@ -51,8 +52,8 @@ func TestThemeBareOpensSwitcher(t *testing.T) {
 	if m.palette == nil {
 		t.Fatal("bare /theme should open the palette")
 	}
-	if len(m.palette.items) < 60 || m.palette.items[0].title != "Theme: auto" ||
-		m.palette.items[1].title != "Theme: light" || m.palette.items[2].title != "Theme: dark" {
+	if len(m.palette.items) < 60 || m.palette.items[0].title != "auto" ||
+		m.palette.items[1].title != "light" || m.palette.items[2].title != "dark" {
 		t.Fatalf("theme palette should list auto, light, dark and the catalog: %d items", len(m.palette.items))
 	}
 	// navigate to light and apply with enter
@@ -91,4 +92,38 @@ func TestNoArtifactsBothThemes(t *testing.T) {
 		m.setTheme("dark")
 	}
 	setSchemeOverride("") // theme state is process-global: restore detection mode
+}
+
+// Moving through the theme picker previews each theme live without saving;
+// esc restores the theme that was active; enter saves the pick. Rows show
+// bare names with colour chips, no command hints.
+func TestThemeSwitcherPreviewsAndRestores(t *testing.T) {
+	t.Cleanup(func() { setSchemeOverride(""); SetLightTheme(false) })
+	m := compactCmdModel()
+	m.Update(mkWinSize(120, 40))
+	m.setTheme("dark")
+	m.command("/theme")
+	rows := ansi.Strip(strings.Join(m.ocDialogRows(), "\n"))
+	if strings.Contains(rows, "Theme:") || strings.Contains(rows, "/theme ") || !strings.Contains(rows, "██") {
+		t.Fatalf("picker rows should be bare names with swatches:\n%s", rows)
+	}
+	for range 3 {
+		m.key(keyMsg(tea.KeyDown))
+	}
+	if got := m.palette.items[m.palette.idx].title; got != "aura" || currentTheme().Name != "aura" || m.cfg.Theme != "dark" {
+		t.Fatalf("moving should preview without saving: sel=%q theme=%q cfg=%q", got, currentTheme().Name, m.cfg.Theme)
+	}
+	m.key(keyMsg(tea.KeyEscape))
+	if m.palette != nil || currentTheme().Name != "dark" || CurrentTheme() != "dark" {
+		t.Fatalf("esc should restore the previous theme: %q / %q", currentTheme().Name, CurrentTheme())
+	}
+	m.command("/theme")
+	typeStr(t, m, "tokyonight-l")
+	if currentTheme().Name != "tokyonight-light" {
+		t.Fatalf("filtering should preview the first match: %q", currentTheme().Name)
+	}
+	m.key(keyMsg(tea.KeyEnter))
+	if m.palette != nil || m.cfg.Theme != "tokyonight-light" || currentTheme().Name != "tokyonight-light" {
+		t.Fatalf("enter should save the pick: cfg=%q theme=%q", m.cfg.Theme, currentTheme().Name)
+	}
 }
