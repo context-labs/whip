@@ -789,14 +789,6 @@ func (m *model) msgActionsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// vpTopRows is the number of chrome rows above the transcript viewport —
-// mouse row math must match viewBody exactly (opencode mode drops the header
-// and tips lines).
-func (m *model) vpTopRows() int { return 0 }
-
-// vpXOff is the columns the main body is shifted right (opencode's left margin).
-func (m *model) vpXOff() int { return opencodeLeftMargin }
-
 // opencodeAttribution renders opencode's per-response attribution line:
 // "▣  {mode} · {model} · {duration}", indented 3 to sit under the assistant body.
 func (m *model) opencodeAttribution(d time.Duration) string {

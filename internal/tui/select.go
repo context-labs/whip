@@ -52,9 +52,8 @@ type selection struct {
 }
 
 // selPoint converts ABSOLUTE screen coords to a selection endpoint. Content
-// row r renders at screen row vpTopRows + (r + contentPad - YOffset) - vpLead,
-// where vpLead is the top blank rows viewportView dropped. Invert that:
-// content row = y - vpTopRows - contentPad + YOffset + vpLead.
+// row r renders at transcript-local row (r + contentPad - YOffset); invert
+// that from the point's coordinates inside the transcript rectangle.
 //
 // clamp=false (a press): rows outside the block range return ok=false — a
 // press on the header, input box, or dock must NOT start a selection (it
@@ -62,33 +61,43 @@ type selection struct {
 // outside clamp to the nearest content row so an overshooting drag selects to
 // the start/end.
 func (m *model) selPoint(x, y int, clamp bool) (selPos, bool) {
-	if len(m.blocks) == 0 || m.viewH == 0 { // viewH 0: nothing rendered yet
+	tr := m.frameNow().transcript
+	if len(m.blocks) == 0 || tr.Empty() {
 		return selPos{}, false
 	}
-	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset() + m.vpLead
+	reg, lx, ly := m.hit(x, y)
+	if !clamp && reg != regTranscript { // a press elsewhere (sidebar, input, chrome) is not a selection
+		return selPos{}, false
+	}
+	if clamp { // a drag may leave the rectangle: measure from it anyway
+		lx, ly = x-tr.Min.X, y-tr.Min.Y
+	}
+	row := ly - m.contentPad() + m.vp.YOffset()
 	first, last := m.blocks[0].y0, m.blocks[len(m.blocks)-1].y1
 	if !clamp && (row < first || row > last) {
 		return selPos{}, false
 	}
 	row = max(min(row, last), first)
 	w := ansi.StringWidth(m.contentLine(row))
-	return selPos{row: row, col: max(min(x-m.vpXOff(), w), 0)}, true
+	return selPos{row: row, col: max(min(lx, w), 0)}, true
 }
 
 // inInputRow reports whether an absolute screen row is inside the input box.
 func (m *model) inInputRow(y int) bool {
-	return m.inputTop >= 0 && y >= m.inputTop && y < m.inputTop+len(m.inputLines)
+	it := m.frameNow().inputText
+	return !it.Empty() && y >= it.Min.Y && y < it.Max.Y
 }
 
 // inputPoint converts absolute screen coords in the input box to a selection
 // endpoint (region=input). clamp=true (drag motion) clamps the row into the
 // box; clamp=false (a press) returns ok=false outside it.
 func (m *model) inputPoint(x, y int, clamp bool) (selPos, bool) {
-	if m.inputTop < 0 || len(m.inputLines) == 0 {
+	it := m.frameNow().inputText
+	if it.Empty() || len(m.inputLines) == 0 {
 		return selPos{}, false
 	}
-	x -= m.vpXOff() + 3 // the box chrome shifts the raw input right: margin + "┃  "
-	row := y - m.inputTop
+	x -= it.Min.X
+	row := y - it.Min.Y
 	if !clamp && (row < 0 || row >= len(m.inputLines)) {
 		return selPos{}, false
 	}
@@ -381,8 +390,8 @@ func (m *model) selEdgeScroll() tea.Cmd {
 	if m.sel == nil || m.sel.done {
 		return nil
 	}
-	top := m.vpTopRows()
-	bottom := top + m.vp.Height() - 1
+	tr := m.frameNow().transcript
+	top, bottom := tr.Min.Y, tr.Max.Y-1
 	switch {
 	case m.selDragY <= top && m.vp.YOffset() > 0: // the top row is the edge (nothing above it)
 		m.vp.SetYOffset(m.vp.YOffset() - 1)
@@ -399,19 +408,18 @@ func (m *model) selEdgeScroll() tea.Cmd {
 }
 
 // clickAt replays the click actions a press inside the transcript would have
-// triggered (tool-block expand/collapse). Dock rows and the ⚡ header control
-// are handled before handleMouseSelect sees the event, so only the transcript
-// area reaches here. Row math matches selPoint (y is an absolute screen row).
+// triggered (message actions, tool-block expand/collapse). Only a point inside
+// the transcript rectangle acts: the sidebar, the gap and the chrome sharing
+// the row never do. Row math matches selPoint (y is an absolute screen row).
 func (m *model) clickAt(x, y int) {
-	if y <= m.vpTopRows()-2 || m.dialogOpen() || m.menu != nil || m.viewH == 0 {
+	if m.dialogOpen() || m.menu != nil {
 		return
 	}
-	// bound x: a click in the sidebar or the gap
-	// columns must not act on the transcript block sharing that row
-	if x < m.vpXOff() || x >= m.vpXOff()+m.width {
+	reg, _, ly := m.hit(x, y)
+	if reg != regTranscript {
 		return
 	}
-	row := y - m.vpTopRows() - m.contentPad() + m.vp.YOffset() + m.vpLead
+	row := ly - m.contentPad() + m.vp.YOffset()
 	for i := range m.blocks {
 		if row < m.blocks[i].y0 || row > m.blocks[i].y1 {
 			continue

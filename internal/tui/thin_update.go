@@ -493,7 +493,7 @@ func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// a press there never seeds a chat selection (selPoint/inputPoint only
 	// bound Y). Motion and release still flow to handleMouseSelect so a drag
 	// that started in the chat completes wherever the pointer ends.
-	inPanel := m.replPanel && m.sidebarVisible() && mouse.X >= m.termWidth-m.panelWidth()
+	inPanel := m.replPanel && inRect(m.frameNow().side, mouse.X, mouse.Y)
 	if inPanel && press {
 		switch mouse.Button {
 		case tea.MouseWheelUp:
@@ -511,7 +511,7 @@ func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if inPanel {
 		return m, nil
 	}
-	if isClick && mouse.Button == tea.MouseLeft && mouse.Y > 1 {
+	if isClick && mouse.Button == tea.MouseLeft {
 		m.clickAt(mouse.X, mouse.Y)
 		return m, nil
 	}

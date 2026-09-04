@@ -23,12 +23,11 @@ func selTestModel() *model {
 }
 
 // blockRowY maps content row r to the ABSOLUTE screen row where it renders:
-// vpTopRows + (r + contentPad - YOffset) - vpLead, matching the view
-// viewportView produces. Mouse events carry absolute screen coordinates, so
-// tests must aim there too.
+// the transcript rectangle's top plus (r + contentPad - YOffset). Mouse
+// events carry absolute screen coordinates, so tests must aim there too.
 func blockRowY(m *model, r int) int {
-	viewStr(m) // ensure vpLead is current (View/viewportView record it)
-	return m.vpTopRows() + (r + m.contentPad() - m.vp.YOffset()) - m.vpLead
+	viewStr(m) // settle the frame
+	return m.frameNow().transcript.Min.Y + (r + m.contentPad() - m.vp.YOffset())
 }
 
 // Full Update-path drag: press, motion, release must select + copy the
@@ -39,9 +38,9 @@ func TestDragSelectsHighlightsCopies(t *testing.T) {
 	y := blockRowY(m, m.blocks[1].y0) // "second block here"
 	before := viewStr(m)
 
-	tm, _ := m.Update(clickMsg(m.vpXOff()+0, y))
+	tm, _ := m.Update(clickMsg(m.frameNow().main.Min.X+0, y))
 	m = tm.(*model)
-	tm, _ = m.Update(dragMsg(m.vpXOff()+6, y))
+	tm, _ = m.Update(dragMsg(m.frameNow().main.Min.X+6, y))
 	m = tm.(*model)
 	if m.sel == nil {
 		t.Fatal("motion did not start a selection")
@@ -64,7 +63,7 @@ func TestDragSelectsHighlightsCopies(t *testing.T) {
 		t.Fatalf("text shifted during drag: before row %d, during row %d", rowOf(before), rowOf(during))
 	}
 
-	tm, _ = m.Update(releaseMsg(m.vpXOff()+6, y))
+	tm, _ = m.Update(releaseMsg(m.frameNow().main.Min.X+6, y))
 	m = tm.(*model)
 	if m.sel == nil || !m.sel.done {
 		t.Fatal("release must keep a done selection for the highlight")
@@ -152,9 +151,9 @@ func TestPressOutsideTranscriptNotConsumed(t *testing.T) {
 func TestDragBackward(t *testing.T) {
 	m := selTestModel()
 	y := blockRowY(m, m.blocks[1].y0) // "second block here"
-	m.handleMouseSelect(clickMsg(m.vpXOff()+17, y))
-	m.handleMouseSelect(dragMsg(m.vpXOff()+7, y))
-	m.handleMouseSelect(releaseMsg(m.vpXOff()+7, y))
+	m.handleMouseSelect(clickMsg(m.frameNow().main.Min.X+17, y))
+	m.handleMouseSelect(dragMsg(m.frameNow().main.Min.X+7, y))
+	m.handleMouseSelect(releaseMsg(m.frameNow().main.Min.X+7, y))
 	if got := m.selText(*m.sel); got != "block here" {
 		t.Fatalf("backward drag selected %q, want %q", got, "block here")
 	}
@@ -168,7 +167,7 @@ func TestInputDragSelectsHighlightsCopies(t *testing.T) {
 	tm, _ := m.Update(mkWinSize(80, 30))
 	m = tm.(*model)
 	viewStr(m)
-	iy := m.inputTop
+	iy := m.frameNow().inputText.Min.Y
 	if iy < 0 {
 		t.Fatal("inputTop must be set after View")
 	}
@@ -200,7 +199,7 @@ func TestInputClickThenType(t *testing.T) {
 	tm, _ := m.Update(mkWinSize(80, 30))
 	m = tm.(*model)
 	viewStr(m)
-	iy := m.inputTop
+	iy := m.frameNow().inputText.Min.Y
 	tm, _ = m.Update(clickMsg(2, iy))
 	m = tm.(*model)
 	tm, _ = m.Update(releaseMsg(2, iy))
@@ -219,9 +218,9 @@ func TestInputClickThenType(t *testing.T) {
 // blocks pastes as a blank line, exactly like a terminal's native copy.
 func TestDragAcrossBlocks(t *testing.T) {
 	m := selTestModel()
-	m.handleMouseSelect(clickMsg(m.vpXOff()+6, blockRowY(m, m.blocks[0].y0)))
-	m.handleMouseSelect(dragMsg(m.vpXOff()+6, blockRowY(m, m.blocks[1].y0)))
-	m.handleMouseSelect(releaseMsg(m.vpXOff()+6, blockRowY(m, m.blocks[1].y0)))
+	m.handleMouseSelect(clickMsg(m.frameNow().main.Min.X+6, blockRowY(m, m.blocks[0].y0)))
+	m.handleMouseSelect(dragMsg(m.frameNow().main.Min.X+6, blockRowY(m, m.blocks[1].y0)))
+	m.handleMouseSelect(releaseMsg(m.frameNow().main.Min.X+6, blockRowY(m, m.blocks[1].y0)))
 	if got := m.selText(*m.sel); got != "world\n\nsecond" {
 		t.Fatalf("cross-block drag selected %q, want %q", got, "world\n\nsecond")
 	}
@@ -238,9 +237,9 @@ func TestCopyKeepsParagraphBreaks(t *testing.T) {
 	m = tm.(*model)
 	m.input.SetValue("")
 	b := m.blocks[0]
-	m.handleMouseSelect(clickMsg(m.vpXOff()+0, blockRowY(m, b.y0)))
-	m.handleMouseSelect(dragMsg(m.vpXOff()+8, blockRowY(m, b.y1)))
-	m.handleMouseSelect(releaseMsg(m.vpXOff()+8, blockRowY(m, b.y1)))
+	m.handleMouseSelect(clickMsg(m.frameNow().main.Min.X+0, blockRowY(m, b.y0)))
+	m.handleMouseSelect(dragMsg(m.frameNow().main.Min.X+8, blockRowY(m, b.y1)))
+	m.handleMouseSelect(releaseMsg(m.frameNow().main.Min.X+8, blockRowY(m, b.y1)))
 	if got := m.selText(*m.sel); got != "para one\n\npara two" {
 		t.Fatalf("paragraph break lost: copied %q", got)
 	}

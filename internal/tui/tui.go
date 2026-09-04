@@ -177,10 +177,7 @@ type model struct {
 	// the line offset within viewBody where the input starts; inputTop is the
 	// absolute screen row (the view starts at row 0), -1 when hidden.
 	inputBodyOff int
-	inputTop     int
 	inputLines   []string         // the input box's rendered lines, ANSI-stripped
-	vpLead       int              // top blank rows viewportView last dropped (selection row mapping)
-	viewH        int              // height of the last rendered view
 	scr          *uv.ScreenBuffer // the frame buffer View draws into (reused across frames)
 	themeHow     string           // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
 	sessTitle    string           // cached session title for the opencode sidebar (from the store; updated on title/rename)
@@ -650,7 +647,6 @@ func (m *model) viewportView() string {
 	if m.sel != nil {
 		s = m.highlightSelection(s) // content space, pre-trim
 	}
-	m.vpLead = 0
 	if len(m.blocks) == 0 { // empty transcript: the centered-logo home screen
 		return opencodeHome(m.vp.Width(), m.vp.Height())
 	}
@@ -945,6 +941,9 @@ func (m *model) layout() {
 	// the prompt panel adds paddingTop, a blank, the model/mode row, and the ▀
 	// tail around the input; the status line and its blank sit below
 	chrome := 7 + m.input.Height()
+	if m.namePrompt != nil {
+		chrome -= 4 // the bare prompt row has no box (padding rows, meta row, tail)
+	}
 	if m.iactive != nil {
 		// input box is hidden while a command has the terminal; drop its height
 		// and the leading blank line View inserts before it.
@@ -1319,10 +1318,8 @@ func (m *model) currentView() string {
 // to select.
 func (m *model) recordInputRows() {
 	if m.iactive != nil || m.height == 0 {
-		m.inputTop = -1
 		m.inputLines = nil
 	} else {
-		m.inputTop = m.inputBodyOff + 1 // the prompt box opens with a padding row above the input
 		iv := m.input.View()
 		if m.namePrompt != nil && m.namePrompt.mask {
 			iv = m.namePrompt.label + " ┃ " + m.namePrompt.maskedValue(m.input.Value())

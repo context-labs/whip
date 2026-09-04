@@ -34,7 +34,7 @@ func TestCodeFromPartialArgs(t *testing.T) {
 func replTestModel(t *testing.T, termWidth int) *model {
 	t.Helper()
 	m := &model{
-		cfg: &config.Config{}, input: newInput(), termWidth: termWidth, now: time.Now,
+		cfg: &config.Config{}, input: newInput(), termWidth: termWidth, height: 40, now: time.Now,
 		sessTitle: "Repl session", replPanel: true,
 		clientView: clientPresentation{agents: []session.RuntimeAgent{
 			{ID: "root-agent", LifecyclePhase: "running"},
@@ -148,7 +148,7 @@ func TestReplPanelScrollsIndependentlyOfChat(t *testing.T) {
 		next, _ := m.thinMouse(wheelMsg(x, 5, up))
 		m = next.(*model)
 	}
-	inPanel := 140 - m.panelWidth() // the panel's first column
+	inPanel := m.frameNow().side.Min.X // the panel's first column
 	for range 5 {
 		wheel(inPanel, true)
 	}
@@ -195,7 +195,7 @@ func TestReplPanelPressDoesNotSelectChat(t *testing.T) {
 	m = next.(*model)
 	m.input.SetValue("")
 	viewStr(m)
-	rowY := func(r int) int { return m.vpTopRows() + (r + m.contentPad() - m.vp.YOffset()) - m.vpLead }
+	rowY := func(r int) int { return blockRowY(m, r) }
 	y0, y1 := rowY(m.blocks[0].y0), rowY(m.blocks[1].y0)
 	panelX := m.termWidth - 10
 	next, _ = m.Update(clickMsg(panelX, y0))
@@ -255,7 +255,7 @@ func TestReplHistorySurvivesSnapshotsAndKeepsScroll(t *testing.T) {
 	if view = m.replPanelView(20); !strings.Contains(view, "In [31]  2.0s") {
 		t.Fatalf("live cell duration missing:\n%s", view)
 	}
-	inPanel := 140 - m.panelWidth()
+	inPanel := m.frameNow().side.Min.X
 	for range 5 {
 		next, _ := m.thinMouse(wheelMsg(inPanel, 5, true))
 		m = next.(*model)

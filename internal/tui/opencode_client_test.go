@@ -131,7 +131,7 @@ func TestOpencodeOverlayAndDialogsStayWithinNarrowFrames(t *testing.T) {
 }
 
 func TestOpencodeMessageActionsAndToolPresentation(t *testing.T) {
-	m := &model{input: newInput(), width: 80, height: 20, viewH: 20}
+	m := &model{input: newInput(), width: 80, height: 20}
 	m.vp.SetWidth(80)
 	m.vp.SetHeight(10)
 	m.blocks = []block{{kind: blockUser, text: "hello"}, {kind: blockAssistant, text: "answer"}}
