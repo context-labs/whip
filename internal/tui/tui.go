@@ -1777,8 +1777,8 @@ func (m *model) layout() {
 	// so the frame fits and the transcript keeps a scrollable window. A 0 cap
 	// drops the live area (and its separator) entirely.
 	if m.current != "" || m.curThink != "" {
-		if cap := m.streamCap(chrome); cap > 0 {
-			chrome += cap + 1 // + the blank separator above it
+		if liveCap := m.streamCap(chrome); liveCap > 0 {
+			chrome += liveCap + 1 // + the blank separator above it
 		}
 	}
 	// Floor the viewport width too: a degenerate m.width (1–4 cols) would set
@@ -4391,20 +4391,20 @@ func (m *model) fixedChrome() int {
 // that's where new tokens land. A 0 cap means the terminal is too short to
 // show any of it — return "" so the caller drops the area (and its separator).
 func (m *model) currentViewCapped() string {
-	cap := m.streamCap(m.fixedChrome())
-	if cap == 0 {
+	liveCap := m.streamCap(m.fixedChrome())
+	if liveCap == 0 {
 		return ""
 	}
-	return streamTail(m.currentView(), cap)
+	return streamTail(m.currentView(), liveCap)
 }
 
 // thinkViewCapped is thinkView trimmed the same way for the live reasoning line.
 func (m *model) thinkViewCapped() string {
-	cap := m.streamCap(m.fixedChrome())
-	if cap == 0 {
+	liveCap := m.streamCap(m.fixedChrome())
+	if liveCap == 0 {
 		return ""
 	}
-	return streamTail(m.thinkView(), cap)
+	return streamTail(m.thinkView(), liveCap)
 }
 
 // View renders the frame and tracks WHERE it sits on the screen. Mouse events
