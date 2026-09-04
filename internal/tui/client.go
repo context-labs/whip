@@ -157,7 +157,8 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		m.append(errStyle.Render(identityWarning))
 	}
 
-	options := []bubbletea.ProgramOption{} // alt screen and mouse mode are View fields
+	// alt screen and mouse mode are View fields; the filter thins mouse motion
+	options := []bubbletea.ProgramOption{bubbletea.WithFilter(newInputFilter().Filter)}
 	if info, statErr := os.Stat(filepath.Join(home, "config.json")); statErr == nil {
 		m.cfgMod = info.ModTime()
 	}

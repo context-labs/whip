@@ -268,7 +268,13 @@ func (m *model) View() tea.View {
 	view.Cursor = m.cursor(r)
 	view.AltScreen = true
 	if m.mouseOn {
-		view.MouseMode = tea.MouseModeAllMotion // clicks, wheel, drag
+		// Button-motion (?1002) reports drags without the hover flood of
+		// all-motion. tmux forwards drags to whip only under all-motion
+		// (mouse_any_flag), so it keeps ?1003 there.
+		view.MouseMode = tea.MouseModeCellMotion
+		if inTmuxEnv() {
+			view.MouseMode = tea.MouseModeAllMotion
+		}
 	}
 	return view
 }

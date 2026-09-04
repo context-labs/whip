@@ -15,8 +15,8 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// In-app drag selection. whip enables mouse reporting (?1000 clicks/wheel +
-// ?1002 button-motion), and enabling ANY mouse mode makes most terminals
+// In-app drag selection. whip enables mouse reporting (?1002 button-motion;
+// ?1003 all-motion inside tmux), and enabling ANY mouse mode makes most terminals
 // (Ghostty, kitty, …) hand the drag to the app instead of starting a native
 // selection — so with capture on there is no drag-to-copy unless the app
 // implements it. We track the dragged range over the transcript viewport,
@@ -363,6 +363,15 @@ func (m *model) handleMouseSelect(msg tea.MouseMsg) (handled bool, cmd tea.Cmd) 
 	case tea.MouseReleaseMsg:
 		if m.sel == nil || m.sel.done {
 			return false, nil
+		}
+		// the release is the last word on where the drag ended: the filter may
+		// have thinned the final motion event
+		if m.sel.anchor.input {
+			if p, ok := m.inputPoint(mouse.X, mouse.Y, true); ok {
+				m.sel.cur = p
+			}
+		} else if p, ok := m.selPoint(mouse.X, mouse.Y, true); ok {
+			m.sel.cur = p
 		}
 		if m.sel.anchor != m.sel.cur { // a real drag: copy, keep the highlight
 			m.sel.done = true
