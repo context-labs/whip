@@ -222,7 +222,7 @@ type clientYoloMsg struct {
 // has not configured: a session switch, or a daemon restart that forgot the
 // mode. nil when there is nothing to do.
 func (m *model) yoloCommand() bubbletea.Cmd {
-	if !m.yolo || m.client == nil {
+	if !m.yolo || m.clientState != ClientLive { // a live daemon connection; headless models never re-apply
 		return nil
 	}
 	rootID := m.client.RootID()
