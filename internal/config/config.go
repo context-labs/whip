@@ -163,7 +163,9 @@ type Config struct {
 	CompactProvider string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
 	CompactPct      int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
 	Theme           string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
-	Sidebar         *bool               `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
+	Sidebar         *bool               `json:"sidebar,omitempty"`         // the left column of panels; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
+	Repl            *bool               `json:"repl,omitempty"`            // true opens the REPL panel at startup (ctrl+x r still toggles)
+	Panel           string              `json:"panel,omitempty"`           // the expanded left panel at startup: agents (default), context or lsp (ctrl+x 1/2/3 still switch)
 	Mouse           *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
 	Thinking        *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
 	CollapsePaste   *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder

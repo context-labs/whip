@@ -147,6 +147,8 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		input: newInput(), spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true,
 		catalogs: catalogs, mouseOn: mouseOn, now: time.Now, showThinking: showThinking,
 		sidebarHide:   cfg.Sidebar != nil && !*cfg.Sidebar,
+		replPanel:     cfg.Repl != nil && *cfg.Repl,
+		leftPane:      paneIndex(cfg.Panel),
 		initialPrompt: initialPrompt, cfgExtra: map[string]string{},
 		agentMessages: map[string][]llm.Message{},
 	}

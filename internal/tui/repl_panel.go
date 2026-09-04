@@ -283,38 +283,15 @@ func codeFromPartialArgs(args string) string {
 	return b.String()
 }
 
-// replCurrentCell describes an agent's running cell for the agent tree:
-// "  In[3] files.list(...)  1.2s", or "" when nothing is executing.
-func (m *model) replCurrentCell(agentID string) string {
-	history := m.repl[agentID]
-	if history == nil {
-		return ""
-	}
-	for index := len(history.cells) - 1; index >= 0; index-- {
-		cell := history.cells[index]
-		if cell.restart != "" || cell.finished || !cell.ended.IsZero() {
-			continue
-		}
-		cellNo := "·"
-		if cell.n > 0 {
-			cellNo = fmt.Sprint(cell.n)
-		}
-		line := fmt.Sprintf("  In[%s] %s", cellNo, firstLine(cell.code))
-		if !cell.started.IsZero() {
-			line += "  " + replDuration(m.replNow().Sub(cell.started))
-		}
-		return line
-	}
-	return ""
-}
-
 // replFlat keeps free text on one row: tabs become spaces (lipgloss would
 // expand them after truncation), carriage returns vanish, newlines fold.
 func replFlat(s string) string {
 	return strings.NewReplacer("\t", "    ", "\r", "", "\n", " ⏎ ").Replace(s)
 }
 
-func replDuration(d time.Duration) string {
+// shortDur formats a duration the way opencode does: "173ms" under a second,
+// "1.2s" from there.
+func shortDur(d time.Duration) string {
 	if d < time.Second {
 		return fmt.Sprintf("%dms", d.Milliseconds())
 	}
@@ -450,9 +427,9 @@ func (m *model) replCellRows(cell replCell, st replStyles, inner int) []string {
 	}
 	switch {
 	case !cell.ended.IsZero() && !cell.started.IsZero():
-		header += "  " + replDuration(cell.ended.Sub(cell.started))
+		header += "  " + shortDur(cell.ended.Sub(cell.started))
 	case !cell.started.IsZero():
-		header += "  " + replDuration(m.replNow().Sub(cell.started)) + " …"
+		header += "  " + shortDur(m.replNow().Sub(cell.started)) + " …"
 	}
 	if cell.steps > 0 {
 		header += fmt.Sprintf(" · %d steps", cell.steps)
@@ -617,7 +594,7 @@ func (m *model) agentActivity(agentID string) string {
 		}
 		line := "In[" + cellNo + "] " + firstLine(cell.code)
 		if !cell.started.IsZero() {
-			line += "  " + replDuration(m.replNow().Sub(cell.started))
+			line += "  " + shortDur(m.replNow().Sub(cell.started))
 		}
 		return strings.TrimSpace(line)
 	}
@@ -625,7 +602,7 @@ func (m *model) agentActivity(agentID string) string {
 		if history.toolAt.IsZero() {
 			return history.tool
 		}
-		return history.tool + " " + replDuration(m.replNow().Sub(history.toolAt))
+		return history.tool + " " + shortDur(m.replNow().Sub(history.toolAt))
 	}
 	return ""
 }

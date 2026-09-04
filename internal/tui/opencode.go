@@ -127,6 +127,17 @@ const (
 	paneLSP
 )
 
+// paneIndex maps the config's panel name to a pane; unknown names mean Agents.
+func paneIndex(name string) int {
+	switch name {
+	case "context":
+		return paneContext
+	case "lsp":
+		return paneLSP
+	}
+	return paneAgents
+}
+
 // openPane is the expanded panel: Agents while the tree has focus, else the
 // one picked with ctrl+x 1/2/3.
 func (m *model) openPane() int {
@@ -710,16 +721,7 @@ func (m *model) opencodeAttribution(d time.Duration) string {
 	txt := th.On(th.Text, nil)
 	muted := th.On(th.Muted, nil)
 	return "   " + agent.Render("▣") + txt.Render("  "+m.ocModeLabel()) + // 3-space indent under the assistant column
-		muted.Render(" · "+m.modelName+" · "+fmtShortDur(d))
-}
-
-// fmtShortDur formats a duration the way opencode does: "173ms" under a second,
-// otherwise "2.4s".
-func fmtShortDur(d time.Duration) string {
-	if d < time.Second {
-		return fmt.Sprintf("%dms", d.Milliseconds())
-	}
-	return fmt.Sprintf("%.1fs", d.Seconds())
+		muted.Render(" · "+m.modelName+" · "+shortDur(d))
 }
 
 // ocModeLabel is the left segment of the prompt meta row. whip has no named

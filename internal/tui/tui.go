@@ -128,7 +128,7 @@ type model struct {
 	// rewind live-scroll uses it to jump to a message's transcript position.
 	msgBlock  []int
 	follow    bool // auto-scroll to bottom on new content
-	width     int  // content width: full terminal width, minus the opencode sidebar when it shows
+	width     int  // content width: the chat column (the terminal minus the columns and their gaps)
 	height    int
 	termWidth int // full terminal width (opencode mode places the sidebar in the reserved columns)
 
@@ -176,7 +176,7 @@ type model struct {
 	inputLines  []string         // the input box's rendered lines, ANSI-stripped
 	scr         *uv.ScreenBuffer // the frame buffer View draws into (reused across frames)
 	themeHow    string           // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
-	sessTitle   string           // cached session title for the opencode sidebar (from the store; updated on title/rename)
+	sessTitle   string           // cached session title (from the store; updated on title/rename)
 	msgActions  *msgActions      // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
 	ocThink     string           // opencode mode: reasoning text accumulated for the expandable "+ Thought" block
 	toast       string           // top-right toast text; "" = none
@@ -184,7 +184,7 @@ type model struct {
 	lastClick   clickMark        // for double/triple-click selection
 	toastAt     time.Time        // when the current toast was shown (stale clears are ignored)
 	leaderAt    time.Time        // opencode mode: when ctrl+x armed the leader chord; zero = not pending
-	sidebarHide bool             // opencode mode: ctrl+x b hides the sidebar
+	sidebarHide bool             // ctrl+x b hides the left column of panels
 	leftPane    int              // the expanded left panel (paneAgents…paneLSP; ctrl+x 1/2/3)
 	// updateLatest is a pending newer release tag ("" when none), picked up
 	// from update.Pending at startup; the notice it renders is durable, so a
@@ -198,7 +198,7 @@ type model struct {
 	agentSel      int  // selected row in the dock (index into newest-first agents)
 	agentOpen     string
 	agentMessages map[string][]llm.Message
-	replPanel     bool                  // opencode sidebar shows the live Starlark REPL (ctrl+x r, /repl)
+	replPanel     bool                  // the REPL panel shows on the right (ctrl+x r, /repl)
 	repl          map[string]*replAgent // per-agent cell history for the REPL panel
 	replScroll    int                   // REPL panel rows scrolled up from the newest cell (0 follows)
 	replViewAgent string                // agent the REPL panel last rendered (a switch resets the scroll)
@@ -1205,7 +1205,7 @@ func (m *model) setThinking(on bool) {
 
 func (m *model) flushThink() {
 	if !m.thinkStart.IsZero() { // collapse the reasoning segment to one line (expandable to the text)
-		m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: fmtShortDur(m.nowFn().Sub(m.thinkStart))})
+		m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: shortDur(m.nowFn().Sub(m.thinkStart))})
 		m.follow = true
 		m.refreshVP()
 		m.thinkStart = time.Time{}

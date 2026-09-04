@@ -114,23 +114,38 @@ root prompt (`evals/rlm`).
   `/browser`, and `/computer-use` are daemon commands.
 - ACP maps editor sessions and permission decisions onto the same root
   protocol. It does not own a second agent loop.
-- The TUI is a single full-screen (alternate-screen) interface: a left
-  margin, the transcript, an input box, and a right sidebar on terminals of
-  120 columns or more. On exit it prints a resume line to the scrollback. The
-  former inline mode and the `uiMode` config key are gone.
-- `ctrl+x r` (or `/repl`) turns the right sidebar into a
-  live Starlark REPL for the visible agent: code as the model writes it,
+- The TUI is a single full-screen (alternate-screen) interface laid out like
+  opendocker: a left column of panels, the transcript with its input box, and
+  a key-hint footer across the whole last row. On exit it prints a resume line
+  to the scrollback. The former inline mode and the `uiMode` config key are
+  gone.
+- The left column shows on terminals of 120 columns or more and holds three
+  panels: `[1] Agents`, `[2] Context` (tokens, share of the window, spend) and
+  `[3] LSP`. One is expanded and the others collapse to their header row;
+  `ctrl+x 1/2/3` pick the expanded one, `ctrl+x b` hides the column. The
+  `sidebar` and `panel` config keys set the startup state.
+- Agent rows are structured: a lifecycle badge (running, blocked, idle, done,
+  failed, queued…), the name indented by depth, and what the agent is doing
+  (its running REPL cell or tool with the elapsed time, or pending mail). The
+  root heads the tree. `ctrl+t` or ↓ on an empty input focuses the panel
+  (its bar lights up), ↑/↓ select, enter opens an agent, `ctrl+x s` stops
+  the selected one, esc leaves; enter on the root, or esc with an empty
+  input, returns from a child to the main transcript. On narrow terminals the
+  same rows sit under the input.
+- `ctrl+x r` (or `/repl`, config key `repl`) opens the REPL panel on the
+  right: the open agent's live Starlark cells, code as the model writes it,
   print output as it happens, each host call with its duration, results,
-  errors, and worker restarts. Cells are cards on the panel shade, a hairline
-  separates the REPL from the chat, and the mouse wheel over the REPL scrolls
-  it independently of the chat (it follows the newest cell until you scroll
-  up). The agent tree lives in the right panel (Context and REPL modes
-  alike), or under the input when the terminal is too narrow for a sidebar;
-  `ctrl+t` or ↓ on an empty input focuses it, ↑/↓ select, enter opens,
-  `ctrl+x` stops, esc leaves. The root heads the tree: enter on it, or esc
-  with an empty input, returns from a child to the main transcript. The REPL
-  panel follows whichever agent is open and keeps every cell seen during the
-  TUI session, even after snapshots drop idle children.
+  errors, and worker restarts. Below 150 columns the panel takes the left
+  column's place; from 150 the two share the screen and the REPL grows with
+  the terminal (42–64 columns). The wheel over the panel scrolls it
+  independently of the chat (it follows the newest cell until you scroll up,
+  then a "↓ N more lines" chip and a scrollbar mark the position). The panel
+  keeps every cell seen during the TUI session, even after snapshots drop
+  idle children.
+- The footer's right side lists the global chords; its left side follows the
+  keyboard's owner: the running turn (spinner, `esc interrupt`), an armed
+  `ctrl+x` leader (every chord), the focused Agents panel, or the working
+  directory.
 
 ## Storage and recovery
 
