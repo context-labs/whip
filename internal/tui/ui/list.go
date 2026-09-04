@@ -39,6 +39,7 @@ type List struct {
 	Footer      []string // key, description pairs: "enter", "select", "type", "to filter"
 	Width       int
 	Window      int // max item rows (0 = all)
+	Height      int // max total rows including chrome and group headers (0 = unlimited); the item window shrinks to fit
 }
 
 // Render returns the rows, each exactly Width cells.
@@ -67,57 +68,73 @@ func (l List) Render(th *theme.Theme) []string {
 	for _, g := range l.Groups {
 		total += len(g.Items)
 	}
-	lo, hi := 0, total
-	if l.Window > 0 && l.Window < total {
-		lo, hi = listWindow(total, l.Sel, l.Window)
-	}
-	idx, lastTitle, started := 0, "", false
-	for _, g := range l.Groups {
-		for _, it := range g.Items {
-			i := idx
-			idx++
-			if i < lo || i >= hi {
-				continue
-			}
-			if g.Title != lastTitle || !started {
-				if started {
-					rows = append(rows, blank)
+	prefix := rows // the chrome above the items
+	// body renders the items in a window of win rows around Sel, with the
+	// group headers the window touches.
+	body := func(win int) []string {
+		rows := append([]string(nil), prefix...)
+		lo, hi := 0, total
+		if win > 0 && win < total {
+			lo, hi = listWindow(total, l.Sel, win)
+		}
+		idx, lastTitle, started := 0, "", false
+		for _, g := range l.Groups {
+			for _, it := range g.Items {
+				i := idx
+				idx++
+				if i < lo || i >= hi {
+					continue
 				}
-				if g.Title != "" {
-					rows = append(rows, lr(accent.Render(g.Title), ""))
+				if g.Title != lastTitle || !started {
+					if started {
+						rows = append(rows, blank)
+					}
+					if g.Title != "" {
+						rows = append(rows, lr(accent.Render(g.Title), ""))
+					}
+					lastTitle, started = g.Title, true
 				}
-				lastTitle, started = g.Title, true
-			}
-			right := ansi.Truncate(it.Right, max(l.Width-4-lipgloss.Width(it.Left)-2, 0), "…")
-			if i == l.Sel { // full-width primary fill, the selected-row treatment
-				sel := th.Selected
-				tail := sel.Render(right + "  ")
-				if len(it.Swatch) > 0 {
-					tail = swatches(th, it.Swatch, th.Primary) + sel.Render("  ")
+				right := ansi.Truncate(it.Right, max(l.Width-4-lipgloss.Width(it.Left)-2, 0), "…")
+				if i == l.Sel { // full-width primary fill, the selected-row treatment
+					sel := th.Selected
+					tail := sel.Render(right + "  ")
+					if len(it.Swatch) > 0 {
+						tail = swatches(th, it.Swatch, th.Primary) + sel.Render("  ")
+					}
+					row := sel.Render("  "+it.Left) + sel.Render(strings.Repeat(" ", max(l.Width-2-lipgloss.Width(it.Left)-lipgloss.Width(tail), 1))) + tail
+					rows = append(rows, PadRow(row, l.Width, th.Primary))
+				} else if len(it.Swatch) > 0 {
+					rows = append(rows, lr(text.Render(it.Left), swatches(th, it.Swatch, bg)))
+				} else {
+					rows = append(rows, lr(text.Render(it.Left), muted.Render(right)))
 				}
-				row := sel.Render("  "+it.Left) + sel.Render(strings.Repeat(" ", max(l.Width-2-lipgloss.Width(it.Left)-lipgloss.Width(tail), 1))) + tail
-				rows = append(rows, PadRow(row, l.Width, th.Primary))
-			} else if len(it.Swatch) > 0 {
-				rows = append(rows, lr(text.Render(it.Left), swatches(th, it.Swatch, bg)))
-			} else {
-				rows = append(rows, lr(text.Render(it.Left), muted.Render(right)))
 			}
 		}
-	}
-	if total == 0 && l.Empty != "" {
-		rows = append(rows, lr(muted.Render(l.Empty), ""))
-	}
-	if len(l.Footer) > 0 {
-		var f strings.Builder
-		for i := 0; i+1 < len(l.Footer); i += 2 {
-			if i > 0 {
-				f.WriteString(th.On(nil, bg).Render("  "))
-			}
-			f.WriteString(text.Render(l.Footer[i]) + muted.Render(" "+l.Footer[i+1]))
+		if total == 0 && l.Empty != "" {
+			rows = append(rows, lr(muted.Render(l.Empty), ""))
 		}
-		rows = append(rows, blank, lr(f.String(), ""))
+		if len(l.Footer) > 0 {
+			var f strings.Builder
+			for i := 0; i+1 < len(l.Footer); i += 2 {
+				if i > 0 {
+					f.WriteString(th.On(nil, bg).Render("  "))
+				}
+				f.WriteString(text.Render(l.Footer[i]) + muted.Render(" "+l.Footer[i+1]))
+			}
+			rows = append(rows, blank, lr(f.String(), ""))
+		}
+		return append(rows, blank)
 	}
-	return append(rows, blank)
+	win := total
+	if l.Window > 0 {
+		win = min(win, l.Window)
+	}
+	rows = body(win)
+	for l.Height > 0 && len(rows) > l.Height && win > 1 { // shrink the window by the overflow until the panel fits
+		win = max(win-(len(rows)-l.Height), 1)
+		rows = body(win)
+	}
+	return rows
 }
 
 // listWindow returns the [lo,hi) item range showing up to budget rows

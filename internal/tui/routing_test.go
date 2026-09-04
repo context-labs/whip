@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/session"
 )
@@ -218,5 +220,36 @@ func TestInlineModesKeepTranscriptLive(t *testing.T) {
 		if m.View().Cursor != nil {
 			t.Fatalf("%s: the cursor still hides while the prompt owns the keyboard", name)
 		}
+	}
+}
+
+// A dialog's top row stays put while its list filters down (and empties):
+// only its height changes. Its rows also stay inside the frame at full size.
+func TestDialogTopStaysPutWhileFiltering(t *testing.T) {
+	m := goldenModel(140, 40)
+	m.openThinPalette()
+	rowOf := func(needle string) int {
+		for i, l := range strings.Split(ansi.Strip(viewStr(m)), "\n") {
+			if strings.Contains(l, needle) {
+				return i
+			}
+		}
+		return -1
+	}
+	top := rowOf("Commands")
+	if top < 1 || top != m.dialogTop()+1 { // the list opens with one padding row
+		t.Fatalf("dialog header on row %d, want %d", top, m.dialogTop()+1)
+	}
+	frame := strings.Split(ansi.Strip(viewStr(m)), "\n")
+	if strings.Contains(frame[39], "/quit") || strings.Contains(frame[38], "/quit") || !strings.Contains(frame[39], "ctrl+p") {
+		t.Fatalf("the full palette must end above the status line: %q / %q", frame[38], frame[39])
+	}
+	typeStr(t, m, "age")
+	if got := rowOf("Commands"); got != top {
+		t.Fatalf("header moved from row %d to %d after filtering", top, got)
+	}
+	typeStr(t, m, "t")                                                              // "aget": no results
+	if got := rowOf("Commands"); got != top || rowOf("No results found") != top+4 { // header, blank, search, blank, empty
+		t.Fatalf("header moved to row %d with an empty list (no-results row %d)", got, rowOf("No results found"))
 	}
 }

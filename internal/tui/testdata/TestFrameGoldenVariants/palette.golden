@@ -1,40 +1,40 @@
                                                                                                     Golden session                          
                                                                                                                                             
-                                        Commands                                                 esc  ntext                                 
-                                                                                                      tokens                                
-                                        Search                                                         used                                 
+                                                                                                    Context                                 
+                                                                                                    0 tokens                                
+                                                                                                    0% used                                 
                                                                                                       .00 spent                             
-                                        Themes                                                                                              
-                                        auto                                                ████████  P                                     
-                                        light                                               ████████  naged by daemon                       
+                                        Commands                                                 esc                                        
+                                                                                                      P                                     
+                                        Search                                                        naged by daemon                       
+                                                                                                                                            
+                                        Themes                                                        ents                                  
+                                        auto                                                ████████  ⚙ root (root-agent) — running         
+                                        light                                               ████████    ⚙ file-reader (ba06…c16d) — idle    
                                         dark                                                ████████                                        
-                                        aura                                                ████████  ents                                  
-                                        aura-light                                          ████████  ⚙ root (root-agent) — running         
-                                        ayu                                                 ████████    ⚙ file-reader (ba06…c16d) — idle    
+                                        aura                                                ████████                                        
+                                        aura-light                                          ████████                                        
+                                        ayu                                                 ████████                                        
                                         ayu-light                                           ████████                                        
-                                        carbonfox                                           ████████                                        
+   ❯ find the config loader             carbonfox                                           ████████                                        
                                         carbonfox-light                                     ████████                                        
-                                        catppuccin                                          ████████                                        
+     ← Read internal/config/config.go   catppuccin                                          ████████                                        
                                         catppuccin-frappe                                   ████████                                        
-   ❯ find the config loader             catppuccin-frappe-light                             ████████                                        
+     ↳ 5 lines · ctrl+e or click expan  catppuccin-frappe-light                             ████████                                        
                                         catppuccin-light                                    ████████                                        
-     ← Read internal/config/config.go   catppuccin-macchiato                                ████████                                        
+     Found it. Load reads the JSON fil  catppuccin-macchiato                                ████████                                        
                                         catppuccin-macchiato-light                          ████████                                        
-     ↳ 5 lines · ctrl+e or click expan  cobalt2                                             ████████                                        
-                                        cobalt2-light                                       ████████                                        
-     Found it. Load reads the JSON fil  cursor                                              ████████                                        
-                                        cursor-light                                        ████████                                        
-     1. resolve the directory           dracula                                             ████████                                        
-     2. decode the file                 dracula-light                                       ████████                                        
+     1. resolve the directory           cobalt2                                             ████████                                        
+     2. decode the file                 cobalt2-light                                       ████████                                        
+                                        cursor                                              ████████                                        
+       cfg, err := config.Load()        cursor-light                                        ████████                                        
+                                        dracula                                             ████████                                        
+     See the docs.                      dracula-light                                       ████████                                        
                                         everforest                                          ████████                                        
-       cfg, err := config.Load()        everforest-light                                    ████████                                        
-                                        flexoki                                             ████████                                        
-     See the docs.                      flexoki-light                                       ████████                                        
-                                        github                                              ████████                                        
-  ┃                                     github-light                                        ████████                                        
-  ┃  Ask whip anything… (/ for command  gruvbox                                             ████████                                        
-  ┃                                                                                                                                         
-  ┃  Off · kimi-k3-fast  inference                                                                                                          
-  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                            
+  ┃                                     everforest-light                                    ████████                                        
+  ┃  Ask whip anything… (/ for command  flexoki                                             ████████                                        
+  ┃                                     flexoki-light                                       ████████                                        
+  ┃  Off · kimi-k3-fast  inference      github                                              ████████                                        
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                                                                                      
                                                                                                                                             
    /work/whip                                                                    ctrl+p commands    • whip dev                              

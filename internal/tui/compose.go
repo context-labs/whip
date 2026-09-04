@@ -269,7 +269,7 @@ func (m *model) View() tea.View {
 				continue
 			}
 			dw := lipgloss.Width(rows[0])
-			drawRows(scr, rows, max((max(w, dw)-dw)/2, 0), max((h-len(rows))/3, 0)) // centered, upper third
+			drawRows(scr, rows, max((max(w, dw)-dw)/2, 0), m.dialogTop()) // centered; the top never moves as the list filters
 		}
 	} else if m.menu != nil { // the completion popup floats above the input; the frame beneath never reflows
 		menu := strings.Split(m.menuView(), "\n")

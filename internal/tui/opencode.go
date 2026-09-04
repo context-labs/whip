@@ -353,20 +353,30 @@ func (m *model) ocDialogRows() []string {
 		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: it.title, Right: hint, Swatch: it.swatch})
 	}
 	return ui.List{Title: "Commands", Hint: "esc", Search: true, Query: p.filter, Groups: groups, Sel: p.idx,
-		Empty: "No results found", Width: m.dialogWidth(), Window: m.dialogWindow(12)}.Render(currentTheme())
+		Empty: "No results found", Width: m.dialogWidth(), Height: m.dialogHeight()}.Render(currentTheme())
 }
 
 // dialogWidth is the floating dialogs' panel width.
 func (m *model) dialogWidth() int { return min(64, max(m.width-2, 20)) }
 
-// dialogWindow is how many list rows a dialog shows, leaving chrome rows of
-// the terminal for its header, footer and margins; 0 (no window) before the
-// terminal size is known.
-func (m *model) dialogWindow(chrome int) int {
+// dialogTop is the screen row every floating dialog starts on: a fixed
+// fraction of the terminal height, so a dialog whose list shrinks under a
+// filter keeps its header where the eye already is.
+func (m *model) dialogTop() int {
 	if m.height <= 0 {
 		return 0
 	}
-	return max(m.height-chrome, 4)
+	return max(m.height/8, 1)
+}
+
+// dialogHeight is the most rows a dialog may take: from its fixed top down to
+// the row above the status line; 0 (unlimited) before the terminal size is
+// known.
+func (m *model) dialogHeight() int {
+	if m.height <= 0 {
+		return 0
+	}
+	return max(m.height-m.dialogTop()-2, 8)
 }
 
 // ocToolIcon maps a tool to opencode's inline-tool icon glyphs.
@@ -505,7 +515,7 @@ func (m *model) ocModelDialogRows() []string {
 	}
 	return ui.List{Title: "Select model", Hint: "esc", Search: true, Query: p.filter.query, Groups: groups, Sel: p.idx,
 		Empty: "No results found", Footer: []string{"enter", "select", "type", "to filter"},
-		Width: m.dialogWidth(), Window: m.dialogWindow(14)}.Render(currentTheme())
+		Width: m.dialogWidth(), Height: m.dialogHeight()}.Render(currentTheme())
 }
 
 // ocSessionDialogRows renders the resume picker as opencode's "Sessions"
@@ -531,7 +541,7 @@ func (m *model) ocSessionDialogRows() []string {
 		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: title, Right: ago(meta.UpdatedAt)})
 	}
 	return ui.List{Title: "Sessions", Hint: "esc", Groups: groups, Sel: p.idx, Empty: "No sessions",
-		Footer: []string{"enter", "resume", "↑/↓", "select"}, Width: m.dialogWidth(), Window: m.dialogWindow(12)}.Render(currentTheme())
+		Footer: []string{"enter", "resume", "↑/↓", "select"}, Width: m.dialogWidth(), Height: m.dialogHeight()}.Render(currentTheme())
 }
 
 // toastClearMsg expires the toast set by showToast.
