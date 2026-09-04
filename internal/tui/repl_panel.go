@@ -46,6 +46,7 @@ type replCell struct {
 type replAgent struct {
 	cells []replCell
 	count int
+	seq   int64 // newest event seq folded in; snapshots replay older ones, which are skipped
 }
 
 // panelWidth is the right panel's width: the REPL panel takes half the
@@ -75,6 +76,19 @@ func (m *model) replNow() time.Time {
 		return m.now()
 	}
 	return time.Now()
+}
+
+// replApplySeq folds an event with a known sequence number, skipping ones
+// already seen: live events and later snapshot replays carry the same seq.
+func (m *model) replApplySeq(agentID, kind string, event daemon.StreamEvent, seq int64) {
+	if seq > 0 {
+		agent := m.replAgentFor(agentID)
+		if seq <= agent.seq {
+			return
+		}
+		agent.seq = seq
+	}
+	m.replApply(agentID, kind, event)
 }
 
 // replApply folds one presentation event into an agent's cell history.
@@ -169,32 +183,15 @@ func (m *model) replRestart(agentID string, restored, notRestored int) {
 	agent.cells = append(agent.cells, replCell{restart: marker})
 }
 
-// replRebuild reconstructs every agent's cells from the stored presentation
-// events, for a fresh snapshot or a newly opened child. Stored events carry
-// no clock, so replayed cells have no times; cells this client already saw
-// keep theirs. The scroll position is left alone (the view clamps it), since
-// snapshots arrive constantly while agents come and go.
+// replRebuild folds the stored presentation events (a fresh snapshot, a newly
+// opened child) into the REPL history. The history is never rebuilt from
+// scratch: snapshots only keep the current turn's events and drop idle
+// children entirely, so cells seen earlier in this TUI session would vanish.
+// Events already folded in are skipped by seq; stored events carry no clock,
+// so cells first seen here have no times. The scroll position is left alone.
 func (m *model) replRebuild() {
-	previous := m.repl
-	m.repl = map[string]*replAgent{}
 	m.replReplaying = true
-	defer func() {
-		m.replReplaying = false
-		// ponytail: O(cells²) per agent; index by id if histories grow large
-		for agentID, agent := range m.repl {
-			old := previous[agentID]
-			if old == nil {
-				continue
-			}
-			for index := range agent.cells {
-				for _, seen := range old.cells {
-					if seen.id == agent.cells[index].id && seen.restart == "" && agent.cells[index].restart == "" {
-						agent.cells[index].started, agent.cells[index].ended = seen.started, seen.ended
-					}
-				}
-			}
-		}
-	}()
+	defer func() { m.replReplaying = false }()
 	root := m.rootAgentID()
 	replay := func(agentID string, events []session.SnapshotEvent) {
 		for _, event := range events {
@@ -205,7 +202,7 @@ func (m *model) replRebuild() {
 			if json.Unmarshal(event.Payload, &payload) != nil {
 				continue
 			}
-			m.replApply(agentID, event.Kind, payload)
+			m.replApplySeq(agentID, event.Kind, payload, event.Seq)
 		}
 	}
 	if root != "" {

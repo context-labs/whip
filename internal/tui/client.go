@@ -325,6 +325,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 		m.agentOpen = ""
 		m.agentMessages = map[string][]llm.Message{}
 		m.terminalAgentID, m.terminalMarker = "", ""
+		m.repl = nil // REPL history is per session
 	}
 	m.sessionID = snapshot.RootID
 	m.clientCursor = snapshot.Cursor
@@ -568,7 +569,7 @@ func (m *model) recordClientStream(event daemon.ProtocolEvent) {
 	if owner == "" {
 		owner = m.rootAgentID()
 	}
-	m.replApply(owner, event.Kind, payload)
+	m.replApplySeq(owner, event.Kind, payload, event.Seq)
 	if owner == "" || owner == m.rootAgentID() {
 		m.clientView.presentation = append(m.clientView.presentation, value)
 		return
@@ -1140,8 +1141,14 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 	}
 	if m.agentsFocus {
 		switch msg.Type {
-		case bubbletea.KeyEsc, bubbletea.KeyCtrlT:
+		case bubbletea.KeyCtrlT:
 			m.agentsFocus = false
+			return m, nil
+		case bubbletea.KeyEsc: // esc means "back": drop focus and leave an open child
+			m.agentsFocus = false
+			if m.agentOpen != "" && strings.TrimSpace(m.input.Value()) == "" {
+				m.closeAgent()
+			}
 			return m, nil
 		case bubbletea.KeyUp:
 			if m.agentSel == 0 {
@@ -1159,11 +1166,18 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 				return m, nil
 			}
 			child := children[min(m.agentSel, len(children)-1)]
+			if child.ParentID == "" {
+				return m, nil // the root is not stoppable from the tree
+			}
 			return m.submitClientAction("agent.control", map[string]string{"args": "stop " + child.ID}, "")
 		case bubbletea.KeyEnter:
 			if len(children) > 0 {
 				child := children[min(m.agentSel, len(children)-1)]
 				m.agentsFocus = false
+				if child.ParentID == "" { // the root row: back to the main transcript
+					m.closeAgent()
+					return m, nil
+				}
 				return m.submitClientAction("agent.transcript", map[string]string{"id": child.ID}, "")
 			}
 			return m, nil
@@ -1259,6 +1273,7 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 	case bubbletea.KeyCtrlT:
 		if len(children) > 0 {
 			m.agentsFocus = true
+			m.agentSel = max(m.agentSel, m.firstChildSel())
 			m.clampAgentSel()
 		}
 		return m, nil
@@ -1269,7 +1284,7 @@ func (m *model) thinKey(msg bubbletea.KeyMsg) (bubbletea.Model, bubbletea.Cmd) {
 		}
 		if strings.TrimSpace(m.input.Value()) == "" && len(children) > 0 {
 			m.agentsFocus = true
-			m.agentSel = 0
+			m.agentSel = m.firstChildSel()
 			return m, nil
 		}
 		if !m.cursorOnLastLine() {

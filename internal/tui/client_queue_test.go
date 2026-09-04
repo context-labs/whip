@@ -167,8 +167,9 @@ func TestRecursiveAgentTreeAndScopedStreams(t *testing.T) {
 		}},
 	}
 	rows := m.runtimeAgentRows()
-	if len(rows) != 3 || rows[0].agent.ID != "a" || rows[1].agent.ID != "grandchild" || rows[1].depth != 1 || rows[2].agent.ID != "b" {
-		t.Fatalf("depth-first rows=%+v", rows)
+	if len(rows) != 4 || rows[0].agent.ID != "root-agent" || rows[0].agent.Name != "root" || rows[0].depth != 0 ||
+		rows[1].agent.ID != "a" || rows[1].depth != 1 || rows[2].agent.ID != "grandchild" || rows[2].depth != 2 || rows[3].agent.ID != "b" {
+		t.Fatalf("root then depth-first rows=%+v", rows)
 	}
 	m.agentOpen = "a"
 	rootPayload, _ := json.Marshal(daemon.StreamEvent{AgentID: "root-agent", Text: "root-only"})
@@ -185,7 +186,7 @@ func TestRecursiveAgentTreeAndScopedStreams(t *testing.T) {
 
 func TestAgentTreeSelectionSurvivesSnapshotInsertion(t *testing.T) {
 	m := &model{
-		input: newInput(), sessionID: "root", clientCursor: 1, agentsFocus: true, agentSel: 1,
+		input: newInput(), sessionID: "root", clientCursor: 1, agentsFocus: true, agentSel: 2, // root, b, [c]
 		agentMessages: map[string][]llm.Message{},
 		clientView: clientPresentation{agents: []session.RuntimeAgent{
 			{ID: "root-agent"},

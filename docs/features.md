@@ -123,7 +123,10 @@ root prompt (`evals/rlm`).
   up). In opencode mode the agent tree lives in the
   right panel (Context and REPL modes alike) instead of under the input;
   `ctrl+t` or ↓ on an empty input focuses it, ↑/↓ select, enter opens,
-  `ctrl+x` stops, esc leaves.
+  `ctrl+x` stops, esc leaves. The root heads the tree: enter on it, or esc
+  with an empty input, returns from a child to the main transcript. The REPL
+  panel follows whichever agent is open and keeps every cell seen during the
+  TUI session, even after snapshots drop idle children.
 
 ## Storage and recovery
 

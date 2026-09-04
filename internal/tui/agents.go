@@ -64,7 +64,15 @@ func (m *model) runtimeAgentRows() []runtimeAgentRow {
 			walk(value.ID, depth+1)
 		}
 	}
-	walk(rootID, 0)
+	walk(rootID, 1)
+	// The root heads the tree so there is always a row to return to; a
+	// session without descendants has no tree at all.
+	if root, ok := m.runtimeAgent(rootID); ok && len(rows) > 0 {
+		if root.Name == "" {
+			root.Name = "root"
+		}
+		rows = append([]runtimeAgentRow{{agent: root}}, rows...)
+	}
 
 	// Corrupt or partially restored lineage should remain inspectable. Keep
 	// those rows deterministic without pretending they belong to the root.
@@ -76,9 +84,19 @@ func (m *model) runtimeAgentRows() []runtimeAgentRow {
 	}
 	sort.Slice(orphans, func(i, j int) bool { return orphans[i].ID < orphans[j].ID })
 	for _, value := range orphans {
-		rows = append(rows, runtimeAgentRow{agent: value})
+		rows = append(rows, runtimeAgentRow{agent: value, depth: 1})
 	}
 	return rows
+}
+
+// firstChildSel is where tree focus starts: the first descendant, so enter
+// opens something new rather than the root you are already looking at.
+func (m *model) firstChildSel() int {
+	rows := m.runtimeAgentRows()
+	if len(rows) > 1 && rows[0].agent.ParentID == "" {
+		return 1
+	}
+	return 0
 }
 
 func (m *model) runtimeChildren() []session.RuntimeAgent {

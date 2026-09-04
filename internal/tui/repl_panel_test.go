@@ -216,7 +216,7 @@ func TestReplPanelPressDoesNotSelectChat(t *testing.T) {
 	}
 }
 
-func TestReplRebuildKeepsScrollAndSeenTimes(t *testing.T) {
+func TestReplHistorySurvivesSnapshotsAndKeepsScroll(t *testing.T) {
 	m := replTestModel(t, 140)
 	clock := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 	m.now = func() time.Time { return clock }
@@ -224,25 +224,35 @@ func TestReplRebuildKeepsScrollAndSeenTimes(t *testing.T) {
 		payload, _ := json.Marshal(event)
 		return payload
 	}
+	var seq int64
 	cellEvents := func(i int) []session.SnapshotEvent {
 		id := fmt.Sprintf("call-%d", i)
+		started := daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: fmt.Sprintf(`{"code":"x = %d"}`, i)}
+		completed := daemon.StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":1,"steps":2}`}
+		seq += 2
 		return []session.SnapshotEvent{
-			{Kind: "stream.tool.started", Payload: encode(daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: fmt.Sprintf(`{"code":"x = %d"}`, i)})},
-			{Kind: "stream.tool.completed", Payload: encode(daemon.StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":1,"steps":2}`})},
+			{Seq: seq - 1, Kind: "stream.tool.started", Payload: encode(started)},
+			{Seq: seq, Kind: "stream.tool.completed", Payload: encode(completed)},
 		}
 	}
+	// Cells that were already in the daemon's snapshot when the TUI connected: no clock.
 	for i := 1; i <= 30; i++ {
 		m.clientView.presentation = append(m.clientView.presentation, cellEvents(i)...)
 	}
 	m.replRebuild()
 	view := m.replPanelView(20)
-	if strings.Contains(view, "0ms") {
-		t.Fatalf("replayed cells must not show a fabricated duration:\n%s", view)
+	if strings.Contains(view, "0ms") || !strings.Contains(view, "In [30]") {
+		t.Fatalf("replayed cells must render without a fabricated duration:\n%s", view)
 	}
-	// A live cell keeps its measured duration across later snapshots.
-	m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: "call-31", Name: "rlm_exec", Args: `{"code":"x = 31"}`})
+	// A live cell (recordClientStream path) keeps its measured duration across later snapshots.
+	live := func(kind string, event daemon.StreamEvent) {
+		seq++
+		payload := encode(event)
+		m.recordClientStream(daemon.ProtocolEvent{Seq: seq, Kind: kind, Payload: payload})
+	}
+	live("stream.tool.started", daemon.StreamEvent{ID: "call-31", Name: "rlm_exec", Args: `{"code":"x = 31"}`})
 	clock = clock.Add(2 * time.Second)
-	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "call-31", Name: "rlm_exec", Result: `{"value":1}`})
+	live("stream.tool.completed", daemon.StreamEvent{ID: "call-31", Name: "rlm_exec", Result: `{"value":1}`})
 	if view = m.replPanelView(20); !strings.Contains(view, "In [31]  2.0s") {
 		t.Fatalf("live cell duration missing:\n%s", view)
 	}
@@ -252,18 +262,79 @@ func TestReplRebuildKeepsScrollAndSeenTimes(t *testing.T) {
 		m = next.(*model)
 	}
 	before := m.replPanelView(20)
-	m.clientView.presentation = append(m.clientView.presentation, cellEvents(31)...)
+	// The turn ends: the daemon's next snapshot carries no presentation at all.
+	m.clientView.presentation = nil
 	clock = clock.Add(time.Minute)
 	m.replRebuild()
 	if after := m.replPanelView(20); m.replScroll != 15 || after != before {
-		t.Fatalf("snapshot moved the scrolled panel (scroll=%d)\nbefore:\n%s\nafter:\n%s", m.replScroll, before, after)
+		t.Fatalf("snapshot after turn end lost history or moved the panel (scroll=%d)\nbefore:\n%s\nafter:\n%s", m.replScroll, before, after)
+	}
+	// Replaying the same events again (another snapshot) adds nothing.
+	m.clientView.presentation = cellEvents(31)
+	m.clientView.presentation[0].Seq, m.clientView.presentation[1].Seq = seq-1, seq
+	m.replRebuild()
+	if got := len(m.repl["root-agent"].cells); got != 31 {
+		t.Fatalf("replayed snapshot duplicated cells: %d", got)
 	}
 	// New rows arriving below keep the scrolled-up content anchored.
-	m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: "call-32", Name: "rlm_exec", Args: `{"code":"x = 32"}`})
+	live("stream.tool.started", daemon.StreamEvent{ID: "call-32", Name: "rlm_exec", Args: `{"code":"x = 32"}`})
 	after := m.replPanelView(20)
 	beforeRows, afterRows := strings.Split(before, "\n"), strings.Split(after, "\n")
 	if m.replScroll <= 15 || beforeRows[6] != afterRows[6] || beforeRows[10] != afterRows[10] {
 		t.Fatalf("new rows shifted the scrolled view (scroll=%d)\nbefore:\n%s\nafter:\n%s", m.replScroll, before, after)
+	}
+	// An idle child's cells stay visible even though snapshots drop them.
+	m.recordClientStream(daemon.ProtocolEvent{Seq: seq + 1, Kind: "stream.tool.started", Payload: encode(daemon.StreamEvent{AgentID: "child", ID: "c-1", Name: "rlm_exec", Args: `{"code":"y = 1"}`})})
+	m.clientView.agentPresentations = nil
+	m.replRebuild()
+	m.agentOpen = "child"
+	if view = m.replPanelView(20); !strings.Contains(view, "REPL · w3") || !strings.Contains(view, "y = 1") {
+		t.Fatalf("child history lost after snapshot:\n%s", view)
+	}
+}
+
+func TestAgentTreeReturnsToRoot(t *testing.T) {
+	m := replTestModel(t, 140)
+	m.agentOpen = "child"
+	rows := m.runtimeAgentRows()
+	if len(rows) != 2 || rows[0].agent.ID != "root-agent" || rows[1].depth != 1 {
+		t.Fatalf("tree rows = %+v", rows)
+	}
+	if view := m.replPanelView(20); !strings.Contains(view, "⚙ root (root-agent) — running") || !strings.Contains(view, "⚙ w3 (child) — running · open") {
+		t.Fatalf("tree rendering:\n%s", view)
+	}
+	// ctrl+t starts on the first child; ↑ reaches the root; enter goes back to it.
+	next, _ := m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlT})
+	m = next.(*model)
+	if !m.agentsFocus || m.agentSel != 1 {
+		t.Fatalf("focus=%v sel=%d", m.agentsFocus, m.agentSel)
+	}
+	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(*model)
+	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(*model)
+	if m.agentOpen != "" || m.agentsFocus {
+		t.Fatalf("enter on the root row did not return to root: open=%q focus=%v", m.agentOpen, m.agentsFocus)
+	}
+	// esc while the tree is focused also leaves an open child.
+	m.agentOpen = "child"
+	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(*model)
+	if !m.agentsFocus {
+		t.Fatal("↓ on an empty input should focus the tree")
+	}
+	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(*model)
+	if m.agentOpen != "" || m.agentsFocus {
+		t.Fatalf("esc with the tree focused: open=%q focus=%v", m.agentOpen, m.agentsFocus)
+	}
+	// ctrl+x on the root row is a no-op rather than a stop request.
+	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlT})
+	m = next.(*model)
+	next, _ = m.thinKey(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(*model)
+	if _, command := m.thinKey(tea.KeyMsg{Type: tea.KeyCtrlX}); command != nil {
+		t.Fatal("ctrl+x on the root row should not submit a stop")
 	}
 }
 
