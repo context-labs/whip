@@ -1330,8 +1330,7 @@ func (m *model) viewBody() string {
 	if dock := m.agentsDock(); dock != "" {
 		b.WriteString("\n" + dock)
 	}
-	b.WriteString("\n\n" + m.statusView()) // persistent status line, with a blank line above
-	return b.String()
+	return b.String() // the footer is drawn by View on the last row (measure keeps its blank row + footer budget)
 }
 
 // inputPlaceholder is the idle input hint; syncInputPlaceholder re-uses it
@@ -1366,12 +1365,6 @@ func (m *model) planView() string {
 	}
 	return strings.Join(lines, "\n")
 }
-
-// statusView renders the always-on status line below the input: current
-// directory, model (effort), provider, and session token spend. It mirrors
-// the header's data but stays put while the transcript scrolls, so the four
-// facts are always visible no matter where the viewport sits.
-func (m *model) statusView() string { return m.opencodeStatus() }
 
 const previewLines = 5
 

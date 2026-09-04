@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -251,5 +252,43 @@ func TestDialogTopStaysPutWhileFiltering(t *testing.T) {
 	typeStr(t, m, "t")                                                              // "aget": no results
 	if got := rowOf("Commands"); got != top || rowOf("No results found") != top+4 { // header, blank, search, blank, empty
 		t.Fatalf("header moved to row %d with an empty list (no-results row %d)", got, rowOf("No results found"))
+	}
+}
+
+// The footer's left side follows the keyboard's owner; the right side lists
+// the global chords, adding "ctrl+p commands" only on wide terminals.
+func TestFooterHintsFollowFocus(t *testing.T) {
+	m := goldenModel(140, 40)
+	last := func() string {
+		rows := strings.Split(ansi.Strip(viewStr(m)), "\n")
+		return rows[len(rows)-1]
+	}
+	if f := last(); !strings.Contains(f, "/work/whip") || !strings.Contains(f, "ctrl+x t themes") || !strings.Contains(f, "ctrl+x b sidebar") || !strings.Contains(f, "ctrl+p commands") {
+		t.Fatalf("idle footer: %q", f)
+	}
+	m.busy = true
+	if f := last(); !strings.Contains(f, "esc interrupt") || strings.Contains(f, "/work/whip") {
+		t.Fatalf("busy footer: %q", f)
+	}
+	m.busy = false
+	m.leaderAt = m.nowFn()
+	if f := last(); !strings.Contains(f, "ctrl+x r repl") || !strings.Contains(f, "t themes") {
+		t.Fatalf("leader footer: %q", f)
+	}
+	m.leaderAt = time.Time{}
+	m.agentsFocus = true
+	if f := last(); !strings.Contains(f, "enter open") || !strings.Contains(f, "esc back") {
+		t.Fatalf("agents footer: %q", f)
+	}
+	m.agentsFocus = false
+	m.agentOpen = "root-agent:ba06cc4c6983c16d"
+	m.layout()
+	if f := last(); !strings.Contains(f, "esc back") || !strings.Contains(f, "/work/whip") {
+		t.Fatalf("open-agent footer: %q", f)
+	}
+	narrow := goldenModel(79, 24)
+	rows := strings.Split(ansi.Strip(viewStr(narrow)), "\n")
+	if f := rows[len(rows)-1]; strings.Contains(f, "ctrl+p") || !strings.Contains(f, "ctrl+x b sidebar") || ansi.StringWidth(f) != 79 {
+		t.Fatalf("narrow footer: %q", f)
 	}
 }

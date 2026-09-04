@@ -102,8 +102,8 @@ func TestLayoutFrameOracle(t *testing.T) {
 				if len(rows) != 40 {
 					t.Fatalf("frame has %d rows", len(rows))
 				}
-				if !strings.Contains(rows[r.status.Min.Y], "ctrl+p") || r.status.Min.Y != len(rows)-1 {
-					t.Fatalf("status row %d: %q", r.status.Min.Y, rows[r.status.Min.Y])
+				if !strings.Contains(rows[r.footer.Min.Y], "ctrl+x") || r.footer.Min.Y != len(rows)-1 {
+					t.Fatalf("footer row %d: %q", r.footer.Min.Y, rows[r.footer.Min.Y])
 				}
 				if got := rows[r.transcript.Min.Y+m.contentPad()+m.blocks[0].y0-m.vp.YOffset()]; !strings.Contains(got, "find the config loader") {
 					t.Fatalf("first block not where the transcript rect says: %q", got)
@@ -210,7 +210,7 @@ func TestLayoutRectsPartitionMainColumn(t *testing.T) {
 					t.Fatalf("frame is %d rows", h)
 				}
 				y := 0
-				for _, rc := range []uv.Rectangle{r.details, r.transcript, r.input, r.status} {
+				for _, rc := range []uv.Rectangle{r.details, r.transcript, r.input, r.footer} {
 					if rc.Empty() {
 						continue
 					}
@@ -219,8 +219,8 @@ func TestLayoutRectsPartitionMainColumn(t *testing.T) {
 					}
 					y = rc.Max.Y
 				}
-				if r.status.Min.Y != 39 {
-					t.Fatalf("%s: status on row %d, want 39 (frame %v)", tc.name, r.status.Min.Y, r)
+				if r.footer.Min.Y != 39 || r.footer.Min.X != 0 || r.footer.Dx() != w {
+					t.Fatalf("%s: footer %v, want the full last row", tc.name, r.footer)
 				}
 				if r.transcript.Dy() != m.vp.Height() || r.transcript.Dy() < 1 {
 					t.Fatalf("%s: transcript rect %v vs viewport height %d", tc.name, r.transcript, m.vp.Height())

@@ -28,7 +28,7 @@ type frameRects struct {
 	details               uv.Rectangle // open agent's details banner above the transcript
 	transcript            uv.Rectangle // the viewport
 	input, inputText      uv.Rectangle // the prompt box, and the textarea rows inside it
-	status                uv.Rectangle // the status line
+	footer                uv.Rectangle // the full-width key-hint bar on the last row
 	pill                  uv.Rectangle // the "↓ N more lines" chip over the transcript's last row (scrolled up only)
 }
 
@@ -150,7 +150,11 @@ func (m *model) layoutFrame(w, h int) frameRects {
 		y += mm.input
 	}
 	y += mm.hints + mm.dock
-	r.status = rect(x, y+1, m.width, 1) // a blank row, then the status line
+	fy := y + 1 // a blank row, then the footer; on a sized terminal it is the last row
+	if h > 0 {
+		fy = h - 1
+	}
+	r.footer = rect(0, fy, w, 1)
 	return r
 }
 
@@ -261,7 +265,8 @@ func (m *model) View() tea.View {
 		}
 		uv.NewStyledString(m.sidebarView(h)).Draw(scr, r.side)
 	}
-	if ds := m.dialogs(); len(ds) > 0 { // floating dialogs over the dimmed session, bottom→top
+	drawRows(scr, []string{m.footerView(w)}, 0, r.footer.Min.Y) // the key-hint bar spans every column
+	if ds := m.dialogs(); len(ds) > 0 {                         // floating dialogs over the dimmed session, bottom→top
 		dimArea(scr, r.area)
 		for _, d := range ds {
 			rows := d.rows(m)

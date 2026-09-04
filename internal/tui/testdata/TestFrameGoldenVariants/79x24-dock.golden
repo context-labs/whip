@@ -21,4 +21,4 @@
      ⚙ root (root-agent) — running                                             
        ⚙ file-reader (ba06…c16d) — idle                                        
                                                                                
-   /work/whip                                                  ctrl+p commands 
+ /work/whip                   ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar 

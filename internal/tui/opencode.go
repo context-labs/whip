@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/tui/ui"
 	"path/filepath"
 	"slices"
@@ -158,22 +159,14 @@ func (m *model) sidebarView(height int) string {
 	}
 
 	// Top content (title + Context + LSP), clipped if the sidebar is very short.
-	top := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
-	bullet := th.On(th.Success, bg)
-	footer := bullet.Render("• ") + head.Render("whip") + dim.Render(" "+Version)
-
-	rows := make([]string, 0, height)
-	if height <= 0 {
-		rows = append(top, footer)
-	} else {
-		if len(top) > height-1 { // keep the last row for the footer
-			top = top[:max(height-1, 0)]
+	rows := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	if height > 0 {
+		if len(rows) > height {
+			rows = rows[:height]
 		}
-		rows = append(rows, top...)
-		for len(rows) < height-1 {
+		for len(rows) < height {
 			rows = append(rows, "")
 		}
-		rows = append(rows, footer) // pinned to the bottom row
 	}
 	// the sidebar is set apart by a panel background (no border); every row is
 	// padded to the column width so the WHOLE column carries the shade
@@ -283,46 +276,47 @@ var ocKnightRider = spinner.Spinner{
 	FPS: 80 * time.Millisecond, // half opencode's 40ms — full speed read as frantic
 }
 
-// opencodeStatus renders opencode's session footer: the working directory on
-// the left (replaced by the knight-rider spinner + "esc interrupt" while the
-// model responds), and "{tokens} ({pct%})  ctrl+p commands" on the right.
-func (m *model) opencodeStatus() string {
+// footerView renders the full-width key-hint bar (opendocker's footer): the
+// left side says what the focused thing can do right now, the right side the
+// global chords. Keys in the text colour, labels muted.
+func (m *model) footerView(width int) string {
 	th := currentTheme()
-	muted := th.On(th.Muted, nil)
-	txt := th.On(th.Text, nil)
-	// right side: "{tokens} ({pct})  " muted, then "ctrl+p" in text, " commands" muted.
-	rightRaw := ""
-	if u := m.displayUsage(); u.PromptTokens+u.CompletionTokens > 0 {
-		rightRaw = strings.ToUpper(fmtTok(u.PromptTokens + u.CompletionTokens)) // opencode uses uppercase (15.8K)
-		if limit := m.displayContextLimit(); limit > 0 {
-			rightRaw += fmt.Sprintf(" (%d%%)", estimateTokens(m.displayMessages())*100/limit)
-		}
-		rightRaw += "  "
+	return ui.StatusBar{Left: " " + m.footerLeft(th), Right: ui.Hints(th, nil, m.footerRight(width)...) + " ", Width: width}.Render(th)
+}
+
+// footerRight lists the global chords; "ctrl+p commands" joins on terminals
+// wide enough to hold four hints beside the left side.
+func (m *model) footerRight(width int) []string {
+	pairs := []string{"ctrl+x r", "repl", "ctrl+x t", "themes", "ctrl+x b", "sidebar"}
+	if width >= sidebarMinWidth {
+		pairs = append(pairs, "ctrl+p", "commands")
 	}
-	rightRaw += "ctrl+p commands"
-	right := muted.Render(strings.TrimSuffix(rightRaw, "ctrl+p commands")) + txt.Render("ctrl+p") + muted.Render(" commands")
-	w := max(m.width, 0)
-	rightW := lipgloss.Width(rightRaw)
-	var leftR string
-	if m.busy {
-		// generating: the spinner sweeps where the cwd usually sits (opencode's
-		// bottom-bar treatment), with the interrupt hint beside it
-		hint := " interrupt"
+	return pairs
+}
+
+// footerLeft follows the keyboard's owner: the running turn, an armed leader
+// chord, the focused agent tree, an open agent, or the working directory.
+func (m *model) footerLeft(th *theme.Theme) string {
+	switch {
+	case m.busy:
+		hint := "interrupt"
 		if m.interrupt1 {
-			hint = " again to interrupt"
+			hint = "again to interrupt"
 		}
-		leftR = " " + m.spin.View() + "  " + txt.Render("esc") + muted.Render(hint)
-	} else {
-		left := m.completionRoot()
-		if lipgloss.Width(left)+rightW+2 > w { // no room: truncate the cwd, keep the right side
-			left = truncLine(left, max(w-rightW-2, 0))
-		}
-		leftR = muted.Render(" " + left)
+		return m.spin.View() + " " + ui.Hints(th, nil, "esc", hint)
+	case m.leaderPending():
+		return th.On(th.Text, nil).Render("ctrl+x") + " " + ui.Hints(th, nil, "r", "repl", "b", "sidebar", "t", "themes", "m", "model", "l", "sessions", "n", "new", "c", "compact", "g", "rewind", "y", "copy")
+	case m.agentsFocus:
+		return ui.Hints(th, nil, "↑↓", "select", "enter", "open", "ctrl+x", "stop", "esc", "back")
+	case m.agentOpen != "":
+		return th.On(th.Muted, nil).Render(m.completionRoot()) + " " + ui.Hints(th, nil, "esc", "back")
 	}
-	// the busy side (spinner + esc hint) has no width-aware trim of its own:
-	// the bar clamps the row or it wraps the alt-screen frame on a narrow
-	// terminal and shifts all mouse math
-	return ui.StatusBar{Left: leftR, Right: right, Width: w}.Render(th)
+	return th.On(th.Muted, nil).Render(m.completionRoot())
+}
+
+// leaderPending reports whether ctrl+x is armed and waiting for its chord.
+func (m *model) leaderPending() bool {
+	return !m.leaderAt.IsZero() && m.nowFn().Sub(m.leaderAt) < 2*time.Second
 }
 
 func estimateTokens(messages []llm.Message) int {
