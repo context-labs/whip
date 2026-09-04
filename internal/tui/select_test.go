@@ -260,26 +260,6 @@ func TestContentLineWrapped(t *testing.T) {
 	}
 }
 
-// reverseRange wraps the requested cells in reverse video without disturbing
-// text outside the range or ANSI sequences inside it.
-func TestReverseRange(t *testing.T) {
-	if got := reverseRange("hello world", 0, 5); got != "\x1b[7mhello\x1b[27m world" {
-		t.Fatalf("got %q", got)
-	}
-	styled := "\x1b[31mhello\x1b[0m world"
-	got := reverseRange(styled, 6, 11)
-	if !strings.Contains(got, "\x1b[31mhello\x1b[0m") || !strings.Contains(got, "\x1b[7mworld\x1b[27m") {
-		t.Fatalf("styled line mangled: %q", got)
-	}
-	// an SGR reset INSIDE the range cancels reverse video — it must be
-	// re-asserted or the highlight visibly dies at the reset (glamour-styled
-	// lines reset after every chunk, cutting the highlight mid-row)
-	got = reverseRange("ab\x1b[0mcd", 0, 4)
-	if !strings.Contains(got, "\x1b[0m\x1b[7mcd") {
-		t.Fatalf("reverse video must be re-asserted after a reset: %q", got)
-	}
-}
-
 // Dragging past the viewport's top/bottom edge scrolls it a line, extends the
 // selection to the row now under the pointer, and arms a tick that repeats
 // the scroll while the pointer stays parked there — so a drag can select more

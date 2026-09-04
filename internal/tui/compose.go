@@ -235,6 +235,7 @@ func (m *model) View() tea.View {
 	// Draw order matters: a StyledString clears its rectangle before painting,
 	// so later layers must be the ones on top.
 	uv.NewStyledString(body).Draw(scr, r.main)
+	m.paintSelection(scr, r)
 	if m.sidebarVisible() {
 		if m.replPanel { // the REPL sits on the native background like the chat: a hairline tells the columns apart
 			rule := &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: currentTheme().Muted}}
@@ -323,4 +324,51 @@ func (m *model) cursor(r frameRects) *tea.Cursor {
 		return nil
 	}
 	return c
+}
+
+// paintSelection marks the dragged range in reverse video at the cell level,
+// after the body is drawn: the selection lives in content coordinates (rows
+// of the transcript or of the input text) and maps onto the screen through
+// the region rectangles, clipped to them.
+func (m *model) paintSelection(scr uv.Screen, r frameRects) {
+	if m.sel == nil {
+		return
+	}
+	lo, hi := selOrder(*m.sel)
+	for row := lo.row; row <= hi.row; row++ {
+		var line string
+		var region uv.Rectangle
+		var y int
+		if lo.input {
+			if row >= len(m.inputLines) {
+				break
+			}
+			line, region, y = m.inputLines[row], r.inputText, r.inputText.Min.Y+row
+		} else {
+			line, region, y = m.contentLine(row), r.transcript, r.transcript.Min.Y+row+m.contentPad()-m.vp.YOffset()
+		}
+		start, end := selCols(lo, hi, row, ansi.StringWidth(line))
+		if start >= end {
+			continue
+		}
+		reverseCells(scr, rect(region.Min.X+start, y, end-start, 1).Intersect(region))
+	}
+}
+
+// reverseCells sets reverse video on every cell of area.
+func reverseCells(scr uv.Screen, area uv.Rectangle) {
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			c := scr.CellAt(x, y)
+			if c == nil {
+				continue
+			}
+			n := *c
+			if n.Width == 0 {
+				n = uv.Cell{Content: " ", Width: 1}
+			}
+			n.Style.Attrs |= uv.AttrReverse
+			scr.SetCell(x, y, &n)
+		}
+	}
 }

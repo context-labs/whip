@@ -641,11 +641,8 @@ func (m *model) contentPad() int {
 // transcript jump). Dropping exactly the pad keeps screen rows stable whether
 // or not a selection is active.
 func (m *model) viewportView() string {
-	s := sanitizeView(m.vp.View())
-	if m.sel != nil {
-		s = m.highlightSelection(s) // content space, pre-trim
-	}
-	if len(m.blocks) == 0 { // empty transcript: the centered-logo home screen
+	s := sanitizeView(m.vp.View()) // the drag selection is painted onto the cells by View
+	if len(m.blocks) == 0 {        // empty transcript: the centered-logo home screen
 		return opencodeHome(m.vp.Width(), m.vp.Height())
 	}
 	// Full-height viewport: keep the pad so the transcript is bottom-anchored
@@ -1318,14 +1315,12 @@ func (m *model) viewBody() string {
 				// Secrets never echo: render the mask instead of the input's
 				// live view (which would show the key in the clear). The "┃ "
 				// prompt matches how the textarea renders its own first line.
-				b.WriteString(m.highlightInput("┃ " + m.namePrompt.maskedValue(m.input.Value())))
+				b.WriteString("┃ " + m.namePrompt.maskedValue(m.input.Value()))
 			} else {
-				b.WriteString(m.highlightInput(m.input.View()))
+				b.WriteString(m.input.View())
 			}
 		} else {
-			// highlight BEFORE the box chrome is added, so the reverse-video
-			// ranges land on the same raw lines inputPoint hit-tests
-			b.WriteString(m.opencodePrompt(m.highlightInput(m.input.View()), m.width))
+			b.WriteString(m.opencodePrompt(m.input.View(), m.width))
 		}
 	}
 	if m.quit1 {

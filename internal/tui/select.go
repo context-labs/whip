@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -185,95 +184,6 @@ func selCols(lo, hi selPos, r, lineWidth int) (int, int) {
 		end = hi.col
 	}
 	return start, max(end, start)
-}
-
-// highlightInput repaints the selected range in reverse video on the input
-// box's rendered view. Called from viewBody when the selection lives in the
-// input region. Row r maps directly to input view line r (the input box is
-// not scrolled/trimmed the way the transcript viewport is).
-func (m *model) highlightInput(iv string) string {
-	if m.sel == nil || !m.sel.anchor.input {
-		return iv
-	}
-	lines := strings.Split(iv, "\n")
-	lo, hi := selOrder(*m.sel)
-	for r := lo.row; r <= hi.row && r < len(lines); r++ {
-		start, end := selCols(lo, hi, r, ansi.StringWidth(lines[r]))
-		lines[r] = reverseRange(lines[r], start, end)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// highlightSelection repaints the selected range in reverse video on the FULL
-// (untrimmed) viewport view, before viewportView trims pad rows. Content row r
-// renders at view row r + contentPad - YOffset. Painting pre-trim means the
-// reversed rows can't change how many blank rows the trim drops, so the
-// transcript never shifts when a drag starts or ends.
-func (m *model) highlightSelection(view string) string {
-	if m.sel == nil {
-		return view
-	}
-	lines := strings.Split(view, "\n")
-	lo, hi := selOrder(*m.sel)
-	base := m.contentPad() - m.vp.YOffset() // view row = content row + base
-	for r := lo.row; r <= hi.row; r++ {
-		si := r + base
-		if si < 0 || si >= len(lines) {
-			continue
-		}
-		start, end := selCols(lo, hi, r, ansi.StringWidth(lines[si]))
-		lines[si] = reverseRange(lines[si], start, end)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// reverseRange applies SGR reverse video to the cells [start, end) of a
-// possibly ANSI-styled line (escape sequences pass through untouched, and the
-// count is in display cells, not bytes or runes).
-func reverseRange(line string, start, end int) string {
-	if start >= end {
-		return line
-	}
-	var b strings.Builder
-	col := 0
-	on := false
-	for i := 0; i < len(line); {
-		if line[i] == 0x1b {
-			j := i + 1 // pass the whole escape sequence through
-			if j < len(line) && line[j] == '[' {
-				for j++; j < len(line) && (line[j] < 0x40 || line[j] > 0x7e); j++ {
-				}
-				j++ // the final byte
-			} else if j < len(line) {
-				j++
-			}
-			b.WriteString(line[i:j])
-			if on {
-				// styled lines carry SGR resets mid-text (glamour styles text
-				// in chunks, each ending with \x1b[0m) and a reset cancels
-				// reverse video too — re-assert it or the highlight visibly
-				// dies at the first reset inside the range.
-				b.WriteString("\x1b[7m")
-			}
-			i = j
-			continue
-		}
-		r, size := utf8.DecodeRuneInString(line[i:])
-		if !on && col >= start && col < end {
-			b.WriteString("\x1b[7m")
-			on = true
-		} else if on && col >= end {
-			b.WriteString("\x1b[27m")
-			on = false
-		}
-		b.WriteRune(r)
-		col += runewidth.RuneWidth(r)
-		i += size
-	}
-	if on {
-		b.WriteString("\x1b[27m")
-	}
-	return b.String()
 }
 
 // copyText puts s on the system clipboard: OSC 52 first (terminal-owned,
