@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/config"
 )
@@ -110,7 +111,9 @@ func TestOpencodeHomePromptAndSidebarRemainUsable(t *testing.T) {
 }
 
 func TestOpencodeOverlayAndDialogsStayWithinNarrowFrames(t *testing.T) {
-	m := &model{width: 20, termWidth: 20, height: 12, cfg: &config.Config{}}
+	m := compactCmdModel()
+	m.Update(mkWinSize(20, 12))
+	m.layout()
 	m.openThinPalette()
 	rows := m.ocDialogRows()
 	if out := strings.Join(rows, "\n"); !strings.Contains(out, "Commands") {
@@ -121,8 +124,7 @@ func TestOpencodeOverlayAndDialogsStayWithinNarrowFrames(t *testing.T) {
 			t.Fatalf("dialog row %d widened unexpectedly to %d cells", index, width)
 		}
 	}
-	backdrop := strings.TrimSuffix(strings.Repeat("session line\n", 12), "\n")
-	overlay := m.ocOverlay(backdrop)
+	overlay := ansi.Strip(viewStr(m))
 	if !strings.Contains(overlay, "Commands") || len(strings.Split(overlay, "\n")) != 12 {
 		t.Fatalf("overlay changed frame shape:\n%s", overlay)
 	}

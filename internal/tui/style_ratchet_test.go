@@ -11,7 +11,7 @@ import (
 // package still has outside theme/ and ui/. New UI code must take its styles
 // from the theme (currentTheme().On, th.Heading, ...) or a ui component, so
 // this number only goes down: lower it when you remove sites, never raise it.
-const styleSiteBaseline = 49
+const styleSiteBaseline = 47
 
 func TestAdHocStylesOnlyShrink(t *testing.T) {
 	files, err := filepath.Glob("*.go")

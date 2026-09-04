@@ -498,16 +498,6 @@ func ocToolResult(lines []string, expanded, isErr bool, width int) string {
 	return wrap(style.Render("   ↳ "+strings.Join(lines, "\n     ")), width)
 }
 
-// ocDimLine renders a backdrop line faint (SGR 2), re-applying the faint after
-// every full reset inside the line so embedded styles can't undo the dim.
-func ocDimLine(s string) string {
-	if s == "" {
-		return s
-	}
-	s = bareSGR.Replace(s)
-	return "\x1b[2m" + strings.ReplaceAll(s, "\x1b[0m", "\x1b[0m\x1b[2m") + "\x1b[0m"
-}
-
 // msgActions is the state of the opencode-style Message Actions dialog opened
 // by clicking a message: the clicked block, the selected action, and a filter.
 type msgActions struct {
@@ -694,9 +684,9 @@ func toastClear(at time.Time) func(time.Time) tea.Msg {
 	return func(time.Time) tea.Msg { return toastClearMsg{at: at} }
 }
 
-// ocSpliceToast paints the toast box into the frame's top-right corner
-// (opencode: top 2, right 2, panel bg, success-colored side bars).
-func (m *model) ocSpliceToast(v string) string {
+// toastRows renders the toast box (panel bg, success-colored side bars); View
+// places it top-right.
+func (m *model) toastRows() []string {
 	bg := ocPanelBg()
 	pnl := lipgloss.NewStyle().Background(bg)
 	bar := lipgloss.NewStyle().Foreground(ocSuccessCol()).Background(bg).Render("┃")
@@ -705,7 +695,7 @@ func (m *model) ocSpliceToast(v string) string {
 	w := lipgloss.Width(inner) + 6
 	mid := bar + pnl.Render("  ") + txt.Render(inner) + pnl.Render("  ") + bar
 	pad := ocPadTo(bar, w-1, bg) + bar // side bars on the padding rows too
-	return ocSpliceAt(v, []string{pad, mid, pad}, max(m.termWidth-w-2, 0), 2)
+	return []string{pad, mid, pad}
 }
 
 // ocLeaderChord dispatches an opencode leader chord (ctrl+x then a key,
@@ -806,61 +796,6 @@ func (m *model) vpTopRows() int { return 0 }
 
 // vpXOff is the columns the main body is shifted right (opencode's left margin).
 func (m *model) vpXOff() int { return opencodeLeftMargin }
-
-// ocOverlay draws the Commands dialog OVER the live session, opencode-style:
-// the whole frame keeps rendering behind the modal, dimmed, with the dialog
-// rows spliced in centered (upper third). The dialog is clipped to the screen
-// height so the frame never scrolls (which would shift the sidebar).
-func (m *model) ocOverlay(v string) string {
-	return m.ocOverlayRows(v, m.ocDialogRows()) // rows never empty: dialog chrome is unconditional
-}
-
-// ocSpliceAt paints rows onto the frame starting at column x, row y — the
-// ANSI-aware overlay primitive behind the dialogs, the toast, and the
-// completion popup. Rows outside the frame are skipped.
-func ocSpliceAt(v string, rows []string, x, y int) string {
-	lines := strings.Split(v, "\n")
-	for i, r := range rows {
-		li := y + i
-		if li < 0 || li >= len(lines) {
-			continue
-		}
-		l := lines[li]
-		left := ansi.Truncate(l, x, "")
-		if pad := x - lipgloss.Width(left); pad > 0 {
-			left += strings.Repeat(" ", pad)
-		}
-		right := ansi.TruncateLeft(l, x+lipgloss.Width(r), "")
-		lines[li] = left + "\x1b[0m" + r + "\x1b[0m" + right
-	}
-	return strings.Join(lines, "\n")
-}
-
-// ocOverlayRows dims the frame and splices the given dialog rows in centered.
-func (m *model) ocOverlayRows(v string, rows []string) string {
-	lines := strings.Split(v, "\n")
-	for i := range lines {
-		lines[i] = ocDimLine(lines[i])
-	}
-	w := lipgloss.Width(rows[0])
-	x := max((max(m.termWidth, w)-w)/2, 0)
-	if len(rows) > len(lines) {
-		rows = rows[:len(lines)] // ponytail: bottom-clip; scroll-follow selection if lists outgrow screens
-	}
-	y := max((len(lines)-len(rows))/3, 0)
-	return ocSpliceAt(strings.Join(lines, "\n"), rows, x, y)
-}
-
-// ocMenuOverlay draws the completion popup ON TOP of the frame, bottom-anchored
-// to the row just above the input box (opencode's autocomplete position) — the
-// frame beneath never reflows while typing.
-func (m *model) ocMenuOverlay(v string) string {
-	rows := strings.Split(m.menuView(), "\n")
-	if len(rows) > m.inputBodyOff { // clip the top if there's no room above the box
-		rows = rows[len(rows)-m.inputBodyOff:]
-	}
-	return ocSpliceAt(v, rows, opencodeLeftMargin, m.inputBodyOff-len(rows))
-}
 
 // opencodeAttribution renders opencode's per-response attribution line:
 // "▣  {mode} · {model} · {duration}", indented 3 to sit under the assistant body.

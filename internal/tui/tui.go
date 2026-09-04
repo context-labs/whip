@@ -23,6 +23,7 @@ import (
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/skills"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 )
@@ -177,17 +178,18 @@ type model struct {
 	// absolute screen row (the view starts at row 0), -1 when hidden.
 	inputBodyOff int
 	inputTop     int
-	inputLines   []string    // the input box's rendered lines, ANSI-stripped
-	vpLead       int         // top blank rows viewportView last dropped (selection row mapping)
-	viewH        int         // height of the last rendered view
-	themeHow     string      // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
-	sessTitle    string      // cached session title for the opencode sidebar (from the store; updated on title/rename)
-	msgActions   *msgActions // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
-	ocThink      string      // opencode mode: reasoning text accumulated for the expandable "+ Thought" block
-	toast        string      // opencode mode: top-right toast text; "" = none
-	toastAt      time.Time   // when the current toast was shown (stale clears are ignored)
-	leaderAt     time.Time   // opencode mode: when ctrl+x armed the leader chord; zero = not pending
-	sidebarHide  bool        // opencode mode: ctrl+x b hides the sidebar
+	inputLines   []string         // the input box's rendered lines, ANSI-stripped
+	vpLead       int              // top blank rows viewportView last dropped (selection row mapping)
+	viewH        int              // height of the last rendered view
+	scr          *uv.ScreenBuffer // the frame buffer View draws into (reused across frames)
+	themeHow     string           // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
+	sessTitle    string           // cached session title for the opencode sidebar (from the store; updated on title/rename)
+	msgActions   *msgActions      // opencode mode: the Message Actions dialog opened by clicking a message; nil = closed
+	ocThink      string           // opencode mode: reasoning text accumulated for the expandable "+ Thought" block
+	toast        string           // opencode mode: top-right toast text; "" = none
+	toastAt      time.Time        // when the current toast was shown (stale clears are ignored)
+	leaderAt     time.Time        // opencode mode: when ctrl+x armed the leader chord; zero = not pending
+	sidebarHide  bool             // opencode mode: ctrl+x b hides the sidebar
 	// updateLatest is a pending newer release tag ("" when none), picked up
 	// from update.Pending at startup; the notice it renders is durable, so a
 	// check that lands after the report still shows next launch.
@@ -1312,53 +1314,10 @@ func (m *model) currentView() string {
 // View renders the frame and tracks WHERE it sits on the screen. Mouse events
 // arrive in absolute screen coordinates, so every click/drag mapping needs the
 // view's top row, which is always row 0 in the alternate screen.
-func (m *model) View() tea.View {
-	view := tea.NewView(m.viewString())
-	view.AltScreen = true
-	if m.mouseOn {
-		view.MouseMode = tea.MouseModeAllMotion // clicks, wheel, drag, and hover
-	}
-	return view
-}
-
-// viewString renders the frame as one styled string (the View content).
-func (m *model) viewString() string {
-	m.syncInputPlaceholder()
-	v := m.viewBody()
-	// the main-column left margin only — the main area stays on the terminal's
-	// native background so whip keeps light/dark/auto (no forced backdrop;
-	// only the panels carry a subtle contrast shade)
-	v = lipgloss.NewStyle().PaddingLeft(opencodeLeftMargin).Render(v)
-	if m.sidebarVisible() {
-		gap := strings.Repeat(" ", opencodeRightGap) // breathing room between the panels
-		if m.replPanel {
-			// the REPL sits on the native background like the chat, so a hairline
-			// tells the two columns apart
-			rule := " " + lipgloss.NewStyle().Foreground(ocMutedCol()).Render("│")
-			gap = strings.TrimSuffix(strings.Repeat(rule+"\n", lipgloss.Height(v)), "\n")
-		}
-		v = lipgloss.JoinHorizontal(lipgloss.Top, v, gap, m.sidebarView(lipgloss.Height(v)))
-	}
-	switch { // floating dialogs over the dimmed session
-	case m.palette != nil:
-		v = m.ocOverlay(v) // Commands
-	case m.msgActions != nil:
-		v = m.ocOverlayRows(v, m.ocMsgActionRows())
-	case m.mpicker != nil:
-		v = m.ocOverlayRows(v, m.ocModelDialogRows())
-	case m.picker != nil:
-		v = m.ocOverlayRows(v, m.ocSessionDialogRows())
-	case m.menu != nil:
-		v = m.ocMenuOverlay(v) // completion popup floats above the input, no reflow
-	}
-	if m.toast != "" {
-		v = m.ocSpliceToast(v) // top-right toast, over everything
-	}
-	if m.height > 0 {
-		m.viewH = lipgloss.Height(v)
-	}
-	// Record the input box's absolute screen rows for drag-select. The input is
-	// hidden during interactive bash (iactive), so there's nothing to select.
+// recordInputRows notes the input box's absolute screen rows for drag-select.
+// The input is hidden during interactive bash (iactive), so there's nothing
+// to select.
+func (m *model) recordInputRows() {
 	if m.iactive != nil || m.height == 0 {
 		m.inputTop = -1
 		m.inputLines = nil
@@ -1374,7 +1333,6 @@ func (m *model) viewString() string {
 			m.inputLines[i] = strings.TrimRight(ansi.Strip(ln), " \t")
 		}
 	}
-	return v
 }
 
 func (m *model) viewBody() string {

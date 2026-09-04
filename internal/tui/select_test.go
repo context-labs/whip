@@ -47,7 +47,7 @@ func TestDragSelectsHighlightsCopies(t *testing.T) {
 		t.Fatal("motion did not start a selection")
 	}
 	during := viewStr(m)
-	if !strings.Contains(during, "\x1b[7msecond\x1b[27m") {
+	if !strings.Contains(during, "\x1b[7msecond") { // the cell renderer closes the run with a full reset
 		t.Fatalf("View must highlight the dragged range:\n%q", during)
 	}
 	// the highlight must not move the text: "second block here" stays on the
