@@ -190,7 +190,9 @@ func powershellImage() (string, []byte, error) {
 }
 
 // pastedImagePath recognizes a single pasted local image path, including the
-// extension-less temporary paths emitted by macOS screenshot previews.
+// extension-less temporary paths emitted by macOS screenshot previews. A
+// Finder drag pastes a backslash-escaped path ("a\ b.png"); unescape it
+// before statting.
 func pastedImagePath(text string) (string, bool) {
 	path := strings.TrimSpace(text)
 	if u, err := url.Parse(path); err == nil && u.Scheme == "file" {
@@ -199,6 +201,7 @@ func pastedImagePath(text string) (string, bool) {
 		}
 		path = u.Path
 	}
+	path = unescapePath(path)
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		return "", false
