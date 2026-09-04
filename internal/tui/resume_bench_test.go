@@ -70,3 +70,16 @@ func BenchmarkView(b *testing.B) {
 		_ = m.View()
 	}
 }
+
+// BenchmarkAppendStream1k is the streaming hot path on a long transcript: an
+// append must not re-touch the other thousand blocks.
+func BenchmarkAppendStream1k(b *testing.B) {
+	m := compactCmdModel()
+	m.Update(mkWinSize(120, 40))
+	m.seedTranscript(benchTranscript(1000), 1)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := range b.N {
+		m.append(fmt.Sprintf("streamed line %d", i))
+	}
+}

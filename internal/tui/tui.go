@@ -13,7 +13,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -122,7 +121,7 @@ type model struct {
 
 	input  textarea.Model
 	spin   spinner.Model
-	vp     viewport.Model
+	vp     transcriptView
 	blocks []block // finalized transcript (raw; rendered at the current width)
 	// msgBlock[i] is the block index rendering agent.Messages[i] (-1: none) —
 	// rewind live-scroll uses it to jump to a message's transcript position.
@@ -472,6 +471,7 @@ type block struct {
 	// cache of the last render: valid while !stale, width matches and the
 	// theme generation is unchanged (a runtime /theme repaints every block).
 	rendered string
+	rows     []string // rendered split into rows (what the transcript window reads)
 	gen      int
 	lines    int
 	width    int
@@ -487,7 +487,8 @@ func (b *block) renderAt(width int) string {
 		return b.rendered
 	}
 	b.rendered = b.render(width)
-	b.lines = lipgloss.Height(b.rendered)
+	b.rows = strings.Split(b.rendered, "\n")
+	b.lines = len(b.rows)
 	b.width, b.gen, b.stale = width, gen, false
 	return b.rendered
 }
@@ -590,32 +591,18 @@ func (m *model) refreshVP() {
 	// so width 1 renders one character per row. Below minRenderWidth the layout
 	// is unreadable either way — render at the floor instead.
 	width := max(m.width, minRenderWidth)
-	var b strings.Builder
-	if n := len(m.blocks); n > 0 {
-		b.Grow(n*24 + 1<<20) // one big allocation up front
-	}
 	line := 0
 	for i := range m.blocks {
 		if i > 0 {
-			// "\n\n" ends the previous block's last line and leaves ONE blank
-			// row between blocks, so the row counter advances by 1 — adding 2
-			// here would drift every later block's y0/y1 one row low per
-			// separator (the click-mapping math only worked because it shared
-			// the drift).
-			b.WriteString("\n\n")
-			line++
+			line++ // one blank separator row between blocks
 		}
-		r := m.blocks[i].renderAt(width)
+		m.blocks[i].renderAt(width) // warms the cache; unchanged blocks cost nothing
 		m.blocks[i].y0 = line
 		m.blocks[i].y1 = line + m.blocks[i].lines - 1
-		b.WriteString(r)
 		line = m.blocks[i].y1 + 1
 	}
-	content := b.String()
-	if pad := m.contentPad(); pad > 0 {
-		content = strings.Repeat("\n", pad) + content
-	}
-	m.vp.SetContent(content)
+	m.vp.rows = m.contentRow
+	m.vp.setTotal(m.contentPad() + line) // blank pad rows (bottom-anchoring) then the content
 	if m.follow {
 		m.vp.GotoBottom()
 	}

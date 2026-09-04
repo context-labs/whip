@@ -117,9 +117,8 @@ func (m *model) contentLine(r int) string {
 		if r < b.y0 || r > b.y1 {
 			continue
 		}
-		rows := strings.Split(ansi.Strip(b.rendered), "\n")
-		if r-b.y0 < len(rows) {
-			return strings.TrimRight(rows[r-b.y0], " \t")
+		if r-b.y0 < len(b.rows) {
+			return strings.TrimRight(ansi.Strip(b.rows[r-b.y0]), " \t")
 		}
 		return ""
 	}
