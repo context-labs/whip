@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/context-labs/whip/internal/llm"
 )
@@ -27,7 +28,7 @@ func TestCtrlJFirstLineVisibleWithTranscript(t *testing.T) {
 	t.Logf("layout: vp.Height=%d inputHeight=%d", m.vp.Height(), m.input.Height())
 	_ = lipgloss.Height // keep import
 
-	p := tea.NewProgram(m, tea.WithOutput(nopWriter{}), tea.WithInput(strings.NewReader("")), tea.WithoutSignalHandler(), tea.WithWindowSize(80, 24))
+	p := tea.NewProgram(m, tea.WithOutput(nopWriter{}), tea.WithInput(strings.NewReader("")), tea.WithoutSignalHandler(), tea.WithWindowSize(80, 24), tea.WithColorProfile(colorprofile.TrueColor))
 	done := make(chan struct{})
 	go func() { p.Run(); close(done) }()
 	defer func() { p.Kill(); <-done }()

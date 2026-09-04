@@ -132,14 +132,14 @@ func TestMarkdownContrastBothThemes(t *testing.T) {
 	SetLightTheme(false)
 }
 
-// TestInlineCodeLightChip proves the light theme's inline code is dark text
-// on a light chip (stock glamour Light used salmon-on-near-white, ~0.1 gap).
+// TestInlineCodeLightChip proves the light theme's inline code is green text
+// on the element surface (stock glamour Light used salmon-on-near-white, ~0.1 gap).
 func TestInlineCodeLightChip(t *testing.T) {
 	SetLightTheme(true)
 	defer SetLightTheme(false)
 	out := renderMarkdown("use `config.Save` here", 60)
-	if !strings.Contains(out, "48;2;245;245;245") {
-		t.Errorf("light inline code should sit on the light chip (#f5f5f5): %q", out)
+	if !strings.Contains(out, "48;2;225;225;225") { // the light theme's Element surface (#e1e1e1), same fill as the prompt box
+		t.Errorf("light inline code should sit on the light chip (#e1e1e1): %q", out)
 	}
 	if !strings.Contains(out, "38;2;61;154;87") { // #3d9a57 as glamour v2 emits it
 		t.Errorf("light inline code text should be the light code green (#3d9a57): %q", out)

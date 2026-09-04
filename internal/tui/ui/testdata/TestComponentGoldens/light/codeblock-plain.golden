@@ -1,0 +1,7 @@
+ 1 package main                         
+ 2                                      
+ 3 import "fmt"                         
+ 4                                      
+ 5 // greet says hello                  
+ 6 func greet(name string) {            
+ … 2 more lines                         

@@ -149,6 +149,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	}
 	m.updateLatest = update.Pending(Version)
 	m.themeHow = m.applyTheme(cfg.Theme)
+	loadUserThemes()
 	m.applyOpencodeStyles()
 	m.startupReport()
 	m.append(dimStyle.Render("daemon: connecting…"))
@@ -1731,8 +1732,10 @@ func (m *model) openCommandSubpalette(category string, commands []struct{ title,
 }
 
 func (m *model) openThinThemePalette() {
-	items := make([]paletteItem, 0, 3)
-	for _, theme := range []string{"auto", "light", "dark"} {
+	loadUserThemes()
+	names := themeNames()
+	items := make([]paletteItem, 0, len(names))
+	for _, theme := range names {
 		items = append(items, paletteItem{
 			title: "Theme: " + theme, category: "Display",
 			dynDesc: func(*model) string { return "switch terminal colors to " + theme },

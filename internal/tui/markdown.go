@@ -7,8 +7,6 @@ import (
 
 	"charm.land/glamour/v2"
 	glamouransi "charm.land/glamour/v2/ansi"
-	"charm.land/glamour/v2/styles"
-	chromaStyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -102,13 +100,12 @@ func selfTerminate(l string) string {
 var (
 	mdMu          sync.Mutex
 	mdAtWidth     int
-	mdAtLight     bool // theme the cached renderer was built for
-	mdAtKnown     bool // whether the cached renderer was built with a known bg
+	mdAtGen       int // theme generation the cached renderer was built for
 	mdRendererC   *glamour.TermRenderer
 	mdRendererErr bool   // style init failed once: don't retry per message
 	mdLight       bool   // light terminal background detected (set at startup)
 	mdKnown       bool   // background was actually determined; false = no good signal
-	mdScheme      string // explicit scheme ("light"/"dark"); "" = follow detection
+	mdScheme      string // pinned theme name ("light", "dark", or a user theme); "" = follow detection
 )
 
 // applyLight/applyDark/applyUnknown drop the cached renderer so the next
@@ -155,7 +152,10 @@ func SetUnknownTheme() {
 func setSchemeOverride(s string) {
 	mdMu.Lock()
 	mdScheme = s
+	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
+	resetLinkSGRs()
+	refreshBaseStyles() // a pinned user theme changes the palette, not just the scheme
 }
 
 // CurrentTheme reports the active scheme ("light"/"dark"/"auto") for the UI.
@@ -175,16 +175,6 @@ func CurrentTheme() string {
 		return "light"
 	}
 	return "dark"
-}
-
-// unregisterChromaStyle drops glamour's global chroma style ("charm").
-// Glamour registers it once per process, guarded by "if not present" — so
-// the FIRST theme to render a code block wins forever and a later theme
-// switch keeps the wrong syntax colors (a light render poisons every later
-// dark render with color 235). Deleting the entry on theme change lets the
-// next render register the right palette.
-func unregisterChromaStyle() {
-	delete(chromaStyles.Registry, "charm")
 }
 
 // invalidateMDRenderer drops the cached markdown renderer so the next render
@@ -210,92 +200,7 @@ func invalidateMDRenderer() {
 // glamour's default cell padding wastes ~4 columns per cell, which is the
 // difference between a readable table and wrapped mush at narrow widths.
 func mdStyle() glamouransi.StyleConfig {
-	if ocActive && mdKnown { // unknown bg → fall through to neutralStyle (no light/dark assumption)
-		return opencodeMDStyle(mdLight)
-	}
-	var st glamouransi.StyleConfig
-	switch {
-	case !mdKnown:
-		st = neutralStyle()
-	case mdLight:
-		st = styles.LightStyleConfig
-		st.Code.Color = new("124")           // dark red
-		st.Code.BackgroundColor = new("255") // lightest gray chip
-	default:
-		st = styles.DarkStyleConfig
-	}
-	st.Table.ColumnSeparator = new("│")
-	st.Table.CenterSeparator = new("┼")
-	st.Table.RowSeparator = new("─")
-	zero := uint(0)
-	st.Table.Margin = &zero
-	return st
-}
-
-// opencodeMDStyle renders assistant markdown in opencode's palette (both
-// theme variants), so the body text and inline styles match opencode
-// pixel-for-pixel. Document.Margin is left at glamour's default 2 because the
-// assistant indent math (indentLines) accounts for it.
-func opencodeMDStyle(light bool) glamouransi.StyleConfig {
-	pick := func(dark, lt string) *string {
-		s := dark
-		if light {
-			s = lt
-		}
-		return &s
-	}
-	st := styles.DarkStyleConfig
-	if light {
-		st = styles.LightStyleConfig
-	}
-	st.Document.Color = pick("#eeeeee", "#1a1a1a") // markdownText (no background: the main area stays terminal-native)
-	st.Heading.Color = pick("#9d7cd8", "#d68c27")  // markdownHeading (accent)
-	st.H1.Color = pick("#9d7cd8", "#d68c27")
-	st.H1.BackgroundColor = nil
-	st.Code.Color = pick("#7fd88f", "#3d9a57") // markdownCode (green)
-	st.Code.BackgroundColor = pick("#1e1e1e", "#f5f5f5")
-	st.Link.Color = pick("#fab283", "#3b7dd8")     // markdownLink
-	st.LinkText.Color = pick("#56b6c2", "#318795") // markdownLinkText (cyan)
-	st.Strong.Color = pick("#f5a742", "#d68c27")   // markdownStrong (orange)
-	st.Emph.Color = pick("#e5c07b", "#b0851f")     // markdownEmph (yellow)
-	st.Item.Color = pick("#fab283", "#3b7dd8")     // markdownListItem
-	st.Table.ColumnSeparator = new("│")
-	st.Table.CenterSeparator = new("┼")
-	st.Table.RowSeparator = new("─")
-	zero := uint(0)
-	st.Table.Margin = &zero
-	return st
-}
-
-// neutralStyle is the unknown-background style: auto mode with no reliable
-// signal — e.g. mosh+tmux, where the OSC 11 query is structurally unanswerable
-// (mosh's terminal emulator doesn't implement it, so neither tmux nor the
-// passthrough copy ever gets a reply). The old fallback here was glamour's
-// ASCII style, which reads as broken: literal ## headings, kept ** markers,
-// raw table pipes, zero color.
-//
-// This keeps the dark style's STRUCTURE (styled headings, italic/bold, • items,
-// box-drawing tables) but drops or remaps every color that assumes a dark
-// background to a basic ANSI color (0–15) — those come from the terminal's own
-// palette, so they stay legible on any background. Code blocks render without
-// syntax highlighting: chroma's fixed hex palettes need a known background.
-func neutralStyle() glamouransi.StyleConfig {
-	st := styles.DarkStyleConfig
-	st.Document.Color = nil // terminal default foreground
-	st.Heading.Color = new("4")
-	st.H1.Color, st.H1.BackgroundColor = nil, nil // no color chip
-	st.H1.Prefix, st.H1.Suffix = "# ", ""
-	st.H6.Color = nil
-	st.HorizontalRule.Color = new("8")
-	st.Link.Color = new("4")
-	st.LinkText.Color = new("6")
-	st.Image.Color = new("4")
-	st.ImageText.Color = new("8")
-	st.Code.Color = new("1") // inline code: ANSI red, no chip
-	st.Code.BackgroundColor = nil
-	st.CodeBlock.Color = nil
-	st.CodeBlock.Chroma = nil
-	return st
+	return currentTheme().Markdown() // neutral (terminal colors only) while the background is unknown
 }
 
 // mdRenderer returns a cached renderer per width (glamour builds a
@@ -312,10 +217,9 @@ func mdRenderer(width int) *glamour.TermRenderer {
 	// other theme. The registry entry is keyed by name, not theme: drop it
 	// whenever the cached renderer's theme isn't the current one, and also
 	// when the entry's origin is unknown (first call after a theme flip).
-	if mdRendererC != nil && mdAtWidth == width && mdAtLight == mdLight && mdAtKnown == mdKnown {
+	if mdRendererC != nil && mdAtWidth == width && mdAtGen == themeGeneration() {
 		return mdRendererC
 	}
-	unregisterChromaStyle()
 	st := mdStyle()
 	margin := uint(2)
 	st.Document.Margin = &margin
@@ -328,7 +232,7 @@ func mdRenderer(width int) *glamour.TermRenderer {
 		mdRendererErr = true
 		return nil
 	}
-	mdRendererC, mdAtWidth, mdAtLight, mdAtKnown = r, width, mdLight, mdKnown
+	mdRendererC, mdAtWidth, mdAtGen = r, width, themeGeneration()
 	return r
 }
 

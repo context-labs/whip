@@ -162,7 +162,7 @@ type Config struct {
 	CompactModel    string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
 	CompactProvider string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
 	CompactPct      int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
-	Theme           string              `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
+	Theme           string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
 	Sidebar         *bool               `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
 	Mouse           *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
 	Thinking        *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)

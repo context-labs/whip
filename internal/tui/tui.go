@@ -4,7 +4,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"image/color"
 	"os"
 	"os/exec"
 	"strconv"
@@ -38,20 +37,18 @@ func init() { refreshBaseStyles() }
 // refreshBaseStyles picks the light or dark variant of every package-level
 // style for the current scheme (see SetLightTheme / SetUnknownTheme).
 func refreshBaseStyles() {
-	pick := lipgloss.LightDark(!schemeIsLight())
-	ad := func(light, dark string) color.Color { return pick(lipgloss.Color(light), lipgloss.Color(dark)) }
-	youStyle = lipgloss.NewStyle().Foreground(ad("21", "12")).Bold(true) // blue
-	botStyle = lipgloss.NewStyle().Foreground(ad("90", "13")).Bold(true) // purple/magenta
-	toolStyle = lipgloss.NewStyle().Foreground(ad("136", "11"))          // amber
-	dimStyle = lipgloss.NewStyle().Foreground(ad("240", "245"))          // mid gray
-	errStyle = lipgloss.NewStyle().Foreground(ad("124", "9"))            // red
-	// thinkingStyle renders reasoning tokens: dim and italic so they're
-	// visually distinct from the answer.
-	thinkingStyle = lipgloss.NewStyle().Foreground(ad("240", "245")).Italic(true)
-	// diff bands: colored background across the full row, terminal-default
-	// foreground on top (legible on both themes).
-	diffAddStyle = lipgloss.NewStyle().Background(ad("194", "22"))
-	diffDelStyle = lipgloss.NewStyle().Background(ad("224", "52"))
+	rebuildTheme()
+	th := currentTheme()
+	pick := lipgloss.LightDark(th.Dark)
+	youStyle = th.On(th.Info, nil).Bold(true)
+	botStyle = th.On(th.Accent, nil).Bold(true)
+	toolStyle = th.On(th.Warning, nil)
+	dimStyle = th.On(th.Muted, nil)
+	errStyle = th.On(th.Error, nil)
+	thinkingStyle = th.On(th.Muted, nil).Italic(true)
+	// diff bands: low-contrast tints the semantic palette has no token for yet
+	diffAddStyle = lipgloss.NewStyle().Background(pick(lipgloss.Color("194"), lipgloss.Color("22")))
+	diffDelStyle = lipgloss.NewStyle().Background(pick(lipgloss.Color("224"), lipgloss.Color("52")))
 }
 
 // Marker glyphs prefixing user and assistant turns. Package-level so the
@@ -373,7 +370,7 @@ func (m *model) seedTranscript(msgs []llm.Message, base int) {
 // session's bookkeeping (goal, effort) — the effort stamp is what a resume
 // restores, so it runs even when no new messages landed.
 func (m *model) setTheme(theme string) {
-	if theme != "light" && theme != "dark" {
+	if !knownThemeName(theme) {
 		theme = "auto"
 	}
 	how := m.applyTheme(theme)
@@ -415,9 +412,21 @@ func (m *model) applyTheme(theme string) (how string) {
 	case "dark":
 		SetLightTheme(false)
 		setSchemeOverride("dark")
-	default: // auto: don't touch m.cfg.Theme — setTheme owns persistence
+	case "", "auto": // don't touch m.cfg.Theme — setTheme owns persistence
 		setSchemeOverride("")
 		how = detectColorScheme()
+	default: // a user theme: its darkness picks the scheme, its name pins the palette
+		spec := userThemeSpec(theme)
+		if spec == nil {
+			loadUserThemes()
+			spec = userThemeSpec(theme)
+		}
+		if spec == nil {
+			setSchemeOverride("")
+			return detectColorScheme()
+		}
+		SetLightTheme(!spec.Dark)
+		setSchemeOverride(theme)
 	}
 	return how
 }

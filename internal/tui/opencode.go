@@ -36,23 +36,6 @@ var ocActive = true
 // terminal. When the background is unknown, each role falls back to a
 // terminal-palette-safe value (ANSI 0-15, or no fill) so nothing assumes
 // light or dark — mirroring the markdown neutralStyle.
-func ocPick(dark, light, neutral string) color.Color {
-	mdMu.Lock()
-	l, known := mdLight, mdKnown
-	mdMu.Unlock()
-	switch {
-	case !known:
-		if neutral == "" {
-			return lipgloss.NoColor{} // transparent: no light/dark assumption
-		}
-		return lipgloss.Color(neutral)
-	case l:
-		return lipgloss.Color(light)
-	default:
-		return lipgloss.Color(dark)
-	}
-}
-
 // ocPadTo pads content to width with spaces EXPLICITLY styled with the panel
 // background. lipgloss's Style.Width padding lands after the nested segments'
 // closing resets without re-opening the background, so padded panel rows
@@ -99,53 +82,18 @@ func ocThemeKnown() bool {
 	return mdKnown
 }
 
-// ocBgShift derives a panel shade RELATIVE to the terminal's real background
-// when the OSC 11 query captured its RGB: lightened on a dark background,
-// darkened on a light one — opencode's own bg→panel→element stepping, but
-// anchored to the actual bg so panels read as raised layers on ANY terminal
-// (fixed constants assume opencode's near-black; on a #262a2e terminal they
-// rendered as sunken holes).
-func ocBgShift(delta int) (color.Color, bool) {
-	if !bgCache.valid || !bgCache.hasRGB || !ocThemeKnown() {
-		return nil, false
-	}
-	if rgbIsLight(bgCache.r, bgCache.g, bgCache.b) {
-		delta = -2 * delta // darken, doubled: small deltas near white are invisible
-	}
-	c := func(v int) int { return min(max(v+delta, 0), 255) }
-	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", c(bgCache.r), c(bgCache.g), c(bgCache.b))), true
-}
-
-// Light fills use deeper steps from opencode's own light ramp (step4/step5)
-// rather than its literal panel values (#fafafa/#f5f5f5): a 2% delta from
-// white is invisible in a terminal, which read as zero panel contrast.
-// The dark constants below are the no-RGB fallback (explicit /theme, or mosh —
-// which can't answer OSC 11, so the real bg is unknowable). They sit HIGHER
-// than opencode's literal #141414/#1e1e1e: those assume a near-black terminal
-// and render as sunken holes on the common #202830-ish dark schemes; #343434/
-// #404040 read as raised panels across the whole dark range. When the real
-// bg RGB was captured, ocBgShift supersedes these with exact relative shades.
-func ocPanelBg() color.Color { // cards, sidebar (no fill if unknown)
-	if c, ok := ocBgShift(10); ok {
-		return c
-	}
-	return ocPick("#343434", "#ebebeb", "")
-}
-
-func ocElementBg() color.Color { // prompt box
-	if c, ok := ocBgShift(20); ok {
-		return c
-	}
-	return ocPick("#404040", "#e1e1e1", "")
-}
-func ocAgentCol() color.Color   { return ocPick("#5c9cf5", "#7b5bb6", "4") } // bars, ▣
-func ocTextCol() color.Color    { return ocPick("#eeeeee", "#1a1a1a", "") }  // text (default fg if unknown)
-func ocMutedCol() color.Color   { return ocPick("#808080", "#8a8a8a", "8") } // muted
-func ocWarnCol() color.Color    { return ocPick("#f5a742", "#d68c27", "3") } // "+ Thought"
-func ocSuccessCol() color.Color { return ocPick("#7fd88f", "#3d9a57", "2") } // footer bullet
-func ocAccentCol() color.Color  { return ocPick("#9d7cd8", "#d68c27", "5") } // palette category headers
-func ocSelBg() color.Color      { return ocPick("#fab283", "#3b7dd8", "7") } // selected row fill (primary)
-func ocSelFg() color.Color      { return ocPick("#0a0a0a", "#ffffff", "0") } // selected row text
+// Palette accessors: every fill and accent whip paints comes from the active
+// theme (see theme_active.go), so a theme change repaints the whole UI.
+func ocPanelBg() color.Color    { return orNo(currentTheme().Surface.Panel) }   // cards, sidebar (no fill if unknown)
+func ocElementBg() color.Color  { return orNo(currentTheme().Surface.Element) } // prompt box
+func ocAgentCol() color.Color   { return orNo(currentTheme().Info) }            // bars, ▣
+func ocTextCol() color.Color    { return orNo(currentTheme().Text) }            // text (default fg if unknown)
+func ocMutedCol() color.Color   { return orNo(currentTheme().Muted) }
+func ocWarnCol() color.Color    { return orNo(currentTheme().Warning) }   // "+ Thought"
+func ocSuccessCol() color.Color { return orNo(currentTheme().Success) }   // footer bullet
+func ocAccentCol() color.Color  { return orNo(currentTheme().Accent) }    // palette category headers
+func ocSelBg() color.Color      { return orNo(currentTheme().Primary) }   // selected row fill
+func ocSelFg() color.Color      { return orNo(currentTheme().OnPrimary) } // selected row text
 
 // sidebarWidth is the fixed width of the opencode-mode right sidebar, matching
 // opencode (routes/session/sidebar.tsx). The sidebar shows only when the
@@ -1013,17 +961,17 @@ func (m *model) ocModeLabel() string {
 func (m *model) applyOpencodeStyles() {
 	invalidateMDRenderer() // the markdown style follows the scheme; rebuild
 	ocActive = true
+	th := currentTheme()
 	m.spin = spinner.New(spinner.WithSpinner(ocKnightRider))
-	m.spin.Style = lipgloss.NewStyle().Foreground(ocAgentCol())
+	m.spin.Style = th.Spinner
 	// Fill the textarea with the element background so the input box reads as
 	// a filled panel (opencode's prompt box).
-	elem := lipgloss.NewStyle().Background(ocElementBg())
 	st := m.input.Styles()
-	st.Focused.Text = elem
-	st.Focused.CursorLine = elem
-	st.Focused.Placeholder = dimStyle.Background(ocElementBg())
-	st.Blurred.Text = elem
-	st.Blurred.Placeholder = dimStyle.Background(ocElementBg())
+	st.Focused.Text = th.Textarea.Focused.Text
+	st.Focused.CursorLine = th.Textarea.Focused.CursorLine
+	st.Focused.Placeholder = th.Textarea.Focused.Placeholder
+	st.Blurred.Text = th.Textarea.Blurred.Text
+	st.Blurred.Placeholder = th.Textarea.Blurred.Placeholder
 	m.input.SetStyles(st)
 	m.input.Focus()
 }

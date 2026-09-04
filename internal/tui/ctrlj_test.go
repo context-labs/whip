@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 // Regression: typing a first line then hitting ctrl+j must keep the first
@@ -21,7 +22,7 @@ import (
 // goroutine, which would race the program.
 func TestCtrlJFirstLineStaysVisible(t *testing.T) {
 	m := compactCmdModel()
-	p := tea.NewProgram(m, tea.WithOutput(nopWriter{}), tea.WithInput(strings.NewReader("")), tea.WithoutSignalHandler(), tea.WithWindowSize(80, 24))
+	p := tea.NewProgram(m, tea.WithOutput(nopWriter{}), tea.WithInput(strings.NewReader("")), tea.WithoutSignalHandler(), tea.WithWindowSize(80, 24), tea.WithColorProfile(colorprofile.TrueColor))
 	done := make(chan struct{})
 	go func() { p.Run(); close(done) }()
 	defer func() { p.Kill(); <-done }()

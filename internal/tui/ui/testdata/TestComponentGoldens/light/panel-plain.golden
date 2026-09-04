@@ -1,0 +1,4 @@
+ Agents                         
+ root                           
+   ├ worker-1  running          
+   └ worker-2  idle             

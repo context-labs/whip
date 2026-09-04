@@ -331,6 +331,10 @@ func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.selEdgeScroll()
 	case tea.BackgroundColorMsg:
 		m.applyDetectedBackground(msg)
+	case tea.ColorProfileMsg:
+		setThemeProfile(msg.Profile)
+		m.applyOpencodeStyles()
+		m.refreshVP()
 		return m, nil
 	case tea.PasteMsg:
 		m.sel = nil

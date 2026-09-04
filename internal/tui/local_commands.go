@@ -26,8 +26,12 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 			m.openThinThemePalette()
 			return m, nil
 		}
-		if fields[1] != "light" && fields[1] != "dark" && fields[1] != "auto" {
-			m.append(errStyle.Render("usage: /theme light|dark|auto"))
+		errs := loadUserThemes()
+		for _, err := range errs {
+			m.append(errStyle.Render(err.Error()))
+		}
+		if !knownThemeName(fields[1]) {
+			m.append(errStyle.Render("usage: /theme " + strings.Join(themeNames(), "|") + " (user themes: ~/.whip/themes/<name>.json)"))
 			return m, nil
 		}
 		m.setTheme(fields[1])

@@ -148,3 +148,38 @@ On restart:
 
 See [architecture.md](architecture.md), [rlm-runtime.md](rlm-runtime.md), and
 [concurrency.md](concurrency.md) for the contracts behind these features.
+
+## Themes
+
+Every color whip paints comes from one theme: text, muted, accents, the
+selection fill, the raised surfaces behind cards and the prompt box, and the
+syntax colors inside code blocks (markdown and tool output share them). `auto`
+follows the terminal background; `light` and `dark` pin the built-ins.
+
+`/theme` with no argument opens the switcher. `/theme <name>` pins a theme and
+saves it to the config (`"theme": "<name>"`).
+
+User themes are JSON files in `~/.whip/themes/<name>.json` (or under
+`$WHIP_HOME`). Any token you leave out defaults from the built-in of the same
+darkness; unknown keys and malformed colors are reported with the allowed keys
+when you run `/theme`. Colors are `#rrggbb` or an ANSI palette index `0`-`255`.
+
+```json
+{
+  "dark": true,
+  "palette": {
+    "text": "#e0e0e0", "muted": "#808080", "faint": "#5a5a5a",
+    "primary": "#00aaff", "accent": "#c678dd",
+    "success": "#98c379", "warning": "#e5c07b", "error": "#e06c75", "info": "#61afef",
+    "link": "#56b6c2", "emphasis": "#e5c07b", "onPrimary": "#0a0a0a",
+    "border": "#3a3a3a", "borderFocus": "#61afef", "bg": "#1e1e1e"
+  },
+  "surfaces": { "panel": "#262626", "element": "#303030", "hover": "#3a3a3a" },
+  "chroma": "dracula"
+}
+```
+
+`surfaces` is optional: without it the card and prompt fills are derived from
+the terminal's real background so they read as raised layers on any terminal.
+`chroma` is optional: without it the code colors are generated from the
+palette; with it, that registered chroma style is used instead.

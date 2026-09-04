@@ -120,7 +120,7 @@ func TestUnknownThemeStillRendersMarkdown(t *testing.T) {
 	if strings.Contains(ansi.Strip(out), "**") {
 		t.Errorf("neutral style left literal ** markers (ASCII style?): %q", out)
 	}
-	if !strings.Contains(out, "\x1b[1m") {
+	if !strings.Contains(out, "1mbold") { // bold, possibly combined with a palette color (\x1b[33;1m)
 		t.Errorf("neutral style should render bold: %q", out)
 	}
 	if !strings.Contains(out, "─") {
