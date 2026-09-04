@@ -41,22 +41,21 @@ func ocThemeKnown() bool {
 	return mdKnown
 }
 
-// sidebarWidth is the fixed width of the opencode-mode right sidebar, matching
-// opencode (routes/session/sidebar.tsx). The sidebar shows only when the
-// terminal is at least sidebarMinWidth columns wide, so a narrow terminal
-// falls back to the single-column layout.
+// The shell is opendocker's: a left column of panels (x 1..42 behind a
+// one-cell pad), a gap column, the chat, the chat's scrollbar column and, when
+// toggled, the REPL panel on the right behind its own pad. Columns show only
+// on terminals at least sidebarMinWidth wide; below replMinWide the REPL takes
+// the left column's place instead of squeezing the chat.
 const (
-	sidebarWidth    = 42
+	leftWidth       = 42 // the left column: focus bar + panel fill
 	sidebarMinWidth = 120
-	// opencodeLeftMargin is the left padding on opencode's main column
-	// (routes/session paddingLeft=2), applied to the whole main body.
+	replMinWide     = 150 // the REPL panel and the left column share the screen from here
+	chatMinWidth    = 72  // with both columns the REPL grows only past this chat width
+	replMinWidth    = 42
+	replMaxWidth    = 64
+	// opencodeLeftMargin is the chat's x when the left column is hidden
+	// (opencode's routes/session paddingLeft=2).
 	opencodeLeftMargin = 2
-	// opencodeRightGap separates the main column from the sidebar (opencode's
-	// main-column paddingRight=2) so the panels don't touch.
-	opencodeRightGap = 2
-	// opencodeRightMargin keeps text off the terminal edge when there is no
-	// sidebar; the transcript scrollbar draws in it.
-	opencodeRightMargin = 1
 )
 
 // The "whip" block-glyph wordmark, drawn in the same ▀▄█ pixel font as
@@ -103,10 +102,23 @@ func opencodeHome(width, height int) string {
 	return block
 }
 
-// sidebarVisible reports whether the opencode-mode sidebar should render: the
-// mode is on and the terminal is wide enough to spare sidebarWidth columns.
-func (m *model) sidebarVisible() bool {
-	return m.termWidth >= sidebarMinWidth && !m.sidebarHide
+// leftVisible reports whether the left column of panels shows: a wide
+// terminal, not hidden by ctrl+x b, and not displaced by the REPL panel on a
+// terminal too narrow for both.
+func (m *model) leftVisible() bool {
+	return m.termWidth >= sidebarMinWidth && !m.sidebarHide && !(m.replPanel && m.termWidth < replMinWide)
+}
+
+// replVisible reports whether the REPL panel shows on the right.
+func (m *model) replVisible() bool { return m.replPanel && m.termWidth >= sidebarMinWidth }
+
+// mainX is the chat column's x: past the left column and its gap, or
+// opencode's bare margin when the column is hidden.
+func (m *model) mainX() int {
+	if m.leftVisible() {
+		return 1 + leftWidth + 1
+	}
+	return opencodeLeftMargin
 }
 
 // sidebarView renders the opencode right sidebar: session title, a Context
@@ -114,9 +126,6 @@ func (m *model) sidebarVisible() bool {
 // the number of rows to fill so the sidebar spans the body. All styling uses
 // whip's theme styles, so it honors light/dark/auto.
 func (m *model) sidebarView(height int) string {
-	if m.replPanel {
-		return m.replPanelView(height)
-	}
 	// Every style carries the panel background so text doesn't punch holes in
 	// the filled panel column.
 	th := currentTheme()
@@ -133,7 +142,7 @@ func (m *model) sidebarView(height int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(head.Render(truncLine(title, sidebarWidth-4)) + "\n\n")
+	b.WriteString(head.Render(truncLine(title, leftWidth-4)) + "\n\n")
 
 	// Context: tokens used, share of the window, spend.
 	b.WriteString(head.Render("Context") + "\n")
@@ -154,7 +163,7 @@ func (m *model) sidebarView(height int) string {
 	b.WriteString(dim.Render(m.lspSummary()) + "\n")
 
 	// Agent tree (the narrow dock's rows live here on wide terminals).
-	if agents, more := m.agentRows(sidebarWidth-3, bg, agentsDockHeight); len(agents) > 0 {
+	if agents, more := m.agentRows(leftWidth-3, bg, agentsDockHeight); len(agents) > 0 {
 		b.WriteString("\n" + head.Render("Agents") + "\n" + strings.Join(agents, "\n") + "\n")
 		if more {
 			b.WriteString(dim.Render(" …") + "\n")
@@ -176,7 +185,7 @@ func (m *model) sidebarView(height int) string {
 	pad2 := th.On(nil, bg).Render("  ")
 	out := make([]string, len(rows))
 	for i, r := range rows {
-		out[i] = ui.PadRow(pad2+r, sidebarWidth, bg)
+		out[i] = ui.PadRow(pad2+r, leftWidth, bg)
 	}
 	return strings.Join(out, "\n")
 }
@@ -629,11 +638,9 @@ func (m *model) recalcWidth() {
 	if m.termWidth == 0 {
 		return
 	}
-	w := m.termWidth - opencodeLeftMargin
-	if m.termWidth >= sidebarMinWidth && !m.sidebarHide {
-		w -= m.panelWidth() + opencodeRightGap
-	} else {
-		w -= opencodeRightMargin
+	w := m.termWidth - m.mainX() - 1 // the scrollbar column
+	if m.replVisible() {
+		w -= m.panelWidth() + 1 // the panel and the pad at the terminal's edge
 	}
 	if w != m.width {
 		m.width = w

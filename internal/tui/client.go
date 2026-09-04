@@ -1867,7 +1867,7 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 	case "repl":
 		m.replPanel = !m.replPanel
 		m.recalcWidth()
-		if !m.sidebarVisible() {
+		if !m.replVisible() {
 			m.append(dimStyle.Render("(the REPL panel needs a terminal at least 120 columns wide)"))
 		}
 		return m, nil

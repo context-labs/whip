@@ -16,14 +16,19 @@ import (
 // Every region rectangle answers hit() inside its corners and nowhere one
 // cell past its edges, with and without the agent details banner.
 func TestHitTest(t *testing.T) {
-	for _, size := range [][2]int{{140, 40}, {79, 24}} {
+	for _, size := range []struct {
+		w, h int
+		repl bool
+	}{{140, 40, false}, {79, 24, false}, {160, 40, true}, {120, 40, true}} {
 		for _, open := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%dx%d/details=%v", size[0], size[1], open), func(t *testing.T) {
-				m := goldenModel(size[0], size[1])
+			t.Run(fmt.Sprintf("%dx%d/repl=%v/details=%v", size.w, size.h, size.repl, open), func(t *testing.T) {
+				m := goldenModel(size.w, size.h)
+				m.replPanel = size.repl
+				m.recalcWidth()
 				if open {
 					m.agentOpen = "root-agent:ba06cc4c6983c16d"
-					m.layout()
 				}
+				m.layout()
 				viewStr(m)
 				r := m.frameNow()
 				if open && r.details.Empty() {
@@ -53,9 +58,11 @@ func TestHitTest(t *testing.T) {
 				}
 				check("inputText", r.inputText, regInput)
 				check("transcript", r.transcript, regTranscript)
+				check("left", r.left, regLeft)
 				check("side", r.side, regSide)
-				if size[0] >= sidebarMinWidth && r.side.Empty() || size[0] < sidebarMinWidth && !r.side.Empty() {
-					t.Fatalf("sidebar rect %v at width %d", r.side, size[0])
+				wantLeft := size.w >= sidebarMinWidth && !(size.repl && size.w < replMinWide)
+				if wantLeft == r.left.Empty() || (size.repl && size.w >= sidebarMinWidth) == r.side.Empty() {
+					t.Fatalf("columns at %dx%d repl=%v: left %v side %v", size.w, size.h, size.repl, r.left, r.side)
 				}
 			})
 		}
@@ -162,18 +169,73 @@ func TestNamePromptDragSelect(t *testing.T) {
 	}
 }
 
-// A press in the sidebar on a row shared with a transcript block never seeds
-// a chat selection or opens message actions.
+// A press in either column on a row shared with a transcript block never
+// seeds a chat selection or opens message actions; a press in the margin left
+// of the chat (the screen edge, or the gap after the left column) still does.
 func TestSidebarPressDoesNotSelectChat(t *testing.T) {
-	m := goldenModel(140, 40)
-	y := blockRowY(m, m.blocks[0].y0)
-	x := m.frameNow().side.Min.X + 1
-	if handled, _ := m.handleMouseSelect(clickMsg(x, y)); handled || m.sel != nil {
-		t.Fatalf("sidebar press seeded a selection: handled=%v sel=%+v", handled, m.sel)
+	for _, tc := range []struct {
+		name string
+		w    int
+		repl bool
+		x    func(r frameRects) int
+	}{
+		{"left column", 140, false, func(r frameRects) int { return r.left.Min.X + 1 }},
+		{"repl panel", 160, true, func(r frameRects) int { return r.side.Min.X + 1 }},
+	} {
+		m := goldenModel(tc.w, 40)
+		m.replPanel = tc.repl
+		m.recalcWidth()
+		m.layout()
+		y := blockRowY(m, m.blocks[0].y0)
+		x := tc.x(m.frameNow())
+		if handled, _ := m.handleMouseSelect(clickMsg(x, y)); handled || m.sel != nil {
+			t.Fatalf("%s: press seeded a selection: handled=%v sel=%+v", tc.name, handled, m.sel)
+		}
+		m.clickAt(x, y)
+		if m.msgActions != nil {
+			t.Fatalf("%s: press opened message actions", tc.name)
+		}
+		if handled, _ := m.handleMouseSelect(clickMsg(m.frameNow().main.Min.X-1, y)); !handled || m.sel == nil {
+			t.Fatalf("%s: a press in the chat's margin should start a selection", tc.name)
+		}
 	}
-	m.clickAt(x, y)
-	if m.msgActions != nil {
-		t.Fatal("sidebar press opened message actions")
+	m := goldenModel(79, 24)
+	if handled, _ := m.handleMouseSelect(clickMsg(0, blockRowY(m, m.blocks[0].y0))); !handled || m.sel == nil {
+		t.Fatal("narrow: a press at the screen edge should start a selection")
+	}
+}
+
+// The columns partition the screen: pad, left column, gap, chat, scrollbar
+// column, (REPL panel, pad); every column stops above the blank row and the
+// footer. Narrow terminals keep the bare chat geometry.
+func TestColumnGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		w, h        int
+		repl        bool
+		left, side  uv.Rectangle
+		mainX, chat int
+	}{
+		{140, 40, false, uv.Rect(1, 0, 42, 38), uv.Rectangle{}, 44, 95},
+		{160, 40, true, uv.Rect(1, 0, 42, 38), uv.Rect(117, 0, 42, 38), 44, 72},
+		{200, 40, true, uv.Rect(1, 0, 42, 38), uv.Rect(135, 0, 64, 38), 44, 90},
+		{120, 40, true, uv.Rectangle{}, uv.Rect(77, 0, 42, 38), 2, 74},
+		{79, 24, false, uv.Rectangle{}, uv.Rectangle{}, 2, 76},
+		{79, 24, true, uv.Rectangle{}, uv.Rectangle{}, 2, 76},
+	} {
+		m := goldenModel(tc.w, tc.h)
+		m.replPanel = tc.repl
+		m.recalcWidth()
+		m.layout()
+		r := m.frameNow()
+		if r.left != tc.left || r.side != tc.side || r.main.Min.X != tc.mainX || r.main.Dx() != tc.chat || m.width != tc.chat {
+			t.Fatalf("%dx%d repl=%v: left %v side %v main %v width %d", tc.w, tc.h, tc.repl, r.left, r.side, r.main, m.width)
+		}
+		if r.gap != uv.Rect(r.main.Max.X, 0, 1, tc.h) {
+			t.Fatalf("%dx%d: scrollbar column %v, want the column after the chat", tc.w, tc.h, r.gap)
+		}
+		if edge := r.side.Max.X; !r.side.Empty() && edge != tc.w-1 {
+			t.Fatalf("%dx%d: REPL panel ends at %d, want a one-cell pad", tc.w, tc.h, edge)
+		}
 	}
 }
 

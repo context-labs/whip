@@ -58,6 +58,13 @@ func TestFrameGoldenVariants(t *testing.T) {
 		m.layout()
 		plain(t, m)
 	})
+	t.Run("120x40-repl", func(t *testing.T) { // the REPL displaces the left column
+		m := goldenModel(120, 40)
+		m.replPanel = true
+		m.recalcWidth()
+		m.layout()
+		plain(t, m)
+	})
 	t.Run("palette", func(t *testing.T) {
 		m := goldenModel(140, 40)
 		m.openThinThemePalette()

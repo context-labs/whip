@@ -54,14 +54,14 @@ type replAgent struct {
 	toolAt time.Time // when that tool started (zero on replay)
 }
 
-// panelWidth is the right panel's width: the REPL panel takes half the
-// terminal (never narrower than the sidebar); the Context sidebar keeps
-// opencode's fixed width.
+// panelWidth is the REPL panel's width: replMinWidth alone (or when it has
+// displaced the left column); beside both columns it takes what a
+// chatMinWidth chat leaves, up to replMaxWidth.
 func (m *model) panelWidth() int {
-	if m.replPanel {
-		return max(m.termWidth/2, sidebarWidth)
+	if !m.leftVisible() {
+		return replMinWidth
 	}
-	return sidebarWidth
+	return min(max(m.termWidth-m.mainX()-2-chatMinWidth, replMinWidth), replMaxWidth)
 }
 
 func (m *model) replAgentFor(agentID string) *replAgent {

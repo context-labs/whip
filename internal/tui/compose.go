@@ -24,12 +24,15 @@ import (
 // after every Update (they are the one source of truth for drawing AND hit
 // testing), so the mouse math never inverts string layout again.
 type frameRects struct {
-	area, main, gap, side uv.Rectangle // gap/side are empty when the sidebar is hidden
-	details               uv.Rectangle // open agent's details banner above the transcript
-	transcript            uv.Rectangle // the viewport
-	input, inputText      uv.Rectangle // the prompt box, and the textarea rows inside it
-	footer                uv.Rectangle // the full-width key-hint bar on the last row
-	pill                  uv.Rectangle // the "↓ N more lines" chip over the transcript's last row (scrolled up only)
+	area, main       uv.Rectangle
+	left             uv.Rectangle // the left column of panels (empty when hidden)
+	gap              uv.Rectangle // the chat's scrollbar column, right of main
+	side             uv.Rectangle // the REPL panel (empty when hidden)
+	details          uv.Rectangle // open agent's details banner above the transcript
+	transcript       uv.Rectangle // the viewport
+	input, inputText uv.Rectangle // the prompt box, and the textarea rows inside it
+	footer           uv.Rectangle // the full-width key-hint bar on the last row
+	pill             uv.Rectangle // the "↓ N more lines" chip over the transcript's last row (scrolled up only)
 }
 
 // measure is every main-column region except the transcript, in viewBody's
@@ -104,18 +107,21 @@ func (mm measure) fixed() int {
 	return n + mm.input + mm.hints + mm.dock + 2 // + a blank row and the status line
 }
 
-// layoutFrame lays out a w×h frame: a left margin, the main column at
-// m.width with its regions stacked in viewBody's order around the transcript
-// (whose height the viewport already holds), and (when visible) the gap and
-// the sidebar/REPL panel on the right.
+// layoutFrame lays out a w×h frame: the left column (when visible), the main
+// column at m.width with its regions stacked in viewBody's order around the
+// transcript (whose height the viewport already holds), its scrollbar column
+// and (when visible) the REPL panel. The columns stop two rows short of the
+// bottom: a blank row, then the footer.
 func (m *model) layoutFrame(w, h int) frameRects {
-	r := frameRects{area: rect(0, 0, w, h), main: rect(opencodeLeftMargin, 0, m.width, h)}
-	if m.sidebarVisible() {
+	r := frameRects{area: rect(0, 0, w, h), main: rect(m.mainX(), 0, m.width, h)}
+	cols := max(h-2, 0)
+	if m.leftVisible() {
+		r.left = rect(1, 0, leftWidth, cols)
+	}
+	r.gap = rect(r.main.Max.X, 0, 1, h)
+	if m.replVisible() {
 		pw := m.panelWidth()
-		r.gap = rect(w-pw-opencodeRightGap, 0, opencodeRightGap, h)
-		r.side = rect(w-pw, 0, pw, h)
-	} else {
-		r.gap = rect(w-opencodeRightMargin, 0, opencodeRightMargin, h)
+		r.side = rect(w-1-pw, 0, pw, cols) // behind a one-cell pad at the edge
 	}
 	mm := m.measure()
 	x, y := r.main.Min.X, 0
@@ -163,7 +169,7 @@ func (m *model) layoutFrame(w, h int) frameRects {
 func (m *model) frameSize() (int, int) {
 	w := m.termWidth
 	if w <= 0 {
-		w = opencodeLeftMargin + m.width
+		w = m.mainX() + m.width
 	}
 	return w, m.height
 }
@@ -184,21 +190,27 @@ const (
 	regInput             // the textarea rows inside the prompt box
 	regPill              // the "↓ N more lines" chip
 	regTranscript        // the viewport
-	regSide              // the sidebar / REPL panel
+	regLeft              // the left column of panels
+	regSide              // the REPL panel
 )
 
 // hit maps an absolute screen point to the topmost region under it and the
 // point's coordinates local to that region's rectangle.
 func (m *model) hit(x, y int) (reg region, lx, ly int) {
 	r := m.frameNow()
-	// the left margin belongs to the transcript: a drag that starts at the
-	// screen edge selects from column 0 (lx clamps negative to 0)
+	// the margin left of the chat belongs to the transcript: a drag that starts
+	// at the screen edge (or in the gap after the left column) selects from
+	// column 0 (lx clamps negative to 0). The columns are checked first, so
+	// the margin never folds over them.
 	margin := r.transcript
 	margin.Min.X = 0
+	if !r.left.Empty() {
+		margin.Min.X = r.main.Min.X - 1
+	}
 	for _, c := range []struct {
 		reg region
 		rc  uv.Rectangle
-	}{{regInput, r.inputText}, {regPill, r.pill}, {regTranscript, margin}, {regSide, r.side}} {
+	}{{regInput, r.inputText}, {regPill, r.pill}, {regLeft, r.left}, {regSide, r.side}, {regTranscript, margin}} {
 		if inRect(c.rc, x, y) {
 			return c.reg, x - r.transcript.Min.X*boolToInt(c.reg == regTranscript) - c.rc.Min.X*boolToInt(c.reg != regTranscript), y - c.rc.Min.Y
 		}
@@ -241,7 +253,7 @@ func (m *model) View() tea.View {
 	body := m.viewBody()
 	w, h := m.termWidth, m.height
 	if w <= 0 { // no size yet (tests): the frame is exactly the body
-		w = opencodeLeftMargin + max(m.width, lipgloss.Width(body))
+		w = m.mainX() + max(m.width, lipgloss.Width(body))
 	}
 	if h <= 0 {
 		h = lipgloss.Height(body)
@@ -256,14 +268,11 @@ func (m *model) View() tea.View {
 	if !r.pill.Empty() {
 		drawRows(scr, []string{ui.Kbd(currentTheme(), pillLabel(m.rowsBelow()))}, r.pill.Min.X, r.pill.Min.Y)
 	}
-	if m.sidebarVisible() {
-		if m.replPanel { // the REPL sits on the native background like the chat: a hairline tells the columns apart
-			rule := &uv.Cell{Content: "│", Width: 1, Style: uv.Style{Fg: currentTheme().Muted}}
-			for y := 0; y < h; y++ {
-				scr.SetCell(r.gap.Min.X+1, y, rule)
-			}
-		}
-		uv.NewStyledString(m.sidebarView(h)).Draw(scr, r.side)
+	if !r.left.Empty() {
+		uv.NewStyledString(m.sidebarView(r.left.Dy())).Draw(scr, r.left)
+	}
+	if !r.side.Empty() {
+		uv.NewStyledString(m.replPanelView(r.side.Dy())).Draw(scr, r.side)
 	}
 	drawRows(scr, []string{m.footerView(w)}, 0, r.footer.Min.Y) // the key-hint bar spans every column
 	if ds := m.dialogs(); len(ds) > 0 {                         // floating dialogs over the dimmed session, bottom→top
@@ -274,15 +283,16 @@ func (m *model) View() tea.View {
 				continue
 			}
 			dw := lipgloss.Width(rows[0])
-			drawRows(scr, rows, max((max(w, dw)-dw)/2, 0), m.dialogTop()) // centered; the top never moves as the list filters
+			// centred on the chat (the columns stay readable); the top never moves as the list filters
+			drawRows(scr, rows, max(min(r.main.Min.X+(r.main.Dx()-dw)/2, w-dw), 0), m.dialogTop())
 		}
 	} else if m.menu != nil { // the completion popup floats above the input; the frame beneath never reflows
 		menu := strings.Split(m.menuView(), "\n")
-		drawRows(scr, menu, opencodeLeftMargin, r.input.Min.Y-len(menu)) // rows above the frame clip
+		drawRows(scr, menu, r.main.Min.X, r.input.Min.Y-len(menu)) // rows above the frame clip
 	}
 	if m.toast != "" {
 		toast := m.toastRows()
-		drawRows(scr, toast, max(w-lipgloss.Width(toast[0])-2, 0), 2) // top-right, over everything
+		drawRows(scr, toast, max(r.main.Max.X-lipgloss.Width(toast[0]), 0), 2) // the chat's top-right corner, over everything
 	}
 	th := currentTheme()
 	paintBase(scr, th)

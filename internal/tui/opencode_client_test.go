@@ -18,8 +18,8 @@ func TestFullScreenLayoutFitsTerminal(t *testing.T) {
 	m.cfg = &config.Config{}
 	m.termWidth = 200
 	m.applyOpencodeStyles()
-	if m.input.Prompt != "" || !strings.Contains(m.input.Placeholder, "Ask whip anything") || !m.sidebarVisible() {
-		t.Fatalf("input/sidebar prompt=%q placeholder=%q sidebar=%t", m.input.Prompt, m.input.Placeholder, m.sidebarVisible())
+	if m.input.Prompt != "" || !strings.Contains(m.input.Placeholder, "Ask whip anything") || !m.leftVisible() {
+		t.Fatalf("input/sidebar prompt=%q placeholder=%q left=%t", m.input.Prompt, m.input.Placeholder, m.leftVisible())
 	}
 	m.layout()
 	if got := lipgloss.Height(viewStr(m)); got != m.height {
@@ -157,13 +157,13 @@ func TestOpencodeResizeAndSidebarThresholds(t *testing.T) {
 	m.applyOpencodeStyles()
 	next, _ := m.Update(tea.WindowSizeMsg{Width: sidebarMinWidth - 1, Height: 24})
 	m = next.(*model)
-	if m.sidebarVisible() || m.width != sidebarMinWidth-1-opencodeLeftMargin-opencodeRightMargin {
-		t.Fatalf("narrow resize sidebar=%t width=%d", m.sidebarVisible(), m.width)
+	if m.leftVisible() || m.width != sidebarMinWidth-1-opencodeLeftMargin-1 {
+		t.Fatalf("narrow resize left=%t width=%d", m.leftVisible(), m.width)
 	}
 	next, _ = m.Update(tea.WindowSizeMsg{Width: sidebarMinWidth, Height: 24})
 	m = next.(*model)
-	want := sidebarMinWidth - opencodeLeftMargin - sidebarWidth - opencodeRightGap
-	if !m.sidebarVisible() || m.width != want || lipgloss.Height(viewStr(m)) != 24 {
-		t.Fatalf("wide resize sidebar=%t width=%d want=%d height=%d", m.sidebarVisible(), m.width, want, lipgloss.Height(viewStr(m)))
+	want := sidebarMinWidth - (1 + leftWidth + 1) - 1
+	if !m.leftVisible() || m.width != want || lipgloss.Height(viewStr(m)) != 24 {
+		t.Fatalf("wide resize left=%t width=%d want=%d height=%d", m.leftVisible(), m.width, want, lipgloss.Height(viewStr(m)))
 	}
 }

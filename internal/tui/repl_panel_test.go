@@ -41,13 +41,14 @@ func replTestModel(t *testing.T, termWidth int) *model {
 			{ID: "child", ParentID: "root-agent", Name: "w3", LifecyclePhase: "running"},
 		}},
 	}
+	m.recalcWidth()
 	return m
 }
 
 func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 	m := replTestModel(t, 140)
-	if m.panelWidth() != 70 {
-		t.Fatalf("panel width = %d", m.panelWidth())
+	if m.panelWidth() != replMinWidth || m.leftVisible() {
+		t.Fatalf("panel width = %d left=%v (the REPL displaces the left column below %d columns)", m.panelWidth(), m.leftVisible(), replMinWide)
 	}
 	m.replApply("root-agent", "stream.tool.call", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f`})
 	m.replApply("root-agent", "stream.tool.call", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code": "for f in files.list(path=\".\"):\n    print(f)"}`})
@@ -65,7 +66,7 @@ func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":3,"output":"a.go\nb.go\n","steps":42}`})
 	m.replRestart("root-agent", 9, 1)
 	done := m.replPanelView(30)
-	for _, want := range []string{"42 steps", "b.go", "⇒ ", "── restarted · restored 9 · 1 skipped ──"} {
+	for _, want := range []string{"42 steps", "b.go", "⇒ ", "restarted · restored 9 · 1 skipped"} {
 		if !strings.Contains(done, want) {
 			t.Fatalf("finished panel missing %q:\n%s", want, done)
 		}
@@ -85,13 +86,11 @@ func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 	if failed := m.replPanelView(30); !strings.Contains(failed, "✗ <rlm-cell>:1:1: undefined: nope") || !strings.Contains(failed, "In [2]") {
 		t.Fatalf("failed cell not rendered:\n%s", failed)
 	}
-	m.termWidth = sidebarMinWidth
-	if m.panelWidth() != sidebarMinWidth/2 {
-		t.Fatalf("narrow panel width = %d", m.panelWidth())
-	}
-	m.replPanel = false
-	if m.panelWidth() != sidebarWidth {
-		t.Fatalf("context sidebar width = %d", m.panelWidth())
+	for _, tc := range []struct{ term, want int }{{sidebarMinWidth, replMinWidth}, {160, replMinWidth}, {180, 62}, {240, replMaxWidth}} {
+		m.termWidth = tc.term
+		if m.panelWidth() != tc.want {
+			t.Fatalf("panel width at %d columns = %d, want %d", tc.term, m.panelWidth(), tc.want)
+		}
 	}
 }
 
@@ -102,12 +101,12 @@ func TestReplPanelToggleChordAndCommand(t *testing.T) {
 	m = next.(*model)
 	next, _ = m.thinKey(keyRunes("r"))
 	m = next.(*model)
-	if !m.replPanel || m.width != term-opencodeLeftMargin-term/2-opencodeRightGap {
+	if !m.replPanel || m.width != term-(1+leftWidth+1)-1-replMinWidth-1 {
 		t.Fatalf("chord toggle replPanel=%v width=%d", m.replPanel, m.width)
 	}
 	next, _ = m.thinCommand("/repl")
 	m = next.(*model)
-	if m.replPanel || m.width != term-opencodeLeftMargin-sidebarWidth-opencodeRightGap {
+	if m.replPanel || m.width != term-(1+leftWidth+1)-1 {
 		t.Fatalf("command toggle replPanel=%v width=%d", m.replPanel, m.width)
 	}
 	if sidebar := m.sidebarView(10); !strings.Contains(sidebar, "Context") {
@@ -186,8 +185,8 @@ func TestReplPanelPressDoesNotSelectChat(t *testing.T) {
 	m.applyOpencodeStyles()
 	m.replPanel = true
 	m.Update(mkWinSize(160, 30))
-	if !m.sidebarVisible() || m.panelWidth() != 80 {
-		t.Fatalf("setup: sidebarVisible=%v panelWidth=%d", m.sidebarVisible(), m.panelWidth())
+	if !m.replVisible() || m.panelWidth() != replMinWidth {
+		t.Fatalf("setup: replVisible=%v panelWidth=%d", m.replVisible(), m.panelWidth())
 	}
 	m.append("hello world")
 	m.append("second block here")
@@ -206,7 +205,7 @@ func TestReplPanelPressDoesNotSelectChat(t *testing.T) {
 		t.Fatalf("a press in the REPL panel started a chat selection: %+v", m.sel)
 	}
 	// A drag that starts in the chat still completes when it ends over the panel.
-	next, _ = m.Update(clickMsg(3, y0))
+	next, _ = m.Update(clickMsg(m.frameNow().main.Min.X+1, y0))
 	m = next.(*model)
 	next, _ = m.Update(dragMsg(panelX, y1))
 	m = next.(*model)
@@ -383,13 +382,17 @@ func TestAgentsDockReturnsWhenThePanelCannotShowTheTree(t *testing.T) {
 	if m.agentsDock() == "" {
 		t.Fatal("narrow opencode terminal has no agent tree anywhere")
 	}
-	m.termWidth = 140
+	m.termWidth = 140 // the REPL panel displaces the left column: the dock stays
+	if m.agentsDock() == "" {
+		t.Fatal("REPL without the left column has no agent tree anywhere")
+	}
+	m.termWidth = replMinWide
 	if m.agentsDock() != "" {
-		t.Fatal("wide opencode terminal should render the tree in the panel only")
+		t.Fatal("with the left column showing the tree lives in the Agents panel only")
 	}
 	m.sidebarHide = true
 	if m.agentsDock() == "" {
-		t.Fatal("hidden sidebar has no agent tree anywhere")
+		t.Fatal("hidden left column has no agent tree anywhere")
 	}
 }
 

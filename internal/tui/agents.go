@@ -197,8 +197,8 @@ func (m *model) agentRows(width int, bg color.Color, budget int) ([]string, bool
 // agentsDock is the narrow-terminal form of the tree: rows glued under the
 // prompt when there is no left column to hold the Agents panel.
 func (m *model) agentsDock() string {
-	if m.sidebarVisible() {
-		return "" // the tree lives in the side panel
+	if m.leftVisible() {
+		return "" // the tree lives in the Agents panel
 	}
 	width := m.width
 	if width < 20 { // unsized before the first WindowSizeMsg

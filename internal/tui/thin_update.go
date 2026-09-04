@@ -526,18 +526,21 @@ func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.msgActions = nil
 		return m, nil
 	}
-	// The REPL panel owns the mouse over its columns: the wheel scrolls it and
-	// a press there never seeds a chat selection (selPoint/inputPoint only
-	// bound Y). Motion and release still flow to handleMouseSelect so a drag
-	// that started in the chat completes wherever the pointer ends.
-	inPanel := m.replPanel && inRect(m.frameNow().side, mouse.X, mouse.Y)
-	if inPanel && press {
-		switch mouse.Button {
-		case tea.MouseWheelUp:
+	// The columns own the mouse over their cells: the wheel scrolls the REPL
+	// panel (and nothing over the left column), and a press in either never
+	// seeds a chat selection (selPoint/inputPoint only bound Y). Motion and
+	// release still flow to handleMouseSelect so a drag that started in the
+	// chat completes wherever the pointer ends.
+	r := m.frameNow()
+	inPanel := inRect(r.side, mouse.X, mouse.Y)
+	inColumn := inPanel || inRect(r.left, mouse.X, mouse.Y)
+	if inColumn && press {
+		switch {
+		case mouse.Button == tea.MouseWheelUp && inPanel:
 			m.replScroll += 3 // the view clamps to the history
-		case tea.MouseWheelDown:
+		case mouse.Button == tea.MouseWheelDown && inPanel:
 			m.replScroll = max(m.replScroll-3, 0)
-		case tea.MouseLeft:
+		case mouse.Button == tea.MouseLeft:
 			m.sel = nil // like any press: drop the old highlight
 		}
 		return m, nil
@@ -545,7 +548,7 @@ func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if handled, command := m.handleMouseSelect(msg); handled {
 		return m, command
 	}
-	if inPanel {
+	if inColumn {
 		return m, nil
 	}
 	if isClick && mouse.Button == tea.MouseLeft {
