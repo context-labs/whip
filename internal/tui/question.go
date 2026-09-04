@@ -176,7 +176,8 @@ func (m *model) askView() string {
 	if d.req.Multiple {
 		title += " (select all that apply)"
 	}
-	b.WriteString(youStyle.Render("? " + title))
+	w := max(m.width, 8)
+	b.WriteString(youStyle.Render(wrap("? "+title, w)))
 	for i, o := range d.req.Options {
 		mark := ""
 		if d.req.Multiple {
@@ -192,7 +193,7 @@ func (m *model) askView() string {
 			b.WriteString("\n  " + row)
 		}
 		if o.Description != "" {
-			b.WriteString("\n" + dimStyle.Render("     "+o.Description))
+			b.WriteString("\n" + dimStyle.Render("     "+strings.ReplaceAll(wrap(o.Description, w-5), "\n", "\n     ")))
 		}
 	}
 	custom := strconv.Itoa(len(d.req.Options)+1) + ". type your own answer"
