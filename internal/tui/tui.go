@@ -2979,7 +2979,20 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.histIdx = len(m.hist)
 				m.input.Reset()
 				m.menu = nil
-				m.agent.Steer(text)
+				// [Image N] chips pasted this session must expand to real
+				// @path mentions (and inline the image on vision models)
+				// before steering — otherwise the chip reaches the model as a
+				// literal bracket string and the image is silently dropped.
+				steerText := m.expandImageChips(text)
+				if m.supportsVision() {
+					if parts, note := imageParts(steerText); len(parts) > 0 {
+						m.agent.SteerImages(steerText+note, parts)
+					} else {
+						m.agent.Steer(steerText)
+					}
+				} else {
+					m.agent.Steer(steerText)
+				}
 				m.append(youStyle.Render("❯ ") + linkifyFilePaths(text, realFileExists) + dimStyle.Render("  (steered)"))
 			case text != "": // codex-style: queue it (multiple allowed)
 				m.queue = append(m.queue, text)
@@ -3910,6 +3923,11 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		m.future = nil   // no redo across a cleared conversation
 		m.setGoal("")    // clear before detaching so the old session's goal is dropped too
 		m.sessionID = "" // next turn starts a fresh session
+		// Drop the pasted-image registry too: a recalled "[Image 1]" chip from
+		// before the clear must not resolve to a different image once the
+		// session counter restarts.
+		m.images = nil
+		m.imageSeq = 0
 		m.agent.Tasks().SetSessionID("")
 		m.agent.SetSessionID("")
 		m.saved = 1
