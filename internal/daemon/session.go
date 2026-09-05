@@ -219,6 +219,17 @@ func (s *supervisor) post(event workerEnvelope) {
 	}
 }
 
+// requeue puts taken-but-unhandled events back at the head of the queue so the
+// next take (the shutdown flush) sees them before anything posted later.
+func (s *supervisor) requeue(events []workerEnvelope) {
+	if len(events) == 0 {
+		return
+	}
+	s.mu.Lock()
+	s.events = append(append([]workerEnvelope(nil), events...), s.events...)
+	s.mu.Unlock()
+}
+
 func (s *supervisor) take() []workerEnvelope {
 	s.mu.Lock()
 	events := append([]workerEnvelope(nil), s.events...)
@@ -541,46 +552,52 @@ func (s *Session) actor() error {
 				return err
 			}
 		case <-s.supervisor.wake:
-			events := s.supervisor.take()
-			for i, event := range events {
-				if event.err != nil {
-					for _, pending := range events[i+1:] {
-						if pending.kind == workerControl {
-							pending.reply <- ErrStopped
-						}
-					}
-					return event.err
-				}
-				switch event.kind {
-				case workerControl:
-					err := errors.New("actor control is missing")
-					if event.control != nil {
-						err = event.control(s.supervisor.ctx)
-					}
-					event.reply <- err
-				case workerClientCommand:
-					if err := s.completeClientCommand(event.client); err != nil {
-						return err
-					}
-				case workerStream:
-					if err := s.recordStreamEvent(event.stream); err != nil {
-						return err
-					}
-				case workerScheduleTick:
-					if err := s.fireDueSchedules(event.at); err != nil {
-						return err
-					}
-				case workerTurn:
-					if err := s.completeTurn(event.completion); err != nil {
-						return err
-					}
-				}
+			if err := s.processWorkerBatch(s.supervisor.take()); err != nil {
+				return err
 			}
 			if err := s.dispatch(); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+// processWorkerBatch handles one take() of worker events in order. When an
+// event fails, the events behind it were already taken off the queue, so they
+// are given back to the supervisor: run's shutdown flush then answers every
+// control call and client command in them. Dropping them instead left a
+// worker blocked on its reply while drainWorkers waited for that worker.
+func (s *Session) processWorkerBatch(events []workerEnvelope) error {
+	for i, event := range events {
+		if err := s.handleWorkerEvent(event); err != nil {
+			s.supervisor.requeue(events[i+1:])
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Session) handleWorkerEvent(event workerEnvelope) error {
+	if event.err != nil {
+		return event.err
+	}
+	switch event.kind {
+	case workerControl:
+		err := errors.New("actor control is missing")
+		if event.control != nil {
+			err = event.control(s.supervisor.ctx)
+		}
+		event.reply <- err
+	case workerClientCommand:
+		return s.completeClientCommand(event.client)
+	case workerStream:
+		return s.recordStreamEvent(event.stream)
+	case workerScheduleTick:
+		return s.fireDueSchedules(event.at)
+	case workerTurn:
+		return s.completeTurn(event.completion)
+	}
+	return nil
 }
 
 func (s *Session) flushPendingEvents() error {
