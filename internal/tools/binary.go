@@ -63,11 +63,13 @@ func isBinary(data []byte) bool {
 	return ctrl*10 > len(sample)
 }
 
-// trimToLastRune shortens s to end on a complete UTF-8 rune. Used when the
-// sample was cut at a fixed byte count that may land mid-rune; the tail is
-// dropped only when the final bytes are an incomplete encoding.
+// trimToLastRune shortens s to end on a complete UTF-8 rune, but only when
+// the cut landed mid-rune. A rune is at most utf8.UTFMax bytes, so the loop
+// never backs off more than that — genuinely-invalid interior bytes (a
+// Latin-1 file, a corrupted stream) stay invalid and the caller's
+// !utf8.Valid check still flags them as binary.
 func trimToLastRune(s []byte) []byte {
-	for len(s) > 0 {
+	for i := 0; i < utf8.UTFMax && len(s) > 0; i++ {
 		if utf8.Valid(s) {
 			return s
 		}
@@ -77,6 +79,9 @@ func trimToLastRune(s []byte) []byte {
 		}
 		s = s[:len(s)-size]
 	}
+	// Still invalid after backing off a full rune's worth of bytes: the cut
+	// wasn't mid-rune, the bytes are genuinely invalid — return as-is so the
+	// caller's !utf8.Valid sees them.
 	return s
 }
 

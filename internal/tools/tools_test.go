@@ -262,6 +262,10 @@ func TestBinaryOutputPlaceholder(t *testing.T) {
 		// the 1KB probe must still be caught — the NUL scan covers the whole
 		// buffer, not just the prefix.
 		{name: "text then binary past probe", in: append(bytes.Repeat([]byte("a"), binaryProbeSize+100), 0x00, 0x01), want: true},
+		// Regression: a >1KB Latin-1 file (smart quotes, no NULs) has invalid
+		// interior bytes — backing off the probe cut must NOT strip to the
+		// longest valid prefix and let them through as text.
+		{name: "latin1 interior bytes stay binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-10), 0x93, 0x94, 0x92), want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
