@@ -35,34 +35,62 @@ func expandSkills(text string, sk []skills.Skill) string {
 
 var rangeRe = regexp.MustCompile(`#(\d+)(?:-(\d+))?$`)
 
+// mentionPaths scans text for @path tokens and returns each resolved absolute
+// path with its line-range suffix ("" when the token had no #start-end).
+// Unlike a plain whitespace split, a token that doesn't resolve as-is is
+// extended word-by-word (greedy: longest first) so a space-containing path
+// like a macOS screenshot name resolves to the real file. Backslash-escaped
+// spaces (Finder drag) are unescaped before resolution.
+func mentionPaths(text string) [][2]string {
+	var out [][2]string
+	fields := strings.Fields(text)
+	for i := 0; i < len(fields); i++ {
+		tok := fields[i]
+		if !strings.HasPrefix(tok, "@") || len(tok) < 2 {
+			continue
+		}
+		// Try the bare token first, then extend greedily with the next words
+		// (space-joined) until one resolves; the longest match wins.
+		for j := i; j < len(fields); j++ {
+			cand := strings.Join(fields[i:j+1], " ") // j==i is the bare token
+			cand = cand[1:]                          // drop the @
+			cand = strings.TrimRight(cand, ".,;:!?)\"'")
+			lines := ""
+			if m := rangeRe.FindStringSubmatch(cand); m != nil {
+				cand = strings.TrimSuffix(cand, m[0])
+				lines = " (lines " + m[1]
+				if m[2] != "" {
+					lines += "-" + m[2]
+				}
+				lines += ")"
+			}
+			if abs, ok := resolveMentionPath(unescapePath(cand)); ok {
+				out = append(out, [2]string{abs, lines})
+				i = j // consumed the extension words
+				break
+			}
+		}
+	}
+	return out
+}
+
+// unescapePath turns a shell/Finder-escaped path ("a\ b.png") back into its
+// real form ("a b.png"). Only backslash-space is unescaped; other escapes are
+// left alone (a path with a literal backslash is rare and unambiguous).
+func unescapePath(s string) string {
+	return strings.ReplaceAll(s, `\ `, " ")
+}
+
 // expandMentions finds @file tokens (any path: relative, absolute, or ~, a
 // bare word that uniquely fuzzy-matches a file under the cwd, each with
 // optional #start-end line ranges) and appends a pointer note. File contents
 // are never inlined — the model inspects tagged files with its own tools.
+// Space-containing paths (macOS screenshot names) resolve via mentionPaths.
 func expandMentions(text string) string {
-	var notes []string
-	for tok := range strings.FieldsSeq(text) {
-		if !strings.HasPrefix(tok, "@") || len(tok) < 2 {
-			continue
-		}
-		p := strings.TrimRight(tok[1:], ".,;:!?)\"'")
-		lines := ""
-		if m := rangeRe.FindStringSubmatch(p); m != nil {
-			p = strings.TrimSuffix(p, m[0])
-			lines = " (lines " + m[1]
-			if m[2] != "" {
-				lines += "-" + m[2]
-			}
-			lines += ")"
-		}
-		// Real paths stat as-is; a bare word may uniquely fuzzy-match the
-		// recursive cwd index ("@roadmap" → docs/roadmap.md). Anything else
-		// is left alone.
-		abs, ok := resolveMentionPath(p)
-		if !ok {
-			continue
-		}
-		notes = append(notes, abs+lines)
+	mentions := mentionPaths(text)
+	notes := make([]string, 0, len(mentions)) // prealloc: one note per mention
+	for _, m := range mentions {
+		notes = append(notes, m[0]+m[1]) // path + optional " (lines a-b)"
 	}
 	if len(notes) == 0 {
 		return text
@@ -81,19 +109,13 @@ var imageExtsForMention = map[string]bool{
 // vision parts plus a note appended to the text naming the attached images.
 // Unlike text @files (pointer notes; the model inspects them with tools),
 // images must be inlined — the model has no way to view a local image itself.
+// Space-containing paths (macOS screenshot names) resolve via mentionPaths.
 func imageParts(text string) ([]llm.ContentPart, string) {
 	var parts []llm.ContentPart
 	var names []string
-	for tok := range strings.FieldsSeq(text) {
-		if !strings.HasPrefix(tok, "@") || len(tok) < 2 {
-			continue
-		}
-		p := strings.TrimRight(tok[1:], ".,;:!?)\"'")
-		if !imageExtsForMention[strings.ToLower(filepath.Ext(p))] {
-			continue
-		}
-		abs, ok := resolveMentionPath(p)
-		if !ok {
+	for _, m := range mentionPaths(text) {
+		abs := m[0]
+		if !imageExtsForMention[strings.ToLower(filepath.Ext(abs))] {
 			continue
 		}
 		data, err := os.ReadFile(abs) //nolint:gosec // G304: abs is the user-@mentioned path, resolved to the workspace

@@ -11,11 +11,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
@@ -188,7 +191,9 @@ func powershellImage() (string, []byte, error) {
 }
 
 // pastedImagePath recognizes a single pasted local image path, including the
-// extension-less temporary paths emitted by macOS screenshot previews.
+// extension-less temporary paths emitted by macOS screenshot previews. A
+// Finder drag pastes a backslash-escaped path ("a\ b.png"); unescape it
+// before statting.
 func pastedImagePath(text string) (string, bool) {
 	path := strings.TrimSpace(text)
 	if u, err := url.Parse(path); err == nil && u.Scheme == "file" {
@@ -197,6 +202,7 @@ func pastedImagePath(text string) (string, bool) {
 		}
 		path = u.Path
 	}
+	path = unescapePath(path)
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		return "", false
@@ -242,8 +248,11 @@ func imageFileExtension(path string, data []byte) string {
 }
 
 // pasteImageFileCmd copies a path pasted by the terminal into whip's paste
-// directory. Screenshot preview files are temporary, so retaining a copy is
-// necessary before the next user turn reads the @mention.
+// directory. Screenshot preview files are temporary — macOS keeps the
+// bottom-right hover thumbnail in a transient staging dir that can be swept
+// away before the next user turn reads the @mention — so the bytes are copied
+// off the source path immediately. The original display name travels with the
+// copy so the chip can keep showing the human-readable filename.
 func pasteImageFileCmd(path string) tea.Msg {
 	data, err := os.ReadFile(path) //nolint:gosec // G304: path was validated from the user's paste
 	if err != nil {
@@ -253,11 +262,12 @@ func pasteImageFileCmd(path string) tea.Msg {
 	if ext == "" {
 		return imageMsg{err: errors.New("pasted file is not a supported image")}
 	}
+	display := filepath.Base(path)
 	path, err = saveClipboardImage(ext, data)
 	if err != nil {
 		return imageMsg{err: err}
 	}
-	return imageMsg{path: path}
+	return imageMsg{path: path, display: display}
 }
 
 // saveClipboardImage writes data to ~/.whip/pastes/ and returns the path.
@@ -301,5 +311,100 @@ func pasteImageCmd() tea.Msg {
 	if err != nil {
 		return imageMsg{err: err}
 	}
+	// A clipboard paste is anonymous — no file on disk — so the chip carries
+	// no display name.
 	return imageMsg{path: path}
 }
+
+// pastedImage records an image the terminal pasted this session. The chip
+// shown in the input and transcript references it by its session number n,
+// which stays stable across turns so [Image 1], [Image 2], … read back to the
+// right on-disk copy at submit.
+type pastedImage struct {
+	n       int    // 1-based session image number
+	path    string // stable on-disk copy (always readable at submit)
+	display string // original basename for the chip; "" for an anonymous clipboard paste
+}
+
+// chipSentinel is an invisible zero-width space inserted before the closing
+// bracket of every paste-inserted chip. The user can't type it, so the
+// expandImageChips regex requires it — pattern-matching only real chips, not
+// hand-typed "[Image 1]" text that would otherwise attach images[0].
+const chipSentinel = "\u200b"
+
+// chipText renders the compact chip for the image, e.g. "[Image 1]" for an
+// anonymous paste or "[Image 1: Screenshot 2026-09-04…png]" when a source
+// filename is known. The number is what maps back to the stored copy at
+// submit, so the display name is truncated aggressively without losing the
+// identity. A literal ] in the filename would close the chip early for the
+// expandImageChips regex and silently drop the attachment, so brackets are
+// stripped from the display snippet (cosmetic only — resolution uses n).
+// The invisible chipSentinel before ] marks the chip as paste-inserted.
+func (p pastedImage) chipText() string {
+	if p.display == "" {
+		return fmt.Sprintf("[Image %d%s]", p.n, chipSentinel)
+	}
+	display := strings.NewReplacer("[", "(", "]", ")").Replace(p.display)
+	return fmt.Sprintf("[Image %d: %s%s]", p.n, truncateImageName(display, maxImageNameRunes), chipSentinel)
+}
+
+// maxImageNameRunes is the widest a chip filename snippet may be before the
+// ellipsis truncation kicks in.
+const maxImageNameRunes = 24
+
+// truncateImageName shortens a display name for a chip to at most max runes of
+// display width, keeping the file extension and as much of the stem as fits,
+// joined by "…" so a long screenshot name collapses readably.
+func truncateImageName(name string, limit int) string {
+	if runewidth.StringWidth(name) <= limit {
+		return name
+	}
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	const ellipsis = "…"
+	budget := limit - runewidth.StringWidth(ellipsis) - runewidth.StringWidth(ext)
+	if budget < 1 {
+		// No room for any stem + "…" + ext; keep just the extension if it fits.
+		if runewidth.StringWidth(ext) <= limit {
+			return ext
+		}
+		return ellipsis
+	}
+	// Trim the stem by display width, advancing rune by rune.
+	var cut int
+	width := 0
+	for _, r := range stem {
+		w := runewidth.RuneWidth(r)
+		if width+w > budget {
+			break
+		}
+		width += w
+		cut += len(string(r))
+	}
+	return stem[:cut] + ellipsis + ext
+}
+
+// expandImageChips rewrites [Image N …] chip tokens in the input text back into
+// "@<path>" mentions so the normal @image attachment machinery (imageParts +
+// expandMentions) picks them up at submit. The input box itself keeps showing
+// the chip; only the prepared text sent to the model reverts to the real path.
+func (m *model) expandImageChips(text string) string {
+	return imageChipRe.ReplaceAllStringFunc(text, func(tok string) string {
+		sm := imageChipRe.FindStringSubmatch(tok)
+		if len(sm) < 2 {
+			return tok
+		}
+		n, err := strconv.Atoi(sm[1])
+		if err != nil || n < 1 || n > len(m.images) {
+			return tok // unrecognized chip: keep it literal rather than guessing
+		}
+		return "@" + m.images[n-1].path
+	})
+}
+
+// imageChipRe matches the [Image N] / [Image N: name] chips inserted by paste.
+// Only the leading number matters for resolving back to the stored copy; the
+// display-name part (opaque to the model) is ignored. The trailing zero-width
+// sentinel (chipSentinel) is required, so hand-typed "[Image 1]" text — which
+// lacks it — never matches and never attaches an image the user didn't paste.
+var imageChipRe = regexp.MustCompile(`\[Image\s+(\d+)(?::[^\]\x{200b}]*)?\x{200b}\]`)

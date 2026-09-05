@@ -116,9 +116,10 @@ type (
 	orphanSteerMsg string                    // a steer orphaned at turn teardown — submit as a machine turn
 	mcpStatusMsg   struct{}                  // an MCP server changed state — redraw
 	thinkMsg       string                    // streamed reasoning tokens
-	imageMsg       struct {                  // ctrl+v clipboard image result
-		path string // clipboard image saved to disk
-		err  error
+	imageMsg       struct {                  // ctrl+v / paste clipboard image result
+		path    string // clipboard image saved to disk
+		display string // original display name for the chip ("" for anonymous clipboard)
+		err     error
 	}
 )
 
@@ -183,6 +184,8 @@ type model struct {
 
 	hist     []string         // submitted inputs, for up/down recall
 	pasteBuf string           // held paste text for the [Pasted ~N lines] placeholder (config collapsePaste)
+	images   []pastedImage    // pasted images this session, indexed by their [Image N] chip number
+	imageSeq int              // session counter feeding pastedImage.n (1-based)
 	histIdx  int              // len(hist) == not navigating
 	draft    string           // in-progress input saved while navigating history
 	lastUp   time.Time        // last ↑ keypress; repeat detection for history rollover
@@ -2836,7 +2839,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.path == "":
 			m.append(dimStyle.Render("(no image on clipboard)"))
 		default:
-			m.input.InsertString("@" + msg.path + " ")
+			// Register the image under the next session number and drop a
+			// compact [Image N] chip into the input instead of the raw path.
+			m.imageSeq++
+			img := pastedImage{n: m.imageSeq, path: msg.path, display: msg.display}
+			m.images = append(m.images, img)
+			m.input.InsertString(img.chipText() + " ")
 			m.refreshMenu()
 		}
 		return m, nil
@@ -2963,6 +2971,16 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if path, ok := pastedImagePath(string(msg.Runes)); ok {
 			// A macOS screenshot preview pastes a temporary file path. Copy it
 			// off the UI thread before the preview cleans the file up.
+			return m, func() tea.Msg { return pasteImageFileCmd(path) }
+		}
+	}
+	// A Finder drag arrives as a single large KeyRunes burst (the whole path
+	// typed at once), not a bracketed paste — the terminal doesn't set
+	// msg.Paste for it. Detect a multi-rune message that resolves to a single
+	// image path and route it through the same copy-off-source flow so the
+	// chip replaces the raw path in the input.
+	if !msg.Paste && msg.Type == tea.KeyRunes && len(msg.Runes) > 1 {
+		if path, ok := pastedImagePath(string(msg.Runes)); ok {
 			return m, func() tea.Msg { return pasteImageFileCmd(path) }
 		}
 	}
@@ -3322,7 +3340,20 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.histIdx = len(m.hist)
 				m.input.Reset()
 				m.menu = nil
-				m.agent.Steer(text)
+				// [Image N] chips pasted this session must expand to real
+				// @path mentions (and inline the image on vision models)
+				// before steering — otherwise the chip reaches the model as a
+				// literal bracket string and the image is silently dropped.
+				steerText := m.expandImageChips(text)
+				if m.supportsVision() {
+					if parts, note := imageParts(steerText); len(parts) > 0 {
+						m.agent.SteerImages(steerText+note, parts)
+					} else {
+						m.agent.Steer(steerText)
+					}
+				} else {
+					m.agent.Steer(steerText)
+				}
 				m.append(youStyle.Render("❯ ") + linkifyFilePaths(text, realFileExists) + dimStyle.Render("  (steered)"))
 			case text != "": // codex-style: queue it (multiple allowed)
 				m.queue = append(m.queue, text)
@@ -4039,6 +4070,10 @@ func (m *model) prepareTurn(text string) (string, []llm.ContentPart) {
 	}
 	sys += memory.PromptBlock(memory.Installation(), memory.Session(m.sessionID))
 	m.agent.Messages[0].Content = sys
+	// [Image N …] chips pasted this session revert to real @path mentions so
+	// the normal attachment machinery below can read the on-disk copies; the
+	// transcript keeps the chip (it was already appended from the raw input).
+	text = m.expandImageChips(text)
 	expanded := expandMentions(expandSkills(text, sk))
 	if !m.supportsVision() {
 		// text-only model: leave @image tags as pointer notes (from
@@ -4413,6 +4448,11 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		m.future = nil   // no redo across a cleared conversation
 		m.setGoal("")    // clear before detaching so the old session's goal is dropped too
 		m.sessionID = "" // next turn starts a fresh session
+		// Drop the pasted-image registry too: a recalled "[Image 1]" chip from
+		// before the clear must not resolve to a different image once the
+		// session counter restarts.
+		m.images = nil
+		m.imageSeq = 0
 		m.agent.Tasks().SetSessionID("")
 		m.agent.SetSessionID("")
 		m.saved = 1
