@@ -19,6 +19,13 @@ import (
 // only WHERE their output lands changed, which is what deleted every
 // string-splicing overlay helper.
 
+// The frame is opendocker's: one row of margin above the columns, and a
+// footer band of framePad rows above the key hints and framePad below them.
+const (
+	framePad   = 1
+	footerRows = 2*framePad + 1
+)
+
 // frameRects are the screen rectangles of the frame's regions. Empty
 // rectangles mean the region is absent this frame. layout() computes them
 // after every Update (they are the one source of truth for drawing AND hit
@@ -108,20 +115,20 @@ func (mm measure) fixed() int {
 	if mm.rewind > 0 {
 		n += mm.rewind + 1
 	}
-	return n + mm.input + mm.hints + mm.dock + 1 // + the footer row
+	return n + mm.input + mm.hints + mm.dock + framePad + footerRows // + the top margin and the footer band
 }
 
 // layoutFrame lays out a w×h frame: the left column (when visible), the main
 // column at m.width with its regions stacked in viewBody's order around the
 // transcript (whose height the viewport already holds), its scrollbar column
-// and (when visible) the REPL panel. The columns stop one row short of the
-// bottom: the footer.
+// and (when visible) the REPL panel. Everything starts under the top margin
+// and the columns stop above the footer band.
 func (m *model) layoutFrame(w, h int) frameRects {
-	r := frameRects{area: rect(0, 0, w, h), main: rect(m.mainX(), 0, m.width, h)}
-	cols := max(h-1, 0)
+	r := frameRects{area: rect(0, 0, w, h), main: rect(m.mainX(), framePad, m.width, h-framePad)}
+	cols := max(h-framePad-footerRows, 0)
 	if m.leftVisible() {
-		r.left = rect(1, 0, leftWidth, cols)
-		py := 0
+		r.left = rect(1, framePad, leftWidth, cols)
+		py := framePad
 		for pane, ph := range paneHeights(cols, m.openPane()) {
 			if ph == 0 {
 				continue
@@ -130,13 +137,13 @@ func (m *model) layoutFrame(w, h int) frameRects {
 			py += ph + 1 // the gap row
 		}
 	}
-	r.gap = rect(r.main.Max.X, 0, 1, h)
+	r.gap = rect(r.main.Max.X, framePad, 1, cols)
 	if m.replVisible() {
 		pw := m.panelWidth()
-		r.side = rect(w-1-pw, 0, pw, cols) // behind a one-cell pad at the edge
+		r.side = rect(w-1-pw, framePad, pw, cols) // behind a one-cell pad at the edge
 	}
 	mm := m.measure()
-	x, y := r.main.Min.X, 0
+	x, y := r.main.Min.X, r.main.Min.Y
 	if mm.details > 0 {
 		r.details = rect(x, y, m.width, mm.details)
 		y += mm.details + 1
@@ -168,9 +175,9 @@ func (m *model) layoutFrame(w, h int) frameRects {
 		y += mm.input
 	}
 	y += mm.hints + mm.dock
-	fy := y // the footer sits right under the prompt; on a sized terminal it is the last row
+	fy := y + framePad // the hints row: a pad row under the prompt, a pad row under it; on a sized terminal that is the second-to-last row
 	if h > 0 {
-		fy = h - 1
+		fy = h - 1 - framePad
 	}
 	r.footer = rect(0, fy, w, 1)
 	return r
@@ -268,7 +275,7 @@ func (m *model) View() tea.View {
 		w = m.mainX() + max(m.width, lipgloss.Width(body))
 	}
 	if h <= 0 {
-		h = lipgloss.Height(body)
+		h = framePad + lipgloss.Height(body) + footerRows
 	}
 	r := m.layoutFrame(w, h)
 	scr := m.screen(w, h)

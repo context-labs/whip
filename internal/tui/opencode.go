@@ -222,7 +222,7 @@ func (m *model) paneView(th *theme.Theme, pane, height int, expanded bool) strin
 }
 
 // opencodePrompt wraps the textarea in opencode's prompt chrome: a ┃ left bar,
-// the input, a model/mode row beneath, and a ╹ tail with a ▀ underline. Themed
+// the input, a model/mode row beneath, and a padding row at the bottom. Themed
 // with whip's styles (no forced colors). width is the content width. inner is
 // m.input.View() (already includes the textarea's own "┃ " prompt, so we strip
 // it and supply the bar ourselves for the full-height box).
@@ -254,16 +254,7 @@ func (m *model) opencodePrompt(inner string, width int) string {
 	muted := th.On(th.Muted, ebg)
 	meta := agent.Render(m.ocModeLabel()) + muted.Render(" · ") + txt.Render(m.modelName) + muted.Render("  "+m.provName)
 	b.WriteString(row(bar+elem.Render("  ")+meta) + "\n")
-	// Soft bottom edge: a ╹ tail then a ▀ line the SAME color as the box fill, so
-	// it reads as the box's rounded bottom rather than a bright bar. When the
-	// terminal background is unknown there is no box fill to match — skip the ▀
-	// glyphs (they'd render in the default fg: a solid black bar on a light
-	// terminal) and keep just the bar tail so the row count stays stable.
-	b.WriteString(th.On(th.Info, nil).Render("╹"))
-	if ebg != nil {
-		shadow := th.On(ebg, nil)
-		b.WriteString(shadow.Render(strings.Repeat("▀", max(width-1, 0))))
-	}
+	b.WriteString(row(bar)) // paddingBottom: the box ends flush, like opendocker's filter box
 	return b.String()
 }
 
@@ -404,13 +395,13 @@ func (m *model) dialogTop() int {
 }
 
 // dialogHeight is the most rows a dialog may take: from its fixed top down to
-// the row above the footer; 0 (unlimited) before the terminal size is
+// the last content row above the footer band; 0 (unlimited) before the terminal size is
 // known.
 func (m *model) dialogHeight() int {
 	if m.height <= 0 {
 		return 0
 	}
-	return max(m.height-m.dialogTop()-1, 8)
+	return max(m.height-m.dialogTop()-framePad-footerRows, 8)
 }
 
 // ocToolIcon maps a tool to opencode's inline-tool icon glyphs.

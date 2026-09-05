@@ -84,7 +84,7 @@ func TestOpencodeHomePromptAndSidebarRemainUsable(t *testing.T) {
 		input: newInput(), termWidth: sidebarMinWidth, sessTitle: "Recursive session",
 		clientView: clientPresentation{contextLimit: 1000},
 	}
-	if prompt := m.opencodePrompt("type here", 40); !strings.Contains(prompt, "┃") || !strings.Contains(prompt, "╹") {
+	if prompt := m.opencodePrompt("type here", 40); !strings.Contains(prompt, "┃") || strings.Contains(prompt, "▀") || lipgloss.Height(prompt) != 5 {
 		t.Fatalf("opencode prompt chrome=%q", prompt)
 	}
 	if sidebar := ansi.Strip(m.sidebarView(20)); !strings.Contains(sidebar, "[1] Agents") || !strings.Contains(sidebar, "[2] Context") || !strings.Contains(sidebar, "[3] LSP") {
@@ -137,7 +137,7 @@ func TestOpencodeMessageActionsAndToolPresentation(t *testing.T) {
 	m.blocks = []block{{kind: blockUser, text: "hello"}, {kind: blockAssistant, text: "answer"}}
 	m.refreshVP()
 	clicked := 0
-	m.clickAt(5, m.blocks[clicked].y0+m.contentPad())
+	m.clickAt(5, blockRowY(m, m.blocks[clicked].y0))
 	if m.msgActions == nil || m.msgActions.block != clicked {
 		t.Fatalf("message click did not open actions: %+v", m.msgActions)
 	}

@@ -1,10 +1,8 @@
                                                                                                                         
+                                                                                                                        
                                                                REPL · root                                    0 cells   
                                                                                                                         
                                                                Cells appear as the agent runs                           
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -34,7 +32,9 @@
   ┃  Ask whip anything… (/ commands, tab completes)                                                                     
   ┃                                                                                                                     
   ┃  Off · kimi-k3-fast  inference                                                                                      
-  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                                             
+  ┃                                                                                                                     
    running root                                                                                                         
    idle      file-reader                                                                                                
+                                                                                                                        
  /work/whip                                           ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar  ctrl+p commands 
+                                                                                                                        

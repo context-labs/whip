@@ -1,9 +1,9 @@
                                                                                                                                             
+                                                                                                                                            
     [1] Agents                          1                                                                                                   
                                                                                                                                             
     running root                                                                                                                            
     idle      file-reader                                                                                                                   
-                                                                                                                                            
                                                              Commands                                                 esc                   
                                                                                                                                             
                                                              Search                                                                         
@@ -15,26 +15,26 @@
                                                              aura                                                ████████                   
                                                              aura-light                                          ████████                   
                                                              ayu                                                 ████████                   
-                                                             ayu-light                                           ████████                   
+                                             ❯ find the con  ayu-light                                           ████████                   
                                                              carbonfox                                           ████████                   
-                                             ❯ find the con  carbonfox-light                                     ████████                   
+                                               ← Read inter  carbonfox-light                                     ████████                   
                                                              catppuccin                                          ████████                   
-                                               ← Read inter  catppuccin-frappe                                   ████████                   
+                                               ↳ 5 lines ·   catppuccin-frappe                                   ████████                   
                                                              catppuccin-frappe-light                             ████████                   
-                                               ↳ 5 lines ·   catppuccin-light                                    ████████                   
+                                               Found it. Lo  catppuccin-light                                    ████████                   
                                                              catppuccin-macchiato                                ████████                   
-                                               Found it. Lo  catppuccin-macchiato-light                          ████████                   
-                                                             cobalt2                                             ████████                   
-                                               1. resolve t  cobalt2-light                                       ████████                   
-                                               2. decode th  cursor                                              ████████                   
+                                               1. resolve t  catppuccin-macchiato-light                          ████████                   
+                                               2. decode th  cobalt2                                             ████████                   
+                                                             cobalt2-light                                       ████████                   
+                                                 cfg, err :  cursor                                              ████████                   
                                                              cursor-light                                        ████████                   
-                                                 cfg, err :  dracula                                             ████████                   
-                                                             dracula-light                                       ████████                   
-                                               See the docs  everforest                                          ████████                   
-    [2] Context                        0%                    everforest-light                                    ████████                   
+                                               See the docs  dracula                                             ████████                   
+    [2] Context                        0%                    dracula-light                                       ████████                   
+                                            ┃                everforest                                          ████████                   
+                                            ┃  Ask whip any  everforest-light                                    ████████                   
                                             ┃                flexoki                                             ████████                   
-                                            ┃  Ask whip any  flexoki-light                                       ████████                   
-                                            ┃                github                                              ████████                   
-    [3] LSP                             0   ┃  Off · kimi-k  github-light                                        ████████                   
-                                            ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀                                                                ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
+    [3] LSP                             0   ┃  Off · kimi-k                                                                                 
+                                            ┃                                                                                               
+                                                                                                                                            
  /work/whip                                                               ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar  ctrl+p commands 
+                                                                                                                                            

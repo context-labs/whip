@@ -29,7 +29,7 @@ func transcriptModel(t *testing.T) *model {
 // (Its key handler existed but was never wired into the key chain.)
 func TestMsgActionsKeyboard(t *testing.T) {
 	m := transcriptModel(t)
-	m.clickAt(5, m.blocks[1].y0+m.contentPad())
+	m.clickAt(5, blockRowY(m, m.blocks[1].y0))
 	if m.msgActions == nil {
 		t.Fatal("clicking the assistant block should open Message Actions")
 	}
@@ -37,7 +37,7 @@ func TestMsgActionsKeyboard(t *testing.T) {
 	if m.msgActions != nil {
 		t.Fatal("esc should close Message Actions")
 	}
-	m.clickAt(5, m.blocks[1].y0+m.contentPad())
+	m.clickAt(5, blockRowY(m, m.blocks[1].y0))
 	m.key(keyMsg(tea.KeyDown))
 	if m.msgActions == nil || m.msgActions.sel != 1 {
 		t.Fatalf("down should move the selection: %+v", m.msgActions)
@@ -242,8 +242,8 @@ func TestDialogTopStaysPutWhileFiltering(t *testing.T) {
 		t.Fatalf("dialog header on row %d, want %d", top, m.dialogTop()+1)
 	}
 	frame := strings.Split(ansi.Strip(viewStr(m)), "\n")
-	if strings.Contains(frame[39], "/quit") || strings.Contains(frame[38], "/quit") || !strings.Contains(frame[39], "ctrl+p") {
-		t.Fatalf("the full palette must end above the status line: %q / %q", frame[38], frame[39])
+	if strings.Contains(frame[37], "/quit") || strings.Contains(frame[36], "/quit") || !strings.Contains(frame[38], "ctrl+p") {
+		t.Fatalf("the full palette must end above the footer band: %q / %q / %q", frame[36], frame[37], frame[38])
 	}
 	typeStr(t, m, "age")
 	if got := rowOf("Commands"); got != top {
@@ -261,7 +261,7 @@ func TestFooterHintsFollowFocus(t *testing.T) {
 	m := goldenModel(140, 40)
 	last := func() string {
 		rows := strings.Split(ansi.Strip(viewStr(m)), "\n")
-		return rows[len(rows)-1]
+		return rows[len(rows)-1-framePad]
 	}
 	if f := last(); !strings.Contains(f, "/work/whip") || !strings.Contains(f, "ctrl+x t themes") || !strings.Contains(f, "ctrl+x b sidebar") || !strings.Contains(f, "ctrl+p commands") {
 		t.Fatalf("idle footer: %q", f)
@@ -288,7 +288,7 @@ func TestFooterHintsFollowFocus(t *testing.T) {
 	}
 	narrow := goldenModel(79, 24)
 	rows := strings.Split(ansi.Strip(viewStr(narrow)), "\n")
-	if f := rows[len(rows)-1]; strings.Contains(f, "ctrl+p") || !strings.Contains(f, "ctrl+x b sidebar") || ansi.StringWidth(f) != 79 {
+	if f := rows[len(rows)-1-framePad]; strings.Contains(f, "ctrl+p") || !strings.Contains(f, "ctrl+x b sidebar") || ansi.StringWidth(f) != 79 {
 		t.Fatalf("narrow footer: %q", f)
 	}
 }

@@ -34,7 +34,7 @@ func TestHitTest(t *testing.T) {
 				if open && r.details.Empty() {
 					t.Fatal("details rectangle missing while an agent is open")
 				}
-				if r.transcript.Min.Y != r.details.Max.Y+boolInt(open) {
+				if want := framePad; (open && r.transcript.Min.Y != r.details.Max.Y+1) || (!open && r.transcript.Min.Y != want) {
 					t.Fatalf("transcript should start under the details banner: %v vs %v", r.transcript, r.details)
 				}
 				check := func(name string, rc uv.Rectangle, want region) {
@@ -109,7 +109,7 @@ func TestLayoutFrameOracle(t *testing.T) {
 				if len(rows) != 40 {
 					t.Fatalf("frame has %d rows", len(rows))
 				}
-				if !strings.Contains(rows[r.footer.Min.Y], "ctrl+x") || r.footer.Min.Y != len(rows)-1 {
+				if !strings.Contains(rows[r.footer.Min.Y], "ctrl+x") || r.footer.Min.Y != len(rows)-1-framePad || strings.TrimSpace(rows[len(rows)-1]) != "" {
 					t.Fatalf("footer row %d: %q", r.footer.Min.Y, rows[r.footer.Min.Y])
 				}
 				if got := rows[r.transcript.Min.Y+m.contentPad()+m.blocks[0].y0-m.vp.YOffset()]; !strings.Contains(got, "find the config loader") {
@@ -199,14 +199,15 @@ func TestSidebarPressDoesNotSelectChat(t *testing.T) {
 			t.Fatalf("%s: a press in the chat's margin should start a selection", tc.name)
 		}
 	}
-	m := goldenModel(79, 24)
-	if handled, _ := m.handleMouseSelect(clickMsg(0, blockRowY(m, m.blocks[0].y0))); !handled || m.sel == nil {
+	m := goldenModel(79, 24) // the transcript is scrolled here: press on the newest block's last row, which is always in view
+	if handled, _ := m.handleMouseSelect(clickMsg(0, blockRowY(m, m.blocks[len(m.blocks)-1].y1))); !handled || m.sel == nil {
 		t.Fatal("narrow: a press at the screen edge should start a selection")
 	}
 }
 
 // The columns partition the screen: pad, left column, gap, chat, scrollbar
-// column, (REPL panel, pad); every column stops above the footer, and the
+// column, (REPL panel, pad); every column starts under the top margin and
+// stops above the footer band, and the
 // REPL takes half of what lies right of the left column. Narrow terminals
 // keep the bare chat geometry.
 func TestColumnGeometry(t *testing.T) {
@@ -216,10 +217,10 @@ func TestColumnGeometry(t *testing.T) {
 		left, side  uv.Rectangle
 		mainX, chat int
 	}{
-		{140, 40, false, uv.Rect(1, 0, 42, 39), uv.Rectangle{}, 44, 95},
-		{160, 40, true, uv.Rect(1, 0, 42, 39), uv.Rect(101, 0, 58, 39), 44, 56},
-		{200, 40, true, uv.Rect(1, 0, 42, 39), uv.Rect(121, 0, 78, 39), 44, 76},
-		{120, 40, true, uv.Rectangle{}, uv.Rect(60, 0, 59, 39), 2, 57},
+		{140, 40, false, uv.Rect(1, 1, 42, 36), uv.Rectangle{}, 44, 95},
+		{160, 40, true, uv.Rect(1, 1, 42, 36), uv.Rect(101, 1, 58, 36), 44, 56},
+		{200, 40, true, uv.Rect(1, 1, 42, 36), uv.Rect(121, 1, 78, 36), 44, 76},
+		{120, 40, true, uv.Rectangle{}, uv.Rect(60, 1, 59, 36), 2, 57},
 		{79, 24, false, uv.Rectangle{}, uv.Rectangle{}, 2, 76},
 		{79, 24, true, uv.Rectangle{}, uv.Rectangle{}, 2, 76},
 	} {
@@ -231,7 +232,7 @@ func TestColumnGeometry(t *testing.T) {
 		if r.left != tc.left || r.side != tc.side || r.main.Min.X != tc.mainX || r.main.Dx() != tc.chat || m.width != tc.chat {
 			t.Fatalf("%dx%d repl=%v: left %v side %v main %v width %d", tc.w, tc.h, tc.repl, r.left, r.side, r.main, m.width)
 		}
-		if r.gap != uv.Rect(r.main.Max.X, 0, 1, tc.h) {
+		if r.gap != uv.Rect(r.main.Max.X, framePad, 1, max(tc.h-framePad-footerRows, 0)) {
 			t.Fatalf("%dx%d: scrollbar column %v, want the column after the chat", tc.w, tc.h, r.gap)
 		}
 		if edge := r.side.Max.X; !r.side.Empty() && edge != tc.w-1 {
@@ -282,8 +283,8 @@ func TestLayoutRectsPartitionMainColumn(t *testing.T) {
 					}
 					y = rc.Max.Y
 				}
-				if r.footer.Min.Y != 39 || r.footer.Min.X != 0 || r.footer.Dx() != w {
-					t.Fatalf("%s: footer %v, want the full last row", tc.name, r.footer)
+				if r.footer.Min.Y != 38 || r.footer.Min.X != 0 || r.footer.Dx() != w {
+					t.Fatalf("%s: footer %v, want the full row above the bottom margin", tc.name, r.footer)
 				}
 				if r.transcript.Dy() != m.vp.Height() || r.transcript.Dy() < 1 {
 					t.Fatalf("%s: transcript rect %v vs viewport height %d", tc.name, r.transcript, m.vp.Height())

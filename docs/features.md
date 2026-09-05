@@ -143,9 +143,10 @@ root prompt (`evals/rlm`).
   then a "↓ N more lines" chip and a scrollbar mark the position). The panel
   keeps every cell seen during the TUI session, even after snapshots drop
   idle children.
-- The footer sits on the last row, under the prompt (or under the agents dock
-  and hint rows when they show). Its right side lists the global chords; its
-  left side follows the
+- The frame is opendocker's: a one-row margin above the columns, and a footer
+  band at the bottom (a blank row, the key hints, a blank row) under the
+  prompt or, on narrow terminals, under the agents dock. The hints' right side
+  lists the global chords; the left side follows the
   keyboard's owner: the running turn (spinner, `esc interrupt`), an armed
   `ctrl+x` leader (every chord), the focused Agents panel, or the working
   directory.

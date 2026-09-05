@@ -1,11 +1,9 @@
                                                                                                                                             
-    [1] Agents                          1                                                                                                   
-                                                                                                                   ▍ Copied to clipboard    
+                                                                                                                                            
+    [1] Agents                          1                                                                          ▍ Copied to clipboard    
+                                                                                                                                            
     running root                                                                                                                            
     idle      file-reader                                                                                                                   
-                                                                                                                                            
-                                                                                                                                            
-                                                                                                                                            
                                                                                                                                             
                                                                                                                                             
                                                                                                                                             
@@ -36,5 +34,7 @@
                                             ┃  Ask whip anything… (/ commands, tab completes)                                               
                                             ┃                                                                                               
     [3] LSP                             0   ┃  Off · kimi-k3-fast  inference                                                                
-                                            ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
+                                            ┃                                                                                               
+                                                                                                                                            
  /work/whip                                                               ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar  ctrl+p commands 
+                                                                                                                                            
