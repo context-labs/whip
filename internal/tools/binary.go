@@ -24,6 +24,11 @@ const binaryProbeSize = 1024
 //   - a high density of other C0 control bytes (>10%, excluding the benign
 //     whitespace ones like \t \n \r \f \v and ESC for ANSI-colored output) is
 //     treated as binary too.
+//
+// IsBinary is the exported form for the TUI's `!` shell escape, which injects
+// command output into the conversation the same way the bash tool does.
+func IsBinary(data []byte) bool { return isBinary(data) }
+
 func isBinary(data []byte) bool {
 	if len(data) == 0 {
 		return false
@@ -46,20 +51,24 @@ func isBinary(data []byte) bool {
 		return true
 	}
 
-	// The control-byte density check only needs a prefix — a file that's
-	// binary from the start trips it in the first 1KB; a text-then-binary
-	// stream is already caught by the full-buffer NUL/UTF-8 checks above.
+	// The control-byte density check runs over the whole buffer too: a
+	// NUL-free control-junk tail (2000 'a' + 4KB of 0x01) passes the NUL/UTF-8
+	// checks above, so the prefix-only scope would leak it. The check is a
+	// single pass — same cost class as the NUL/UTF-8 passes — and tool outputs
+	// are bounded (≤ ~50KB after read/bash paths).
+	//
+	// A multi-byte rune can straddle the 1024-byte probe boundary — a hard cut
+	// can end mid-rune and read as invalid UTF-8 for a plain text file
+	// (CJK/emoji hit this constantly). Back the sample off to the last complete
+	// rune before the utf8.Valid check below uses it.
 	n := min(len(data), binaryProbeSize)
 	sample := data[:n]
-	// A multi-byte rune can straddle the probe boundary — a 1024-byte cut can
-	// end mid-rune and read as invalid UTF-8 for a plain text file (CJK/emoji
-	// hit this constantly). Back the sample off to the last complete rune.
 	if len(data) > binaryProbeSize {
 		sample = trimToLastRune(sample)
 	}
 
 	ctrl := 0
-	for _, b := range sample {
+	for _, b := range data {
 		switch {
 		case b == 0x1b:
 			// ESC starts ANSI escape sequences (ls --color, grep --color) —
@@ -68,7 +77,7 @@ func isBinary(data []byte) bool {
 			ctrl++
 		}
 	}
-	return ctrl*10 > len(sample)
+	return ctrl*10 > len(data)
 }
 
 // trimToLastRune shortens s to end on a complete UTF-8 rune, but only when
@@ -156,6 +165,10 @@ func bytesHuman(n int) string {
 // binaryPlaceholder is the compact stand-in injected in place of binary tool
 // output. name is the offending source (a file path for read, "" for bash);
 // size is the size of the output that was suppressed.
+//
+// BinaryPlaceholder is the exported form for the TUI's `!` shell escape.
+func BinaryPlaceholder(name string, size int) string { return binaryPlaceholder(name, size) }
+
 func binaryPlaceholder(name string, size int) string {
 	if name == "" {
 		return fmt.Sprintf("[binary output: %s, not shown]", bytesHuman(size))
