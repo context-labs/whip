@@ -23,11 +23,14 @@ import (
 // image Parts (multimodal/vision) — when Parts is non-empty it is sent as the
 // content array and Content is mirrored as a text part so both stay in sync.
 type Message struct {
-	Role       string        `json:"role"`
-	Content    string        `json:"content"`
-	Parts      []ContentPart `json:"-"`
-	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
-	ToolCallID string        `json:"tool_call_id,omitempty"`
+	// RawSequence identifies the retained transcript row. Summaries carry
+	// the last covered raw sequence. Runtime-only; never serialized.
+	RawSequence int           `json:"-"`
+	Role        string        `json:"role"`
+	Content     string        `json:"content"`
+	Parts       []ContentPart `json:"-"`
+	ToolCalls   []ToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID  string        `json:"tool_call_id,omitempty"`
 	// Name is the function name on role "tool" messages. OpenAI ignores it,
 	// but Moonshot/Kimi requires it ("tool messages need a resolvable tool
 	// name") — without it every tool-using turn 400s.
@@ -183,6 +186,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	*m = Message{}
 	m.Role, m.ToolCalls, m.ToolCallID, m.Name = raw.Role, raw.ToolCalls, raw.ToolCallID, raw.Name
 	m.Authored, m.SentAt, m.Usage, m.Model, m.RewoundFrom = raw.Authored, raw.SentAt, raw.Usage, raw.Model, raw.RewoundFrom
 	if len(raw.Content) == 0 {
@@ -197,14 +201,13 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(raw.Content, &parts); err != nil {
 		return err
 	}
-	for _, p := range parts {
-		switch p.Type {
-		case "text":
-			m.Content = p.Text
-		case "image_url":
-			m.Parts = append(m.Parts, p)
-		}
+	// Content is the leading text, if any; retain every other part in order.
+	// Collapsing text parts into a single field loses all but the last one.
+	if len(parts) > 0 && parts[0].Type == "text" && parts[0].Text != "" {
+		m.Content = parts[0].Text
+		parts = parts[1:]
 	}
+	m.Parts = parts
 	return nil
 }
 

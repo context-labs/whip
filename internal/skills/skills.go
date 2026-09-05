@@ -4,6 +4,7 @@ package skills
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -125,7 +126,11 @@ func parse(path string) (Skill, error) {
 		return Skill{}, err
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
+	return parseMetadata(path, f)
+}
+
+func parseMetadata(path string, reader io.Reader) (Skill, error) {
+	sc := bufio.NewScanner(reader)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "---" {
 		return Skill{}, fmt.Errorf("%s: no frontmatter", path)
@@ -345,7 +350,7 @@ func PromptBlock(sk []Skill) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n\n<available_skills>\nThese skills hold task-specific instructions. When one is relevant, read its SKILL.md with the read tool and follow it. Relative paths in a skill resolve against the skill's directory (the parent of its SKILL.md).\n")
+	b.WriteString("\n\n<available_skills>\nThese skills hold task-specific instructions. When one is relevant, read its SKILL.md with files.read and follow it. Relative paths in a skill resolve against the skill's directory (the parent of its SKILL.md).\n")
 	for _, s := range visible {
 		b.WriteString("  <skill>\n")
 		fmt.Fprintf(&b, "    <name>%s</name>\n", xmlEscape(s.Name))

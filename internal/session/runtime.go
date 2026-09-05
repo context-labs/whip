@@ -239,6 +239,9 @@ type RootCompaction struct {
 	Summary      string
 	Cutoff       int
 	RawTailStart int
+	// RawCutoff is the highest raw message sequence summarized. New
+	// runners supply it from their view-to-raw mapping, not a focused index.
+	RawCutoff *int
 }
 
 type RuntimeState struct {
@@ -603,40 +606,8 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 			return err
 		}
 	}
-	var compactionSeq, rawCutoff int
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM compactions WHERE session_id=?`, commit.RootID).Scan(&compactionSeq); err != nil {
+	if err := appendCompactionsTx(ctx, tx, commit.RootID, commit.AgentID, commit.Compactions, stamp); err != nil {
 		return err
-	}
-	if compactionSeq > 0 {
-		if err := tx.QueryRowContext(ctx, `SELECT cutoff FROM compactions WHERE session_id=? AND seq=?`, commit.RootID, compactionSeq).Scan(&rawCutoff); err != nil {
-			return err
-		}
-	}
-	for _, compaction := range commit.Compactions {
-		if compaction.Cutoff < 1 || compaction.Summary == "" {
-			return errors.New("root turn compaction requires a cutoff and summary")
-		}
-		if compactionSeq > 0 {
-			tailStart := compaction.RawTailStart
-			if tailStart < 1 {
-				tailStart = 2
-			}
-			rawCutoff += compaction.Cutoff - tailStart
-		} else {
-			rawCutoff = compaction.Cutoff
-			var firstRole string
-			if err := tx.QueryRowContext(ctx, `SELECT role FROM messages WHERE session_id=? ORDER BY seq LIMIT 1`, commit.RootID).Scan(&firstRole); err != nil {
-				return err
-			}
-			if firstRole != "system" {
-				rawCutoff--
-			}
-		}
-		compactionSeq++
-		if _, err := tx.ExecContext(ctx, `INSERT INTO compactions(session_id,seq,cutoff,summary,created_at) VALUES(?,?,?,?,?)`,
-			commit.RootID, compactionSeq, rawCutoff, compaction.Summary, stamp); err != nil {
-			return err
-		}
 	}
 	if commit.WorkspaceRef != "" {
 		if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO snapshots(session_id,seq,ref,created_at) VALUES(?,?,?,?)`,

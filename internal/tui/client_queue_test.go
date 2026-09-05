@@ -379,7 +379,7 @@ func TestSnapshotPreservesQueuesFocusModalAndToolExpansion(t *testing.T) {
 func TestSnapshotRebuildsInProgressUserInputAndChildPresentation(t *testing.T) {
 	stream, _ := json.Marshal(daemon.StreamEvent{AgentID: "child", Text: "working\n"})
 	m := &model{
-		input: newInput(), sysPrompt: "system", agentOpen: "child",
+		input: newInput(), agentOpen: "child",
 		agentMessages: map[string][]llm.Message{},
 		clientView: clientPresentation{
 			agents:             []session.RuntimeAgent{{ID: "root-agent"}, {ID: "child", ParentID: "root-agent", LifecyclePhase: "running"}},

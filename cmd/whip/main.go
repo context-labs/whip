@@ -5,13 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/user"
-	"runtime"
 	"strings"
-	"time"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tui"
 	"github.com/context-labs/whip/internal/update"
 )
@@ -25,40 +21,6 @@ func cwd() string {
 		return "."
 	}
 	return wd
-}
-
-// username is the OS login name, or "unknown" when it can't be resolved
-// (e.g. inside a container without a passwd entry).
-func username() string {
-	u, err := user.Current()
-	if err != nil || u.Username == "" {
-		return "unknown"
-	}
-	return u.Username
-}
-
-// systemPrompt builds the base system prompt rooted at wd. The TUI and
-// `whip run` pass the process cwd; `whip acp` passes the client-provided
-// session cwd (the editor spawns whip wherever it likes).
-func systemPrompt(wd string, now time.Time) string {
-	prompt := rlm.BuildPrompt(wd, nil) + `
-
-Operating rules:
-- When the user tags a file with @, inspect the listed path with files.read.
-- Bias toward acting on reasonable assumptions. After repeated failures on one blocker, escalate it plainly instead of looping.
-- Use explicit messages for child collaboration; do not assume a child's ordinary response reaches its parent.
-- Git hygiene: inspect staged changes for secrets, stage intentional files only, and never force-push.
-
-Environment:
-<env>
-  Platform: ` + runtime.GOOS + `
-  Current date/time: ` + now.Format("Mon Jan 2, 2006 15:04:05 MST (UTC-07:00)") + `
-  User: ` + username() + `
-</env>`
-	if extra := config.MeInstructions(); extra != "" {
-		prompt += "\n\nStanding instructions from the user (~/.whip/me.md — treat as user rules):\n" + extra
-	}
-	return prompt
 }
 
 func main() {
@@ -211,7 +173,7 @@ func main() {
 	// notice still shows on the next launch.
 	go update.Check(version)
 	tui.Version = version // /report names the build in the bug-report bundle
-	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, systemPrompt(cwd(), time.Now()), *resumeFlag, *cautiousFlag, *yoloFlag, firstRun, initialPrompt)
+	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, firstRun, initialPrompt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whip:", err)
 		os.Exit(1)

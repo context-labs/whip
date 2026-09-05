@@ -84,24 +84,21 @@ type AgentSession struct {
 	name         string
 	capabilities []string
 
-	mu          sync.Mutex
-	running     bool
-	closed      bool
-	failures    int // consecutive failed turns; drives the re-wake backoff
-	cancel      context.CancelFunc
-	turn        turnJournal
-	emit        func(string, StreamEvent)
-	interactive *daemonInteractiveRunner
-	report      string // spawn report mode: "" or "notice", "message", "inline"
+	mu             sync.Mutex
+	running        bool
+	closed         bool
+	failures       int // consecutive failed turns; drives the re-wake backoff
+	cancel         context.CancelFunc
+	turn           turnJournal
+	emit           func(string, StreamEvent)
+	interactive    *daemonInteractiveRunner
+	prompt         rlm.PromptSnapshot
+	promptOverride string
+	report         string // spawn report mode: "" or "notice", "message", "inline"
 }
 
 type recursiveHost struct {
 	session *AgentSession
-	history []llm.Message
-	handle  *rlm.ContextHandle
-	focused bool
-	system  string
-	mu      sync.Mutex
 }
 
 func NewRecursiveRuntime(options RecursiveRuntimeOptions) (*RecursiveRuntime, error) {
@@ -120,7 +117,7 @@ func NewRecursiveRuntime(options RecursiveRuntimeOptions) (*RecursiveRuntime, er
 	if err != nil {
 		return nil, err
 	}
-	node.host.history = append([]llm.Message(nil), options.History...)
+	node.agent.Messages = append(node.agent.Messages[:1], rlm.FocusedHistory(options.History)...)
 	runtime.rootNode = node
 	return runtime, nil
 }
@@ -150,10 +147,6 @@ func (node *AgentSession) identity() rlm.Identity {
 		identity.Depth = 1
 	}
 	return identity
-}
-
-func (node *AgentSession) systemPrompt(handle *rlm.ContextHandle) string {
-	return rlm.BuildPrompt(node.agent.WorkingDir, handle) + rlm.IdentityBlock(node.identity())
 }
 
 // scratchStore persists a node's Starlark scratch through the root actor. A
@@ -230,7 +223,7 @@ func (runtime *RecursiveRuntime) newNode(value *agent.Agent, parentID, name stri
 	return node, nil
 }
 
-func (runtime *RecursiveRuntime) Bind(root *Session) error {
+func (runtime *RecursiveRuntime) Bind(ctx context.Context, root *Session) error {
 	if root == nil {
 		return errors.New("recursive runtime requires a daemon root")
 	}
@@ -250,20 +243,10 @@ func (runtime *RecursiveRuntime) Bind(root *Session) error {
 	}
 	node.agent.SetModelCallBudget(agentModelBudget{node: node})
 	node.agent.TransformInput = node.host.focusInput
-	return runtime.restoreChildren()
+	return runtime.restoreChildren(ctx)
 }
 
 func (runtime *RecursiveRuntime) RootTool() tools.Tool { return rlm.Tool(runtime.rootNode.kernel) }
-
-func (runtime *RecursiveRuntime) ConfigureRun(system string) {
-	node := runtime.rootNode
-	node.host.mu.Lock()
-	node.host.system = system
-	node.host.mu.Unlock()
-	if system != "" {
-		node.agent.SetSystemPrompt(system)
-	}
-}
 
 func (runtime *RecursiveRuntime) Close() {
 	runtime.mu.Lock()
@@ -352,8 +335,11 @@ func (runtime *RecursiveRuntime) CancelAgentTurn(id string) bool {
 	return true
 }
 
-func (runtime *RecursiveRuntime) restoreChildren() error {
-	records, err := runtime.root.LoadRetainedAgents(context.Background())
+func (runtime *RecursiveRuntime) restoreChildren(ctx context.Context) error {
+	// Initial binding happens before publication; replacement binding already
+	// runs on the root actor. Read the store directly so restoring an idle
+	// runtime never queues a control request back to its own waiting actor.
+	records, err := runtime.root.store.LoadRetainedAgents(ctx, runtime.root.ID())
 	if err != nil {
 		return err
 	}
@@ -369,7 +355,7 @@ func (runtime *RecursiveRuntime) restoreChildren() error {
 				next = append(next, record)
 				continue
 			}
-			authority, capabilities, err := runtime.root.LoadAgentAuthority(context.Background(), record.ID)
+			authority, capabilities, err := runtime.root.store.LoadAgentAuthority(ctx, runtime.root.ID(), record.ID)
 			if err != nil {
 				return err
 			}
@@ -399,13 +385,11 @@ func (runtime *RecursiveRuntime) restoreChildren() error {
 			child.SetSessionID(runtime.root.ID() + "/" + record.ID)
 			child.SetModelCallBudget(agentModelBudget{node: node})
 			child.TransformInput = node.host.focusInput
-			child.SetSystemPrompt(node.systemPrompt(nil))
-			transcript, err := runtime.root.LoadAgentTranscript(context.Background(), record.ID)
+			transcript, err := runtime.root.store.LoadAgentTranscript(ctx, runtime.root.ID(), record.ID)
 			if err != nil {
 				node.close(true)
 				return err
 			}
-			node.host.history = append([]llm.Message(nil), transcript...)
 			child.Messages = append(child.Messages[:1], rlm.FocusedHistory(transcript)...)
 			runtime.mu.Lock()
 			runtime.agents[node.id] = node
@@ -418,11 +402,11 @@ func (runtime *RecursiveRuntime) restoreChildren() error {
 		pending = next
 	}
 	for _, record := range records {
-		pending, err := runtime.agents[record.ID].root.HasAgentWork(context.Background(), record.ID)
+		work, err := runtime.root.store.AgentWorkStatus(ctx, runtime.root.ID(), record.ID, time.Now())
 		if err != nil {
 			return err
 		}
-		if pending {
+		if work.HasExplicitInput || work.HasReadyMail {
 			runtime.agents[record.ID].wake()
 		}
 	}
@@ -531,7 +515,7 @@ func (node *AgentSession) run() {
 	}
 	finishErr := node.root.FinishAgentTurn(context.Background(), node.id, sessionstore.AgentTurnCommit{
 		TurnID: turnID, Status: status, AcknowledgedInbox: ack, DeliveredMessages: journal.DeliveredMessages,
-		Transcript: node.agent.MessagesSnapshot(), Error: errorText(turnErr),
+		Messages: journal.Messages, Compactions: journalCompactions(journal), Error: errorText(turnErr),
 		RetryInput: !errors.Is(turnErr, sessionstore.ErrInvalidInput),
 	})
 	if finishErr != nil {
@@ -765,37 +749,6 @@ func (host *recursiveHost) Call(ctx context.Context, module, operation string, a
 
 func (host *recursiveHost) focusInput(ctx context.Context, input string) (string, error) {
 	node := host.session
-	host.mu.Lock()
-	focused := host.focused
-	host.mu.Unlock()
-	if !focused {
-		var handle *rlm.ContextHandle
-		host.mu.Lock()
-		history := append([]llm.Message(nil), host.history...)
-		system := host.system
-		host.mu.Unlock()
-		if len(history) > 0 {
-			data, err := rlm.MarshalHistory(history)
-			if err != nil {
-				return "", err
-			}
-			value, err := node.root.StoreContent(ctx, node.id, sessionstore.RuntimePayload{Data: data, MediaType: "application/json", Source: "full conversation history"})
-			if err != nil {
-				return "", err
-			}
-			handle = &rlm.ContextHandle{ReferenceID: value.ReferenceID, Size: value.Size, Source: value.Source}
-		}
-		if system == "" {
-			system = rlm.BuildPrompt(node.agent.WorkingDir, handle) + rlm.IdentityBlock(node.identity())
-		} else if node.parentID != "" {
-			// An explicit -system override stays verbatim for the root only.
-			system += rlm.IdentityBlock(node.identity())
-		}
-		node.agent.SetSystemPrompt(system)
-		host.mu.Lock()
-		host.handle, host.history, host.focused = handle, nil, true
-		host.mu.Unlock()
-	}
 	if len(input) <= sessionstore.InlineValueLimit {
 		return input, nil
 	}
@@ -812,15 +765,11 @@ func (host *recursiveHost) focusInput(ctx context.Context, input string) (string
 
 func (host *recursiveHost) context(ctx context.Context, operation string, arguments map[string]any) (any, error) {
 	reference, _ := stringArgument(arguments, "handle")
-	if reference == "" {
-		host.mu.Lock()
-		if host.handle != nil {
-			reference = host.handle.ReferenceID
-		}
-		host.mu.Unlock()
+	if operation == "history" && reference != "" {
+		return nil, errors.New("context.history reads the caller's transcript; omit handle")
 	}
 	if reference == "" {
-		return nil, errors.New("context handle is required")
+		return host.history(ctx, operation, arguments)
 	}
 	node := host.session
 	switch operation {
@@ -840,41 +789,10 @@ func (host *recursiveHost) context(ctx context.Context, operation string, argume
 		if query == "" {
 			return nil, errors.New("query is required")
 		}
-		return host.searchContent(ctx, reference, query)
+		return host.searchContentFrom(ctx, reference, query, int64Argument(arguments, "offset", 0))
 	default:
 		return nil, fmt.Errorf("unknown context operation %q", operation)
 	}
-}
-
-func (host *recursiveHost) searchContent(ctx context.Context, reference, query string) (any, error) {
-	const maxScan = 8 << 20
-	var offset int64
-	var matches []map[string]any
-	var metadata sessionstore.ContentMetadata
-	for offset < maxScan && len(matches) < 20 {
-		body, current, err := host.session.root.ReadContent(ctx, host.session.id, reference, offset, sessionstore.MaxContentRead)
-		if err != nil {
-			return nil, err
-		}
-		metadata = current
-		text := string(body)
-		for cursor := 0; len(matches) < 20; {
-			index := strings.Index(text[cursor:], query)
-			if index < 0 {
-				break
-			}
-			start := cursor + index
-			end := start + len(query)
-			snippetStart, snippetEnd := max(0, start-80), min(len(text), end+80)
-			matches = append(matches, map[string]any{"handle": reference, "source": metadata.Source, "span": map[string]any{"start": offset + int64(start), "end": offset + int64(end)}, "text": text[snippetStart:snippetEnd]})
-			cursor = end
-		}
-		offset += int64(len(body))
-		if len(body) == 0 || offset >= metadata.Size {
-			break
-		}
-	}
-	return map[string]any{"matches": matches, "scanned": offset, "size": metadata.Size, "truncated": offset < metadata.Size}, nil
 }
 
 func (host *recursiveHost) files(ctx context.Context, operation string, arguments map[string]any) (any, error) {
@@ -1164,7 +1082,6 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 	child.SetSessionID(parent.root.ID() + "/" + id)
 	child.SetModelCallBudget(agentModelBudget{node: node})
 	child.TransformInput = node.host.focusInput
-	child.SetSystemPrompt(node.systemPrompt(nil))
 	task := fmt.Sprintf("[task from parent %s (%s)]\n\n%s", parent.name, parent.id, prompt)
 	if err := parent.root.AdmitAgent(ctx, sessionstore.AgentAdmission{
 		ParentAgentID: parent.id, ChildAgentID: id, Name: name,
@@ -1233,7 +1150,7 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 		effort = requestedEffort
 	}
 	copyClient := *client
-	child := agent.NewRuntime(&copyClient, modelID, maxTokens, rlm.BuildPrompt(parent.WorkingDir, nil), services)
+	child := agent.NewRuntime(&copyClient, modelID, maxTokens, "", services)
 	child.ModelName, child.Provider = effectiveModel, effectiveProvider
 	child.ContextLimit, child.Effort = contextLimit, effort
 	child.Vision = vision

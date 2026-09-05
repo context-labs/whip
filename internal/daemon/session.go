@@ -34,7 +34,7 @@ type Components struct {
 	Runner        Runner
 	MCP           Closeable
 	Runtime       Closeable
-	Bind          func(*Session) error
+	Bind          func(context.Context, *Session) error
 	GoalMaxRounds int
 }
 
@@ -104,12 +104,15 @@ type turnCompaction struct {
 	Summary      string
 	Cutoff       int
 	RawTailStart int
+	RawCutoff    *int
 }
 
 // turnJournal is everything one turn produced that the commit must persist:
 // new transcript messages, compactions, and the durable items the model saw
 // (steer rows injected at a boundary, mailbox messages shown or read).
 type turnJournal struct {
+	TurnID            string
+	BaseSeq           int
 	Messages          []llm.Message
 	Compactions       []turnCompaction
 	DeliveredInbox    []int64
@@ -880,12 +883,6 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 			goalContinuation = agent.GoalContinuePrompt(s.meta.Goal)
 		}
 	}
-	compactions := make([]sessionstore.RootCompaction, len(completion.journal.Compactions))
-	for i, compaction := range completion.journal.Compactions {
-		compactions[i] = sessionstore.RootCompaction{
-			Summary: compaction.Summary, Cutoff: compaction.Cutoff, RawTailStart: compaction.RawTailStart,
-		}
-	}
 	outcome := completion.output
 	if completion.err != nil {
 		outcome = completion.err.Error()
@@ -893,7 +890,7 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 	if err := s.store.CommitRootTurn(s.supervisor.ctx, sessionstore.RootTurnCommit{
 		RootID: s.meta.ID, AgentID: s.authority.AgentID, InboxSeq: current.seq, TurnID: current.turnID,
 		AcknowledgedInbox: acknowledged, DeliveredMessages: completion.journal.DeliveredMessages,
-		Messages: completion.journal.Messages, Compactions: compactions,
+		Messages: completion.journal.Messages, Compactions: journalCompactions(completion.journal),
 		WorkspaceSeq: completion.workspaceSeq, WorkspaceRef: completion.workspaceRef,
 		ClearGoal: clearGoal, GoalContinuation: goalContinuation,
 		Model: s.meta.Model, Provider: s.meta.Provider, Status: status, Error: errorText,

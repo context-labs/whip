@@ -74,7 +74,7 @@ func TestMailboxReplacedRevisionMustBeObservedBeforeDelivery(t *testing.T) {
 			}
 			transcript := []llm.Message{{Role: "assistant", Content: "turn still commits"}}
 			if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{
-				TurnID: "mail-turn", Status: "succeeded", DeliveredMessages: receipts, Transcript: transcript,
+				TurnID: "mail-turn", Status: "succeeded", DeliveredMessages: receipts, Messages: transcript,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -257,7 +257,7 @@ func TestMailboxMutationEventFailureRollsBack(t *testing.T) {
 			case "deliver":
 				err = store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{
 					TurnID: "mail-turn", Status: "succeeded", DeliveredMessages: []MailboxReceipt{mailboxTestReceipt(message)},
-					Transcript: []llm.Message{{Role: "assistant", Content: "must roll back"}},
+					Messages: []llm.Message{{Role: "assistant", Content: "must roll back"}},
 				})
 			case "replace":
 				_, err = store.SendMailboxMessage(t.Context(), rootID, rootAgentID, "child", MailboxSend{Body: "replacement", UpsertKey: "updates"})

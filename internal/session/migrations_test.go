@@ -71,6 +71,37 @@ func TestIncompatibleDevelopmentStoreIsRejectedWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestVersionFiveStoreIsRejectedWithoutMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(t.Context(), `CREATE TABLE runtime_schema(id INTEGER PRIMARY KEY,identity TEXT NOT NULL);
+		INSERT INTO runtime_schema VALUES(1,'whip-recursive-runtime-v5');
+		CREATE TABLE compactions(session_id TEXT,seq INTEGER,cutoff INTEGER,summary TEXT,created_at TEXT);
+		INSERT INTO compactions VALUES('retained',1,3,'preserve this summary',''); PRAGMA user_version=5`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(path); err == nil {
+		t.Fatal("v5 database opened under v6 runtime")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("rejected v5 database was modified")
+	}
+}
+
 func TestSessionKindsEnforceModelContract(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {

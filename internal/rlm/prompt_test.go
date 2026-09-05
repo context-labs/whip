@@ -29,7 +29,7 @@ func TestFocusedHistoryBoundsSummaryAndRecentExchanges(t *testing.T) {
 	}
 	history = append(history, llm.Message{Role: "user", Content: strings.Repeat("界", maxFocusedMessageBytes)})
 	focused = FocusedHistory(history)
-	if content := focused[len(focused)-1].Content; len(content) > maxFocusedMessageBytes || !utf8.ValidString(content) || !strings.Contains(content, "history handle") {
+	if content := focused[len(focused)-1].Content; len(content) > maxFocusedMessageBytes || !utf8.ValidString(content) || !strings.Contains(content, "context.history()") {
 		t.Fatalf("oversized focused content was not bounded safely: bytes=%d", len(content))
 	}
 }

@@ -81,7 +81,7 @@ func mailboxCommit(t *testing.T, root *Session, node *AgentSession, start sessio
 	}
 	if err := root.FinishAgentTurn(t.Context(), node.id, session.AgentTurnCommit{
 		TurnID: start.TurnID, Status: "succeeded", AcknowledgedInbox: ack, DeliveredMessages: journal.DeliveredMessages,
-		Transcript: []llm.Message{{Role: "user", Content: "work"}, {Role: "assistant", Content: "done"}},
+		Messages: []llm.Message{{Role: "user", Content: "work"}, {Role: "assistant", Content: "done"}},
 	}); err != nil {
 		t.Fatal(err)
 	}

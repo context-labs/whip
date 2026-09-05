@@ -166,7 +166,7 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 			"baseUrl": provider.URL, "api": "openai-completions", "apiKey": "test-key",
 		}},
 		"models": map[string]any{"test-model": map[string]any{
-			"providers": []string{"test-provider"}, "context": 4096, "maxOut": 128,
+			"providers": []string{"test-provider"}, "context": 65536, "maxOut": 128,
 			"samplingParams": map[string]any{"temperature": 0.25, "top_p": 0.75},
 		}},
 	})

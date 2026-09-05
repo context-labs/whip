@@ -89,6 +89,26 @@ Cancellation after a mutation starts does not prove that it had no effect.
 Shutdown settles pending replies before closing resources whose workers may
 be awaiting those replies, and continues draining while workers exit.
 
+## Transcript and prompt ownership
+
+The turn worker journals each original message before focusing, decay, or
+compaction can alter the model view. Every journal message receives an agent-local
+raw sequence; derived summaries retain the highest covered sequence. Root and
+child commits append these raw deltas and compactions atomically with their
+existing lifecycle transitions. Explicit idle compaction uses the same raw
+coordinate mapping. Clearing or rewinding also resets the live journal.
+
+History reads freeze an upper sequence and copy current-turn message headers
+under the node mutex, then read committed rows one at a time. Bodies and nested
+slices are immutable to readers. Final tool timing/status replaces its metadata
+slice after the batch settles, before compaction or commit. Provisional messages
+are marked with their turn identity and are never counted twice after commit.
+
+Environment assembly happens once at the start of each root or child turn.
+Applied source metadata and the explicit skill catalog share that snapshot;
+context inspection does not rescan files and claim they were already applied.
+No filesystem watcher or mid-turn prompt mutation is involved.
+
 ## Host operations
 
 - Same-path file mutations serialize through the workspace coordinator;

@@ -102,8 +102,8 @@ func TestAgentTurnsRetainTheAgentAfterFailure(t *testing.T) {
 	if err != nil || start.Trigger != "inbox" || len(start.Items) != 1 {
 		t.Fatalf("start = %+v, %v", start, err)
 	}
-	transcript := []llm.Message{{Role: "system", Content: "system"}, {Role: "user", Content: "work"}, {Role: "assistant", Content: "partial"}}
-	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-1", Status: "failed", RetryInput: true, Transcript: transcript}); err != nil {
+	transcript := []llm.Message{{Role: "user", Content: "work"}, {Role: "assistant", Content: "partial"}}
+	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-1", Status: "failed", RetryInput: true, Messages: transcript}); err != nil {
 		t.Fatal(err)
 	}
 	second, err := store.EnqueueInbox(t.Context(), InboxEnqueue{RootID: rootID, AgentID: "child", Kind: "submit", Payload: RuntimePayload{Data: []byte("second")}})
@@ -116,14 +116,14 @@ func TestAgentTurnsRetainTheAgentAfterFailure(t *testing.T) {
 	if err != nil || len(start.Items) != 1 || start.Items[0].Seq != first.InboxSeq {
 		t.Fatalf("second claim = %+v, %v", start, err)
 	}
-	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-2", Status: "succeeded", AcknowledgedInbox: []int64{first.InboxSeq}, Transcript: transcript}); err != nil {
+	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-2", Status: "succeeded", AcknowledgedInbox: []int64{first.InboxSeq}, Messages: transcript}); err != nil {
 		t.Fatal(err)
 	}
 	start, err = store.StartAgentTurn(t.Context(), rootID, "child", "turn-3")
 	if err != nil || len(start.Items) != 1 || start.Items[0].Seq != second.InboxSeq {
 		t.Fatalf("third claim = %+v, %v", start, err)
 	}
-	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-3", Status: "succeeded", AcknowledgedInbox: []int64{second.InboxSeq}, Transcript: transcript}); err != nil {
+	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-3", Status: "succeeded", AcknowledgedInbox: []int64{second.InboxSeq}, Messages: transcript}); err != nil {
 		t.Fatal(err)
 	}
 	// MaxInboxRetries re-queues are allowed; the failure after that interrupts.
@@ -136,7 +136,7 @@ func TestAgentTurnsRetainTheAgentAfterFailure(t *testing.T) {
 		if start, err := store.StartAgentTurn(t.Context(), rootID, "child", turnID); err != nil || len(start.Items) != 1 || start.Items[0].Seq != third.InboxSeq {
 			t.Fatalf("retry %d claim = %+v, %v", attempt, start, err)
 		}
-		if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: turnID, Status: "failed", RetryInput: true, Transcript: transcript}); err != nil {
+		if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: turnID, Status: "failed", RetryInput: true, Messages: transcript}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -148,7 +148,7 @@ func TestAgentTurnsRetainTheAgentAfterFailure(t *testing.T) {
 		t.Fatalf("idle start error = %v", err)
 	}
 	loaded, err := store.LoadAgentTranscript(t.Context(), rootID, "child")
-	if err != nil || len(loaded) != len(transcript) || loaded[2].Content != "partial" {
+	if err != nil || len(loaded) != (4+MaxInboxRetries)*len(transcript) || loaded[len(loaded)-1].Content != "partial" {
 		t.Fatalf("transcript = %+v, %v", loaded, err)
 	}
 }

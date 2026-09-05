@@ -61,7 +61,7 @@ full text; blackboard subscriptions post `state.changed` messages upserted per
 subscription. Readiness is derived from durable state (`queued` inbox rows and
 `pending` mail), so an in-memory wake is only an optimization.
 
-Every node's system prompt ends with an identity block (id, name, parent,
+Every normal node's system prompt includes an identity block (id, name, parent,
 depth, report mode) and a child's first input is `[task from parent <name>
 (<id>)]` plus the prompt, so `messages.send(recipient="parent")` always works;
 a direct relative's name or id is accepted too. Messages travel one hop
@@ -93,7 +93,8 @@ Malformed, inaccessible, missing, and oversized payloads fail explicitly.
 They do not terminate the root or leave a child turn running. Invalid boundary
 steers are settled individually so later valid work remains usable.
 
-A fork copies the selected transcript prefix and a snapshot of active content
+A fork copies the selected raw transcript prefix, root compactions fully covered
+by that prefix, and a snapshot of active content
 grants readable by the source root. Root grants retain their scope; grants to
 the source root agent/subtree are remapped to the destination root identity.
 Child-private and revoked grants, live agents, queues, subscriptions,
@@ -104,10 +105,66 @@ and leaves shared content references/objects intact.
 
 ## Context and handles
 
-A turn starts with at most four recent user/assistant exchanges, one bounded
-summary, and handles for full history or oversized input. Host results above
-the inline limit also become handles. Reads return a source identifier and
-exact byte span so an answer can cite what it inspected.
+Restoration focuses the model view to at most four recent user/assistant
+exchanges and one bounded summary. Root and child transcripts remain raw,
+append-only message logs; focusing, decay, and compaction affect the model view.
+Raw deltas, per-agent compactions, input settlement, and delivery receipts commit
+in the same turn transaction. Summaries carry raw sequence coverage rather than
+positions in the shortened model view. Tool arguments/results and multipart
+content remain retrievable after compaction and restart.
+
+`context.inspect()` describes the caller's retained history. `context.history`
+lists at most 20 message previews using `after_seq`, `limit`, and `through_seq`;
+read an individual message with `seq`, optional `field`, `offset`, and `length`
+(up to 8192 bytes). `field="message"` returns the serialized message; `content`,
+`parts.N.text`, and `tool_calls.N.arguments` address decoded text. Follow the
+complete returned continuation for partial fields, including `message_revision`
+when supplied. For list pages use `after_seq=next_seq`, `through_seq`, and
+`turn_id` when present. Changed provisional message metadata requires a fresh
+read from offset 0. Sequence IDs are agent-local; this
+API grants no parent/sibling transcript access. Clear and rewind invalidate old
+history cursors; inspect again after either operation.
+
+`context.search(query="...")` searches decoded text and tool arguments in the
+caller's raw history, including current-turn journal entries already removed
+from the model view. Those entries are explicitly provisional and identify
+their turn. Provisional cursors expire when their originating turn journal is
+replaced; inspect again. Committed pagination freezes an upper sequence so later
+appends do not shift pages. Storage errors are errors, never empty results.
+
+Explicit content-handle inspect/read/search forms remain available. Search is
+case-sensitive, literal, and non-overlapping, including across 64 KiB read
+boundaries. Queries are at most 64 KiB; each call scans at most 8 MiB and returns
+at most 20 matches (history also caps messages examined at 128). A partial search
+reports its stop reason and continuation, never an unqualified absence of
+matches. Match spans identify exact source bytes; valid UTF-8 excerpts have
+separate bounded text spans. Large inputs and host outputs still use immutable
+content handles. No constructor snapshot represents the full conversation.
+
+## Environment prompts
+
+`AgentSession.RunTurn` composes one environment prompt at the shared root/child
+turn boundary. Focusing never replaces it. Normal prompts include runtime help,
+identity/report mode, operating rules, cwd/platform/time/user, scoped project
+instructions, the applicable skill catalog, and standing `me.md` instructions.
+`/me`, cwd changes, reload/model replacement, and restored children use the
+updated sources on their next turn. A running turn keeps its applied prompt.
+The root `-system` override remains exact and does not propagate to children.
+
+Project instructions load only along the applicable workspace-root-to-cwd
+ancestor chain, broad to specific. At each directory CLAUDE.md precedes AGENTS.md;
+AGENTS.md wins conflicts at that directory. Narrower applicable rules override
+broader ones, and explicit user instructions remain authoritative. Children
+retain applicable ancestor rules. Deeper subtree rules are discovered on demand
+through existing file operations. Instruction text does not expand authority.
+
+Each project or standing-instruction source is limited to 64 KiB; skill metadata
+reads and the total assembled prompt (1 MiB) are bounded. Missing optional files
+are normal; unreadable, malformed, oversized, or escaping project-rule sources
+fail the turn explicitly instead of applying partial constraints. Existing
+`me.md` comment syntax and explicit `$skill` expansion remain supported. Context
+inspection reports the actual applied sources and application time, with file
+and cwd changes identified as taking effect next turn.
 
 Starlark globals persist across cells and survive worker restarts. After
 every cell the kernel snapshots the worker's globals as Starlark source
@@ -232,7 +289,7 @@ signal only to the PID currently holding that lock.
 
 `WHIP_HOME` replaces `~/.whip`. The pre-runtime-v2 database is not opened or
 migrated automatically; this is an intentional clean break. The current
-development schema is version 5 (`whip-recursive-runtime-v5`). Incompatible
+development schema is version 6 (`whip-recursive-runtime-v6`). Incompatible
 databases are rejected without modification. WHIP does not automatically
 archive or delete them; use a fresh database for this schema.
 

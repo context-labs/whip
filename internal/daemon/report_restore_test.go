@@ -79,6 +79,7 @@ func TestReportModeRestoresIdentityAndCompletionBehavior(t *testing.T) {
 				if child == nil {
 					t.Fatalf("child %q was not restored", childID)
 				}
+				waitAgentIdle(t, child)
 				if child.report != expected {
 					t.Fatalf("child report = %q, want %q", child.report, expected)
 				}
@@ -120,7 +121,6 @@ func TestReportModeRestoresIdentityAndCompletionBehavior(t *testing.T) {
 					answer.Store(strings.Repeat("b", 512))
 					store = openStore(t, path)
 					owner, root, runtime = makeOwner(store)
-					checkIdentity()
 					if _, err := runtime.rootNode.host.Call(t.Context(), "agents", "submit", map[string]any{
 						"id": childID, "text": "answer again", "delivery": "queued",
 					}); err != nil {

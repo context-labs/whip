@@ -150,7 +150,7 @@ func lifecyclePopulateRoot(t *testing.T, store *Store) string {
 		}
 		if err := store.FinishAgentTurn(t.Context(), rootID, childID, AgentTurnCommit{
 			TurnID: turnID, Status: "succeeded", AcknowledgedInbox: []int64{start.Items[0].Seq},
-			Transcript: []llm.Message{{Role: "user", Content: "work"}, {Role: "assistant", Content: "result"}},
+			Messages: []llm.Message{{Role: "user", Content: "work"}, {Role: "assistant", Content: "result"}},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -243,7 +243,7 @@ func TestLifecycleForkExcludesRuntimeAndDeletePreservesOtherRoots(t *testing.T) 
 	forkBefore := lifecycleRows(t, store, forkID)
 	for table, count := range forkBefore {
 		want := 0
-		if table == "sessions" || table == "messages" {
+		if table == "sessions" || table == "messages" || table == "compactions" {
 			want = 1
 		}
 		if count != want {

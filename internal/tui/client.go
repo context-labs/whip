@@ -70,7 +70,7 @@ type clientPresentation struct {
 
 // Run starts the presentation-only TUI. Agent loops, persistence, schedulers,
 // providers, permissions, and child processes remain in the daemon.
-func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, yolo, firstRun bool, initialPrompt string) (string, error) {
+func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yolo, firstRun bool, initialPrompt string) (string, error) {
 	stdin := bufio.NewReader(os.Stdin)
 	if trusted, err := checkTrust(stdin); err != nil {
 		return "", err
@@ -143,9 +143,9 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 		clientView: clientPresentation{
 			modelID: apiID, contextLimit: contextLimit,
 			effort:   DefaultEffortFor(catalogs, provName, apiID, cfg.DefaultEffort),
-			messages: []llm.Message{{Role: "system", Content: sysPrompt}},
+			messages: []llm.Message{{Role: "system"}},
 		},
-		modelName: modelName, provName: provName, sysPrompt: sysPrompt,
+		modelName: modelName, provName: provName,
 		input: newInput(), spin: spinner.New(spinner.WithSpinner(spinner.Dot)), follow: true,
 		catalogs: catalogs, mouseOn: mouseOn, now: time.Now, showThinking: showThinking,
 		sidebarHide:   cfg.Sidebar != nil && !*cfg.Sidebar,
@@ -378,7 +378,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 		}{CachedTokens: snapshot.Meta.UsageCached}
 	}
 	m.clientView.usage = usage
-	m.clientView.messages = append([]llm.Message{{Role: "system", Content: m.sysPrompt}}, snapshot.Messages...)
+	m.clientView.messages = append([]llm.Message{{Role: "system"}}, snapshot.Messages...)
 	m.clientView.agents = append([]session.RuntimeAgent(nil), snapshot.Agents...)
 	m.clientView.inbox = append([]session.InboxItem(nil), snapshot.Inbox...)
 	m.clientView.blackboard = append([]session.StateValue(nil), snapshot.Blackboard...)

@@ -22,7 +22,6 @@ import (
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/tui"
 )
@@ -119,9 +118,8 @@ func runDaemon(ctx context.Context, args []string) error {
 		if maxOutput <= 0 {
 			maxOutput = contextLimit
 		}
-		prompt := rlm.BuildPrompt(meta.CWD, nil) + skills.PromptBlock(skills.Scan(skills.DirsFor(meta.CWD)...))
 		services := daemonToolServices(runtimeCfg, meta, apiID)
-		ag := agent.NewRuntime(client, apiID, maxOutput, prompt, services)
+		ag := agent.NewRuntime(client, apiID, maxOutput, "", services)
 		ag.ModelName, ag.Provider = meta.Model, meta.Provider
 		ag.WorkingDir = meta.CWD
 		ag.ContextLimit = contextLimit
@@ -200,7 +198,6 @@ func runDaemon(ctx context.Context, args []string) error {
 			mcpManager = mcp.NewManager(discovery.Merged)
 			mcpManager.SetBlocked(discovery.Blocked)
 		}
-		ag.Messages = append(ag.Messages[:1], rlm.FocusedHistory(history)...)
 		inputPrice, outputPrice, cacheReadPrice := 0.0, 0.0, 0.0
 		if hasCatalog {
 			inputPrice, outputPrice, cacheReadPrice, _ = catalog.Pricing(apiID)

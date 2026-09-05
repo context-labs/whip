@@ -18,7 +18,7 @@ UI does not abandon or duplicate admitted work.
 ## Why whip
 
 - **Large context stays addressable.** History, corpora, and large outputs are
-  stored behind handles and read in bounded, cited slices.
+  retrieved through paged raw history and immutable content handles, in bounded, cited slices.
 - **Delegation is recursive, not a second agent type.** A child can inspect,
   act, use MCP, create children, and receive later turns through the same
   interface as the root.

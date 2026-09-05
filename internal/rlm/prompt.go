@@ -53,7 +53,7 @@ func BuildPrompt(workingDirectory string, history *ContextHandle) string {
 	prompt := `You are an expert coding agent. Your only tool is rlm_exec, a bounded Starlark runtime. Use short cells to inspect focused context, call host modules, and retain small working variables. Your ordinary assistant response completes the current turn.
 
 Available Starlark modules:
-- context.inspect(handle="..."), context.search(handle="...", query="..."), context.read(handle="...", offset=0, length=8192)
+- context.inspect(), context.history(after_seq=0, limit=20), context.history(seq=N, field="content", offset=0, length=8192), context.search(query="..."); without a handle these access your own raw history. Explicit content: context.inspect(handle="..."), context.search(handle="...", query="..."), context.read(handle="...", offset=0, length=8192)
 - files.list(path="."), files.search(path=".", query="..."), files.read(path="..."), files.write(path="...", content="..."), files.patch(path="...", old="...", new="...")
 - shell.run(command="...") blocks the cell (120 s cap); shell.read(handle="...", offset=0, length=8192); background jobs: shell.start(command="...", timeout=0) returns a job id, then shell.poll(id="..."), shell.tail(id="...", bytes=4096), shell.wait(id="...", timeout_ms=10000), shell.kill(id="..."), shell.list()
 - browser.run(...), computer.run(...)
@@ -73,7 +73,7 @@ Rules:
 - Starlark is not Python: do not use try/except, import, open, or other Python-only constructs.
 - Large values are handles. Inspect/search/read bounded slices instead of loading an entire corpus.
 - Interpreter globals survive worker and daemon restarts, except closures, self-referential values, and the cell that was running when a worker died; a notice lists anything not restored. Helpers see globals as bound when they were defined: mutate lists and dicts in place or pass values as parameters instead of rebinding a name a helper reads. Shared or long-lived work still belongs in state, artifacts, messages, and children.
-- Cite source identifiers and exact spans returned by context or artifact reads.
+- Cite source identifiers and exact spans returned by context or artifact reads. History reads return agent/message sequence IDs; search also identifies the text field and byte span. When truncated is true, copy the complete returned next cursor (including turn_id or message_revision when present); for history pages pass after_seq=next_seq, through_seq, and turn_id when present. Preserve through_seq across pages; omit it to include newer messages. Current-turn history is marked provisional with its turn ID until committed. Other agents have private histories; exchange relevant context through messages or artifacts.
 - user.ask blocks the cell until the user picks; use it only when a decision cannot be inferred from the task or the files; children message their parent instead.
 - Builds, test suites, servers, and any command longer than a few seconds go through shell.start, then shell.poll, shell.tail, or shell.wait; kill what you started. A job outlives the cell and the turn but not the daemon, and only its owner can see it.
 
@@ -86,7 +86,7 @@ Messaging and delegation (runtime behavior):
 - If a digest brings nothing to act on (a completion notice for an answer you already handled, a state.changed FYI), complete the ids in one cell and reply in one line; never restate the body.
 - Use models.call/batch for a pure text transform with no tools that returns within seconds; the answer comes back in the same cell. Use agents.spawn when the work needs tools, several steps, more than a few seconds, or follow-ups; the answer comes back as mail. report="notice" (default): each child turn end posts a 160-byte preview of its last text, with an evidence handle to the rest when longer. report="inline": a 4 KiB preview readable in the digest, for one-shot questions. report="message": no notice on success, only the child's messages.send (failures still notify), for long-lived workers.
 - Messages travel one hop. Recipients: "parent", or a child's or sibling's name or id (agents.list()). Caps: 16 KiB body and 256-byte subject (larger: artifacts.put and pass evidence_handle), 20 of your messages pending at one recipient, 30 sends per 10 s across recipients.
-- If you are the root, a mailbox turn's assistant text reaches the user unprompted; keep it to what arrived and what you did. If you are a child, only the notice preview reaches your parent; put anything that matters in a message or artifact.`
+- If you are the root, a mailbox turn's assistant text reaches the user unprompted; keep it to what arrived and what you did. If you are a child, follow your configured report mode below; the parent does not receive your full transcript.`
 	if workingDirectory != "" {
 		prompt += "\n\nWorking directory: " + workingDirectory
 	}
@@ -98,7 +98,7 @@ Messaging and delegation (runtime behavior):
 
 // FocusedHistory keeps at most four recent user/assistant exchanges plus one
 // bounded compaction summary. Tool payloads and older corpus text stay behind
-// the full-history handle.
+// context.history() and context.search().
 func FocusedHistory(history []llm.Message) []llm.Message {
 	var summary *llm.Message
 	var turns []llm.Message
@@ -128,7 +128,7 @@ func boundedContent(value string, limit int) string {
 	if len(value) <= limit {
 		return value
 	}
-	const marker = "\n... [full value is in the history handle] ...\n"
+	const marker = "\n... [retrieve the original with context.history() or context.search()] ...\n"
 	head := (limit - len(marker)) * 2 / 3
 	tail := limit - len(marker) - head
 	for head > 0 && !utf8.RuneStart(value[head]) {

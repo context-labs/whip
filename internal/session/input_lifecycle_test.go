@@ -464,7 +464,7 @@ func TestTurnCommitRejectsUnclaimedAndStaleInboxAcknowledgements(t *testing.T) {
 				} else {
 					err = store.FinishAgentTurn(t.Context(), rootID, agentID, AgentTurnCommit{
 						TurnID: "child-turn", Status: "succeeded", AcknowledgedInbox: []int64{initial.InboxSeq, acknowledged},
-						Transcript: []llm.Message{{Role: "assistant", Content: "must not persist"}},
+						Messages: []llm.Message{{Role: "assistant", Content: "must not persist"}},
 					})
 				}
 				if !errors.Is(err, ErrInboxTerminal) {

@@ -263,7 +263,7 @@ func (s *Store) loadMessages(id string) ([]llm.Message, error) {
 	var count int
 	_ = s.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM messages WHERE session_id=?`, id).Scan(&count)
 
-	mrows, err := s.db.QueryContext(context.Background(), `SELECT content FROM messages WHERE session_id=? ORDER BY seq`, id)
+	mrows, err := s.db.QueryContext(context.Background(), `SELECT seq,content FROM messages WHERE session_id=? ORDER BY seq`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -271,16 +271,25 @@ func (s *Store) loadMessages(id string) ([]llm.Message, error) {
 	msgs := make([]llm.Message, 0, count)
 	for mrows.Next() {
 		var data string
-		if err := mrows.Scan(&data); err != nil {
+		var seq int
+		if err := mrows.Scan(&seq, &data); err != nil {
 			return nil, err
 		}
 		var m llm.Message
 		if err := json.Unmarshal([]byte(data), &m); err != nil {
 			return nil, err
 		}
+		m.RawSequence = seq
 		msgs = append(msgs, m)
 	}
-	return answerDanglingToolCalls(applyCompaction(s.db, id, msgs)), mrows.Err()
+	if err := mrows.Err(); err != nil {
+		return nil, err
+	}
+	if err := mrows.Close(); err != nil {
+		return nil, err
+	}
+	view, err := applyCompaction(context.Background(), s.db, id, id, msgs)
+	return answerDanglingToolCalls(view), err
 }
 
 // applyCompaction derives the compacted view from the raw log: the latest
@@ -288,18 +297,27 @@ func (s *Store) loadMessages(id string) ([]llm.Message, error) {
 // a persisted system prompt when present. "Raw" matters: a stored row that is
 // itself a summary is a derived row saved after a compaction, so folding it
 // again would nest summaries. No event means the log loads verbatim.
-func applyCompaction(db *sql.DB, sessionID string, msgs []llm.Message) []llm.Message {
+func applyCompaction(ctx context.Context, db *sql.DB, sessionID, agentID string, msgs []llm.Message) ([]llm.Message, error) {
 	var cutoff int
 	var summary string
-	err := db.QueryRowContext(context.Background(), `SELECT cutoff, summary FROM compactions WHERE session_id=? ORDER BY seq DESC LIMIT 1`,
-		sessionID).Scan(&cutoff, &summary)
+	err := db.QueryRowContext(ctx, `SELECT cutoff, summary FROM compactions WHERE session_id=? AND agent_id=? ORDER BY seq DESC LIMIT 1`,
+		sessionID, agentID).Scan(&cutoff, &summary)
 	hasSystem := len(msgs) > 0 && msgs[0].Role == "system"
 	minimum := 0
 	if hasSystem {
 		minimum = 1
 	}
-	if err != nil || cutoff <= minimum || cutoff > len(msgs) {
-		return msgs // no event, or one that post-dates the raw log
+	if errors.Is(err, sql.ErrNoRows) {
+		return msgs, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if cutoff < 0 || cutoff > len(msgs) {
+		return nil, errors.New("compaction cutoff is outside the raw transcript")
+	}
+	if cutoff <= minimum {
+		return msgs, nil
 	}
 	// the fold point is the first raw (non-system) row at or past cutoff
 	fold := len(msgs)
@@ -315,7 +333,7 @@ func applyCompaction(db *sql.DB, sessionID string, msgs []llm.Message) []llm.Mes
 		out = append(out, msgs[0])
 		start = 1
 	}
-	out = append(out, llm.Message{Role: "system", Content: "Summary of the conversation so far:\n\n" + summary})
+	out = append(out, llm.Message{Role: "system", Content: "Summary of the conversation so far:\n\n" + summary, RawSequence: msgs[cutoff-1].RawSequence})
 	// keep the last derived summary before the fold (a second compaction's
 	// saved row — it summarizes history the new summary doesn't reach)
 	var prior []llm.Message
@@ -327,7 +345,7 @@ func applyCompaction(db *sql.DB, sessionID string, msgs []llm.Message) []llm.Mes
 	if len(prior) > 0 {
 		out = append(out, prior[len(prior)-1])
 	}
-	return append(out, msgs[fold:]...)
+	return append(out, msgs[fold:]...), nil
 }
 
 // answerDanglingToolCalls appends a synthetic error result for every
@@ -528,12 +546,21 @@ func (s *Store) LastExchange(id string) (user, assistant string) {
 	return user, assistant
 }
 
-// ClearMessages deletes the stored message rows for a session (the session
-// row is kept). Used after compaction rewrites history: the compacted
-// messages are smaller and re-seqenced from 0, so the old rows must go first.
+// ClearMessages clears the root transcript and its derived compactions. The
+// session and retained children, including their histories, remain intact.
 func (s *Store) ClearMessages(id string) error {
-	_, err := s.db.ExecContext(context.Background(), `DELETE FROM messages WHERE session_id=?`, id)
-	return err
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM messages WHERE session_id=?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM compactions WHERE session_id=? AND agent_id=?`, id, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteFrom drops every stored message with seq >= from, plus the workspace
@@ -571,10 +598,10 @@ func (s *Store) RewindHistory(ctx context.Context, id string, from int) ([]llm.M
 			return nil, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM compactions WHERE session_id=?`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM compactions WHERE session_id=? AND agent_id=?`, id, id); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT content FROM messages WHERE session_id=? ORDER BY seq`, id)
+	rows, err := tx.QueryContext(ctx, `SELECT seq,content FROM messages WHERE session_id=? ORDER BY seq`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -582,7 +609,8 @@ func (s *Store) RewindHistory(ctx context.Context, id string, from int) ([]llm.M
 	var history []llm.Message
 	for rows.Next() {
 		var data string
-		if err := rows.Scan(&data); err != nil {
+		var seq int
+		if err := rows.Scan(&seq, &data); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
@@ -591,6 +619,7 @@ func (s *Store) RewindHistory(ctx context.Context, id string, from int) ([]llm.M
 			_ = rows.Close()
 			return nil, err
 		}
+		message.RawSequence = seq
 		history = append(history, message)
 	}
 	if err := rows.Err(); err != nil {
@@ -741,21 +770,21 @@ func (s *Store) ClearSnapshots(id string) error {
 // Compaction is one recorded compaction event.
 type Compaction struct {
 	Seq     int    // generation (1-based)
-	Cutoff  int    // raw-log seq the summary replaces
+	Cutoff  int    // number of raw rows replaced by the summary
 	Summary string // the generated summary text
 }
 
 // RecordCompaction appends a compaction event. The raw messages stay.
 func (s *Store) RecordCompaction(id string, cutoff int, summary string) error {
-	_, err := s.db.ExecContext(context.Background(), `INSERT INTO compactions (session_id, seq, cutoff, summary, created_at)
-		SELECT ?, COALESCE(MAX(seq),0)+1, ?, ?, ? FROM compactions WHERE session_id=?`,
-		id, cutoff, summary, now(), id)
+	_, err := s.db.ExecContext(context.Background(), `INSERT INTO compactions (session_id, agent_id, seq, cutoff, summary, created_at)
+		SELECT ?, ?, COALESCE(MAX(seq),0)+1, ?, ?, ? FROM compactions WHERE session_id=? AND agent_id=?`,
+		id, id, cutoff, summary, now(), id, id)
 	return err
 }
 
 // Compactions returns a session's compaction events, oldest first.
 func (s *Store) Compactions(id string) []Compaction {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT seq, cutoff, summary FROM compactions WHERE session_id=? ORDER BY seq`, id)
+	rows, err := s.db.QueryContext(context.Background(), `SELECT seq, cutoff, summary FROM compactions WHERE session_id=? AND agent_id=? ORDER BY seq`, id, id)
 	if err != nil {
 		return nil
 	}
@@ -776,19 +805,19 @@ func (s *Store) Compactions(id string) []Compaction {
 // DeleteCompaction removes one compaction event by generation (retry drops
 // the bad event before re-compacting from the raw log).
 func (s *Store) DeleteCompaction(id string, seq int) error {
-	_, err := s.db.ExecContext(context.Background(), `DELETE FROM compactions WHERE session_id=? AND seq=?`, id, seq)
+	_, err := s.db.ExecContext(context.Background(), `DELETE FROM compactions WHERE session_id=? AND agent_id=? AND seq=?`, id, id, seq)
 	return err
 }
 
 func (s *Store) ClearCompactions(id string) error {
-	_, err := s.db.ExecContext(context.Background(), `DELETE FROM compactions WHERE session_id=?`, id)
+	_, err := s.db.ExecContext(context.Background(), `DELETE FROM compactions WHERE session_id=? AND agent_id=?`, id, id)
 	return err
 }
 
 // RawMessages returns the full stored log (no compaction view applied) —
 // the inspection/retry surface for compactions.
 func (s *Store) RawMessages(id string) []llm.Message {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT content FROM messages WHERE session_id=? ORDER BY seq`, id)
+	rows, err := s.db.QueryContext(context.Background(), `SELECT seq,content FROM messages WHERE session_id=? ORDER BY seq`, id)
 	if err != nil {
 		return nil
 	}
@@ -796,11 +825,13 @@ func (s *Store) RawMessages(id string) []llm.Message {
 	var msgs []llm.Message
 	for rows.Next() {
 		var data string
-		if rows.Scan(&data) != nil {
+		var seq int
+		if rows.Scan(&seq, &data) != nil {
 			continue
 		}
 		var m llm.Message
 		if json.Unmarshal([]byte(data), &m) == nil {
+			m.RawSequence = seq
 			msgs = append(msgs, m)
 		}
 	}
@@ -859,6 +890,14 @@ func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 		if _, err := tx.ExecContext(context.Background(), `INSERT INTO messages (session_id, seq, role, content)
 			SELECT ?, seq, role, content FROM messages WHERE session_id=? AND seq <= ?`,
 			newID, srcID, uptoSeq); err != nil {
+			return "", err
+		}
+		// A prefix fork can reuse only summaries whose entire raw prefix was
+		// copied. Child summaries and summaries of later source rows stay out.
+		if _, err := tx.ExecContext(context.Background(), `INSERT INTO compactions(session_id,agent_id,seq,cutoff,summary,created_at)
+			SELECT ?,?,seq,cutoff,summary,created_at FROM compactions
+			WHERE session_id=? AND agent_id=? AND cutoff<=(SELECT COUNT(*) FROM messages WHERE session_id=?)`,
+			newID, newID, srcID, srcID, newID); err != nil {
 			return "", err
 		}
 	}

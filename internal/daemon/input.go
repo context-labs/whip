@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -45,7 +46,19 @@ func (session *AgentSession) prepareAuthoredInput(ctx context.Context, input str
 }
 
 func (session *AgentSession) expandInvokedSkills(input string) (string, error) {
-	available := skills.Scan(skills.DirsFor(session.agent.WorkingDir)...)
+	session.mu.Lock()
+	available, applied := session.prompt.Skills, session.prompt.AppliedAt
+	overridden := len(session.prompt.Sources) == 1 && session.prompt.Sources[0].Kind == "system_override"
+	session.mu.Unlock()
+	if applied.IsZero() || overridden {
+		// Detached test sessions and explicit root overrides have no composed
+		// catalog. Preserve explicit invocation without installing a prompt.
+		var err error
+		available, err = skills.LoadPromptCatalog(skills.DirsFor(session.agent.WorkingDir)...)
+		if err != nil {
+			return "", err
+		}
+	}
 	byName := make(map[string]skills.Skill, len(available))
 	for _, skill := range available {
 		byName[skill.Name] = skill
@@ -59,7 +72,7 @@ func (session *AgentSession) expandInvokedSkills(input string) (string, error) {
 			continue
 		}
 		seen[name] = true
-		body, err := os.ReadFile(skill.Path)
+		body, err := readInvokedSkill(skill.Path)
 		if err != nil {
 			return "", fmt.Errorf("read invoked skill %s: %w", name, err)
 		}
@@ -72,6 +85,22 @@ func (session *AgentSession) expandInvokedSkills(input string) (string, error) {
 		input += "\n\n" + strings.Join(sections, "\n\n")
 	}
 	return input, nil
+}
+
+func readInvokedSkill(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("expected a regular skill file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(io.LimitReader(file, maxInvokedSkillBytes+1))
 }
 
 func (session *AgentSession) expandMentionedFiles(ctx context.Context, input string, parts []llm.ContentPart) (string, []llm.ContentPart, error) {

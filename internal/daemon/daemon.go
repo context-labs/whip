@@ -230,7 +230,7 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 		}
 	}
 	if components.Bind != nil {
-		if err := components.Bind(root); err != nil {
+		if err := components.Bind(root.supervisor.ctx, root); err != nil {
 			return nil, err
 		}
 	}

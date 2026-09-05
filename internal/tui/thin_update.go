@@ -173,7 +173,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if err := json.Unmarshal([]byte(msg.result.Output), &transcript); err != nil {
 				m.append(errStyle.Render("agent transcript: " + err.Error()))
 			} else if transcript.Agent.ParentID == "" {
-				m.clientView.messages = append([]llm.Message{{Role: "system", Content: m.sysPrompt}}, transcript.Messages...)
+				m.clientView.messages = append([]llm.Message{{Role: "system"}}, transcript.Messages...)
 				m.clientView.presentation = mergePresentation(transcript.Presentation, m.clientView.presentation, transcript.Cursor)
 				m.replaceAgentInbox(transcript.Agent.ID, transcript.Inbox)
 				m.rebuildClientTranscript()
@@ -480,7 +480,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.append(errStyle.Render("/me: editor failed: " + msg.err.Error()))
 		} else {
-			m.append(dimStyle.Render("✓ me.md saved — standing instructions updated"))
+			m.append(dimStyle.Render("✓ me.md saved — applies at the next turn"))
 		}
 		return m, nil
 	case noticeMsg:

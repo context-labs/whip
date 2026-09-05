@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
 	sessionstore "github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/skills"
 )
 
 func (session *AgentSession) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
@@ -54,6 +54,9 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 			return "", err
 		}
 	}
+	if err := session.refreshPrompt(ctx); err != nil {
+		return "", fmt.Errorf("%w: %w", sessionstore.ErrInvalidInput, err)
+	}
 	if authored {
 		var err error
 		input, parts, err = session.prepareAuthoredInput(ctx, input, parts)
@@ -62,14 +65,25 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		}
 	}
 	var turnID string
+	var baseSeq int
 	if session.root != nil {
 		var err error
 		turnID, err = session.root.store.RunningTurnID(ctx, session.root.ID(), session.id)
 		if err != nil {
 			return "", err
 		}
+		bounds, err := session.root.store.TranscriptBounds(ctx, session.root.ID(), session.id)
+		if err != nil {
+			return "", err
+		}
+		baseSeq = bounds.LastSeq
 	}
+	session.mu.Lock()
+	session.turn.TurnID, session.turn.BaseSeq = turnID, baseSeq
+	session.mu.Unlock()
 	events := agent.Events{OnStart: started}
+	events.OnMessage = session.recordTranscriptMessage
+	events.OnToolsComplete = session.recordToolMetadata
 	digest, receipts, err := session.mailboxDigest(ctx)
 	if err != nil {
 		return "", err
@@ -89,7 +103,6 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		return "", fmt.Errorf("%w: turn has no input", sessionstore.ErrInvalidInput)
 	}
 	events.OnBoundary = func() ([]llm.Message, error) { return session.pullSteers(ctx, turnID) }
-	boundary := len(session.agent.MessagesSnapshot())
 	if notice := scratchNotice(start); notice != "" {
 		events.EphemeralSystem = notice
 	}
@@ -112,13 +125,12 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		}
 	}
 	events.OnCompaction = func(summary string, cutoff int, before []llm.Message) {
+		rawCutoff := agent.RawCompactionCutoff(before, cutoff)
 		session.mu.Lock()
-		session.turn.Messages = append(session.turn.Messages, before[boundary:]...)
 		session.turn.Compactions = append(session.turn.Compactions, turnCompaction{
-			Summary: summary, Cutoff: cutoff, RawTailStart: agent.CompactionRawTailStart(before, cutoff),
+			Summary: summary, Cutoff: cutoff, RawCutoff: &rawCutoff,
 		})
 		session.mu.Unlock()
-		boundary = len(session.agent.MessagesSnapshot())
 	}
 	var output string
 	if len(parts) > 0 {
@@ -128,13 +140,39 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	} else {
 		output, err = session.agent.Turn(ctx, input, events)
 	}
-	history := session.agent.MessagesSnapshot()
-	session.mu.Lock()
-	if boundary <= len(history) {
-		session.turn.Messages = append(session.turn.Messages, history[boundary:]...)
-	}
-	session.mu.Unlock()
 	return output, err
+}
+
+func (session *AgentSession) recordTranscriptMessage(message llm.Message) int {
+	if message.Role == "" || message.Role == "system" {
+		return 0
+	}
+	// Tool execution later updates duration fields on the live tool calls.
+	// The raw journal owns a separate slice, so reads cannot race those writes.
+	message.ToolCalls = slices.Clone(message.ToolCalls)
+	message.Parts = slices.Clone(message.Parts)
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	message.RawSequence = session.turn.BaseSeq + len(session.turn.Messages) + 1
+	session.turn.Messages = append(session.turn.Messages, message)
+	return message.RawSequence
+}
+
+func journalCompactions(journal turnJournal) []sessionstore.RootCompaction {
+	result := make([]sessionstore.RootCompaction, len(journal.Compactions))
+	for i, value := range journal.Compactions {
+		result[i] = sessionstore.RootCompaction{Summary: value.Summary, Cutoff: value.Cutoff, RawTailStart: value.RawTailStart, RawCutoff: value.RawCutoff}
+	}
+	return result
+}
+
+func (session *AgentSession) recordToolMetadata(calls []llm.ToolCall) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	// No later journal message is appended until this batch has settled.
+	if last := len(session.turn.Messages) - 1; last >= 0 {
+		session.turn.Messages[last].ToolCalls = slices.Clone(calls)
+	}
 }
 
 // scratchNotice tells the model what a replaced worker revived. It is
@@ -396,18 +434,19 @@ func (session *AgentSession) ContextAudit() ContextAuditResult {
 		Label: "model-facing tool schemas", Bytes: toolBytes,
 		Note: fmt.Sprintf("%d tool(s); recursive sessions normally expose only rlm_exec", len(tools)),
 	})
-	session.host.mu.Lock()
-	handle := session.host.handle
-	session.host.mu.Unlock()
-	if handle == nil {
-		result.Rows = append(result.Rows, ContextAuditRow{Label: "durable context handle", Note: "not created yet"})
+	session.mu.Lock()
+	applied := session.prompt
+	session.mu.Unlock()
+	if applied.AppliedAt.IsZero() {
+		result.Rows = append(result.Rows, ContextAuditRow{Label: "environment sources", Note: "not applied yet; loaded at the next turn"})
 	} else {
-		result.Rows = append(result.Rows, ContextAuditRow{
-			Label: "durable context handle", Note: fmt.Sprintf("%s · %d bytes · %s", handle.ReferenceID, handle.Size, handle.Source),
-		})
+		result.WorkingDirectory = applied.WorkingDirectory
+		result.Rows = append(result.Rows, ContextAuditRow{Label: "environment sources", Note: "applied " + applied.AppliedAt.Format(time.RFC3339) + "; file and cwd changes apply next turn"})
+		for _, source := range applied.Sources {
+			result.Rows = append(result.Rows, ContextAuditRow{Label: source.Kind, Bytes: source.Bytes, Note: source.Path + " · scope " + source.Scope})
+		}
 	}
-	skillBlock := skills.PromptBlock(skills.Scan(skills.DirsFor(session.agent.WorkingDir)...))
-	result.Rows = append(result.Rows, ContextAuditRow{Label: "skill catalog", Bytes: len(skillBlock)})
+	result.Rows = append(result.Rows, ContextAuditRow{Label: "retained history", Note: "context.history() retrieves this agent's raw transcript; current-turn entries are provisional"})
 	if session.runtime != nil && session.runtime.mcp != nil {
 		mcpTools := session.runtime.mcp.Tools()
 		mcpBytes := 0
@@ -455,6 +494,8 @@ func (session *AgentSession) turnJournal() turnJournal {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	return turnJournal{
+		TurnID:            session.turn.TurnID,
+		BaseSeq:           session.turn.BaseSeq,
 		Messages:          append([]llm.Message(nil), session.turn.Messages...),
 		Compactions:       append([]turnCompaction(nil), session.turn.Compactions...),
 		DeliveredInbox:    append([]int64(nil), session.turn.DeliveredInbox...),

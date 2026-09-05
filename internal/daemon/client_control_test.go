@@ -224,7 +224,7 @@ func TestClientCancelStopsOnlyCurrentTurn(t *testing.T) {
 		t.Fatal("turn did not start")
 	}
 	model := clientCommand(t, root, "tui", "model-during-turn", "session.model", map[string]string{"args": "other provider"})
-	if model.Status != "failed" || !strings.Contains(model.Error, "root operation") {
+	if model.Status != "failed" || !strings.Contains(model.Error, "operation is running") {
 		t.Fatalf("model command during turn = %+v", model)
 	}
 	cancelled := clientCommand(t, root, "tui", "cancel", "cancel", map[string]string{})
@@ -1140,7 +1140,7 @@ func TestModelReplacementRejectsUnsafeFactories(t *testing.T) {
 			return Components{Runner: &bindErrorRunner{err: errors.New("runner bind failed")}}, nil
 		}, want: "runner bind failed"},
 		{name: "component bind", initial: &fakeRunner{}, replacement: func() (Components, error) {
-			return Components{Runner: &fakeRunner{}, Bind: func(*Session) error { return errors.New("component bind failed") }}, nil
+			return Components{Runner: &fakeRunner{}, Bind: func(context.Context, *Session) error { return errors.New("component bind failed") }}, nil
 		}, want: "component bind failed"},
 	}
 	for _, test := range tests {

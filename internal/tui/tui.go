@@ -114,7 +114,6 @@ type model struct {
 	reloadAfterCatalogs bool
 	modelName           string
 	provName            string
-	sysPrompt           string
 	// cfgExtra pins scalar settings this session explicitly changed (theme,
 	// effort, …): the config watcher applies file values only for keys not
 	// pinned here, so a local pick this session survives another session's

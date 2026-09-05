@@ -68,6 +68,7 @@ type clientCompaction struct {
 	summary      string
 	cutoff       int
 	rawTailStart int
+	rawCutoff    *int
 	model        string
 	usage        llm.Usage
 	before       []llm.Message
@@ -134,10 +135,6 @@ type clientRunRunner interface {
 	ConfigureRun(system string, maxTurns int, headless bool, cacheKey string)
 }
 
-type clientRunRuntime interface {
-	ConfigureRun(string)
-}
-
 type clientToolRunner interface {
 	ToolDefinitions(context.Context) ([]llm.Tool, error)
 	CallTool(context.Context, string, json.RawMessage) (string, error)
@@ -179,12 +176,17 @@ func (r *AgentSession) RunShell(ctx context.Context, command string) (string, er
 	return result.Output, err
 }
 
-func (r *AgentSession) ReplaceHistory(history []llm.Message) { r.agent.ReplaceHistory(history) }
+func (r *AgentSession) ReplaceHistory(history []llm.Message) {
+	r.mu.Lock()
+	r.turn = turnJournal{}
+	r.mu.Unlock()
+	r.agent.ReplaceHistory(history)
+}
 
 func (r *AgentSession) ConfigureRun(system string, maxTurns int, headless bool, cacheKey string) {
-	if system != "" {
-		r.agent.SetSystemPrompt(system)
-	}
+	r.mu.Lock()
+	r.promptOverride = system
+	r.mu.Unlock()
 	r.agent.MaxTurns = maxTurns
 	if headless {
 		r.DenyToolPermissions()
@@ -240,8 +242,9 @@ func (r *AgentSession) FormGoal(ctx context.Context, window int) (string, llm.Us
 func (r *AgentSession) CompactNow(ctx context.Context) (clientCompaction, error) {
 	before := r.agent.MessagesSnapshot()
 	summary, cutoff, info, err := r.agent.CompactNow(ctx)
+	rawCutoff := agent.RawCompactionCutoff(before, cutoff)
 	return clientCompaction{
-		summary: summary, cutoff: cutoff, rawTailStart: agent.CompactionRawTailStart(before, cutoff),
+		summary: summary, cutoff: cutoff, rawTailStart: agent.CompactionRawTailStart(before, cutoff), rawCutoff: &rawCutoff,
 		model: info.Model, usage: r.agent.Usage(), before: before,
 	}, err
 }
@@ -557,8 +560,16 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 	s.clientBusy = false
 	if completion.compact != nil && completion.err == nil {
 		compaction := completion.compact
-		rawCutoff := s.rawCompactionCutoff(compaction.cutoff, compaction.rawTailStart)
-		if err := s.store.RecordCompaction(s.meta.ID, rawCutoff, compaction.summary); err != nil {
+		var rawCutoff int
+		var err error
+		if compaction.rawCutoff != nil {
+			rawCutoff = *compaction.rawCutoff
+			err = s.store.RecordRawCompaction(s.supervisor.ctx, s.meta.ID, s.meta.ID, rawCutoff, compaction.summary)
+		} else {
+			rawCutoff = s.rawCompactionCutoff(compaction.cutoff, compaction.rawTailStart)
+			err = s.store.RecordCompaction(s.meta.ID, rawCutoff, compaction.summary)
+		}
+		if err != nil {
 			if runner, ok := s.runner.(clientCompactRunner); ok {
 				history := compaction.before
 				if len(history) > 0 && history[0].Role == "system" {
@@ -666,6 +677,9 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		definitions, err := runner.ToolDefinitions(ctx)
 		return marshalClientOutput(definitions, err)
 	case "run.configure":
+		if s.running != nil || s.clientBusy {
+			return "", errors.New("run configuration cannot change while a root operation is running")
+		}
 		if payload.MaxTurns < 0 {
 			return "", errors.New("max turns cannot be negative")
 		}
@@ -674,9 +688,6 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 			return "", errors.New("session runner does not support run configuration")
 		}
 		runner.ConfigureRun(payload.System, payload.MaxTurns, payload.Headless, payload.CacheKey)
-		if runtime, ok := s.runtime.(clientRunRuntime); ok {
-			runtime.ConfigureRun(payload.System)
-		}
 		return "configured", nil
 	case "cancel":
 		if s.turnCancel == nil {
@@ -1144,8 +1155,8 @@ func (s *Session) clientComputer(args string) (string, error) {
 }
 
 func (s *Session) replaceModel(ctx context.Context, model, provider string, force bool) (string, error) {
-	if s.running != nil || s.clientBusy {
-		return "", errors.New("model cannot change while a root operation is running")
+	if s.hasRunningAgent() || s.clientBusy {
+		return "", errors.New("model cannot change while an agent or client operation is running")
 	}
 	if !force && model == s.meta.Model && provider == s.meta.Provider {
 		return model + " @ " + provider, nil
@@ -1191,7 +1202,7 @@ func (s *Session) replaceModel(ctx context.Context, model, provider string, forc
 		}
 	}
 	if components.Bind != nil {
-		if err := components.Bind(s); err != nil {
+		if err := components.Bind(ctx, s); err != nil {
 			cleanup()
 			return "", err
 		}

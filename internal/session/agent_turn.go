@@ -22,13 +22,15 @@ type AgentTurnStart struct {
 
 // AgentTurnCommit settles one agent turn. DeliveredMessages are the mailbox
 // rows the turn showed or read; they are marked delivered only when the turn
-// succeeded, so a failed turn redelivers them.
+// succeeded, so a failed turn redelivers them. Messages is this turn's raw
+// journal delta, never a snapshot of the current compacted model view.
 type AgentTurnCommit struct {
 	TurnID            string
 	Status            string
 	AcknowledgedInbox []int64
 	DeliveredMessages []MailboxReceipt
-	Transcript        []llm.Message
+	Messages          []llm.Message
+	Compactions       []RootCompaction
 	Error             string
 	RetryInput        bool // ordinary execution failure; false for invalid input
 }
@@ -212,13 +214,15 @@ func (s *Store) FinishAgentTurn(ctx context.Context, rootID, agentID string, com
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM transcript_messages WHERE root_id=? AND agent_id=?`, rootID, agentID); err != nil {
+	var seq int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM transcript_messages WHERE root_id=? AND agent_id=?`, rootID, agentID).Scan(&seq); err != nil {
 		return err
 	}
-	for seq, message := range commit.Transcript {
-		if message.Role == "" {
+	for _, message := range commit.Messages {
+		if message.Role == "" || message.Role == "system" {
 			continue
 		}
+		seq++
 		body, err := json.Marshal(message)
 		if err != nil {
 			return err
@@ -227,6 +231,9 @@ func (s *Store) FinishAgentTurn(ctx context.Context, rootID, agentID string, com
 			rootID, agentID, seq, message.Role, string(body)); err != nil {
 			return err
 		}
+	}
+	if err := appendCompactionsTx(ctx, tx, rootID, agentID, commit.Compactions, stamp); err != nil {
+		return err
 	}
 	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
 		return err
@@ -240,25 +247,25 @@ func (s *Store) FinishAgentTurn(ctx context.Context, rootID, agentID string, com
 	return tx.Commit()
 }
 
+// LoadAgentTranscript reconstructs a model view while retaining the raw log.
 func (s *Store) LoadAgentTranscript(ctx context.Context, rootID, agentID string) ([]llm.Message, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT content FROM transcript_messages WHERE root_id=? AND agent_id=? ORDER BY seq`, rootID, agentID)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
 	var messages []llm.Message
-	for rows.Next() {
-		var body string
-		if err := rows.Scan(&body); err != nil {
+	after, through := 0, -1
+	for {
+		page, err := s.ReadTranscript(ctx, rootID, agentID, after, through, 128)
+		if err != nil {
 			return nil, err
 		}
-		var message llm.Message
-		if err := json.Unmarshal([]byte(body), &message); err != nil {
-			return nil, err
+		for _, item := range page.Messages {
+			messages = append(messages, item.Message)
 		}
-		messages = append(messages, message)
+		if !page.HasMore {
+			break
+		}
+		after, through = page.NextSeq, page.ThroughSeq
 	}
-	return messages, rows.Err()
+	view, err := applyCompaction(ctx, s.db, rootID, agentID, messages)
+	return answerDanglingToolCalls(view), err
 }
 
 func (s *Store) LoadAgent(ctx context.Context, rootID, agentID string) (RuntimeAgent, error) {

@@ -131,6 +131,21 @@ func (s *Store) AuthorizeCapability(ctx context.Context, rootID, agentID string,
 	return nil
 }
 
+// CapabilityPaths returns the persisted workspace boundaries of an active
+// capability. Unlike the session cwd, these survive navigation and reload.
+func (s *Store) CapabilityPaths(ctx context.Context, rootID, agentID string, reference capability.Reference) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	grant, err := loadCapabilityGrant(ctx, tx, rootID, agentID, reference.ID, reference.Generation)
+	if err != nil {
+		return nil, err
+	}
+	return grant.scopes.Paths, tx.Commit()
+}
+
 func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority capability.Authority) (capability.Authority, error) {
 	root, err := s.WorkspaceRoot(ctx, rootID)
 	if err != nil {

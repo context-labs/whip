@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 5
-	schemaIdentity       = "whip-recursive-runtime-v5"
+	currentSchemaVersion = 6
+	schemaIdentity       = "whip-recursive-runtime-v6"
 )
 
 // MaxInboxRetries bounds how many times a failed turn may return its claimed
@@ -57,8 +57,9 @@ CREATE TABLE schedules (
 	PRIMARY KEY(session_id,id)
 );
 CREATE TABLE compactions (
-	session_id TEXT NOT NULL REFERENCES sessions(id), seq INTEGER NOT NULL, cutoff INTEGER NOT NULL, summary TEXT NOT NULL,
-	created_at TEXT NOT NULL, PRIMARY KEY(session_id,seq)
+	session_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL, seq INTEGER NOT NULL,
+	cutoff INTEGER NOT NULL CHECK(cutoff>=0), summary TEXT NOT NULL,
+	created_at TEXT NOT NULL, PRIMARY KEY(session_id,agent_id,seq)
 );
 CREATE TABLE agents (
 	id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES sessions(id), parent_id TEXT,
