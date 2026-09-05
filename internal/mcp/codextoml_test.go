@@ -136,6 +136,88 @@ func TestParseCodexTypeErrors(t *testing.T) {
 	}
 }
 
+// TestParseCodexToolApprovalTables: [mcp_servers.x.tools.y] is codex per-tool
+// approval config, not a server. It must not produce a bogus server entry
+// named "x.tools.y" (regression: incident_io.tools.ask_telemetry showed up in
+// the startup report as a failed server with neither command nor url).
+func TestParseCodexToolApprovalTables(t *testing.T) {
+	cfgs, err := ParseCodex([]byte(`
+[mcp_servers.incident_io]
+url = "https://mcp.incident.io/mcp"
+
+[mcp_servers.incident_io.tools.ask_telemetry]
+approval_mode = "approve"
+
+[mcp_servers.inf-memory]
+url = "http://office/api/mcp"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfgs) != 2 {
+		t.Fatalf("got %d servers %v, want 2", len(cfgs), keys(cfgs))
+	}
+	if cfgs["incident_io"].URL != "https://mcp.incident.io/mcp" {
+		t.Errorf("incident_io url = %q", cfgs["incident_io"].URL)
+	}
+	for name := range cfgs {
+		if strings.Contains(name, ".") {
+			t.Errorf("bogus sub-table server leaked into configs: %q", name)
+		}
+	}
+}
+
+// TestParseCodexServerNamedTools: a server genuinely named "x.tools" must
+// still load — the sub-table skip is keyed on the parent being a server.
+func TestParseCodexServerNamedTools(t *testing.T) {
+	cfgs, err := ParseCodex([]byte("[mcp_servers.x.tools]\ncommand = \"srv\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfgs["x.tools"].Command, []string{"srv"}) {
+		t.Errorf("x.tools command = %v", cfgs["x.tools"].Command)
+	}
+}
+
+// TestParseCodexHTTPHeadersAndBearer: codex's http_headers inline table lands
+// as literal header values, and bearer_token_env_var lands as a lazy $VAR
+// reference (resolved at connect, never baked or persisted). A literal
+// http_headers Authorization beats the env-ref on collision.
+func TestParseCodexHTTPHeadersAndBearer(t *testing.T) {
+	cfgs, err := ParseCodex([]byte(`
+[mcp_servers.a]
+url = "https://a.example/mcp"
+http_headers = { "X-Team" = "eng" }
+bearer_token_env_var = "WHIP_TEST_TOKEN"
+
+[mcp_servers.b]
+url = "https://b.example/mcp"
+headers = { "Authorization" = "Bearer explicit" }
+bearer_token_env_var = "WHIP_TEST_TOKEN"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The bearer var is stored as a lazy reference, not resolved at parse time.
+	if got := cfgs["a"].Headers["Authorization"]; got != "Bearer $WHIP_TEST_TOKEN" {
+		t.Errorf("a Authorization = %q, want the lazy $VAR reference", got)
+	}
+	if got := cfgs["a"].Headers["X-Team"]; got != "eng" {
+		t.Errorf("a X-Team = %q", got)
+	}
+	if got := cfgs["b"].Headers["Authorization"]; got != "Bearer explicit" {
+		t.Errorf("b Authorization = %q, explicit literal header must win", got)
+	}
+}
+
+func keys(m map[string]ServerConfig) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 func TestLoadCodex(t *testing.T) {
 	// An unset path is the "no codex config" signal in the discovery flow.
 	if _, err := LoadCodex(""); !errors.Is(err, os.ErrNotExist) {

@@ -47,6 +47,20 @@ func DefaultDirs() []string {
 	return dirs
 }
 
+// ForeignDirs returns other harnesses' user-level skill locations that an
+// import can pull from — codex (~/.codex/skills) and claude-code
+// (~/.claude/skills). Missing directories are skipped by the scan.
+func ForeignDirs() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	return []string{
+		filepath.Join(home, ".codex", "skills"),
+		filepath.Join(home, ".claude", "skills"),
+	}
+}
+
 // Scan reads <dir>/<skill>/SKILL.md for each dir, skipping anything
 // unreadable. Loaded-but-degraded skills carry a Warning (e.g. description
 // truncated); anything that fails to parse is silently skipped (a SKILL.md
@@ -276,6 +290,14 @@ const (
 )
 
 var specNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// ValidName reports whether name matches the spec's name charset (lowercase
+// a-z, 0-9, hyphens only). Callers that turn a skill name into a filesystem
+// path (e.g. `whip skills import`) must gate on this — validate() only warns,
+// and a name with separators is a path-traversal primitive.
+func ValidName(name string) bool {
+	return specNameRe.MatchString(name)
+}
 
 // validate checks a loaded skill against the Agent Skills spec. Returns a
 // warning string ("" when spec-clean). Skills with warnings still load —

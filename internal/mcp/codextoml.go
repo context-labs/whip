@@ -53,9 +53,17 @@ func ParseCodex(data []byte) (map[string]ServerConfig, error) {
 		// "foo.env" isn't dropped.
 		if idx := strings.LastIndex(name, "."); idx > 0 {
 			sub := name[idx+1:]
-			if (sub == "env" || sub == "environment" || sub == "headers") && hasKeys["mcp_servers."+name[:idx]] {
+			if (sub == "env" || sub == "environment" || sub == "headers" || sub == "http_headers" || sub == "env_http_headers") && hasKeys["mcp_servers."+name[:idx]] {
 				continue
 			}
+		}
+		// Codex nests per-tool approval config under [mcp_servers.NAME.tools.TOOL]
+		// — that is a tool table, not a server, and never has command/url.
+		// Treating it as a server used to surface a bogus "neither command nor
+		// url set" entry named "incident_io.tools.ask_telemetry". Skip any
+		// sub-table whose parent is a server table and isn't a fold-in (above).
+		if idx := strings.Index(name, "."); idx > 0 && hasKeys["mcp_servers."+name[:idx]] {
+			continue
 		}
 		c := ServerConfig{}
 		var args []string // folded into Command after the key loop

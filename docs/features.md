@@ -890,6 +890,13 @@ catalog in the Agent Skills spec format (`<skill><name>/<description>/<location>
 XML-escaped). The model reads a SKILL.md with its own read tool when relevant.
 Skills re-index every turn, so new ones load without restarting.
 
+CLI: `whip skills list` (names, sources, warnings) and `whip skills import
+[--dry-run]` — copies skills from other harnesses' user dirs
+(`~/.codex/skills`, `~/.claude/skills` — `skills.ForeignDirs`) into
+`~/.agents/skills`, deduped by name against what whip already loads and
+across the sources (codex wins on a dup). Never overwrites an existing
+skill. Tests: `cmd/whip/skills_test.go`.
+
 **Spec compliance** (agentskills.io, matching pi's `core/skills.ts`): name
 validated (≤64 chars, lowercase a-z/0-9/hyphens, no leading/trailing/double
 hyphens), description ≤1024 chars (a *validity* ceiling, not a prompt budget),
