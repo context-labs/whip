@@ -64,10 +64,13 @@ func isBinary(data []byte) bool {
 }
 
 // trimToLastRune shortens s to end on a complete UTF-8 rune, but only when
-// the cut landed mid-rune: the trailing bytes must form a valid prefix of a
-// rune whose continuation extends past the cut. A genuinely-invalid trailing
-// byte (Latin-1 smart quote, BOM-less UTF-16) is NOT a rune prefix, so it
-// stays invalid and the caller's !utf8.Valid still flags the sample as binary.
+// the cut landed mid-rune: the trailing bytes must be a valid prefix of a
+// legal rune encoding whose continuation extends past the cut (RFC 3629
+// second-byte constraints included — E0 requires A0–BF, ED requires 80–9F,
+// F0 requires 90–BF, F4 requires 80–8F, leads outside C2–F4 are never legal).
+// A genuinely-invalid trailing byte (Latin-1 smart quote, E0 80 overlong,
+// BOM-less UTF-16) is NOT a rune prefix, so it stays invalid and the caller's
+// !utf8.Valid still flags the sample as binary.
 func trimToLastRune(s []byte) []byte {
 	if len(s) == 0 || utf8.Valid(s) {
 		return s
@@ -78,35 +81,54 @@ func trimToLastRune(s []byte) []byte {
 	for i > 0 && (s[i]&0xC0) == 0x80 {
 		i--
 	}
-	// The candidate rune starts at i. If the lead byte at i encodes a rune
-	// whose full length extends past the end of s, the cut landed mid-rune —
-	// drop the tail. Otherwise the trailing byte is genuinely invalid; keep it.
-	if i < len(s) {
-		// DecodeRune on an incomplete sequence returns RuneError, so use the
-		// lead byte's encoded length instead: 0xC0–0xDF = 2 bytes, 0xE0–0xEF =
-		// 3, 0xF0–0xF7 = 4. A lead byte outside those ranges is not a rune
-		// start, so it's genuinely invalid.
-		lead := s[i]
-		var want int
-		switch {
-		case lead < 0x80:
-			want = 1
-		case lead < 0xC0:
-			want = 0 // continuation byte without a lead: invalid
-		case lead < 0xE0:
-			want = 2
-		case lead < 0xF0:
-			want = 3
-		case lead < 0xF8:
-			want = 4
-		default:
-			want = 0 // 0xF8+ is never a valid UTF-8 lead
-		}
-		if want > 1 && i+want > len(s) {
-			return s[:i]
-		}
+	tail := s[i:]
+	if want, ok := runePrefixLen(tail); ok && i+want > len(s) {
+		return s[:i]
 	}
 	return s
+}
+
+// runePrefixLen reports whether b is a valid prefix of a legal UTF-8 rune
+// encoding, returning the rune's full length when it is. The check is the
+// RFC 3629 table: lead legality (C2–F4), the second-byte constraint each lead
+// carries (E0/F0 forbid overlong second bytes; ED/F4 bound the rune below the
+// surrogate/ceiling ranges), and every present continuation byte in 80–BF.
+func runePrefixLen(b []byte) (int, bool) {
+	if len(b) == 0 {
+		return 0, false
+	}
+	lead := b[0]
+	var want int
+	var secondLo, secondHi byte = 0x80, 0xBF
+	switch {
+	case lead >= 0xC2 && lead <= 0xDF:
+		want = 2
+	case lead == 0xE0:
+		want, secondLo = 3, 0xA0
+	case lead >= 0xE1 && lead <= 0xEC, lead == 0xEE, lead == 0xEF:
+		want = 3
+	case lead == 0xED:
+		want, secondHi = 3, 0x9F
+	case lead == 0xF0:
+		want, secondLo = 4, 0x90
+	case lead >= 0xF1 && lead <= 0xF3:
+		want = 4
+	case lead == 0xF4:
+		want, secondHi = 4, 0x8F
+	default:
+		return 0, false // ASCII, bare continuation, C0/C1, F5+: not a rune start
+	}
+	for j := 1; j < len(b) && j < want; j++ {
+		c := b[j]
+		lo, hi := byte(0x80), byte(0xBF)
+		if j == 1 {
+			lo, hi = secondLo, secondHi
+		}
+		if c < lo || c > hi {
+			return 0, false
+		}
+	}
+	return want, true
 }
 
 // bytesHuman renders a byte count compactly for placeholders, e.g. "88 KB".

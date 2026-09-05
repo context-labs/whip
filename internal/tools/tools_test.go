@@ -270,6 +270,17 @@ func TestBinaryOutputPlaceholder(t *testing.T) {
 		// And the flip side: a real multi-byte rune straddling the cut still
 		// reads as text (the trim path must not break it).
 		{name: "utf8 rune at probe cut stays text", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-1), []byte("世界")...), want: false},
+		// Regression (review): an INVALID sequence straddling the cut — E0 80
+		// is an overlong-encoding lead with an illegal second byte. The trim
+		// must not drop it as if it were a valid mid-rune prefix.
+		{name: "invalid overlong at probe cut stays binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-2), 0xE0, 0x80), want: true},
+		// C1 lead byte (0xC0/0xC1 are never legal UTF-8) at the cut boundary.
+		{name: "c1 lead at probe cut stays binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-1), 0xC1, 0xBF), want: true},
+		// A valid 3-byte lead whose continuation straddles the 1024-byte cut
+		// (E4 B8 85 = 世: lead + first continuation inside the probe, final
+		// continuation past it) — the legit mid-rune trim case. Padding to
+		// binaryProbeSize-2 puts the third byte past the cut.
+		{name: "incomplete valid rune at cut trims", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-2), 0xE4, 0xB8, 0x85), want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
