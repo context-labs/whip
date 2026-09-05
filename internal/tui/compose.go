@@ -19,11 +19,11 @@ import (
 // only WHERE their output lands changed, which is what deleted every
 // string-splicing overlay helper.
 
-// The frame is opendocker's: one row of margin above the columns, and a
-// footer band of framePad rows above the key hints and framePad below them.
+// The frame: one row of margin above the columns (opendocker's), and a footer
+// band of framePad rows above the key hints, which sit on the last row.
 const (
 	framePad   = 1
-	footerRows = 2*framePad + 1
+	footerRows = framePad + 1
 )
 
 // frameRects are the screen rectangles of the frame's regions. Empty
@@ -175,9 +175,9 @@ func (m *model) layoutFrame(w, h int) frameRects {
 		y += mm.input
 	}
 	y += mm.hints + mm.dock
-	fy := y + framePad // the hints row: a pad row under the prompt, a pad row under it; on a sized terminal that is the second-to-last row
+	fy := y + framePad // the hints row: a pad row under the prompt; on a sized terminal it is the last row
 	if h > 0 {
-		fy = h - 1 - framePad
+		fy = h - 1
 	}
 	r.footer = rect(0, fy, w, 1)
 	return r

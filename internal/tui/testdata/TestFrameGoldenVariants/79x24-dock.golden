@@ -1,6 +1,7 @@
                                                                                
-     ← Read internal/config/config.go                                          
                                                                                
+     ← Read internal/config/config.go                                         █
+                                                                              █
      ↳ 5 lines · ctrl+e or click expands                                      █
                                                                               █
      Found it. Load reads the JSON file:                                      █
@@ -21,4 +22,3 @@
    idle      file-reader                                                       
                                                                                
  /work/whip                   ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar 
-                                                                               

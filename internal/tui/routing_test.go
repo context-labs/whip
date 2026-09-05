@@ -242,8 +242,8 @@ func TestDialogTopStaysPutWhileFiltering(t *testing.T) {
 		t.Fatalf("dialog header on row %d, want %d", top, m.dialogTop()+1)
 	}
 	frame := strings.Split(ansi.Strip(viewStr(m)), "\n")
-	if strings.Contains(frame[37], "/quit") || strings.Contains(frame[36], "/quit") || !strings.Contains(frame[38], "ctrl+p") {
-		t.Fatalf("the full palette must end above the footer band: %q / %q / %q", frame[36], frame[37], frame[38])
+	if strings.Contains(frame[38], "/quit") || strings.Contains(frame[37], "/quit") || !strings.Contains(frame[39], "ctrl+p") {
+		t.Fatalf("the full palette must end above the footer band: %q / %q / %q", frame[37], frame[38], frame[39])
 	}
 	typeStr(t, m, "age")
 	if got := rowOf("Commands"); got != top {
@@ -261,7 +261,7 @@ func TestFooterHintsFollowFocus(t *testing.T) {
 	m := goldenModel(140, 40)
 	last := func() string {
 		rows := strings.Split(ansi.Strip(viewStr(m)), "\n")
-		return rows[len(rows)-1-framePad]
+		return rows[len(rows)-1]
 	}
 	if f := last(); !strings.Contains(f, "/work/whip") || !strings.Contains(f, "ctrl+x t themes") || !strings.Contains(f, "ctrl+x b sidebar") || !strings.Contains(f, "ctrl+p commands") {
 		t.Fatalf("idle footer: %q", f)
@@ -288,7 +288,7 @@ func TestFooterHintsFollowFocus(t *testing.T) {
 	}
 	narrow := goldenModel(79, 24)
 	rows := strings.Split(ansi.Strip(viewStr(narrow)), "\n")
-	if f := rows[len(rows)-1-framePad]; strings.Contains(f, "ctrl+p") || !strings.Contains(f, "ctrl+x b sidebar") || ansi.StringWidth(f) != 79 {
+	if f := rows[len(rows)-1]; strings.Contains(f, "ctrl+p") || !strings.Contains(f, "ctrl+x b sidebar") || ansi.StringWidth(f) != 79 {
 		t.Fatalf("narrow footer: %q", f)
 	}
 }

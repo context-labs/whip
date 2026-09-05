@@ -401,7 +401,7 @@ func (m *model) dialogHeight() int {
 	if m.height <= 0 {
 		return 0
 	}
-	return max(m.height-m.dialogTop()-framePad-footerRows, 8)
+	return max(m.height-m.dialogTop()-footerRows, 8)
 }
 
 // ocToolIcon maps a tool to opencode's inline-tool icon glyphs.

@@ -15,6 +15,7 @@
                                                                                                                                                                 
                                                                                                                                                                 
                                                                                                                                                                 
+                                                                                                                                                                
                                              ❯ find the config loader                                                                                           
                                                                                                                                                                 
                                                ← Read internal/config/config.go                                                                                 
@@ -37,4 +38,3 @@
                                             ┃                                                                                                                   
                                                                                                                                                                 
  /work/whip                                                                                   ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar  ctrl+p commands 
-                                                                                                                                                                

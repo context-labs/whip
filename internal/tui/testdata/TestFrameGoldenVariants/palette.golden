@@ -15,26 +15,26 @@
                                                              aura                                                ████████                   
                                                              aura-light                                          ████████                   
                                                              ayu                                                 ████████                   
-                                             ❯ find the con  ayu-light                                           ████████                   
-                                                             carbonfox                                           ████████                   
-                                               ← Read inter  carbonfox-light                                     ████████                   
-                                                             catppuccin                                          ████████                   
-                                               ↳ 5 lines ·   catppuccin-frappe                                   ████████                   
-                                                             catppuccin-frappe-light                             ████████                   
-                                               Found it. Lo  catppuccin-light                                    ████████                   
-                                                             catppuccin-macchiato                                ████████                   
-                                               1. resolve t  catppuccin-macchiato-light                          ████████                   
-                                               2. decode th  cobalt2                                             ████████                   
-                                                             cobalt2-light                                       ████████                   
-                                                 cfg, err :  cursor                                              ████████                   
-                                                             cursor-light                                        ████████                   
-                                               See the docs  dracula                                             ████████                   
-    [2] Context                        0%                    dracula-light                                       ████████                   
-                                            ┃                everforest                                          ████████                   
-                                            ┃  Ask whip any  everforest-light                                    ████████                   
-                                            ┃                flexoki                                             ████████                   
-    [3] LSP                             0   ┃  Off · kimi-k                                                                                 
+                                                             ayu-light                                           ████████                   
+                                             ❯ find the con  carbonfox                                           ████████                   
+                                                             carbonfox-light                                     ████████                   
+                                               ← Read inter  catppuccin                                          ████████                   
+                                                             catppuccin-frappe                                   ████████                   
+                                               ↳ 5 lines ·   catppuccin-frappe-light                             ████████                   
+                                                             catppuccin-light                                    ████████                   
+                                               Found it. Lo  catppuccin-macchiato                                ████████                   
+                                                             catppuccin-macchiato-light                          ████████                   
+                                               1. resolve t  cobalt2                                             ████████                   
+                                               2. decode th  cobalt2-light                                       ████████                   
+                                                             cursor                                              ████████                   
+                                                 cfg, err :  cursor-light                                        ████████                   
+                                                             dracula                                             ████████                   
+                                               See the docs  dracula-light                                       ████████                   
+    [2] Context                        0%                    everforest                                          ████████                   
+                                            ┃                everforest-light                                    ████████                   
+                                            ┃  Ask whip any  flexoki                                             ████████                   
+                                            ┃                flexoki-light                                       ████████                   
+    [3] LSP                             0   ┃  Off · kimi-k  github                                              ████████                   
                                             ┃                                                                                               
                                                                                                                                             
  /work/whip                                                               ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar  ctrl+p commands 
-                                                                                                                                            

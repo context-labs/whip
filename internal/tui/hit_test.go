@@ -109,7 +109,7 @@ func TestLayoutFrameOracle(t *testing.T) {
 				if len(rows) != 40 {
 					t.Fatalf("frame has %d rows", len(rows))
 				}
-				if !strings.Contains(rows[r.footer.Min.Y], "ctrl+x") || r.footer.Min.Y != len(rows)-1-framePad || strings.TrimSpace(rows[len(rows)-1]) != "" {
+				if !strings.Contains(rows[r.footer.Min.Y], "ctrl+x") || r.footer.Min.Y != len(rows)-1 || strings.TrimSpace(rows[len(rows)-2][r.main.Min.X:]) != "" {
 					t.Fatalf("footer row %d: %q", r.footer.Min.Y, rows[r.footer.Min.Y])
 				}
 				if got := rows[r.transcript.Min.Y+m.contentPad()+m.blocks[0].y0-m.vp.YOffset()]; !strings.Contains(got, "find the config loader") {
@@ -217,10 +217,10 @@ func TestColumnGeometry(t *testing.T) {
 		left, side  uv.Rectangle
 		mainX, chat int
 	}{
-		{140, 40, false, uv.Rect(1, 1, 42, 36), uv.Rectangle{}, 44, 95},
-		{160, 40, true, uv.Rect(1, 1, 42, 36), uv.Rect(101, 1, 58, 36), 44, 56},
-		{200, 40, true, uv.Rect(1, 1, 42, 36), uv.Rect(121, 1, 78, 36), 44, 76},
-		{120, 40, true, uv.Rectangle{}, uv.Rect(60, 1, 59, 36), 2, 57},
+		{140, 40, false, uv.Rect(1, 1, 42, 37), uv.Rectangle{}, 44, 95},
+		{160, 40, true, uv.Rect(1, 1, 42, 37), uv.Rect(101, 1, 58, 37), 44, 56},
+		{200, 40, true, uv.Rect(1, 1, 42, 37), uv.Rect(121, 1, 78, 37), 44, 76},
+		{120, 40, true, uv.Rectangle{}, uv.Rect(60, 1, 59, 37), 2, 57},
 		{79, 24, false, uv.Rectangle{}, uv.Rectangle{}, 2, 76},
 		{79, 24, true, uv.Rectangle{}, uv.Rectangle{}, 2, 76},
 	} {
@@ -283,8 +283,8 @@ func TestLayoutRectsPartitionMainColumn(t *testing.T) {
 					}
 					y = rc.Max.Y
 				}
-				if r.footer.Min.Y != 38 || r.footer.Min.X != 0 || r.footer.Dx() != w {
-					t.Fatalf("%s: footer %v, want the full row above the bottom margin", tc.name, r.footer)
+				if r.footer.Min.Y != 39 || r.footer.Min.X != 0 || r.footer.Dx() != w {
+					t.Fatalf("%s: footer %v, want the full last row", tc.name, r.footer)
 				}
 				if r.transcript.Dy() != m.vp.Height() || r.transcript.Dy() < 1 {
 					t.Fatalf("%s: transcript rect %v vs viewport height %d", tc.name, r.transcript, m.vp.Height())
