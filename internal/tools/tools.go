@@ -201,10 +201,21 @@ func bashTool() Tool {
 				OnUpdate: onUpdate,
 			})
 
-			if isBinary([]byte(res.Output)) {
-				return binaryPlaceholder("", len(res.Output)), nil
-			}
 			s := TruncateTail(res.Output)
+			if isBinary([]byte(res.Output)) {
+				// The placeholder replaces the output, but the exit-status and
+				// timeout suffixes still matter — a binary-producing command
+				// that failed or timed out reads identically to a clean one
+				// without them.
+				s = binaryPlaceholder("", len(res.Output))
+				if res.TimedOut {
+					return s + "\n(command timed out)", nil
+				}
+				if res.Exit != "" {
+					return fmt.Sprintf("%s\n(%s)", s, res.Exit), nil
+				}
+				return s, nil
+			}
 			if len(res.Output) > maxOutput {
 				// The model only sees the tail; give it a way to reach the
 				// rest (pi spills truncated bash output to a file too).

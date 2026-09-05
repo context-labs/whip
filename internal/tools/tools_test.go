@@ -281,6 +281,10 @@ func TestBinaryOutputPlaceholder(t *testing.T) {
 		// continuation past it) — the legit mid-rune trim case. Padding to
 		// binaryProbeSize-2 puts the third byte past the cut.
 		{name: "incomplete valid rune at cut trims", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-2), 0xE4, 0xB8, 0x85), want: false},
+		// Regression (review round 4): invalid UTF-8 PAST the 1KB probe with no
+		// NULs (a log file with corrupt bytes partway through) must still be
+		// binary — the UTF-8 check covers the whole buffer, not just the prefix.
+		{name: "invalid utf8 past probe stays binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize+100), 0x93, 0x94), want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -35,8 +35,20 @@ func isBinary(data []byte) bool {
 		return true
 	}
 
-	// UTF-8 validity and control-byte density only need a prefix — scanning an
-	// entire huge file buys nothing for those.
+	// UTF-8 validity must hold for the whole buffer too: a text-then-binary
+	// stream with invalid UTF-8 past the 1KB probe (a log file with corrupt
+	// bytes partway through, `head -c 2000 README; cat latin1.log`) leaks
+	// mojibake into the conversation if we only validate the prefix. The
+	// check is a single pass — same cost class as the NUL scan — and tool
+	// outputs are bounded (≤ ~50KB after read/bash paths), so validating the
+	// whole buffer is cheap.
+	if !utf8.Valid(data) {
+		return true
+	}
+
+	// The control-byte density check only needs a prefix — a file that's
+	// binary from the start trips it in the first 1KB; a text-then-binary
+	// stream is already caught by the full-buffer NUL/UTF-8 checks above.
 	n := min(len(data), binaryProbeSize)
 	sample := data[:n]
 	// A multi-byte rune can straddle the probe boundary — a 1024-byte cut can
@@ -44,10 +56,6 @@ func isBinary(data []byte) bool {
 	// hit this constantly). Back the sample off to the last complete rune.
 	if len(data) > binaryProbeSize {
 		sample = trimToLastRune(sample)
-	}
-
-	if !utf8.Valid(sample) {
-		return true
 	}
 
 	ctrl := 0
