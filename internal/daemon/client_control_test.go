@@ -1347,7 +1347,7 @@ func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
 		clientID: "tui", commandID: "compact", operation: "history.compact", reply: make(chan clientCommandReply, 1),
 		compact: &clientCompaction{summary: "summary", cutoff: 2, before: []llm.Message{{Role: "system"}, {Role: "user", Content: "question"}}},
 	}
-	if err := root.completeClientCommand(completion); err == nil || len(compactionRunner.replaced) != 1 {
+	if _, err := root.completeClientCommand(completion); err == nil || len(compactionRunner.replaced) != 1 {
 		t.Fatalf("compaction recovery err=%v history=%+v", err, compactionRunner.replaced)
 	}
 	root.clientBusy = true
@@ -1355,7 +1355,7 @@ func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
 		clientID: "tui", commandID: "rewind", operation: "history.rewind", reply: make(chan clientCommandReply, 1),
 		rewind: &clientRewind{cut: 1},
 	}
-	if err := root.completeClientCommand(completion); err == nil {
+	if _, err := root.completeClientCommand(completion); err == nil {
 		t.Fatal("rewind completion ignored the closed store")
 	}
 	root.clientBusy = true
@@ -1363,7 +1363,7 @@ func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
 		clientID: "tui", commandID: "goal", operation: "goal.from-context", reply: make(chan clientCommandReply, 1),
 		goal: &clientGoal{text: "goal"},
 	}
-	if err := root.completeClientCommand(completion); err == nil {
+	if _, err := root.completeClientCommand(completion); err == nil {
 		t.Fatal("goal completion ignored the closed store")
 	}
 }

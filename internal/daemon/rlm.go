@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -14,127 +15,104 @@ import (
 
 func (s *Session) AdmitAgent(ctx context.Context, admission sessionstore.AgentAdmission) error {
 	admission.RootID = s.meta.ID
-	return s.routeControl(ctx, func(actorCtx context.Context) error {
-		_, err := s.store.AdmitAgent(actorCtx, admission)
-		return err
+	_, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (int64, error) {
+		return s.store.AdmitAgent(actorCtx, admission)
 	})
+	return err
 }
 
-type agentTurnItem struct {
-	sessionstore.InboxItem
-	Body []byte
-}
-
-// StartAgentTurn claims the next unit of work for a descendant through the
-// root actor and resolves the claimed input body.
-func (s *Session) StartAgentTurn(ctx context.Context, agentID, turnID string) (start sessionstore.AgentTurnStart, items []agentTurnItem, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		claimed, startErr := s.store.StartAgentTurn(actorCtx, s.meta.ID, agentID, turnID)
-		if startErr != nil {
-			return startErr
-		}
-		start = claimed
-		items = make([]agentTurnItem, 0, len(claimed.Items))
-		for _, item := range claimed.Items {
-			body, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.meta.ID, item.Payload)
-			if resolveErr != nil {
-				return resolveErr
-			}
-			items = append(items, agentTurnItem{InboxItem: item, Body: body})
-		}
-		return nil
+// StartAgentTurn claims work only; the worker owns settlement before resolving input.
+func (s *Session) StartAgentTurn(ctx context.Context, agentID, turnID string) (sessionstore.AgentTurnStart, error) {
+	return routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (sessionstore.AgentTurnStart, error) {
+		return s.store.StartAgentTurn(actorCtx, s.meta.ID, agentID, turnID)
 	})
-	return start, items, err
 }
 
 func (s *Session) FinishAgentTurn(ctx context.Context, agentID string, commit sessionstore.AgentTurnCommit) error {
-	return s.routeControl(ctx, func(actorCtx context.Context) error {
-		return s.store.FinishAgentTurn(actorCtx, s.meta.ID, agentID, commit)
+	_, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (struct{}, error) {
+		return struct{}{}, s.store.FinishAgentTurn(actorCtx, s.meta.ID, agentID, commit)
 	})
+	return err
 }
 
 // SendMailboxMessage stores one message and nudges the recipient. The stored
 // row is the durable wake condition; the nudge is only an optimization.
-func (s *Session) SendMailboxMessage(ctx context.Context, senderAgentID, recipientAgentID string, send sessionstore.MailboxSend) (message sessionstore.MailboxMessage, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		return s.consumeBudgets(actorCtx, senderAgentID, durableReservations(len(send.Subject)+len(send.Body)), func() error {
+func (s *Session) SendMailboxMessage(ctx context.Context, senderAgentID, recipientAgentID string, send sessionstore.MailboxSend) (sessionstore.MailboxMessage, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.MailboxMessage, error) {
+		var message sessionstore.MailboxMessage
+		err := s.consumeBudgets(actorCtx, senderAgentID, durableReservations(len(send.Subject)+len(send.Body)), func() error {
+			var err error
 			message, err = s.store.SendMailboxMessage(actorCtx, s.meta.ID, senderAgentID, recipientAgentID, send)
 			return err
 		})
+		if err == nil {
+			s.wakeAgent(recipientAgentID)
+		}
+		return message, err
 	})
-	if err == nil {
-		s.wakeAgent(recipientAgentID)
+}
+
+func (s *Session) ListMailboxMessages(ctx context.Context, agentID, status, sender string, limit int) ([]sessionstore.MailboxMessage, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.MailboxMessage, error) {
+		return s.store.ListMailboxMessages(actorCtx, s.meta.ID, agentID, status, sender, limit)
+	})
+}
+
+func (s *Session) ReadMailboxMessage(ctx context.Context, agentID, id string) (sessionstore.MailboxMessage, []byte, error) {
+	type result struct {
+		message sessionstore.MailboxMessage
+		body    []byte
 	}
-	return message, err
-}
-
-func (s *Session) ListMailboxMessages(ctx context.Context, agentID, status, sender string, limit int) (messages []sessionstore.MailboxMessage, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		messages, err = s.store.ListMailboxMessages(actorCtx, s.meta.ID, agentID, status, sender, limit)
-		return err
-	})
-	return messages, err
-}
-
-func (s *Session) ReadMailboxMessage(ctx context.Context, agentID, id string) (message sessionstore.MailboxMessage, body []byte, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		message, err = s.store.ReadMailboxMessage(actorCtx, s.meta.ID, agentID, id)
+	value, err := routeControlValue(s, ctx, func(actorCtx context.Context) (result, error) {
+		message, err := s.store.ReadMailboxMessage(actorCtx, s.meta.ID, agentID, id)
 		if err != nil {
-			return err
+			return result{}, err
 		}
-		if message.Body.ReferenceID == "" {
-			body = append([]byte(nil), message.Body.Inline...)
-			return nil
+		body := append([]byte(nil), message.Body.Inline...)
+		if message.Body.ReferenceID != "" {
+			body, _, err = s.store.ReadContent(actorCtx, message.Body.ReferenceID, s.meta.ID, agentID, 0, sessionstore.MaxContentRead)
 		}
-		body, _, err = s.store.ReadContent(actorCtx, message.Body.ReferenceID, s.meta.ID, agentID, 0, sessionstore.MaxContentRead)
-		return err
+		return result{message, body}, err
 	})
-	return message, body, err
+	return value.message, value.body, err
 }
 
-func (s *Session) CompleteMailboxMessages(ctx context.Context, agentID string, ids []string) (count int64, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		count, err = s.store.CompleteMailboxMessages(actorCtx, s.meta.ID, agentID, ids)
-		return err
+func (s *Session) CompleteMailboxMessages(ctx context.Context, agentID string, receipts []sessionstore.MailboxReceipt) (int64, error) {
+	receipts = slices.Clone(receipts)
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (int64, error) {
+		return s.store.CompleteMailboxMessages(actorCtx, s.meta.ID, agentID, receipts)
 	})
-	return count, err
 }
 
 // DeferMailboxMessage makes a message eligible again at until and arms an
 // in-memory wake for that moment; durable state remains the truth if the
 // daemon restarts first.
-func (s *Session) DeferMailboxMessage(ctx context.Context, agentID, id string, until time.Time) error {
-	err := s.routeControl(ctx, func(actorCtx context.Context) error {
-		return s.store.DeferMailboxMessage(actorCtx, s.meta.ID, agentID, id, until)
+func (s *Session) DeferMailboxMessage(ctx context.Context, agentID string, receipt sessionstore.MailboxReceipt, until time.Time) (int64, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (int64, error) {
+		revision, err := s.store.DeferMailboxMessage(actorCtx, s.meta.ID, agentID, receipt, until)
+		if err == nil {
+			time.AfterFunc(max(time.Until(until), 0)+time.Second, func() { s.wakeAgent(agentID) })
+		}
+		return revision, err
 	})
-	if err == nil {
-		time.AfterFunc(max(time.Until(until), 0)+time.Second, func() { s.wakeAgent(agentID) })
-	}
-	return err
 }
 
-func (s *Session) MailboxSummary(ctx context.Context, agentID string) (summary sessionstore.MailboxSummary, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		summary, err = s.store.MailboxSummary(actorCtx, s.meta.ID, agentID)
-		return err
+func (s *Session) MailboxSummary(ctx context.Context, agentID string) (sessionstore.MailboxSummary, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.MailboxSummary, error) {
+		return s.store.MailboxSummary(actorCtx, s.meta.ID, agentID)
 	})
-	return summary, err
 }
 
-func (s *Session) ReadMailboxDigest(ctx context.Context, agentID string) (digest sessionstore.MailboxDigest, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		digest, err = s.store.ReadMailboxDigest(actorCtx, s.meta.ID, agentID, time.Now())
-		return err
+func (s *Session) ReadMailboxDigest(ctx context.Context, agentID string) (sessionstore.MailboxDigest, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.MailboxDigest, error) {
+		return s.store.ReadMailboxDigest(actorCtx, s.meta.ID, agentID, time.Now())
 	})
-	return digest, err
 }
 
-func (s *Session) AgentWorkStatus(ctx context.Context, agentID string) (work sessionstore.AgentWork, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		work, err = s.store.AgentWorkStatus(actorCtx, s.meta.ID, agentID, time.Now())
-		return err
+func (s *Session) AgentWorkStatus(ctx context.Context, agentID string) (sessionstore.AgentWork, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.AgentWork, error) {
+		return s.store.AgentWorkStatus(actorCtx, s.meta.ID, agentID, time.Now())
 	})
-	return work, err
 }
 
 // HasAgentWork reports whether a node has anything runnable right now.
@@ -143,45 +121,61 @@ func (s *Session) HasAgentWork(ctx context.Context, agentID string) (bool, error
 	return work.HasExplicitInput || work.HasReadyMail, err
 }
 
-func (s *Session) PendingSteers(ctx context.Context, agentID string) (items []sessionstore.InboxItem, mail []sessionstore.MailboxMessage, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		items, mail, err = s.store.PendingSteers(actorCtx, s.meta.ID, agentID, time.Now())
-		return err
+func (s *Session) ClaimSteers(ctx context.Context, agentID, turnID string) ([]sessionstore.InboxItem, error) {
+	return routeControlOwnedValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.InboxItem, error) {
+		return s.store.ClaimSteers(actorCtx, s.meta.ID, agentID, turnID)
 	})
-	return items, mail, err
+}
+
+func (s *Session) RejectTurnInput(ctx context.Context, agentID, turnID string, seq int64, cause error) error {
+	return s.routeControl(ctx, func(actorCtx context.Context) error {
+		if err := s.store.RejectTurnInput(actorCtx, s.meta.ID, agentID, turnID, seq, cause.Error()); err != nil {
+			return err
+		}
+		if agentID == s.authority.AgentID {
+			s.settle(seq, Completion{Sequence: seq, Err: cause})
+		}
+		return nil
+	})
 }
 
 // SubmitAgentInput enqueues explicit work for a descendant on a caller's
 // behalf: kind "steer" joins a running turn at its next boundary, "submit"
 // waits for its own turn. The caller pays the durable-bytes budget.
-func (s *Session) SubmitAgentInput(ctx context.Context, callerAgentID, agentID, kind, text, source string) (seq int64, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		return s.consumeBudgets(actorCtx, callerAgentID, durableReservations(len(text)), func() error {
-			sequence, enqueueErr := s.store.EnqueueInbox(actorCtx, sessionstore.InboxEnqueue{
+func (s *Session) SubmitAgentInput(ctx context.Context, callerAgentID, agentID, kind, text, source string) (int64, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (int64, error) {
+		var sequence sessionstore.InboxSequence
+		err := s.consumeBudgets(actorCtx, callerAgentID, durableReservations(len(text)), func() error {
+			var err error
+			sequence, err = s.store.EnqueueInbox(actorCtx, sessionstore.InboxEnqueue{
 				RootID: s.meta.ID, AgentID: agentID, Kind: kind,
 				Payload: sessionstore.RuntimePayload{Data: []byte(text), MediaType: "text/plain", Source: source},
 			})
-			seq = sequence.InboxSeq
-			return enqueueErr
+			return err
 		})
+		if err == nil {
+			s.wakeAgent(agentID)
+		}
+		return sequence.InboxSeq, err
 	})
-	if err == nil {
-		s.wakeAgent(agentID)
-	}
-	return seq, err
 }
 
 // LoadAgentScratch and SaveAgentScratch persist a node's Starlark scratch
 // snapshot through the root actor.
-func (s *Session) LoadAgentScratch(ctx context.Context, agentID string) (program string, manifest []byte, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		program, manifest, err = s.store.LoadAgentScratch(actorCtx, s.meta.ID, agentID)
-		return err
+func (s *Session) LoadAgentScratch(ctx context.Context, agentID string) (string, []byte, error) {
+	type result struct {
+		program  string
+		manifest []byte
+	}
+	value, err := routeControlValue(s, ctx, func(actorCtx context.Context) (result, error) {
+		program, manifest, err := s.store.LoadAgentScratch(actorCtx, s.meta.ID, agentID)
+		return result{program, manifest}, err
 	})
-	return program, manifest, err
+	return value.program, value.manifest, err
 }
 
 func (s *Session) SaveAgentScratch(ctx context.Context, agentID, program string, manifest []byte) error {
+	manifest = slices.Clone(manifest)
 	return s.routeControl(ctx, func(actorCtx context.Context) error {
 		return s.store.SaveAgentScratch(actorCtx, s.meta.ID, agentID, program, manifest)
 	})
@@ -189,6 +183,7 @@ func (s *Session) SaveAgentScratch(ctx context.Context, agentID, program string,
 
 // RecordScratchRestore appends the durable scratch.restored event for a node.
 func (s *Session) RecordScratchRestore(ctx context.Context, agentID string, report rlm.RestoreReport) error {
+	report.Restored = slices.Clone(report.Restored)
 	notRestored := make([]sessionstore.ScratchSkip, 0, len(report.Failed))
 	for _, item := range report.Failed {
 		notRestored = append(notRestored, sessionstore.ScratchSkip{Name: item.Name, Reason: item.Reason})
@@ -221,36 +216,34 @@ func (s *Session) reconcileAgentWork() {
 	})
 }
 
-func (s *Session) LoadAgentTranscript(ctx context.Context, agentID string) (messages []llm.Message, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		messages, err = s.store.LoadAgentTranscript(actorCtx, s.meta.ID, agentID)
-		return err
+func (s *Session) LoadAgentTranscript(ctx context.Context, agentID string) ([]llm.Message, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]llm.Message, error) {
+		return s.store.LoadAgentTranscript(actorCtx, s.meta.ID, agentID)
 	})
-	return messages, err
 }
 
-func (s *Session) LoadRetainedAgents(ctx context.Context) (agents []sessionstore.RuntimeAgent, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		agents, err = s.store.LoadRetainedAgents(actorCtx, s.meta.ID)
-		return err
+func (s *Session) LoadRetainedAgents(ctx context.Context) ([]sessionstore.RuntimeAgent, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.RuntimeAgent, error) {
+		return s.store.LoadRetainedAgents(actorCtx, s.meta.ID)
 	})
-	return agents, err
 }
 
-func (s *Session) LoadAgentAuthority(ctx context.Context, agentID string) (authority capability.Authority, names []string, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		authority, names, err = s.store.LoadAgentAuthority(actorCtx, s.meta.ID, agentID)
-		return err
+func (s *Session) LoadAgentAuthority(ctx context.Context, agentID string) (capability.Authority, []string, error) {
+	type result struct {
+		authority capability.Authority
+		names     []string
+	}
+	value, err := routeControlValue(s, ctx, func(actorCtx context.Context) (result, error) {
+		authority, names, err := s.store.LoadAgentAuthority(actorCtx, s.meta.ID, agentID)
+		return result{authority, names}, err
 	})
-	return authority, names, err
+	return value.authority, value.names, err
 }
 
-func (s *Session) ListAgentRelatives(ctx context.Context, callerAgentID string) (relatives sessionstore.AgentRelatives, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		relatives, err = s.store.ListAgentRelatives(actorCtx, s.meta.ID, callerAgentID)
-		return err
+func (s *Session) ListAgentRelatives(ctx context.Context, callerAgentID string) (sessionstore.AgentRelatives, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.AgentRelatives, error) {
+		return s.store.ListAgentRelatives(actorCtx, s.meta.ID, callerAgentID)
 	})
-	return relatives, err
 }
 
 func (s *Session) TerminalizeSubtree(ctx context.Context, callerAgentID, targetAgentID, status string) error {
@@ -264,48 +257,51 @@ func agentTurnID(agentID string) string {
 	return fmt.Sprintf("%s:%d", agentID, time.Now().UnixNano())
 }
 
-func (s *Session) StoreContent(ctx context.Context, callerAgentID string, payload sessionstore.RuntimePayload) (value sessionstore.RuntimeValue, err error) {
+func (s *Session) StoreContent(ctx context.Context, callerAgentID string, payload sessionstore.RuntimePayload) (sessionstore.RuntimeValue, error) {
+	payload.Data = slices.Clone(payload.Data)
 	if callerAgentID == "" {
 		return sessionstore.RuntimeValue{}, errors.New("content caller is required")
 	}
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		return s.consumeBudgets(actorCtx, callerAgentID, durableReservations(len(payload.Data)), func() error {
-			value, err = s.store.StoreContent(actorCtx, sessionstore.ContentGrant{
-				RootID: s.meta.ID, AgentID: callerAgentID, Scope: sessionstore.ContentGrantAgent,
-			}, payload)
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.RuntimeValue, error) {
+		var value sessionstore.RuntimeValue
+		err := s.consumeBudgets(actorCtx, callerAgentID, durableReservations(len(payload.Data)), func() error {
+			var err error
+			value, err = s.store.StoreContent(actorCtx, sessionstore.ContentGrant{RootID: s.meta.ID, AgentID: callerAgentID, Scope: sessionstore.ContentGrantAgent}, payload)
 			return err
 		})
+		return value, err
 	})
-	return value, err
 }
 
-func (s *Session) ReadContent(ctx context.Context, callerAgentID, referenceID string, offset int64, length int) (body []byte, metadata sessionstore.ContentMetadata, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		body, metadata, err = s.store.ReadContent(actorCtx, referenceID, s.meta.ID, callerAgentID, offset, length)
-		return err
+func (s *Session) ReadContent(ctx context.Context, callerAgentID, referenceID string, offset int64, length int) ([]byte, sessionstore.ContentMetadata, error) {
+	type result struct {
+		body     []byte
+		metadata sessionstore.ContentMetadata
+	}
+	value, err := routeControlValue(s, ctx, func(actorCtx context.Context) (result, error) {
+		body, metadata, err := s.store.ReadContent(actorCtx, referenceID, s.meta.ID, callerAgentID, offset, length)
+		return result{body, metadata}, err
 	})
-	return body, metadata, err
+	return value.body, value.metadata, err
 }
 
-func (s *Session) AddSchedule(ctx context.Context, expression, prompt string, anchor time.Time) (id int, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		reservations := append(durableReservations(len(expression)+len(prompt)), capability.Reservation{
-			Kind: string(sessionstore.BudgetSchedulesSubscriptions), Amount: 1, Consume: true,
-		})
-		return s.consumeBudgets(actorCtx, s.authority.AgentID, reservations, func() error {
+func (s *Session) AddSchedule(ctx context.Context, expression, prompt string, anchor time.Time) (int, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (int, error) {
+		reservations := append(durableReservations(len(expression)+len(prompt)), capability.Reservation{Kind: string(sessionstore.BudgetSchedulesSubscriptions), Amount: 1, Consume: true})
+		var id int
+		err := s.consumeBudgets(actorCtx, s.authority.AgentID, reservations, func() error {
+			var err error
 			id, err = s.store.AddSchedule(s.meta.ID, expression, prompt, anchor)
 			return err
 		})
+		return id, err
 	})
-	return id, err
 }
 
-func (s *Session) ListSchedules(ctx context.Context) (schedules []sessionstore.Schedule, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		schedules, err = s.store.SchedulesContext(actorCtx, s.meta.ID)
-		return err
+func (s *Session) ListSchedules(ctx context.Context) ([]sessionstore.Schedule, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.Schedule, error) {
+		return s.store.SchedulesContext(actorCtx, s.meta.ID)
 	})
-	return schedules, err
 }
 
 func (s *Session) CancelSchedule(ctx context.Context, id int) error {

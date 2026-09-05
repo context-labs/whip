@@ -30,7 +30,10 @@ func (session *AgentSession) TurnParts(ctx context.Context, input string, parts 
 // boundary, and everything the model saw is recorded in the turn journal so
 // the caller's commit marks it delivered. Callers retain separate durable
 // envelopes around its returned transcript.
-func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, started func(), _ func(string), prepare func(context.Context) (string, error)) (string, error) {
+func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, started func(), _ func(string), prepare func(context.Context) (string, []llm.ContentPart, error)) (string, error) {
+	session.mu.Lock()
+	session.turn = turnJournal{}
+	session.mu.Unlock()
 	if session.runtime != nil {
 		session.runtime.observeRunTurn(session)
 	}
@@ -46,7 +49,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	}
 	if prepare != nil {
 		var err error
-		input, err = prepare(ctx)
+		input, parts, err = prepare(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -55,21 +58,26 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		var err error
 		input, parts, err = session.prepareAuthoredInput(ctx, input, parts)
 		if err != nil {
+			return "", fmt.Errorf("%w: %w", sessionstore.ErrInvalidInput, err)
+		}
+	}
+	var turnID string
+	if session.root != nil {
+		var err error
+		turnID, err = session.root.store.RunningTurnID(ctx, session.root.ID(), session.id)
+		if err != nil {
 			return "", err
 		}
 	}
-	session.mu.Lock()
-	session.turn = turnJournal{seenInbox: map[int64]bool{}, seenMessages: map[string]bool{}}
-	session.mu.Unlock()
 	events := agent.Events{OnStart: started}
-	digest, digestIDs := session.mailboxDigest(ctx)
+	digest, receipts, err := session.mailboxDigest(ctx)
+	if err != nil {
+		return "", err
+	}
 	if digest != "" {
-		session.mu.Lock()
-		for _, id := range digestIDs {
-			session.turn.seenMessages[id] = true
+		for _, receipt := range receipts {
+			session.recordDelivered(receipt)
 		}
-		session.turn.DeliveredMessages = append(session.turn.DeliveredMessages, digestIDs...)
-		session.mu.Unlock()
 		if strings.TrimSpace(input) == "" && len(parts) == 0 {
 			// A mailbox-triggered turn: the digest is the whole input.
 			input, authored = digest, false
@@ -78,9 +86,9 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		}
 	}
 	if strings.TrimSpace(input) == "" && len(parts) == 0 {
-		return "", errors.New("turn has no input")
+		return "", fmt.Errorf("%w: turn has no input", sessionstore.ErrInvalidInput)
 	}
-	events.OnBoundary = func() []llm.Message { return session.pullSteers(ctx) }
+	events.OnBoundary = func() ([]llm.Message, error) { return session.pullSteers(ctx, turnID) }
 	boundary := len(session.agent.MessagesSnapshot())
 	if notice := scratchNotice(start); notice != "" {
 		events.EphemeralSystem = notice
@@ -113,7 +121,6 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		boundary = len(session.agent.MessagesSnapshot())
 	}
 	var output string
-	var err error
 	if len(parts) > 0 {
 		output, err = session.agent.TurnParts(ctx, input, parts, events)
 	} else if authored {
@@ -166,74 +173,113 @@ func boundedNames(names []string, limit int) string {
 }
 
 // mailboxDigest renders the ready mail for this node at turn start. It
-// returns the text and the message ids it showed.
-func (session *AgentSession) mailboxDigest(ctx context.Context) (string, []string) {
+// returns the text and the exact message revisions it showed.
+func (session *AgentSession) mailboxDigest(ctx context.Context) (string, []sessionstore.MailboxReceipt, error) {
 	if session.root == nil || session.id == "" {
-		return "", nil
+		return "", nil, nil
 	}
 	digest, err := session.root.ReadMailboxDigest(ctx, session.id)
 	if err != nil {
-		return "", nil
+		return "", nil, err
 	}
-	return renderMailboxDigest(digest)
+	text, receipts := renderMailboxDigest(digest)
+	return text, receipts, nil
 }
 
 // pullSteers is the shared loop-boundary hook. It injects queued human steer
 // rows and ready steer-class mail as user messages and records them in the
 // turn journal so the commit consumes exactly what the model saw.
-func (session *AgentSession) pullSteers(ctx context.Context) []llm.Message {
-	if session.root == nil || session.id == "" {
-		return nil
-	}
-	items, _, err := session.root.PendingSteers(ctx, session.id)
-	if err != nil {
-		return nil
+func (session *AgentSession) pullSteers(ctx context.Context, turnID string) ([]llm.Message, error) {
+	if session.root == nil || session.id == "" || turnID == "" {
+		return nil, nil
 	}
 	digest, err := session.root.ReadMailboxDigest(ctx, session.id)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	var out []llm.Message
+	items, err := session.root.ClaimSteers(ctx, session.id, turnID)
+	if err != nil {
+		return nil, err
+	}
 	session.mu.Lock()
-	defer session.mu.Unlock()
 	for _, item := range items {
-		if session.turn.seenInbox[item.Seq] {
-			continue
-		}
-		text, parts, err := session.root.inboxInput(item)
+		session.turn.ClaimedInbox = append(session.turn.ClaimedInbox, item.Seq)
+	}
+	session.mu.Unlock()
+	var out []llm.Message
+	var delivered []int64
+	for _, item := range items {
+		text, parts, err := session.root.decodeInboxInput(ctx, item)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if !errors.Is(err, sessionstore.ErrInvalidInput) {
+				return nil, err
+			}
+			if err := session.root.RejectTurnInput(ctx, session.id, turnID, item.Seq, err); err != nil {
+				return nil, err
+			}
+			if session.emit != nil {
+				session.emit("stream.notice", StreamEvent{Text: "Rejected input: " + err.Error()})
+			}
 			continue
 		}
-		session.turn.seenInbox[item.Seq] = true
-		session.turn.DeliveredInbox = append(session.turn.DeliveredInbox, item.Seq)
+		delivered = append(delivered, item.Seq)
 		out = append(out, llm.Message{Role: "user", Content: text, Parts: parts, Authored: true})
 	}
+	session.mu.Lock()
+	session.turn.DeliveredInbox = append(session.turn.DeliveredInbox, delivered...)
+	session.mu.Unlock()
 	for _, message := range digest.Pending {
-		if message.Delivery != sessionstore.MessageDeliverySteer || session.turn.seenMessages[message.ID] {
-			continue
+		if message.Delivery == sessionstore.MessageDeliverySteer && session.recordDelivered(sessionstore.MailboxReceipt{ID: message.ID, Revision: message.Revision}) {
+			out = append(out, llm.Message{Role: "user", Content: renderMailboxLine(message, digest)})
 		}
-		session.turn.seenMessages[message.ID] = true
-		session.turn.DeliveredMessages = append(session.turn.DeliveredMessages, message.ID)
-		out = append(out, llm.Message{Role: "user", Content: renderMailboxLine(message, digest)})
 	}
-	return out
+	return out, nil
 }
 
-// recordDelivered notes a message the model read explicitly during the turn.
-func (session *AgentSession) recordDelivered(id string) {
+// Observations authorize explicit mailbox controls; only delivery receipts
+// participate in automatic turn acknowledgement.
+func (session *AgentSession) recordObserved(receipt sessionstore.MailboxReceipt) {
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	if session.turn.seenMessages == nil {
-		session.turn.seenMessages = map[string]bool{}
-	}
-	if session.turn.seenMessages[id] {
-		return
-	}
-	session.turn.seenMessages[id] = true
-	session.turn.DeliveredMessages = append(session.turn.DeliveredMessages, id)
+	session.observeMessageLocked(receipt)
 }
 
-func renderMailboxDigest(digest sessionstore.MailboxDigest) (string, []string) {
+func (session *AgentSession) observeMessageLocked(receipt sessionstore.MailboxReceipt) {
+	if session.turn.observedMessages == nil {
+		session.turn.observedMessages = map[string]int64{}
+	}
+	session.turn.observedMessages[receipt.ID] = receipt.Revision
+}
+
+func (session *AgentSession) messageReceipts(ids []string) []sessionstore.MailboxReceipt {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	receipts := make([]sessionstore.MailboxReceipt, len(ids))
+	for i, id := range ids {
+		receipts[i] = sessionstore.MailboxReceipt{ID: id, Revision: session.turn.observedMessages[id]}
+	}
+	return receipts
+}
+
+func (session *AgentSession) recordDelivered(receipt sessionstore.MailboxReceipt) bool {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	session.observeMessageLocked(receipt)
+	if session.turn.seenMessages == nil {
+		session.turn.seenMessages = map[sessionstore.MailboxReceipt]bool{}
+	}
+	if session.turn.seenMessages[receipt] {
+		return false
+	}
+	session.turn.seenMessages[receipt] = true
+	session.turn.DeliveredMessages = append(session.turn.DeliveredMessages, receipt)
+	return true
+}
+
+func renderMailboxDigest(digest sessionstore.MailboxDigest) (string, []sessionstore.MailboxReceipt) {
 	if digest.PendingTotal == 0 && digest.DeliveredOpen == 0 {
 		return "", nil
 	}
@@ -246,11 +292,11 @@ func renderMailboxDigest(digest sessionstore.MailboxDigest) (string, []string) {
 		fmt.Fprintf(&b, ", next deferred message at %s", digest.NextDeferredAt.UTC().Format(time.RFC3339))
 	}
 	b.WriteString(". Excerpts follow; use messages.read(id=...) for a full body, messages.complete(ids=[...]) once handled, messages.defer(id=..., until=...) to revisit later.")
-	ids := make([]string, 0, len(digest.Pending))
+	ids := make([]sessionstore.MailboxReceipt, 0, len(digest.Pending))
 	for _, message := range digest.Pending {
 		b.WriteString("\n\n")
 		b.WriteString(renderMailboxLine(message, digest))
-		ids = append(ids, message.ID)
+		ids = append(ids, sessionstore.MailboxReceipt{ID: message.ID, Revision: message.Revision})
 	}
 	if digest.PendingTotal > len(digest.Pending) {
 		fmt.Fprintf(&b, "\n\n... and %d more; use messages.list().", digest.PendingTotal-len(digest.Pending))
@@ -260,7 +306,7 @@ func renderMailboxDigest(digest sessionstore.MailboxDigest) (string, []string) {
 
 func renderMailboxLine(message sessionstore.MailboxMessage, digest sessionstore.MailboxDigest) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[message id=%s from %s", message.ID, digest.Relationships[message.SenderAgentID])
+	fmt.Fprintf(&b, "[message id=%s revision=%d from %s", message.ID, message.Revision, digest.Relationships[message.SenderAgentID])
 	if name := digest.SenderNames[message.SenderAgentID]; name != "" {
 		fmt.Fprintf(&b, " %s", name)
 	}
@@ -412,7 +458,8 @@ func (session *AgentSession) turnJournal() turnJournal {
 		Messages:          append([]llm.Message(nil), session.turn.Messages...),
 		Compactions:       append([]turnCompaction(nil), session.turn.Compactions...),
 		DeliveredInbox:    append([]int64(nil), session.turn.DeliveredInbox...),
-		DeliveredMessages: append([]string(nil), session.turn.DeliveredMessages...),
+		DeliveredMessages: append([]sessionstore.MailboxReceipt(nil), session.turn.DeliveredMessages...),
+		ClaimedInbox:      append([]int64(nil), session.turn.ClaimedInbox...),
 	}
 }
 

@@ -334,12 +334,12 @@ func TestSteerContinuesTurn(t *testing.T) {
 	// hook is polled again afterwards and returns nothing, so the turn ends.
 	boundaries := 0
 	final, err := ag.Turn(context.Background(), "go", Events{
-		OnBoundary: func() []llm.Message {
+		OnBoundary: func() ([]llm.Message, error) {
 			boundaries++
 			if boundaries == 1 {
-				return []llm.Message{{Role: "user", Content: "also do this"}}
+				return []llm.Message{{Role: "user", Content: "also do this"}}, nil
 			}
-			return nil
+			return nil, nil
 		},
 	})
 	if err != nil {

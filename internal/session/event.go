@@ -318,7 +318,7 @@ func readSnapshotMessages(ctx context.Context, tx *sql.Tx, rootID string, snapsh
 }
 
 func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
-	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.root_id,COALESCE(a.parent_id,''),a.name,a.model,a.provider,a.effort,a.cwd,a.status,
+	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.root_id,COALESCE(a.parent_id,''),a.name,a.model,a.provider,a.effort,a.cwd,a.report,a.status,
 		(SELECT count(*) FROM agent_messages m WHERE m.root_id=a.root_id AND m.recipient_agent_id=a.id AND m.status='pending')
 		FROM agents a WHERE a.root_id=? ORDER BY a.created_at,a.id`, rootID)
 	if err != nil {
@@ -327,7 +327,7 @@ func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var agent RuntimeAgent
-		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Status, &agent.PendingMail); err != nil {
+		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status, &agent.PendingMail); err != nil {
 			return err
 		}
 		snapshot.Agents = append(snapshot.Agents, agent)

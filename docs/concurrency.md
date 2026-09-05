@@ -41,18 +41,53 @@ There is no separate notification queue. `agent_messages` is canonical; a
 node is runnable when it has a `queued` inbox row or `pending` mail whose
 `available_at` has passed, and the actor re-derives that from SQLite after
 every commit, wake, restart, permission decision, and budget change. Explicit
-work (`submit`, `steer`, `goal`, `schedule`) is claimed one row per turn.
+work (`submit`, `steer`, `goal`, `schedule`) starts a turn by claiming one row.
+Additional human steers are claimed against that exact running turn before
+a loop boundary exposes them. A commit may acknowledge only claimed input.
 
 Steer-class mail and human steers are injected at the running turn's next
 loop boundary by the one delivery engine in `AgentSession.RunTurn`; there is
 no stream interruption. Queued mail starts a mailbox-triggered turn whose
 input is a bounded digest (excerpts, never bodies). Ten messages to a busy
 node produce one digest, not ten turns. Messages become `delivered` only when
-the turn that showed them commits, so a failed turn redelivers them.
+the turn that showed them commits successfully, so a failed turn redelivers
+them. Delivery records include a message revision: a replacement or deferral
+creates a newer revision that an older turn cannot acknowledge. Listing
+metadata establishes a revision for explicit controls without marking it
+delivered. A stale explicit completion or deferral fails with a reread request.
 
 Agent completion posts an `agent.completed|failed|cancelled` message to the
-parent with a 160-byte preview and an evidence handle; it never copies the
-child's transcript into a parent turn.
+parent according to the child's durable report mode: a 160-byte preview and
+evidence handle by default, up to 4 KiB for `inline`, or explicit child
+messages for successful `message` turns. Failures still notify the parent.
+The child's transcript is never copied into a parent turn.
+
+## Recovery and request ownership
+
+Restart and nonterminal daemon shutdown preserve unclaimed queued input and
+its correlated queued root command. Claimed input, including injected steers,
+and uncertain running operations are interrupted instead of replayed. A
+terminal root stop or failure also interrupts queued work. Every transition
+is scoped to that root; retained children become idle without changing other
+roots' work or reservations.
+
+Invalid input fails that input and settles its receipt or child turn without
+terminating the session or retrying the bad payload. Ordinary failed child
+execution keeps its existing bounded retry policy. A turn journal starts
+empty before kernel acquisition or input preparation.
+
+Cancelling a child interrupts the active input; separately queued follow-ups
+remain runnable. A subtree stop/delete settles the durable turn before its
+worker exits, so a late completion cannot revive it. An unexpected child
+commit failure fails its root and interrupts outstanding claims.
+
+Actor calls own one reply. Queued controls can be skipped on cancellation;
+callers can stop waiting on cancellation or shutdown. Results and mutable
+arguments transfer ownership across that boundary. Bounded database claims
+must resolve once started so the caller knows whether it owns settlement.
+Cancellation after a mutation starts does not prove that it had no effect.
+Shutdown settles pending replies before closing resources whose workers may
+be awaiting those replies, and continues draining while workers exit.
 
 ## Host operations
 

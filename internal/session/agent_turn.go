@@ -27,9 +27,10 @@ type AgentTurnCommit struct {
 	TurnID            string
 	Status            string
 	AcknowledgedInbox []int64
-	DeliveredMessages []string
+	DeliveredMessages []MailboxReceipt
 	Transcript        []llm.Message
 	Error             string
+	RetryInput        bool // ordinary execution failure; false for invalid input
 }
 
 func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID string) (AgentTurnStart, error) {
@@ -152,6 +153,15 @@ func (s *Store) FinishAgentTurn(ctx context.Context, rootID, agentID string, com
 		if err != nil {
 			return err
 		}
+		// A subtree stop/delete already settled the claim before cancelling
+		// its worker. The late completion must not revive the retained agent.
+		agent, err := loadAgentTx(ctx, tx, rootID, agentID)
+		if err != nil {
+			return err
+		}
+		if isTerminalAgentStatus(agent.Status) {
+			return ErrAgentTerminal
+		}
 		return errors.New("agent turn is not running")
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status='idle',updated_at=? WHERE root_id=? AND id=? AND status='running'`, stamp, rootID, agentID); err != nil {
@@ -166,14 +176,28 @@ func (s *Store) FinishAgentTurn(ctx context.Context, rootID, agentID string, com
 			continue
 		}
 		seen[seq] = struct{}{}
-		if _, err := s.consumeInboxTx(ctx, tx, rootID, agentID, seq, stamp); err != nil && !errors.Is(err, ErrInboxTerminal) {
+		result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='consumed'
+			WHERE root_id=? AND agent_id=? AND seq=? AND status='running'`, rootID, agentID, seq)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return ErrInboxTerminal
+		}
+		if _, err := s.insertActorEventTx(ctx, tx, rootID, "inbox.consumed", actorEvent{
+			AgentID: agentID, InboxSeq: seq, Status: "consumed",
+		}, stamp); err != nil {
 			return err
 		}
 	}
-	// A failed turn retries its claimed input a bounded number of times so a
-	// transient provider error never silently drops a human's message. A
+	// A retryable failure retries its claimed input a bounded number of times
+	// so a transient provider error never silently drops a human's message. A
 	// cancelled or interrupted turn drops it: that is the user's intent.
-	if status == "failed" {
+	if status == "failed" && commit.RetryInput {
 		if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='queued',retries=retries+1
 			WHERE root_id=? AND agent_id=? AND status='running' AND retries<?`, rootID, agentID, MaxInboxRetries); err != nil {
 			return err
@@ -254,7 +278,7 @@ func (s *Store) LoadAgent(ctx context.Context, rootID, agentID string) (RuntimeA
 }
 
 func (s *Store) LoadRetainedAgents(ctx context.Context, rootID string) ([]RuntimeAgent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,status
+	rows, err := s.db.QueryContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status
 		FROM agents WHERE root_id=? AND parent_id IS NOT NULL AND status NOT IN ('stopped','deleted','failed') ORDER BY created_at,id`, rootID)
 	if err != nil {
 		return nil, err
@@ -263,7 +287,7 @@ func (s *Store) LoadRetainedAgents(ctx context.Context, rootID string) ([]Runtim
 	var result []RuntimeAgent
 	for rows.Next() {
 		var value RuntimeAgent
-		if err := rows.Scan(&value.ID, &value.RootID, &value.ParentID, &value.Name, &value.Model, &value.Provider, &value.Effort, &value.CWD, &value.Status); err != nil {
+		if err := rows.Scan(&value.ID, &value.RootID, &value.ParentID, &value.Name, &value.Model, &value.Provider, &value.Effort, &value.CWD, &value.Report, &value.Status); err != nil {
 			return nil, err
 		}
 		result = append(result, value)

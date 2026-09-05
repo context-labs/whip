@@ -42,6 +42,10 @@ type CommandAdmissionResult struct {
 // AdmitCommand compares command identity and request digest and, for a new
 // root command, inserts the command and its actor inbox item in one commit.
 func (s *Store) AdmitCommand(ctx context.Context, admission CommandAdmission) (CommandAdmissionResult, error) {
+	if len(admission.Payload.Data) > MaxInputPayloadBytes {
+		return CommandAdmissionResult{}, fmt.Errorf("%w: payload exceeds %d bytes", ErrInvalidInput, MaxInputPayloadBytes)
+	}
+
 	if err := validateCommandAdmission(admission); err != nil {
 		return CommandAdmissionResult{}, err
 	}

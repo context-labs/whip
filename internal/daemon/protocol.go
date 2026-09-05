@@ -21,7 +21,7 @@ const (
 	MaxInFlight          = 32
 	MaxOutboundEnvelopes = 1024
 	MaxOutboundBytes     = 8 << 20
-	MaxUploadSize        = 64 << 20
+	MaxUploadSize        = session.MaxInputPayloadBytes
 )
 
 var ErrFrameTooLarge = errors.New("protocol frame exceeds 1 MiB")

@@ -22,6 +22,7 @@ type AgentAdmission struct {
 	Model         string
 	Provider      string
 	Effort        string
+	Report        string
 	CWD           string
 	Prompt        RuntimePayload
 	Budgets       []BudgetLimit
@@ -45,6 +46,15 @@ const subtreeCTE = `WITH RECURSIVE subtree(id) AS (
 func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64, error) {
 	if admission.RootID == "" || admission.ParentAgentID == "" || admission.ChildAgentID == "" || admission.ParentAgentID == admission.ChildAgentID {
 		return 0, errors.New("agent admission requires distinct root, parent, and child identities")
+	}
+	if admission.Report == "" {
+		admission.Report = "notice"
+	}
+	if admission.Report != "notice" && admission.Report != "inline" && admission.Report != "message" {
+		return 0, errors.New("invalid child report mode")
+	}
+	if len(admission.Prompt.Data) > MaxInputPayloadBytes {
+		return 0, fmt.Errorf("%w: payload exceeds %d bytes", ErrInvalidInput, MaxInputPayloadBytes)
 	}
 	if admission.Name == "" {
 		admission.Name = admission.ChildAgentID
@@ -111,9 +121,9 @@ func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64
 	if duplicateName != 0 {
 		return 0, fmt.Errorf("agent name %q already exists under this parent", admission.Name)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,name,model,provider,effort,cwd,status,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,'idle',?,?)`, admission.ChildAgentID, admission.RootID, admission.ParentAgentID,
-		admission.Name, admission.Model, admission.Provider, admission.Effort, admission.CWD, stamp, stamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,name,model,provider,effort,cwd,report,status,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,'idle',?,?)`, admission.ChildAgentID, admission.RootID, admission.ParentAgentID,
+		admission.Name, admission.Model, admission.Provider, admission.Effort, admission.CWD, admission.Report, stamp, stamp); err != nil {
 		return 0, err
 	}
 	for kind, requestedLimit := range requested {
@@ -194,12 +204,12 @@ func (s *Store) ListAgentRelatives(ctx context.Context, rootID, callerAgentID st
 			return AgentRelatives{}, err
 		}
 		result.Parent = &parent
-		result.Siblings, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,status FROM agents WHERE root_id=? AND parent_id=? AND id<>? ORDER BY name,id`, rootID, caller.ParentID, callerAgentID)
+		result.Siblings, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status FROM agents WHERE root_id=? AND parent_id=? AND id<>? ORDER BY name,id`, rootID, caller.ParentID, callerAgentID)
 		if err != nil {
 			return AgentRelatives{}, err
 		}
 	}
-	result.Children, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,status FROM agents WHERE root_id=? AND parent_id=? ORDER BY name,id`, rootID, callerAgentID)
+	result.Children, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status FROM agents WHERE root_id=? AND parent_id=? ORDER BY name,id`, rootID, callerAgentID)
 	if err != nil {
 		return AgentRelatives{}, err
 	}
@@ -286,8 +296,8 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 
 func loadAgentTx(ctx context.Context, tx *sql.Tx, rootID, agentID string) (RuntimeAgent, error) {
 	var agent RuntimeAgent
-	err := tx.QueryRowContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,status FROM agents WHERE root_id=? AND id=?`, rootID, agentID).
-		Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Status)
+	err := tx.QueryRowContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status FROM agents WHERE root_id=? AND id=?`, rootID, agentID).
+		Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RuntimeAgent{}, ErrAgentAccess
 	}
@@ -303,7 +313,7 @@ func loadAgentsTx(ctx context.Context, tx *sql.Tx, query string, args ...any) ([
 	var agents []RuntimeAgent
 	for rows.Next() {
 		var agent RuntimeAgent
-		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Status); err != nil {
+		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status); err != nil {
 			return nil, err
 		}
 		agents = append(agents, agent)

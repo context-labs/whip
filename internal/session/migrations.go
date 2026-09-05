@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 4
-	schemaIdentity       = "whip-recursive-runtime-v4"
+	currentSchemaVersion = 5
+	schemaIdentity       = "whip-recursive-runtime-v5"
 )
 
 // MaxInboxRetries bounds how many times a failed turn may return its claimed
@@ -64,6 +64,7 @@ CREATE TABLE agents (
 	id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES sessions(id), parent_id TEXT,
 	name TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL DEFAULT '',
 	effort TEXT NOT NULL DEFAULT '', cwd TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+	report TEXT NOT NULL DEFAULT 'notice' CHECK(report IN ('notice','inline','message')),
 	created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(root_id,id),
 	FOREIGN KEY(root_id,parent_id) REFERENCES agents(root_id,id)
 );
@@ -98,6 +99,7 @@ CREATE TABLE agent_messages (
 	kind TEXT NOT NULL DEFAULT 'message',
 	delivery TEXT NOT NULL DEFAULT 'queued' CHECK(delivery IN ('steer','queued','next_turn')),
 	upsert_key TEXT NOT NULL DEFAULT '',
+	revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>0),
 	subject TEXT NOT NULL DEFAULT '', excerpt TEXT NOT NULL DEFAULT '', body_inline BLOB,
 	body_ref TEXT REFERENCES content_references(id), evidence_ref TEXT REFERENCES content_references(id),
 	status TEXT NOT NULL CHECK(status IN ('pending','delivered','done')),

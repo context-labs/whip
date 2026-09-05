@@ -14,29 +14,39 @@ import (
 
 // DecidePermissionCommand gives a signed human decision the same durable
 // idempotency boundary as every other user action.
-func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionstore.CommandAdmission, permissionID string, decision capability.Decision) (ticket capability.Ticket, err error) {
+func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionstore.CommandAdmission, permissionID string, decision capability.Decision) (capability.Ticket, error) {
 	command.Scope = sessionstore.CommandScopeRoot
 	command.RootID = s.meta.ID
 	command.AgentID = s.authority.AgentID
 	command.Kind = "permission.decide"
-	var rememberErr error
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
+	command.Payload.Data = slices.Clone(command.Payload.Data)
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (capability.Ticket, error) {
+		var ticket capability.Ticket
+		var rememberErr error
+		finish := func(err error) (capability.Ticket, error) {
+			if err == nil {
+				// A committed decision may have unblocked a waiting node.
+				s.reconcileAgentWork()
+			}
+			// Remembering a rule can fail after the decision already landed.
+			return ticket, errors.Join(err, rememberErr)
+		}
 		admitted, admitErr := s.store.AdmitControlCommand(actorCtx, command)
 		if admitErr != nil {
-			return admitErr
+			return finish(admitErr)
 		}
 		if !admitted.New {
 			if admitted.Command.Status == "queued" || admitted.Command.Status == "running" || admitted.Command.Status == "waiting" {
-				return errors.New("permission decision is still running")
+				return finish(errors.New("permission decision is still running"))
 			}
 			body, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.meta.ID, admitted.Command.Outcome)
 			if resolveErr != nil {
-				return resolveErr
+				return finish(resolveErr)
 			}
 			if admitted.Command.Status != "succeeded" {
-				return errors.New(string(body))
+				return finish(errors.New(string(body)))
 			}
-			return json.Unmarshal(body, &ticket)
+			return finish(json.Unmarshal(body, &ticket))
 		}
 		admission, decisionErr := s.store.Pending(actorCtx, permissionID)
 		if decisionErr == nil && admission.Request.RootID != s.meta.ID {
@@ -54,27 +64,21 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 		}
 		status := "succeeded"
 		var outcome []byte
+		var err error
 		if decisionErr != nil {
 			status = "failed"
 			outcome = []byte(decisionErr.Error())
 		} else {
 			outcome, err = json.Marshal(ticket)
 			if err != nil {
-				return err
+				return finish(err)
 			}
 		}
-		_, finishErr := s.store.FinishCommand(actorCtx, command.ClientID, command.CommandID, status, sessionstore.RuntimePayload{
+		_, finishErr := s.store.FinishCommand(context.WithoutCancel(actorCtx), command.ClientID, command.CommandID, status, sessionstore.RuntimePayload{
 			Data: outcome, MediaType: "application/json", Source: "permission decision outcome",
 		})
-		return errors.Join(decisionErr, finishErr)
+		return finish(errors.Join(decisionErr, finishErr))
 	})
-	if err == nil {
-		// A decision may have unblocked a waiting node; re-derive readiness.
-		s.reconcileAgentWork()
-	}
-	// The decision itself landed even when remembering it did not; the
-	// command outcome stays authoritative and the caller hears about the rest.
-	return ticket, errors.Join(err, rememberErr)
 }
 
 // rememberedRules validates decision.Remember and names the rules an approval
@@ -177,52 +181,45 @@ func (s *Session) permissionResolver(agentID string) clientPermissionRunner {
 	return resolver
 }
 
-func (s *Session) DecidePermission(ctx context.Context, permissionID string, decision capability.Decision) (ticket capability.Ticket, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
+func (s *Session) DecidePermission(ctx context.Context, permissionID string, decision capability.Decision) (capability.Ticket, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (capability.Ticket, error) {
 		admission, err := s.store.Pending(actorCtx, permissionID)
 		if err != nil {
-			return err
+			return capability.Ticket{}, err
 		}
 		if admission.Request.RootID != s.meta.ID {
-			return capability.ErrDenied
+			return capability.Ticket{}, capability.ErrDenied
 		}
-		ticket, err = s.store.Decide(actorCtx, admission, permissionID, decision)
-		return err
+		return s.store.Decide(actorCtx, admission, permissionID, decision)
 	})
-	return ticket, err
 }
 
-func (s *Session) InspectPermission(ctx context.Context, permissionID string) (admission capability.Admission, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		admission, err = s.store.Pending(actorCtx, permissionID)
+func (s *Session) InspectPermission(ctx context.Context, permissionID string) (capability.Admission, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (capability.Admission, error) {
+		admission, err := s.store.Pending(actorCtx, permissionID)
 		if err == nil && admission.Request.RootID != s.meta.ID {
-			return capability.ErrDenied
+			return capability.Admission{}, capability.ErrDenied
 		}
-		return err
+		return admission, err
 	})
-	return admission, err
 }
 
-func (s *Session) InspectCapability(ctx context.Context, callerAgentID, capabilityID string) (record sessionstore.CapabilityRecord, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		record, err = s.store.InspectCapability(actorCtx, s.meta.ID, callerAgentID, capabilityID)
-		return err
+func (s *Session) InspectCapability(ctx context.Context, callerAgentID, capabilityID string) (sessionstore.CapabilityRecord, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.CapabilityRecord, error) {
+		return s.store.InspectCapability(actorCtx, s.meta.ID, callerAgentID, capabilityID)
 	})
-	return record, err
 }
 
-func (s *Session) DelegateCapability(ctx context.Context, callerAgentID string, delegation sessionstore.CapabilityDelegation) (record sessionstore.CapabilityRecord, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		record, err = s.store.DelegateCapability(actorCtx, s.meta.ID, callerAgentID, delegation)
-		return err
+func (s *Session) DelegateCapability(ctx context.Context, callerAgentID string, delegation sessionstore.CapabilityDelegation) (sessionstore.CapabilityRecord, error) {
+	delegation.Operations = slices.Clone(delegation.Operations)
+	delegation.Scopes = slices.Clone(delegation.Scopes)
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.CapabilityRecord, error) {
+		return s.store.DelegateCapability(actorCtx, s.meta.ID, callerAgentID, delegation)
 	})
-	return record, err
 }
 
-func (s *Session) RevokeCapability(ctx context.Context, callerAgentID, capabilityID string) (record sessionstore.CapabilityRecord, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		record, err = s.store.RevokeCapabilityFor(actorCtx, s.meta.ID, callerAgentID, capabilityID)
-		return err
+func (s *Session) RevokeCapability(ctx context.Context, callerAgentID, capabilityID string) (sessionstore.CapabilityRecord, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.CapabilityRecord, error) {
+		return s.store.RevokeCapabilityFor(actorCtx, s.meta.ID, callerAgentID, capabilityID)
 	})
-	return record, err
 }

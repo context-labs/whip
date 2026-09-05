@@ -36,6 +36,10 @@ func newMailboxFixture(t *testing.T) (*Store, string, string) {
 	return store, rootID, root.AgentID
 }
 
+func mailboxTestReceipt(message MailboxMessage) MailboxReceipt {
+	return MailboxReceipt{ID: message.ID, Revision: message.Revision}
+}
+
 func TestMailboxMessageIsCanonicalAndBodyStaysBehindRead(t *testing.T) {
 	store, rootID, rootAgentID := newMailboxFixture(t)
 	body := strings.Repeat("private body ", 1_000)
@@ -43,7 +47,7 @@ func TestMailboxMessageIsCanonicalAndBodyStaysBehindRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if message.Kind != MessageKindMessage || message.Delivery != MessageDeliveryQueued || message.Status != "pending" {
+	if message.Revision != 1 || message.Kind != MessageKindMessage || message.Delivery != MessageDeliveryQueued || message.Status != "pending" {
 		t.Fatalf("message = %+v", message)
 	}
 	// The message row is the wake condition: no notification row exists.
@@ -74,10 +78,10 @@ func TestMailboxMessageIsCanonicalAndBodyStaysBehindRead(t *testing.T) {
 	if err != nil || string(resolved) != body {
 		t.Fatalf("read body bytes=%d, %v", len(resolved), err)
 	}
-	if changed, err := store.CompleteMailboxMessages(t.Context(), rootID, "child", []string{message.ID}); err != nil || changed != 1 {
+	if changed, err := store.CompleteMailboxMessages(t.Context(), rootID, "child", []MailboxReceipt{mailboxTestReceipt(message)}); err != nil || changed != 1 {
 		t.Fatalf("complete = %d, %v", changed, err)
 	}
-	if changed, err := store.CompleteMailboxMessages(t.Context(), rootID, "child", []string{message.ID}); err != nil || changed != 0 {
+	if changed, err := store.CompleteMailboxMessages(t.Context(), rootID, "child", []MailboxReceipt{mailboxTestReceipt(message)}); err != nil || changed != 0 {
 		t.Fatalf("idempotent complete = %d, %v", changed, err)
 	}
 	if done, err := store.ListMailboxMessages(t.Context(), rootID, "child", "done", "", 50); err != nil || len(done) != 1 {
@@ -99,7 +103,7 @@ func TestAgentTurnsRetainTheAgentAfterFailure(t *testing.T) {
 		t.Fatalf("start = %+v, %v", start, err)
 	}
 	transcript := []llm.Message{{Role: "system", Content: "system"}, {Role: "user", Content: "work"}, {Role: "assistant", Content: "partial"}}
-	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-1", Status: "failed", Transcript: transcript}); err != nil {
+	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-1", Status: "failed", RetryInput: true, Transcript: transcript}); err != nil {
 		t.Fatal(err)
 	}
 	second, err := store.EnqueueInbox(t.Context(), InboxEnqueue{RootID: rootID, AgentID: "child", Kind: "submit", Payload: RuntimePayload{Data: []byte("second")}})
@@ -132,7 +136,7 @@ func TestAgentTurnsRetainTheAgentAfterFailure(t *testing.T) {
 		if start, err := store.StartAgentTurn(t.Context(), rootID, "child", turnID); err != nil || len(start.Items) != 1 || start.Items[0].Seq != third.InboxSeq {
 			t.Fatalf("retry %d claim = %+v, %v", attempt, start, err)
 		}
-		if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: turnID, Status: "failed", Transcript: transcript}); err != nil {
+		if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: turnID, Status: "failed", RetryInput: true, Transcript: transcript}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -188,7 +192,7 @@ func TestMailboxTurnDeliversOnCommitAndNewMailStaysPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn", Status: "succeeded", DeliveredMessages: []string{first.ID}}); err != nil {
+	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn", Status: "succeeded", DeliveredMessages: []MailboxReceipt{mailboxTestReceipt(first)}}); err != nil {
 		t.Fatal(err)
 	}
 	delivered, err := store.ListMailboxMessages(t.Context(), rootID, "child", "delivered", "", 10)
@@ -207,7 +211,7 @@ func TestMailboxTurnDeliversOnCommitAndNewMailStaysPending(t *testing.T) {
 	if start, err := store.StartAgentTurn(t.Context(), rootID, "child", "turn-2"); err != nil || start.Trigger != "mailbox" {
 		t.Fatalf("second start = %+v, %v", start, err)
 	}
-	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-2", Status: "succeeded", DeliveredMessages: []string{second.ID}}); err != nil {
+	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn-2", Status: "succeeded", DeliveredMessages: []MailboxReceipt{mailboxTestReceipt(second)}}); err != nil {
 		t.Fatal(err)
 	}
 	if work, err := store.AgentWorkStatus(t.Context(), rootID, "child", time.Now()); err != nil || work.HasReadyMail {
@@ -224,7 +228,7 @@ func TestFailedMailboxTurnRedeliversPendingMail(t *testing.T) {
 	if _, err := store.StartAgentTurn(t.Context(), rootID, "child", "turn"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn", Status: "failed", DeliveredMessages: []string{message.ID}, Error: "provider down"}); err != nil {
+	if err := store.FinishAgentTurn(t.Context(), rootID, "child", AgentTurnCommit{TurnID: "turn", Status: "failed", DeliveredMessages: []MailboxReceipt{mailboxTestReceipt(message)}, Error: "provider down"}); err != nil {
 		t.Fatal(err)
 	}
 	pending, err := store.ListMailboxMessages(t.Context(), rootID, "child", "pending", "", 10)
@@ -242,6 +246,9 @@ func TestMessageDeliveryClassesAndDeferral(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.StartAgentTurn(t.Context(), rootID, "child", "mail-turn"); err != nil {
+		t.Fatal(err)
+	}
 	humanSteer, err := store.EnqueueInbox(t.Context(), InboxEnqueue{RootID: rootID, AgentID: "child", Kind: "steer", Payload: RuntimePayload{Data: []byte("also this")}})
 	if err != nil {
 		t.Fatal(err)
@@ -249,16 +256,20 @@ func TestMessageDeliveryClassesAndDeferral(t *testing.T) {
 	if _, err := store.EnqueueInbox(t.Context(), InboxEnqueue{RootID: rootID, AgentID: "child", Kind: "submit", Payload: RuntimePayload{Data: []byte("not a steer")}}); err != nil {
 		t.Fatal(err)
 	}
-	inbox, mail, err := store.PendingSteers(t.Context(), rootID, "child", time.Now())
-	if err != nil || len(inbox) != 1 || inbox[0].Seq != humanSteer.InboxSeq || len(mail) != 1 || mail[0].ID != steer.ID {
-		t.Fatalf("pending steers = %+v / %+v, %v", inbox, mail, err)
+	inbox, err := store.ClaimSteers(t.Context(), rootID, "child", "mail-turn")
+	if err != nil || len(inbox) != 1 || inbox[0].Seq != humanSteer.InboxSeq {
+		t.Fatalf("claimed steers = %+v, %v", inbox, err)
+	}
+	digest, err := store.ReadMailboxDigest(t.Context(), rootID, "child", time.Now())
+	if err != nil || len(digest.Pending) != 1 || digest.Pending[0].ID != steer.ID {
+		t.Fatalf("ready steer mail=%+v %v", digest, err)
 	}
 	until := time.Now().Add(time.Hour)
-	if err := store.DeferMailboxMessage(t.Context(), rootID, "child", steer.ID, until); err != nil {
+	if revision, err := store.DeferMailboxMessage(t.Context(), rootID, "child", mailboxTestReceipt(steer), until); err != nil || revision != steer.Revision+1 {
 		t.Fatal(err)
 	}
-	if _, mail, err := store.PendingSteers(t.Context(), rootID, "child", time.Now()); err != nil || len(mail) != 0 {
-		t.Fatalf("deferred steer still pending = %+v, %v", mail, err)
+	if digest, err := store.ReadMailboxDigest(t.Context(), rootID, "child", time.Now()); err != nil || len(digest.Pending) != 0 {
+		t.Fatalf("deferred steer still pending = %+v, %v", digest, err)
 	}
 	work, err := store.AgentWorkStatus(t.Context(), rootID, "child", time.Now())
 	if err != nil || work.HasReadyMail || !work.HasExplicitInput || work.NextDeferredAt.IsZero() || work.NextDeferredAt.After(until.Add(time.Second)) {
@@ -267,10 +278,10 @@ func TestMessageDeliveryClassesAndDeferral(t *testing.T) {
 	if work, err := store.AgentWorkStatus(t.Context(), rootID, "child", until.Add(time.Second)); err != nil || !work.HasReadyMail {
 		t.Fatalf("work after deferral matures = %+v, %v", work, err)
 	}
-	if err := store.DeferMailboxMessage(t.Context(), rootID, "child", "missing", until); err == nil {
+	if _, err := store.DeferMailboxMessage(t.Context(), rootID, "child", MailboxReceipt{ID: "missing"}, until); err == nil {
 		t.Fatal("deferring an unknown message succeeded")
 	}
-	if changed, err := store.CompleteMailboxMessages(t.Context(), rootID, "child", []string{steer.ID}); err != nil || changed != 1 {
+	if changed, err := store.CompleteMailboxMessages(t.Context(), rootID, "child", []MailboxReceipt{{ID: steer.ID, Revision: steer.Revision + 1}}); err != nil || changed != 1 {
 		t.Fatalf("complete deferred = %d, %v", changed, err)
 	}
 }
@@ -320,11 +331,11 @@ func TestMailboxCapsBacklogRateAndBodySize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ids := make([]string, 0, len(pending))
+	receipts := make([]MailboxReceipt, 0, len(pending))
 	for _, message := range pending {
-		ids = append(ids, message.ID)
+		receipts = append(receipts, mailboxTestReceipt(message))
 	}
-	if _, err := store.CompleteMailboxMessages(t.Context(), rootID, rootAgentID, ids); err != nil {
+	if _, err := store.CompleteMailboxMessages(t.Context(), rootID, rootAgentID, receipts); err != nil {
 		t.Fatal(err)
 	}
 	// 21 sends so far (20 + the exempt upsert); the window allows 30 in total.

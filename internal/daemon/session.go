@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -112,9 +113,10 @@ type turnJournal struct {
 	Messages          []llm.Message
 	Compactions       []turnCompaction
 	DeliveredInbox    []int64
-	DeliveredMessages []string
-	seenInbox         map[int64]bool
-	seenMessages      map[string]bool
+	DeliveredMessages []sessionstore.MailboxReceipt
+	ClaimedInbox      []int64
+	seenMessages      map[sessionstore.MailboxReceipt]bool
+	observedMessages  map[string]int64
 }
 
 // rootTurn identifies the root's live turn: an inbox-triggered turn by its
@@ -131,6 +133,7 @@ type workerEnvelope struct {
 	completion workerCompletion
 	err        error
 	control    func(context.Context) error
+	controlCtx context.Context
 	reply      chan error
 	at         time.Time
 	client     *clientCommandCompletion
@@ -217,17 +220,6 @@ func (s *supervisor) post(event workerEnvelope) {
 	case s.wake <- struct{}{}:
 	default:
 	}
-}
-
-// requeue puts taken-but-unhandled events back at the head of the queue so the
-// next take (the shutdown flush) sees them before anything posted later.
-func (s *supervisor) requeue(events []workerEnvelope) {
-	if len(events) == 0 {
-		return
-	}
-	s.mu.Lock()
-	s.events = append(append([]workerEnvelope(nil), events...), s.events...)
-	s.mu.Unlock()
 }
 
 func (s *supervisor) take() []workerEnvelope {
@@ -335,17 +327,21 @@ func (s *Session) Steer(ctx context.Context, text string) (*Receipt, error) {
 
 // AdmitCommand binds one stable protocol command to the root actor's durable
 // inbox. Matching retries attach to the existing sequence or terminal result.
-func (s *Session) AdmitCommand(ctx context.Context, admission sessionstore.CommandAdmission) (result sessionstore.CommandAdmissionResult, receipt *Receipt, err error) {
+func (s *Session) AdmitCommand(ctx context.Context, admission sessionstore.CommandAdmission) (sessionstore.CommandAdmissionResult, *Receipt, error) {
 	admission.Scope = sessionstore.CommandScopeRoot
 	admission.RootID = s.meta.ID
 	admission.AgentID = s.authority.AgentID
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		var admitErr error
-		result, admitErr = s.store.AdmitCommand(actorCtx, admission)
-		if admitErr != nil {
-			return admitErr
+	admission.Payload.Data = slices.Clone(admission.Payload.Data)
+	type admittedCommand struct {
+		result  sessionstore.CommandAdmissionResult
+		receipt *Receipt
+	}
+	admitted, err := routeControlValue(s, ctx, func(actorCtx context.Context) (admittedCommand, error) {
+		result, err := s.store.AdmitCommand(actorCtx, admission)
+		if err != nil {
+			return admittedCommand{}, err
 		}
-		receipt = newReceipt(result.Command.IngressSeq)
+		receipt := newReceipt(result.Command.IngressSeq)
 		switch result.Command.Status {
 		case "queued", "running", "waiting":
 			s.register(receipt)
@@ -365,27 +361,25 @@ func (s *Session) AdmitCommand(ctx context.Context, admission sessionstore.Comma
 		default:
 			receipt.finish(Completion{Sequence: result.Command.IngressSeq, Err: fmt.Errorf("command is %s", result.Command.Status)})
 		}
-		return nil
+		if result.New {
+			s.notify()
+		}
+		return admittedCommand{result: result, receipt: receipt}, nil
 	})
 	if err != nil {
 		return sessionstore.CommandAdmissionResult{}, nil, err
 	}
-	if result.New {
-		s.notify()
-	}
-	return result, receipt, nil
+	return admitted.result, admitted.receipt, nil
 }
 
-func (s *Session) Snapshot(ctx context.Context) (snapshot sessionstore.RootSnapshot, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		var snapshotErr error
-		snapshot, snapshotErr = s.store.SnapshotRoot(actorCtx, s.meta.ID)
-		if snapshotErr == nil {
+func (s *Session) Snapshot(ctx context.Context) (sessionstore.RootSnapshot, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.RootSnapshot, error) {
+		snapshot, err := s.store.SnapshotRoot(actorCtx, s.meta.ID)
+		if err == nil {
 			snapshot.Questions = s.questions.open() // in memory, not in the store: a mid-question client has no question.pending to replay
 		}
-		return snapshotErr
+		return snapshot, err
 	})
-	return snapshot, err
 }
 
 func (s *Session) hasRunningAgent() bool {
@@ -453,6 +447,9 @@ func (s *Session) settle(sequence int64, result Completion) {
 }
 
 // routeControl serializes a reply-bearing operation through the root actor.
+// After admission, cancellation or shutdown means the result is unavailable;
+// it does not establish that the operation had no effect. Result-bearing
+// callers must use routeControlValue instead of sharing variables with the actor.
 func (s *Session) routeControl(ctx context.Context, control func(context.Context) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -463,9 +460,45 @@ func (s *Session) routeControl(ctx context.Context, control func(context.Context
 		return ErrStopped
 	}
 	reply := make(chan error, 1)
-	s.supervisor.post(workerEnvelope{kind: workerControl, control: control, reply: reply})
+	s.supervisor.post(workerEnvelope{kind: workerControl, control: control, controlCtx: ctx, reply: reply})
 	s.admitMu.RUnlock()
-	return <-reply
+	select {
+	case err := <-reply:
+		return err
+	case <-ctx.Done():
+		// Prefer a completed result when cancellation and the reply coincide.
+		select {
+		case err := <-reply:
+			return err
+		default:
+			return ctx.Err()
+		}
+	case <-s.supervisor.ctx.Done():
+		select {
+		case err := <-reply:
+			return err
+		default:
+			return ErrStopped
+		}
+	}
+}
+
+// routeControlValue transfers ownership of the result through a buffered
+// channel, so an actor may safely finish after its caller stops waiting.
+func routeControlValue[T any](s *Session, ctx context.Context, control func(context.Context) (T, error)) (T, error) {
+	result := make(chan T, 1)
+	err := s.routeControl(ctx, func(actorCtx context.Context) error {
+		value, err := control(actorCtx)
+		result <- value
+		return err
+	})
+	select {
+	case value := <-result:
+		return value, err
+	default:
+		var zero T
+		return zero, err
+	}
 }
 
 func (s *Session) Stop() {
@@ -509,7 +542,10 @@ func (s *Session) run() {
 	s.stopping = true
 	s.admitMu.Unlock()
 	s.supervisor.stop()
-	cleanupErr := safeClose("runner", s.runner.Close)
+	// Settle replies before closing components or waiting for workers: either
+	// may be waiting on a worker that routed a control through this actor.
+	cleanupErr := s.flushPendingEvents()
+	cleanupErr = errors.Join(cleanupErr, safeClose("runner", s.runner.Close))
 	if s.mcp != nil {
 		cleanupErr = errors.Join(cleanupErr, safeClose("mcp", s.mcp.Close))
 	}
@@ -562,34 +598,77 @@ func (s *Session) actor() error {
 	}
 }
 
-// processWorkerBatch handles one take() of worker events in order. When an
-// event fails, the events behind it were already taken off the queue, so they
-// are given back to the supervisor: run's shutdown flush then answers every
-// control call and client command in them. Dropping them instead left a
-// worker blocked on its reply while drainWorkers waited for that worker.
-func (s *Session) processWorkerBatch(events []workerEnvelope) error {
-	for i, event := range events {
-		if err := s.handleWorkerEvent(event); err != nil {
-			s.supervisor.requeue(events[i+1:])
+// processWorkerBatch owns every reply in a taken batch until it is settled,
+// including the current event if its handler returns early or panics.
+func (s *Session) processWorkerBatch(events []workerEnvelope) (err error) {
+	next := 0
+	defer func() {
+		if value := recover(); value != nil {
+			err = panicError("actor event", value)
+		}
+		if err != nil {
+			for i := next; i < len(events); i++ {
+				replyErr := ErrStopped
+				if i == next {
+					replyErr = err
+				}
+				s.replyWorkerEvent(&events[i], CommandResult{}, replyErr)
+			}
+		}
+	}()
+	for ; next < len(events); next++ {
+		if err := s.handleWorkerEvent(&events[next]); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *Session) handleWorkerEvent(event workerEnvelope) error {
+// replyWorkerEvent is the only sender for actor-owned replies. Clearing the
+// channel transfers ownership and lets batch cleanup safely revisit an event.
+func (s *Session) replyWorkerEvent(event *workerEnvelope, result CommandResult, err error) {
+	if event.reply != nil {
+		reply := event.reply
+		event.reply = nil
+		reply <- err
+	}
+	if event.client != nil && event.client.reply != nil {
+		reply := event.client.reply
+		event.client.reply = nil
+		reply <- clientCommandReply{result: result, err: err}
+	}
+}
+
+func (s *Session) handleWorkerEvent(event *workerEnvelope) error {
 	if event.err != nil {
 		return event.err
 	}
 	switch event.kind {
 	case workerControl:
+		ctx := event.controlCtx
+		if ctx == nil {
+			ctx = s.supervisor.ctx
+		}
+		if err := ctx.Err(); err != nil {
+			s.replyWorkerEvent(event, CommandResult{}, err)
+			return nil
+		}
+		if s.supervisor.ctx.Err() != nil {
+			s.replyWorkerEvent(event, CommandResult{}, ErrStopped)
+			return nil
+		}
+		ctx, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(s.supervisor.ctx, cancel)
+		defer func() { stop(); cancel() }()
 		err := errors.New("actor control is missing")
 		if event.control != nil {
-			err = event.control(s.supervisor.ctx)
+			err = event.control(ctx)
 		}
-		event.reply <- err
+		s.replyWorkerEvent(event, CommandResult{}, err)
 	case workerClientCommand:
-		return s.completeClientCommand(event.client)
+		result, err := s.completeClientCommand(event.client)
+		s.replyWorkerEvent(event, result, err)
+		return err
 	case workerStream:
 		return s.recordStreamEvent(event.stream)
 	case workerScheduleTick:
@@ -601,20 +680,17 @@ func (s *Session) handleWorkerEvent(event workerEnvelope) error {
 }
 
 func (s *Session) flushPendingEvents() error {
+	events := s.supervisor.take()
 	var flushErr error
-	for _, event := range s.supervisor.take() {
-		flushErr = errors.Join(flushErr, event.err)
-		if event.kind == workerControl {
-			event.reply <- ErrStopped
-			continue
-		}
-		if event.kind == workerClientCommand && event.client != nil {
-			event.client.reply <- clientCommandReply{err: ErrStopped}
-			continue
-		}
+	// Answer the whole batch before best-effort stream persistence, which may
+	// itself fail. No late stream event can strand an admitted control.
+	for i := range events {
+		flushErr = errors.Join(flushErr, events[i].err)
+		s.replyWorkerEvent(&events[i], CommandResult{}, ErrStopped)
+	}
+	for _, event := range events {
 		if event.kind == workerStream {
 			flushErr = errors.Join(flushErr, s.recordStreamEvent(event.stream))
-			continue
 		}
 	}
 	return flushErr
@@ -669,15 +745,11 @@ func (s *Session) dispatch() error {
 		return err
 	}
 	var current rootTurn
-	var text string
-	var parts []llm.ContentPart
+	var input *sessionstore.InboxItem
 	authored := false
 	if len(items) > 0 {
 		item := items[0]
-		text, parts, err = s.inboxInput(item)
-		if err != nil {
-			return err
-		}
+		input = &item
 		authored = item.Kind == "submit" || item.Kind == "submit.parts" || item.Kind == "steer" || item.Kind == "steer.parts"
 		if err := s.store.StartRootTurn(ctx, s.meta.ID, s.authority.AgentID, item.Seq); err != nil {
 			return err
@@ -703,6 +775,19 @@ func (s *Session) dispatch() error {
 	turnCtx, turnCancel := context.WithCancel(ctx)
 	s.turnCancel = turnCancel
 	return s.supervisor.launch(workerTurn, func(context.Context) workerCompletion {
+		var text string
+		var parts []llm.ContentPart
+		if input != nil {
+			var err error
+			text, parts, err = s.decodeInboxInput(turnCtx, *input)
+			if err != nil {
+				return workerCompletion{sequence: current.seq, err: err}
+			}
+		}
+		content, _ := s.runner.(contentRunner)
+		if len(parts) > 0 && content == nil {
+			return workerCompletion{sequence: current.seq, err: fmt.Errorf("%w: session runner does not support content parts", sessionstore.ErrInvalidInput)}
+		}
 		workspaceRef := ""
 		workspace, snapshotsWorkspace := s.runner.(workspaceSnapshotRunner)
 		if snapshotsWorkspace {
@@ -713,11 +798,7 @@ func (s *Session) dispatch() error {
 		var output string
 		var err error
 		if len(parts) > 0 {
-			if runner, ok := s.runner.(contentRunner); ok {
-				output, err = runner.TurnParts(turnCtx, text, parts, started, accepted)
-			} else {
-				err = errors.New("session runner does not support content parts")
-			}
+			output, err = content.TurnParts(turnCtx, text, parts, started, accepted)
 		} else {
 			output, err = s.runner.Turn(turnCtx, text, authored, started, accepted)
 		}
@@ -757,22 +838,20 @@ func (s *Session) inboxText(item sessionstore.InboxItem) (string, error) {
 }
 
 func (s *Session) inboxInput(item sessionstore.InboxItem) (string, []llm.ContentPart, error) {
-	var data []byte
-	if item.Payload.ReferenceID == "" {
-		data = item.Payload.Inline
-	} else {
-		var err error
-		data, _, err = s.store.ReadContent(s.supervisor.ctx, item.Payload.ReferenceID, s.meta.ID, s.authority.AgentID, 0, sessionstore.MaxContentRead)
-		if err != nil {
-			return "", nil, err
-		}
+	return s.decodeInboxInput(s.supervisor.ctx, item)
+}
+
+func (s *Session) decodeInboxInput(ctx context.Context, item sessionstore.InboxItem) (string, []llm.ContentPart, error) {
+	data, err := s.store.ResolveInboxPayload(ctx, item)
+	if err != nil {
+		return "", nil, err
 	}
 	if item.Kind != "submit.parts" && item.Kind != "steer.parts" {
 		return string(data), nil, nil
 	}
 	var payload SubmitPayload
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return "", nil, errors.New("invalid content-parts submission")
+		return "", nil, fmt.Errorf("%w: invalid content-parts submission", sessionstore.ErrInvalidInput)
 	}
 	return payload.Text, payload.Parts, nil
 }
@@ -831,7 +910,12 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 	// Steers injected at a boundary were consumed by the commit; their
 	// receipts settle without an output of their own.
 	for _, seq := range acknowledged {
-		s.settle(seq, Completion{Sequence: seq})
+		s.settle(seq, Completion{Sequence: seq, Err: completion.err})
+	}
+	for _, seq := range completion.journal.ClaimedInbox {
+		if !slices.Contains(acknowledged, seq) {
+			s.settle(seq, Completion{Sequence: seq, Err: errors.New("input interrupted before delivery")})
+		}
 	}
 	s.running = nil
 	if s.turnCancel != nil {

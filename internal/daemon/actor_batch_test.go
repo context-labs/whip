@@ -3,60 +3,117 @@ package daemon
 import (
 	"context"
 	"errors"
-	"path/filepath"
+	"strings"
 	"testing"
-	"time"
-
-	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 )
 
-// A failing event in the middle of a worker batch used to make the actor
-// return with the rest of the batch dropped on the floor: a worker blocked in
-// routeControl never got its reply, and the shutdown drain then waited on that
-// worker forever. The remainder must be handed back so the flush answers it.
-func TestActorFailureAnswersTheRestOfTheBatch(t *testing.T) {
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	rootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: &fakeRunner{}}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestActorFailureAnswersCurrentAndRemainingBatch(t *testing.T) {
+	failure := errors.New("worker failed")
+	for _, kind := range []string{"stream", "control error", "client error", "control panic", "client preflight", "client panic"} {
+		t.Run(kind, func(t *testing.T) {
+			root := &Session{supervisor: newSupervisor()}
+			t.Cleanup(root.supervisor.stop)
+			currentControl := make(chan error, 1)
+			currentClient := make(chan clientCommandReply, 1)
+			current := workerEnvelope{}
+			switch kind {
+			case "stream":
+				current = workerEnvelope{kind: workerStream, stream: &streamEnvelope{}}
+			case "control error":
+				current = workerEnvelope{kind: workerControl, err: failure, reply: currentControl}
+			case "client error":
+				current = workerEnvelope{kind: workerClientCommand, err: failure, client: &clientCommandCompletion{reply: currentClient}}
+			case "control panic":
+				current = workerEnvelope{kind: workerControl, reply: currentControl, control: func(context.Context) error { panic("control panic") }}
+			case "client preflight":
+				current = workerEnvelope{kind: workerClientCommand, client: &clientCommandCompletion{reply: currentClient}}
+			case "client panic":
+				root.clientBusy = true
+				// A panic while applying completion state must still answer it.
+				current = workerEnvelope{kind: workerClientCommand, client: &clientCommandCompletion{reply: currentClient, goal: &clientGoal{text: "goal"}}}
+			}
+			remainingControl := make(chan error, 1)
+			remainingClient := make(chan clientCommandReply, 1)
+			controlRan := false
+			err := root.processWorkerBatch([]workerEnvelope{
+				current,
+				{kind: workerControl, reply: remainingControl, control: func(context.Context) error { controlRan = true; return nil }},
+				{kind: workerClientCommand, client: &clientCommandCompletion{reply: remainingClient}},
+			})
+			if err == nil {
+				t.Fatal("batch unexpectedly succeeded")
+			}
+			if strings.Contains(kind, "panic") && !strings.Contains(err.Error(), "panic") {
+				t.Fatalf("panic lost from actor error: %v", err)
+			}
+			if current.kind == workerControl {
+				if got := receiveActorValue(t, currentControl); got == nil {
+					t.Fatal("failing control received success")
+				}
+			}
+			if current.kind == workerClientCommand {
+				if got := receiveActorValue(t, currentClient); got.err == nil {
+					t.Fatal("failing client completion received success")
+				}
+			}
+			if got := receiveActorValue(t, remainingControl); !errors.Is(got, ErrStopped) {
+				t.Fatalf("remaining control = %v, want ErrStopped", got)
+			}
+			if got := receiveActorValue(t, remainingClient); !errors.Is(got.err, ErrStopped) {
+				t.Fatalf("remaining client = %v, want ErrStopped", got.err)
+			}
+			if controlRan {
+				t.Fatal("control behind the failing event ran")
+			}
+			if err := root.flushPendingEvents(); err != nil {
+				t.Fatal(err)
+			}
+			if len(currentControl)+len(currentClient)+len(remainingControl)+len(remainingClient) != 0 {
+				t.Fatal("one or more envelopes received a second reply")
+			}
+		})
 	}
-	t.Cleanup(func() { _ = value.Close() })
-	root, err := value.Open(rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
+}
 
-	reply := make(chan error, 1)
-	controlRan := false
-	batch := []workerEnvelope{
-		{kind: workerStream, stream: &streamEnvelope{}}, // incomplete: the actor fails here
-		{kind: workerControl, control: func(context.Context) error { controlRan = true; return nil }, reply: reply},
+func TestActorClientCommitFailureRepliesExactlyOnce(t *testing.T) {
+	root := newIdleActorSession(t, &fakeRunner{})
+	if err := root.store.Close(); err != nil {
+		t.Fatal(err)
 	}
-	if err := root.processWorkerBatch(batch); err == nil {
-		t.Fatal("an incomplete stream event must fail the batch")
+	root.clientBusy = true
+	reply := make(chan clientCommandReply, 1)
+	if err := root.processWorkerBatch([]workerEnvelope{{
+		kind:   workerClientCommand,
+		client: &clientCommandCompletion{clientID: "client", commandID: "command", operation: "shell.run", reply: reply},
+	}}); err == nil {
+		t.Fatal("closed store accepted command completion")
 	}
-	if controlRan {
-		t.Fatal("a control behind the failing event must not run on a failed actor")
+	if got := receiveActorValue(t, reply); got.err == nil {
+		t.Fatal("commit failure was not returned")
 	}
-	select {
-	case err := <-reply:
-		t.Fatalf("control was answered before the flush: %v", err)
-	default:
-	}
-	// run() flushes whatever is left on the queue after the actor returns.
 	if err := root.flushPendingEvents(); err != nil {
-		t.Fatalf("flush: %v", err)
+		t.Fatal(err)
 	}
-	select {
-	case err := <-reply:
-		if !errors.Is(err, ErrStopped) {
-			t.Fatalf("abandoned control reply = %v, want ErrStopped", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("abandoned control was never answered: the worker would block forever")
+	if len(reply) != 0 {
+		t.Fatal("commit failure was answered twice")
+	}
+}
+
+func TestActorControlErrorDoesNotFailBatch(t *testing.T) {
+	root := &Session{supervisor: newSupervisor()}
+	t.Cleanup(root.supervisor.stop)
+	first, second := make(chan error, 1), make(chan error, 1)
+	failure := errors.New("invalid control")
+	if err := root.processWorkerBatch([]workerEnvelope{
+		{kind: workerControl, reply: first, control: func(context.Context) error { return failure }},
+		{kind: workerControl, reply: second, control: func(context.Context) error { return nil }},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := receiveActorValue(t, first); !errors.Is(got, failure) {
+		t.Fatalf("control error = %v", got)
+	}
+	if got := receiveActorValue(t, second); got != nil {
+		t.Fatalf("next control = %v", got)
 	}
 }

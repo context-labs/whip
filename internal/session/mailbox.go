@@ -42,6 +42,7 @@ const (
 // showed the message commits, so a crashed turn redelivers it.
 type MailboxMessage struct {
 	ID                  string       `json:"id"`
+	Revision            int64        `json:"revision"`
 	SenderAgentID       string       `json:"sender"`
 	RecipientAgentID    string       `json:"recipient"`
 	Kind                string       `json:"kind"`
@@ -56,6 +57,13 @@ type MailboxMessage struct {
 	DeliveredAt         time.Time    `json:"delivered_at,omitzero"`
 	DeliveredTurnID     string       `json:"delivered_turn_id,omitempty"`
 	DoneAt              time.Time    `json:"done_at,omitzero"`
+}
+
+// MailboxReceipt identifies the exact message revision observed by an agent.
+// Revision zero is reserved for explicit handling of previously delivered mail.
+type MailboxReceipt struct {
+	ID       string `json:"id"`
+	Revision int64  `json:"revision"`
 }
 
 // MailboxSend describes one message to store. A zero AvailableAt means now.
@@ -144,6 +152,7 @@ const (
 var (
 	ErrMailboxBacklog     = fmt.Errorf("recipient already has %d pending messages from this sender; wait for it to complete some", MaxPendingPerPair)
 	ErrMailboxRateLimited = fmt.Errorf("message rate limit exceeded (%d per %s)", MaxMessagesPerWindow, MessageRateWindow)
+	ErrMessageChanged     = errors.New("message changed or has not been observed; read it again before completing or deferring it")
 )
 
 // SendMailboxMessage stores one agent-authored message for a direct relative.
@@ -227,23 +236,26 @@ func (s *Store) insertMailboxMessageTx(ctx context.Context, tx *sql.Tx, rootID, 
 	excerpt := utf8Prefix(send.Body, MailboxExcerptBytes)
 	availableAt := timestampArg(send.AvailableAt)
 	message := MailboxMessage{
+		Revision:      1,
 		SenderAgentID: senderAgentID, RecipientAgentID: recipientAgentID, Kind: send.Kind, Delivery: send.Delivery,
 		Subject: send.Subject, Excerpt: excerpt, EvidenceReferenceID: send.EvidenceReferenceID, Status: "pending",
 		AvailableAt: send.AvailableAt, CreatedAt: parseTimestamp(stamp),
 	}
 	if send.UpsertKey != "" {
 		var existing string
-		err := tx.QueryRowContext(ctx, `SELECT id FROM agent_messages WHERE root_id=? AND recipient_agent_id=? AND upsert_key=? AND status='pending'`,
-			rootID, recipientAgentID, send.UpsertKey).Scan(&existing)
+		var revision int64
+		err := tx.QueryRowContext(ctx, `SELECT id,revision FROM agent_messages WHERE root_id=? AND recipient_agent_id=? AND upsert_key=? AND status='pending'`,
+			rootID, recipientAgentID, send.UpsertKey).Scan(&existing, &revision)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return MailboxMessage{}, err
 		}
 		if err == nil {
-			if _, err := tx.ExecContext(ctx, `UPDATE agent_messages SET sender_agent_id=?,kind=?,delivery=?,subject=?,excerpt=?,body_inline=?,body_ref=?,evidence_ref=?,available_at=?,created_at=? WHERE id=?`,
+			if _, err := tx.ExecContext(ctx, `UPDATE agent_messages SET revision=revision+1,sender_agent_id=?,kind=?,delivery=?,subject=?,excerpt=?,body_inline=?,body_ref=?,evidence_ref=?,available_at=?,created_at=? WHERE id=?`,
 				senderAgentID, send.Kind, send.Delivery, send.Subject, excerpt, inline, reference, nullableString(send.EvidenceReferenceID), availableAt, stamp, existing); err != nil {
 				return MailboxMessage{}, err
 			}
 			message.ID = existing
+			message.Revision = revision + 1
 			_, err = s.insertActorEventTx(ctx, tx, rootID, "message.updated", actorEvent{
 				AgentID: recipientAgentID, SenderAgentID: senderAgentID, MessageID: existing, Delivery: send.Delivery, Status: "pending",
 			}, stamp)
@@ -300,19 +312,20 @@ func normalizeMessageStatus(status string) (string, error) {
 	return "", fmt.Errorf("invalid message status %q", status)
 }
 
-const mailboxColumns = `m.id,m.sender_agent_id,m.recipient_agent_id,m.kind,m.delivery,m.subject,m.excerpt,COALESCE(m.evidence_ref,''),
+const mailboxColumns = `m.id,m.revision,m.sender_agent_id,m.recipient_agent_id,m.kind,m.delivery,m.subject,m.excerpt,COALESCE(m.evidence_ref,''),
 	m.status,m.available_at,m.created_at,m.delivered_at,m.delivered_turn_id,m.done_at,COALESCE(LENGTH(m.body_inline),0),COALESCE(m.body_ref,''),COALESCE(r.size,0)`
 
 func scanMailboxRow(rows interface {
 	Scan(dest ...any) error
-}, message *MailboxMessage,
+}, message *MailboxMessage, extra ...any,
 ) error {
 	var availableAt, createdAt, deliveredAt, doneAt string
 	var inlineSize, referenceSize int64
 	var reference string
-	if err := rows.Scan(&message.ID, &message.SenderAgentID, &message.RecipientAgentID, &message.Kind, &message.Delivery, &message.Subject,
+	fields := []any{&message.ID, &message.Revision, &message.SenderAgentID, &message.RecipientAgentID, &message.Kind, &message.Delivery, &message.Subject,
 		&message.Excerpt, &message.EvidenceReferenceID, &message.Status, &availableAt, &createdAt, &deliveredAt, &message.DeliveredTurnID, &doneAt,
-		&inlineSize, &reference, &referenceSize); err != nil {
+		&inlineSize, &reference, &referenceSize}
+	if err := rows.Scan(append(fields, extra...)...); err != nil {
 		return err
 	}
 	message.AvailableAt, message.CreatedAt = parseTimestamp(availableAt), parseTimestamp(createdAt)
@@ -369,27 +382,25 @@ func (s *Store) ReadMailboxMessage(ctx context.Context, rootID, recipientAgentID
 		return MailboxMessage{}, ErrAgentAccess
 	}
 	var message MailboxMessage
-	row := s.db.QueryRowContext(ctx, `SELECT `+mailboxColumns+` FROM agent_messages m LEFT JOIN content_references r ON r.id=m.body_ref
+	var inline []byte
+	row := s.db.QueryRowContext(ctx, `SELECT `+mailboxColumns+`,m.body_inline FROM agent_messages m LEFT JOIN content_references r ON r.id=m.body_ref
 		WHERE m.id=? AND m.root_id=? AND m.recipient_agent_id=?`, id, rootID, recipientAgentID)
-	if err := scanMailboxRow(row, &message); errors.Is(err, sql.ErrNoRows) {
+	if err := scanMailboxRow(row, &message, &inline); errors.Is(err, sql.ErrNoRows) {
 		return MailboxMessage{}, ErrAgentAccess
 	} else if err != nil {
 		return MailboxMessage{}, err
 	}
 	if message.Body.ReferenceID == "" {
-		var inline []byte
-		if err := s.db.QueryRowContext(ctx, `SELECT body_inline FROM agent_messages WHERE id=?`, id).Scan(&inline); err != nil {
-			return MailboxMessage{}, err
-		}
 		message.Body.Inline = inline
 	}
 	return message, nil
 }
 
-// CompleteMailboxMessages terminalizes messages the recipient has handled.
-func (s *Store) CompleteMailboxMessages(ctx context.Context, rootID, recipientAgentID string, ids []string) (int64, error) {
-	if rootID == "" || recipientAgentID == "" || len(ids) == 0 || len(ids) > 100 {
-		return 0, errors.New("message completion requires 1 to 100 ids")
+// CompleteMailboxMessages terminalizes the revisions the recipient has handled.
+// One stale receipt rejects the whole batch, including earlier completions.
+func (s *Store) CompleteMailboxMessages(ctx context.Context, rootID, recipientAgentID string, receipts []MailboxReceipt) (int64, error) {
+	if rootID == "" || recipientAgentID == "" || len(receipts) == 0 || len(receipts) > 100 {
+		return 0, errors.New("message completion requires 1 to 100 receipts")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -397,101 +408,128 @@ func (s *Store) CompleteMailboxMessages(ctx context.Context, rootID, recipientAg
 	}
 	defer func() { _ = tx.Rollback() }()
 	stamp := now()
-	seen := make(map[string]struct{}, len(ids))
+	seen := make(map[MailboxReceipt]struct{}, len(receipts))
 	var changed int64
-	for _, id := range ids {
-		if id == "" {
-			return 0, errors.New("message id is required")
-		}
-		if _, duplicate := seen[id]; duplicate {
+	for _, receipt := range receipts {
+		if _, duplicate := seen[receipt]; duplicate {
 			continue
 		}
-		seen[id] = struct{}{}
-		result, err := tx.ExecContext(ctx, `UPDATE agent_messages SET status='done',done_at=?
-			WHERE id=? AND root_id=? AND recipient_agent_id=? AND status IN ('pending','delivered')`, stamp, id, rootID, recipientAgentID)
+		seen[receipt] = struct{}{}
+		_, status, err := mailboxReceiptStateTx(ctx, tx, rootID, recipientAgentID, receipt)
 		if err != nil {
 			return 0, err
 		}
-		count, err := result.RowsAffected()
-		if err != nil {
-			return 0, err
-		}
-		if count == 0 {
-			var exists int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM agent_messages WHERE id=? AND root_id=? AND recipient_agent_id=?`, id, rootID, recipientAgentID).Scan(&exists); err != nil {
-				return 0, err
-			}
-			if exists == 0 {
-				return 0, ErrAgentAccess
-			}
+		if status == "done" {
 			continue
 		}
-		changed += count
-		if _, err := s.insertActorEventTx(ctx, tx, rootID, "message.done", actorEvent{AgentID: recipientAgentID, MessageID: id, Status: "done"}, stamp); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_messages SET status='done',done_at=?
+			WHERE id=? AND root_id=? AND recipient_agent_id=?`, stamp, receipt.ID, rootID, recipientAgentID); err != nil {
+			return 0, err
+		}
+		changed++
+		if _, err := s.insertActorEventTx(ctx, tx, rootID, "message.done", actorEvent{
+			AgentID: recipientAgentID, MessageID: receipt.ID, Status: "done",
+		}, stamp); err != nil {
 			return 0, err
 		}
 	}
-	return changed, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return changed, nil
 }
 
-// DeferMailboxMessage returns a message to pending with a future
-// availability, which is the only way a message wakes its recipient twice.
-func (s *Store) DeferMailboxMessage(ctx context.Context, rootID, recipientAgentID, id string, until time.Time) error {
-	if rootID == "" || recipientAgentID == "" || id == "" {
-		return ErrAgentAccess
+// mailboxReceiptStateTx validates ownership and observation before an explicit
+// action. Previously delivered mail may be handled by ID in a later turn, but
+// pending content must be observed at its current revision first.
+func mailboxReceiptStateTx(ctx context.Context, tx *sql.Tx, rootID, recipientAgentID string, receipt MailboxReceipt) (int64, string, error) {
+	if receipt.ID == "" || receipt.Revision < 0 {
+		return 0, "", errors.New("message receipt requires an id and nonnegative revision")
+	}
+	var revision int64
+	var status string
+	err := tx.QueryRowContext(ctx, `SELECT revision,status FROM agent_messages
+		WHERE id=? AND root_id=? AND recipient_agent_id=?`, receipt.ID, rootID, recipientAgentID).Scan(&revision, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", ErrAgentAccess
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	if receipt.Revision == 0 {
+		if status == "pending" {
+			return 0, "", ErrMessageChanged
+		}
+	} else if receipt.Revision != revision {
+		return 0, "", ErrMessageChanged
+	}
+	return revision, status, nil
+}
+
+// DeferMailboxMessage returns a message to pending with a new revision and a
+// future availability. The returned revision is not a delivery receipt.
+func (s *Store) DeferMailboxMessage(ctx context.Context, rootID, recipientAgentID string, receipt MailboxReceipt, until time.Time) (int64, error) {
+	if rootID == "" || recipientAgentID == "" || receipt.ID == "" {
+		return 0, ErrAgentAccess
 	}
 	if until.IsZero() {
-		return errors.New("message deferral requires a time")
+		return 0, errors.New("message deferral requires a time")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	stamp := now()
-	result, err := tx.ExecContext(ctx, `UPDATE agent_messages SET status='pending',available_at=?,delivered_at='',delivered_turn_id=''
-		WHERE id=? AND root_id=? AND recipient_agent_id=? AND status IN ('pending','delivered')`, timestampArg(until), id, rootID, recipientAgentID)
+	revision, status, err := mailboxReceiptStateTx(ctx, tx, rootID, recipientAgentID, receipt)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-		if err != nil {
-			return err
-		}
-		return ErrAgentAccess
+	if status == "done" {
+		return 0, ErrAgentAccess
+	}
+	stamp := now()
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_messages SET revision=revision+1,status='pending',available_at=?,delivered_at='',delivered_turn_id=''
+		WHERE id=? AND root_id=? AND recipient_agent_id=?`, timestampArg(until), receipt.ID, rootID, recipientAgentID); err != nil {
+		return 0, err
 	}
 	if _, err := s.insertActorEventTx(ctx, tx, rootID, "message.deferred", actorEvent{
-		AgentID: recipientAgentID, MessageID: id, Status: "pending", Slot: timestampArg(until),
+		AgentID: recipientAgentID, MessageID: receipt.ID, Status: "pending", Slot: timestampArg(until),
 	}, stamp); err != nil {
-		return err
+		return 0, err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return revision + 1, nil
 }
 
-// markMessagesDeliveredTx records that a committed turn showed these messages.
-func (s *Store) markMessagesDeliveredTx(ctx context.Context, tx *sql.Tx, rootID, recipientAgentID, turnID string, ids []string, stamp string) error {
-	seen := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		if id == "" {
+// markMessagesDeliveredTx records only revisions shown by the committed turn.
+// Replacement and deferral invalidate older receipts without failing the turn.
+func (s *Store) markMessagesDeliveredTx(ctx context.Context, tx *sql.Tx, rootID, recipientAgentID, turnID string, receipts []MailboxReceipt, stamp string) error {
+	seen := make(map[MailboxReceipt]struct{}, len(receipts))
+	for _, receipt := range receipts {
+		if receipt.ID == "" || receipt.Revision <= 0 {
 			continue
 		}
-		if _, duplicate := seen[id]; duplicate {
+		if _, duplicate := seen[receipt]; duplicate {
 			continue
 		}
-		seen[id] = struct{}{}
+		seen[receipt] = struct{}{}
 		result, err := tx.ExecContext(ctx, `UPDATE agent_messages SET status='delivered',delivered_at=?,delivered_turn_id=?
-			WHERE id=? AND root_id=? AND recipient_agent_id=? AND status='pending'`, stamp, turnID, id, rootID, recipientAgentID)
+			WHERE id=? AND root_id=? AND recipient_agent_id=? AND revision=? AND status='pending'`,
+			stamp, turnID, receipt.ID, rootID, recipientAgentID, receipt.Revision)
 		if err != nil {
 			return err
 		}
-		if changed, err := result.RowsAffected(); err != nil || changed != 1 {
-			if err != nil {
-				return err
-			}
-			continue // already delivered, done, or deferred again: nothing to record
+		changed, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if changed == 0 {
+			continue
 		}
 		if _, err := s.insertActorEventTx(ctx, tx, rootID, "message.delivered", actorEvent{
-			AgentID: recipientAgentID, MessageID: id, Status: "delivered",
+			AgentID: recipientAgentID, MessageID: receipt.ID, Status: "delivered",
 		}, stamp); err != nil {
 			return err
 		}
@@ -551,48 +589,6 @@ func (s *Store) AgentWorkStatus(ctx context.Context, rootID, agentID string, at 
 	return work, nil
 }
 
-// PendingSteers returns steer-class work for a running turn's boundary hook:
-// queued human steer rows and ready steer-class messages. Nothing is marked;
-// the turn journal excludes items it already injected and the commit
-// consumes them.
-func (s *Store) PendingSteers(ctx context.Context, rootID, agentID string, at time.Time) ([]InboxItem, []MailboxMessage, error) {
-	if rootID == "" || agentID == "" {
-		return nil, nil, ErrAgentAccess
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT i.seq,i.kind,i.status,substr(i.payload_inline,1,?),COALESCE(i.payload_ref,''),
-		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
-		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref
-		WHERE i.root_id=? AND i.agent_id=? AND i.status='queued' AND i.kind IN ('steer','steer.parts') ORDER BY i.seq LIMIT ?`,
-		InlineValueLimit+1, rootID, agentID, MaxInboxBatch)
-	if err != nil {
-		return nil, nil, err
-	}
-	items, err := scanInboxRows(rows, rootID, agentID)
-	closeErr := rows.Close() //nolint:sqlclosecheck // rows must close before the next query on this connection
-	if err != nil {
-		return nil, nil, err
-	}
-	if closeErr != nil {
-		return nil, nil, closeErr
-	}
-	mailRows, err := s.db.QueryContext(ctx, `SELECT `+mailboxColumns+` FROM agent_messages m LEFT JOIN content_references r ON r.id=m.body_ref
-		WHERE m.root_id=? AND m.recipient_agent_id=? AND m.status='pending' AND m.delivery=? AND m.available_at<=? ORDER BY m.created_at,m.rowid LIMIT ?`,
-		rootID, agentID, MessageDeliverySteer, timestampArg(at), MailboxDigestLines)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func() { _ = mailRows.Close() }()
-	var mail []MailboxMessage
-	for mailRows.Next() {
-		var message MailboxMessage
-		if err := scanMailboxRow(mailRows, &message); err != nil {
-			return nil, nil, err
-		}
-		mail = append(mail, message)
-	}
-	return items, mail, mailRows.Err()
-}
-
 // ReadMailboxDigest assembles the bounded mailbox view for a turn.
 func (s *Store) ReadMailboxDigest(ctx context.Context, rootID, recipientAgentID string, at time.Time) (MailboxDigest, error) {
 	if rootID == "" || recipientAgentID == "" {
@@ -616,18 +612,8 @@ func (s *Store) ReadMailboxDigest(ctx context.Context, rootID, recipientAgentID 
 	for rows.Next() {
 		var message MailboxMessage
 		var senderName, senderParent string
-		var availableAt, createdAt, deliveredAt, doneAt string
-		var inlineSize, referenceSize int64
-		var reference string
-		if err := rows.Scan(&message.ID, &message.SenderAgentID, &message.RecipientAgentID, &message.Kind, &message.Delivery, &message.Subject,
-			&message.Excerpt, &message.EvidenceReferenceID, &message.Status, &availableAt, &createdAt, &deliveredAt, &message.DeliveredTurnID, &doneAt,
-			&inlineSize, &reference, &referenceSize, &senderName, &senderParent); err != nil {
+		if err := scanMailboxRow(rows, &message, &senderName, &senderParent); err != nil {
 			return MailboxDigest{}, err
-		}
-		message.AvailableAt, message.CreatedAt = parseTimestamp(availableAt), parseTimestamp(createdAt)
-		message.Body = RuntimeValue{Size: inlineSize}
-		if reference != "" {
-			message.Body.ReferenceID, message.Body.Size = reference, referenceSize
 		}
 		digest.Pending = append(digest.Pending, message)
 		digest.SenderNames[message.SenderAgentID] = senderName

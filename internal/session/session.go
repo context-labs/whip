@@ -429,6 +429,8 @@ func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
 		`DELETE FROM capabilities WHERE root_id=?`,
 		`DELETE FROM agent_scratch WHERE root_id=?`,
 		`DELETE FROM agent_state WHERE root_id=?`,
+		`DELETE FROM agent_messages WHERE root_id=?`,
+		`DELETE FROM transcript_messages WHERE root_id=?`,
 		`DELETE FROM inbox WHERE root_id=?`,
 		`DELETE FROM turns WHERE root_id=?`,
 		`DELETE FROM content_grants WHERE root_id=?`,
@@ -828,8 +830,9 @@ func (s *Store) SetTitleIf(id, current, title string) (bool, error) {
 // for a full copy — one past the last row) into a new session titled title,
 // carrying over cwd/model/provider/goal, and returns the new id. seq equals
 // the conversation index (the system prompt is never persisted). The source
-// session is untouched. The rows are cloned in one INSERT…SELECT, so the DB
-// does the copy; nothing round-trips through Go.
+// session is untouched. The fork also gets a snapshot of active content grants
+// readable by the source root. It shares immutable references, preserving their
+// scopes, but inherits no live recursive runtime state.
 func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 	b := make([]byte, 4)
 	rand.Read(b)
@@ -839,10 +842,18 @@ func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort)
+	result, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort)
 		SELECT ?,kind,?,?,cwd,model,provider,?,goal,?,?,effort FROM sessions WHERE id=? AND kind='agent'`,
-		newID, now(), now(), title, srcID, uptoSeq, srcID); err != nil {
+		newID, now(), now(), title, srcID, uptoSeq, srcID)
+	if err != nil {
 		return "", err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return "", err
+	}
+	if inserted != 1 {
+		return "", fmt.Errorf("no agent session matching %q", srcID)
 	}
 	if uptoSeq > 0 {
 		if _, err := tx.ExecContext(context.Background(), `INSERT INTO messages (session_id, seq, role, content)
@@ -851,7 +862,16 @@ func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 			return "", err
 		}
 	}
-	return newID, tx.Commit()
+	if _, err := tx.ExecContext(context.Background(), `INSERT INTO content_grants(reference_id,root_id,agent_id,scope,created_at)
+		SELECT reference_id,?,CASE WHEN scope='root' THEN '' ELSE ? END,scope,?
+		FROM content_grants WHERE root_id=? AND revoked_at='' AND (scope='root' OR agent_id=?)`,
+		newID, newID, now(), srcID, srcID); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return newID, nil
 }
 
 // SetTags replaces a session's label set (comma-separated storage).

@@ -42,8 +42,8 @@ type Events struct {
 	// before the next model call). Messages it returns are appended in order
 	// as user messages; the daemon uses it to inject steer-class work pulled
 	// from durable state. Returning messages keeps the turn going even when
-	// the model produced no tool calls.
-	OnBoundary func() []llm.Message
+	// the model produced no tool calls. A returned error ends the turn.
+	OnBoundary func() ([]llm.Message, error)
 	OnCompact  func(took, kept int) // context was auto-compacted (messages removed/kept)
 	// OnCompacted fires when a compaction ran: record the summary+cutoff as
 	// an event (the raw log survives) and show info — which model wrote the
@@ -561,7 +561,11 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			injected = append(injected, llm.Message{Role: "user", Content: s.text, Parts: s.parts})
 		}
 		if ev.OnBoundary != nil {
-			injected = append(injected, ev.OnBoundary()...)
+			messages, err := ev.OnBoundary()
+			if err != nil {
+				return "", err
+			}
+			injected = append(injected, messages...)
 		}
 		if len(injected) > 0 {
 			a.msgsMu.Lock()

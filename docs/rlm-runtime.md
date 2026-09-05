@@ -44,9 +44,13 @@ class: `steer` is injected at the recipient's next loop boundary (or starts a
 turn when idle), `queued` gets its own turn when the recipient is idle, and
 `next_turn` rides along with whatever turn comes next. Messages move
 `pending → delivered → done`: a message is `delivered` only when the turn that
-showed it commits (a failed turn shows it again), `messages.read` delivers it
-explicitly, `messages.complete` finishes it, and `messages.defer` returns it
-to `pending` at a later time.
+showed that exact revision commits successfully (a failed turn shows it
+again). `messages.read` records a delivery receipt, `messages.complete`
+finishes the observed revision, and `messages.defer` returns it to `pending`
+at a later time with a new revision. Listing metadata records an observation
+for explicit controls without automatically acknowledging delivery. If a
+message changes before an explicit completion or deferral, reread it before
+retrying. Batch completion is atomic: one stale revision rejects the batch.
 
 Bodies are never pushed whole into another model's prompt. A turn that starts
 with ready mail receives a bounded digest: one line per pending message with
@@ -72,8 +76,31 @@ after a spawn or submit is to end the turn and let the reply arrive as a
 mailbox-triggered turn. `agents.spawn(report=...)` picks how a child's
 turn end reaches the parent: `notice` (default, 160-byte preview plus evidence
 handle), `inline` (4 KiB preview), or `message` (only failures; the child must
-report explicitly). Sender caps: 16 KiB body (use an evidence handle above
+report explicitly). The selected mode is persisted and restored before the
+child's identity prompt and next turn are built. Sender caps: 16 KiB body (use an evidence handle above
 that), 20 pending messages per sender→recipient pair, 30 sends per 10 seconds.
+
+## Input and fork continuity
+
+Root input, child tasks, and human steers use the same recipient-authorized
+payload decoder. Referenced payloads are read completely in chunks of at most
+64 KiB. The total input ceiling is 64 MiB, matching uploads and including
+serialized multipart content and the child task prefix. The transport frame
+remains 1 MiB; large input uses the upload/content path. RLM focusing still
+controls what enters the model prompt after complete input decoding.
+
+Malformed, inaccessible, missing, and oversized payloads fail explicitly.
+They do not terminate the root or leave a child turn running. Invalid boundary
+steers are settled individually so later valid work remains usable.
+
+A fork copies the selected transcript prefix and a snapshot of active content
+grants readable by the source root. Root grants retain their scope; grants to
+the source root agent/subtree are remapped to the destination root identity.
+Child-private and revoked grants, live agents, queues, subscriptions,
+schedules, and scratch are excluded. Content references remain immutable and
+shared, while the fork's access survives source deletion or later revocation.
+Deleting a root removes its dependent mailbox and descendant transcript rows
+and leaves shared content references/objects intact.
 
 ## Context and handles
 
@@ -204,19 +231,31 @@ durable state and wait for the owner lock to be released. `--force` sends a
 signal only to the PID currently holding that lock.
 
 `WHIP_HOME` replaces `~/.whip`. The pre-runtime-v2 database is not opened or
-migrated automatically; this is an intentional clean break.
+migrated automatically; this is an intentional clean break. The current
+development schema is version 5 (`whip-recursive-runtime-v5`). Incompatible
+databases are rejected without modification. WHIP does not automatically
+archive or delete them; use a fresh database for this schema.
 
 ## Recovery
 
-On daemon restart, retained non-root agents are reconstructed from metadata,
-capabilities, provider settings, and their transcripts. Running child turns
-become idle and their human input returns to `queued` (three retries, then
-`interrupted`); committed messages remain `pending` until a turn that showed
-them commits. Restore re-derives readiness from those rows, so a restored child
-with pending mail or a queued prompt wakes without any in-memory signal.
+On restart, retained non-root agents are reconstructed from metadata,
+capabilities, provider settings, report mode, and transcripts. Unclaimed
+queued input and its correlated queued root command survive. Readiness is
+re-derived from durable rows, so a restored node with ready mail or queued
+input wakes without an in-memory signal.
 
-In-flight external effects are marked interrupted. Restart never infers that
-an uncommitted write or remote call is safe to repeat.
+Claimed input, including human steers already claimed at a loop boundary,
+and running turns are interrupted. Retained children return to idle. Restart
+does not replay uncertain external effects or actor controls merely because
+a command still says queued. Explicit terminal root stop/failure also
+interrupts queued input. Ordinary child execution failures can retry claimed
+input up to three times; invalid input and interrupted attempts do not retry.
+
+Mailbox delivery is at least once until a successful turn commits its receipt.
+An observed pending message can therefore be shown again after failure or
+restart. Deferral and pending-message replacement increment its revision, so
+an older receipt cannot consume its newer content or future wake. These rules
+do not provide exactly-once tool effects.
 
 ## Verification and evaluation
 

@@ -278,7 +278,9 @@ func (r *AgentSession) computerPolicy() *computer.Policy {
 // ClientCommand admits a non-turn user action on the root actor. The durable
 // command row is the idempotency boundary; matching retries never re-execute
 // the action and instead return its authoritative terminal outcome.
-func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.CommandAdmission, operation string, payload json.RawMessage) (result CommandResult, err error) {
+// Cancellation stops waiting; an admitted command may still finish. Retry
+// the same command ID to observe its durable outcome.
+func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.CommandAdmission, operation string, payload json.RawMessage) (CommandResult, error) {
 	if s.meta.Kind == sessionstore.SessionKindToolHost && !isToolHostOperation(operation) {
 		return CommandResult{}, fmt.Errorf("tool-host sessions do not support %q", operation)
 	}
@@ -286,11 +288,21 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 	admission.RootID = s.meta.ID
 	admission.AgentID = s.authority.AgentID
 	admission.Kind = operation
-	var asyncReply chan clientCommandReply
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
+	admission.Payload.Data = slices.Clone(admission.Payload.Data)
+	payload = slices.Clone(payload)
+	type commandStart struct {
+		result CommandResult
+		reply  chan clientCommandReply
+	}
+	started, err := routeControlValue(s, ctx, func(actorCtx context.Context) (commandStart, error) {
+		var result CommandResult
+		var asyncReply chan clientCommandReply
+		finish := func(err error) (commandStart, error) {
+			return commandStart{result: result, reply: asyncReply}, err
+		}
 		admitted, admitErr := s.store.AdmitControlCommand(actorCtx, admission)
 		if admitErr != nil {
-			return admitErr
+			return finish(admitErr)
 		}
 		result = CommandResult{
 			CommandID: admitted.Command.CommandID, IngressSeq: admitted.Command.IngressSeq,
@@ -298,36 +310,36 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 		}
 		if !admitted.New {
 			if admitted.Command.Status == "queued" || admitted.Command.Status == "running" || admitted.Command.Status == "waiting" {
-				return nil
+				return finish(nil)
 			}
 			body, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.meta.ID, admitted.Command.Outcome)
 			if resolveErr != nil {
-				return resolveErr
+				return finish(resolveErr)
 			}
 			if admitted.Command.Status == "failed" || admitted.Command.Status == "cancelled" || admitted.Command.Status == "interrupted" {
 				result.Error = string(body)
 			} else {
 				result.Output = string(body)
 			}
-			return nil
+			return finish(nil)
 		}
 		if operation == "permission.mode" && s.hasRunningAgent() {
-			return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("permission mode cannot change while an agent is running"), &result)
+			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("permission mode cannot change while an agent is running"), &result))
 		}
 		if operation == "tool.call" {
 			if s.clientBusy || s.running != nil {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("another root operation is already running"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("another root operation is already running"), &result))
 			}
 			var action clientActionPayload
 			if err := json.Unmarshal(payload, &action); err != nil || action.Tool == "" {
 				if err == nil {
 					err = errors.New("tool name is required")
 				}
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
 			}
 			runner, ok := s.runner.(clientToolRunner)
 			if !ok {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support tool calls"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support tool calls"), &result))
 			}
 			asyncReply = make(chan clientCommandReply, 1)
 			s.clientBusy = true
@@ -342,24 +354,24 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 			if !launched {
 				s.clientBusy = false
 				asyncReply = nil
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result))
 			}
-			return nil
+			return finish(nil)
 		}
 		if operation == "shell.run" {
 			if s.clientBusy || s.running != nil {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("another root operation is already running"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("another root operation is already running"), &result))
 			}
 			var action clientActionPayload
 			if err := json.Unmarshal(payload, &action); err != nil || strings.TrimSpace(action.Command) == "" {
 				if err == nil {
 					err = errors.New("shell command is required")
 				}
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
 			}
 			runner, ok := s.runner.(clientShellRunner)
 			if !ok {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support shell commands"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support shell commands"), &result))
 			}
 			asyncReply = make(chan clientCommandReply, 1)
 			s.clientBusy = true
@@ -374,17 +386,17 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 			if !launched {
 				s.clientBusy = false
 				asyncReply = nil
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result))
 			}
-			return nil
+			return finish(nil)
 		}
 		if operation == "history.compact" {
 			if s.clientBusy || s.running != nil {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("history cannot compact while a root operation is running"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("history cannot compact while a root operation is running"), &result))
 			}
 			runner, ok := s.runner.(clientCompactRunner)
 			if !ok {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support compaction"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support compaction"), &result))
 			}
 			asyncReply = make(chan clientCommandReply, 1)
 			s.clientBusy = true
@@ -399,29 +411,29 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 			if !launched {
 				s.clientBusy = false
 				asyncReply = nil
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result))
 			}
-			return nil
+			return finish(nil)
 		}
 		if operation == "goal.from-context" {
 			if s.clientBusy || s.running != nil {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("a goal cannot be formulated while a root operation is running"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("a goal cannot be formulated while a root operation is running"), &result))
 			}
 			var action clientActionPayload
 			if err := json.Unmarshal(payload, &action); err != nil {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("invalid goal context payload"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("invalid goal context payload"), &result))
 			}
 			window := agent.GoalFromContextDefaultWindow
 			if strings.TrimSpace(action.Args) != "" {
 				var err error
 				window, err = strconv.Atoi(strings.TrimSpace(action.Args))
 				if err != nil || window < 2 {
-					return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("goal context window must be at least 2"), &result)
+					return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("goal context window must be at least 2"), &result))
 				}
 			}
 			runner, ok := s.runner.(clientGoalRunner)
 			if !ok {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support goal formulation"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support goal formulation"), &result))
 			}
 			asyncReply = make(chan clientCommandReply, 1)
 			s.clientBusy = true
@@ -437,32 +449,32 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 			if !launched {
 				s.clientBusy = false
 				asyncReply = nil
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result))
 			}
-			return nil
+			return finish(nil)
 		}
 		if operation == "history.rewind" {
 			if s.clientBusy || s.running != nil {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("history cannot rewind while a root operation is running"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("history cannot rewind while a root operation is running"), &result))
 			}
 			var action clientActionPayload
 			if err := json.Unmarshal(payload, &action); err != nil {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("invalid rewind payload"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("invalid rewind payload"), &result))
 			}
 			cut, err := strconv.Atoi(strings.TrimSpace(action.Args))
 			if err != nil || cut < 1 {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("rewind requires a positive conversation index"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("rewind requires a positive conversation index"), &result))
 			}
 			if _, ok := s.runner.(clientHistoryRunner); !ok {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support history replacement"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support history replacement"), &result))
 			}
 			snapshots, err := s.store.WorkspaceSnapshotsFrom(actorCtx, s.meta.ID, cut)
 			if err != nil {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
 			}
 			workspace, canRestore := s.runner.(workspaceSnapshotRunner)
 			if len(snapshots) > 0 && !canRestore {
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner cannot restore workspace snapshots"), &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner cannot restore workspace snapshots"), &result))
 			}
 			asyncReply = make(chan clientCommandReply, 1)
 			s.clientBusy = true
@@ -487,19 +499,25 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 			if !launched {
 				s.clientBusy = false
 				asyncReply = nil
-				return s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result)
+				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", ErrStopped, &result))
 			}
-			return nil
+			return finish(nil)
 		}
 
 		output, actionErr := s.applyClientCommand(actorCtx, operation, payload)
-		return s.finishClientCommandInline(actorCtx, admission, operation, output, actionErr, &result)
+		return finish(s.finishClientCommandInline(actorCtx, admission, operation, output, actionErr, &result))
 	})
-	if err == nil && asyncReply != nil {
-		reply := <-asyncReply
-		return reply.result, reply.err
+	if err != nil || started.reply == nil {
+		return started.result, err
 	}
-	return result, err
+	select {
+	case reply := <-started.reply:
+		return reply.result, reply.err
+	case <-ctx.Done():
+		return started.result, ctx.Err()
+	case <-s.supervisor.ctx.Done():
+		return started.result, ErrStopped
+	}
 }
 
 func isToolHostOperation(operation string) bool {
@@ -517,7 +535,7 @@ func (s *Session) finishClientCommandInline(ctx context.Context, admission sessi
 		status = "failed"
 		output = actionErr.Error()
 	}
-	_, finishErr := s.store.FinishCommand(ctx, admission.ClientID, admission.CommandID, status, sessionstore.RuntimePayload{
+	_, finishErr := s.store.FinishCommand(context.WithoutCancel(ctx), admission.ClientID, admission.CommandID, status, sessionstore.RuntimePayload{
 		Data: []byte(output), MediaType: "text/plain", Source: operation + " outcome",
 	})
 	if finishErr != nil {
@@ -532,9 +550,9 @@ func (s *Session) finishClientCommandInline(ctx context.Context, admission sessi
 	return nil
 }
 
-func (s *Session) completeClientCommand(completion *clientCommandCompletion) error {
+func (s *Session) completeClientCommand(completion *clientCommandCompletion) (CommandResult, error) {
 	if completion == nil || !s.clientBusy {
-		return errors.New("client command completion has no running operation")
+		return CommandResult{}, errors.New("client command completion has no running operation")
 	}
 	s.clientBusy = false
 	if completion.compact != nil && completion.err == nil {
@@ -586,8 +604,7 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) err
 	err := s.finishClientCommandInline(s.supervisor.ctx, sessionstore.CommandAdmission{
 		ClientID: completion.clientID, CommandID: completion.commandID,
 	}, completion.operation, completion.output, completion.err, &result)
-	completion.reply <- clientCommandReply{result: result, err: err}
-	return err
+	return result, err
 }
 
 func (s *Session) rawCompactionCutoff(cutoff, rawTailStart int) int {

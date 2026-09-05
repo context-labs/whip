@@ -18,12 +18,14 @@ import (
 )
 
 const (
-	InlineValueLimit = 8 << 10
-	MaxContentRead   = contentstore.MaxReadSize
-	MaxInboxBatch    = 256
+	InlineValueLimit     = 8 << 10
+	MaxContentRead       = contentstore.MaxReadSize
+	MaxInboxBatch        = 256
+	MaxInputPayloadBytes = 64 << 20
 )
 
 var (
+	ErrInvalidInput        = errors.New("invalid turn input")
 	ErrContentAccess       = errors.New("content reference is not authorized")
 	ErrInboxTerminal       = errors.New("inbox item is terminal")
 	ErrScheduleClaimed     = errors.New("schedule fire was already claimed")
@@ -84,6 +86,7 @@ type RuntimeAgent struct {
 	Provider        string
 	Effort          string
 	CWD             string
+	Report          string
 	Status          string
 	PendingMail     int
 	LifecyclePhase  string
@@ -218,7 +221,7 @@ type RootTurnCommit struct {
 	InboxSeq          int64
 	TurnID            string
 	AcknowledgedInbox []int64
-	DeliveredMessages []string
+	DeliveredMessages []MailboxReceipt
 	Messages          []llm.Message
 	Compactions       []RootCompaction
 	WorkspaceSeq      int
@@ -335,16 +338,10 @@ func scanInboxRows(rows *sql.Rows, rootID, agentID string) ([]InboxItem, error) 
 			return nil, err
 		}
 		if referenceID == "" {
-			if len(item.Payload.Inline) > InlineValueLimit {
-				return nil, fmt.Errorf("inbox item %d has an oversized inline payload", item.Seq)
-			}
 			item.Payload.Size = int64(len(item.Payload.Inline))
 		} else {
 			item.Payload.ReferenceID = referenceID
 			item.Payload.Inline = nil
-			if item.Payload.Digest == "" {
-				return nil, fmt.Errorf("inbox item %d references missing content", item.Seq)
-			}
 		}
 		items = append(items, item)
 	}
@@ -412,7 +409,7 @@ func (s *Store) StartRootTurn(ctx context.Context, rootID, agentID string, inbox
 		rootTurnID(agentID, inboxSeq), rootID, agentID, stamp, stamp); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE commands SET status='running',updated_at=? WHERE root_id=? AND ingress_seq=? AND status='queued'`, stamp, rootID, inboxSeq); err != nil {
+	if err := startInputCommandTx(ctx, tx, rootID, inboxSeq, stamp); err != nil {
 		return err
 	}
 	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{
@@ -488,7 +485,7 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 		return errors.New("root turn inbox has ambiguous commands")
 	}
 	var commandOutcome preparedRuntimeValue
-	if outcomeCommandCount == 1 {
+	if outcomeCommandCount == 1 || commit.Error != "" && len(commit.AcknowledgedInbox) > 0 {
 		var err error
 		commandOutcome, err = s.prepareRuntimeValue(commit.Outcome, ContentGrant{RootID: commit.RootID, Scope: ContentGrantRoot})
 		if err != nil {
@@ -534,7 +531,7 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 		return errors.New("root turn is not running")
 	}
 	for seq := range seen {
-		result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='consumed' WHERE root_id=? AND agent_id=? AND seq=? AND status IN ('queued','running')`,
+		result, err := tx.ExecContext(ctx, `UPDATE inbox SET status='consumed' WHERE root_id=? AND agent_id=? AND seq=? AND status='running'`,
 			commit.RootID, commit.AgentID, seq)
 		if err != nil {
 			return err
@@ -551,7 +548,7 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 	}
 	for seq := range seen {
 		outcome := preparedRuntimeValue{}
-		if seq == commit.InboxSeq {
+		if seq == commit.InboxSeq || commit.Error != "" {
 			outcome = commandOutcome
 		}
 		var commandCount int
@@ -567,7 +564,7 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 		}
 		inline, reference := runtimeValueColumns(outcome.RuntimeValue)
 		result, err := tx.ExecContext(ctx, `UPDATE commands SET status=?,outcome_inline=?,outcome_ref=?,updated_at=?
-			WHERE root_id=? AND scope='root' AND ingress_seq=? AND ingress_seq>0 AND status IN ('queued','running','waiting')`,
+			WHERE root_id=? AND scope='root' AND ingress_seq=? AND ingress_seq>0 AND status='running'`,
 			status, inline, reference, stamp, commit.RootID, seq)
 		if err != nil {
 			return err
@@ -578,6 +575,16 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 			}
 			return errors.New("root turn command is not running")
 		}
+	}
+	// A boundary may have claimed input just before cancellation or a read
+	// failure. Anything claimed but not delivered must not remain running.
+	if _, err := tx.ExecContext(ctx, `UPDATE commands SET status='interrupted',updated_at=?
+  WHERE root_id=? AND scope='root' AND ingress_seq>0 AND status='running' AND ingress_seq IN (
+   SELECT seq FROM inbox WHERE root_id=? AND agent_id=? AND status='running')`, stamp, commit.RootID, commit.RootID, commit.AgentID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE root_id=? AND agent_id=? AND status='running'`, commit.RootID, commit.AgentID); err != nil {
+		return err
 	}
 	var messageSeq int
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM messages WHERE session_id=?`, commit.RootID).Scan(&messageSeq); err != nil {
@@ -873,7 +880,7 @@ func rootAgentIDTx(ctx context.Context, tx *sql.Tx, rootID string) (string, erro
 	return agentID, err
 }
 
-func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string, preserveSchedules bool) error {
+func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string, preserveQueuedInput bool) error {
 	if err := s.cancelPendingPermissionsTx(ctx, tx, rootID, "", "", "interrupted", "", reason); err != nil {
 		return err
 	}
@@ -883,20 +890,23 @@ func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason,
 	if err := s.emitInterruptedTurnEventsTx(ctx, tx, rootID, reason, stamp); err != nil {
 		return err
 	}
-	for _, table := range []string{"commands", "turns", "operations", "leases"} {
+	for _, table := range []string{"turns", "operations", "leases"} {
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE root_id=? AND status IN ('queued','running','waiting')`, stamp, rootID); err != nil { //nolint:gosec // table comes from the static allowlist above
 			return err
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status='idle',updated_at=?
-		WHERE parent_id IS NOT NULL AND status='running'`, stamp); err != nil {
+		WHERE root_id=? AND parent_id IS NOT NULL AND status='running'`, stamp, rootID); err != nil {
 		return err
 	}
 	if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
 		return err
 	}
+	if err := interruptCommandsTx(ctx, tx, rootID, stamp, preserveQueuedInput); err != nil {
+		return err
+	}
 	inboxWhere := `status IN ('queued','running')`
-	if preserveSchedules {
+	if preserveQueuedInput {
 		inboxWhere = `status='running'`
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE inbox SET status='interrupted' WHERE root_id=? AND (`+inboxWhere+`)`, rootID); err != nil {
@@ -1014,6 +1024,9 @@ func (s *Store) settleInterruptedOperationReservations(ctx context.Context, tx *
 }
 
 func validateInboxEnqueue(item InboxEnqueue) error {
+	if len(item.Payload.Data) > MaxInputPayloadBytes {
+		return fmt.Errorf("%w: payload exceeds %d bytes", ErrInvalidInput, MaxInputPayloadBytes)
+	}
 	if item.RootID == "" || item.AgentID == "" || item.Kind == "" || (item.CommandClientID == "") != (item.CommandID == "") {
 		return errors.New("inbox enqueue requires root, agent, kind, and complete command identity")
 	}
@@ -1338,7 +1351,10 @@ func (s *Store) ReadContent(ctx context.Context, referenceID, rootID, agentID st
 	meta.ReferenceID = referenceID
 	if err := s.db.QueryRowContext(ctx, `SELECT r.digest,r.size,r.media_type,r.source FROM content_references r WHERE r.id=?`, referenceID).
 		Scan(&meta.Digest, &meta.Size, &meta.MediaType, &meta.Source); err != nil {
-		return nil, ContentMetadata{}, ErrContentAccess
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ContentMetadata{}, ErrContentAccess
+		}
+		return nil, ContentMetadata{}, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT scope,agent_id FROM content_grants WHERE reference_id=? AND root_id=? AND revoked_at=''`, referenceID, rootID)
 	if err != nil {
@@ -1571,7 +1587,7 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	if err := s.emitInterruptedTurnEventsTx(ctx, tx, "", "interrupted by daemon restart", stamp); err != nil {
 		return err
 	}
-	for _, table := range []string{"commands", "turns", "operations", "leases"} {
+	for _, table := range []string{"turns", "operations", "leases"} {
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET status='interrupted',updated_at=? WHERE status IN ('queued','running','waiting')`, stamp); err != nil { //nolint:gosec // table comes from the static allowlist above
 			return err
 		}
@@ -1580,6 +1596,9 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 		return err
 	}
 	if err := syncChildBudgetReservationsTx(ctx, tx, ""); err != nil {
+		return err
+	}
+	if err := interruptCommandsTx(ctx, tx, "", stamp, true); err != nil {
 		return err
 	}
 	// Only uncertain running input is interrupted; queued input (including

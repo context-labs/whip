@@ -395,7 +395,7 @@ func (runtime *RecursiveRuntime) restoreChildren() error {
 				services.Close()
 				return err
 			}
-			node.id, node.root = record.ID, runtime.root
+			node.id, node.root, node.report = record.ID, runtime.root, record.Report
 			child.SetSessionID(runtime.root.ID() + "/" + record.ID)
 			child.SetModelCallBudget(agentModelBudget{node: node})
 			child.TransformInput = node.host.focusInput
@@ -494,23 +494,25 @@ func (node *AgentSession) run() {
 	defer cancel()
 
 	turnID := agentTurnID(node.id)
-	var items []agentTurnItem
+	var items []sessionstore.InboxItem
 	started := false
-	output, turnErr := node.RunTurn(ctx, "", nil, true, nil, nil, func(turnCtx context.Context) (string, error) {
-		var err error
-		_, items, err = node.root.StartAgentTurn(turnCtx, node.id, turnID)
+	output, turnErr := node.RunTurn(ctx, "", nil, true, nil, nil, func(turnCtx context.Context) (string, []llm.ContentPart, error) {
+		start, err := node.root.StartAgentTurn(turnCtx, node.id, turnID)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		started = true
-		// A mailbox-triggered turn claims nothing; RunTurn supplies the digest.
-		return explicitInput(items), nil
+		items = start.Items
+		if len(items) == 0 {
+			return "", nil, nil
+		}
+		return node.root.decodeInboxInput(turnCtx, items[0])
 	})
 	if !started {
 		node.finishLiveTurn()
 		// A wake that arrived while this node looked busy was dropped by
 		// wake(); reconcile queued work across the tree before returning.
-		node.runtime.wakeQueuedAgents()
+		node.runtime.wakeQueuedAgents("")
 		return
 	}
 	status := "succeeded"
@@ -530,23 +532,38 @@ func (node *AgentSession) run() {
 	finishErr := node.root.FinishAgentTurn(context.Background(), node.id, sessionstore.AgentTurnCommit{
 		TurnID: turnID, Status: status, AcknowledgedInbox: ack, DeliveredMessages: journal.DeliveredMessages,
 		Transcript: node.agent.MessagesSnapshot(), Error: errorText(turnErr),
+		RetryInput: !errors.Is(turnErr, sessionstore.ErrInvalidInput),
 	})
+	if finishErr != nil {
+		// A rolled-back commit still owns a durable running claim. Fail the
+		// root so its shutdown transaction records the interruption; a live
+		// idle node must not hide that claim or announce success.
+		if !errors.Is(finishErr, ErrStopped) && !errors.Is(finishErr, sessionstore.ErrAgentTerminal) {
+			node.root.supervisor.report("agent "+node.id+" turn commit", finishErr)
+		}
+		node.finishLiveTurn()
+		return
+	}
 	node.finishLiveTurn()
-	node.postCompletionNotice(status, output, errors.Join(turnErr, finishErr))
+	node.postCompletionNotice(status, output, turnErr)
 	switch {
-	case status == "succeeded" && finishErr == nil:
+	case status == "succeeded":
 		node.mu.Lock()
 		node.failures = 0
 		node.mu.Unlock()
 		if pending, err := node.root.HasAgentWork(context.Background(), node.id); err == nil && pending {
 			node.wake()
 		}
-		node.runtime.wakeQueuedAgents()
+		node.runtime.wakeQueuedAgents("")
 	case status == "failed":
 		// FinishAgentTurn returned this turn's claimed items to the queue.
 		// Re-wake after a backoff so a persistent provider error cannot
 		// hot-loop; a cancelled turn is user intent and is not re-woken.
 		node.scheduleRetryWake()
+	case status == "cancelled":
+		// A busy node drops nudges. Resume explicit follow-ups and other
+		// children waiting on capacity, without retrying this turn's mail.
+		node.runtime.wakeQueuedAgents(node.id)
 	}
 	node.root.applyPendingReloadAfterAgent()
 }
@@ -573,25 +590,9 @@ func (node *AgentSession) finishLiveTurn() {
 	node.mu.Unlock()
 }
 
-// explicitInput joins the claimed inbox bodies (one, under one-at-a-time
-// claiming) into the turn's input text.
-func explicitInput(items []agentTurnItem) string {
-	parts := make([]string, 0, len(items))
-	for _, item := range items {
-		if text := strings.TrimSpace(string(item.Body)); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-// agentNoticePreviewBytes bounds the last-text preview a parent receives when
-// a child turn ends; the full text travels as an evidence handle.
+// agentNoticePreviewBytes bounds the preview; the full result is an evidence handle.
 const agentNoticePreviewBytes = 160
 
-// postCompletionNotice tells the parent how a child turn ended as an ordinary
-// runtime-authored mailbox message, so child lifecycle and peer messages share
-// one canonical table and one delivery path.
 func (node *AgentSession) postCompletionNotice(status, output string, failure error) {
 	if node.parentID == "" || node.root == nil {
 		return
@@ -679,9 +680,11 @@ func (node *AgentSession) resolveRecipient(ctx context.Context, recipient string
 // WakeQueuedAgents re-derives readiness for every retained descendant from
 // durable state and wakes those with runnable work; deferred mail arms a
 // timer. It is the reconciliation point for lost in-memory wakes.
-func (runtime *RecursiveRuntime) WakeQueuedAgents() { runtime.wakeQueuedAgents() }
+func (runtime *RecursiveRuntime) WakeQueuedAgents() { runtime.wakeQueuedAgents("") }
 
-func (runtime *RecursiveRuntime) wakeQueuedAgents() {
+// cancelledAgentID suppresses an immediate mailbox retry for that agent;
+// explicit queued input and work for the rest of the tree remain runnable.
+func (runtime *RecursiveRuntime) wakeQueuedAgents(cancelledAgentID string) {
 	runtime.mu.RLock()
 	nodes := make([]*AgentSession, 0, len(runtime.agents))
 	for _, node := range runtime.agents {
@@ -696,7 +699,7 @@ func (runtime *RecursiveRuntime) wakeQueuedAgents() {
 			continue
 		}
 		switch {
-		case work.HasExplicitInput || work.HasReadyMail:
+		case work.HasExplicitInput || work.HasReadyMail && node.id != cancelledAgentID:
 			node.wake()
 		case !work.NextDeferredAt.IsZero():
 			time.AfterFunc(max(time.Until(work.NextDeferredAt), 0)+time.Second, func() {
@@ -1150,7 +1153,9 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 	}
 	report, _ := stringArgument(arguments, "report")
 	switch report {
-	case "", "notice", "message", "inline":
+	case "":
+		report = "notice"
+	case "notice", "message", "inline":
 	default:
 		node.close(true)
 		return nil, fmt.Errorf("unknown report mode %q (notice, message, or inline)", report)
@@ -1163,7 +1168,7 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 	task := fmt.Sprintf("[task from parent %s (%s)]\n\n%s", parent.name, parent.id, prompt)
 	if err := parent.root.AdmitAgent(ctx, sessionstore.AgentAdmission{
 		ParentAgentID: parent.id, ChildAgentID: id, Name: name,
-		Model: modelName, Provider: providerName, Effort: child.Effort, CWD: child.WorkingDir,
+		Model: modelName, Provider: providerName, Effort: child.Effort, CWD: child.WorkingDir, Report: report,
 		Prompt:       sessionstore.RuntimePayload{Data: []byte(task), MediaType: "text/plain", Source: "initial agent prompt"},
 		Capabilities: delegations, Budgets: budgets,
 	}); err != nil {
@@ -1182,7 +1187,7 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 	node.wake()
 	effectiveBudgets, _ := parent.root.InspectBudgets(ctx, parent.id, id)
 	return map[string]any{
-		"id": id, "name": name, "parent_id": parent.id, "status": "queued",
+		"id": id, "name": name, "parent_id": parent.id, "status": "queued", "report": report,
 		"effective_capabilities": capabilities, "effective_budgets": effectiveBudgets,
 	}, nil
 }
@@ -1376,7 +1381,7 @@ func (runtime *RecursiveRuntime) inspect(ctx context.Context, caller *AgentSessi
 	return map[string]any{
 		"id": found.ID, "name": found.Name, "parent_id": found.ParentID, "status": found.Status,
 		"model": found.Model, "provider": found.Provider, "effort": found.Effort, "cwd": found.CWD,
-		"unread_messages": summary.UnreadCount, "budgets": budgets,
+		"unread_messages": summary.UnreadCount, "budgets": budgets, "report": found.Report,
 	}, nil
 }
 
@@ -1453,8 +1458,9 @@ func (host *recursiveHost) messages(ctx context.Context, operation string, argum
 		}
 		result := make([]map[string]any, 0, len(messages))
 		for _, message := range messages {
+			node.recordObserved(sessionstore.MailboxReceipt{ID: message.ID, Revision: message.Revision})
 			result = append(result, map[string]any{
-				"id": message.ID, "sender": message.SenderAgentID, "kind": message.Kind, "delivery": message.Delivery,
+				"revision": message.Revision, "id": message.ID, "sender": message.SenderAgentID, "kind": message.Kind, "delivery": message.Delivery,
 				"subject": message.Subject, "excerpt": message.Excerpt, "size": message.Body.Size,
 				"evidence_handle": message.EvidenceReferenceID, "status": message.Status, "created_at": message.CreatedAt,
 			})
@@ -1466,9 +1472,9 @@ func (host *recursiveHost) messages(ctx context.Context, operation string, argum
 		if err != nil {
 			return nil, err
 		}
-		node.recordDelivered(message.ID)
+		node.recordDelivered(sessionstore.MailboxReceipt{ID: message.ID, Revision: message.Revision})
 		return map[string]any{
-			"id": message.ID, "sender": message.SenderAgentID, "kind": message.Kind, "delivery": message.Delivery,
+			"revision": message.Revision, "id": message.ID, "sender": message.SenderAgentID, "kind": message.Kind, "delivery": message.Delivery,
 			"subject": message.Subject, "body": string(body),
 			"evidence_handle": message.EvidenceReferenceID, "status": message.Status, "created_at": message.CreatedAt,
 		}, nil
@@ -1477,7 +1483,7 @@ func (host *recursiveHost) messages(ctx context.Context, operation string, argum
 		if err != nil {
 			return nil, err
 		}
-		count, err := node.root.CompleteMailboxMessages(ctx, node.id, ids)
+		count, err := node.root.CompleteMailboxMessages(ctx, node.id, node.messageReceipts(ids))
 		return map[string]any{"completed": count}, err
 	case "defer":
 		id, _ := stringArgument(arguments, "id")
@@ -1494,8 +1500,11 @@ func (host *recursiveHost) messages(ctx context.Context, operation string, argum
 		if until.IsZero() {
 			return nil, errors.New("defer requires until (RFC3339) or seconds")
 		}
-		err := node.root.DeferMailboxMessage(ctx, node.id, id, until)
-		return map[string]any{"id": id, "available_at": until.UTC().Format(time.RFC3339)}, err
+		revision, err := node.root.DeferMailboxMessage(ctx, node.id, node.messageReceipts([]string{id})[0], until)
+		if err == nil {
+			node.recordObserved(sessionstore.MailboxReceipt{ID: id, Revision: revision})
+		}
+		return map[string]any{"id": id, "revision": revision, "available_at": until.UTC().Format(time.RFC3339)}, err
 	default:
 		return nil, fmt.Errorf("unknown messages operation %q", operation)
 	}

@@ -370,6 +370,9 @@ func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *t
 	if err := st.StartRootTurn(context.Background(), rootID, authority.AgentID, first.InboxSeq); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.ClaimSteers(t.Context(), rootID, authority.AgentID, rootTurnID(authority.AgentID, first.InboxSeq)); err != nil {
+		t.Fatal(err)
+	}
 	history := []llm.Message{
 		{Role: "system", Content: "not persisted"},
 		{Role: "user", Content: "work", Authored: true},

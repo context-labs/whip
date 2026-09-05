@@ -20,9 +20,9 @@ func (s *Session) consumeBudgets(ctx context.Context, agentID string, reservatio
 		return err
 	}
 	if err := action(); err != nil {
-		return errors.Join(err, s.store.ReleaseBudget(ctx, s.meta.ID, agentID, reservations))
+		return errors.Join(err, s.store.ReleaseBudget(context.WithoutCancel(ctx), s.meta.ID, agentID, reservations))
 	}
-	return s.store.ReconcileBudget(ctx, s.meta.ID, agentID, reservations, nil)
+	return s.store.ReconcileBudget(context.WithoutCancel(ctx), s.meta.ID, agentID, reservations, nil)
 }
 
 func durableReservations(bytes int) []capability.Reservation {
@@ -81,8 +81,8 @@ func (s *Session) reserveModelCall(ctx context.Context, agentID string, amount i
 		reservation = append(reservation, capability.Reservation{Kind: string(sessionstore.BudgetCost), Amount: cost})
 	}
 	started := time.Now()
-	if err := s.routeControl(ctx, func(actorCtx context.Context) error {
-		return s.store.ReserveBudget(actorCtx, s.meta.ID, agentID, reservation)
+	if _, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (struct{}, error) {
+		return struct{}{}, s.store.ReserveBudget(actorCtx, s.meta.ID, agentID, reservation)
 	}); err != nil {
 		return nil, err
 	}
@@ -128,18 +128,14 @@ func dollarsToMicros(value float64) int64 {
 	return int64(math.Ceil(value * 1_000_000))
 }
 
-func (s *Session) InspectBudgets(ctx context.Context, callerAgentID, targetAgentID string) (states []sessionstore.BudgetState, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		states, err = s.store.InspectBudgetsFor(actorCtx, s.meta.ID, callerAgentID, targetAgentID)
-		return err
+func (s *Session) InspectBudgets(ctx context.Context, callerAgentID, targetAgentID string) ([]sessionstore.BudgetState, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) ([]sessionstore.BudgetState, error) {
+		return s.store.InspectBudgetsFor(actorCtx, s.meta.ID, callerAgentID, targetAgentID)
 	})
-	return states, err
 }
 
-func (s *Session) CapBudget(ctx context.Context, callerAgentID, targetAgentID string, kind sessionstore.BudgetKind, limit int64) (state sessionstore.BudgetState, err error) {
-	err = s.routeControl(ctx, func(actorCtx context.Context) error {
-		state, err = s.store.CapBudget(actorCtx, s.meta.ID, callerAgentID, targetAgentID, kind, limit)
-		return err
+func (s *Session) CapBudget(ctx context.Context, callerAgentID, targetAgentID string, kind sessionstore.BudgetKind, limit int64) (sessionstore.BudgetState, error) {
+	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.BudgetState, error) {
+		return s.store.CapBudget(actorCtx, s.meta.ID, callerAgentID, targetAgentID, kind, limit)
 	})
-	return state, err
 }
