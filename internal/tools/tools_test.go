@@ -263,9 +263,13 @@ func TestBinaryOutputPlaceholder(t *testing.T) {
 		// buffer, not just the prefix.
 		{name: "text then binary past probe", in: append(bytes.Repeat([]byte("a"), binaryProbeSize+100), 0x00, 0x01), want: true},
 		// Regression: a >1KB Latin-1 file (smart quotes, no NULs) has invalid
-		// interior bytes — backing off the probe cut must NOT strip to the
-		// longest valid prefix and let them through as text.
-		{name: "latin1 interior bytes stay binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-10), 0x93, 0x94, 0x92), want: true},
+		// interior bytes right at the probe cut — backing off must NOT strip a
+		// genuinely-invalid trailing byte and let the file through as text.
+		// Pad past binaryProbeSize so trimToLastRune actually runs.
+		{name: "latin1 at probe cut stays binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-1), 0x93, 0x94, 0x92), want: true},
+		// And the flip side: a real multi-byte rune straddling the cut still
+		// reads as text (the trim path must not break it).
+		{name: "utf8 rune at probe cut stays text", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-1), []byte("世界")...), want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

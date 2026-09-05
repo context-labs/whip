@@ -64,24 +64,48 @@ func isBinary(data []byte) bool {
 }
 
 // trimToLastRune shortens s to end on a complete UTF-8 rune, but only when
-// the cut landed mid-rune. A rune is at most utf8.UTFMax bytes, so the loop
-// never backs off more than that — genuinely-invalid interior bytes (a
-// Latin-1 file, a corrupted stream) stay invalid and the caller's
-// !utf8.Valid check still flags them as binary.
+// the cut landed mid-rune: the trailing bytes must form a valid prefix of a
+// rune whose continuation extends past the cut. A genuinely-invalid trailing
+// byte (Latin-1 smart quote, BOM-less UTF-16) is NOT a rune prefix, so it
+// stays invalid and the caller's !utf8.Valid still flags the sample as binary.
 func trimToLastRune(s []byte) []byte {
-	for i := 0; i < utf8.UTFMax && len(s) > 0; i++ {
-		if utf8.Valid(s) {
-			return s
-		}
-		_, size := utf8.DecodeLastRune(s)
-		if size == 0 {
-			size = 1
-		}
-		s = s[:len(s)-size]
+	if len(s) == 0 || utf8.Valid(s) {
+		return s
 	}
-	// Still invalid after backing off a full rune's worth of bytes: the cut
-	// wasn't mid-rune, the bytes are genuinely invalid — return as-is so the
-	// caller's !utf8.Valid sees them.
+	// Find the start of the last (possibly incomplete) rune: walk back past
+	// continuation bytes (0x80–0xBF) to the rune's lead byte.
+	i := len(s) - 1
+	for i > 0 && (s[i]&0xC0) == 0x80 {
+		i--
+	}
+	// The candidate rune starts at i. If the lead byte at i encodes a rune
+	// whose full length extends past the end of s, the cut landed mid-rune —
+	// drop the tail. Otherwise the trailing byte is genuinely invalid; keep it.
+	if i < len(s) {
+		// DecodeRune on an incomplete sequence returns RuneError, so use the
+		// lead byte's encoded length instead: 0xC0–0xDF = 2 bytes, 0xE0–0xEF =
+		// 3, 0xF0–0xF7 = 4. A lead byte outside those ranges is not a rune
+		// start, so it's genuinely invalid.
+		lead := s[i]
+		var want int
+		switch {
+		case lead < 0x80:
+			want = 1
+		case lead < 0xC0:
+			want = 0 // continuation byte without a lead: invalid
+		case lead < 0xE0:
+			want = 2
+		case lead < 0xF0:
+			want = 3
+		case lead < 0xF8:
+			want = 4
+		default:
+			want = 0 // 0xF8+ is never a valid UTF-8 lead
+		}
+		if want > 1 && i+want > len(s) {
+			return s[:i]
+		}
+	}
 	return s
 }
 
