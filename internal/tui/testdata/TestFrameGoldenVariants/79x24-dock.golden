@@ -1,3 +1,4 @@
+                                                                               
    ❯ find the config loader                                                    
                                                                                
      ← Read internal/config/config.go                                          
@@ -14,11 +15,10 @@
      See the docs.                                                             
                                                                                
   ┃                                                                            
-  ┃  Ask whip anything… (/ for commands, tab completes)                        
+  ┃  Ask whip anything… (/ commands, tab completes)                            
   ┃                                                                            
   ┃  Off · kimi-k3-fast  inference                                             
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ 
    running root                                                                
    idle      file-reader                                                       
-                                                                               
  /work/whip                   ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar 

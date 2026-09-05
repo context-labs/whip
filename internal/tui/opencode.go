@@ -49,9 +49,6 @@ const (
 	leftWidth       = 42 // the left column: focus bar + panel fill
 	sidebarMinWidth = 120
 	replMinWide     = 150 // the REPL panel and the left column share the screen from here
-	chatMinWidth    = 72  // with both columns the REPL grows only past this chat width
-	replMinWidth    = 42
-	replMaxWidth    = 64
 	// opencodeLeftMargin is the chat's x when the left column is hidden
 	// (opencode's routes/session paddingLeft=2).
 	opencodeLeftMargin = 2
@@ -407,13 +404,13 @@ func (m *model) dialogTop() int {
 }
 
 // dialogHeight is the most rows a dialog may take: from its fixed top down to
-// the row above the status line; 0 (unlimited) before the terminal size is
+// the row above the footer; 0 (unlimited) before the terminal size is
 // known.
 func (m *model) dialogHeight() int {
 	if m.height <= 0 {
 		return 0
 	}
-	return max(m.height-m.dialogTop()-2, 8)
+	return max(m.height-m.dialogTop()-1, 8)
 }
 
 // ocToolIcon maps a tool to opencode's inline-tool icon glyphs.

@@ -136,13 +136,16 @@ root prompt (`evals/rlm`).
   right: the open agent's live Starlark cells, code as the model writes it,
   print output as it happens, each host call with its duration, results,
   errors, and worker restarts. Below 150 columns the panel takes the left
-  column's place; from 150 the two share the screen and the REPL grows with
-  the terminal (42–64 columns). The wheel over the panel scrolls it
+  column's place; from 150 the two share the screen. The panel takes half of
+  the width right of the left column (half the terminal when the column is
+  hidden). The wheel over the panel scrolls it
   independently of the chat (it follows the newest cell until you scroll up,
   then a "↓ N more lines" chip and a scrollbar mark the position). The panel
   keeps every cell seen during the TUI session, even after snapshots drop
   idle children.
-- The footer's right side lists the global chords; its left side follows the
+- The footer sits on the last row, under the prompt (or under the agents dock
+  and hint rows when they show). Its right side lists the global chords; its
+  left side follows the
   keyboard's owner: the running turn (spinner, `esc interrupt`), an armed
   `ctrl+x` leader (every chord), the focused Agents panel, or the working
   directory.

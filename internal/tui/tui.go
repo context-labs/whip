@@ -1331,12 +1331,12 @@ func (m *model) viewBody() string {
 	if dock := m.agentsDock(); dock != "" {
 		b.WriteString("\n" + dock)
 	}
-	return b.String() // the footer is drawn by View on the last row (measure keeps its blank row + footer budget)
+	return b.String() // the footer is drawn by View on the last row (measure budgets that row)
 }
 
 // inputPlaceholder is the idle input hint; syncInputPlaceholder re-uses it
 // when the busy state clears so the two sites never drift.
-const inputPlaceholder = "Ask whip anything… (/ for commands, tab completes)"
+const inputPlaceholder = "Ask whip anything… (/ commands, tab completes)"
 
 // syncInputPlaceholder reflects the busy state into the input's placeholder:
 // while a turn runs, typed text steers it at the next loop boundary. Called from View so it tracks

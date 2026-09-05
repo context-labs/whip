@@ -56,15 +56,9 @@ type replAgent struct {
 	toolAt time.Time // when that tool started (zero on replay)
 }
 
-// panelWidth is the REPL panel's width: replMinWidth alone (or when it has
-// displaced the left column); beside both columns it takes what a
-// chatMinWidth chat leaves, up to replMaxWidth.
-func (m *model) panelWidth() int {
-	if !m.leftVisible() {
-		return replMinWidth
-	}
-	return min(max(m.termWidth-m.mainX()-2-chatMinWidth, replMinWidth), replMaxWidth)
-}
+// panelWidth is the REPL panel's width: half of what lies right of the left
+// column (or of the whole terminal when the column is hidden).
+func (m *model) panelWidth() int { return (m.termWidth - m.mainX()) / 2 }
 
 func (m *model) replAgentFor(agentID string) *replAgent {
 	if m.repl == nil {

@@ -77,6 +77,9 @@ func (m *model) measure() measure {
 		mm.inputTxt = m.input.Height()
 		mm.input = mm.inputTxt + 4 // padding row, textarea, padding row, meta row, tail
 		if m.namePrompt != nil {
+			if m.namePrompt.mask {
+				mm.inputTxt = 1 // the masked view is a single row however long the secret
+			}
 			mm.input = mm.inputTxt // a bare "label ▏value" row, no box chrome
 		}
 	}
@@ -101,21 +104,21 @@ func (mm measure) fixed() int {
 	for _, rows := range mm.optional {
 		n += 1 + rows
 	}
-	n++ // the blank row above the rewind picker / the input (viewBody writes it exactly once; the "\n\n" before the status line adds the other)
+	n++ // the blank row above the rewind picker / the input (viewBody writes it exactly once)
 	if mm.rewind > 0 {
 		n += mm.rewind + 1
 	}
-	return n + mm.input + mm.hints + mm.dock + 2 // + a blank row and the status line
+	return n + mm.input + mm.hints + mm.dock + 1 // + the footer row
 }
 
 // layoutFrame lays out a w×h frame: the left column (when visible), the main
 // column at m.width with its regions stacked in viewBody's order around the
 // transcript (whose height the viewport already holds), its scrollbar column
-// and (when visible) the REPL panel. The columns stop two rows short of the
-// bottom: a blank row, then the footer.
+// and (when visible) the REPL panel. The columns stop one row short of the
+// bottom: the footer.
 func (m *model) layoutFrame(w, h int) frameRects {
 	r := frameRects{area: rect(0, 0, w, h), main: rect(m.mainX(), 0, m.width, h)}
-	cols := max(h-2, 0)
+	cols := max(h-1, 0)
 	if m.leftVisible() {
 		r.left = rect(1, 0, leftWidth, cols)
 		py := 0
@@ -165,7 +168,7 @@ func (m *model) layoutFrame(w, h int) frameRects {
 		y += mm.input
 	}
 	y += mm.hints + mm.dock
-	fy := y + 1 // a blank row, then the footer; on a sized terminal it is the last row
+	fy := y // the footer sits right under the prompt; on a sized terminal it is the last row
 	if h > 0 {
 		fy = h - 1
 	}

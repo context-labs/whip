@@ -206,8 +206,9 @@ func TestSidebarPressDoesNotSelectChat(t *testing.T) {
 }
 
 // The columns partition the screen: pad, left column, gap, chat, scrollbar
-// column, (REPL panel, pad); every column stops above the blank row and the
-// footer. Narrow terminals keep the bare chat geometry.
+// column, (REPL panel, pad); every column stops above the footer, and the
+// REPL takes half of what lies right of the left column. Narrow terminals
+// keep the bare chat geometry.
 func TestColumnGeometry(t *testing.T) {
 	for _, tc := range []struct {
 		w, h        int
@@ -215,10 +216,10 @@ func TestColumnGeometry(t *testing.T) {
 		left, side  uv.Rectangle
 		mainX, chat int
 	}{
-		{140, 40, false, uv.Rect(1, 0, 42, 38), uv.Rectangle{}, 44, 95},
-		{160, 40, true, uv.Rect(1, 0, 42, 38), uv.Rect(117, 0, 42, 38), 44, 72},
-		{200, 40, true, uv.Rect(1, 0, 42, 38), uv.Rect(135, 0, 64, 38), 44, 90},
-		{120, 40, true, uv.Rectangle{}, uv.Rect(77, 0, 42, 38), 2, 74},
+		{140, 40, false, uv.Rect(1, 0, 42, 39), uv.Rectangle{}, 44, 95},
+		{160, 40, true, uv.Rect(1, 0, 42, 39), uv.Rect(101, 0, 58, 39), 44, 56},
+		{200, 40, true, uv.Rect(1, 0, 42, 39), uv.Rect(121, 0, 78, 39), 44, 76},
+		{120, 40, true, uv.Rectangle{}, uv.Rect(60, 0, 59, 39), 2, 57},
 		{79, 24, false, uv.Rectangle{}, uv.Rectangle{}, 2, 76},
 		{79, 24, true, uv.Rectangle{}, uv.Rectangle{}, 2, 76},
 	} {

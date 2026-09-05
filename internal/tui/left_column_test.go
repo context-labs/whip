@@ -19,9 +19,9 @@ func TestLeftColumnPartition(t *testing.T) {
 		open   int
 		panels [3]uv.Rectangle
 	}{
-		{40, paneAgents, [3]uv.Rectangle{uv.Rect(1, 0, 42, 30), uv.Rect(1, 31, 42, 3), uv.Rect(1, 35, 42, 3)}},
-		{40, paneContext, [3]uv.Rectangle{uv.Rect(1, 0, 42, 3), uv.Rect(1, 4, 42, 30), uv.Rect(1, 35, 42, 3)}},
-		{24, paneLSP, [3]uv.Rectangle{uv.Rect(1, 0, 42, 3), uv.Rect(1, 4, 42, 3), uv.Rect(1, 8, 42, 14)}},
+		{40, paneAgents, [3]uv.Rectangle{uv.Rect(1, 0, 42, 31), uv.Rect(1, 32, 42, 3), uv.Rect(1, 36, 42, 3)}},
+		{40, paneContext, [3]uv.Rectangle{uv.Rect(1, 0, 42, 3), uv.Rect(1, 4, 42, 31), uv.Rect(1, 36, 42, 3)}},
+		{24, paneLSP, [3]uv.Rectangle{uv.Rect(1, 0, 42, 3), uv.Rect(1, 4, 42, 3), uv.Rect(1, 8, 42, 15)}},
 	} {
 		m := goldenModel(140, tc.h)
 		m.leftPane = tc.open
@@ -35,7 +35,7 @@ func TestLeftColumnPartition(t *testing.T) {
 			if head := rows[rc.Min.Y+1]; !strings.Contains(head, title) {
 				t.Fatalf("h=%d open=%d: panel %d header row %d = %q", tc.h, tc.open, pane, rc.Min.Y+1, head)
 			}
-			if gap := rows[rc.Max.Y]; rc.Max.Y < tc.h-2 && strings.TrimSpace(gap[:44]) != "" {
+			if gap := rows[rc.Max.Y]; rc.Max.Y < tc.h-1 && strings.TrimSpace(gap[:44]) != "" {
 				t.Fatalf("h=%d open=%d: row %d under panel %d is not a gap: %q", tc.h, tc.open, rc.Max.Y, pane, gap)
 			}
 		}
