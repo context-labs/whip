@@ -1235,7 +1235,6 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 	child.CompactClient, child.CompactModel, child.CompactThreshold = parent.CompactClient, parent.CompactModel, parent.CompactThreshold
 	child.WorkingDir = parent.WorkingDir
 	child.ResolveModel = parent.ResolveModel
-	child.BrowserDisabled, child.ComputerDisabled = parent.BrowserDisabled, parent.ComputerDisabled
 	return child, child.ModelName, child.Provider, nil
 }
 

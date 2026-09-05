@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -383,9 +384,9 @@ func TestConnectListToolsFailureClosesSession(t *testing.T) {
 // manager is closing throws the session away instead of storing it.
 func TestConnectDuringCloseDiscardsSession(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	m.closed = true
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 
 	s := m.servers["docs"]
 	s.connect(context.Background(), m) // synchronous: no lifecycle goroutine started
@@ -444,38 +445,31 @@ func TestRunDropsRedundantReconnect(t *testing.T) {
 // TestRunRefusesReconnectWhenDisabled: /mcp reconnect on a disabled server
 // re-asserts disabled instead of resurrecting it behind the user's back.
 func TestRunRefusesReconnectWhenDisabled(t *testing.T) {
-	var connects, changes atomic.Int64
-	m := NewManager(map[string]ServerConfig{"dead": testCfg("dead")})
-	m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
-		connects.Add(1)
-		return nil, errors.New("spawn failed")
-	}
-	t.Cleanup(m.Close)
-	m.SetOnChange(func() { changes.Add(1) })
-	m.Start(context.Background())
-	waitReady(t, m) // settles failed; no live session, so nothing races the disable
+	synctest.Test(t, func(t *testing.T) {
+		var connects atomic.Int64
+		m := NewManager(map[string]ServerConfig{"dead": testCfg("dead")})
+		m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
+			connects.Add(1)
+			return nil, errors.New("spawn failed")
+		}
+		defer m.Close()
+		m.Start(t.Context())
+		synctest.Wait()
 
-	if !m.Disable("dead") {
-		t.Fatal("disable returned false")
-	}
-	before := changes.Load()
-	if !m.Reconnect("dead") {
-		t.Fatal("reconnect returned false")
-	}
-	waitDrained(t, m.servers["dead"])
-	deadline := probeDeadline()
-	for changes.Load() == before && !deadline.Done() {
-		deadline.Sleep()
-	}
-	if changes.Load() == before {
-		t.Fatal("run() never handled the reconnect for the disabled server")
-	}
-	if st := m.Statuses()[0]; st.Status != StatusDisabled {
-		t.Errorf("status after reconnecting a disabled server = %+v", st)
-	}
-	if got := connects.Load(); got != 1 {
-		t.Errorf("disabled server dialed %d times, want only the initial attempt", got)
-	}
+		if !m.Disable("dead") {
+			t.Fatal("disable returned false")
+		}
+		if !m.Reconnect("dead") {
+			t.Fatal("reconnect returned false")
+		}
+		synctest.Wait()
+		if st := m.Statuses()[0]; st.Status != StatusDisabled {
+			t.Errorf("status after reconnecting a disabled server = %+v", st)
+		}
+		if got := connects.Load(); got != 1 {
+			t.Errorf("disabled server dialed %d times, want only the initial attempt", got)
+		}
+	})
 }
 
 // TestReconnectDropsLiveSession: /mcp reconnect on a healthy server tears the
@@ -595,9 +589,9 @@ func TestKickAutoReconnectDeclines(t *testing.T) {
 
 	// Closing manager: whip is shutting down.
 	closing := NewManager(nil)
-	closing.onChangeMu.Lock()
+	closing.mu.Lock()
 	closing.closed = true
-	closing.onChangeMu.Unlock()
+	closing.mu.Unlock()
 	s2 := newSrv(ServerConfig{Command: []string{"x"}})
 	s2.kickAutoReconnect(closing)
 

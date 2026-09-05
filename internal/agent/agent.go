@@ -93,17 +93,6 @@ type CompactInfo struct {
 	Usage llm.Usage
 }
 
-// OnTodos is the agent-level hook fired by setTodos (the todowrite tool)
-// whenever the plan is rewritten. Set by the ACP bridge for the duration of
-// a turn; nil elsewhere. Kept off Events because todowrite is a tool call
-// three layers below the turn loop — threading Events into it would leak the
-// streaming abstraction into tools.
-func (a *Agent) SetOnTodos(fn func(items []Todo)) {
-	a.todosMu.Lock()
-	a.onTodos = fn
-	a.todosMu.Unlock()
-}
-
 // Agent holds one conversation.
 type Agent struct {
 	Client    *llm.Client
@@ -157,34 +146,10 @@ type Agent struct {
 	// consistent slice. Mutations hold it only for the append.
 	msgsMu sync.Mutex
 
-	// Todos is the todowrite plan, rewritten in full by the model and
-	// injected per round. Like Messages, it is only mutated by the turn
-	// goroutine; the TUI reads it between turns via TodosJSON.
-	Todos []Todo
-
-	// onTodos fires after each setTodos (installed per turn by the ACP
-	// bridge); todosMu guards it against a raced installer.
-	todosMu sync.Mutex
-	onTodos func(items []Todo)
-
-	sessionID atomic.Pointer[string] // scopes the per-session memory file + keys the prompt cache (SetSessionID)
-
-	// toolsMu guards mcpTools: the MCP manager's OnChange can fire (server
-	// settled) while a Turn is streaming, and Turn reads the tool set per
-	// request.
-	toolsMu        sync.Mutex
-	mcpTools       []tools.Tool
-	exclusiveTools bool
-	toolClientID   string
-	Services       *tools.Services
-
-	// BrowserDisabled, when true, keeps browser_exec out of the tool set
-	// (config browser.enabled=false) even when the manager hook exists.
-	BrowserDisabled bool
-
-	// ComputerDisabled, when true, keeps computer_exec out of the tool set
-	// (config computer.enabled=false).
-	ComputerDisabled bool
+	// toolsMu guards the runtime-owned tool surface and its client identity.
+	toolsMu      sync.Mutex
+	toolClientID string
+	Services     *tools.Services
 
 	usageMu sync.Mutex
 	usage   llm.Usage // session totals across every API call (PromptTokens = input)
@@ -192,6 +157,13 @@ type Agent struct {
 
 // TurnRunning reports whether a turn is currently in flight.
 func (a *Agent) TurnRunning() bool { return a.running.Load() }
+
+// SetSessionID keys the provider prompt cache before the session runs.
+func (a *Agent) SetSessionID(id string) {
+	if a.Client != nil {
+		a.Client.CacheKey = id
+	}
+}
 
 // SetLauncher lets a daemon supervisor own agent-created goroutines.
 func (a *Agent) SetLauncher(launcher func(string, func()) bool) {
@@ -358,34 +330,17 @@ func (a *Agent) SetSystemPrompt(prompt string) {
 	}
 }
 
-// SetMCPTools swaps in the current MCP tool set (called by the MCP manager's
-// OnChange whenever a server settles). MCP tools live separately from
-// a.Tools so a settle mid-turn never mutates the slice a Turn is reading.
-func (a *Agent) SetMCPTools(ts []tools.Tool) {
-	a.toolsMu.Lock()
-	if !a.exclusiveTools {
-		a.mcpTools = ts
-	}
-	a.toolsMu.Unlock()
-}
-
 // SetExclusiveTool switches an agent to a single model-facing capability.
-// Later MCP discovery cannot widen this closed tool surface.
 func (a *Agent) SetExclusiveTool(tool tools.Tool, clientID string) {
 	a.toolsMu.Lock()
 	a.Tools = []tools.Tool{tool}
-	a.mcpTools = nil
-	a.exclusiveTools = true
 	a.toolClientID = clientID
 	a.toolsMu.Unlock()
 }
 
-// suggest lists candidate names from built-ins and live MCP tools.
-// tools, filtered by the mcp package's edit-distance logic.
+// suggest lists candidate names from the runtime-owned tool surface.
 func (a *Agent) suggest(name string) []string {
-	a.toolsMu.Lock()
-	all := append(append([]tools.Tool(nil), a.Tools...), a.mcpTools...)
-	a.toolsMu.Unlock()
+	all := a.AllTools()
 	names := make([]string, len(all))
 	for i, t := range all {
 		names[i] = t.Def.Function.Name
@@ -393,11 +348,11 @@ func (a *Agent) suggest(name string) []string {
 	return tools.SuggestTool(name, names)
 }
 
-// AllTools returns built-ins + the current MCP set.
+// AllTools returns a snapshot of the runtime-owned tool surface.
 func (a *Agent) AllTools() []tools.Tool {
 	a.toolsMu.Lock()
 	defer a.toolsMu.Unlock()
-	return append(append([]tools.Tool(nil), a.Tools...), a.mcpTools...)
+	return append([]tools.Tool(nil), a.Tools...)
 }
 
 // Turn sends user input and loops until the model stops calling tools.
@@ -489,12 +444,6 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		msgs := a.Messages
 		if ev.EphemeralSystem != "" {
 			msgs = append(append([]llm.Message(nil), msgs...), llm.Message{Role: "system", Content: ev.EphemeralSystem})
-		}
-		if block := a.todoBlock(); block != "" {
-			// Open plan items ride along as an ephemeral system message each
-			// round: a.Messages stays clean, and the plan survives long tool
-			// loops and compaction because it is re-derived, not stored.
-			msgs = append(append([]llm.Message(nil), msgs...), llm.Message{Role: "system", Content: block})
 		}
 		// Surface transient-request retries through the event hook so the UI
 		// shows "retrying" instead of looking hung. Set/restored per call: the

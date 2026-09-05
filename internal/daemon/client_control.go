@@ -184,7 +184,6 @@ func (r *AgentSession) ConfigureRun(system string, maxTurns int, headless bool) 
 	}
 	r.agent.MaxTurns = maxTurns
 	if headless {
-		r.agent.ComputerDisabled = true
 		r.DenyToolPermissions()
 	}
 }

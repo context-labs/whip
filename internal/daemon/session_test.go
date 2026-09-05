@@ -107,15 +107,11 @@ type fakeMCP struct {
 	processes *capability.ProcessManager
 	rootID    string
 	cwd       string
-	tools     []tools.Tool
-	onChange  func()
 }
 
 func (m *fakeMCP) SetProcessOptions(processes *capability.ProcessManager, rootID, cwd string, _ map[string]string) {
 	m.processes, m.rootID, m.cwd = processes, rootID, cwd
 }
-func (m *fakeMCP) SetOnChange(onChange func()) { m.onChange = onChange }
-func (m *fakeMCP) Tools() []tools.Tool         { return m.tools }
 
 type panicLifecycle struct {
 	fakeCloser
@@ -825,11 +821,11 @@ func TestAgentStreamEventsAreDurableOrderedAndSnapshotRestorable(t *testing.T) {
 	}
 }
 
-func TestOpenBindsMCPProcessesAndTools(t *testing.T) {
+func TestOpenBindsMCPProcesses(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	ag := agent.NewRuntime(llm.New("http://unused", "key"), "model", 100, "system", tools.NewServices())
-	manager := &fakeMCP{tools: []tools.Tool{{Def: llm.NewTool("mcp_one", "one", `{}`)}}}
+	manager := &fakeMCP{}
 	daemon, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &AgentSession{agent: ag}, MCP: manager}, nil
 	})
@@ -844,14 +840,8 @@ func TestOpenBindsMCPProcessesAndTools(t *testing.T) {
 	if manager.processes != store.Processes() || manager.rootID != rootID || manager.cwd != root.meta.CWD {
 		t.Fatalf("MCP process scope=%p %q %q", manager.processes, manager.rootID, manager.cwd)
 	}
-	manager.tools = []tools.Tool{{Def: llm.NewTool("mcp_two", "two", `{}`)}}
-	manager.onChange()
-	found := false
-	for _, tool := range ag.AllTools() {
-		found = found || tool.Def.Function.Name == "mcp_two"
-	}
-	if !found {
-		t.Fatal("MCP tool refresh did not reach the root agent")
+	if len(ag.AllTools()) != 0 {
+		t.Fatal("MCP process setup changed the model-facing tool surface")
 	}
 }
 

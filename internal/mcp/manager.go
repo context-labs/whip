@@ -132,9 +132,9 @@ func autoReconnectDelay(try int) time.Duration {
 // drop, unless the manager is closing, the server is disabled, or we've
 // already retried autoReconnectMax times in a row.
 func (s *server) kickAutoReconnect(m *Manager) {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	closing := m.closed
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	s.mu.Lock()
 	tries := s.autoTries
 	ctx := s.runCtx
@@ -150,9 +150,9 @@ func (s *server) kickAutoReconnect(m *Manager) {
 			return
 		case <-timer.C:
 		}
-		m.onChangeMu.Lock()
+		m.mu.Lock()
 		closing := m.closed
-		m.onChangeMu.Unlock()
+		m.mu.Unlock()
 		s.mu.Lock()
 		gave := s.status == StatusReady || s.autoTries != tries // someone else recovered/retried
 		s.mu.Unlock()
@@ -172,8 +172,7 @@ func (s *server) kickAutoReconnect(m *Manager) {
 // Manager owns every MCP server connection. All methods are safe for
 // concurrent use; tool calls for different servers proceed in parallel.
 type Manager struct {
-	servers  map[string]*server // keyed by configured name
-	onChange func()             // optional redraw hook, like taskRegistry.OnChange
+	servers map[string]*server // keyed by configured name
 
 	// blocked holds servers an mcpImport policy filtered out. They never
 	// connect, but stay visible in the status view so a gated import isn't
@@ -184,7 +183,7 @@ type Manager struct {
 	// tests can substitute in-process transports without spawning processes.
 	connectTransport func(ctx context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error)
 
-	onChangeMu sync.Mutex // guards onChange, blocked, and closed (writes may race connect goroutines)
+	mu         sync.Mutex // guards manager state shared with connection goroutines
 	closed     bool       // set by Close; connect() won't store new sessions after it
 	started    bool
 	stop       context.CancelFunc
@@ -242,20 +241,20 @@ func NewManager(cfgs map[string]ServerConfig) *Manager {
 
 // SetLauncher routes MCP lifecycle goroutines through a daemon supervisor.
 func (m *Manager) SetLauncher(launcher func(string, func()) bool) {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	m.launcher = launcher
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 }
 
 func (m *Manager) launch(kind string, work func()) bool {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	if m.closed {
-		m.onChangeMu.Unlock()
+		m.mu.Unlock()
 		return false
 	}
 	launcher := m.launcher
 	m.workers.Add(1)
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	run := func() {
 		defer m.workers.Done()
 		work()
@@ -272,7 +271,7 @@ func (m *Manager) launch(kind string, work func()) bool {
 }
 
 func (m *Manager) SetProcessOptions(processes *capability.ProcessManager, rootID, cwd string, env map[string]string) {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	changedRoot := m.rootID != "" && m.rootID != rootID
 	names := make([]string, 0, len(m.servers))
 	if changedRoot && m.started {
@@ -281,7 +280,7 @@ func (m *Manager) SetProcessOptions(processes *capability.ProcessManager, rootID
 		}
 	}
 	m.processes, m.rootID, m.processCwd, m.processEnv = processes, rootID, cwd, maps.Clone(env)
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	for _, name := range names {
 		m.Reconnect(name)
 	}
@@ -292,9 +291,9 @@ func (m *Manager) SetProcessOptions(processes *capability.ProcessManager, rootID
 // (LoadMergedFiltered re-discovers; the manager absorbs). A name that already
 // exists is left alone: whip-owned entries and existing sessions win.
 func (m *Manager) AddServers(_ context.Context, cfgs map[string]ServerConfig) {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	if m.closed {
-		m.onChangeMu.Unlock()
+		m.mu.Unlock()
 		return
 	}
 	var fresh []*server
@@ -309,11 +308,10 @@ func (m *Manager) AddServers(_ context.Context, cfgs map[string]ServerConfig) {
 			fresh = append(fresh, s)
 		}
 	}
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	for _, s := range fresh {
 		m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
 	}
-	m.fireOnChange()
 }
 
 // RemoveServers tears down and forgets servers by name — the live half of
@@ -322,7 +320,7 @@ func (m *Manager) AddServers(_ context.Context, cfgs map[string]ServerConfig) {
 // and Statuses() immediately. Names that aren't live are ignored (whip-owned
 // entries are the caller's to keep).
 func (m *Manager) RemoveServers(names ...string) {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	var doomed []*server
 	for _, name := range names {
 		if s, ok := m.servers[name]; ok {
@@ -330,7 +328,7 @@ func (m *Manager) RemoveServers(names ...string) {
 			delete(m.servers, name)
 		}
 	}
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	for _, s := range doomed {
 		s.mu.Lock()
 		if s.stop != nil {
@@ -345,39 +343,15 @@ func (m *Manager) RemoveServers(names ...string) {
 			_ = old.Close()
 		}
 	}
-	if len(doomed) > 0 {
-		m.fireOnChange()
-	}
-}
-
-// SetOnChange installs a callback fired whenever a server's status changes
-// (the TUI uses it to redraw). Safe to call any time; the callback runs from
-// connect goroutines, so keep it cheap and non-blocking.
-func (m *Manager) SetOnChange(fn func()) {
-	m.onChangeMu.Lock()
-	m.onChange = fn
-	m.onChangeMu.Unlock()
-}
-
-// FireOnChangeForTest invokes the installed callback (tests only).
-func (m *Manager) FireOnChangeForTest() { m.fireOnChange() }
-
-func (m *Manager) fireOnChange() {
-	m.onChangeMu.Lock()
-	fn := m.onChange
-	m.onChangeMu.Unlock()
-	if fn != nil {
-		fn()
-	}
 }
 
 // Start kicks concurrent connects for every connecting server. Each server
 // owns its lifecycle goroutine, which also services later reconnect requests.
 // ctx cancellation aborts initial connects (e.g. shutdown during startup).
 func (m *Manager) Start(ctx context.Context) {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	if m.started || m.closed {
-		m.onChangeMu.Unlock()
+		m.mu.Unlock()
 		return
 	}
 	m.started = true
@@ -390,7 +364,7 @@ func (m *Manager) Start(ctx context.Context) {
 			servers = append(servers, s)
 		}
 	}
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	for _, s := range servers {
 		m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
 	}
@@ -403,11 +377,11 @@ func (m *Manager) defaultTransport(ctx context.Context, cfg ServerConfig, stderr
 	if len(cfg.Command) == 0 {
 		return nil, errors.New("MCP command is empty")
 	}
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	processes, rootID, cwd := m.processes, m.rootID, m.processCwd
 	env := make(map[string]string, len(m.processEnv)+len(cfg.Env))
 	maps.Copy(env, m.processEnv)
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	if processes == nil {
 		return defaultTransport(ctx, cfg, stderr)
 	}
@@ -485,7 +459,7 @@ func (s *server) run(ctx context.Context, m *Manager) {
 		case <-s.reconnect:
 		}
 		if s.disabled() {
-			s.setState(m, StatusDisabled, "")
+			s.setState(StatusDisabled, "")
 			continue
 		}
 		s.mu.Lock()
@@ -504,7 +478,6 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 	s.mu.Lock()
 	s.status = StatusConnecting
 	s.mu.Unlock()
-	m.fireOnChange()
 	s.mu.Lock()
 	cfg, startGen := s.cfg, s.gen // snapshot under mu: RemoveServers mutates cfg
 	s.mu.Unlock()
@@ -521,10 +494,10 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 			var listed *sdkmcp.ListToolsResult
 			listed, err = sess.ListTools(ctx, nil)
 			if err == nil {
-				m.onChangeMu.Lock()
+				m.mu.Lock()
 				closed := m.closed
 				_, stillOurs := m.servers[s.name]
-				m.onChangeMu.Unlock()
+				m.mu.Unlock()
 				s.mu.Lock()
 				removed := s.gen != startGen
 				s.mu.Unlock()
@@ -546,7 +519,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				s.autoTries = 0
 				gen := s.gen
 				s.mu.Unlock()
-				s.setState(m, StatusReady, "")
+				s.setState(StatusReady, "")
 				// Watch for a dropped session: mark failed so tool calls stop
 				// being routed (opencode's client.onclose → status failed,
 				// guarded by a client-identity check, index.ts:443). The gen
@@ -554,9 +527,9 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				// must not tear down the newer session.
 				m.launch("MCP connection watcher "+s.name, func() {
 					_ = sess.Wait()
-					m.onChangeMu.Lock()
+					m.mu.Lock()
 					closing := m.closed
-					m.onChangeMu.Unlock()
+					m.mu.Unlock()
 					s.mu.Lock()
 					stale := s.gen != gen
 					if !stale {
@@ -566,7 +539,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 					}
 					s.mu.Unlock()
 					if !stale && !closing {
-						s.setState(m, StatusFailed, "connection closed")
+						s.setState(StatusFailed, "connection closed")
 						s.kickAutoReconnect(m)
 					}
 				})
@@ -584,11 +557,11 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 			msg += " — stderr: " + tail
 		}
 	}
-	s.setState(m, StatusFailed, msg)
+	s.setState(StatusFailed, msg)
 }
 
 // setState transitions status and wakes every waiter on the first settle.
-func (s *server) setState(m *Manager, st Status, errMsg string) {
+func (s *server) setState(st Status, errMsg string) {
 	s.mu.Lock()
 	firstSettle := !s.settled
 	if st != StatusConnecting {
@@ -600,18 +573,17 @@ func (s *server) setState(m *Manager, st Status, errMsg string) {
 		close(s.ready)
 	}
 	logf("server %s -> %s %s", s.name, st, errMsg)
-	m.fireOnChange()
 }
 
-// Tools returns the current agent-facing tool set: one tools.Tool per listed
-// MCP tool on every ready server. Cheap to call per turn.
+// Tools returns one tool per listed MCP tool on every ready server, for
+// discovery and execution through the daemon host.
 func (m *Manager) Tools() []tools.Tool {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	servers := make([]*server, 0, len(m.servers))
 	for _, s := range m.servers {
 		servers = append(servers, s)
 	}
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	var out []tools.Tool
 	for _, s := range servers {
 		s.mu.Lock()
@@ -631,9 +603,9 @@ func (m *Manager) Tools() []tools.Tool {
 // ListTools returns one server's current tool metadata without widening the
 // model-facing JSON tool surface.
 func (m *Manager) ListTools(serverName string) ([]Tool, error) {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	server := m.servers[serverName]
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	if server == nil {
 		return nil, fmt.Errorf("MCP server %q not found", serverName)
 	}
@@ -660,9 +632,9 @@ func (m *Manager) ListTools(serverName string) ([]Tool, error) {
 // Call invokes a named tool on a named server. The server retains its normal
 // connection, timeout, and per-server serialization behavior.
 func (m *Manager) Call(ctx context.Context, serverName, toolName string, arguments json.RawMessage) (string, error) {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	server := m.servers[serverName]
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	if server == nil {
 		return "", fmt.Errorf("MCP server %q not found", serverName)
 	}
@@ -846,9 +818,9 @@ func normalizeSchema(schema any) string {
 // enabled so whip's own config stays self-contained. ok is false for
 // unknown names.
 func (m *Manager) Config(name string) (ServerConfig, bool) {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	s, ok := m.servers[name]
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	if !ok {
 		return ServerConfig{}, false
 	}
@@ -861,9 +833,9 @@ func (m *Manager) Config(name string) (ServerConfig, bool) {
 // caller persists enabled:false). Reconnect on a disabled server is refused
 // by run().
 func (m *Manager) Disable(name string) bool {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	s, ok := m.servers[name]
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	if !ok {
 		return false
 	}
@@ -876,15 +848,15 @@ func (m *Manager) Disable(name string) bool {
 	if old != nil {
 		_ = old.Close()
 	}
-	s.setState(m, StatusDisabled, "")
+	s.setState(StatusDisabled, "")
 	return true
 }
 
 // Enable clears a persisted disable and reconnects.
 func (m *Manager) Enable(name string) bool {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	s, ok := m.servers[name]
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	if !ok {
 		return false
 	}
@@ -900,12 +872,12 @@ func (m *Manager) Enable(name string) bool {
 // their tools — injecting them (opencode does, session/system.ts) improves
 // usage quality, not just availability.
 func (m *Manager) InstructionsBlock() string {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	servers := make([]*server, 0, len(m.servers))
 	for _, s := range m.servers {
 		servers = append(servers, s)
 	}
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	type entry struct{ name, text string }
 	var instr []entry
 	for _, s := range servers {
@@ -968,8 +940,8 @@ func Probe(ctx context.Context, name string, cfg ServerConfig) ProbeResult {
 // SetBlocked records the servers an import policy filtered out (already
 // disabled+noted ServerConfigs). Called once at startup, before Start.
 func (m *Manager) SetBlocked(cfgs map[string]ServerConfig) {
-	m.onChangeMu.Lock()
-	defer m.onChangeMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.blocked = make([]Server, 0, len(cfgs))
 	for name, c := range cfgs {
 		m.blocked = append(m.blocked, Server{Name: name, Status: StatusDisabled, Note: c.Note, Source: c.Source})
@@ -979,16 +951,16 @@ func (m *Manager) SetBlocked(cfgs map[string]ServerConfig) {
 
 // Blocked returns the name-sorted snapshot of policy-filtered servers.
 func (m *Manager) Blocked() []Server {
-	m.onChangeMu.Lock()
-	defer m.onChangeMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return append([]Server(nil), m.blocked...)
 }
 
 // BlockedByPolicy reports whether name was filtered out by the mcpImport
 // policy (vs merely disabled), so /mcp enable can point at the right fix.
 func (m *Manager) BlockedByPolicy(name string) bool {
-	m.onChangeMu.Lock()
-	defer m.onChangeMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, b := range m.blocked {
 		if b.Name == name {
 			return true
@@ -999,12 +971,12 @@ func (m *Manager) BlockedByPolicy(name string) bool {
 
 // Statuses returns a stable, name-sorted snapshot for /mcp.
 func (m *Manager) Statuses() []Server {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	servers := make([]*server, 0, len(m.servers))
 	for _, s := range m.servers {
 		servers = append(servers, s)
 	}
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	out := make([]Server, 0, len(servers))
 	for _, s := range servers {
 		s.mu.Lock()
@@ -1018,9 +990,9 @@ func (m *Manager) Statuses() []Server {
 // Reconnect requests a fresh connect for a server (drops a live session
 // first). Returns false for unknown names.
 func (m *Manager) Reconnect(name string) bool {
-	m.onChangeMu.Lock()
+	m.mu.Lock()
 	s, ok := m.servers[name]
-	m.onChangeMu.Unlock()
+	m.mu.Unlock()
 	if !ok {
 		return false
 	}
@@ -1044,16 +1016,15 @@ func (m *Manager) Reconnect(name string) bool {
 // process on Close (stdin closes first, then the scoped process is killed).
 func (m *Manager) Close() {
 	m.closeOnce.Do(func() {
-		m.onChangeMu.Lock()
+		m.mu.Lock()
 		m.closed = true
-		m.onChange = nil
 		stop := m.stop
 		stopStart := m.stopStart
 		servers := make([]*server, 0, len(m.servers))
 		for _, s := range m.servers {
 			servers = append(servers, s)
 		}
-		m.onChangeMu.Unlock()
+		m.mu.Unlock()
 		if stop != nil {
 			stop()
 		}

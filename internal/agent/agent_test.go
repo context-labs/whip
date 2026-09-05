@@ -57,8 +57,7 @@ func newTestAgent(client *llm.Client, model string, maxTokens int, systemPrompt 
 func newTestAgentWithServices(client *llm.Client, model string, maxTokens int, systemPrompt string, services *tools.Services) *Agent {
 	value := NewRuntime(client, model, maxTokens, systemPrompt, services)
 	value.Tools = tools.AllWithServices(services)
-	value.Tools = append(value.Tools, tools.BrowserExec(services), tools.ComputerExec(services), todoTool(value))
-	value.Tools = append(value.Tools, memoryTools(value)...)
+	value.Tools = append(value.Tools, tools.BrowserExec(services), tools.ComputerExec(services))
 	return value
 }
 
@@ -764,25 +763,13 @@ func TestTurnWithImagesMarksAuthoredAndCarriesParts(t *testing.T) {
 	}
 }
 
-// SetMCPTools makes the MCP set visible to this agent's local suggester.
-func TestSetMCPToolsInstallsSuggester(t *testing.T) {
+func TestToolSuggesterUsesConfiguredSurface(t *testing.T) {
 	ag := newTestAgent(llm.New("http://unused", "k"), "m", 100, "sys")
-	mt := tools.Tool{Def: llm.NewTool("mcp__srv__hello", "h", `{"type":"object"}`)}
-	ag.SetMCPTools([]tools.Tool{mt})
-
-	var found bool
-	for _, tl := range ag.AllTools() {
-		if tl.Def.Function.Name == "mcp__srv__hello" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("MCP tool missing from AllTools")
-	}
+	ag.SetExclusiveTool(tools.Tool{Def: llm.NewTool("rlm_exec", "runtime", `{}`)}, "rlm")
 	// a near-miss call self-corrects through Execute's unknown-tool path
-	out := tools.ExecuteWithSuggester(context.Background(), ag.AllTools(), "mcp__srv__helo", json.RawMessage(`{}`), ag.suggest)
-	if !strings.Contains(out, "did you mean") || !strings.Contains(out, "mcp__srv__hello") {
-		t.Fatalf("typo'd MCP call should suggest the live name, got %q", out)
+	out := tools.ExecuteWithSuggester(context.Background(), ag.AllTools(), "rlm_exe", json.RawMessage(`{}`), ag.suggest)
+	if !strings.Contains(out, "did you mean") || !strings.Contains(out, "rlm_exec") {
+		t.Fatalf("typo'd tool call should suggest the configured name, got %q", out)
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/tools"
 )
 
 var ErrClosed = errors.New("daemon closed")
@@ -245,15 +244,8 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 func configureMCP(root *Session, components Components) {
 	if manager, ok := components.MCP.(interface {
 		SetProcessOptions(*capability.ProcessManager, string, string, map[string]string)
-		SetOnChange(func())
-		Tools() []tools.Tool
 	}); ok {
 		manager.SetProcessOptions(root.store.Processes(), root.meta.ID, root.meta.CWD, nil)
-		if runner, ok := components.Runner.(*AgentSession); ok {
-			updateTools := func() { runner.agent.SetMCPTools(manager.Tools()) }
-			manager.SetOnChange(updateTools)
-			updateTools()
-		}
 	}
 	if supervised, ok := components.MCP.(interface {
 		SetLauncher(func(string, func()) bool)

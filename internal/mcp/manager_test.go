@@ -591,15 +591,3 @@ func TestStatusString(t *testing.T) {
 		}
 	}
 }
-
-func TestSetOnChange(t *testing.T) {
-	m := NewManager(nil)
-	m.FireOnChangeForTest() // nil callback must be a no-op, not a panic
-	fired := 0
-	m.SetOnChange(func() { fired++ })
-	m.FireOnChangeForTest()
-	m.FireOnChangeForTest()
-	if fired != 2 {
-		t.Fatalf("callback fired %d times, want 2", fired)
-	}
-}

@@ -1231,9 +1231,9 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 	}
 	services.SetExternalPermissions(true)
 	runner.ConfigureRun("", 3, true)
-	if services.ExternalPermissionsEnabled() || !agentValue.ComputerDisabled || agentValue.MaxTurns != 3 {
-		t.Fatalf("headless run policy external=%v computerDisabled=%v maxTurns=%d",
-			services.ExternalPermissionsEnabled(), agentValue.ComputerDisabled, agentValue.MaxTurns)
+	if services.ExternalPermissionsEnabled() || agentValue.MaxTurns != 3 {
+		t.Fatalf("headless run policy external=%v maxTurns=%d",
+			services.ExternalPermissionsEnabled(), agentValue.MaxTurns)
 	}
 	if _, err := runner.RunShell(t.Context(), "printf denied"); err == nil || !strings.Contains(err.Error(), "Permission denied") {
 		t.Fatalf("headless shell should be denied, got %v", err)

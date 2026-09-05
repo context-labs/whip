@@ -196,8 +196,6 @@ func runDaemon(ctx context.Context, args []string) error {
 			compactPct = config.DefaultCompactPct
 		}
 		ag.CompactThreshold = float64(min(max(compactPct, 10), 90)) / 100
-		ag.BrowserDisabled = runtimeCfg.Browser.Enabled != nil && !*runtimeCfg.Browser.Enabled
-		ag.ComputerDisabled = runtimeCfg.Computer.Enabled != nil && !*runtimeCfg.Computer.Enabled
 		var mcpManager *mcp.Manager
 		discovery := mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(runtimeCfg.MCPServers), mcp.ImportPolicyFrom(runtimeCfg.MCPImport))
 		if len(discovery.Merged) > 0 || len(discovery.Blocked) > 0 {

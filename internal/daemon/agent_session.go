@@ -437,13 +437,5 @@ func (session *AgentSession) bindPresentation(root *Session) {
 	}
 	session.interactive = newDaemonInteractiveRunner(session.emit)
 	session.agent.Services.SetInteractive(session.interactive)
-	session.agent.SetOnTodos(func(items []agent.Todo) {
-		plan := PlanEvent{Items: make([]PlanItem, 0, len(items))}
-		for _, item := range items {
-			plan.Items = append(plan.Items, PlanItem{Content: item.Content, Status: item.Status})
-		}
-		payload, _ := json.Marshal(plan)
-		session.emit("stream.plan", StreamEvent{Result: string(payload)})
-	})
 	session.agent.SetLauncher(root.supervisor.launchWorker)
 }
