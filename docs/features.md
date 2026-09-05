@@ -170,6 +170,14 @@ root prompt (`evals/rlm`).
   `extended-keys` is on. whip never changes your tmux server: when the option
   is off it warns and suggests `set -s extended-keys on` in `~/.tmux.conf`.
   mosh collapses shift+enter before tmux or whip see it — use ctrl+j there.
+- Pasted images show as chips. A clipboard image (`ctrl+v`) lands in the
+  input as `[Image N]`; a pasted or dropped image path, or a macOS screenshot
+  preview, as `[Image N: name.png]` (long names shortened to 24 columns), with
+  the bytes copied to `~/.whip/pastes/`. The live transcript echoes the chip;
+  only the text sent to the daemon expands it to the real `@path` mention,
+  which is what a resumed or rebuilt transcript shows. The registry resets on
+  `/clear` and when the TUI switches root session, so a recalled chip from
+  before stays literal text.
 
 ## Storage and recovery
 

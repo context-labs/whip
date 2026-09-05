@@ -362,6 +362,8 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 		m.agentMessages = map[string][]llm.Message{}
 		m.terminalAgentID, m.terminalMarker = "", ""
 		m.repl = nil // REPL history is per session
+		// So are the [Image N] chips: a recalled chip must not resolve here.
+		m.images, m.imageSeq = nil, 0
 	}
 	m.sessionID = snapshot.RootID
 	m.clientCursor = snapshot.Cursor
@@ -1335,6 +1337,9 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 			text = strings.Replace(text, placeholder, strings.TrimSpace(m.pasteBuf), 1)
 			m.pasteBuf = ""
 		}
+		// The transcript echoes text with its [Image N] chips; the daemon gets
+		// the chips expanded to the real @path mentions.
+		sent := m.expandImageChips(text)
 		if m.clientState != ClientLive {
 			m.append(errStyle.Render("daemon is " + m.clientState.String() + " — draft preserved"))
 			return m, nil
@@ -1366,9 +1371,9 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 				}
 				m.input.Reset()
 				if m.agentOpen != "" {
-					return m.submitClientAction("agent.submit", map[string]string{"id": m.agentOpen, "text": text, "delivery": "steer"}, text)
+					return m.submitClientAction("agent.submit", map[string]string{"id": m.agentOpen, "text": sent, "delivery": "steer"}, text)
 				}
-				return m.submitClientAction("steer", daemon.SubmitPayload{Text: text}, text)
+				return m.submitClientAction("steer", daemon.SubmitPayload{Text: sent}, text)
 			default:
 				return m, nil
 			}
@@ -1388,9 +1393,9 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 			return m.submitClientAction("shell.run", map[string]any{"command": strings.TrimSpace(command)}, text)
 		}
 		if m.agentOpen != "" {
-			return m.submitClientAction("agent.submit", map[string]string{"id": m.agentOpen, "text": text}, text)
+			return m.submitClientAction("agent.submit", map[string]string{"id": m.agentOpen, "text": sent}, text)
 		}
-		return m.submitClientAction("submit", map[string]string{"text": text}, text)
+		return m.submitClientAction("submit", map[string]string{"text": sent}, text)
 	}
 	var command bubbletea.Cmd
 	m.input, command = m.input.Update(msg)
@@ -1965,7 +1970,8 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 	case "computer", "computer-use":
 		fields := strings.Fields(args)
 		if len(fields) > 0 && fields[0] != "status" && fields[0] != "allow" && fields[0] != "deny" {
-			instruction := computerUseInstruction(args)
+			// The echo keeps the [Image N] chips; the daemon gets the @paths.
+			instruction := computerUseInstruction(m.expandImageChips(args))
 			return m.submitClientAction("submit", map[string]string{"text": instruction}, args)
 		}
 		return m.submitClientAction("computer.control", map[string]string{"args": args}, "")
@@ -2016,14 +2022,16 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 		case "clear":
 			return m.submitClientAction("goal.set", map[string]string{"args": "clear"}, "")
 		default:
-			return m.submitClientAction("goal.run", map[string]string{"args": args}, "")
+			// The goal is persisted and re-sent by every goal check, so it
+			// must carry the stable @path, not a chip the registry may drop.
+			return m.submitClientAction("goal.run", map[string]string{"args": m.expandImageChips(args)}, "")
 		}
 	case "steer":
 		if args == "" {
 			m.append(errStyle.Render("/steer <message>"))
 			return m, nil
 		}
-		return m.submitClientAction("steer", map[string]string{"text": args}, args)
+		return m.submitClientAction("steer", map[string]string{"text": m.expandImageChips(args)}, args)
 	case "compact":
 		switch args {
 		case "log":

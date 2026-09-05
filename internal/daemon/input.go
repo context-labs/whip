@@ -19,6 +19,9 @@ import (
 const (
 	maxMentionImageBytes = 20 << 20
 	maxInvokedSkillBytes = 256 << 10
+	// A macOS screenshot name is 6 words ("Screenshot 2026-09-04 at 10.00.00 AM.png"
+	// once "at" splits); 8 leaves headroom without scanning whole sentences.
+	maxMentionWords = 8
 )
 
 var (
@@ -75,26 +78,17 @@ func (session *AgentSession) expandMentionedFiles(ctx context.Context, input str
 	var notes []string
 	seen := map[string]bool{}
 	imageBytes := 0
-	for token := range strings.FieldsSeq(input) {
-		if !strings.HasPrefix(token, "@") || len(token) < 2 {
+	fields := strings.Fields(input)
+	for i := 0; i < len(fields); i++ {
+		if !strings.HasPrefix(fields[i], "@") || len(fields[i]) < 2 {
 			continue
 		}
-		value := strings.TrimRight(token[1:], ".,;:!?)\"'")
-		lineRange := ""
-		if match := mentionRange.FindStringSubmatch(value); match != nil {
-			value = strings.TrimSuffix(value, match[0])
-			lineRange = " (lines " + match[1]
-			if match[2] != "" {
-				lineRange += "-" + match[2]
-			}
-			lineRange += ")"
+		path, lineRange, pasted, end := session.resolveMentionWords(fields, i)
+		if end < 0 {
+			continue
 		}
-		path, ok := resolveSessionMention(session.agent.WorkingDir, value)
-		pasted := !ok
-		if pasted {
-			path, ok = pastedImageFile(value)
-		}
-		if !ok || seen[path] {
+		i = end // the words a mention consumed are not rescanned as tokens
+		if seen[path] {
 			continue
 		}
 		seen[path] = true
@@ -128,6 +122,38 @@ func (session *AgentSession) expandMentionedFiles(ctx context.Context, input str
 	return input, parts, nil
 }
 
+// resolveMentionWords resolves the @token at fields[i]. When the bare token
+// resolves nothing it is extended with the following words (space-joined, up
+// to maxMentionWords) until one resolves: macOS screenshot names contain
+// spaces, and a Finder drag escapes them as "\ ". The shortest match wins so
+// a token that already resolves never swallows unrelated words after it.
+// end is the index of the last word consumed, or -1 when nothing resolves.
+func (session *AgentSession) resolveMentionWords(fields []string, i int) (string, string, bool, int) {
+	// Only the bare token (j == i) may fuzzy-walk the workspace; the
+	// space-joined extensions resolve as exact paths only, so an unresolved
+	// @word still costs one walk (see resolveSessionMention).
+	for j := i; j < len(fields) && j <= i+maxMentionWords; j++ {
+		value := strings.Join(fields[i:j+1], " ")[1:] // drop the @
+		value = strings.ReplaceAll(strings.TrimRight(value, ".,;:!?)\"'"), `\ `, " ")
+		lineRange := ""
+		if match := mentionRange.FindStringSubmatch(value); match != nil {
+			value = strings.TrimSuffix(value, match[0])
+			lineRange = " (lines " + match[1]
+			if match[2] != "" {
+				lineRange += "-" + match[2]
+			}
+			lineRange += ")"
+		}
+		if path, ok := resolveSessionMention(session.agent.WorkingDir, value); ok {
+			return path, lineRange, false, j
+		}
+		if path, ok := pastedImageFile(value); ok {
+			return path, lineRange, true, j
+		}
+	}
+	return "", "", false, -1
+}
+
 func (session *AgentSession) authorizeMention(ctx context.Context, path string) error {
 	if session.root != nil {
 		return session.root.store.AuthorizeCapability(ctx, session.root.ID(), session.id, session.authority.Files, "read", path)
@@ -158,7 +184,10 @@ func resolveSessionMention(root, value string) (string, bool) {
 	if resolved, ok := canonicalWorkspaceFile(root, path); ok {
 		return resolved, true
 	}
-	if strings.ContainsAny(value, `/\\`) {
+	// A value with a space is a resolveMentionWords extension, which only
+	// ever names a full path; fuzzy-walking for each of them would multiply
+	// the cost of every unresolved @word by maxMentionWords.
+	if strings.ContainsAny(value, "/\\ ") {
 		return "", false
 	}
 	var matches []string

@@ -78,8 +78,9 @@ type (
 	quitArmMsg struct{}  // the idle ctrl+c arm window expired
 	thinkMsg   string    // streamed reasoning tokens
 	imageMsg   struct {  // ctrl+v clipboard image result
-		path string // clipboard image saved to disk
-		err  error
+		path    string // clipboard image saved to disk
+		display string // original basename for the chip ("" for an anonymous clipboard paste)
+		err     error
 	}
 )
 
@@ -156,6 +157,8 @@ type model struct {
 
 	hist     []string         // submitted inputs, for up/down recall
 	pasteBuf string           // held paste text for the [Pasted ~N lines] placeholder (config collapsePaste)
+	images   []pastedImage    // images pasted this session, indexed by their [Image N] chip number
+	imageSeq int              // session counter feeding pastedImage.n
 	histIdx  int              // len(hist) == not navigating
 	draft    string           // in-progress input saved while navigating history
 	lastUp   time.Time        // last ↑ keypress; repeat detection for history rollover

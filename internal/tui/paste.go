@@ -11,10 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
@@ -191,8 +194,8 @@ func imageFileExtension(path string, data []byte) string {
 // directory. Screenshot preview files are temporary — macOS keeps the
 // bottom-right hover thumbnail in a transient staging dir that can be swept
 // away before the next user turn reads the @mention — so the bytes are copied
-// off the source path immediately, landing in the input as the same @path
-// mention a clipboard paste (pasteImageCmd) produces.
+// off the source path immediately. The original basename travels with the
+// copy so the chip can keep showing the human-readable filename.
 func pasteImageFileCmd(path string) tea.Msg {
 	data, err := os.ReadFile(path) //nolint:gosec // G304: path was validated from the user's paste
 	if err != nil {
@@ -202,11 +205,12 @@ func pasteImageFileCmd(path string) tea.Msg {
 	if ext == "" {
 		return imageMsg{err: errors.New("pasted file is not a supported image")}
 	}
+	display := filepath.Base(path)
 	path, err = saveClipboardImage(ext, data)
 	if err != nil {
 		return imageMsg{err: err}
 	}
-	return imageMsg{path: path}
+	return imageMsg{path: path, display: display}
 }
 
 // saveClipboardImage writes data to ~/.whip/pastes/ and returns the path.
@@ -242,5 +246,74 @@ func pasteImageCmd() tea.Msg {
 	if err != nil {
 		return imageMsg{err: err}
 	}
-	return imageMsg{path: path}
+	return imageMsg{path: path} // a clipboard paste has no filename: the chip carries no display name
+}
+
+// pastedImage records an image the terminal pasted this session. The chip
+// shown in the input references it by its session number n, which maps back
+// to the on-disk copy when the text is sent.
+type pastedImage struct {
+	n       int    // 1-based session image number
+	path    string // stable on-disk copy under ~/.whip/pastes
+	display string // original basename for the chip; "" for an anonymous clipboard paste
+}
+
+// chipSentinel is a zero-width space inserted before the closing bracket of
+// every paste-inserted chip. The user cannot type it, and imageChipRe
+// requires it, so hand-typed "[Image 1]" never attaches an image.
+const chipSentinel = "\u200b"
+
+// maxImageNameRunes bounds the filename snippet in a chip.
+const maxImageNameRunes = 24
+
+// chipText renders the compact chip: "[Image 1]" for an anonymous paste,
+// "[Image 1: Screenshot…png]" when the source filename is known. Brackets in
+// the name would end the chip early for imageChipRe and silently drop the
+// attachment, so they become parentheses (cosmetic: resolution uses n).
+func (p pastedImage) chipText() string {
+	if p.display == "" {
+		return fmt.Sprintf("[Image %d%s]", p.n, chipSentinel)
+	}
+	display := strings.NewReplacer("[", "(", "]", ")").Replace(p.display)
+	return fmt.Sprintf("[Image %d: %s%s]", p.n, truncateImageName(display, maxImageNameRunes), chipSentinel)
+}
+
+// truncateImageName shortens name to at most limit display columns, keeping
+// the extension and as much of the stem as fits, joined by "…".
+func truncateImageName(name string, limit int) string {
+	if ansi.StringWidth(name) <= limit {
+		return name
+	}
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	const ellipsis = "…"
+	budget := limit - ansi.StringWidth(ellipsis) - ansi.StringWidth(ext)
+	if budget < 1 {
+		if ansi.StringWidth(ext) <= limit {
+			return ext
+		}
+		return ellipsis
+	}
+	return ansi.Truncate(stem, budget, "") + ellipsis + ext
+}
+
+// imageChipRe matches the chips chipText inserts. Only the number resolves the
+// image; the display name is ignored. The sentinel is required (see chipSentinel).
+var imageChipRe = regexp.MustCompile(`\[Image\s+(\d+)(?::[^\]\x{200b}]*)?\x{200b}\]`)
+
+// expandImageChips rewrites the [Image N …] chips in text into "@<path>"
+// mentions for the daemon. The input and the transcript echo keep the chip;
+// only the payload sent to the daemon carries the real path. An unknown N
+// (the registry was reset, or the text was recalled) stays literal.
+func (m *model) expandImageChips(text string) string {
+	text = imageChipRe.ReplaceAllStringFunc(text, func(chip string) string {
+		n, err := strconv.Atoi(imageChipRe.FindStringSubmatch(chip)[1])
+		if err != nil || n < 1 || n > len(m.images) {
+			return chip
+		}
+		return "@" + m.images[n-1].path
+	})
+	// A chip that did not resolve (or was half-edited) stays visible text,
+	// but its invisible sentinel must not travel to the model.
+	return strings.ReplaceAll(text, chipSentinel, "")
 }

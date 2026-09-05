@@ -187,3 +187,97 @@ func TestPrepareAuthoredInputNormalizesOversizedImages(t *testing.T) {
 		t.Fatalf("normalized parts=%+v", parts)
 	}
 }
+
+// macOS screenshot names contain spaces, and a Finder drag escapes them as
+// "a\ b.png"; a mention split at whitespace must still find the file.
+func TestPrepareAuthoredInputResolvesMentionPathsWithSpaces(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	shot := filepath.Join(workspace, "Screenshot 2026-09-04 at 10.00.00.png")
+	// A sibling screenshot keeps the bare "@Screenshot" fuzzy match ambiguous,
+	// so only the space-extended path can resolve.
+	for _, path := range []string{shot, filepath.Join(workspace, "Screenshot 2026-09-04 at 11.00.00.png"), filepath.Join(workspace, "a b.png")} {
+		if err := os.WriteFile(path, []byte("image"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := inputTestSession(t, workspace)
+	session.agent.Vision = true
+
+	text, parts, err := session.prepareAuthoredInput(context.Background(), "see @Screenshot 2026-09-04 at 10.00.00.png now", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 1 || !strings.Contains(text, shot+" (attached image)") {
+		t.Fatalf("space path text=%q parts=%d", text, len(parts))
+	}
+
+	text, parts, err = session.prepareAuthoredInput(context.Background(), `see @a\ b.png`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 1 || !strings.Contains(text, filepath.Join(workspace, "a b.png")+" (attached image)") {
+		t.Fatalf("escaped path text=%q parts=%d", text, len(parts))
+	}
+}
+
+// Space-joined extensions resolve as exact paths only: a partial multi-word
+// name must not fuzzy-walk the workspace once per extension.
+func TestPrepareAuthoredInputMentionExtensionsDoNotFuzzyMatch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	// Two screenshots keep the bare "@Screenshot" ambiguous; only a fuzzy
+	// walk on "Screenshot 2026" could single out the first.
+	for _, name := range []string{"Screenshot 2026 final.png", "Screenshot 2025 final.png"} {
+		if err := os.WriteFile(filepath.Join(workspace, name), []byte("image"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := inputTestSession(t, workspace)
+	input := "see @Screenshot 2026 rocks"
+	text, parts, err := session.prepareAuthoredInput(context.Background(), input, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != input || len(parts) != 0 {
+		t.Fatalf("partial multi-word mention resolved: text=%q parts=%d", text, len(parts))
+	}
+}
+
+func TestPrepareAuthoredInputLeavesUnresolvedMentionWordsAlone(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	session := inputTestSession(t, t.TempDir())
+	input := "@missing file here"
+	text, parts, err := session.prepareAuthoredInput(context.Background(), input, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != input || len(parts) != 0 {
+		t.Fatalf("unresolved mention text=%q parts=%d", text, len(parts))
+	}
+}
+
+// The shortest resolving candidate wins: even when a longer space-joined
+// name also exists on disk, a token that resolves on its own leaves the
+// following words alone so they can be scanned as mentions themselves.
+func TestPrepareAuthoredInputMentionDoesNotSwallowFollowingWords(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace, err := filepath.EvalSymlinks(t.TempDir()) // the note names canonical paths
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"notes.go", "notes.go with", "other.go"} {
+		if err := os.WriteFile(filepath.Join(workspace, name), []byte("package x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := inputTestSession(t, workspace)
+	text, _, err := session.prepareAuthoredInput(context.Background(), "compare @notes.go with @other.go please", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, note, _ := strings.Cut(text, "[note:") // the input echo itself contains "notes.go with"
+	if !strings.Contains(note, filepath.Join(workspace, "notes.go")+"; "+filepath.Join(workspace, "other.go")) || strings.Contains(note, "notes.go with") {
+		t.Fatalf("both mentions should resolve without swallowing words: %q", text)
+	}
+}

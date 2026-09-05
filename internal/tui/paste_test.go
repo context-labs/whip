@@ -10,8 +10,8 @@ import (
 )
 
 // A macOS screenshot preview pastes the path of a temporary, extension-less
-// file. The paste must attach the image (copied into ~/.whip/pastes) as the
-// same @path mention a clipboard paste produces — not type the raw path.
+// file. The paste must copy the image into ~/.whip/pastes and show a named
+// [Image N] chip in the input — not type the raw path.
 func TestPastedScreenshotPathAttachesImage(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
 
@@ -33,14 +33,16 @@ func TestPastedScreenshotPathAttachesImage(t *testing.T) {
 
 	tm, _ = m.Update(cmd())
 	m = tm.(*model)
-	value := m.input.Value()
-	if !strings.HasPrefix(value, "@") || !strings.Contains(value, string(filepath.Separator)+"pastes"+string(filepath.Separator)) {
-		t.Fatalf("input should mention the saved copy, got %q", value)
+	if got, want := m.input.Value(), "[Image 1: Screenshot"+chipSentinel+"] "; got != want {
+		t.Fatalf("input = %q, want the named chip %q", got, want)
+	}
+	if len(m.images) != 1 {
+		t.Fatalf("registry holds %d images, want 1", len(m.images))
 	}
 	// The copy holds the pasted bytes verbatim, under the recognized extension.
-	saved := strings.TrimSpace(strings.TrimPrefix(value, "@"))
-	if filepath.Ext(saved) != ".png" {
-		t.Fatalf("magic bytes should pick the extension, got %q", saved)
+	saved := m.images[0].path
+	if !strings.Contains(saved, string(filepath.Separator)+"pastes"+string(filepath.Separator)) || filepath.Ext(saved) != ".png" {
+		t.Fatalf("magic bytes should pick the extension under pastes/, got %q", saved)
 	}
 	data, err := os.ReadFile(saved)
 	if err != nil {

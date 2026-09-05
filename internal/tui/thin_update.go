@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -188,6 +189,11 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if succeeded && msg.action.Operation == "workspace.set" {
 			m.clientView.workingDir = msg.result.Output
+		}
+		if succeeded && msg.action.Operation == "history.clear" {
+			// A recalled "[Image 1]" chip from before the clear must stay
+			// literal, not resolve to the next image pasted at the same N.
+			m.images, m.imageSeq = nil, 0
 		}
 		if msg.action.Operation == "question.answer" {
 			var sent questionAnswer
@@ -496,7 +502,20 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.path == "":
 			m.append(dimStyle.Render("(no image on clipboard)"))
 		default:
-			m.input.InsertString("@" + msg.path + " ")
+			// Register the image and drop a compact [Image N] chip into the
+			// input instead of the raw path; expandImageChips restores the
+			// path when the text is sent.
+			m.imageSeq++
+			img := pastedImage{n: m.imageSeq, path: msg.path, display: msg.display}
+			m.images = append(m.images, img)
+			chip := img.chipText() + " "
+			// A chip glued to the word before it expands to "word@path", which
+			// the daemon's whitespace split never sees as a mention.
+			row := []rune(strings.Split(m.input.Value(), "\n")[m.input.Line()])
+			if col := m.input.Column(); col > 0 && !unicode.IsSpace(row[col-1]) {
+				chip = " " + chip
+			}
+			m.input.InsertString(chip)
 			m.refreshMenu()
 		}
 		return m, nil
