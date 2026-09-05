@@ -252,39 +252,32 @@ func TestBinaryOutputPlaceholder(t *testing.T) {
 		{name: "invalid utf8", in: []byte{0xff, 0xfe, 0x00, 'x'}, want: true}, // BOM-ish, not valid
 		{name: "control heavy", in: bytes.Repeat([]byte{0x01}, 100), want: true},
 		{name: "whitespace controls ok", in: []byte("line1\n\tline2\rline3\f\v"), want: false},
-		// Regression: a multi-byte rune straddling the 1024-byte probe cut must
-		// not read as binary — the sample backs off to the last complete rune.
-		{name: "utf8 straddles probe cut", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-1), []byte("é世界")...), want: false},
+		// Regression: multi-byte runes anywhere in the buffer (including past a
+		// hard 1KB boundary position) must not read as binary — the UTF-8 check
+		// covers the whole buffer, so there is no probe cut to straddle.
+		{name: "utf8 multi-byte deep in buffer", in: append(bytes.Repeat([]byte("a"), 1023), []byte("é世界")...), want: false},
 		// Regression: ANSI-colored output (ls/grep --color) is ESC-heavy but not
 		// binary — ESC is excluded from the control-byte count.
 		{name: "ansi colored output", in: []byte("\x1b[31mred\x1b[0m \x1b[32mgreen\x1b[0m \x1b[1mBold\x1b[0m normal text here\n"), want: false},
-		// Regression: output that starts as clean text but turns binary past
-		// the 1KB probe must still be caught — the NUL scan covers the whole
-		// buffer, not just the prefix.
-		{name: "text then binary past probe", in: append(bytes.Repeat([]byte("a"), binaryProbeSize+100), 0x00, 0x01), want: true},
-		// Regression: a >1KB Latin-1 file (smart quotes, no NULs) has invalid
-		// interior bytes right at the probe cut — backing off must NOT strip a
-		// genuinely-invalid trailing byte and let the file through as text.
-		// Pad past binaryProbeSize so trimToLastRune actually runs.
-		{name: "latin1 at probe cut stays binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-1), 0x93, 0x94, 0x92), want: true},
-		// And the flip side: a real multi-byte rune straddling the cut still
-		// reads as text (the trim path must not break it).
-		{name: "utf8 rune at probe cut stays text", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-1), []byte("世界")...), want: false},
-		// Regression (review): an INVALID sequence straddling the cut — E0 80
-		// is an overlong-encoding lead with an illegal second byte. The trim
-		// must not drop it as if it were a valid mid-rune prefix.
-		{name: "invalid overlong at probe cut stays binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-2), 0xE0, 0x80), want: true},
-		// C1 lead byte (0xC0/0xC1 are never legal UTF-8) at the cut boundary.
-		{name: "c1 lead at probe cut stays binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-1), 0xC1, 0xBF), want: true},
-		// A valid 3-byte lead whose continuation straddles the 1024-byte cut
-		// (E4 B8 85 = 世: lead + first continuation inside the probe, final
-		// continuation past it) — the legit mid-rune trim case. Padding to
-		// binaryProbeSize-2 puts the third byte past the cut.
-		{name: "incomplete valid rune at cut trims", in: append(bytes.Repeat([]byte("a"), binaryProbeSize-2), 0xE4, 0xB8, 0x85), want: false},
-		// Regression (review round 4): invalid UTF-8 PAST the 1KB probe with no
+		// Regression: output that starts as clean text but turns binary later
+		// must still be caught — the NUL scan covers the whole buffer.
+		{name: "text then binary deep in buffer", in: append(bytes.Repeat([]byte("a"), 1124), 0x00, 0x01), want: true},
+		// Regression: a Latin-1 file (smart quotes, no NULs) has invalid UTF-8
+		// bytes anywhere in the buffer — it must read as binary.
+		{name: "latin1 interior bytes stay binary", in: append(bytes.Repeat([]byte("a"), 1023), 0x93, 0x94, 0x92), want: true},
+		// Regression (review): an INVALID sequence — E0 80 is an overlong
+		// encoding lead with an illegal second byte — must read as binary.
+		{name: "invalid overlong stays binary", in: append(bytes.Repeat([]byte("a"), 1022), 0xE0, 0x80), want: true},
+		// C1 lead byte (0xC0/0xC1 are never legal UTF-8).
+		{name: "c1 lead stays binary", in: append(bytes.Repeat([]byte("a"), 1023), 0xC1, 0xBF), want: true},
+		// Regression (review round 4): invalid UTF-8 deep in the buffer with no
 		// NULs (a log file with corrupt bytes partway through) must still be
 		// binary — the UTF-8 check covers the whole buffer, not just the prefix.
-		{name: "invalid utf8 past probe stays binary", in: append(bytes.Repeat([]byte("a"), binaryProbeSize+100), 0x93, 0x94), want: true},
+		{name: "invalid utf8 deep in buffer stays binary", in: append(bytes.Repeat([]byte("a"), 1124), 0x93, 0x94), want: true},
+		// Regression (review round 5): a NUL-free control-junk tail (text then
+		// 4KB of 0x01) passes NUL/UTF-8 — the density check must cover the whole
+		// buffer too, not just a prefix.
+		{name: "control junk tail in buffer", in: append(bytes.Repeat([]byte("a"), 1024), bytes.Repeat([]byte{0x01}, 4096)...), want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
