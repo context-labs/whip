@@ -29,12 +29,17 @@ func (p *modelPicker) rows(m *model) []string { return m.ocModelDialogRows() }
 func (p *picker) key(m *model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return m.pickerKey(msg) }
 func (p *picker) rows(m *model) []string                                 { return m.ocSessionDialogRows() }
 
+func (q *questionDialog) key(m *model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	return m.questionKey(msg)
+}
+func (q *questionDialog) rows(m *model) []string { return m.questionRows() }
+
 // dialogs returns the open dialogs bottom→top: the session picker, the model
-// picker, Message Actions, then the command palette (the palette can open
-// the others, so it stays on top). Inline modes — the permission prompt, the
-// rewind picker, the name prompt, an interactive command — are body regions,
-// not dialogs; the completion menu is a popup that leaves the keyboard to
-// the textarea.
+// picker, Message Actions, the agent's question, then the command palette
+// (the palette can open the others, so it stays on top). Inline modes — the
+// permission prompt, the rewind picker, the name prompt, an interactive
+// command — are body regions, not dialogs; the completion menu is a popup
+// that leaves the keyboard to the textarea.
 func (m *model) dialogs() []dialog {
 	var ds []dialog
 	if m.picker != nil {
@@ -45,6 +50,9 @@ func (m *model) dialogs() []dialog {
 	}
 	if m.msgActions != nil {
 		ds = append(ds, m.msgActions)
+	}
+	if m.question != nil {
+		ds = append(ds, m.question)
 	}
 	if m.palette != nil {
 		ds = append(ds, m.palette)

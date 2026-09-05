@@ -744,6 +744,8 @@ func (host *recursiveHost) Call(ctx context.Context, module, operation string, a
 		return host.artifacts(ctx, operation, arguments)
 	case "schedules":
 		return host.schedules(ctx, operation, arguments)
+	case "user":
+		return host.user(ctx, operation, arguments)
 	case "permissions":
 		if operation == "request" {
 			return map[string]any{"status": "invoke_operation", "message": "invoke the exact operation to create a durable permission request"}, nil

@@ -28,6 +28,7 @@ All operations accept keyword arguments.
 | `artifacts` | `put`, `inspect`, `read` |
 | `schedules` | `create`, `list`, `cancel` |
 | `permissions` | `request`, `status`; a kernel cannot approve |
+| `user` | `ask`; root agent only |
 
 Example:
 
@@ -49,6 +50,25 @@ Starlark is not Python: there is no `import`, `open`, or `try/except`.
 Interpreter globals survive worker and daemon restarts except closures and
 self-referential values (see the scratch snapshot in `rlm-runtime.md`). Use
 `state`, `artifacts`, messages, and retained children for shared work.
+
+## user.ask
+
+`user.ask(question="...", options=[{"label": "...", "description": "..."}, ...], multiple=False)`
+shows the user a floating dialog with 2 to 6 options (unique, non-empty
+labels; descriptions optional) and blocks the cell until they pick, dismiss,
+or the turn is cancelled. Host time is not charged to the cell clock. It
+returns `{"answer": [labels...], "dismissed": bool}`; a dismissed question
+has an empty answer. Only the root agent may ask; a descendant gets the error
+`only the root agent can ask the user; send your parent a message instead`,
+and one question per agent is open at a time. Clients hear about it through
+the `question.pending`, `question.answered`, and `question.closed` events and
+answer with the `question.answer` client op; a client that connects while a
+question is open finds it in the session snapshot. The blocked cell keeps its
+kernel pool slot while it waits, so a root waiting on the user holds one of
+the pool's `MaxWorkers` slots. Headless `whip run` prints the
+pending question and leaves it open; under ACP the question appears as a
+permission prompt with one option per label plus Dismiss, so `multiple=True`
+collapses to a single answer there.
 
 ## Choosing between models and agents
 

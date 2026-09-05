@@ -189,6 +189,21 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if succeeded && msg.action.Operation == "workspace.set" {
 			m.clientView.workingDir = msg.result.Output
 		}
+		if msg.action.Operation == "question.answer" {
+			var sent questionAnswer
+			_ = json.Unmarshal(msg.action.Payload, &sent) // our own payload; an undecodable id matches no dialog
+			switch {
+			case succeeded:
+				m.settleQuestion(sent.ID, questionOutcome(sent.Answer, sent.Dismissed)) // or question.answered does, whichever lands first
+				return m, nil
+			case m.question == nil || m.question.QuestionID != sent.ID:
+				// a late reply for a question that closed meanwhile: the dialog now open is another question's
+			case msg.result.Error != "":
+				m.question = nil // the daemon no longer knows the question (answered elsewhere, turn gone): drop the stale dialog
+			default:
+				m.question.inFlight = false // transport failure: the error line follows, keys work again
+			}
+		}
 		if succeeded && strings.HasPrefix(strings.TrimSpace(msg.result.Output), "[") {
 			var rendered string
 			var renderErr error

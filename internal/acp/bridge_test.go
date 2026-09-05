@@ -44,8 +44,11 @@ type fakeRoot struct {
 	remember     string
 	external     bool
 	lastSubmit   daemon.SubmitPayload
+	lastAnswer   questionAnswer
+	questions    []session.LifecycleEvent // open user.ask prompts a snapshot lists
 	cancel       chan struct{}
 	permission   chan bool
+	question     chan questionAnswer
 	decisions    int
 	closeCount   int
 }
@@ -66,7 +69,7 @@ func (b *fakeACPBackend) NewRoot(ctx context.Context, cwd string, servers map[st
 	b.mu.Lock()
 	b.next++
 	id := fmt.Sprintf("root-%d", b.next)
-	root := &fakeRoot{id: id, cwd: cwd, cancel: make(chan struct{}, 1), permission: make(chan bool, 1)}
+	root := &fakeRoot{id: id, cwd: cwd, cancel: make(chan struct{}, 1), permission: make(chan bool, 1), question: make(chan questionAnswer, 1)}
 	b.roots[id] = root
 	b.attached[id] = servers
 	b.mu.Unlock()
@@ -167,6 +170,19 @@ func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParam
 		return result, nil
 	case "submit":
 		return c.submit(ctx, params, result)
+	case "question.answer":
+		var answer questionAnswer
+		if err := json.Unmarshal(params.Payload, &answer); err != nil {
+			return daemon.CommandResult{}, err
+		}
+		c.root.mu.Lock()
+		c.root.lastAnswer = answer
+		c.root.mu.Unlock()
+		select {
+		case c.root.question <- answer:
+		default:
+		}
+		return result, nil
 	default:
 		return result, nil
 	}
@@ -207,6 +223,14 @@ func (c *fakeConnection) submit(ctx context.Context, params daemon.CommandParams
 			result.Status, result.Error = "failed", "context canceled"
 			c.emitRaw("turn.failed", nil)
 			return result, nil
+		case <-ctx.Done():
+			return daemon.CommandResult{}, ctx.Err()
+		}
+	}
+	if strings.Contains(payload.Text, "question") {
+		c.emitRaw("question.pending", []byte(`{"question_id":"question-1","question":"Which database?","options":[{"label":"SQLite","description":"embedded"},{"label":"Postgres"}]}`))
+		select {
+		case <-c.root.question:
 		case <-ctx.Done():
 			return daemon.CommandResult{}, ctx.Err()
 		}
@@ -260,6 +284,7 @@ func (c *fakeConnection) Snapshot(context.Context, string) (session.RootSnapshot
 		Messages:     append([]llm.Message(nil), c.root.messages...),
 		Presentation: append([]session.SnapshotEvent(nil), c.root.presentation...),
 		Permissions:  append([]session.PermissionSnapshot(nil), c.root.permissions...),
+		Questions:    append([]session.LifecycleEvent(nil), c.root.questions...),
 	}, nil
 }
 
@@ -548,6 +573,82 @@ func TestBridgePairedPermissionAndModes(t *testing.T) {
 	}
 	if _, err := fixture.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: id, ModeId: ModeAuto}); err != nil {
 		t.Fatalf("paired auto mode: %v", err)
+	}
+}
+
+func TestBridgeQuestionMapsToPermissionPromptAndAnswerOp(t *testing.T) {
+	backend := newFakeBackend(t, true)
+	client := &fakeACPClient{answer: "1"}
+	fixture := newACPFixture(t, backend, client)
+	fixture.initialize(t)
+	id := fixture.newSession(t)
+	backend.mu.Lock()
+	root := backend.roots[string(id)]
+	backend.mu.Unlock()
+
+	response, err := fixture.conn.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("question")}})
+	if err != nil || response.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("question prompt = %+v, %v", response, err)
+	}
+	client.mu.Lock()
+	requests := append([]acpsdk.RequestPermissionRequest(nil), client.perms...)
+	client.answer = optDismiss
+	client.mu.Unlock()
+	if len(requests) != 1 || string(requests[0].ToolCall.ToolCallId) != "question-question-1" || *requests[0].ToolCall.Title != "Which database?" {
+		t.Fatalf("permission requests = %+v", requests)
+	}
+	options := requests[0].Options
+	if len(options) != 3 || options[0].Name != "SQLite - embedded" || options[1].Name != "Postgres" || options[1].Kind != acpsdk.PermissionOptionKindAllowOnce ||
+		string(options[2].OptionId) != optDismiss || options[2].Kind != acpsdk.PermissionOptionKindRejectOnce {
+		t.Fatalf("question options = %+v", options)
+	}
+	root.mu.Lock()
+	answer := root.lastAnswer
+	root.mu.Unlock()
+	if answer.ID != "question-1" || len(answer.Answer) != 1 || answer.Answer[0] != "Postgres" || answer.Dismissed {
+		t.Fatalf("question.answer payload = %+v", answer)
+	}
+
+	if _, err := fixture.conn.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("question")}}); err != nil {
+		t.Fatal(err)
+	}
+	root.mu.Lock()
+	answer = root.lastAnswer
+	root.mu.Unlock()
+	if !answer.Dismissed || len(answer.Answer) != 0 {
+		t.Fatalf("dismissed payload = %+v", answer)
+	}
+}
+
+func TestBridgeLoadSessionPromptsTheOpenQuestion(t *testing.T) {
+	backend := newFakeBackend(t, true)
+	cwd := t.TempDir()
+	id := backend.seed(cwd, llm.Message{Role: "user", Content: "pick"})
+	backend.roots[id].questions = []session.LifecycleEvent{{
+		AgentID: "root-agent", QuestionID: "question-9", Question: "Which database?",
+		Options: []session.QuestionOption{{Label: "SQLite"}, {Label: "Postgres"}},
+	}}
+	fixture := newACPFixture(t, backend, &fakeACPClient{answer: "1"})
+	fixture.initialize(t)
+	if _, err := fixture.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{SessionId: acpsdk.SessionId(id), Cwd: cwd, McpServers: []acpsdk.McpServer{}}); err != nil {
+		t.Fatal(err)
+	}
+	root := backend.roots[id]
+	deadline := time.Now().Add(time.Second)
+	for {
+		root.mu.Lock()
+		answer := root.lastAnswer
+		root.mu.Unlock()
+		if answer.ID == "question-9" {
+			if len(answer.Answer) != 1 || answer.Answer[0] != "Postgres" || answer.Dismissed {
+				t.Fatalf("question.answer payload = %+v", answer)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("loading a session with an open question did not prompt for it")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

@@ -272,6 +272,8 @@ type Session struct {
 
 	pricingMu sync.RWMutex
 	pricing   modelPricing
+
+	questions questionRegistry // open user.ask prompts, keyed by question id
 }
 
 func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority capability.Authority, components Components, factories ...Factory) *Session {
@@ -367,6 +369,9 @@ func (s *Session) Snapshot(ctx context.Context) (snapshot sessionstore.RootSnaps
 	err = s.routeControl(ctx, func(actorCtx context.Context) error {
 		var snapshotErr error
 		snapshot, snapshotErr = s.store.SnapshotRoot(actorCtx, s.meta.ID)
+		if snapshotErr == nil {
+			snapshot.Questions = s.questions.open() // in memory, not in the store: a mid-question client has no question.pending to replay
+		}
 		return snapshotErr
 	})
 	return snapshot, err

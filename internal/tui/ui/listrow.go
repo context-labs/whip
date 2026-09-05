@@ -22,31 +22,35 @@ type ListRow struct {
 	Depth      int    // indent Depth*2 before the label
 	Selected   bool
 	Open       bool
-	Width      int // the band width: Panel.Inner()+2
+	Primary    bool // the floating-dialog treatment (ui.List): labels in Text, the cursor a full Primary fill
+	Width      int  // the band width: Panel.Inner()+2
 }
 
 // Render draws one row of exactly Width cells on bg (nil = the terminal).
 func (r ListRow) Render(th *theme.Theme, bg color.Color) string {
 	fill := bg
-	labelFg := th.Muted
+	labelFg, rightFg := th.Muted, th.Muted
+	if r.Primary {
+		labelFg = th.Text
+	}
 	if r.Selected {
 		fill = th.Surface.Hover
-		if fill == nil { // ANSI-16 / neutral: no surfaces, use the selection fill
+		if fill == nil || r.Primary { // ANSI-16 / neutral: no surfaces, use the selection fill
 			fill = th.Primary
 		}
 	}
 	if r.Selected || r.Open {
 		labelFg = th.Text
-		if fill != nil && fill == th.Primary {
-			labelFg = th.OnPrimary
-		}
+	}
+	if fill != nil && fill == th.Primary { // th.Selected's OnPrimary-on-Primary band
+		labelFg, rightFg = th.OnPrimary, th.OnPrimary
 	}
 	on := func(fg color.Color) lipgloss.Style { return th.On(fg, fill) }
 	badge := on(r.BadgeColor).Render(r.Badge)
 	indent := strings.Repeat(" ", r.Depth*2)
 	right := ""
 	if r.Right != "" {
-		right = on(th.Muted).Render(ansi.Truncate(r.Right, max(r.Width/2-1, 6), "…"))
+		right = on(rightFg).Render(ansi.Truncate(r.Right, max(r.Width/2-1, 6), "…"))
 	}
 	// [1 cell][badge][1][indent][label][gap][right][1 cell]
 	labelMax := r.Width - 2 - lipgloss.Width(badge) - 1 - len(indent) - lipgloss.Width(right)

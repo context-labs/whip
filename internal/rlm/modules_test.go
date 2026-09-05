@@ -3,7 +3,7 @@ package rlm
 import "testing"
 
 func TestModuleRegistryIsCompleteAndClosed(t *testing.T) {
-	want := []string{"context", "files", "shell", "browser", "computer", "models", "agents", "messages", "mcp", "state", "artifacts", "schedules", "permissions"}
+	want := []string{"context", "files", "shell", "browser", "computer", "models", "agents", "messages", "mcp", "state", "artifacts", "schedules", "permissions", "user"}
 	modules := Modules()
 	for _, name := range want {
 		if len(modules[name]) == 0 {

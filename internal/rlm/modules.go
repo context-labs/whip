@@ -33,6 +33,7 @@ var moduleRegistry = map[string][]string{
 	"artifacts":   {"put", "inspect", "read"},
 	"schedules":   {"create", "list", "cancel"},
 	"permissions": {"request", "status"},
+	"user":        {"ask"},
 }
 
 func Modules() map[string][]string {

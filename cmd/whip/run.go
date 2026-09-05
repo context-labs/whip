@@ -253,6 +253,14 @@ func (o *runOutput) event(event daemon.ProtocolEvent) {
 		} else {
 			o.note("permission pending: %s", event.Payload)
 		}
+	case "question.pending":
+		// Headless runs have nobody to answer; the question stays open until
+		// the turn ends, so at least say what was asked.
+		if o.enc != nil {
+			o.emit(map[string]string{"type": "question_pending", "detail": string(event.Payload)})
+		} else {
+			o.note("question pending: %s", event.Payload)
+		}
 	}
 }
 

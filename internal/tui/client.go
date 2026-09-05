@@ -398,6 +398,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 	m.rebuildClientTranscript()
 	m.restoreTerminalMarker()
 	m.applyClientPermissions(snapshot.Permissions)
+	m.applyClientQuestions(snapshot.Questions)
 	m.busy = m.visibleAgentBusy()
 	m.input.SetValue(draft)
 	m.input.CursorEnd()
@@ -916,6 +917,9 @@ func (m *model) applyClientLifecycle(kind string, payload []byte) (bool, bubblet
 		if !isRoot {
 			return true, nil
 		}
+		if m.question != nil { // a question never outlives the root's turn; a daemon killed mid-question emitted no question.closed
+			m.settleQuestion(m.question.QuestionID, "closed: the turn ended")
+		}
 		phase := event.Phase
 		if phase == "" {
 			phase = "idle"
@@ -1008,6 +1012,9 @@ func (m *model) applyClientLifecycle(kind string, payload []byte) (bool, bubblet
 		if event.AgentID == m.visibleAgentID() {
 			m.append(dimStyle.Render("(auto-approved " + event.Operation + " " + event.Command + " by " + event.RuleSource + " rule " + event.Rule + ")"))
 		}
+		return true, nil
+	case "question.pending", "question.answered", "question.closed":
+		m.applyQuestionEvent(kind, event)
 		return true, nil
 	}
 	return false, nil
@@ -1416,6 +1423,9 @@ func clientCommandRunsWhileBusy(text string) bool {
 // (expanded on submit, see paste.go) when configured; otherwise it goes to
 // the textarea like typed text.
 func (m *model) thinPaste(msg bubbletea.PasteMsg) (bubbletea.Model, bubbletea.Cmd) {
+	if m.floatingOpen() {
+		return m, nil // a dialog owns the keyboard; a paste must not land in the prompt it covers
+	}
 	if path, ok := pastedImagePath(msg.Content); ok {
 		// A macOS screenshot preview pastes a temporary file path. Copy it
 		// off the UI thread before the preview cleans the file up.

@@ -66,6 +66,7 @@ Available Starlark modules:
 - artifacts.put(text="...", source="..."), artifacts.inspect/read with context-style handle arguments
 - schedules.create(schedule="...", prompt="..."), schedules.list(), schedules.cancel(id=N)
 - permissions.request(), permissions.status(id="..."); a kernel never approves
+- user.ask(question="...", options=[{"label": "...", "description": "..."}, ...], multiple=False): 2 to 6 options with unique labels; returns {"answer": [labels], "dismissed": bool}; root agent only
 
 Rules:
 - Module operations accept keyword arguments only.
@@ -73,6 +74,7 @@ Rules:
 - Large values are handles. Inspect/search/read bounded slices instead of loading an entire corpus.
 - Interpreter globals survive worker and daemon restarts, except closures, self-referential values, and the cell that was running when a worker died; a notice lists anything not restored. Helpers see globals as bound when they were defined: mutate lists and dicts in place or pass values as parameters instead of rebinding a name a helper reads. Shared or long-lived work still belongs in state, artifacts, messages, and children.
 - Cite source identifiers and exact spans returned by context or artifact reads.
+- user.ask blocks the cell until the user picks; use it only when a decision cannot be inferred from the task or the files; children message their parent instead.
 - Builds, test suites, servers, and any command longer than a few seconds go through shell.start, then shell.poll, shell.tail, or shell.wait; kill what you started. A job outlives the cell and the turn but not the daemon, and only its owner can see it.
 
 Messaging and delegation (runtime behavior):

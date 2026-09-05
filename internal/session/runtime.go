@@ -193,6 +193,19 @@ type LifecycleEvent struct {
 	Command    string `json:"command,omitempty"`
 	Rule       string `json:"rule,omitempty"`
 	RuleSource string `json:"rule_source,omitempty"`
+	// user.ask (kinds question.pending, question.answered, question.closed).
+	QuestionID string           `json:"question_id,omitempty"`
+	Question   string           `json:"question,omitempty"`
+	Options    []QuestionOption `json:"options,omitempty"`
+	Multiple   bool             `json:"multiple,omitempty"`
+	Answer     []string         `json:"answer,omitempty"`
+	Dismissed  bool             `json:"dismissed,omitempty"`
+}
+
+// QuestionOption is one choice the user.ask dialog offers.
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
 }
 
 type actorEvent = LifecycleEvent

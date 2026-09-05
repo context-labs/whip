@@ -299,6 +299,11 @@ func (b *Bridge) LoadSession(ctx context.Context, params acp.LoadSessionRequest)
 			go b.handlePermission(s, payload)
 		}
 	}
+	for _, question := range snapshot.Questions { // open user.ask prompts predate the cursor, so they never replay
+		if payload, err := json.Marshal(question); err == nil {
+			go b.handleQuestion(s, payload)
+		}
+	}
 	return acp.LoadSessionResponse{
 		Modes: &acp.SessionModeState{CurrentModeId: ModeAsk, AvailableModes: modes},
 	}, nil
@@ -516,6 +521,8 @@ func (b *Bridge) consumeEvent(s *acpSession, event daemon.ProtocolEvent) {
 		}
 	case "permission.pending":
 		go b.handlePermission(s, event.Payload)
+	case "question.pending":
+		go b.handleQuestion(s, event.Payload)
 	}
 }
 

@@ -31,6 +31,8 @@ type clientActionPayload struct {
 	Cut                 int                         `json:"cut,omitempty"`
 	ID                  string                      `json:"id,omitempty"`
 	Delivery            string                      `json:"delivery,omitempty"`
+	Answer              []string                    `json:"answer,omitempty"`
+	Dismissed           bool                        `json:"dismissed,omitempty"`
 	Bytes               []byte                      `json:"bytes,omitempty"`
 	System              string                      `json:"system,omitempty"`
 	MaxTurns            int                         `json:"max_turns,omitempty"`
@@ -87,7 +89,7 @@ func isClientOperation(operation string) bool {
 		"session.effort", "session.model", "session.list", "session.open", "session.rename", "session.reload", "session.autotitle", "run.configure",
 		"history.clear", "history.rewind", "history.compact",
 		"history.compact.log", "history.compact.retry", "compaction.configure",
-		"history.user.list", "session.preview", "agents.list", "agent.transcript", "agent.submit", "agent.turn.cancel",
+		"history.user.list", "session.preview", "agents.list", "agent.transcript", "agent.submit", "agent.turn.cancel", "question.answer",
 		"provider.catalogs",
 		"agent.control", "agent.delete", "budget.cap", "capability.revoke", "shell.run",
 		"context.audit", "mcp.control", "lsp.control", "browser.control", "computer.control", "terminal.input",
@@ -894,6 +896,8 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		return s.clientAgentSubmit(ctx, payload.ID, payload.Text, payload.Delivery)
 	case "agent.turn.cancel":
 		return s.clientAgentTurnCancel(payload.ID)
+	case "question.answer":
+		return s.answerQuestion(ctx, payload.ID, payload.Answer, payload.Dismissed)
 	case "agent.control":
 		return s.clientAgentControl(ctx, payload.Args, "stopped")
 	case "agent.delete":

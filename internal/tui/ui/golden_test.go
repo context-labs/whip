@@ -32,6 +32,7 @@ func TestComponentGoldens(t *testing.T) {
 				"panel-collapsed": Panel{Title: "Context", Key: "2", Count: "12%", Width: 32, Collapsed: true}.Render(th, ""),
 				"panel-border":    Panel{Title: "Confirm", Width: 32, Bordered: true, Focused: true}.Render(th, "Run `rm -rf build`?\n\n[y] yes  [n] no"),
 				"listrow":         ListRow{Badge: "running", BadgeColor: th.Success, Label: "file-reader", Right: "In[3] 1.2s", Width: 40}.Render(th, nil) + "\n" + ListRow{Badge: "idle   ", BadgeColor: th.Muted, Label: "a-very-long-agent-name-that-will-not-fit", Depth: 2, Right: "mail 2", Selected: true, Width: 40}.Render(th, nil),
+				"listrow-primary": ListRow{Badge: "1", BadgeColor: th.Muted, Label: "pnpm", Right: "fast, strict", Primary: true, Width: 40}.Render(th, th.Surface.Panel) + "\n" + ListRow{Badge: "2", BadgeColor: th.Muted, Label: "npm", Right: "ships with node", Selected: true, Primary: true, Width: 40}.Render(th, th.Surface.Panel),
 				"hints":           Hints(th, nil, "↑↓", "select", "enter", "open", "ctrl+x s", "stop", "esc", "back"),
 				"scrollbar":       renderScrollbars(th),
 				"codeblock":       CodeBlock{Lang: "go", Source: src, Width: 40, LineNumbers: true, MaxLines: 6}.Render(th),

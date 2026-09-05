@@ -151,6 +151,12 @@ root prompt (`evals/rlm`).
   then a "↓ N more lines" chip and a scrollbar mark the position). The panel
   keeps every cell seen during the TUI session, even after snapshots drop
   idle children.
+- `user.ask` from the root agent opens a floating dialog over the dimmed
+  session: the question, the numbered options with their descriptions, and
+  key hints. ↑↓ (j/k) move, 1–6 jump, space toggles when several answers are
+  allowed, enter answers, esc dismisses. The dialog stays up until the daemon
+  records the answer (it may come from another client), then a dim transcript
+  line notes what was chosen.
 - The frame has a one-row margin above the columns and a two-row footer band
   at the bottom (a blank row, then the key hints on the last row) under the
   prompt or, on narrow terminals, under the agents dock. The hints' right side

@@ -195,6 +195,7 @@ type model struct {
 	catalogs     map[string]config.Catalog
 	iactive      *interactive
 	permDialog   *permDialog
+	question     *questionDialog // the root agent's open user.ask; nil = none
 
 	agentsFocus   bool // the agents dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
 	agentSel      int  // selected row in the dock (index into newest-first agents)

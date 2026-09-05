@@ -1,0 +1,24 @@
+                                                                                
+                                                                                
+     ← Read internal/config/config.go                                          █
+                                                                               █
+       Question                                                        esc     █
+                                                                               █
+       Which build file should the scaffold generate for the new service?      █
+       Which build file should the scaffold generate for the new service?      █
+       Which build file should the scaffold generate for the new service?      █
+                                                                               █
+       4 mage                                                                  █
+         a long description of the mage option that does not fit beside        █
+         its label and so wraps under it                                       █
+       5 bazel                                                                 █
+         a long description of the bazel option that does not fit beside        
+  ┃      its label and so wraps under it                                        
+  ┃    6 none                                                                   
+  ┃      a long description of the none option that does not fit beside         
+  ┃      its label and so wraps under it                                        
+  ┃                                                                             
+   r   ↑↓ select  enter answer  esc dismiss  1-6 jump                           
+   i                                                                            
+                                                                                
+ /work/whip                    ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar 

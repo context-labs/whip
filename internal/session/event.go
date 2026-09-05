@@ -45,6 +45,7 @@ type RootSnapshot struct {
 	Capabilities       []CapabilityRecord
 	Schedules          []Schedule
 	Permissions        []PermissionSnapshot
+	Questions          []LifecycleEvent // open user.ask prompts (question.pending payloads); they live in daemon memory, so a client connecting mid-question learns of them only here
 }
 
 // SnapshotEvent is presentation-only state that has been durably observed but
