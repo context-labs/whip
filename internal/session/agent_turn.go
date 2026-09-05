@@ -57,7 +57,7 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 		return AgentTurnStart{}, err
 	}
 	items, err := scanInboxRows(rows, rootID, agentID)
-	closeErr := rows.Close()
+	closeErr := rows.Close() //nolint:sqlclosecheck // rows must close before the next statement on this tx
 	if err != nil {
 		return AgentTurnStart{}, err
 	}

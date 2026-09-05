@@ -19,7 +19,7 @@ import (
 //     atoms become one OSC 8 hyperlink to the href and the href atoms vanish
 //     (no doubled "label url", at any width). Bare autolinks become clickable
 //     in place.
-//  2. linkifyRenderedFilePaths wraps bare path/to/file[:N] tokens in file://
+//  2. linkifyRenderedFilePathsWith wraps bare path/to/file[:N] tokens in file://
 //     hyperlinks, gated on the file existing on disk.
 //
 // linkifyFilePaths applies the same file-ref linkification to raw user text
@@ -495,16 +495,6 @@ func scanAtom(s string, start int, sgr string) (end int, text string) {
 		return body + rs + len(sgrReset), rest[:nl]
 	}
 	return body + rs + len(sgrReset), rest[:rs]
-}
-
-// linkifyRenderedFilePaths is linkifyFilePaths for glamour's output: the
-// renderer splits text into word atoms separated by SGR sequences, so the
-// pre-render injection would wrap mid-sequence. Runs on the rendered string
-// where every file ref appears contiguous inside one word atom. The same
-// preceding-byte skips apply (ESC from styling, hrefs already handled by
-// hyperlinkGlamourLinks).
-func linkifyRenderedFilePaths(s string, exists func(string) bool) string {
-	return linkifyRenderedFilePathsWith(s, exists, absFileURI)
 }
 
 func linkifyRenderedFilePathsWith(s string, exists func(string) bool, uri func(string, string) string) string {

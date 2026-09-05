@@ -48,14 +48,14 @@ type MailboxMessage struct {
 	Delivery            string       `json:"delivery"`
 	Subject             string       `json:"subject,omitempty"`
 	Excerpt             string       `json:"excerpt,omitempty"`
-	Body                RuntimeValue `json:"body,omitempty"`
+	Body                RuntimeValue `json:"body,omitzero"`
 	EvidenceReferenceID string       `json:"evidence_handle,omitempty"`
 	Status              string       `json:"status"`
-	AvailableAt         time.Time    `json:"available_at,omitempty"`
+	AvailableAt         time.Time    `json:"available_at,omitzero"`
 	CreatedAt           time.Time    `json:"created_at"`
-	DeliveredAt         time.Time    `json:"delivered_at,omitempty"`
+	DeliveredAt         time.Time    `json:"delivered_at,omitzero"`
 	DeliveredTurnID     string       `json:"delivered_turn_id,omitempty"`
-	DoneAt              time.Time    `json:"done_at,omitempty"`
+	DoneAt              time.Time    `json:"done_at,omitzero"`
 }
 
 // MailboxSend describes one message to store. A zero AvailableAt means now.
@@ -305,7 +305,8 @@ const mailboxColumns = `m.id,m.sender_agent_id,m.recipient_agent_id,m.kind,m.del
 
 func scanMailboxRow(rows interface {
 	Scan(dest ...any) error
-}, message *MailboxMessage) error {
+}, message *MailboxMessage,
+) error {
 	var availableAt, createdAt, deliveredAt, doneAt string
 	var inlineSize, referenceSize int64
 	var reference string
@@ -567,7 +568,7 @@ func (s *Store) PendingSteers(ctx context.Context, rootID, agentID string, at ti
 		return nil, nil, err
 	}
 	items, err := scanInboxRows(rows, rootID, agentID)
-	closeErr := rows.Close()
+	closeErr := rows.Close() //nolint:sqlclosecheck // rows must close before the next query on this connection
 	if err != nil {
 		return nil, nil, err
 	}

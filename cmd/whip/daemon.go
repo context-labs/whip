@@ -27,8 +27,10 @@ import (
 	"github.com/context-labs/whip/internal/tui"
 )
 
-var restartDaemonBinary = daemon.RestartSelfDaemon
-var daemonKernelCommand []string
+var (
+	restartDaemonBinary = daemon.RestartSelfDaemon
+	daemonKernelCommand []string
+)
 
 func daemonCLI(args []string) error {
 	signals, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -134,11 +136,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		if vision {
 			services.SetScreenshotSink(func(images [][]byte) {
-				parts := make([]llm.ContentPart, 0, len(images))
-				for _, image := range images {
-					parts = append(parts, llm.ImagePart("jpg", image))
-				}
-				ag.SteerImages("browser/computer screenshots attached:", parts)
+				ag.SteerImages("browser/computer screenshots attached:", screenshotParts(images))
 			})
 		}
 		ag.Vision = vision
@@ -342,4 +340,15 @@ func rlmLimits(value config.RLMConfig) rlm.Limits {
 		limits.MaxWorkers = value.MaxWorkers
 	}
 	return limits
+}
+
+// screenshotParts bounds captures like every other image entering history: a
+// HiDPI full-display shot exceeds both the dimension and byte caps.
+func screenshotParts(images [][]byte) []llm.ContentPart {
+	parts := make([]llm.ContentPart, 0, len(images))
+	for _, image := range images {
+		ext, data := llm.NormalizeImage("jpg", image)
+		parts = append(parts, llm.ImagePart(ext, data))
+	}
+	return parts
 }

@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -70,6 +71,7 @@ type (
 	toolCallMsg   struct{ id, name, args string }
 	toolOutputMsg struct{ id, text string } // partial output for a running tool row
 )
+
 type (
 	noticeMsg  string    // dim one-liner appended to the transcript
 	usageMsg   llm.Usage // one request's token usage
@@ -276,6 +278,19 @@ func (m *model) startupReport() {
 		// contrast — so say why and how to fix it instead of failing silently
 		m.append(dimStyle.Render("◐ terminal background unknown — panels have no contrast; run /theme light (or dark) once to fix (mosh blocks background detection)"))
 	}
+	if inMoshEnv() {
+		// mosh's terminal emulator doesn't implement the kitty keyboard
+		// protocol or forward modified-key CSI sequences, so no setting whip
+		// or tmux toggles can deliver shift+enter — it arrives as plain CR
+		// (enter). Say so up front instead of failing silently; ctrl+j and
+		// alt+enter still insert newlines.
+		m.append(dimStyle.Render("◐ shift+enter unavailable over mosh — mosh collapses it to enter (no keyboard-protocol support); use ctrl+j or alt+enter for a newline"))
+	} else if inTmuxEnv() && !tmuxExtKeysCheck() {
+		// tmux only forwards shift+enter when its server option extended-keys
+		// is on. whip never mutates the user's tmux server, so warn once and
+		// point at the one-line fix.
+		m.append(dimStyle.Render("◐ shift+enter needs tmux extended-keys on — add `set -s extended-keys on` to ~/.tmux.conf (meanwhile ctrl+j / alt+enter insert newlines)"))
+	}
 	sk, problems := skills.ScanDetailed(skills.DefaultDirs()...)
 	var b strings.Builder
 	var warned bool
@@ -440,9 +455,6 @@ const (
 	blockThought                     // opencode collapsed reasoning: "+ Thought: dur" header (in live), the reasoning text behind expand (in text)
 )
 
-// toolPreviewLines is how many lines of a tool result show when collapsed.
-const toolPreviewLines = 5
-
 // minRenderWidth is the smallest width blocks render at. A transient
 // degenerate WindowSizeMsg (1–4 cols from a tmux/PTY handshake) would
 // otherwise collapse blockTool/blockText into a one-char-per-line strip —
@@ -575,9 +587,28 @@ func (m *model) appendAssistantBlock(s string) {
 	m.appendRaw(blockAssistant, s)
 }
 
+// wantFollow decides whether newly appended content may pull the viewport to
+// the bottom: only when the user is already following (at the bottom). A user
+// scrolled up to read reasoning must not be yanked to the bottom by streamed
+// content landing — follow is re-engaged by scrolling back down (m.follow =
+// m.vp.AtBottom() in the scroll handlers), never by new content arriving.
+// Every append path (raw blocks, assistant merges, tool results, thinking
+// flushes) goes through this so the no-yank guarantee is uniform.
+func (m *model) wantFollow() bool {
+	return m.follow || m.vp.AtBottom()
+}
+
+// keepFollow re-arms follow iff the user was already following; a no-op when
+// scrolled up. Call after appending, before refreshVP.
+func (m *model) keepFollow() {
+	if m.wantFollow() {
+		m.follow = true
+	}
+}
+
 func (m *model) appendRaw(kind blockKind, text string) {
+	m.keepFollow()
 	m.blocks = append(m.blocks, block{kind: kind, text: text, fileRoot: m.completionRoot()})
-	m.follow = true
 	m.refreshVP()
 }
 
@@ -739,7 +770,7 @@ func (m *model) applyDetectedBackground(msg tea.BackgroundColorMsg) {
 	if ocThemeKnown() || msg.Color == nil || (m.cfg != nil && m.cfg.Theme != "") {
 		return
 	}
-	r, g, b, _ := msg.Color.RGBA()
+	r, g, b, _ := msg.RGBA()
 	light := !msg.IsDark()
 	bgCache = bgResult{light: light, valid: true, hasRGB: true, r: int(r >> 8), g: int(g >> 8), b: int(b >> 8)}
 	SetLightTheme(light)
@@ -754,6 +785,102 @@ func inTmuxEnv() bool {
 	return os.Getenv("TMUX") != "" ||
 		strings.HasPrefix(os.Getenv("TERM"), "screen") ||
 		strings.HasPrefix(os.Getenv("TERM"), "tmux")
+}
+
+// tmuxExtendedKeysReady reports whether tmux's server option extended-keys is
+// on — the one setting tmux needs to forward shift+enter to the pane once
+// Bubble Tea v2 has requested modifyOtherKeys. Detection only: whip never
+// runs `tmux set` against the user's server (startupReport warns instead).
+func tmuxExtendedKeysReady() bool {
+	if !inTmuxEnv() {
+		return true // not tmux: the kitty push path applies
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{extended-keys}").Output()
+	if err != nil {
+		return true // can't tell: don't nag
+	}
+	v := strings.TrimSpace(string(out))
+	return v == "on" || v == "always"
+}
+
+// procHasAncestor reports whether walking pid's parent chain via /proc finds
+// a process named want (matched on /proc/PID/comm). Linux-only; returns false
+// on any read error.
+func procHasAncestor(pid int, want string) bool {
+	for i := 0; i < 64 && pid > 1; i++ {
+		comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+		if err != nil {
+			return false
+		}
+		if strings.TrimSpace(string(comm)) == want {
+			return true
+		}
+		stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+		if err != nil {
+			return false
+		}
+		// ppid is field 4 of /proc/PID/stat; the (comm) field before it may
+		// contain spaces/parens, so split after the LAST ')'. Fields after it
+		// are: state ppid ... — ppid is fields[1] of the remainder.
+		idx := bytes.LastIndexByte(stat, ')')
+		if idx < 0 {
+			return false
+		}
+		fields := strings.Fields(string(stat[idx+1:]))
+		if len(fields) < 2 {
+			return false
+		}
+		ppid, err := strconv.Atoi(fields[1])
+		if err != nil || ppid == pid || ppid <= 1 {
+			return false
+		}
+		pid = ppid
+	}
+	return false
+}
+
+// moshDetect is the test seam for inMoshEnv — tests run under whatever
+// environment the developer's machine has (including mosh), so the startup
+// report can't depend on the real answer. Reassigned in tests.
+var moshDetect = detectMosh
+
+// tmuxExtKeysCheck is the test seam for tmuxExtendedKeysReady — tests run
+// inside tmux on dev machines, so the shift+enter warning can't depend on the
+// real server config. Reassigned in tests.
+var tmuxExtKeysCheck = tmuxExtendedKeysReady
+
+// inMoshEnv reports whether whip runs under mosh, via the test seam.
+func inMoshEnv() bool { return moshDetect() }
+
+// detectMosh is the real mosh check behind inMoshEnv. Mosh runs its own
+// terminal emulator that re-renders input/output between the user's terminal
+// and the shell; it does NOT implement the kitty keyboard protocol or forward
+// modified-key CSI sequences, so shift+enter arrives as plain CR no matter
+// what whip or tmux request. Detected so whip can say so instead of failing
+// silently.
+//
+// Mosh leaks no env marker into the inner shell (MOSH_KEY stays on the
+// mosh-server process), so detection walks /proc ancestor chains. Two chains
+// are checked: whip's own (covers ssh+mosh without tmux, or mosh directly
+// under a non-daemonized tmux) and, under a daemonized tmux server (whose
+// ppid is 1, hiding mosh on the client side), the tmux CLIENT's chain.
+func detectMosh() bool {
+	if procHasAncestor(os.Getpid(), "mosh-server") {
+		return true
+	}
+	if inTmuxEnv() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{client_pid}").Output()
+		if err == nil {
+			if cpid, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && cpid > 1 {
+				return procHasAncestor(cpid, "mosh-server")
+			}
+		}
+	}
+	return false
 }
 
 func detectColorScheme() string {
@@ -1152,7 +1279,7 @@ func (m *model) appendAssistant(s string) {
 	if m.inMsg && len(m.blocks) > 0 && m.blocks[len(m.blocks)-1].kind == blockAssistant {
 		m.blocks[len(m.blocks)-1].text += "\n\n" + s // same message: merge
 		m.blocks[len(m.blocks)-1].stale = true
-		m.follow = true
+		m.keepFollow()
 		m.refreshVP()
 		return
 	}
@@ -1206,7 +1333,7 @@ func (m *model) setThinking(on bool) {
 func (m *model) flushThink() {
 	if !m.thinkStart.IsZero() { // collapse the reasoning segment to one line (expandable to the text)
 		m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: shortDur(m.nowFn().Sub(m.thinkStart))})
-		m.follow = true
+		m.keepFollow()
 		m.refreshVP()
 		m.thinkStart = time.Time{}
 		m.ocThink = ""
@@ -1365,36 +1492,6 @@ func (m *model) planView() string {
 		lines = append(lines, dimStyle.Render(mark+" ")+truncLine(item.Content, max(m.width-2, 1)))
 	}
 	return strings.Join(lines, "\n")
-}
-
-const previewLines = 5
-
-// previewBlock renders up to previewLines lines of a message under a prefix.
-// previewBlock renders up to previewLines *rendered* lines of a message
-// under a prefix, wrapping each source line at the given width (no
-// truncation — long lines wrap instead of ending in "…").
-func previewBlock(prefix, text string, width int) []string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	w := max(width-8, 8)
-	var lines []string
-	for i, l := range strings.Split(text, "\n") {
-		wrapped := strings.Split(ansi.Hardwrap(l, w, true), "\n")
-		for j, wl := range wrapped {
-			if i == 0 && j == 0 {
-				lines = append(lines, "      "+prefix+wl)
-			} else {
-				lines = append(lines, "        "+wl)
-			}
-		}
-	}
-	if len(lines) > previewLines {
-		lines = append(lines[:previewLines],
-			dimStyle.Render(fmt.Sprintf("        … +%d lines (full text after resume)", len(lines)-previewLines)))
-	}
-	return lines
 }
 
 func ago(t time.Time) string {

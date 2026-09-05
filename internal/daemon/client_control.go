@@ -35,6 +35,7 @@ type clientActionPayload struct {
 	System              string                      `json:"system,omitempty"`
 	MaxTurns            int                         `json:"max_turns,omitempty"`
 	Headless            bool                        `json:"headless,omitempty"`
+	CacheKey            string                      `json:"cache_key,omitempty"`
 	Tool                string                      `json:"tool,omitempty"`
 	Arguments           json.RawMessage             `json:"arguments,omitempty"`
 	DenyPermissions     bool                        `json:"deny_permissions,omitempty"`
@@ -128,7 +129,7 @@ type clientReplaceRunner interface {
 }
 
 type clientRunRunner interface {
-	ConfigureRun(system string, maxTurns int, headless bool)
+	ConfigureRun(system string, maxTurns int, headless bool, cacheKey string)
 }
 
 type clientRunRuntime interface {
@@ -178,13 +179,19 @@ func (r *AgentSession) RunShell(ctx context.Context, command string) (string, er
 
 func (r *AgentSession) ReplaceHistory(history []llm.Message) { r.agent.ReplaceHistory(history) }
 
-func (r *AgentSession) ConfigureRun(system string, maxTurns int, headless bool) {
+func (r *AgentSession) ConfigureRun(system string, maxTurns int, headless bool, cacheKey string) {
 	if system != "" {
 		r.agent.SetSystemPrompt(system)
 	}
 	r.agent.MaxTurns = maxTurns
 	if headless {
 		r.DenyToolPermissions()
+	}
+	// bind keyed the prompt cache by session id; a stable caller-chosen key
+	// (`whip run -cache-key repo/reviewer`) shares the cached prefix across
+	// runs. Children keep caching under the root session id.
+	if cacheKey != "" {
+		r.agent.SetSessionID(cacheKey)
 	}
 }
 
@@ -647,7 +654,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if !ok {
 			return "", errors.New("session runner does not support run configuration")
 		}
-		runner.ConfigureRun(payload.System, payload.MaxTurns, payload.Headless)
+		runner.ConfigureRun(payload.System, payload.MaxTurns, payload.Headless, payload.CacheKey)
 		if runtime, ok := s.runtime.(clientRunRuntime); ok {
 			runtime.ConfigureRun(payload.System)
 		}
@@ -1211,11 +1218,11 @@ func validateEffort(model, provider, requested string) error {
 	}
 	cfg, err := config.Load()
 	if err != nil {
-		return nil
+		return nil //nolint:nilerr // best-effort: skip the catalog check when config cannot load
 	}
 	_, _, apiID, err := cfg.Resolve(model, provider)
 	if err != nil {
-		return nil
+		return nil //nolint:nilerr // best-effort: skip the catalog check when the model cannot be resolved
 	}
 	catalog, ok := config.LoadCatalogs()[provider]
 	if !ok {

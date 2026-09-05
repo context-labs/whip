@@ -113,10 +113,10 @@ func (t *Theme) Markdown() ansi.StyleConfig {
 	st.BlockQuote.Color = optStr(quote)
 	st.Code.Color = optStr(code)
 	st.Code.BackgroundColor = optStr(hexOf(t.Surface.Element)) // nil chip when no surfaces
-	st.Table.ColumnSeparator = ptr("│")
-	st.Table.CenterSeparator = ptr("┼")
-	st.Table.RowSeparator = ptr("─")
-	st.Table.Margin = ptr(uint(0))
+	st.Table.ColumnSeparator = new("│")
+	st.Table.CenterSeparator = new("┼")
+	st.Table.RowSeparator = new("─")
+	st.Table.Margin = new(uint(0))
 	if t.Neutral {
 		st.CodeBlock.Color, st.CodeBlock.Chroma = nil, nil // glamour's plain code fence
 	} else {
@@ -126,8 +126,6 @@ func (t *Theme) Markdown() ansi.StyleConfig {
 	}
 	return st
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func orStr(pinned, derived string) string {
 	if pinned == "" {

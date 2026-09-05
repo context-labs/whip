@@ -51,6 +51,7 @@ task run                 # run locally from source
 task run -- -m glm-5.2-fast          # pass flags after --
 whip                    # installed binary, default model
 whip -m kimi-k3-fast -p inference   # pick model AND provider
+whip run -cache-key repo/reviewer "prompt"   # headless; stable prompt cache across runs
 ```
 
 `task --list` shows the rest (build, test, acceptance, fmt, vet, tidy).
@@ -141,7 +142,18 @@ each server's tools automatically. CLI: `whip mcp list|add|remove|import`
 stderr tail; non-zero exit — validate a `.mcp.json` in CI). `whip mcp
 serve` runs whip's own tools (read/bash/edit/write) as an MCP server for
 other harnesses through a daemon-owned root; the stdio adapter never opens
-SQLite or invokes tool handlers directly.
+SQLite or invokes tool handlers directly. Codex configs with `http_headers` and
+`bearer_token_env_var` import correctly (the env var becomes an
+`Authorization: Bearer $VAR` header reference, resolved in the daemon's
+environment at connect), and codex's `[mcp_servers.X.tools.*]` per-tool
+approval tables are skipped — they're codex's config, not servers.
+
+`whip skills list` shows loaded skills and where they come from;
+`whip skills import [--dry-run]` copies skills from other harnesses'
+user dirs (`~/.codex/skills`, `~/.claude/skills`) into `~/.agents/skills`,
+deduped by name against everything whip already loads — an existing
+skill is never overwritten, and a name duplicated across codex/claude
+imports once.
 
 ## Browser — drive your real, logged-in Chrome
 

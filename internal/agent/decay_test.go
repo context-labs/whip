@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"strings"
 	"testing"
@@ -249,5 +252,122 @@ func TestSpillPathOfParsesBothMarkerShapes(t *testing.T) {
 	}
 	if got := spillPathOf("no marker here"); got != "" {
 		t.Errorf("no marker should give empty, got %q", got)
+	}
+}
+
+// Image parts past the hot window are swapped for a text placeholder naming
+// the pixel size and the spilled file; text parts and Content stay. The image
+// is recoverable by re-attaching the spilled path.
+func TestDecayStripsColdImageParts(t *testing.T) {
+	png := pngFixtureForDecay(t, 640, 480) // ⌈640/28⌉=23, ⌈480/28⌉=18 → 414 tokens
+	img := llm.ImagePart("png", png)
+
+	a := &Agent{}
+	a.Messages = padHotWindow([]llm.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "look at this", Parts: []llm.ContentPart{{Type: "text", Text: "look at this"}, img}},
+	})
+	before := EstimateTokens(a.Messages)
+	n := a.decay()
+	if n == 0 {
+		t.Fatal("image past the hot window should be stripped")
+	}
+	m := a.Messages[1]
+	// no image parts remain
+	for _, p := range m.Parts {
+		if p.Type == "image_url" {
+			t.Fatal("image part should be replaced")
+		}
+	}
+	// the placeholder lands in Content (the one text field that survives a
+	// persist/reload round trip) after the user's own text
+	placeholder := m.Content
+	if !strings.HasPrefix(placeholder, "look at this\n") || !strings.Contains(placeholder, "omitted") {
+		t.Fatalf("Content should keep the user's text and append the placeholder, got %q", placeholder)
+	}
+	if !strings.Contains(placeholder, "640×480") {
+		t.Errorf("placeholder should name the pixel size, got %q", placeholder)
+	}
+	if !strings.Contains(placeholder, "whip-img-") {
+		t.Errorf("placeholder should point at the spilled file, got %q", placeholder)
+	}
+	// collapsed to plain text: no parts left, the user's text leads Content
+	if len(m.Parts) != 0 {
+		t.Errorf("stripped message should carry no parts, got %+v", m.Parts)
+	}
+	// the estimate dropped by roughly the image's token cost
+	after := EstimateTokens(a.Messages)
+	if before-after < 300 {
+		t.Errorf("stripping should drop the estimate (before=%d after=%d)", before, after)
+	}
+	// idempotent
+	if n := a.decay(); n != 0 {
+		t.Errorf("second decay should be a no-op, rewrote %d", n)
+	}
+}
+
+// pngFixtureForDecay builds a real PNG so ImagePart can record dims.
+func pngFixtureForDecay(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// Image-only messages (screenshot steers, ACP image blocks) carry no Content,
+// so they must spend the hot-window budget through their parts: a run of
+// large images alone pushes the oldest past the window and Pass 3 strips it.
+func TestDecayImageOnlyMessagesSpendHotWindow(t *testing.T) {
+	big := llm.ImagePart("png", pngFixtureForDecay(t, 2000, 2000)) // ⌈2000/28⌉² = 5184 tokens
+	a := &Agent{}
+	a.Messages = []llm.Message{{Role: "system", Content: "sys"}}
+	for range 6 { // 6 × 5184 > the 24k hot window with no text at all
+		a.Messages = append(a.Messages, llm.Message{Role: "user", Parts: []llm.ContentPart{big}})
+	}
+	if n := a.decay(); n == 0 {
+		t.Fatal("the oldest image-only message should fall past the hot window and be stripped")
+	}
+	if len(a.Messages[1].Parts) != 0 || !strings.Contains(a.Messages[1].Content, "omitted") {
+		t.Fatalf("oldest message should now be a text placeholder in Content, got parts=%+v content=%q", a.Messages[1].Parts, a.Messages[1].Content)
+	}
+	last := a.Messages[len(a.Messages)-1]
+	if last.Parts[0].Type != "image_url" {
+		t.Fatal("the newest image must stay hot")
+	}
+}
+
+// The decayed message must survive a persist/reload round trip with the
+// user's text intact: UnmarshalJSON keeps only the last text part as Content.
+func TestDecayedImageMessageRoundTripsKeepingText(t *testing.T) {
+	img := llm.ImagePart("png", pngFixtureForDecay(t, 640, 480))
+	m := llm.Message{Role: "user", Content: "look at this", Parts: []llm.ContentPart{{Type: "text", Text: "look at this"}, img}}
+	if stripImageParts(&m) != 1 {
+		t.Fatal("one image should strip")
+	}
+	raw, err := m.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back llm.Message
+	if err := back.UnmarshalJSON(raw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(back.TextContent(), "look at this") || !strings.Contains(back.TextContent(), "omitted") {
+		t.Fatalf("reload should keep the user's text and the placeholder, got %q", back.TextContent())
+	}
+	if strings.Count(string(raw), "omitted") != 1 {
+		t.Fatalf("placeholder must be sent once on the wire, got %d in %s", strings.Count(string(raw), "omitted"), raw)
+	}
+}
+
+// spillImage must never panic on a persisted URL that isn't one we built.
+func TestSpillImageRejectsNonDataURL(t *testing.T) {
+	for _, u := range []string{"x;base64,y", ";base64,abcd", "http://example/img.png", ""} {
+		if got := spillImage(u); got != "" {
+			t.Errorf("spillImage(%q) = %q, want \"\"", u, got)
+		}
 	}
 }

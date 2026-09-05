@@ -32,8 +32,8 @@ func TestFrameIsFullyPainted(t *testing.T) {
 		if view.BackgroundColor == nil || hexOfColor(view.BackgroundColor) != hexOfColor(th.Bg) || view.ForegroundColor == nil {
 			t.Fatalf("light=%v: view colours %v/%v, want theme bg %v", light, view.BackgroundColor, view.ForegroundColor, th.Bg)
 		}
-		for y := 0; y < 40; y++ {
-			for x := 0; x < 140; x++ {
+		for y := range 40 {
+			for x := range 140 {
 				c := m.scr.CellAt(x, y)
 				if c == nil || c.Width == 0 {
 					continue

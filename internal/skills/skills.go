@@ -54,6 +54,20 @@ func DirsFor(workingDirectory string) []string {
 	return dirs
 }
 
+// ForeignDirs returns other harnesses' user-level skill locations that an
+// import can pull from — codex (~/.codex/skills) and claude-code
+// (~/.claude/skills). Missing directories are skipped by the scan.
+func ForeignDirs() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	return []string{
+		filepath.Join(home, ".codex", "skills"),
+		filepath.Join(home, ".claude", "skills"),
+	}
+}
+
 // Scan reads <dir>/<skill>/SKILL.md for each dir, skipping anything
 // unreadable. Loaded-but-degraded skills carry a Warning (e.g. description
 // truncated); anything that fails to parse is silently skipped (a SKILL.md
@@ -99,8 +113,12 @@ func ScanDetailed(dirs ...string) ([]Skill, []ScanProblem) {
 	return out, problems
 }
 
-// parse reads name/description from the YAML frontmatter.
-// ponytail: single-line values only; a real YAML parser when a skill needs one
+// parse reads name/description from the YAML frontmatter. Values may be
+// single-line scalars or YAML block scalars (>/| with -/+ chomping) — the
+// folded style is how claude-code's skill tooling writes long descriptions,
+// and treating the indicator as the value renders "description: >-" in the
+// catalog, hiding the skill from model-triggering entirely.
+// ponytail: still not a real YAML parser; nested maps/sequences are ignored.
 func parse(path string) (Skill, error) {
 	f, err := os.Open(path) //nolint:gosec // G304: reading caller-discovered skill files is the function's contract
 	if err != nil {
@@ -118,15 +136,144 @@ func parse(path string) (Skill, error) {
 		if strings.TrimSpace(line) == "---" {
 			break
 		}
-		if v, ok := strings.CutPrefix(line, "name:"); ok {
-			s.Name = unquote(v)
-		} else if v, ok := strings.CutPrefix(line, "description:"); ok {
-			s.Description = unquote(v)
-		} else if v, ok := strings.CutPrefix(line, "disable-model-invocation:"); ok {
+		key, v, ok := cutKey(line)
+		if !ok {
+			continue
+		}
+		if isBlockScalarIndicator(v) {
+			// Block scalars are already plain values: no unquoting, and no
+			// TrimSpace — chomping indicators own the trailing newlines.
+			v = readBlockScalar(sc, v, indentOf(line))
+		} else {
+			v = unquote(v)
+		}
+		switch key {
+		case "name":
+			s.Name = v
+		case "description":
+			s.Description = v
+		case "disable-model-invocation":
 			s.DisableModelInvocation = strings.TrimSpace(v) == "true"
 		}
 	}
 	return s, sc.Err()
+}
+
+// cutKey splits a top-level frontmatter line into key and raw value. Only
+// unindented keys are recognized — an indented line belongs to a block scalar
+// or a nested mapping we don't model, and must not shadow a real key.
+func cutKey(line string) (key, value string, ok bool) {
+	if line == "" || line[0] == ' ' || line[0] == '\t' {
+		return "", "", false
+	}
+	k, v, found := strings.Cut(line, ":")
+	if !found {
+		return "", "", false
+	}
+	return k, v, true
+}
+
+func indentOf(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " "))
+}
+
+// isBlockScalarIndicator reports whether a raw frontmatter value is a YAML
+// block-scalar header: > (folded) or | (literal), optionally with a -/+
+// chomping or digit indentation indicator (e.g. ">-", "|+", ">2").
+func isBlockScalarIndicator(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" || (v[0] != '>' && v[0] != '|') {
+		return false
+	}
+	for _, r := range v[1:] {
+		if r != '-' && r != '+' && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// readBlockScalar consumes the indented lines following a block-scalar header
+// and folds them per the indicator: literal (|) keeps newlines, folded (>)
+// joins lines with spaces. Chomping: default clips to a single trailing
+// newline (folded into nothing at the edges), "-" strips it, "+" keeps it.
+// This is the common-case subset — indentation indicators are honored as
+// "more indented than the key", which is how skill files are actually written.
+func readBlockScalar(sc *bufio.Scanner, header string, keyIndent int) string {
+	indicator := strings.TrimSpace(header)
+	literal := indicator[0] == '|'
+	chomp := byte(0)
+	for _, r := range indicator[1:] {
+		if r == '-' || r == '+' {
+			chomp = byte(r)
+		}
+	}
+
+	var lines []string
+	// Determine indentation from the first content line, then take every
+	// following line at least that indented (blank lines carry through).
+	bodyIndent := -1
+	for sc.Scan() {
+		line := sc.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			// Closing frontmatter delimiter consumed along with the scalar;
+			// parse's loop will just hit EOF. Skill files keep descriptions
+			// early in the frontmatter, so this stays theoretical.
+			break
+		}
+		ind := indentOf(line)
+		if trimmed != "" {
+			if ind <= keyIndent {
+				break
+			}
+			if bodyIndent == -1 {
+				bodyIndent = ind
+			}
+		}
+		lines = append(lines, line)
+	}
+	// Unread the terminator? bufio.Scanner can't push back — but the only
+	// terminators are the frontmatter close (loop is done anyway) or a
+	// sibling key. A sibling key after a block scalar IS valid YAML, so
+	// note the limitation rather than pretend: keys following a block
+	// scalar on a later line are lost. No known SKILL.md does this — the
+	// block scalar is always the last field of its file section — and a
+	// real YAML parser remains the answer if that changes.
+	_ = keyIndent
+
+	// Strip the common body indentation.
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			lines[i] = ""
+			continue
+		}
+		if bodyIndent > 0 && len(line) >= bodyIndent {
+			lines[i] = line[bodyIndent:]
+		}
+	}
+	// Leading blank lines belong to the wrapper, not the value.
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	// Trailing blanks matter only for keep ("+") chomping: the delimiter line
+	// already contributed one newline, so any beyond the first are real.
+	trailing := 0
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+		trailing++
+	}
+
+	var v string
+	if literal {
+		v = strings.Join(lines, "\n")
+	} else {
+		v = strings.Join(lines, " ")
+	}
+	if chomp == '+' && len(lines) > 0 {
+		v += "\n" + strings.Repeat("\n", trailing)
+	}
+	return v
 }
 
 func unquote(v string) string {
@@ -150,6 +297,14 @@ const (
 )
 
 var specNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// ValidName reports whether name matches the spec's name charset (lowercase
+// a-z, 0-9, hyphens only). Callers that turn a skill name into a filesystem
+// path (e.g. `whip skills import`) must gate on this — validate() only warns,
+// and a name with separators is a path-traversal primitive.
+func ValidName(name string) bool {
+	return specNameRe.MatchString(name)
+}
 
 // validate checks a loaded skill against the Agent Skills spec. Returns a
 // warning string ("" when spec-clean). Skills with warnings still load —

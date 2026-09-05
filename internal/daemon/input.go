@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/skills"
 )
@@ -48,14 +49,14 @@ func (session *AgentSession) expandInvokedSkills(input string) (string, error) {
 	}
 	var sections []string
 	seen := map[string]bool{}
-	for _, token := range strings.Fields(input) {
+	for token := range strings.FieldsSeq(input) {
 		name := strings.TrimRight(strings.TrimPrefix(token, "$"), ".,;:!?)\"'")
 		skill, ok := byName[name]
 		if !strings.HasPrefix(token, "$") || !ok || seen[name] {
 			continue
 		}
 		seen[name] = true
-		body, err := os.ReadFile(skill.Path) //nolint:gosec // path came from configured skill roots
+		body, err := os.ReadFile(skill.Path)
 		if err != nil {
 			return "", fmt.Errorf("read invoked skill %s: %w", name, err)
 		}
@@ -74,7 +75,7 @@ func (session *AgentSession) expandMentionedFiles(ctx context.Context, input str
 	var notes []string
 	seen := map[string]bool{}
 	imageBytes := 0
-	for _, token := range strings.Fields(input) {
+	for token := range strings.FieldsSeq(input) {
 		if !strings.HasPrefix(token, "@") || len(token) < 2 {
 			continue
 		}
@@ -89,11 +90,19 @@ func (session *AgentSession) expandMentionedFiles(ctx context.Context, input str
 			lineRange += ")"
 		}
 		path, ok := resolveSessionMention(session.agent.WorkingDir, value)
+		pasted := !ok
+		if pasted {
+			path, ok = pastedImageFile(value)
+		}
 		if !ok || seen[path] {
 			continue
 		}
 		seen[path] = true
-		if err := session.authorizeMention(ctx, path); err != nil {
+		scope := path
+		if pasted {
+			scope = "" // outside every workspace grant; the read grant itself still applies
+		}
+		if err := session.authorizeMention(ctx, scope); err != nil {
 			return "", nil, errors.New("this agent cannot inspect mentioned files without a file capability")
 		}
 		format, image := imageExt[strings.ToLower(filepath.Ext(path))]
@@ -106,6 +115,7 @@ func (session *AgentSession) expandMentionedFiles(ctx context.Context, input str
 			if imageBytes > maxMentionImageBytes {
 				return "", nil, fmt.Errorf("mentioned images exceed the %d-byte limit", maxMentionImageBytes)
 			}
+			format, data = llm.NormalizeImage(format, data)
 			parts = append(parts, llm.ImagePart(format, data))
 			notes = append(notes, path+" (attached image)")
 			continue
@@ -154,7 +164,7 @@ func resolveSessionMention(root, value string) (string, bool) {
 	var matches []string
 	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || len(matches) > 1 {
-			return nil
+			return nil //nolint:nilerr // skip unreadable entries and keep walking
 		}
 		if path != root && entry.IsDir() && (strings.HasPrefix(entry.Name(), ".") || entry.Name() == "vendor" || entry.Name() == "node_modules") {
 			return filepath.SkipDir
@@ -183,7 +193,7 @@ func canonicalWorkspaceFile(root, path string) (string, bool) {
 		return "", false
 	}
 	info, err := os.Stat(canonical)
-	if err != nil || info.IsDir() {
+	if err != nil || !info.Mode().IsRegular() {
 		return "", false
 	}
 	relative, err := filepath.Rel(canonicalRoot, canonical)
@@ -191,4 +201,18 @@ func canonicalWorkspaceFile(root, path string) (string, bool) {
 		return "", false
 	}
 	return canonical, true
+}
+
+// pastedImageFile accepts the one out-of-workspace mention the TUI itself
+// authors: a clipboard image saved under <config dir>/pastes
+// (internal/tui/paste.go saveClipboardImage) and tagged by absolute path.
+func pastedImageFile(value string) (string, bool) {
+	if _, image := imageExt[strings.ToLower(filepath.Ext(value))]; !image || !filepath.IsAbs(value) {
+		return "", false
+	}
+	dir, err := config.Dir()
+	if err != nil {
+		return "", false
+	}
+	return canonicalWorkspaceFile(filepath.Join(dir, "pastes"), value)
 }

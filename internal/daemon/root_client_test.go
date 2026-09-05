@@ -376,7 +376,7 @@ func TestRootClientReceivesEventsAfterExpiredCursorSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	stamp := time.Now().UTC().Format(time.RFC3339)
-	if _, err := database.Exec(`INSERT INTO events(root_id,seq,kind,created_at) VALUES(?,?,?,?),(?,?,?,?)`,
+	if _, err := database.ExecContext(t.Context(), `INSERT INTO events(root_id,seq,kind,created_at) VALUES(?,?,?,?),(?,?,?,?)`,
 		rootID, 2, "fixture", stamp, rootID, session.EventRetention+1, "fixture", stamp); err != nil {
 		_ = database.Close()
 		t.Fatal(err)

@@ -177,9 +177,8 @@ func Catalog() ([]Spec, []error) {
 // Builtins lists the themes that ship with whip, in menu order: whip's own
 // light and dark, then the embedded catalog.
 func Builtins() []Spec {
-	specs := []Spec{Light(), Dark()}
 	cat, _ := Catalog()
-	return append(specs, cat...)
+	return append([]Spec{Light(), Dark()}, cat...)
 }
 
 // Builtin returns a shipped theme by name.
@@ -219,7 +218,7 @@ func Load(dir string) ([]Spec, []error) {
 }
 
 func loadFile(path string) (Spec, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path comes from Glob under the user's own themes dir
 	if err != nil {
 		return Spec{}, err
 	}
@@ -260,7 +259,7 @@ func (s *Spec) Validate() error {
 	}
 	pv, bv := reflect.ValueOf(&s.Palette).Elem(), reflect.ValueOf(base.Palette)
 	var problems []string
-	for i := 0; i < pv.NumField(); i++ {
+	for i := range pv.NumField() {
 		field := pv.Field(i)
 		if field.String() == "" {
 			if !s.neutral { // neutral: "" means the terminal's own default
@@ -281,7 +280,7 @@ func (s *Spec) Validate() error {
 			continue
 		}
 		sv := rv.Elem()
-		for i := 0; i < sv.NumField(); i++ {
+		for i := range sv.NumField() {
 			if v := sv.Field(i).String(); v != "" && !colorRE.MatchString(v) {
 				problems = append(problems, fmt.Sprintf("%s.%s=%q is not #rrggbb or an ANSI index 0-255", block.name, jsonName(sv.Type().Field(i)), v))
 			}
@@ -304,9 +303,9 @@ func jsonName(f reflect.StructField) string {
 
 func allowedKeys() []string {
 	keys := []string{"name", "dark", "surfaces{panel,element,hover}", "syntax{keyword,string,number,comment,function,type,operator,punctuation}", "markdown{heading,strong,code,quote}", "chroma"}
-	t := reflect.TypeOf(PaletteSpec{})
-	for i := 0; i < t.NumField(); i++ {
-		keys = append(keys, "palette."+jsonName(t.Field(i)))
+	t := reflect.TypeFor[PaletteSpec]()
+	for field := range t.Fields() {
+		keys = append(keys, "palette."+jsonName(field))
 	}
 	return keys
 }

@@ -32,7 +32,7 @@ func TestThemeCommandSwitchesRendering(t *testing.T) {
 	out = renderMarkdown("body\n\n```go\nx := 1\n```", 70)
 	// code blocks take their text color from the theme's text token
 	// (#eeeeee; glamour downgrades code to 256 colors → 255 in tests)
-	if !strings.Contains(out, "38;2;238;238;238") || !(strings.Contains(out, "38;5;255") || strings.Contains(out, "38;2;238;238;238mx")) {
+	if !strings.Contains(out, "38;2;238;238;238") || (!strings.Contains(out, "38;5;255") && !strings.Contains(out, "38;2;238;238;238mx")) {
 		t.Errorf("dark body/code should be the dark text color after switch back: %q", out[:120])
 	}
 	// and flip back to light once more — the chroma poisoning case

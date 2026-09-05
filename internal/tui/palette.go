@@ -64,14 +64,6 @@ func (p *palette) applyFilter(m *model) {
 
 func (m *model) openPalette() { m.openThinPalette() }
 
-func (m *model) openPaletteOn(name string) {
-	if strings.EqualFold(strings.TrimSpace(name), "theme") {
-		m.openThinThemePalette()
-		return
-	}
-	m.openThinPalette()
-}
-
 func (m *model) paletteKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	p := m.palette
 	if p == nil {

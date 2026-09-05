@@ -49,7 +49,10 @@ func goldenModel(w, h int) *model {
 // Regenerate deliberately with: go test ./internal/tui -run TestFrameGoldenVariants -update
 func TestFrameGoldenVariants(t *testing.T) {
 	pinDarkTheme(t)
-	plain := func(t *testing.T, m *model) { golden.RequireEqual(t, []byte(ansi.Strip(viewStr(m)))) }
+	plain := func(t *testing.T, m *model) {
+		t.Helper()
+		golden.RequireEqual(t, []byte(ansi.Strip(viewStr(m))))
+	}
 	t.Run("79x24-dock", func(t *testing.T) { plain(t, goldenModel(79, 24)) })
 	t.Run("160x40-repl", func(t *testing.T) {
 		m := goldenModel(160, 40)

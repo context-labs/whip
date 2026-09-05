@@ -72,6 +72,11 @@ root prompt (`evals/rlm`).
 - Connections have startup/call deadlines, per-server serialization,
   reconnect generation guards, and bounded structured/media flattening.
 - `whip mcp serve` is a daemon protocol tool host, not a model agent.
+- Secrets stay references: `$VAR`/`${VAR}`/`!cmd` in env and headers resolve
+  at connect time (`config.ResolveSecret`/`ResolveEnvMap`/`ExpandTemplate`)
+  inside the daemon's environment — run `whip daemon restart` after exporting
+  new vars. Codex `bearer_token_env_var` imports as `Authorization: Bearer
+  $VAR`; `http_headers`/`env_http_headers` import as headers.
 
 ## Built-in capabilities
 
@@ -92,7 +97,10 @@ root prompt (`evals/rlm`).
   reasoning effort, vision flags, sampling parameters, and pricing.
 - `models.call` and `models.batch` provide stateless analysis without creating
   durable child identities; batch results retain input order.
-- Prompt-cache keys are stable per retained session.
+- Prompt-cache keys are stable per retained session: the daemon stamps
+  `prompt_cache_key` with the session id. Headless `whip run -cache-key <key>`
+  pins a stable key (e.g. `repo/reviewer`) so one-off runs reuse the cached
+  system prefix.
 
 ## Daemon and clients
 
@@ -150,6 +158,12 @@ root prompt (`evals/rlm`).
   keyboard's owner: the running turn (spinner, `esc interrupt`), an armed
   `ctrl+x` leader (every chord), the focused Agents panel, or the working
   directory.
+- `shift+enter`, `ctrl+j` and `alt+enter` insert a newline. Bubble Tea v2
+  requests kitty key disambiguation and modifyOtherKeys at startup; inside
+  tmux a modified key only reaches the pane when the server option
+  `extended-keys` is on. whip never changes your tmux server: when the option
+  is off it warns and suggests `set -s extended-keys on` in `~/.tmux.conf`.
+  mosh collapses shift+enter before tmux or whip see it — use ctrl+j there.
 
 ## Storage and recovery
 
@@ -179,6 +193,25 @@ triple-click a row, both copying immediately. Clicking a user or assistant
 message opens Message Actions (revert, copy, fork); clicking a tool result
 expands it. Failed local commands report in the top-right toast rather than in
 the conversation.
+
+## Skills
+
+SKILL.md skills load from `.agents/skills` in the working directory,
+`~/.whip/skills`, and `~/.agents/skills` (`skills.DirsFor`).
+
+CLI: `whip skills list` (names, sources, warnings) and `whip skills import
+[--dry-run]` — copies skills from other harnesses' user dirs
+(`~/.codex/skills`, `~/.claude/skills` — `skills.ForeignDirs`) into
+`~/.agents/skills`, deduped by name against what whip already loads and
+across the sources (codex wins on a dup). Never overwrites an existing
+skill. Tests: `cmd/whip/skills_test.go`.
+
+**Spec compliance** (agentskills.io, matching pi's `core/skills.ts`): name
+validated (≤64 chars, lowercase a-z/0-9/hyphens, no leading/trailing/double
+hyphens), description ≤1024 chars (a *validity* ceiling, not a prompt budget),
+`disable-model-invocation: true` skills excluded from the catalog but still
+invocable via `$name`. Violations load with a `Warning` (surfaced in the
+startup report), never silently disappear. Tests: `skills/spec_test.go`.
 
 ## Themes
 

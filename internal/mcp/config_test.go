@@ -31,8 +31,14 @@ func TestParseClaudeStdio(t *testing.T) {
 	if !reflect.DeepEqual(c.Command, want) {
 		t.Errorf("command = %v, want %v", c.Command, want)
 	}
-	if c.Env["API_KEY"] != "sekret" {
-		t.Errorf("env expansion failed: %q", c.Env["API_KEY"])
+	// secret references survive the parse VERBATIM — resolution moved to
+	// connect time (defaultTransport → config.ResolveEnvMap/ResolveSecret)
+	if c.Env["API_KEY"] != "${MCP_TEST_KEY}" {
+		t.Errorf("env reference should stay a reference, got %q", c.Env["API_KEY"])
+	}
+	env, err := config.ResolveEnvMap(c.Env)
+	if err != nil || env["API_KEY"] != "sekret" {
+		t.Errorf("connect-time env resolution = %q, %v", env["API_KEY"], err)
 	}
 	if c.Remote() || c.Disabled() {
 		t.Errorf("unexpected remote/disabled: %+v", c)
@@ -79,8 +85,18 @@ func TestParseClaudeInfersTypeAndMissingVar(t *testing.T) {
 	if cfgs["a"].Remote() {
 		t.Error("command-only entry should be stdio")
 	}
-	if cfgs["a"].Env["X"] != "" {
-		t.Errorf("missing env var should expand to empty, got %q", cfgs["a"].Env["X"])
+	// the reference is preserved through parse — a missing var no longer
+	// bakes "" into the config; spawn drops the entry instead of masking
+	// an inherited NO_SUCH_VAR with an empty value
+	if cfgs["a"].Env["X"] != "$NO_SUCH_VAR_WHIP_TEST" {
+		t.Errorf("missing-var reference should be preserved, got %q", cfgs["a"].Env["X"])
+	}
+	env, err := config.ResolveEnvMap(cfgs["a"].Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := env["X"]; ok {
+		t.Errorf("unresolvable whole-ref env entry should be dropped at spawn, got %q", env["X"])
 	}
 	if !cfgs["b"].Remote() {
 		t.Error("url-only entry should be remote")
@@ -122,7 +138,8 @@ command = "sub-srv"
 	if docs.StartupTimeoutDuration() != 20*time.Second || docs.ToolTimeoutDuration() != 120*time.Second {
 		t.Errorf("docs timeouts = %v/%v", docs.StartupTimeoutDuration(), docs.ToolTimeoutDuration())
 	}
-	if docs.Env["API_KEY"] != "tok123" || docs.Env["PLAIN"] != "lit#eral" {
+	// references preserved verbatim through the parse; literals untouched
+	if docs.Env["API_KEY"] != "$CODEX_TEST_TOKEN" || docs.Env["PLAIN"] != "lit#eral" {
 		t.Errorf("docs env = %v", docs.Env)
 	}
 	if !reflect.DeepEqual(cfgs["local"].Command, []string{"/usr/bin/srv", "--stdio"}) {
@@ -132,8 +149,13 @@ command = "sub-srv"
 	if !remote.Remote() || !remote.Disabled() {
 		t.Errorf("remote = %+v", remote)
 	}
-	if remote.Headers["Authorization"] != "Bearer tok123" {
+	// embedded references keep their template text and resolve at connect
+	if remote.Headers["Authorization"] != "Bearer $CODEX_TEST_TOKEN" {
 		t.Errorf("remote headers = %v", remote.Headers)
+	}
+	hv, err := config.ResolveHeader(remote.Headers["Authorization"])
+	if err != nil || hv != "Bearer tok123" {
+		t.Errorf("connect-time header resolution = %q, %v", hv, err)
 	}
 	if cfgs["withsub"].Env["FOO"] != "bar" || len(cfgs["withsub"].Command) != 1 {
 		t.Errorf("withsub = %+v", cfgs["withsub"])
@@ -256,8 +278,13 @@ func TestLoadMergedGlobalClaude(t *testing.T) {
 	if !ok {
 		t.Fatal("global ~/.claude.json server should be discovered")
 	}
-	if !mem.Remote() || mem.Headers["X-Office-Session"] != "sess-123" {
-		t.Errorf("inf-memory should be remote with env-expanded header, got %+v", mem)
+	// default-form references stay references through discovery and resolve
+	// at connect time
+	if !mem.Remote() || mem.Headers["X-Office-Session"] != "${OFFICE_SESSION_NAME:-}" {
+		t.Errorf("inf-memory should keep its header reference, got %+v", mem)
+	}
+	if hv, err := config.ResolveHeader(mem.Headers["X-Office-Session"]); err != nil || hv != "sess-123" {
+		t.Errorf("connect-time resolution = %q, %v", hv, err)
 	}
 	if got := merged["shared"].Command[0]; got != "proj-srv" {
 		t.Errorf("project .mcp.json must win over global on conflict, got %q", got)

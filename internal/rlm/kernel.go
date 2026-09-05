@@ -669,7 +669,7 @@ func (kernel *Kernel) roundTripLocked(ctx context.Context, request frame) (frame
 	return response, nil
 }
 
-func decodeFrameValue(value any, target any) error {
+func decodeFrameValue(value, target any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err

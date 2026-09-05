@@ -11,9 +11,6 @@ import (
 	"github.com/context-labs/whip/internal/config"
 )
 
-// dimNew marks catalog-advertised routes that have no config entry yet.
-const dimNew = "  (new)"
-
 // modelItem is one selectable model@provider route.
 type modelItem struct {
 	model    string
@@ -122,21 +119,6 @@ func (p *modelPicker) applyQuery() {
 	})
 }
 
-// applyModelList filters a plain list of model names (palette rows are names,
-// not routes). The "(new)" catalog marker and
-// the leading "default (…)" row are stripped for scoring so the query matches
-// the real name.
-func (f *modelFilter) applyModelList(list []string) {
-	q := strings.ToLower(strings.TrimSpace(f.query))
-	f.apply(len(list), func(i int) int {
-		name := strings.TrimSuffix(list[i], dimNew)
-		if inner, ok := strings.CutPrefix(name, "default ("); ok {
-			name = strings.TrimSuffix(inner, ")")
-		}
-		return bestTier(name, "", q)
-	})
-}
-
 // bestTier is the best (lowest non-negative) match tier of the model and
 // provider names against query q; -1 if neither matches.
 func bestTier(model, provider, q string) int {
@@ -191,24 +173,6 @@ func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string)
 		return "", false, models
 	}
 	return models[0], true, nil
-}
-
-// modelNamesFor lists every selectable model name: cfg.Models sorted
-// alphabetically, then catalog-advertised ids without a config entry (marked
-// "(new)"), sorted by name. The catalog fallback in Resolve makes the extra
-// ids usable without a config entry, so pickers list them alongside.
-func modelNamesFor(cfg *config.Config) []string {
-	names := make([]string, 0, len(cfg.Models))
-	for _, it := range buildModelItems(cfg) {
-		name := it.model
-		if it.fromCatalog {
-			name += dimNew
-		}
-		if len(names) == 0 || names[len(names)-1] != name {
-			names = append(names, name)
-		}
-	}
-	return names
 }
 
 // buildModelItems flattens the config into selectable routes, models sorted

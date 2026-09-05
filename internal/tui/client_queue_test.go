@@ -272,8 +272,7 @@ func TestEscapeLeavesRunningAgentViewWithoutCancellingIt(t *testing.T) {
 	if command != nil || !m.interrupt1 {
 		t.Fatal("first ctrl+c did not arm child cancellation")
 	}
-	next, command = m.thinKey(ctrlKey('c'))
-	m = next.(*model)
+	_, command = m.thinKey(ctrlKey('c'))
 	if command == nil {
 		t.Fatal("second ctrl+c did not cancel child turn")
 	}

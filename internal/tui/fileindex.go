@@ -29,17 +29,6 @@ var fileIndex struct {
 // effective root; the fallback keeps the bare completion helpers testable.
 var currentRoot = os.Getwd
 
-// refreshFileIndex rebuilds the recursive listing if it is stale or the root
-// changed. Skips hidden dirs (.git, .agents) and heavy dependency dirs
-// (vendor, node_modules) so the index stays small and the walk stays fast.
-func refreshFileIndex() {
-	wd, err := currentRoot()
-	if err != nil {
-		return
-	}
-	refreshFileIndexAt(wd)
-}
-
 func refreshFileIndexAt(wd string) {
 	fileIndex.Lock()
 	defer fileIndex.Unlock()

@@ -1230,7 +1230,7 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 		t.Fatalf("shell output=%q err=%v", output, err)
 	}
 	services.SetExternalPermissions(true)
-	runner.ConfigureRun("", 3, true)
+	runner.ConfigureRun("", 3, true, "")
 	if services.ExternalPermissionsEnabled() || agentValue.MaxTurns != 3 {
 		t.Fatalf("headless run policy external=%v maxTurns=%d",
 			services.ExternalPermissionsEnabled(), agentValue.MaxTurns)

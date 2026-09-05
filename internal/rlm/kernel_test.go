@@ -720,7 +720,7 @@ func TestKernelStreamsOutputAndReportsHostCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	var calls []HostCall
-	host := HostFunc(func(context.Context, string, string, map[string]any) (any, error) { return nil, nil })
+	host := HostFunc(func(context.Context, string, string, map[string]any) (any, error) { return "ok", nil })
 	kernel, err := NewKernel(KernelOptions{
 		Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Limits: DefaultLimits(), Host: host,
 		OnHostCall: func(call HostCall) { calls = append(calls, call) },

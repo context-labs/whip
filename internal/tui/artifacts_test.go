@@ -30,7 +30,7 @@ func assertNoArtifacts(t *testing.T, m *model, width int) {
 		if strings.TrimSpace(ansi.Strip(l)) != "" {
 			continue
 		}
-		for x := 0; x < width; x++ {
+		for x := range width {
 			c := m.scr.CellAt(x, i)
 			if c == nil {
 				continue

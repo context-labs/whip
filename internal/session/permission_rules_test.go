@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -15,12 +16,12 @@ func lastEventOfKind(t *testing.T, st *Store, rootID, kind string) LifecycleEven
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := len(envelopes) - 1; i >= 0; i-- {
-		if envelopes[i].Kind != kind {
+	for _, envelope := range slices.Backward(envelopes) {
+		if envelope.Kind != kind {
 			continue
 		}
 		var event LifecycleEvent
-		if err := json.Unmarshal(envelopes[i].Payload.Inline, &event); err != nil {
+		if err := json.Unmarshal(envelope.Payload.Inline, &event); err != nil {
 			t.Fatal(err)
 		}
 		return event

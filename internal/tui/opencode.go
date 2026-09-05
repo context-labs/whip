@@ -2,11 +2,13 @@ package tui
 
 import (
 	"fmt"
-	"github.com/context-labs/whip/internal/tui/theme"
-	"github.com/context-labs/whip/internal/tui/ui"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/context-labs/whip/internal/tui/theme"
+	"github.com/context-labs/whip/internal/tui/ui"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -102,7 +104,7 @@ func opencodeHome(width, height int) string {
 // terminal, not hidden by ctrl+x b, and not displaced by the REPL panel on a
 // terminal too narrow for both.
 func (m *model) leftVisible() bool {
-	return m.termWidth >= sidebarMinWidth && !m.sidebarHide && !(m.replPanel && m.termWidth < replMinWide)
+	return m.termWidth >= sidebarMinWidth && !m.sidebarHide && (!m.replPanel || m.termWidth >= replMinWide)
 }
 
 // replVisible reports whether the REPL panel shows on the right.
@@ -184,14 +186,14 @@ func (m *model) sidebarView(height int) string {
 func (m *model) paneView(th *theme.Theme, pane, height int, expanded bool) string {
 	bg := th.Surface.Panel
 	muted := th.On(th.Muted, bg)
-	p := ui.Panel{Key: fmt.Sprint(pane + 1), Width: leftWidth, Height: height, Collapsed: !expanded, Band: true}
+	p := ui.Panel{Key: strconv.Itoa(pane + 1), Width: leftWidth, Height: height, Collapsed: !expanded, Band: true}
 	band := p.Inner(th) + 2
 	var body []string
 	switch pane {
 	case paneAgents:
 		p.Title, p.Focused = "Agents", m.agentsFocus
-		p.Count = fmt.Sprint(max(len(m.runtimeChildren())-1, 0)) // sub-agents; the root row is always listed
-		budget := height - 2*th.Space.PadY - 2                   // header row and the blank under it
+		p.Count = strconv.Itoa(max(len(m.runtimeChildren())-1, 0)) // sub-agents; the root row is always listed
+		budget := height - 2*th.Space.PadY - 2                     // header row and the blank under it
 		rows, more := m.agentRows(band, bg, budget)
 		if more && len(rows) > 0 {
 			rows[len(rows)-1] = muted.Render(" …")
@@ -377,8 +379,10 @@ func (m *model) ocDialogRows() []string {
 		}
 		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: it.title, Right: hint, Swatch: it.swatch})
 	}
-	return ui.List{Title: "Commands", Hint: "esc", Search: true, Query: p.filter, Groups: groups, Sel: p.idx,
-		Empty: "No results found", Width: m.dialogWidth(), Height: m.dialogHeight()}.Render(currentTheme())
+	return ui.List{
+		Title: "Commands", Hint: "esc", Search: true, Query: p.filter, Groups: groups, Sel: p.idx,
+		Empty: "No results found", Width: m.dialogWidth(), Height: m.dialogHeight(),
+	}.Render(currentTheme())
 }
 
 // dialogWidth is the floating dialogs' panel width.
@@ -441,15 +445,6 @@ func ocToolRow(name, args string, failed bool) string {
 	return "   " + muted.Render(icon) + " " + txt.Render(label) + muted.Render(sep+subject)
 }
 
-// ocToolPending renders a queued/running tool call: opencode's "~ " prefix,
-// all muted.
-func ocToolPending(name, args string) string {
-	th := currentTheme()
-	muted := th.On(th.Muted, nil)
-	label, sep := ocToolLabel(name)
-	return "   " + muted.Render("~ "+label+sep+toolSubject(name, args))
-}
-
 // ocToolResult renders a tool result block: collapsed to a single muted "↳ N
 // lines" hint (opencode tucks results away behind the tool row), the full body
 // indented when expanded. Errors keep the error color.
@@ -510,12 +505,15 @@ func (a *msgActions) items() []msgAction {
 // ocMsgActionRows renders the Message Actions dialog box rows.
 func (m *model) ocMsgActionRows() []string {
 	a := m.msgActions
-	var items []ui.ListItem
-	for _, it := range a.items() {
+	its := a.items()
+	items := make([]ui.ListItem, 0, len(its))
+	for _, it := range its {
 		items = append(items, ui.ListItem{Left: it.name, Right: it.desc})
 	}
-	return ui.List{Title: "Message Actions", Hint: "esc", Search: true, Query: a.filter, Groups: []ui.ListGroup{{Items: items}},
-		Sel: a.sel, Empty: "No results found", Width: m.dialogWidth()}.Render(currentTheme())
+	return ui.List{
+		Title: "Message Actions", Hint: "esc", Search: true, Query: a.filter, Groups: []ui.ListGroup{{Items: items}},
+		Sel: a.sel, Empty: "No results found", Width: m.dialogWidth(),
+	}.Render(currentTheme())
 }
 
 // ocModelDialogRows renders the model picker as opencode's "Select model"
@@ -538,9 +536,11 @@ func (m *model) ocModelDialogRows() []string {
 		}
 		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: cur + it.model, Right: mark})
 	}
-	return ui.List{Title: "Select model", Hint: "esc", Search: true, Query: p.filter.query, Groups: groups, Sel: p.idx,
+	return ui.List{
+		Title: "Select model", Hint: "esc", Search: true, Query: p.filter.query, Groups: groups, Sel: p.idx,
 		Empty: "No results found", Footer: []string{"enter", "select", "type", "to filter"},
-		Width: m.dialogWidth(), Height: m.dialogHeight()}.Render(currentTheme())
+		Width: m.dialogWidth(), Height: m.dialogHeight(),
+	}.Render(currentTheme())
 }
 
 // ocSessionDialogRows renders the resume picker as opencode's "Sessions"
@@ -565,8 +565,10 @@ func (m *model) ocSessionDialogRows() []string {
 		}
 		groups[len(groups)-1].Items = append(groups[len(groups)-1].Items, ui.ListItem{Left: title, Right: ago(meta.UpdatedAt)})
 	}
-	return ui.List{Title: "Sessions", Hint: "esc", Groups: groups, Sel: p.idx, Empty: "No sessions",
-		Footer: []string{"enter", "resume", "↑/↓", "select"}, Width: m.dialogWidth(), Height: m.dialogHeight()}.Render(currentTheme())
+	return ui.List{
+		Title: "Sessions", Hint: "esc", Groups: groups, Sel: p.idx, Empty: "No sessions",
+		Footer: []string{"enter", "resume", "↑/↓", "select"}, Width: m.dialogWidth(), Height: m.dialogHeight(),
+	}.Render(currentTheme())
 }
 
 // toastClearMsg expires the toast set by showToast.
@@ -702,17 +704,6 @@ func (m *model) msgActionsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
-}
-
-// opencodeAttribution renders opencode's per-response attribution line:
-// "▣  {mode} · {model} · {duration}", indented 3 to sit under the assistant body.
-func (m *model) opencodeAttribution(d time.Duration) string {
-	th := currentTheme()
-	agent := th.On(th.Info, nil)
-	txt := th.On(th.Text, nil)
-	muted := th.On(th.Muted, nil)
-	return "   " + agent.Render("▣") + txt.Render("  "+m.ocModeLabel()) + // 3-space indent under the assistant column
-		muted.Render(" · "+m.modelName+" · "+shortDur(d))
 }
 
 // ocModeLabel is the left segment of the prompt meta row. whip has no named

@@ -13,7 +13,8 @@ type dialog interface {
 }
 
 func (p *palette) key(m *model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { return m.paletteKey(msg) }
-func (p *palette) rows(m *model) []string                                 { return m.ocDialogRows() }
+
+func (p *palette) rows(m *model) []string { return m.ocDialogRows() }
 
 func (a *msgActions) key(m *model, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.msgActionsKey(msg)

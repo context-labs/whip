@@ -242,7 +242,7 @@ func hasCycle(value starlark.Value, path map[any]bool) bool {
 		}
 		path[value] = true
 		defer delete(path, value)
-		for index := 0; index < value.Len(); index++ {
+		for index := range value.Len() {
 			if hasCycle(value.Index(index), path) {
 				return true
 			}

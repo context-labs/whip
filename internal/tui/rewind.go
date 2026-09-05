@@ -2,14 +2,11 @@ package tui
 
 import (
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/context-labs/whip/internal/llm"
 )
 
 type rewindEntry struct {
@@ -73,23 +70,6 @@ func toolVerb(name string) string {
 	default:
 		return name
 	}
-}
-
-func (m *model) batchSuffix(name, self string) string {
-	var ids []string
-	for _, value := range m.blocks {
-		if (value.kind == blockToolQueued || value.kind == blockToolRun) && value.toolName == name && value.toolID != "" {
-			ids = append(ids, value.toolID)
-		}
-	}
-	if !slices.Contains(ids, self) {
-		ids = append(ids, self)
-	}
-	if len(ids) < 2 {
-		return ""
-	}
-	slices.Sort(ids)
-	return " " + strconv.Itoa(slices.Index(ids, self)+1) + "/" + strconv.Itoa(len(ids))
 }
 
 func (m *model) scrollToMsg(index int) {
@@ -169,14 +149,6 @@ func (m *model) rewindView() string {
 	}
 	fmt.Fprintf(&out, "\n%s", dimStyle.Render(fmt.Sprintf("  (%d/%d) ↑ older · ↓ newer", state.sel+1, len(state.entries))))
 	return out.String()
-}
-
-func fmtTurn(usage llm.Usage) string {
-	in := fmtTok(usage.PromptTokens) + " in"
-	if cached := usage.Cached(); cached > 0 {
-		in += fmt.Sprintf(" (%s cached)", fmtTok(cached))
-	}
-	return fmt.Sprintf("%s / %s out", in, fmtTok(usage.CompletionTokens))
 }
 
 func rewindWhen(value *time.Time) string {

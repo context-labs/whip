@@ -916,7 +916,7 @@ func (s *Store) emitInterruptedTurnEventsTx(ctx context.Context, tx *sql.Tx, roo
 	for rows.Next() {
 		var value running
 		if err := rows.Scan(&value.root, &value.agent, &value.parent); err != nil {
-			_ = rows.Close()
+			_ = rows.Close() //nolint:sqlclosecheck // rows must close before the tx runs more statements
 			return err
 		}
 		turns = append(turns, value)

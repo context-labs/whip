@@ -15,11 +15,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-var (
-	// diff bands (set by refreshBaseStyles): colored background across the
-	// full row, terminal-default foreground on top (legible on both themes).
-	diffAddStyle, diffDelStyle lipgloss.Style
-)
+// diff bands (set by refreshBaseStyles): colored background across the
+// full row, terminal-default foreground on top (legible on both themes).
+var diffAddStyle, diffDelStyle lipgloss.Style
 
 // toolHeaderName maps a tool to its header verb ("Update" over "edit" — the
 // row reads as what happened, not which function ran).
@@ -73,7 +71,7 @@ func toolSubject(name, args string) string {
 }
 
 // queuedSubject is the first line shown for a still-streaming tool call.
-func queuedSubject(_ string, args string) string { return firstLine(args) }
+func queuedSubject(_, args string) string { return firstLine(args) }
 
 // toolHeaderRow renders the completed call's header: an indent-3 icon row
 // ("Update path"), see ocToolRow.

@@ -74,7 +74,7 @@ func TestReplReducerBuildsCellsAndPanelRenders(t *testing.T) {
 	if height := strings.Count(done, "\n") + 1; height != 30 {
 		t.Fatalf("panel height = %d", height)
 	}
-	for _, line := range strings.Split(done, "\n") {
+	for line := range strings.SplitSeq(done, "\n") {
 		if w := ansi.StringWidth(line); w != m.panelWidth() {
 			t.Fatalf("panel row width %d != %d: %q", w, m.panelWidth(), ansi.Strip(line))
 		}
@@ -173,7 +173,7 @@ func TestReplPanelScrollsIndependentlyOfChat(t *testing.T) {
 	if view = m.replPanelView(20); m.replScroll != 0 || !strings.Contains(view, "In [30]") {
 		t.Fatalf("scroll=%d after wheel down:\n%s", m.replScroll, view)
 	}
-	for _, line := range strings.Split(view, "\n") {
+	for line := range strings.SplitSeq(view, "\n") {
 		if w := ansi.StringWidth(line); w != m.panelWidth() {
 			t.Fatalf("row width %d != %d: %q", w, m.panelWidth(), ansi.Strip(line))
 		}
@@ -404,7 +404,7 @@ func TestAgentDetailsFitTheChatColumn(t *testing.T) {
 	m.width = 40
 	m.agentOpen = "child"
 	m.clientView.agents[1].CWD = strings.Repeat("/very-long-directory", 6)
-	for _, line := range strings.Split(m.agentDetails(), "\n") {
+	for line := range strings.SplitSeq(m.agentDetails(), "\n") {
 		if w := ansi.StringWidth(line); w > 40 {
 			t.Fatalf("details row %d cols wide: %q", w, ansi.Strip(line))
 		}

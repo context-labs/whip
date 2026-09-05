@@ -36,12 +36,14 @@ const (
 	ClientLive         = daemon.RootLive
 )
 
-type Action = daemon.RootAction
-type ClientUpdate = daemon.RootUpdate
-type daemonConnection = daemon.RootConnection
-type clientConnector = daemon.RootConnector
-type ClientOptions = daemon.RootClientOptions
-type Client = daemon.RootClient
+type (
+	Action           = daemon.RootAction
+	ClientUpdate     = daemon.RootUpdate
+	daemonConnection = daemon.RootConnection
+	clientConnector  = daemon.RootConnector
+	ClientOptions    = daemon.RootClientOptions
+	Client           = daemon.RootClient
+)
 
 func NewClient(options ClientOptions) (*Client, error) { return daemon.NewRootClient(options) }
 
@@ -1231,10 +1233,14 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 			if m.blocks[i].kind == blockTool {
 				m.blocks[i].toggle()
 				m.refreshVP()
-				break
+				return m, nil
 			}
 		}
-		return m, nil
+		// no tool output to expand: ctrl+e is the textarea's line-end binding
+		var command bubbletea.Cmd
+		m.input, command = m.input.Update(msg)
+		m.refreshMenu()
+		return m, command
 	case "ctrl+p":
 		m.openThinPalette()
 		return m, nil
@@ -1410,6 +1416,11 @@ func clientCommandRunsWhileBusy(text string) bool {
 // (expanded on submit, see paste.go) when configured; otherwise it goes to
 // the textarea like typed text.
 func (m *model) thinPaste(msg bubbletea.PasteMsg) (bubbletea.Model, bubbletea.Cmd) {
+	if path, ok := pastedImagePath(msg.Content); ok {
+		// A macOS screenshot preview pastes a temporary file path. Copy it
+		// off the UI thread before the preview cleans the file up.
+		return m, func() bubbletea.Msg { return pasteImageFileCmd(path) }
+	}
 	if m.cfg != nil && m.cfg.CollapsePaste != nil && *m.cfg.CollapsePaste {
 		if lines := strings.Count(msg.Content, "\n"); lines >= 2 {
 			m.pasteBuf = msg.Content
@@ -1522,6 +1533,8 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, b
 		default:
 			dialog.rejecting = true
 		}
+	case "esc", "ctrl+c":
+		return decide(false, "rejected without a reason", "")
 	default:
 		switch msg.Text {
 		case "a", "A":
@@ -1533,8 +1546,6 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, b
 		case "r":
 			dialog.rejecting = true
 		}
-	case "esc", "ctrl+c":
-		return decide(false, "rejected without a reason", "")
 	}
 	return m, nil
 }
@@ -1681,7 +1692,7 @@ func (m *model) openThinAuthPalette() {
 }
 
 func (m *model) openThinCompactPalette() {
-	commands := []struct{ title, command string }{
+	commands := []struct{ title, command string }{ //nolint:prealloc // literal prefix plus a handful of model rows
 		{"Compact now", "/compact"},
 		{"Use automatic default", "/compact off"},
 		{"Retry latest compaction", "/compact retry"},
@@ -1697,7 +1708,7 @@ func (m *model) openThinCompactPalette() {
 }
 
 func (m *model) openThinMCPPalette() {
-	commands := []struct{ title, command string }{
+	commands := []struct{ title, command string }{ //nolint:prealloc // literal prefix plus a few rows per server
 		{"MCP server status", "/mcp status"},
 		{"MCP import status", "/mcp import status"},
 		{"Enable Claude imports", "/mcp import claude on"},
@@ -1726,7 +1737,6 @@ func (m *model) openThinMCPPalette() {
 func (m *model) openCommandSubpalette(category string, commands []struct{ title, command string }) {
 	items := make([]paletteItem, 0, len(commands))
 	for _, item := range commands {
-		item := item
 		items = append(items, paletteItem{
 			title: item.title, category: category,
 			dynHint: func(*model) string { return item.command },
@@ -1779,8 +1789,8 @@ func (m *model) previewTheme(name string) {
 // themeSwatch is a theme's signature: primary, accent, success and error.
 func themeSwatch(name string) []color.Color {
 	var spec theme.Spec
-	switch {
-	case name == "auto":
+	switch name {
+	case "auto":
 		spec = theme.Dark()
 		if schemeIsLight() {
 			spec = theme.Light()
@@ -1799,7 +1809,6 @@ func themeSwatch(name string) []color.Color {
 func (m *model) openThinEffortPalette() {
 	items := make([]paletteItem, 0, len(m.effortsFor()))
 	for _, level := range m.effortsFor() {
-		level := level
 		items = append(items, paletteItem{
 			title: "Effort: " + effortLabel(level), category: "Agent",
 			dynDesc: func(value *model) string {
@@ -1828,7 +1837,6 @@ func (m *model) openThinBrowserPalette() {
 	}
 	items := make([]paletteItem, 0, len(commands))
 	for _, item := range commands {
-		item := item
 		items = append(items, paletteItem{
 			title: item.title, category: "Browser",
 			dynHint: func(*model) string { return item.command },

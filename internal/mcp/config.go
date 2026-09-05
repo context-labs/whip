@@ -342,10 +342,10 @@ func FromConfigMap(in map[string]config.MCPServer) map[string]ServerConfig {
 	for name, c := range in {
 		out[name] = ServerConfig{
 			Command:        c.Command,
-			Env:            expandEnvMap(c.Env),
+			Env:            c.Env, // secret references stay references;
 			Cwd:            c.Cwd,
 			URL:            c.URL,
-			Headers:        expandEnvMap(c.Headers),
+			Headers:        c.Headers, // resolution happens in defaultTransport
 			Enabled:        c.Enabled,
 			Note:           c.Note,
 			StartupTimeout: c.StartupTimeout,
@@ -371,49 +371,11 @@ func defaultClaudeGlobalPath() string {
 	return filepath.Join(home, ".claude.json")
 }
 
-// expandEnv resolves "$VAR" and "${VAR}" references in config values (claude
-// does this in .mcp.json env blocks; codex expands env vars in its TOML too),
-// plus the shell-style default forms "${VAR:-default}" and "${VAR-default}".
-// Missing variables expand to "" (or the default, when the ":-" / "-" form is
-// used). os.Expand alone would treat "${VAR:-default}" as a lookup of a var
-// literally named "VAR:-default", which never resolves — so we pre-extract the
-// default ourselves.
-func expandEnv(v string) string {
-	if !strings.Contains(v, "$") {
-		return v
-	}
-	return os.Expand(v, expandVar)
-}
-
-// expandVar is os.Expand's mapping func. name is the token inside "${...}" or
-// after "$". For "${VAR:-default}"/"${VAR-default}", os.Expand hands us the
-// whole "VAR:-default"/"VAR-default" string (its brace form allows any bytes
-// but '}'), so we split off the default and resolve VAR ourselves. With ":-"
-// the default also applies when VAR is set-but-empty (shell semantics); with
-// "-" only when VAR is unset.
-func expandVar(name string) string {
-	if key, def, found := strings.Cut(name, ":-"); found {
-		if val := os.Getenv(key); val != "" {
-			return val
-		}
-		return os.Expand(def, os.Getenv) // default may itself reference vars
-	}
-	if key, def, found := strings.Cut(name, "-"); found {
-		if _, ok := os.LookupEnv(key); ok {
-			return os.Getenv(key)
-		}
-		return os.Expand(def, os.Getenv)
-	}
-	return os.Getenv(name)
-}
-
-func expandEnvMap(m map[string]string) map[string]string {
-	if m == nil {
-		return nil
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = expandEnv(v)
-	}
-	return out
-}
+// "$VAR"/"${VAR}" secret references in env and header values are NOT expanded
+// at parse/load time — they stay references all the way into persisted config
+// and resolve at the point of use: headers in defaultTransport's
+// headerTransport build, stdio env via config.ResolveEnvMap at spawn. This is
+// the property that makes codex/claude imports work when the referenced var
+// isn't set in whip's import-time environment (the customer.io "failed to
+// auth after importing from codex" report) and keeps resolved secrets out of
+// ~/.whip/config.json.

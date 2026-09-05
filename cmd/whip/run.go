@@ -33,8 +33,9 @@ func runCLI(args []string) error {
 	timeoutFlag := fs.Duration("timeout", 0, "wall-clock cap on the whole run (e.g. 30s, 5m); 0 = no timeout")
 	quietFlag := fs.Bool("quiet", false, "suppress the stderr tool/session notes (clean stdout for -format json piping)")
 	noSessionFlag := fs.Bool("no-session", false, "run without retaining a session (one-off jobs don't clutter whip sessions)")
+	cacheKeyFlag := fs.String("cache-key", "", "prompt_cache_key for provider prefix caching; defaults to the session id. Pass a STABLE value (e.g. repo/reviewer) to reuse the cached system prefix across runs.")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: whip run [--format text|json] [-m model] [-p provider] [-resume id] [-system text | -system-file path] [-max-turns N] [-timeout dur] [-quiet] [-no-session] \"prompt\"")
+		fmt.Fprintln(os.Stderr, "usage: whip run [--format text|json] [-m model] [-p provider] [-resume id] [-system text | -system-file path] [-max-turns N] [-timeout dur] [-quiet] [-no-session] [-cache-key key] \"prompt\"")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -122,7 +123,7 @@ func runCLI(args []string) error {
 	}
 
 	configure, err := client.NewAction("run.configure", map[string]any{
-		"system": system, "max_turns": *maxTurnsFlag, "headless": true,
+		"system": system, "max_turns": *maxTurnsFlag, "headless": true, "cache_key": *cacheKeyFlag,
 	})
 	if err != nil {
 		return err

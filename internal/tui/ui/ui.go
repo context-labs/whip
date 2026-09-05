@@ -36,8 +36,8 @@ func Fill(body string, width int, bg color.Color) string {
 	scr := uv.NewScreenBuffer(width, h)
 	uv.NewStyledString(body).Draw(scr, scr.Bounds())
 	if bg != nil {
-		for y := 0; y < h; y++ {
-			for x := 0; x < width; x++ {
+		for y := range h {
+			for x := range width {
 				c := scr.CellAt(x, y)
 				if c == nil {
 					continue

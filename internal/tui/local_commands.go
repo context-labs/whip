@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -50,7 +49,7 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 	case "/report":
 		m.append(m.reportBlock())
 	default:
-		return m, m.toastError(fmt.Sprintf("unknown command: %s", fields[0]))
+		return m, m.toastError("unknown command: " + fields[0])
 	}
 	return m, nil
 }

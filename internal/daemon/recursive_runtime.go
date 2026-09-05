@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sort"
@@ -188,12 +189,12 @@ func (node *AgentSession) emitHostCall(call rlm.HostCall) {
 
 // recordScratchRestore persists the restore outcome off the kernel lock; the
 // event is an audit trail, so ordering against the turn does not matter.
-func (node *AgentSession) recordScratchRestore(_ context.Context, report rlm.RestoreReport) {
+func (node *AgentSession) recordScratchRestore(ctx context.Context, report rlm.RestoreReport) {
 	root, id := node.root, node.id
 	if root == nil || id == "" {
 		return
 	}
-	go func() { _ = root.RecordScratchRestore(context.Background(), id, report) }()
+	go func() { _ = root.RecordScratchRestore(context.WithoutCancel(ctx), id, report) }()
 }
 
 func (store scratchStore) Save(ctx context.Context, program string, manifest rlm.SnapshotManifest) error {
@@ -1012,9 +1013,7 @@ func (host *recursiveHost) jobView(ctx context.Context, status tools.JobStatus, 
 			if err != nil {
 				return nil, err
 			}
-			for key, value := range bounded {
-				view[key] = value
-			}
+			maps.Copy(view, bounded)
 		}
 	}
 	return view, nil
@@ -1698,9 +1697,7 @@ func contentMetadataMap(value sessionstore.ContentMetadata) map[string]any {
 
 func cloneArguments(arguments map[string]any) map[string]any {
 	result := make(map[string]any, len(arguments))
-	for key, value := range arguments {
-		result[key] = value
-	}
+	maps.Copy(result, arguments)
 	return result
 }
 

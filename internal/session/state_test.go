@@ -718,7 +718,7 @@ func TestAgentScratchSaveLoadAndDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_scratch`).Scan(&count); err != nil || count != 0 {
+	if err := store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM agent_scratch`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("scratch rows after delete = %d err=%v", count, err)
 	}
 }
@@ -743,7 +743,7 @@ func TestRecordScratchRestoreAppendsEvent(t *testing.T) {
 	}
 	var kind string
 	var payload []byte
-	if err := store.db.QueryRow(`SELECT kind, payload_inline FROM events WHERE root_id=? AND seq=?`, rootID, seq).Scan(&kind, &payload); err != nil {
+	if err := store.db.QueryRowContext(t.Context(), `SELECT kind, payload_inline FROM events WHERE root_id=? AND seq=?`, rootID, seq).Scan(&kind, &payload); err != nil {
 		t.Fatal(err)
 	}
 	var event LifecycleEvent

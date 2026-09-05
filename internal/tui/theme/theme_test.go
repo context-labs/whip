@@ -89,9 +89,11 @@ func TestLoadUserThemes(t *testing.T) {
 		t.Fatalf("expected 3 rejected themes, got %v", errs)
 	}
 	joined := ""
+	var joinedSb92 strings.Builder
 	for _, err := range errs {
-		joined += err.Error() + "\n"
+		joinedSb92.WriteString(err.Error() + "\n")
 	}
+	joined += joinedSb92.String()
 	for _, want := range []string{`unknown field "radius"`, "allowed keys:", `palette.primary="blue"`, "built-in name"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("error text missing %q:\n%s", want, joined)

@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/llm"
 )
 
 // readClipboardImage returns image bytes and their format extension from the
@@ -124,8 +128,92 @@ func powershellImage() (string, []byte, error) {
 	return "png", data, nil
 }
 
+// imageExts is the set of image extensions an @mention attaches (mirrors the
+// daemon's imageExt table in internal/daemon/input.go).
+var imageExts = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".bmp": true}
+
+// pastedImagePath recognizes a single pasted local image path, including the
+// extension-less temporary paths emitted by macOS screenshot previews. A
+// Finder drag pastes a backslash-escaped path ("a\ b.png"); unescape it
+// before statting.
+func pastedImagePath(text string) (string, bool) {
+	path := strings.TrimSpace(text)
+	if u, err := url.Parse(path); err == nil && u.Scheme == "file" {
+		if u.Host != "" && u.Host != "localhost" {
+			return "", false
+		}
+		path = u.Path
+	}
+	path = strings.ReplaceAll(path, `\ `, " ")
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	if imageFileExtension(path, nil) != "" {
+		return path, true
+	}
+	f, err := os.Open(path) //nolint:gosec // G304: path comes directly from the user's paste
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = f.Close() }()
+	header := make([]byte, 12)
+	n, err := f.Read(header)
+	if err != nil && n == 0 {
+		return "", false
+	}
+	return path, imageFileExtension("", header[:n]) != ""
+}
+
+// imageFileExtension returns a supported image extension from a filename or
+// magic bytes. The latter keeps extension-less screenshot previews attachable.
+func imageFileExtension(path string, data []byte) string {
+	switch {
+	case bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")):
+		return "png"
+	case bytes.HasPrefix(data, []byte("\xff\xd8\xff")):
+		return "jpg"
+	case bytes.HasPrefix(data, []byte("GIF87a")), bytes.HasPrefix(data, []byte("GIF89a")):
+		return "gif"
+	case len(data) >= 12 && bytes.Equal(data[:4], []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP")):
+		return "webp"
+	case bytes.HasPrefix(data, []byte("BM")):
+		return "bmp"
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if imageExts[ext] {
+		return strings.TrimPrefix(ext, ".")
+	}
+	return ""
+}
+
+// pasteImageFileCmd copies a path pasted by the terminal into whip's paste
+// directory. Screenshot preview files are temporary — macOS keeps the
+// bottom-right hover thumbnail in a transient staging dir that can be swept
+// away before the next user turn reads the @mention — so the bytes are copied
+// off the source path immediately, landing in the input as the same @path
+// mention a clipboard paste (pasteImageCmd) produces.
+func pasteImageFileCmd(path string) tea.Msg {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path was validated from the user's paste
+	if err != nil {
+		return imageMsg{err: err}
+	}
+	ext := imageFileExtension(path, data)
+	if ext == "" {
+		return imageMsg{err: errors.New("pasted file is not a supported image")}
+	}
+	path, err = saveClipboardImage(ext, data)
+	if err != nil {
+		return imageMsg{err: err}
+	}
+	return imageMsg{path: path}
+}
+
 // saveClipboardImage writes data to ~/.whip/pastes/ and returns the path.
 func saveClipboardImage(ext string, data []byte) (string, error) {
+	// Bound the image before it hits disk or the daemon's size cap: a HiDPI
+	// screenshot is several times the pixels the model will be sent anyway.
+	ext, data = llm.NormalizeImage(ext, data)
 	dir, err := config.Dir()
 	if err != nil {
 		return "", err

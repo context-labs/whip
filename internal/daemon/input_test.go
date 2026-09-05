@@ -1,7 +1,10 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,12 +73,10 @@ func TestPrepareAuthoredInputAttachesVisionImagesAndEnforcesChildCapability(t *t
 	}
 }
 
-func TestPrepareAuthoredInputUsesCurrentPersistedFileCapability(t *testing.T) {
-	workspace := t.TempDir()
-	imagePath := filepath.Join(workspace, "shot.png")
-	if err := os.WriteFile(imagePath, []byte("image"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+// storeBackedInputSession binds the node to a real root so the persisted,
+// workspace-scoped file grant is exercised rather than the detached shortcut.
+func storeBackedInputSession(t *testing.T, workspace string) *AgentSession {
+	t.Helper()
 	store, err := sessionstore.Open(filepath.Join(t.TempDir(), "runtime.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -89,16 +90,25 @@ func TestPrepareAuthoredInputUsesCurrentPersistedFileCapability(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	node := inputTestSession(t, workspace)
 	node.agent.Vision = true
 	node.root = &Session{store: store, meta: sessionstore.Meta{ID: rootID}}
 	node.id = rootID
 	node.authority = authority
+	return node
+}
+
+func TestPrepareAuthoredInputUsesCurrentPersistedFileCapability(t *testing.T) {
+	workspace := t.TempDir()
+	imagePath := filepath.Join(workspace, "shot.png")
+	if err := os.WriteFile(imagePath, []byte("image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	node := storeBackedInputSession(t, workspace)
 	if _, _, err := node.prepareAuthoredInput(context.Background(), "inspect @shot.png", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.RevokeCapabilityFor(context.Background(), rootID, rootID, authority.Files.ID); err != nil {
+	if _, err := node.root.store.RevokeCapabilityFor(context.Background(), node.id, node.id, node.authority.Files.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := node.prepareAuthoredInput(context.Background(), "inspect @shot.png", nil); err == nil || !strings.Contains(err.Error(), "file capability") {
@@ -124,5 +134,56 @@ func TestPrepareAuthoredInputNeverEscapesWorkspace(t *testing.T) {
 	}
 	if strings.Contains(text, "secret payload") || strings.Contains(text, "the user tagged") {
 		t.Fatalf("outside-workspace file was expanded: %q", text)
+	}
+}
+
+// The TUI saves clipboard images under <config dir>/pastes and tags them by
+// absolute path; that directory is the one out-of-workspace source a mention
+// may attach, and the workspace-scoped file grant must not reject it.
+func TestPrepareAuthoredInputAttachesPastedImagesOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	pastes := filepath.Join(home, "pastes")
+	if err := os.Mkdir(pastes, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pasted := filepath.Join(pastes, "shot.png")
+	elsewhere := filepath.Join(home, "elsewhere.png")
+	notes := filepath.Join(pastes, "notes.txt")
+	for _, path := range []string{pasted, elsewhere, notes} {
+		if err := os.WriteFile(path, []byte("image"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	node := storeBackedInputSession(t, t.TempDir())
+	text, parts, err := node.prepareAuthoredInput(context.Background(), "look at @"+pasted+" @"+elsewhere+" @"+notes, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, note, _ := strings.Cut(text, "[note:") // the input echoes every token; only the note shows what resolved
+	if len(parts) != 1 || !strings.Contains(note, "shot.png (attached image)") ||
+		strings.Contains(note, "elsewhere") || strings.Contains(note, "notes.txt") {
+		t.Fatalf("paste expansion text=%q parts=%d", text, len(parts))
+	}
+}
+
+func TestPrepareAuthoredInputNormalizesOversizedImages(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workspace := t.TempDir()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, llm.NormalizeMaxDim+100, 40))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "wide.png"), buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := inputTestSession(t, workspace)
+	session.agent.Vision = true
+	_, parts, err := session.prepareAuthoredInput(context.Background(), "inspect @wide.png", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 1 || parts[0].W == 0 || parts[0].W > llm.NormalizeMaxDim || !strings.HasPrefix(parts[0].ImageURL.URL, "data:image/jpeg") {
+		t.Fatalf("normalized parts=%+v", parts)
 	}
 }

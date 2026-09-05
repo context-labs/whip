@@ -71,14 +71,12 @@ func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 	p := spec.Palette
 	t := &Theme{
 		Name: spec.Name, Dark: spec.Dark, Neutral: spec.neutral, Profile: profile, spec: spec,
-		Palette: Palette{
-			Text: col(p.Text), Muted: col(p.Muted), Faint: col(p.Faint),
-			Primary: col(p.Primary), Accent: col(p.Accent),
-			Success: col(p.Success), Warning: col(p.Warning), Error: col(p.Error), Info: col(p.Info),
-			Link: col(p.Link), Emphasis: col(p.Emphasis),
-			OnPrimary: col(p.OnPrimary), Border: col(p.Border), BorderFocus: col(p.BorderFocus),
-			Bg: col(p.Bg), DiffAdd: col(p.DiffAdd), DiffDel: col(p.DiffDel),
-		},
+		Text: col(p.Text), Muted: col(p.Muted), Faint: col(p.Faint),
+		Primary: col(p.Primary), Accent: col(p.Accent),
+		Success: col(p.Success), Warning: col(p.Warning), Error: col(p.Error), Info: col(p.Info),
+		Link: col(p.Link), Emphasis: col(p.Emphasis),
+		OnPrimary: col(p.OnPrimary), Border: col(p.Border), BorderFocus: col(p.BorderFocus),
+		Bg: col(p.Bg), DiffAdd: col(p.DiffAdd), DiffDel: col(p.DiffDel),
 		Space: Spacing{Gutter: 3, PadX: 2, PadY: 1, Gap: 1}, // Gutter: the "┃  " bar+gutter; PadX: text inset from a fill edge; PadY: rows above/below a panel body; Gap: between panes
 	}
 	base := t.Bg

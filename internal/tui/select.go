@@ -414,8 +414,8 @@ func (m *model) selectAround(p selPos, n int) (selection, bool) {
 // wordBounds returns the [start, end) cell range of the word under cell col:
 // a run of non-space cells.
 func wordBounds(line string, col int) (int, int) {
-	cells := []int{} // start cell of every rune
-	var widths []int
+	cells := make([]int, 0, len(line)) // start cell of every rune
+	widths := make([]int, 0, len(line))
 	c := 0
 	for _, r := range line {
 		cells = append(cells, c)

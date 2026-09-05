@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -166,7 +168,112 @@ func (a *Agent) decay() int {
 		m.Content = decayNotice(a.Messages, i, turns)
 		rewritten++
 	}
+
+	// Pass 3: image decay. An image part past the hot window costs thousands
+	// of tokens per request and is almost never looked at again — screenshots
+	// of a UI the user has since iterated on, error dialogs already fixed.
+	// Swap the part for a text placeholder pointing at the spilled file on
+	// disk; the model re-attaches it via @mention if it genuinely needs the
+	// pixels again. Text parts of the message stay inline (the prompt that
+	// accompanied the image is semantic glue). Runs after Pass 2 so turns
+	// already reflects authored-user distance.
+	for i := boundary - 1; i > 0; i-- {
+		rewritten += stripImageParts(&a.Messages[i])
+	}
 	return rewritten
+}
+
+// stripImageParts removes every image part of m and rewrites it as a plain
+// text message: its own text, then one placeholder per image naming the pixel
+// size and the disk path the bytes were spilled to. Returns the number of
+// parts stripped.
+func stripImageParts(m *llm.Message) int {
+	stripped := 0
+	var kept []llm.ContentPart
+	var notes []string
+	for _, p := range m.Parts {
+		if p.Type != "image_url" || p.ImageURL == nil {
+			kept = append(kept, p)
+			continue
+		}
+		path := spillImage(p.ImageURL.URL)
+		size := "image"
+		if p.W > 0 {
+			size = fmt.Sprintf("%d×%d image", p.W, p.H)
+		}
+		note := decayedMarker + size + " omitted"
+		if path != "" {
+			note += " — bytes at " + path + " (re-attach with @" + path + " if needed)"
+		}
+		note += "⟩"
+		notes = append(notes, note)
+		stripped++
+	}
+	if stripped == 0 {
+		return 0
+	}
+	// Every image is gone, so collapse to a plain text message: Content is
+	// the one text field that survives a persist/reload round trip (a
+	// multimodal row reloads with its LAST text part as Content, see
+	// Message.UnmarshalJSON), so leaving a text part behind — or adding the
+	// placeholder as one — would replace the user's own text on resume.
+	texts := []string{}
+	if m.Content != "" {
+		texts = append(texts, m.Content)
+	}
+	for _, p := range kept {
+		if p.Type == "text" && p.Text != "" && p.Text != m.Content { // Content usually mirrors the text part
+			texts = append(texts, p.Text)
+		}
+	}
+	m.Content = strings.Join(append(texts, notes...), "\n")
+	m.Parts = nil
+	return stripped
+}
+
+// spillImage writes a base64 data URL's bytes to disk and returns the path,
+// or "" on any failure (the placeholder then just says the image is gone —
+// a failed spill must never break decay). Files live beside bash spills.
+func spillImage(dataURL string) string {
+	const prefix = ";base64,"
+	i := strings.Index(dataURL, prefix)
+	if !strings.HasPrefix(dataURL, "data:") || i < len("data:") {
+		return "" // not a data URL we built (persisted rows are loaded verbatim)
+	}
+	mime := dataURL[len("data:"):i]
+	ext := "png"
+	switch mime {
+	case "image/jpeg":
+		ext = "jpg"
+	case "image/gif":
+		ext = "gif"
+	case "image/webp":
+		ext = "webp"
+	case "image/bmp":
+		ext = "bmp"
+	}
+	raw, err := base64.StdEncoding.DecodeString(dataURL[i+len(prefix):])
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(os.TempDir(), fmt.Sprintf("whip-img-%d", os.Getpid()))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return ""
+	}
+	f, err := os.CreateTemp(dir, "*."+ext)
+	if err != nil {
+		return ""
+	}
+	if _, err := f.Write(raw); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return ""
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return ""
+	}
+	return f.Name()
 }
 
 // hotBoundary returns the index in msgs where the hot window begins. Walking
@@ -194,7 +301,14 @@ func msgTokens(m llm.Message) int {
 	for _, tc := range m.ToolCalls {
 		n += len(tc.Function.Name) + len(tc.Function.Arguments)
 	}
-	return n / 4
+	t := n / 4
+	for _, p := range m.Parts {
+		// image parts cost thousands of tokens and carry no Content; without
+		// this an image-only screenshot turn never spends the hot budget and
+		// Pass 3 never gets to strip it
+		t += llm.PartTokens(p)
+	}
+	return t
 }
 
 // readPathFromCall finds the assistant tool_call that produced the tool

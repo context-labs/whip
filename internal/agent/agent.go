@@ -152,7 +152,16 @@ type Agent struct {
 	Services     *tools.Services
 
 	usageMu sync.Mutex
-	usage   llm.Usage // session totals across every API call (PromptTokens = input)
+	usage   llm.Usage // this agent's own API calls (PromptTokens = input), incl. its compaction summaries
+	// lastPrompt is the provider-reported prompt tokens of this agent's most
+	// recent conversation request — the real context size the next request
+	// starts from. Drives the compaction trigger (the chars/4 estimate
+	// undercounts images ~7×; real usage is the provider's bill). Set by
+	// notePrompt from the turn loop only: AddUsage also receives foreground
+	// subagent and summary-call usage, whose prompt sizes say nothing about
+	// this conversation. Reset to 0 by compact (estimate fallback until the
+	// next real request lands).
+	lastPrompt int
 }
 
 // TurnRunning reports whether a turn is currently in flight.
@@ -233,20 +242,38 @@ func (a *Agent) drainPending() []pendingSteer {
 	return p
 }
 
-// AddUsage folds one request's usage into the session totals.
+// notePrompt records the prompt size of one of this agent's own conversation
+// requests (see lastPrompt). Zero (provider reported no usage) is ignored so
+// the previous real value keeps driving the trigger.
+func (a *Agent) notePrompt(u llm.Usage) {
+	if u.PromptTokens <= 0 {
+		return
+	}
+	a.usageMu.Lock()
+	a.lastPrompt = u.PromptTokens
+	a.usageMu.Unlock()
+}
+
+// AddUsage folds one of this agent's own requests into its totals and, on a
+// subagent, forwards it to the parent's sub-usage ledger.
 func (a *Agent) AddUsage(u llm.Usage) {
 	a.usageMu.Lock()
-	a.usage.PromptTokens += u.PromptTokens
-	a.usage.CompletionTokens += u.CompletionTokens
+	addUsage(&a.usage, u)
+	a.usageMu.Unlock()
+}
+
+// addUsage accumulates u into dst, including the cached-token detail.
+func addUsage(dst *llm.Usage, u llm.Usage) {
+	dst.PromptTokens += u.PromptTokens
+	dst.CompletionTokens += u.CompletionTokens
 	if u.PromptTokensDetails != nil {
-		if a.usage.PromptTokensDetails == nil {
-			a.usage.PromptTokensDetails = &struct {
+		if dst.PromptTokensDetails == nil {
+			dst.PromptTokensDetails = &struct {
 				CachedTokens int `json:"cached_tokens"`
 			}{}
 		}
-		a.usage.PromptTokensDetails.CachedTokens += u.PromptTokensDetails.CachedTokens
+		dst.PromptTokensDetails.CachedTokens += u.PromptTokensDetails.CachedTokens
 	}
-	a.usageMu.Unlock()
 }
 
 // SetUsage seeds the session totals with stored values — a resumed session
@@ -271,9 +298,12 @@ func (a *Agent) ResetUsage() {
 func (a *Agent) Usage() llm.Usage {
 	a.usageMu.Lock()
 	defer a.usageMu.Unlock()
-	u := a.usage
-	if a.usage.PromptTokensDetails != nil {
-		d := *a.usage.PromptTokensDetails
+	return copyUsage(a.usage)
+}
+
+func copyUsage(u llm.Usage) llm.Usage {
+	if u.PromptTokensDetails != nil {
+		d := *u.PromptTokensDetails
 		u.PromptTokensDetails = &d
 	}
 	return u
@@ -471,6 +501,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			}
 		}
 		a.AddUsage(usage)
+		a.notePrompt(usage)
 		if ev.OnUsage != nil {
 			ev.OnUsage(usage)
 		}
@@ -538,6 +569,16 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			a.msgsMu.Unlock()
 		}
 		if len(msg.ToolCalls) == 0 && len(injected) == 0 {
+			// Final round: the response that just landed may have pushed the real
+			// context over the threshold without a later maybeCompact running, so
+			// fold now rather than paying for an over-threshold prefix next request.
+			// Skipped when this turn already compacted: the history is small and a
+			// second summary would re-fold a fresh fold.
+			if !a.compacted {
+				if cerr := a.maybeCompact(ctx, ev); cerr != nil {
+					return "", cerr
+				}
+			}
 			a.running.Store(false)
 			a.compacted = false // reset for the next Turn
 			return msg.Content, nil
@@ -638,11 +679,18 @@ func toolExitCode(out string) int {
 	return 0
 }
 
-// compactKeepBack counts assistant turns (and any tool results they pulled in)
-// preserved verbatim at the tail of the history. Keeping recent context means
-// any in-flight task the model is working on keeps its tool results in view,
-// and we never leave an orphaned tool_call whose result the summary dropped.
-const compactKeepBack = 6
+// Compaction keeps a token-budgeted TAIL of whole user turns verbatim, not a
+// fixed message count: six messages can be six 50KB tool dumps or six one-line
+// acks, and only the token budget treats them alike. The budget scales with
+// the model's usable window (min/max clamped) — a 1M-window model keeps more
+// recent context than a 128k one. Keeping whole turns means any in-flight
+// task the model is working on keeps its tool results in view, and we never
+// leave an orphaned tool_call whose result the summary dropped.
+const (
+	compactTailMinTokens = 2_000  // budget floor: even a tiny window keeps the last exchange
+	compactTailMaxTokens = 15_000 // budget ceiling: recent turns beyond this re-derive via tools
+	compactTailFraction  = 0.25   // of the usable window
+)
 
 // defaultCompactThreshold is the fraction of the provider-advertised context
 // window at which Turn compacts proactively when CompactThreshold is unset.
@@ -657,12 +705,28 @@ func (a *Agent) threshold() float64 {
 	return defaultCompactThreshold
 }
 
-// maybeCompact folds old turns into a summary once the estimated token count
-// crosses the threshold fraction of ContextLimit. It no-ops when the provider
-// didn't advertise a limit (ContextLimit == 0) — the reactive context-limit
-// retry in Turn still covers that case.
+// maybeCompact folds old turns into a summary once the context size crosses
+// the threshold fraction of ContextLimit. The primary measure is the
+// provider-reported prompt size of the last request (real billing truth);
+// the chars/4 estimate is the fallback for providers that return no usage.
+// It no-ops when the provider didn't advertise a limit (ContextLimit == 0) —
+// the reactive context-limit retry in Turn still covers that case.
 func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
-	if a.ContextLimit == 0 || EstimateTokens(a.Messages) < int(a.threshold()*float64(a.ContextLimit)) {
+	if a.ContextLimit == 0 {
+		return nil
+	}
+	limit := int(a.threshold() * float64(a.ContextLimit))
+	a.usageMu.Lock()
+	reported := a.lastPrompt
+	a.usageMu.Unlock()
+	if reported > 0 {
+		// The last request's prompt is what the next one starts from. Compacts
+		// the moment the real bill crosses the user's compactPct even when the
+		// chars/4 estimate (which undercounts images) says we're below it.
+		if reported < limit {
+			return nil
+		}
+	} else if EstimateTokens(a.Messages) < limit {
 		return nil
 	}
 	before := append([]llm.Message(nil), a.Messages...)
@@ -686,6 +750,9 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	if ev.OnCompaction != nil {
 		ev.OnCompaction(sum, cutoff, before)
 	}
+	// Mark that this turn compacted so the final-round check does not fold a
+	// fresh fold again; the reactive error path sets a.compacted itself.
+	a.compacted = true
 	return nil
 }
 
@@ -698,7 +765,10 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 func EstimateTokens(msgs []llm.Message) int {
 	total := 0
 	for _, m := range msgs {
-		total += 4 + (len(m.TextContent())+3)/4 + 1200*len(m.Parts) // ~tokens for an image
+		total += 4 + (len(m.TextContent())+3)/4
+		for _, p := range m.Parts {
+			total += llm.PartTokens(p) // pixel-true for images (was: flat 1200)
+		}
 		for _, tc := range m.ToolCalls {
 			total += 8 + (len(tc.Function.Name)+len(tc.Function.Arguments)+3)/4
 		}
@@ -706,12 +776,50 @@ func EstimateTokens(msgs []llm.Message) int {
 	return total
 }
 
+// compactTailBudget is the token budget for the kept tail of a compaction:
+// a quarter of the usable window, clamped to [compactTailMinTokens,
+// compactTailMaxTokens]. usable = ContextLimit minus what the threshold
+// reserves (the headroom we compact INTO); when ContextLimit is unknown the
+// ceiling is the budget.
+func (a *Agent) compactTailBudget() int {
+	budget := compactTailMaxTokens
+	if a.ContextLimit > 0 {
+		usable := float64(a.ContextLimit) * (1 - a.threshold())
+		budget = int(usable * compactTailFraction)
+	}
+	return max(min(budget, compactTailMaxTokens), compactTailMinTokens)
+}
+
+// compactTailStart picks the tail boundary: the index where the kept tail
+// begins. It walks user turns newest→oldest, accumulating each turn's tokens
+// (the user message plus its assistant replies and tool results) until adding
+// one more turn would exceed the budget. Whole turns only — a turn boundary
+// is the only place a summary can start without orphaning a tool_call. The
+// newest turn is always kept even when it alone exceeds the budget; the caller
+// clamps so the first user message is never folded.
+func compactTailStart(msgs []llm.Message, budget int) int {
+	acc := 0
+	start := len(msgs)
+	// Walk back turn by turn. A turn starts at each authored (or first) user
+	// message and runs to just before the next one.
+	for i := len(msgs) - 1; i >= 1; i-- {
+		acc += EstimateTokens(msgs[i : i+1])
+		if msgs[i].Role == "user" {
+			if acc > budget && start < len(msgs) {
+				break // adding this turn would bust the budget; tail stays as-is
+			}
+			start = i
+		}
+	}
+	return start
+}
+
 // compact replaces old turns with an LLM-generated summary, keeping the
-// system prompt and the last compactKeepBack (ish) messages so recent tool
-// results and any in-flight assistant action stay intact. It runs a single
-// non-streaming completion — on CompactClient/CompactModel when set, else
-// on the conversation's own client and model — and stores the summary as a
-// system-role message (it must carry no tool_call IDs that the kept tail
+// system prompt and a token-budgeted tail of recent whole turns so recent
+// tool results and any in-flight assistant action stay intact. It runs a
+// single non-streaming completion — on CompactClient/CompactModel when set,
+// else on the conversation's own client and model — and stores the summary as
+// a system-role message (it must carry no tool_call IDs that the kept tail
 // would orphan).
 //
 // It returns the summary text, the cutoff (the index in the pre-compaction
@@ -720,12 +828,13 @@ func EstimateTokens(msgs []llm.Message) int {
 // surface the compaction in the transcript. The caller records the summary
 // and cutoff as a compaction event so the raw log survives on disk.
 func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info CompactInfo, err error) {
-	if len(a.Messages) <= compactKeepBack+2 { // system + ≥1 user + tail: nothing to fold
+	if len(a.Messages) <= 3 { // system + ≥1 user + tail: nothing to fold
 		return "", 0, CompactInfo{}, errors.New("not enough history to compact")
 	}
 	const sysIdx = 0
 	sysPrompt := a.Messages[sysIdx]
-	tailStart := len(a.Messages) - compactKeepBack
+	budget := a.compactTailBudget()
+	tailStart := compactTailStart(a.Messages, budget)
 	if tailStart <= sysIdx+1 {
 		tailStart = sysIdx + 2 // never drop the first user message entirely
 	}
@@ -738,7 +847,17 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 		tailStart--
 	}
 	history := a.Messages[sysIdx+1 : tailStart]
-	summaryPrompt := buildSummaryPrompt(history)
+	// Incremental compaction: when a previous summary message exists it
+	// carries the folded state forward, so the new fold merges into it
+	// instead of re-deriving everything from truncated transcripts. Anything
+	// the merge drops is lost — the prompt says so explicitly.
+	prior := ""
+	if len(history) > 0 && history[0].Role == "system" &&
+		strings.HasPrefix(history[0].Content, summaryPrefix) {
+		prior = strings.TrimPrefix(history[0].Content, summaryPrefix)
+		history = history[1:] // don't re-transcript the summary itself
+	}
+	summaryPrompt := buildSummaryPrompt(history, prior)
 	cli, mdl := a.CompactClient, a.CompactModel
 	dedicated := cli != nil
 	if cli == nil {
@@ -757,7 +876,7 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 	}
 	request := llm.Request{
 		Model:     mdl,
-		MaxTokens: 1024,
+		MaxTokens: 4096, // room for a real state digest; 1024 clipped multi-hour sessions
 		Messages: []llm.Message{
 			sysPrompt,
 			{Role: "user", Content: summaryPrompt},
@@ -781,9 +900,15 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 	kept := append([]llm.Message(nil), tail...)
 	a.msgsMu.Lock()
 	a.Messages = append(append([]llm.Message{}, sysPrompt,
-		llm.Message{Role: "system", Content: "Summary of the conversation so far:\n\n" + summary},
+		llm.Message{Role: "system", Content: summaryPrefix + summary},
 	), kept...)
 	a.msgsMu.Unlock()
+	// The pre-fold prompt size is stale now; fall back to the estimate until
+	// the next request reports the real post-fold size, else the next round
+	// would re-fold the fresh fold.
+	a.usageMu.Lock()
+	a.lastPrompt = 0
+	a.usageMu.Unlock()
 	return summary, tailStart, CompactInfo{Model: label, Usage: usage}, nil
 }
 
@@ -792,24 +917,43 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 func CompactionRawTailStart(before []llm.Message, cutoff int) int {
 	start := 2 // primary system prompt + current derived summary
 	for i := 1; i < cutoff && i < len(before); i++ {
-		if before[i].Role == "system" && strings.HasPrefix(before[i].Content, "Summary of the conversation so far:\n\n") {
+		if before[i].Role == "system" && strings.HasPrefix(before[i].Content, summaryPrefix) {
 			start = i + 1
 		}
 	}
 	return start
 }
 
+// summaryPrefix marks the folded-summary system message so a later compaction
+// recognizes and merges it (incremental fold) instead of re-summarizing it.
+// summaryPrefix marks the folded-summary system message so a later compaction
+// recognizes and merges it (incremental fold) instead of re-summarizing it.
+const summaryPrefix = "Summary of the conversation so far:\n\n"
+
 // buildSummaryPrompt renders the unsummarized turns as a transcript the model
 // folds into a concise digest. Tool results are truncated so a giant file
 // read doesn't push the summary request over the window we just overflowed.
-func buildSummaryPrompt(msgs []llm.Message) string {
+// When prior is non-empty this is an incremental fold: the model merges the
+// new transcript into the running summary rather than starting over — each
+// fold then stays small and nothing the summary already captured is
+// re-derived from (lossy) truncated tool output.
+func buildSummaryPrompt(msgs []llm.Message, prior string) string {
 	var b strings.Builder
-	b.WriteString("Summarize the following conversation between the user and the assistant. ")
+	if prior != "" {
+		b.WriteString("Here is the running summary of the earlier conversation:\n\n<summary>\n")
+		b.WriteString(prior)
+		b.WriteString("\n</summary>\n\n")
+		b.WriteString("Below are the new turns since that summary was written. Merge them into the summary: ")
+		b.WriteString("keep everything still relevant (decisions, files touched, state), drop what the new turns ")
+		b.WriteString("obsolete, and add the new work. Anything you do not carry into the new summary is lost. ")
+	} else {
+		b.WriteString("Summarize the following conversation between the user and the assistant. ")
+	}
 	b.WriteString("Capture the user's intent, decisions made, work completed, files touched, ")
 	b.WriteString("and any open task the assistant is mid-way through. ")
-	b.WriteString("Be concise (a few short paragraphs at most); use bullet points for code/files. ")
-	b.WriteString("Do not include verbatim tool output. End with a single line: ")
-	b.WriteString("\"Open task: <what the assistant was doing last, or none>\".\n\n")
+	b.WriteString("Use these sections: Objective / Key decisions / Completed / Active (with the exact next step) / Blocked / Relevant files. ")
+	b.WriteString("Be concise; use bullet points for code/files. Do not include verbatim tool output. ")
+	b.WriteString("End with a single line: \"Open task: <what the assistant was doing last, or none>\".\n\n")
 	b.WriteString("---\n\n")
 	writeTranscript(&b, msgs)
 	b.WriteString("\n---\n\nWrite the summary now.")
@@ -926,6 +1070,7 @@ func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
 	}, ev.OnText, ev.OnThink, ev.OnToolCall)
 	a.Client.OnRetry = nil
 	a.AddUsage(usage)
+	a.notePrompt(usage)
 	if ev.OnUsage != nil {
 		ev.OnUsage(usage)
 	}

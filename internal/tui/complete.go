@@ -130,15 +130,6 @@ func isPathQuery(q string) bool {
 	return q == "" || strings.ContainsAny(q, "/\\") || strings.HasPrefix(q, "~") || strings.HasPrefix(q, ".")
 }
 
-// mentionPathMatches globs an @mention path query against the mention root
-// (not the process cwd): absolute and ~ queries glob as-is; relative ones are
-// joined to the root and returned root-relative, with dirs keeping their
-// trailing slash.
-func mentionPathMatches(q string) []cand {
-	root, _ := currentRoot()
-	return mentionPathMatchesAtRoot(root, q)
-}
-
 func mentionPathMatchesAtRoot(root, q string) []cand {
 	if filepath.IsAbs(q) || q == "~" || strings.HasPrefix(q, "~/") {
 		return pathMatches(q)

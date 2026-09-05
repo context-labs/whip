@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,204 @@ func TestProviderHoldsReferenceNotValue(t *testing.T) {
 	p.APIKeyEnv = "WHIP_SECRET_TEST"
 	if k, _ := p.ResolveKey(); k != "resolved-value" {
 		t.Fatalf("apiKeyEnv precedence: got %q", k)
+	}
+}
+
+// TestIsWholeRef pins which values route to ResolveSecret (strict single
+// reference) vs ExpandTemplate (template). Multi-ref and compound values must
+// NOT be whole refs: ResolveSecret would treat the tail as one var name and
+// ResolveEnvMap would drop a value ExpandTemplate expands fine.
+func TestIsWholeRef(t *testing.T) {
+	whole := []string{"$FOO", "${FOO}", "${FOO:-def}", "${FOO-def}", "$F1_"}
+	for _, v := range whole {
+		if !IsWholeRef(v) {
+			t.Errorf("IsWholeRef(%q) = false, want true", v)
+		}
+	}
+	notWhole := []string{
+		"${A}${B}",          // multi-ref template
+		"${A} and ${B}",     // embedded refs
+		"$HOME/bin:$PATH",   // compound path
+		"$REDIS_HOST:6379",  // host:port
+		"postgres://$DB/db", // URL with ref
+		"${MY KEY-x}",       // invalid name (space) — not a ref at all
+		"${:-x}",            // empty name
+		"Bearer $TOKEN",     // template
+		"price is $5",       // literal
+		"",                  // empty
+		"$",                 // bare sigil
+	}
+	for _, v := range notWhole {
+		if IsWholeRef(v) {
+			t.Errorf("IsWholeRef(%q) = true, want false", v)
+		}
+	}
+}
+
+// TestResolveSecretDefaultForms pins shell semantics for ${VAR-def} and
+// ${VAR:-def}: ${MY-KEY} is "MY, default KEY" (a valid shell form), NOT an
+// invalid name — ResolveSecret resolves MY or falls back to KEY. Invalid
+// names (${MY KEY-x}, ${:-x}) are not whole refs and route to ExpandTemplate,
+// whose templateVar guard errors on them.
+func TestResolveSecretDefaultForms(t *testing.T) {
+	t.Setenv("WHIP_DEF_SET", "live")
+	os.Unsetenv("WHIP_DEF_UNSET")
+	// ${VAR-def}: default only when UNSET (set-but-empty keeps the empty).
+	if got, err := ResolveSecret("${WHIP_DEF_SET-fb}"); err != nil || got != "live" {
+		t.Errorf("${WHIP_DEF_SET-fb} = %q, %v", got, err)
+	}
+	if got, err := ResolveSecret("${WHIP_DEF_UNSET-fb}"); err != nil || got != "fb" {
+		t.Errorf("${WHIP_DEF_UNSET-fb} = %q, %v", got, err)
+	}
+	// ${VAR:-def}: default when unset OR empty.
+	t.Setenv("WHIP_DEF_EMPTY", "")
+	if got, err := ResolveSecret("${WHIP_DEF_EMPTY:-fb}"); err != nil || got != "fb" {
+		t.Errorf("${WHIP_DEF_EMPTY:-fb} = %q, %v", got, err)
+	}
+	// The "${MY-KEY}" trap from the review: with MY set this resolves MY's
+	// value (shell semantics), never the literal string "KEY" as a fallback
+	// for an invalid name.
+	t.Setenv("MY", "my-value")
+	if got, err := ResolveSecret("${MY-KEY}"); err != nil || got != "my-value" {
+		t.Errorf("${MY-KEY} with MY set = %q, %v — should resolve MY", got, err)
+	}
+	// Invalid names route to ExpandTemplate and error there (templateVar).
+	if _, err := ExpandTemplate("${MY KEY-x}"); err == nil {
+		t.Error("ExpandTemplate(${MY KEY-x}): expected invalid-name error")
+	}
+	if _, err := ExpandTemplate("${:-x}"); err == nil {
+		t.Error("ExpandTemplate(${:-x}): expected invalid-name error")
+	}
+}
+
+// TestResolveEnvMapCompoundValues pins the "$HOME/bin:$PATH" regression:
+// compound whole-$-looking values resolve through ExpandTemplate instead of
+// being dropped as unresolvable single refs.
+func TestResolveEnvMapCompoundValues(t *testing.T) {
+	t.Setenv("WHIP_COMPOUND_HOME", "/home/u")
+	t.Setenv("WHIP_COMPOUND_PATH", "/usr/bin")
+	t.Setenv("WHIP_COMPOUND_A", "x")
+	t.Setenv("WHIP_COMPOUND_B", "y")
+	env, err := ResolveEnvMap(map[string]string{
+		"PATHLIKE": "$WHIP_COMPOUND_HOME/bin:$WHIP_COMPOUND_PATH",
+		"HOSTPORT": "$WHIP_COMPOUND_A:6379",
+		"MULTIREF": "${WHIP_COMPOUND_A}${WHIP_COMPOUND_B}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["PATHLIKE"] != "/home/u/bin:/usr/bin" {
+		t.Errorf("PATHLIKE = %q, want /home/u/bin:/usr/bin", env["PATHLIKE"])
+	}
+	if env["HOSTPORT"] != "x:6379" {
+		t.Errorf("HOSTPORT = %q, want x:6379", env["HOSTPORT"])
+	}
+	if env["MULTIREF"] != "xy" {
+		t.Errorf("MULTIREF = %q, want xy", env["MULTIREF"])
+	}
+}
+
+func TestExpandTemplate(t *testing.T) {
+	t.Setenv("WHIP_TMPL_KEY", "tok")
+	t.Setenv("WHIP_TMPL_EMPTY", "")
+	tests := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"no refs", "plain literal", "plain literal", false},
+		{"bare ref embedded", "Bearer $WHIP_TMPL_KEY", "Bearer tok", false},
+		{"braced ref embedded", "Bearer ${WHIP_TMPL_KEY}!", "Bearer tok!", false},
+		{"default on unset", "${WHIP_TMPL_UNSET:-fallback}", "fallback", false},
+		{"default on empty", "${WHIP_TMPL_EMPTY:-fallback}", "fallback", false},
+		{"dash default keeps set-empty", "${WHIP_TMPL_EMPTY-fallback}", "", false},
+		{"dash default on unset", "${WHIP_TMPL_UNSET-fallback}", "fallback", false},
+		{"set var ignores default", "${WHIP_TMPL_KEY:-fallback}", "tok", false},
+		{"dollar digits literal", "price is $5", "price is $5", false},
+		{"double dollar escape", "pa$$word", "pa$word", false},
+		{"trailing dollar literal", "ends with $", "ends with $", false},
+		{"unset without default errors", "Bearer $WHIP_TMPL_UNSET", "", true},
+		{"unterminated brace errors", "Bearer ${WHIP_TMPL_KEY", "", true},
+		{"nested default ref", "${WHIP_TMPL_UNSET:-$WHIP_TMPL_KEY}", "tok", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ExpandTemplate(tt.in)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("ExpandTemplate(%q): expected error, got %q", tt.in, got)
+				}
+				return
+			}
+			if err != nil || got != tt.want {
+				t.Fatalf("ExpandTemplate(%q) = %q, %v; want %q", tt.in, got, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveEnvMap(t *testing.T) {
+	t.Setenv("WHIP_ENV_KEY", "resolved")
+	env, err := ResolveEnvMap(map[string]string{
+		"SET":       "$WHIP_ENV_KEY",     // whole ref: resolves
+		"MISSING":   "$WHIP_ENV_UNSET",   // whole ref to nothing: dropped, never "MISSING="
+		"TEMPLATE":  "x-$WHIP_ENV_KEY-y", // template: expands in place
+		"LITERAL":   "no refs here",      // untouched
+		"DOLLARCAD": "pa$$word",          // escaped literal survives
+		"CMDFAIL":   "!exit 1",           // failing command: dropped
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["SET"] != "resolved" || env["TEMPLATE"] != "x-resolved-y" || env["LITERAL"] != "no refs here" || env["DOLLARCAD"] != "pa$word" {
+		t.Errorf("resolved env wrong: %v", env)
+	}
+	if _, ok := env["MISSING"]; ok {
+		t.Error("unresolvable whole-ref must be dropped, not spawned as KEY=")
+	}
+	if _, ok := env["CMDFAIL"]; ok {
+		t.Error("failing !cmd must be dropped")
+	}
+	if got, err := ResolveEnvMap(nil); err != nil || got != nil {
+		t.Errorf("nil in, nil out: %v %v", got, err)
+	}
+}
+
+func TestResolveHeader(t *testing.T) {
+	t.Setenv("WHIP_HDR_TOKEN", "bearer-tok")
+	if got, err := ResolveHeader("Bearer $WHIP_HDR_TOKEN"); err != nil || got != "Bearer bearer-tok" {
+		t.Errorf("template header = %q, %v", got, err)
+	}
+	if got, err := ResolveHeader("$WHIP_HDR_TOKEN"); err != nil || got != "bearer-tok" {
+		t.Errorf("whole-ref header = %q, %v", got, err)
+	}
+	// an unresolvable template errors so the caller drops the header instead
+	// of sending "Bearer " upstream
+	if _, err := ResolveHeader("Bearer $WHIP_HDR_UNSET"); err == nil {
+		t.Error("unset template ref must error")
+	}
+	// a literal with $ stays literal
+	if got, err := ResolveHeader("pa$$word"); err != nil || got != "pa$word" {
+		t.Errorf("literal = %q, %v", got, err)
+	}
+}
+
+// A whole-ref default that itself references an unset variable must error,
+// not resolve to "" — the empty value would spawn KEY= (env) or send an empty
+// header, the masking bug lazy resolution exists to remove.
+func TestResolveSecretDefaultUnsetInnerVarErrors(t *testing.T) {
+	t.Setenv("WHIP_OUTER_UNSET", "")
+	os.Unsetenv("WHIP_OUTER_UNSET")
+	os.Unsetenv("WHIP_INNER_UNSET")
+	for _, v := range []string{"${WHIP_OUTER_UNSET:-$WHIP_INNER_UNSET}", "${WHIP_OUTER_UNSET-$WHIP_INNER_UNSET}"} {
+		if got, err := ResolveSecret(v); err == nil {
+			t.Errorf("ResolveSecret(%q) = %q, want error for the unset inner var", v, got)
+		}
+	}
+	// a resolvable inner var still expands
+	t.Setenv("WHIP_INNER_SET", "inner")
+	if got, err := ResolveSecret("${WHIP_OUTER_UNSET:-$WHIP_INNER_SET}"); err != nil || got != "inner" {
+		t.Errorf("default with a set inner var = %q, %v; want inner", got, err)
 	}
 }

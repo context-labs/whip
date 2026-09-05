@@ -1,11 +1,55 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 )
+
+// A macOS screenshot preview pastes the path of a temporary, extension-less
+// file. The paste must attach the image (copied into ~/.whip/pastes) as the
+// same @path mention a clipboard paste produces — not type the raw path.
+func TestPastedScreenshotPathAttachesImage(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+
+	source := filepath.Join(t.TempDir(), "Screenshot") // preview paths need not have an extension
+	image := []byte("\x89PNG\r\n\x1a\nimage-data")
+	if err := os.WriteFile(source, image, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := compactCmdModel()
+	tm, cmd := m.Update(tea.PasteMsg{Content: source + "\n"})
+	m = tm.(*model)
+	if cmd == nil {
+		t.Fatal("pasted screenshot path should schedule an attachment")
+	}
+	if m.input.Value() != "" {
+		t.Fatalf("the raw path must not land in the input, got %q", m.input.Value())
+	}
+
+	tm, _ = m.Update(cmd())
+	m = tm.(*model)
+	value := m.input.Value()
+	if !strings.HasPrefix(value, "@") || !strings.Contains(value, string(filepath.Separator)+"pastes"+string(filepath.Separator)) {
+		t.Fatalf("input should mention the saved copy, got %q", value)
+	}
+	// The copy holds the pasted bytes verbatim, under the recognized extension.
+	saved := strings.TrimSpace(strings.TrimPrefix(value, "@"))
+	if filepath.Ext(saved) != ".png" {
+		t.Fatalf("magic bytes should pick the extension, got %q", saved)
+	}
+	data, err := os.ReadFile(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(image) {
+		t.Fatalf("saved image = %q, want %q", data, image)
+	}
+}
 
 // Paste collapse is opt-in (config collapsePaste): off by default a paste
 // lands verbatim; on, a ≥3-line paste becomes a placeholder whose real text

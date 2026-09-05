@@ -231,7 +231,7 @@ func TestSessionsUseOneExecutionContract(t *testing.T) {
 	}
 	defer st.Close()
 	var modeColumns int
-	if err := st.db.QueryRow(`SELECT count(*) FROM pragma_table_info('sessions') WHERE name='mode'`).Scan(&modeColumns); err != nil || modeColumns != 0 {
+	if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM pragma_table_info('sessions') WHERE name='mode'`).Scan(&modeColumns); err != nil || modeColumns != 0 {
 		t.Fatalf("session mode columns=%d err=%v", modeColumns, err)
 	}
 	meta, _, err := st.Load(rid)
@@ -240,7 +240,7 @@ func TestSessionsUseOneExecutionContract(t *testing.T) {
 	}
 	for _, removed := range []string{"tasks", "child_executions"} {
 		var count int
-		if err := st.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name=?`, removed).Scan(&count); err != nil || count != 0 {
+		if err := st.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE name=?`, removed).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("legacy object %s count=%d err=%v", removed, count, err)
 		}
 	}

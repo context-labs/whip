@@ -3,12 +3,15 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/context-labs/whip/internal/tui/theme"
-	"github.com/context-labs/whip/internal/tui/ui"
 	"image/color"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/context-labs/whip/internal/tui/theme"
+	"github.com/context-labs/whip/internal/tui/ui"
 
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -229,11 +232,11 @@ func codeFromPartialArgs(args string) string {
 	if json.Unmarshal([]byte(args), &complete) == nil {
 		return complete.Code
 	}
-	key := strings.Index(args, `"code"`)
-	if key < 0 {
+	_, after, ok := strings.Cut(args, `"code"`)
+	if !ok {
 		return ""
 	}
-	rest := args[key+len(`"code"`):]
+	rest := after
 	quote := strings.IndexByte(rest, '"')
 	if quote < 0 {
 		return ""
@@ -431,7 +434,7 @@ func (m *model) replCellRows(cell replCell, st replStyles, inner int) []string {
 	rows := []string{"", row(st.head.Render(cut(header, content)))}
 
 	var hl starlarkHighlighter
-	for _, line := range strings.Split(strings.TrimRight(cell.code, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(cell.code, "\n"), "\n") {
 		line = strings.NewReplacer("\t", "    ", "\r", "").Replace(line)
 		for index, segment := range strings.Split(ansi.Hardwrap(line, max(content-2, 1), true), "\n") {
 			styled := hl.line(segment, st)
@@ -577,14 +580,14 @@ func (m *model) agentActivity(agentID string) string {
 	if history == nil {
 		return ""
 	}
-	for index := len(history.cells) - 1; index >= 0; index-- {
-		cell := history.cells[index]
+	for _, cell := range slices.Backward(history.cells) {
+
 		if cell.restart != "" || cell.finished || !cell.ended.IsZero() {
 			continue
 		}
 		cellNo := "·"
 		if cell.n > 0 {
-			cellNo = fmt.Sprint(cell.n)
+			cellNo = strconv.Itoa(cell.n)
 		}
 		line := "In[" + cellNo + "] " + firstLine(cell.code)
 		if !cell.started.IsZero() {

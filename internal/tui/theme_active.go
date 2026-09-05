@@ -2,6 +2,7 @@ package tui
 
 import (
 	"image/color"
+	"slices"
 	"sync"
 
 	"github.com/charmbracelet/colorprofile"
@@ -45,7 +46,7 @@ func rebuildTheme() {
 	mdMu.Unlock()
 	var bg color.Color
 	if known && bgCache.valid && bgCache.hasRGB {
-		bg = color.RGBA{R: uint8(bgCache.r), G: uint8(bgCache.g), B: uint8(bgCache.b), A: 0xff}
+		bg = color.RGBA{R: uint8(bgCache.r), G: uint8(bgCache.g), B: uint8(bgCache.b), A: 0xff} //nolint:gosec // r/g/b are normalized to 0-255 by parseOSCBgRGB / setBgFromColor
 	}
 	spec := theme.Neutral()
 	switch {
@@ -118,23 +119,20 @@ func userThemeSpec(name string) *theme.Spec {
 
 // themeNames lists what /theme accepts: auto, the built-ins, then user themes.
 func themeNames() []string {
-	names := []string{"auto"}
-	for _, s := range theme.Builtins() {
+	builtins := theme.Builtins()
+	themeMu.Lock()
+	defer themeMu.Unlock()
+	names := make([]string, 0, 1+len(builtins)+len(userThemes))
+	names = append(names, "auto")
+	for _, s := range builtins {
 		names = append(names, s.Name)
 	}
-	themeMu.Lock()
 	for _, s := range userThemes {
 		names = append(names, s.Name)
 	}
-	themeMu.Unlock()
 	return names
 }
 
 func knownThemeName(name string) bool {
-	for _, n := range themeNames() {
-		if n == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(themeNames(), name)
 }

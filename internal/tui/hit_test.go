@@ -60,20 +60,13 @@ func TestHitTest(t *testing.T) {
 				check("transcript", r.transcript, regTranscript)
 				check("left", r.left, regLeft)
 				check("side", r.side, regSide)
-				wantLeft := size.w >= sidebarMinWidth && !(size.repl && size.w < replMinWide)
+				wantLeft := size.w >= sidebarMinWidth && (!size.repl || size.w >= replMinWide)
 				if wantLeft == r.left.Empty() || (size.repl && size.w >= sidebarMinWidth) == r.side.Empty() {
 					t.Fatalf("columns at %dx%d repl=%v: left %v side %v", size.w, size.h, size.repl, r.left, r.side)
 				}
 			})
 		}
 	}
-}
-
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 // The rectangles self-locate in the rendered frame: the prompt bar sits on

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -67,7 +68,7 @@ func (c CodeBlock) Render(th *theme.Theme) string {
 	}
 	gutter := 0
 	if c.LineNumbers {
-		gutter = len(fmt.Sprint(len(lines))) + 1
+		gutter = len(strconv.Itoa(len(lines))) + 1
 	}
 	pad := th.Space.PadX
 	inner := max(1, c.Width-2*pad-gutter)

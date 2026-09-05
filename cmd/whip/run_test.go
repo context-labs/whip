@@ -218,6 +218,27 @@ func TestRunSystemOverride(t *testing.T) {
 	}
 }
 
+// -cache-key pins prompt_cache_key so runs share a provider prefix cache;
+// without it the daemon keeps keying the cache by session id.
+func TestRunCacheKey(t *testing.T) {
+	var reqs []llm.Request
+	runFixture(t, "ok", &reqs)
+	if _, err := runCapture(t, "", "-cache-key", "repo/reviewer", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if got := reqs[len(reqs)-1].PromptCacheKey; got != "repo/reviewer" {
+		t.Fatalf("-cache-key should reach the provider request, got %q", got)
+	}
+
+	runFixture(t, "ok", &reqs)
+	if _, err := runCapture(t, "", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if got := reqs[len(reqs)-1].PromptCacheKey; got == "" || got == "repo/reviewer" {
+		t.Fatalf("default should key the cache by session id, got %q", got)
+	}
+}
+
 // -max-turns caps the tool loop; on the cap the model makes one final no-tools
 // answer instead of erroring.
 func TestRunMaxTurns(t *testing.T) {

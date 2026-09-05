@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -346,5 +348,16 @@ func TestRunDaemonCompletesCheckpointStop(t *testing.T) {
 	}
 	if _, err := os.Stat(paths.Socket); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("daemon socket remains after stop: %v", err)
+	}
+}
+
+func TestScreenshotPartsNormalizesOversizedCaptures(t *testing.T) {
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, image.NewGray(image.Rect(0, 0, llm.NormalizeMaxDim+100, 40)), nil); err != nil {
+		t.Fatal(err)
+	}
+	parts := screenshotParts([][]byte{buf.Bytes()})
+	if len(parts) != 1 || parts[0].W == 0 || parts[0].W > llm.NormalizeMaxDim {
+		t.Fatalf("screenshot parts=%+v", parts)
 	}
 }

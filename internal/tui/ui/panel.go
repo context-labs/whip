@@ -72,7 +72,7 @@ func (p Panel) Render(th *theme.Theme, body string) string {
 	if !p.Collapsed {
 		rows = append(rows, blank)
 		if body != "" {
-			for _, ln := range strings.Split(body, "\n") {
+			for ln := range strings.SplitSeq(body, "\n") {
 				if p.Band {
 					rows = append(rows, row(ansi.Truncate(ln, inner+2, ""), pad-1))
 				} else {

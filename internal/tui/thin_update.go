@@ -586,7 +586,7 @@ func (m *model) finishTool(msg toolEndMsg) {
 	} else {
 		m.blocks = append(m.blocks, result)
 	}
-	m.follow = true
+	m.keepFollow()
 	m.refreshVP()
 }
 
