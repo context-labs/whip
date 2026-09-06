@@ -53,7 +53,7 @@ use `operation.invoke` or their named RPC and never enter the command journal.
 | `schedule.create` | command | `ScheduleCreateParams` → `ScheduleResult` | Runtime registry fixture + release acceptance |
 | `schedule.delete` | command | `ScheduleDeleteParams` → `ScheduleResult` | Runtime registry fixture + release acceptance |
 | `schedule.list` | query | `EmptyParams` → `ScheduleListResult` | Runtime registry fixture + release acceptance |
-| `session.autotitle` | command | `EmptyParams` → `Empty` | Runtime registry fixture + release acceptance |
+| `session.autotitle` | command | `EmptyParams` → `Empty` | TUI startup + first-turn title event over Unix/WebSocket; rename protection |
 | `session.create` | command | `CreateSessionParams` → `RootIDResult` | Runtime registry fixture + release acceptance |
 | `session.delete` | command | `RootParams` → `RootIDResult` | Runtime registry fixture + release acceptance |
 | `session.effort` | command | `EffortParams` → `EffortResult` | Runtime registry fixture + release acceptance |

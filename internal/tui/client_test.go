@@ -17,6 +17,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -41,6 +42,9 @@ func newFakeDaemonConnection(snapshot session.RootSnapshot) *fakeDaemonConnectio
 }
 
 func (f *fakeDaemonConnection) Command(_ context.Context, params daemon.CommandParams) (daemon.CommandResult, error) {
+	if err := protocol.ValidateRuntime(params.Operation, params.Payload); err != nil {
+		return daemon.CommandResult{}, err
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commands = append(f.commands, params)

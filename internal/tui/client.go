@@ -241,7 +241,7 @@ func configureInteractiveSession(ctx context.Context, client *Client, cautious, 
 			return err
 		}
 	}
-	action, err := client.NewAction("session.autotitle", map[string]bool{"enabled": true})
+	action, err := client.NewAction("session.autotitle", protocol.EmptyParams{})
 	if err != nil {
 		return fmt.Errorf("configure automatic titles: %w", err)
 	}

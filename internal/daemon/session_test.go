@@ -18,6 +18,7 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
@@ -168,7 +169,7 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result := clientCommand(t, root, "tui", "autotitle", "session.autotitle", map[string]bool{"enabled": true}); result.Status != "succeeded" {
+		if result := clientCommand(t, root, "tui", "autotitle", "session.autotitle", protocol.EmptyParams{}); result.Status != "succeeded" {
 			t.Fatalf("enable automatic title=%+v", result)
 		}
 		receipt, err := root.Submit(t.Context(), "Investigate flaky workers")
@@ -224,7 +225,7 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		clientCommand(t, root, "tui", "autotitle", "session.autotitle", map[string]bool{"enabled": true})
+		clientCommand(t, root, "tui", "autotitle", "session.autotitle", protocol.EmptyParams{})
 		receipt, err := root.Submit(t.Context(), "Investigate flaky workers")
 		if err != nil {
 			t.Fatal(err)

@@ -121,6 +121,8 @@ root prompt (`evals/rlm`).
 - Omitted session model/provider routes resolve from host defaults after command
   deduplication. First-run setup remains pending after daemon startup creates its
   configuration (`session_defaults_test.go`, setup marker tests).
+- TUI startup, initial host queries, the first prompt and automatic title delivery
+  run against both transports in release acceptance (`client_integration_test.go`).
 - Provider setup/login, versioned configuration updates and completion execute on
   the daemon host. TUI themes/keybindings remain local. Secret credentials and
   ephemeral terminal input are excluded from command journals.
