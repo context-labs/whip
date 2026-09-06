@@ -1,0 +1,139 @@
+{
+  "type": "object",
+  "properties": {
+    "models": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "providers": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "context": {
+            "type": "integer"
+          },
+          "vision": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "providers"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "providers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "base_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "catalogs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "fetched_at": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "models": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "context_length": {
+                  "type": "integer"
+                },
+                "max_completion_tokens": {
+                  "type": "integer"
+                },
+                "reasoning_efforts": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "in_price": {
+                  "type": "number"
+                },
+                "out_price": {
+                  "type": "number"
+                },
+                "cache_read_price": {
+                  "type": "number"
+                },
+                "input_modalities": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "fetched_at",
+          "base_url",
+          "models"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "errors": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ProviderCatalogsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderCatalogsResult",
+  "required": [
+    "models",
+    "providers",
+    "catalogs"
+  ],
+  "additionalProperties": false
+}

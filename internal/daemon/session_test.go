@@ -235,7 +235,7 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("automatic title did not start")
 		}
-		if result := clientCommand(t, root, "tui", "rename", "session.rename", map[string]string{"args": "Explicit Name"}); result.Status != "succeeded" {
+		if result := clientCommand(t, root, "tui", "rename", "session.rename", map[string]any{"title": "Explicit Name"}); result.Status != "succeeded" {
 			t.Fatalf("rename=%+v", result)
 		}
 		close(runner.release)

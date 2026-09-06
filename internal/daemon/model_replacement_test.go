@@ -44,7 +44,7 @@ func TestModelReplacementRejectsRunningDescendantBeforeConstruction(t *testing.T
 		constructions.Add(1)
 		return Components{}, errors.New("replacement factory must not run")
 	}
-	result := clientCommand(t, root, "tui", "change-model", "session.model", map[string]string{"args": "replacement provider"})
+	result := clientCommand(t, root, "tui", "change-model", "session.model", map[string]any{"model": "replacement", "provider": "provider"})
 	if result.Status != "failed" || !strings.Contains(result.Error, "agent or client operation is running") || constructions.Load() != 0 {
 		t.Fatalf("replacement with running child = %+v, constructions=%d", result, constructions.Load())
 	}

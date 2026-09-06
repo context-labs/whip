@@ -81,8 +81,9 @@ remain runnable. A subtree stop/delete settles the durable turn before its
 worker exits, so a late completion cannot revive it. An unexpected child
 commit failure fails its root and interrupts outstanding claims.
 
-Actor calls own one reply. Queued controls can be skipped on cancellation;
-callers can stop waiting on cancellation or shutdown. Results and mutable
+Actor calls own one reply. Queries and unadmitted actor calls can be skipped on
+cancellation. Accepted protocol commands use daemon/root supervision even after
+the requesting connection disappears; callers may stop waiting independently. Results and mutable
 arguments transfer ownership across that boundary. Bounded database claims
 must resolve once started so the caller knows whether it owns settlement.
 Cancellation after a mutation starts does not prove that it had no effect.
@@ -147,3 +148,29 @@ work crosses the typed host boundary.
 Shell and kernel subprocesses run in managed process groups. This is
 operational containment, not a security sandbox against another hostile
 process already running as the same OS user.
+
+## V2 connections and views
+
+Adapters own framing, deadlines and connection cancellation. Every WebSocket
+control/data write holds the same write lock; fragmented messages have a total
+size cap. Each connection has bounded requests, output bytes and subscriptions.
+A slow consumer loses its connection and must replay or resynchronize.
+
+Command acceptance commits the operation and required input before replying.
+Blocking provider preparation, shell/integration work, compaction and root
+shutdown execute in supervised workers; actors admit and apply completions.
+Network acceptance allocates no per-retry receipt. The Go wait convenience uses
+lifecycle wakeups plus authoritative status polling without consuming UI events.
+
+Snapshots and their event cursor share a SQLite transaction. Question registry
+updates hold the registry lock through event commit; snapshots hold it through
+SQL capture and question copying. Answers wake the agent only after the answer
+event commits. Replay validates retention and reads envelopes in one transaction.
+Subscriptions poll every 50 ms, deliver strictly after the selected cursor, and
+report replay failures. A retiring stream cannot remove a replacement stream.
+
+History revisions change on destructive edits, while collection revisions change
+with collection rows. Pagination rejects stale revisions instead of mixing views.
+Configuration writes serialize revision comparison, fresh patch application and
+atomic replacement. Provider flows and terminals are ephemeral; restart interrupts
+login flows and terminal input is never automatically retried.

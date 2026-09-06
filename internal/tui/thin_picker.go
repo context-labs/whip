@@ -27,7 +27,7 @@ func (m *model) pickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		id := picker.metas[picker.idx].ID
 		m.picker = nil
-		return m.submitClientAction("session.open", map[string]string{"args": id}, "")
+		return m.submitClientCLI("session.open", id)
 	}
 	return m, nil
 }

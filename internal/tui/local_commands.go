@@ -40,12 +40,12 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		m.mouseOn = !m.mouseOn
 		enabled := m.mouseOn
 		m.cfg.Mouse = &enabled
-		if err := m.cfg.Save(); err != nil {
+		if err := m.cfg.SavePreferences(); err != nil {
 			return m, m.toastError("config save failed: " + err.Error())
 		}
 		m.append(dimStyle.Render("mouse capture: " + onOff(enabled))) // View() reflects m.mouseOn
 	case "/export":
-		m.exportCommand(args)
+		return m, m.exportCommand(args)
 	case "/report":
 		m.append(m.reportBlock())
 	default:

@@ -28,10 +28,10 @@ var (
 )
 
 type StateValue struct {
-	Key           string
-	Version       int64
-	AuthorAgentID string
-	Payload       RuntimeValue
+	Key           string       `json:"key"`
+	Version       int64        `json:"version,string"`
+	AuthorAgentID string       `json:"author_agent_id"`
+	Payload       RuntimeValue `json:"payload"`
 }
 
 type BlackboardSubscription struct {

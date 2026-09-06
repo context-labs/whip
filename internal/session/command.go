@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -18,11 +19,13 @@ type CommandAdmission struct {
 	RootID        string
 	AgentID       string
 	Kind          string
+	Operation     string
 	RequestDigest string
 	Payload       RuntimePayload
 }
 
 type CommandRecord struct {
+	Operation     string
 	ClientID      string
 	CommandID     string
 	Scope         CommandScope
@@ -42,6 +45,9 @@ type CommandAdmissionResult struct {
 // AdmitCommand compares command identity and request digest and, for a new
 // root command, inserts the command and its actor inbox item in one commit.
 func (s *Store) AdmitCommand(ctx context.Context, admission CommandAdmission) (CommandAdmissionResult, error) {
+	if admission.Operation == "" {
+		admission.Operation = admission.Kind
+	}
 	if len(admission.Payload.Data) > MaxInputPayloadBytes {
 		return CommandAdmissionResult{}, fmt.Errorf("%w: payload exceeds %d bytes", ErrInvalidInput, MaxInputPayloadBytes)
 	}
@@ -57,7 +63,7 @@ func (s *Store) AdmitCommand(ctx context.Context, admission CommandAdmission) (C
 	if existing, found, err := loadCommandTx(ctx, tx, admission.ClientID, admission.CommandID); err != nil {
 		return CommandAdmissionResult{}, err
 	} else if found {
-		if existing.Scope != admission.Scope || existing.RootID != admission.RootID || existing.RequestDigest != admission.RequestDigest {
+		if existing.Operation != admission.Operation || existing.Scope != admission.Scope || existing.RootID != admission.RootID || existing.RequestDigest != admission.RequestDigest {
 			return CommandAdmissionResult{}, ErrCommandConflict
 		}
 		return CommandAdmissionResult{Command: existing}, nil
@@ -96,11 +102,12 @@ func (s *Store) AdmitCommand(ctx context.Context, admission CommandAdmission) (C
 		return CommandAdmissionResult{}, err
 	}
 	inline, reference := runtimeValueColumns(commandValue.RuntimeValue)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,payload_inline,payload_ref,ingress_seq,created_at,updated_at)
-		VALUES(?,?,?,?,?,'queued',?,?,?,?,?)`, admission.ClientID, admission.CommandID, admission.Scope, nullableString(admission.RootID),
-		admission.RequestDigest, inline, reference, result.Command.IngressSeq, stamp, stamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,payload_inline,payload_ref,ingress_seq,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,'queued',?,?,?,?,?)`, admission.ClientID, admission.CommandID, admission.Scope, nullableString(admission.RootID),
+		admission.Operation, admission.RequestDigest, inline, reference, result.Command.IngressSeq, stamp, stamp); err != nil {
 		return CommandAdmissionResult{}, err
 	}
+	result.Command.Operation = admission.Operation
 	result.Command.ClientID = admission.ClientID
 	result.Command.CommandID = admission.CommandID
 	result.Command.Scope = admission.Scope
@@ -117,6 +124,9 @@ func (s *Store) AdmitCommand(ctx context.Context, admission CommandAdmission) (C
 // the actor itself instead of becoming model input. Matching retries observe
 // the existing command; only a newly inserted row may execute its action.
 func (s *Store) AdmitControlCommand(ctx context.Context, admission CommandAdmission) (CommandAdmissionResult, error) {
+	if admission.Operation == "" {
+		admission.Operation = admission.Kind
+	}
 	if err := validateCommandAdmission(admission); err != nil {
 		return CommandAdmissionResult{}, err
 	}
@@ -131,7 +141,7 @@ func (s *Store) AdmitControlCommand(ctx context.Context, admission CommandAdmiss
 	if existing, found, err := loadCommandTx(ctx, tx, admission.ClientID, admission.CommandID); err != nil {
 		return CommandAdmissionResult{}, err
 	} else if found {
-		if existing.Scope != admission.Scope || existing.RootID != admission.RootID || existing.RequestDigest != admission.RequestDigest {
+		if existing.Operation != admission.Operation || existing.Scope != admission.Scope || existing.RootID != admission.RootID || existing.RequestDigest != admission.RequestDigest {
 			return CommandAdmissionResult{}, ErrCommandConflict
 		}
 		return CommandAdmissionResult{Command: existing}, nil
@@ -158,16 +168,16 @@ func (s *Store) AdmitControlCommand(ctx context.Context, admission CommandAdmiss
 		return CommandAdmissionResult{}, err
 	}
 	inline, reference := runtimeValueColumns(commandValue.RuntimeValue)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,payload_inline,payload_ref,ingress_seq,created_at,updated_at)
-		VALUES(?,?,?,?,?,'queued',?,?,?,?,?)`, admission.ClientID, admission.CommandID, admission.Scope, admission.RootID,
-		admission.RequestDigest, inline, reference, ingressSeq, stamp, stamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,payload_inline,payload_ref,ingress_seq,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,'queued',?,?,?,?,?)`, admission.ClientID, admission.CommandID, admission.Scope, admission.RootID,
+		admission.Operation, admission.RequestDigest, inline, reference, ingressSeq, stamp, stamp); err != nil {
 		return CommandAdmissionResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return CommandAdmissionResult{}, err
 	}
 	return CommandAdmissionResult{Command: CommandRecord{
-		ClientID: admission.ClientID, CommandID: admission.CommandID, Scope: admission.Scope, RootID: admission.RootID,
+		Operation: admission.Operation, ClientID: admission.ClientID, CommandID: admission.CommandID, Scope: admission.Scope, RootID: admission.RootID,
 		RequestDigest: admission.RequestDigest, Status: "queued", IngressSeq: ingressSeq,
 	}, EventSeq: eventSeq, New: true}, nil
 }
@@ -214,8 +224,11 @@ func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID
 		rootID, kind, stamp, stamp, cwd, model, provider); err != nil {
 		return CommandRecord{}, err
 	}
+	outcome, _ := json.Marshal(struct {
+		RootID string `json:"root_id"`
+	}{RootID: rootID})
 	result, err := tx.ExecContext(ctx, `UPDATE commands SET status='succeeded',outcome_inline=?,updated_at=?
-		WHERE client_id=? AND command_id=? AND status='queued'`, []byte(rootID), stamp, clientID, commandID)
+		WHERE client_id=? AND command_id=? AND status='queued'`, outcome, stamp, clientID, commandID)
 	if err != nil {
 		return CommandRecord{}, err
 	}
@@ -229,7 +242,7 @@ func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID
 		return CommandRecord{}, err
 	}
 	record.Status = "succeeded"
-	record.Outcome = RuntimeValue{Inline: []byte(rootID)}
+	record.Outcome = RuntimeValue{Inline: outcome}
 	return record, nil
 }
 
@@ -241,11 +254,11 @@ func loadCommand(ctx context.Context, q commandQueryer, clientID, commandID stri
 	var record CommandRecord
 	var rootID sql.NullString
 	var outcomeReference string
-	err := q.QueryRowContext(ctx, `SELECT c.client_id,c.command_id,c.scope,c.root_id,c.request_digest,c.status,c.ingress_seq,
+	err := q.QueryRowContext(ctx, `SELECT c.client_id,c.command_id,c.scope,c.root_id,c.operation,c.request_digest,c.status,c.ingress_seq,
 		substr(c.outcome_inline,1,?),COALESCE(c.outcome_ref,''),COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
 		FROM commands c LEFT JOIN content_references r ON r.id=c.outcome_ref WHERE c.client_id=? AND c.command_id=?`,
 		InlineValueLimit+1, clientID, commandID).Scan(&record.ClientID, &record.CommandID, &record.Scope, &rootID,
-		&record.RequestDigest, &record.Status, &record.IngressSeq, &record.Outcome.Inline, &outcomeReference,
+		&record.Operation, &record.RequestDigest, &record.Status, &record.IngressSeq, &record.Outcome.Inline, &outcomeReference,
 		&record.Outcome.Digest, &record.Outcome.Size, &record.Outcome.MediaType, &record.Outcome.Source)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CommandRecord{}, false, nil
@@ -287,4 +300,38 @@ func validateCommandAdmission(admission CommandAdmission) error {
 		return fmt.Errorf("invalid command scope %q", admission.Scope)
 	}
 	return nil
+}
+
+// SetCommandState durably reports a nonterminal execution transition and its
+// event together. Terminal commands can never be resurrected by a late worker.
+func (s *Store) SetCommandState(ctx context.Context, clientID, commandID, state string) error {
+	if state != "running" && state != "waiting" {
+		return errors.New("command state must be running or waiting")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var rootID sql.NullString
+	var current string
+	if err := tx.QueryRowContext(ctx, `SELECT root_id,status FROM commands WHERE client_id=? AND command_id=?`, clientID, commandID).Scan(&rootID, &current); err != nil {
+		return err
+	}
+	if current == state {
+		return tx.Commit()
+	}
+	if current != "queued" && current != "running" && current != "waiting" {
+		return errors.New("terminal command cannot change execution state")
+	}
+	stamp := now()
+	if _, err := tx.ExecContext(ctx, `UPDATE commands SET status=?,updated_at=? WHERE client_id=? AND command_id=?`, state, stamp, clientID, commandID); err != nil {
+		return err
+	}
+	if rootID.Valid {
+		if _, err := s.insertActorEventTx(ctx, tx, rootID.String, "command."+state, actorEvent{Status: state, CommandClientID: clientID, CommandID: commandID}, stamp); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

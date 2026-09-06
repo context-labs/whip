@@ -56,13 +56,12 @@ func (s *Session) AskUser(ctx context.Context, agentID, question string, options
 		registry.pending = make(map[string]*questionWaiter)
 	}
 	registry.pending[id] = waiter
-	registry.mu.Unlock()
 	if err := s.emitQuestionEvent(ctx, "question.pending", event); err != nil {
-		registry.mu.Lock()
 		delete(registry.pending, id)
 		registry.mu.Unlock()
 		return nil, false, err
 	}
+	registry.mu.Unlock()
 	select {
 	case <-waiter.done:
 		return waiter.answer, waiter.dismissed, nil
@@ -70,7 +69,6 @@ func (s *Session) AskUser(ctx context.Context, agentID, question string, options
 		registry.mu.Lock()
 		_, open := registry.pending[id]
 		delete(registry.pending, id)
-		registry.mu.Unlock()
 		if open {
 			// The turn is gone, so the dialog is moot; tell clients off the
 			// cancelled ctx. Best effort: a stopping daemon may refuse it.
@@ -78,6 +76,7 @@ func (s *Session) AskUser(ctx context.Context, agentID, question string, options
 				AgentID: agentID, QuestionID: id, Error: ctx.Err().Error(),
 			})
 		}
+		registry.mu.Unlock()
 		return nil, false, ctx.Err()
 	}
 }
@@ -91,7 +90,7 @@ func (s *Session) answerQuestion(ctx context.Context, id string, answer []string
 	waiter := registry.pending[id]
 	if waiter == nil {
 		registry.mu.Unlock()
-		return "", fmt.Errorf("question %q is not open", id)
+		return "", rpcFailure(-32009, fmt.Sprintf("question %q is not open", id))
 	}
 	if dismissed {
 		answer = nil
@@ -99,15 +98,16 @@ func (s *Session) answerQuestion(ctx context.Context, id string, answer []string
 		registry.mu.Unlock()
 		return "", err
 	}
+	if err := s.emitQuestionEvent(ctx, "question.answered", sessionstore.LifecycleEvent{
+		AgentID: waiter.event.AgentID, QuestionID: id, Answer: answer, Dismissed: dismissed,
+	}); err != nil {
+		registry.mu.Unlock()
+		return "", err
+	}
 	delete(registry.pending, id)
 	waiter.answer, waiter.dismissed = answer, dismissed
 	close(waiter.done)
 	registry.mu.Unlock()
-	if err := s.emitQuestionEvent(ctx, "question.answered", sessionstore.LifecycleEvent{
-		AgentID: waiter.event.AgentID, QuestionID: id, Answer: answer, Dismissed: dismissed,
-	}); err != nil {
-		return "", err
-	}
 	if dismissed {
 		return "dismissed", nil
 	}
@@ -135,6 +135,11 @@ func validateQuestionAnswer(question sessionstore.LifecycleEvent, answer []strin
 func (r *questionRegistry) open() []sessionstore.LifecycleEvent {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.openLocked()
+}
+
+// openLocked requires mu; snapshots hold it across their SQLite read transaction.
+func (r *questionRegistry) openLocked() []sessionstore.LifecycleEvent {
 	questions := make([]sessionstore.LifecycleEvent, 0, len(r.pending))
 	for _, waiter := range r.pending {
 		questions = append(questions, waiter.event)

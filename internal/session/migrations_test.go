@@ -91,7 +91,7 @@ func TestVersionFiveStoreIsRejectedWithoutMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := Open(path); err == nil {
-		t.Fatal("v5 database opened under v6 runtime")
+		t.Fatal("v5 database opened under current runtime")
 	}
 	after, err := os.ReadFile(path)
 	if err != nil {

@@ -22,6 +22,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tui/theme"
 	"github.com/context-labs/whip/internal/update"
@@ -83,19 +84,8 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 		}
 	}
 
-	_, modelConfig, apiID, err := cfg.Resolve(modelName, provName)
-	if err != nil {
-		return "", err
-	}
-	if modelName == "" {
-		modelName = cfg.DefaultModel
-	}
-	if provName == "" {
-		provName = cfg.DefaultProvider
-		if provName == "" && len(modelConfig.Providers) > 0 {
-			provName = modelConfig.Providers[0]
-		}
-	}
+	// The execution host resolves defaults and validates model/provider routes.
+	// Local settings are presentation preferences, not execution authority.
 	home, err := config.Dir()
 	if err != nil {
 		return "", err
@@ -131,11 +121,13 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 		return "", err
 	}
 
-	catalogs := config.LoadCatalogs()
-	contextLimit := modelConfig.ContextWindow()
-	if catalog, ok := catalogs[provName]; ok {
-		contextLimit = max(contextLimit, catalog.ContextLength(apiID))
-	}
+	// Keep only client preferences until host catalogs supply display metadata.
+	clientConfig := *cfg
+	cfg = &clientConfig
+	cfg.Models = map[string]config.Model{}
+	cfg.Providers = map[string]config.Provider{}
+	catalogs := map[string]config.Catalog{}
+	apiID, contextLimit := modelName, 0
 	mouseOn := cfg.Mouse == nil || *cfg.Mouse
 	showThinking := cfg.Thinking == nil || *cfg.Thinking
 	m := &model{
@@ -360,6 +352,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 	if m.sessionID != "" && m.sessionID != snapshot.RootID {
 		m.agentOpen = ""
 		m.agentMessages = map[string][]llm.Message{}
+		m.historyPages = nil
 		m.terminalAgentID, m.terminalMarker = "", ""
 		m.repl = nil // REPL history is per session
 		// So are the [Image N] chips: a recalled chip must not resolve here.
@@ -378,7 +371,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 		}{CachedTokens: snapshot.Meta.UsageCached}
 	}
 	m.clientView.usage = usage
-	m.clientView.messages = append([]llm.Message{{Role: "system"}}, snapshot.Messages...)
+	m.clientView.messages = m.snapshotHistory(snapshot)
 	m.clientView.agents = append([]session.RuntimeAgent(nil), snapshot.Agents...)
 	m.clientView.inbox = append([]session.InboxItem(nil), snapshot.Inbox...)
 	m.clientView.blackboard = append([]session.StateValue(nil), snapshot.Blackboard...)
@@ -418,18 +411,17 @@ func (m *model) applyClientRoute(modelName, providerName string) {
 	if providerName != "" {
 		m.provName = providerName
 	}
-	if m.cfg == nil {
-		return
+	m.clientView.modelID, m.clientView.contextLimit = m.modelName, 0
+	if m.cfg != nil {
+		if model, ok := m.cfg.Models[m.modelName]; ok {
+			if model.ID != "" {
+				m.clientView.modelID = model.ID
+			}
+			m.clientView.contextLimit = model.ContextWindow()
+		}
 	}
-	m.clientView.modelID, m.clientView.contextLimit = "", 0
-	_, modelConfig, apiID, err := m.cfg.Resolve(m.modelName, m.provName)
-	if err != nil {
-		return
-	}
-	m.clientView.modelID = apiID
-	m.clientView.contextLimit = modelConfig.ContextWindow()
 	if catalog, ok := m.catalogs[m.provName]; ok {
-		m.clientView.contextLimit = max(m.clientView.contextLimit, catalog.ContextLength(apiID))
+		m.clientView.contextLimit = max(m.clientView.contextLimit, catalog.ContextLength(m.clientView.modelID))
 	}
 }
 
@@ -599,6 +591,18 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 	if !strings.HasPrefix(kind, "stream.") {
 		return false, nil
 	}
+	var omitted struct {
+		Truncated bool                  `json:"truncated"`
+		Content   *daemon.ContentHandle `json:"content"`
+	}
+	if json.Unmarshal(payload, &omitted) == nil && omitted.Truncated {
+		detail := "[Live output omitted because it exceeds the display limit; use /export for the stored transcript]"
+		if omitted.Content != nil {
+			detail = "[Live output omitted; content reference " + omitted.Content.ReferenceID + "; use /export for the stored transcript]"
+		}
+		m.append(dimStyle.Render(detail))
+		return true, nil
+	}
 	var event daemon.StreamEvent
 	if err := json.Unmarshal(payload, &event); err != nil {
 		m.append(errStyle.Render("daemon stream: " + err.Error()))
@@ -655,9 +659,8 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 	case "stream.notice":
 		message = noticeMsg(event.Text)
 	case "stream.usage":
-		var usage daemon.UsageEvent
-		if err := json.Unmarshal([]byte(event.Result), &usage); err != nil {
-			m.append(errStyle.Render("daemon usage: " + err.Error()))
+		usage := event.Usage
+		if usage == nil {
 			return true, nil
 		}
 		m.lastResp = usage.Usage
@@ -802,7 +805,8 @@ func mergePresentation(snapshot, current []session.SnapshotEvent, cursor int64) 
 
 func (m *model) openAgent(result daemon.AgentTranscriptResult) {
 	m.agentOpen = result.Agent.ID
-	m.agentMessages[result.Agent.ID] = append([]llm.Message(nil), result.Messages...)
+	m.agentMessages[result.Agent.ID] = pageMessages(result.Page)
+	m.setHistoryPage(result.Agent.ID, result.Page)
 	if m.clientView.agentPresentations == nil {
 		m.clientView.agentPresentations = make(map[string][]session.SnapshotEvent)
 	}
@@ -1027,6 +1031,22 @@ func (m *model) submitClientAction(operation string, payload any, echo string) (
 		m.append(errStyle.Render("daemon is " + m.clientState.String() + " — command not sent"))
 		return m, nil
 	}
+	if operation == "history.rewind" || operation == "session.fork" {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return m, m.toastError(err.Error())
+		}
+		fields := make(map[string]json.RawMessage)
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return m, m.toastError(err.Error())
+		}
+		revision := int64(0)
+		if state := m.historyState(m.sessionID); state != nil {
+			revision = state.revision
+		}
+		fields["expected_revision"], _ = json.Marshal(strconv.FormatInt(revision, 10))
+		payload = fields
+	}
 	action, err := m.client.NewAction(operation, payload)
 	if err != nil {
 		m.append(errStyle.Render("command: " + err.Error()))
@@ -1097,7 +1117,7 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 				m.append(errStyle.Render("a name is required"))
 				return m, nil
 			}
-			payload := map[string]any{"args": value}
+			payload := map[string]any{"title": value}
 			if cut > 0 {
 				payload["cut"] = cut
 			}
@@ -1231,6 +1251,9 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 		var command bubbletea.Cmd
 		m.vp, command = m.vp.Update(msg)
 		m.follow = m.vp.AtBottom()
+		if msg.String() == "pgup" && m.vp.YOffset() == 0 {
+			command = bubbletea.Batch(command, m.requestOlderHistory())
+		}
 		return m, command
 	case "ctrl+v":
 		return m, pasteImageCmd
@@ -1724,7 +1747,7 @@ func (m *model) openThinCompactPalette() {
 		{"Retry latest compaction", "/compact retry"},
 		{"View compaction log", "/compact log"},
 	}
-	for _, item := range buildModelItems(m.cfg) {
+	for _, item := range buildModelItems(m.cfg, m.catalogs) {
 		commands = append(commands, struct{ title, command string }{
 			title:   "Use " + item.model + " @ " + item.provider,
 			command: "/compact " + item.model + " " + item.provider,
@@ -1845,9 +1868,7 @@ func (m *model) openThinEffortPalette() {
 			},
 			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
 				value.palette = nil
-				return value.submitClientAction("session.effort", map[string]string{
-					"args": effortLabel(level), "persist_default": "true",
-				}, "")
+				return value.submitClientAction("session.effort", protocol.EffortParams{Effort: effortLabel(level), PersistDefault: true}, "")
 			},
 		})
 	}
@@ -1918,7 +1939,7 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 				return m, nil
 			}
 		}
-		return m.submitClientAction("goal.from-context", map[string]string{"args": args}, "")
+		return m.submitClientCLI("goal.from-context", args)
 	case "effort":
 		if args == "" {
 			m.openThinEffortPalette()
@@ -1934,9 +1955,7 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			m.append(errStyle.Render("unknown effort level; " + m.modelName + " supports: " + strings.Join(names, ", ")))
 			return m, nil
 		}
-		return m.submitClientAction("session.effort", map[string]string{
-			"args": effortLabel(level), "persist_default": "true",
-		}, "")
+		return m.submitClientAction("session.effort", protocol.EffortParams{Effort: effortLabel(level), PersistDefault: true}, "")
 	case "model", "model-for-session":
 		if args == "refresh" {
 			return m.submitClientAction("provider.catalogs", map[string]string{}, "")
@@ -1950,24 +1969,29 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			m.append(errStyle.Render(err.Error()))
 			return m, nil
 		}
-		return m.submitClientAction("session.model", map[string]string{"args": resolved, "persist_default": strconv.FormatBool(name == "model")}, "")
+		parts := strings.Fields(resolved)
+		provider := ""
+		if len(parts) > 1 {
+			provider = parts[1]
+		}
+		return m.submitClientAction("session.model", protocol.ModelParams{Model: parts[0], Provider: provider, PersistDefault: name == "model"}, "")
 	case "rewind":
 		if args == "" {
 			m.openRewind()
 			return m, nil
 		}
-		return m.submitClientAction("history.rewind", map[string]string{"args": args}, "")
+		return m.submitClientCLI("history.rewind", args)
 	case "resume":
 		if args == "" {
 			return m.submitClientAction("session.list", map[string]string{}, "")
 		}
-		return m.submitClientAction("session.open", map[string]string{"args": args}, "")
+		return m.submitClientCLI("session.open", args)
 	case "rename":
 		if args == "" {
 			m.openClientNamePrompt("✎ session name:", m.sessTitle, "session.rename", 0)
 			return m, nil
 		}
-		return m.submitClientAction("session.rename", map[string]string{"args": args}, "")
+		return m.submitClientCLI("session.rename", args)
 	case "fork":
 		if args == "" {
 			suggestion := strings.TrimSpace(m.sessTitle)
@@ -1977,7 +2001,7 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			m.openClientNamePrompt("⑂ fork name:", suggestion+" (fork)", "session.fork", 0)
 			return m, nil
 		}
-		return m.submitClientAction("session.fork", map[string]string{"args": args}, "")
+		return m.submitClientCLI("session.fork", args)
 	case "computer", "computer-use":
 		fields := strings.Fields(args)
 		if len(fields) > 0 && fields[0] != "status" && fields[0] != "allow" && fields[0] != "deny" {
@@ -1985,23 +2009,23 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			instruction := computerUseInstruction(m.expandImageChips(args))
 			return m.submitClientAction("submit", map[string]string{"text": instruction}, args)
 		}
-		return m.submitClientAction("computer.control", map[string]string{"args": args}, "")
+		return m.submitClientCLI("computer", args)
 	case "agents":
 		parts := strings.Fields(args)
 		if len(parts) == 0 || (len(parts) == 1 && parts[0] == "list") {
 			return m.submitClientAction("agents.list", map[string]string{}, "")
 		}
 		if len(parts) == 2 && parts[0] == "stop" {
-			return m.submitClientAction("agent.control", map[string]string{"args": parts[1]}, "")
+			return m.submitClientCLI("agent.control", parts[1])
 		}
 		if len(parts) == 2 && parts[0] == "delete" {
-			return m.submitClientAction("agent.delete", map[string]string{"args": parts[1]}, "")
+			return m.submitClientCLI("agent.delete", parts[1])
 		}
 		if len(parts) == 4 && parts[0] == "budget" {
-			return m.submitClientAction("budget.cap", map[string]string{"args": strings.Join(parts[1:], " ")}, "")
+			return m.submitClientCLI("budget.cap", strings.Join(parts[1:], " "))
 		}
 		if len(parts) == 2 && parts[0] == "revoke" {
-			return m.submitClientAction("capability.revoke", map[string]string{"args": parts[1]}, "")
+			return m.submitClientCLI("capability.revoke", parts[1])
 		}
 		m.append(errStyle.Render("usage: /agents [list|stop <id>|delete <id>|budget <id> <kind> <limit>|revoke <capability-id>]"))
 		return m, nil
@@ -2011,7 +2035,7 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			return m.submitClientAction("permission.rules", map[string]string{}, "")
 		}
 		if len(parts) == 2 && parts[0] == "forget" {
-			return m.submitClientAction("permission.forget", map[string]string{"args": parts[1]}, "")
+			return m.submitClientCLI("permission.forget", parts[1])
 		}
 		m.append(errStyle.Render("usage: /permissions [list|forget <id>]"))
 		return m, nil
@@ -2031,11 +2055,11 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			}
 			return m.submitClientAction("submit", map[string]string{"text": goalContinuePrompt(m.goal)}, "")
 		case "clear":
-			return m.submitClientAction("goal.set", map[string]string{"args": "clear"}, "")
+			return m.submitClientCLI("goal.set", "")
 		default:
 			// The goal is persisted and re-sent by every goal check, so it
 			// must carry the stable @path, not a chip the registry may drop.
-			return m.submitClientAction("goal.run", map[string]string{"args": m.expandImageChips(args)}, "")
+			return m.submitClientCLI("goal.run", m.expandImageChips(args))
 		}
 	case "steer":
 		if args == "" {
@@ -2050,26 +2074,26 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 		case "retry":
 			return m.submitClientAction("history.compact.retry", map[string]string{}, "")
 		case "off":
-			return m.submitClientAction("compaction.configure", map[string]string{"args": "off"}, "")
+			return m.submitClientCLI("compaction.configure", "off")
 		case "":
 			return m.submitClientAction("history.compact", map[string]string{}, "")
 		default:
-			return m.submitClientAction("compaction.configure", map[string]string{"args": args}, "")
+			return m.submitClientCLI("compaction.configure", args)
 		}
 	}
 	operations := map[string]string{
-		"schedule": "schedule.manage",
+		"schedule": "schedule",
 		"cd":       "workspace.set", "pwd": "workspace.inspect",
 		"clear": "history.clear",
-		"mcp":   "mcp.control", "lsp": "lsp.control",
-		"browser": "browser.control", "context-doctor": "context.audit",
+		"mcp":   "mcp", "lsp": "lsp",
+		"browser": "browser", "context-doctor": "context.audit",
 	}
 	operation, ok := operations[name]
 	if !ok {
 		m.append(errStyle.Render("unknown command: /" + name))
 		return m, nil
 	}
-	return m.submitClientAction(operation, map[string]string{"args": args}, "")
+	return m.submitClientCLI(operation, args)
 }
 
 var _ daemonConnection = (*daemon.Client)(nil)

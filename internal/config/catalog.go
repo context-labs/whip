@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 )
 
@@ -122,7 +123,15 @@ func catalogPath() (string, error) {
 // LoadCatalogs reads ~/.whip/models.json. A missing or unreadable file is
 // not an error and yields an empty (non-nil) map, so callers can always write
 // into the result.
+var catalogMu sync.Mutex
+
 func LoadCatalogs() map[string]Catalog {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	return loadCatalogsUnlocked()
+}
+
+func loadCatalogsUnlocked() map[string]Catalog {
 	cats := map[string]Catalog{}
 	p, err := catalogPath()
 	if err != nil {
@@ -140,6 +149,12 @@ func LoadCatalogs() map[string]Catalog {
 
 // SaveCatalogs writes ~/.whip/models.json.
 func SaveCatalogs(cats map[string]Catalog) error {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	return saveCatalogsUnlocked(cats)
+}
+
+func saveCatalogsUnlocked(cats map[string]Catalog) error {
 	p, err := catalogPath()
 	if err != nil {
 		return err
@@ -153,3 +168,13 @@ func SaveCatalogs(cats map[string]Catalog) error {
 
 // Stale reports whether the cached catalog should be refetched.
 func (c Catalog) Stale() bool { return time.Since(c.FetchedAt) > catalogTTL }
+
+// UpdateCatalog merges one host-fetched catalog without replacing concurrently
+// refreshed providers.
+func UpdateCatalog(provider string, catalog Catalog) error {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	catalogs := loadCatalogsUnlocked()
+	catalogs[provider] = catalog
+	return saveCatalogsUnlocked(catalogs)
+}

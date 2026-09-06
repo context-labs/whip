@@ -37,13 +37,13 @@ func TestClientValidationAndCancellationPaths(t *testing.T) {
 	go func() {
 		reader := bufio.NewReader(serverSide)
 		_, _ = readProtocolFrame(reader)
-		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 1}})
+		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 2}})
 		_, _ = readProtocolFrame(reader)
 		_, _ = readProtocolFrame(reader)
 		<-time.After(50 * time.Millisecond)
 		_ = serverSide.Close()
 	}()
-	client, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: 1})
+	client, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,63 +101,28 @@ func TestClientRejectsBadInitializeAndSnapshotReplies(t *testing.T) {
 			_ = writeProtocolMessage(serverSide, result)
 			_ = serverSide.Close()
 		}()
-		if _, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: 1}); err == nil {
+		if _, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: 2}); err == nil {
 			t.Fatalf("bad initialize reply %+v was accepted", result)
 		}
 	}
 
-	serverSide, clientSide := net.Pipe()
-	go func() {
-		reader := bufio.NewReader(serverSide)
-		_, _ = readProtocolFrame(reader)
-		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 1}})
-		requestFrame, _ := readProtocolFrame(reader)
-		request, _ := decodeFrame(requestFrame)
-		_ = writeProtocolMessage(serverSide, rpcMessage{ID: request.ID, Result: SnapshotResult{SnapshotID: "snapshot", Count: 1, Cursor: 2}})
-		chunkFrame, _ := readProtocolFrame(reader)
-		chunkRequest, _ := decodeFrame(chunkFrame)
-		_ = writeProtocolMessage(serverSide, rpcMessage{ID: chunkRequest.ID, Result: SnapshotChunk{Index: 2, Count: 1}})
-		_ = serverSide.Close()
-	}()
-	client, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.Snapshot(context.Background(), "root"); err == nil {
-		t.Fatal("invalid snapshot chunks were accepted")
-	}
-	_ = client.Close()
-
-	wrongRoot, _ := json.Marshal(session.RootSnapshot{RootID: "other", Cursor: 2})
-	for _, fixture := range []struct {
-		result SnapshotResult
-		chunk  SnapshotChunk
-	}{
-		{},
-		{result: SnapshotResult{SnapshotID: "snapshot", Count: 1, Cursor: 2}, chunk: SnapshotChunk{Index: 0, Count: 1, Cursor: 2, Data: []byte("not-json")}},
-		{result: SnapshotResult{SnapshotID: "snapshot", Count: 1, Cursor: 2}, chunk: SnapshotChunk{Index: 0, Count: 1, Cursor: 2, Data: wrongRoot}},
-	} {
+	for _, result := range []any{session.RootSnapshot{RootID: "other"}, "invalid", struct{}{}} {
 		serverSide, clientSide := net.Pipe()
 		go func() {
+			defer serverSide.Close()
 			reader := bufio.NewReader(serverSide)
 			_, _ = readProtocolFrame(reader)
-			_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 1}})
-			requestFrame, _ := readProtocolFrame(reader)
-			request, _ := decodeFrame(requestFrame)
-			_ = writeProtocolMessage(serverSide, rpcMessage{ID: request.ID, Result: fixture.result})
-			if fixture.result.Count > 0 {
-				chunkFrame, _ := readProtocolFrame(reader)
-				chunkRequest, _ := decodeFrame(chunkFrame)
-				_ = writeProtocolMessage(serverSide, rpcMessage{ID: chunkRequest.ID, Result: fixture.chunk})
-			}
-			_ = serverSide.Close()
+			_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 2}})
+			frame, _ := readProtocolFrame(reader)
+			request, _ := decodeFrame(frame)
+			_ = writeProtocolMessage(serverSide, rpcMessage{ID: request.ID, Result: result})
 		}()
-		client, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: 1})
+		client, err := NewClient(t.Context(), clientSide, InitializeParams{ProtocolMajor: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := client.Snapshot(context.Background(), "root"); err == nil {
-			t.Fatalf("invalid snapshot fixture was accepted: %+v", fixture)
+		if _, err := client.Snapshot(t.Context(), "root"); err == nil {
+			t.Fatal("inconsistent snapshot accepted")
 		}
 		_ = client.Close()
 	}
@@ -197,8 +162,8 @@ func TestClientConnectionAndReadLoopFailures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			serverSide, clientSide := net.Pipe()
 			client := &Client{
-				conn: clientSide, pending: make(map[string]chan callResponse),
-				events: make(chan ProtocolEvent, 1), done: make(chan struct{}),
+				conn: newUnixMessageTransport(clientSide), pending: make(map[string]chan callResponse),
+				commandChanged: make(chan struct{}), events: make(chan ProtocolEvent, 1), done: make(chan struct{}),
 			}
 			if name == "event overflow" {
 				client.events <- ProtocolEvent{Seq: 1}
@@ -207,7 +172,8 @@ func TestClientConnectionAndReadLoopFailures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			client.readLoop(bufio.NewReader(strings.NewReader(string(frame))))
+			client.conn.(*unixMessageTransport).reader = bufio.NewReader(strings.NewReader(string(frame)))
+			client.readLoop()
 			if client.Err() == nil {
 				t.Fatal("read loop exited without a terminal error")
 			}
@@ -221,7 +187,7 @@ func TestClientCallRejectsInvalidResultAndRestartCancellation(t *testing.T) {
 	go func() {
 		reader := bufio.NewReader(serverSide)
 		_, _ = readProtocolFrame(reader)
-		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 1}})
+		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 2}})
 		frame, _ := readProtocolFrame(reader)
 		request, _ := decodeFrame(frame)
 		_ = writeProtocolMessage(serverSide, rpcMessage{ID: request.ID, Result: "wrong shape"})
@@ -252,7 +218,7 @@ func TestClientUploadPropagatesEachProtocolFailure(t *testing.T) {
 			go func() {
 				reader := bufio.NewReader(serverSide)
 				_, _ = readProtocolFrame(reader)
-				_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 1}})
+				_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 2}})
 				for {
 					frame, err := readProtocolFrame(reader)
 					if err != nil {

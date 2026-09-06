@@ -7,16 +7,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/context-labs/whip/internal/protocol"
+	"io"
 
-	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 )
 
 const (
-	ProtocolMajor        = 1
+	ProtocolMajor        = 2
+	ProtocolMinor        = 0
+	MaxSubscriptions     = 16
 	MaxFrameSize         = 1 << 20
-	MaxSnapshotChunk     = 256 << 10
+	MaxContentChunk      = 256 << 10
 	MaxConnections       = 64
 	MaxInFlight          = 32
 	MaxOutboundEnvelopes = 1024
@@ -35,269 +37,88 @@ type rpcMessage struct {
 	Error   *RPCError       `json:"error,omitempty"`
 }
 
-type RPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
+type RPCError = protocol.RPCError
 
-func (e *RPCError) Error() string { return e.Message }
+type InitializeParams = protocol.InitializeParams
 
-type InitializeParams struct {
-	ProtocolMajor int              `json:"protocol_major"`
-	BuildID       string           `json:"build_id"`
-	ClientKind    string           `json:"client_kind"`
-	ClientID      string           `json:"client_id"`
-	Capabilities  []string         `json:"capabilities,omitempty"`
-	Cursors       map[string]int64 `json:"cursors,omitempty"`
-}
+type InitializeResult = protocol.InitializeResult
 
-type InitializeResult struct {
-	ProtocolMajor int      `json:"protocol_major"`
-	BuildID       string   `json:"build_id"`
-	Generation    int64    `json:"generation"`
-	PID           int      `json:"pid,omitempty"`
-	StartedAt     string   `json:"started_at,omitempty"`
-	Capabilities  []string `json:"capabilities"`
-	Nonce         []byte   `json:"nonce"`
-}
+type CommandParams = protocol.CommandParams
 
-type CommandParams struct {
-	CommandID string          `json:"command_id"`
-	Scope     string          `json:"scope"`
-	RootID    string          `json:"root_id,omitempty"`
-	Operation string          `json:"operation"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
-}
+type CommandStatusParams = protocol.CommandStatusParams
 
-type CommandResult struct {
-	CommandID  string `json:"command_id"`
-	IngressSeq int64  `json:"ingress_seq"`
-	Status     string `json:"status"`
-	Output     string `json:"output,omitempty"`
-	Error      string `json:"error,omitempty"`
-}
+type CommandResult = protocol.CommandResult
 
-type ReplayParams struct {
-	RootID string `json:"root_id"`
-	Cursor int64  `json:"cursor"`
-	Limit  int    `json:"limit,omitempty"`
-}
+type ReplayParams = protocol.ReplayParams
 
-type ProtocolEvent struct {
-	RootID  string `json:"root_id"`
-	Seq     int64  `json:"seq"`
-	Kind    string `json:"kind"`
-	Payload []byte `json:"payload,omitempty"`
-}
+type ProtocolEvent = protocol.ProtocolEvent
 
-type StreamEvent struct {
-	AgentID string `json:"agent_id,omitempty"`
-	ID      string `json:"id,omitempty"`
-	Name    string `json:"name,omitempty"`
-	Text    string `json:"text,omitempty"`
-	Args    string `json:"args,omitempty"`
-	Result  string `json:"result,omitempty"`
-}
+type StreamEvent = protocol.StreamEvent
 
 // SubmitPayload is the durable user input accepted by root submit commands.
 // Parts are optional and carry ACP image/context content without giving the
 // protocol adapter direct access to an agent.
-type SubmitPayload struct {
-	Text  string            `json:"text"`
-	Parts []llm.ContentPart `json:"parts,omitempty"`
-}
+type SubmitPayload = protocol.SubmitPayload
 
-type UsageEvent struct {
-	Used  int       `json:"used"`
-	Size  int       `json:"size"`
-	Usage llm.Usage `json:"usage"`
-}
+type UsageEvent = protocol.UsageEvent
 
-type PlanItem struct {
-	Content string `json:"content"`
-	Status  string `json:"status"`
-}
+type PlanItem = protocol.PlanItem
 
-type PlanEvent struct {
-	Items []PlanItem `json:"items"`
-}
+type PlanEvent = protocol.PlanEvent
 
-type AgentTranscriptResult struct {
-	Cursor       int64                   `json:"cursor"`
-	Agent        session.RuntimeAgent    `json:"agent"`
-	Messages     []llm.Message           `json:"messages"`
-	Presentation []session.SnapshotEvent `json:"presentation,omitempty"`
-	Inbox        []session.InboxItem     `json:"inbox,omitempty"`
-}
+type AgentTranscriptResult = protocol.AgentTranscriptResult
 
-type AgentSubmitResult struct {
-	AgentID  string `json:"agent_id"`
-	InboxSeq int64  `json:"inbox_seq"`
-	Kind     string `json:"kind,omitempty"` // submit or steer
-	Status   string `json:"status"`
-}
+type AgentSubmitResult = protocol.AgentSubmitResult
 
-type SessionPreviewResult struct {
-	RootID    string `json:"root_id"`
-	User      string `json:"user"`
-	Assistant string `json:"assistant"`
-}
+type SessionPreviewResult = protocol.SessionPreviewResult
 
 // SessionUpdateEvent carries an ordered metadata change that a presenter can
 // reduce without replacing the complete root snapshot.
-type SessionUpdateEvent struct {
-	Title         string `json:"title,omitempty"`
-	Model         string `json:"model,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	Effort        string `json:"effort,omitempty"`
-	EffortChanged bool   `json:"effort_changed,omitempty"`
-	WorkingDir    string `json:"working_directory,omitempty"`
-}
+type SessionUpdateEvent = protocol.SessionUpdateEvent
 
 // ProviderValidateParams is deliberately handled outside the durable command
 // journal: Key is an ephemeral credential used only for this request.
-type ProviderValidateParams struct {
-	Name    string `json:"name"`
-	BaseURL string `json:"base_url"`
-	Key     string `json:"key"`
-}
+type ProviderValidateParams = protocol.ProviderValidateParams
 
-type ProviderValidateResult struct {
-	Models []llm.ModelInfo `json:"models"`
-}
+type ProviderValidateResult = protocol.ProviderValidateResult
 
-type ProviderCatalogsResult struct {
-	Catalogs map[string]config.Catalog `json:"catalogs"`
-	Errors   map[string]string         `json:"errors,omitempty"`
-}
+type ProviderCatalogsResult = protocol.ProviderCatalogsResult
 
-type ContextAuditRow struct {
-	Label string `json:"label"`
-	Bytes int    `json:"bytes,omitempty"`
-	Note  string `json:"note,omitempty"`
-}
+type ContextAuditRow = protocol.ContextAuditRow
 
-type ContextAuditResult struct {
-	WorkingDirectory string            `json:"working_directory"`
-	Rows             []ContextAuditRow `json:"rows"`
-}
+type ContextAuditResult = protocol.ContextAuditResult
 
-type MCPStatusResult struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Note   string `json:"note,omitempty"`
-	Error  string `json:"error,omitempty"`
-	Tools  int    `json:"tools,omitempty"`
-	Source string `json:"source,omitempty"`
-}
+type MCPStatusResult = protocol.MCPStatusResult
 
-type LSPStatusResult struct {
-	Name  string `json:"name"`
-	Root  string `json:"root,omitempty"`
-	State string `json:"state"`
-	Error string `json:"error,omitempty"`
-}
+type LSPStatusResult = protocol.LSPStatusResult
 
-type ReplayResult struct {
-	Events  []ProtocolEvent `json:"events"`
-	Latest  int64           `json:"latest"`
-	Expired bool            `json:"expired,omitempty"`
-}
+type ReplayResult = protocol.ReplayResult
 
-type SnapshotParams struct {
-	RootID string `json:"root_id"`
-}
+type SnapshotParams = protocol.SnapshotParams
 
-type SnapshotChunk struct {
-	Index  int    `json:"index"`
-	Count  int    `json:"count"`
-	Cursor int64  `json:"cursor"`
-	Data   []byte `json:"data"`
-}
+type UploadBeginParams = protocol.UploadBeginParams
 
-type SnapshotResult struct {
-	SnapshotID string `json:"snapshot_id"`
-	Count      int    `json:"count"`
-	Cursor     int64  `json:"cursor"`
-}
+type UploadChunkParams = protocol.UploadChunkParams
 
-type SnapshotChunkParams struct {
-	SnapshotID string `json:"snapshot_id"`
-	Index      int    `json:"index"`
-}
+type UploadFinishParams = protocol.UploadFinishParams
 
-type UploadBeginParams struct {
-	UploadID       string `json:"upload_id"`
-	RootID         string `json:"root_id"`
-	ExpectedDigest string `json:"expected_digest"`
-	Size           int64  `json:"size"`
-	MediaType      string `json:"media_type,omitempty"`
-	Source         string `json:"source,omitempty"`
-}
+type ContentHandle = protocol.ContentHandle
 
-type UploadChunkParams struct {
-	UploadID string `json:"upload_id"`
-	Offset   int64  `json:"offset"`
-	Data     []byte `json:"data"`
-}
+type PermissionDecision = protocol.PermissionDecision
 
-type UploadFinishParams struct {
-	UploadID string `json:"upload_id"`
-}
+type IdentityStatusResult = protocol.IdentityStatusResult
 
-type ContentHandle struct {
-	ReferenceID string `json:"reference_id"`
-	Digest      string `json:"digest"`
-	Size        int64  `json:"size"`
-	MediaType   string `json:"media_type,omitempty"`
-	Source      string `json:"source,omitempty"`
-}
+type PermissionDecisionParams = protocol.PermissionDecisionParams
 
-type PermissionDecision struct {
-	CommandID    string `json:"command_id"`
-	RootID       string `json:"root_id"`
-	PermissionID string `json:"permission_id"`
-	Allow        bool   `json:"allow"`
-	Reason       string `json:"reason,omitempty"`
-	Remember     string `json:"remember,omitempty"` // "", "tree", or "global"
-}
+type PermissionDecisionResult = protocol.PermissionDecisionResult
 
-type IdentityStatusResult struct {
-	ClientID       string `json:"client_id"`
-	Kind           string `json:"kind"`
-	Paired         bool   `json:"paired"`
-	EnrollmentOpen bool   `json:"enrollment_open"`
-}
+type PermissionModeParams = protocol.PermissionModeParams
 
-type PermissionDecisionParams struct {
-	Decision  PermissionDecision `json:"decision"`
-	Signature []byte             `json:"signature"`
-}
+type PermissionModeResult = protocol.PermissionModeResult
 
-type PermissionDecisionResult struct {
-	OperationID string `json:"operation_id"`
-	LeaseID     string `json:"lease_id"`
-	Nonce       []byte `json:"nonce"`
-}
+type RestartNotice = protocol.RestartNotice
 
-type PermissionModeParams struct {
-	Command   CommandParams `json:"command"`
-	Signature []byte        `json:"signature"`
-}
-
-type PermissionModeResult struct {
-	Command CommandResult `json:"command"`
-	Nonce   []byte        `json:"nonce"`
-}
-
-type RestartNotice struct {
-	Generation int64            `json:"generation"`
-	Cursors    map[string]int64 `json:"cursors"`
-}
-
-type RestartParams struct {
-	Generation int64 `json:"generation"`
-}
+type RestartParams = protocol.RestartParams
 
 type eventNotification struct {
 	Event ProtocolEvent `json:"event"`
@@ -312,8 +133,15 @@ func requestDigest(scope, rootID, operation string, payload json.RawMessage) (st
 	var value any
 	if len(payload) == 0 {
 		value = nil
-	} else if err := json.Unmarshal(payload, &value); err != nil {
-		return "", err
+	} else {
+		decoder := json.NewDecoder(bytes.NewReader(payload))
+		decoder.UseNumber()
+		if err := decoder.Decode(&value); err != nil {
+			return "", err
+		}
+		if decoder.Decode(new(any)) != io.EOF {
+			return "", errors.New("invalid trailing command payload")
+		}
 	}
 	canonical, err := json.Marshal(struct {
 		Scope     string `json:"scope"`
@@ -346,8 +174,13 @@ func decodeFrame(data []byte) (rpcMessage, error) {
 		return rpcMessage{}, errors.New("empty protocol frame")
 	}
 	var message rpcMessage
-	if err := json.Unmarshal(data, &message); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&message); err != nil {
 		return rpcMessage{}, err
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return rpcMessage{}, errors.New("invalid trailing protocol data")
 	}
 	if message.JSONRPC != "2.0" {
 		return rpcMessage{}, fmt.Errorf("unsupported jsonrpc version %q", message.JSONRPC)

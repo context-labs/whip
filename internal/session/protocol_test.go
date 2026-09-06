@@ -134,3 +134,44 @@ func TestProtocolStateReturnsClosedStoreErrors(t *testing.T) {
 		t.Fatal("closed store counted identities")
 	}
 }
+
+func TestRuntimeIDAndCommandOperationSurviveReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := store.RuntimeID(t.Context())
+	if err != nil || id == "" {
+		t.Fatalf("ID=%q,%v", id, err)
+	}
+	admission := CommandAdmission{ClientID: "client", CommandID: "command", Scope: CommandScopeDaemon, Operation: "session.create", RequestDigest: "digest"}
+	if _, err := store.AdmitCommand(t.Context(), admission); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BeginDaemonGeneration(t.Context(), "one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	if _, err := store.BeginDaemonGeneration(t.Context(), "two"); err != nil {
+		t.Fatal(err)
+	}
+	if actual, err := store.RuntimeID(t.Context()); err != nil || actual != id {
+		t.Fatalf("ID=%q,%v", actual, err)
+	}
+	record, err := store.LoadCommand(t.Context(), "client", "command")
+	if err != nil || record.Operation != admission.Operation {
+		t.Fatalf("record=%+v,%v", record, err)
+	}
+	admission.Operation = "session.delete"
+	if _, err := store.AdmitCommand(t.Context(), admission); !errors.Is(err, ErrCommandConflict) {
+		t.Fatalf("changed operation=%v", err)
+	}
+}

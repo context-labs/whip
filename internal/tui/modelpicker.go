@@ -2,8 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"github.com/context-labs/whip/internal/protocol"
 	"sort"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -136,12 +136,12 @@ func bestTier(model, provider, q string) int {
 // resolveModelFuzzy fuzzy-matches name against the known model routes (config +
 // catalog). Exact names pass through untouched. A single best-tier hit wins;
 // several equally-good distinct models report false with the candidates named.
-func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string) {
+func resolveModelFuzzy(cfg *config.Config, name string, catalogs map[string]config.Catalog) (string, bool, []string) {
 	if _, ok := cfg.Models[name]; ok {
 		return name, true, nil
 	}
 	for p := range cfg.Providers {
-		if cat, ok := config.LoadCatalogs()[p]; ok && cat.Find(name) != nil {
+		if cat, ok := catalogs[p]; ok && cat.Find(name) != nil {
 			return name, true, nil // exact catalog id
 		}
 	}
@@ -151,7 +151,7 @@ func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string)
 		tier  int
 	}
 	var hits []hit
-	for _, it := range buildModelItems(cfg) {
+	for _, it := range buildModelItems(cfg, catalogs) {
 		if tier := bestTier(it.model, it.provider, q); tier >= 0 {
 			hits = append(hits, hit{it.model, tier})
 		}
@@ -180,7 +180,7 @@ func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string)
 // by a provider's cached /models catalog but absent from cfg.Models follow in
 // a dim "(new)" section — selecting one resolves through the catalog fallback
 // and persists to config only via switchModel.
-func buildModelItems(cfg *config.Config) []modelItem {
+func buildModelItems(cfg *config.Config, catalogs map[string]config.Catalog) []modelItem {
 	if cfg == nil {
 		return nil
 	}
@@ -199,7 +199,7 @@ func buildModelItems(cfg *config.Config) []modelItem {
 			items = append(items, modelItem{model: name, provider: p, url: url})
 		}
 	}
-	return appendCatalogRoutes(items, cfg, config.LoadCatalogs())
+	return appendCatalogRoutes(items, cfg, catalogs)
 }
 
 // resolveModelCommandArgs turns the convenient `/model <name>` form into an
@@ -211,7 +211,7 @@ func (m *model) resolveModelCommandArgs(args string) (string, error) {
 	if len(fields) != 1 || m.cfg == nil {
 		return args, nil
 	}
-	name, ok, ambiguous := resolveModelFuzzy(m.cfg, fields[0])
+	name, ok, ambiguous := resolveModelFuzzy(m.cfg, fields[0], m.catalogs)
 	if !ok {
 		if len(ambiguous) > 0 {
 			return "", fmt.Errorf("model %q is ambiguous: %s", fields[0], strings.Join(ambiguous, ", "))
@@ -219,7 +219,7 @@ func (m *model) resolveModelCommandArgs(args string) (string, error) {
 		return "", fmt.Errorf("unknown model %q", fields[0])
 	}
 	var routes []modelItem
-	for _, item := range buildModelItems(m.cfg) {
+	for _, item := range buildModelItems(m.cfg, m.catalogs) {
 		if item.model == name {
 			routes = append(routes, item)
 		}
@@ -287,12 +287,12 @@ func staleCatalogs(cfg *config.Config, cats map[string]config.Catalog) []string 
 }
 
 func (m *model) openModelPicker(sessionOnly bool) {
-	items := buildModelItems(m.cfg)
+	items := buildModelItems(m.cfg, m.catalogs)
 	if len(items) == 0 {
 		m.append(errStyle.Render("no models configured in ~/.whip/config.json"))
 		return
 	}
-	mp := &modelPicker{items: items, staleHints: staleCatalogs(m.cfg, config.LoadCatalogs()), sessionOnly: sessionOnly}
+	mp := &modelPicker{items: items, staleHints: staleCatalogs(m.cfg, m.catalogs), sessionOnly: sessionOnly}
 	for i, it := range items { // start on the active route
 		if it.model == m.modelName && it.provider == m.provName {
 			mp.idx = i
@@ -327,9 +327,7 @@ func (m *model) modelPickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		it := v[p.idx]
 		m.mpicker = nil
-		return m.submitClientAction("session.model", map[string]string{
-			"args": strings.TrimSpace(it.model + " " + it.provider), "persist_default": strconv.FormatBool(!p.sessionOnly),
-		}, "")
+		return m.submitClientAction("session.model", protocol.ModelParams{Model: it.model, Provider: it.provider, PersistDefault: !p.sessionOnly}, "")
 	default:
 		if msg.Text == "" {
 			return m, nil

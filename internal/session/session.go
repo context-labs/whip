@@ -35,22 +35,22 @@ func (kind SessionKind) valid() bool {
 
 // Meta is a session's bookkeeping row.
 type Meta struct {
-	ID          string
-	Kind        SessionKind
-	Title       string
-	Model       string
-	Provider    string
-	CWD         string
-	Goal        string
-	ForkedFrom  string   // source session id when created by /fork ("" = root)
-	ForkSeq     int      // conversation index the fork branched at
-	Tags        []string // freeform labels, for filtering /resume
-	Pinned      bool     // pinned sessions sort first and survive cleanup
-	Effort      string   // reasoning effort for this session ("" = use the global default)
-	UsageIn     int      // cumulative input tokens across the session's API calls
-	UsageCached int      // of UsageIn, tokens served from the provider's prompt cache
-	UsageOut    int      // cumulative output tokens
-	UpdatedAt   time.Time
+	ID          string      `json:"id"`
+	Kind        SessionKind `json:"kind"`
+	Title       string      `json:"title"`
+	Model       string      `json:"model"`
+	Provider    string      `json:"provider"`
+	CWD         string      `json:"cwd"`
+	Goal        string      `json:"goal"`
+	ForkedFrom  string      `json:"forked_from"`  // source session id when created by /fork ("" = root)
+	ForkSeq     int         `json:"fork_seq"`     // conversation index the fork branched at
+	Tags        []string    `json:"tags"`         // freeform labels, for filtering /resume
+	Pinned      bool        `json:"pinned"`       // pinned sessions sort first and survive cleanup
+	Effort      string      `json:"effort"`       // reasoning effort for this session ("" = use the global default)
+	UsageIn     int         `json:"usage_in"`     // cumulative input tokens across the session's API calls
+	UsageCached int         `json:"usage_cached"` // of UsageIn, tokens served from the provider's prompt cache
+	UsageOut    int         `json:"usage_out"`    // cumulative output tokens
+	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
 type Store struct {
@@ -200,6 +200,7 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	rewritten := false
 	for i := from; i < len(msgs); i++ {
 		// Placeholder rows (zero-value messages the caller never meant to
 		// write, e.g. padding before a post-compaction tail) must not
@@ -211,6 +212,11 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 		if err != nil {
 			return err
 		}
+		var changed bool
+		if err := tx.QueryRowContext(context.Background(), `SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND seq=? AND content<>?)`, id, i, string(data)).Scan(&changed); err != nil {
+			return err
+		}
+		rewritten = rewritten || changed
 		if _, err := tx.ExecContext(context.Background(), `INSERT OR REPLACE INTO messages (session_id, seq, role, content) VALUES (?,?,?,?)`,
 			id, i, msgs[i].Role, string(data)); err != nil {
 			return err
@@ -226,6 +232,11 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 	if _, err := tx.ExecContext(context.Background(), `UPDATE sessions SET updated_at=?, model=?, provider=?, title=CASE WHEN title='' THEN ? ELSE title END WHERE id=?`,
 		now(), model, provider, title, id); err != nil {
 		return err
+	}
+	if rewritten {
+		if _, err := tx.ExecContext(context.Background(), `UPDATE sessions SET history_revision=history_revision+1 WHERE id=?`, id); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -492,7 +503,11 @@ func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
 // they're injected by whip, not written by the user. Those carry Authored=false
 // and are skipped; only Authored=true messages come back.
 func (s *Store) UserHistory(limit int) ([]string, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT m.content FROM messages m
+	return s.UserHistoryContext(context.Background(), limit)
+}
+
+func (s *Store) UserHistoryContext(ctx context.Context, limit int) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT m.content FROM messages m
 		JOIN sessions s ON s.id = m.session_id
 		WHERE m.role='user'
 		ORDER BY s.updated_at DESC, m.seq DESC`)
@@ -557,6 +572,9 @@ func (s *Store) ClearMessages(id string) error {
 	if _, err := tx.ExecContext(context.Background(), `DELETE FROM messages WHERE session_id=?`, id); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(context.Background(), `UPDATE sessions SET history_revision=history_revision+1 WHERE id=?`, id); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(context.Background(), `DELETE FROM compactions WHERE session_id=? AND agent_id=?`, id, id); err != nil {
 		return err
 	}
@@ -570,12 +588,21 @@ func (s *Store) ClearMessages(id string) error {
 // persisted). Used by rewind: the clipped tail is deleted from disk but kept
 // in memory for forward travel.
 func (s *Store) DeleteFrom(id string, from int) error {
-	_, err := s.db.ExecContext(context.Background(), `DELETE FROM messages WHERE session_id=? AND seq>=?`, id, from)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(context.Background(), `DELETE FROM snapshots WHERE session_id=? AND seq>=?`, id, from)
-	return err
+	defer func() { _ = tx.Rollback() }()
+	for _, statement := range []string{`DELETE FROM messages WHERE session_id=? AND seq>=?`, `DELETE FROM snapshots WHERE session_id=? AND seq>=?`} {
+		if _, err := tx.ExecContext(ctx, statement, id, from); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET history_revision=history_revision+1 WHERE id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // RewindHistory atomically drops a conversation tail and every derived row
@@ -599,6 +626,9 @@ func (s *Store) RewindHistory(ctx context.Context, id string, from int) ([]llm.M
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM compactions WHERE session_id=? AND agent_id=?`, id, id); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET history_revision=history_revision+1 WHERE id=?`, id); err != nil {
 		return nil, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT seq,content FROM messages WHERE session_id=? ORDER BY seq`, id)
@@ -696,11 +726,11 @@ func (s *Store) Snapshots(id string) map[int]string {
 
 // Schedule is one scheduled task's durable record.
 type Schedule struct {
-	ID       int
-	Schedule string    // '@every 10m' | '@at <rfc3339>'
-	Prompt   string    // the machine-authored turn submitted on fire
-	Anchor   time.Time // grid origin
-	LastFire time.Time // zero = never fired
+	ID       int       `json:"id"`
+	Schedule string    `json:"schedule"`  // '@every 10m' | '@at <rfc3339>'
+	Prompt   string    `json:"prompt"`    // the machine-authored turn submitted on fire
+	Anchor   time.Time `json:"anchor"`    // grid origin
+	LastFire time.Time `json:"last_fire"` // zero = never fired
 }
 
 // AddSchedule records a scheduled task and returns its id.
@@ -769,9 +799,9 @@ func (s *Store) ClearSnapshots(id string) error {
 
 // Compaction is one recorded compaction event.
 type Compaction struct {
-	Seq     int    // generation (1-based)
-	Cutoff  int    // number of raw rows replaced by the summary
-	Summary string // the generated summary text
+	Seq     int    `json:"seq"`     // generation (1-based)
+	Cutoff  int    `json:"cutoff"`  // number of raw rows replaced by the summary
+	Summary string `json:"summary"` // the generated summary text
 }
 
 // RecordCompaction appends a compaction event. The raw messages stay.

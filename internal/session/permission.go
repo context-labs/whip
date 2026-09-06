@@ -24,19 +24,19 @@ type CapabilityDelegation struct {
 }
 
 type CapabilityRecord struct {
-	ID            string
-	RootID        string
-	AgentID       string
-	IssuerAgentID string
-	Operations    []string
-	Scopes        []string
-	MCP           []capability.MCPSelector
-	MCPAll        bool
-	Generation    int64
-	Status        string
-	ExpiresAt     time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID            string                   `json:"id"`
+	RootID        string                   `json:"root_id"`
+	AgentID       string                   `json:"agent_id"`
+	IssuerAgentID string                   `json:"issuer_agent_id"`
+	Operations    []string                 `json:"operations"`
+	Scopes        []string                 `json:"scopes"`
+	MCP           []capability.MCPSelector `json:"mcp"`
+	MCPAll        bool                     `json:"mcp_all"`
+	Generation    int64                    `json:"generation,string"`
+	Status        string                   `json:"status"`
+	ExpiresAt     time.Time                `json:"expires_at"`
+	CreatedAt     time.Time                `json:"created_at"`
+	UpdatedAt     time.Time                `json:"updated_at"`
 }
 
 func (s *Store) InspectCapability(ctx context.Context, rootID, callerAgentID, capabilityID string) (CapabilityRecord, error) {

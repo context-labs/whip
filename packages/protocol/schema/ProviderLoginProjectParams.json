@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "flow_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ProviderLoginProjectParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderLoginProjectParams",
+  "required": [
+    "flow_id",
+    "project_id"
+  ],
+  "additionalProperties": false
+}

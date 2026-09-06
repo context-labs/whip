@@ -9,7 +9,12 @@ import (
 
 // PermissionRule is an "always allow" decision remembered for one session tree.
 type PermissionRule struct {
-	ID, RootID, Operation, Rule, PrincipalID, CreatedAt string
+	ID          string `json:"id"`
+	RootID      string `json:"root_id"`
+	Operation   string `json:"operation"`
+	Rule        string `json:"rule"`
+	PrincipalID string `json:"principal_id"`
+	CreatedAt   string `json:"created_at"`
 }
 
 // AddPermissionRule installs a tree rule; re-adding an existing

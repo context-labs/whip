@@ -630,7 +630,7 @@ func (m *model) ocLeaderChord(k string) (tea.Model, tea.Cmd, bool) {
 		if a, ok := m.runtimeAgent(target); !ok || a.ParentID == "" {
 			return m, nil, true
 		}
-		return mcCmd(m.submitClientAction("agent.control", map[string]string{"args": "stop " + target}, ""))
+		return mcCmd(m.submitClientCLI("agent.control", target))
 	case "t": // theme list
 		m.openThinThemePalette()
 	case "c": // compact

@@ -1,0 +1,83 @@
+{
+  "type": [
+    "null",
+    "array"
+  ],
+  "items": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "root_id": {
+        "type": "string"
+      },
+      "parent_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "model": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "string"
+      },
+      "cwd": {
+        "type": "string"
+      },
+      "report": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "pending_mail": {
+        "type": "integer"
+      },
+      "lifecycle_phase": {
+        "type": "string"
+      },
+      "blocking_reason": {
+        "type": "string"
+      },
+      "terminal_cause": {
+        "type": "string"
+      },
+      "allowed_controls": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "id",
+      "root_id",
+      "parent_id",
+      "name",
+      "model",
+      "provider",
+      "effort",
+      "cwd",
+      "report",
+      "status",
+      "pending_mail",
+      "lifecycle_phase",
+      "blocking_reason",
+      "terminal_cause",
+      "allowed_controls"
+    ],
+    "additionalProperties": false
+  },
+  "$id": "https://whip.dev/protocol/v2/AgentListResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentListResult"
+}

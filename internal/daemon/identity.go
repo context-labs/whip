@@ -6,26 +6,17 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/context-labs/whip/internal/protocol"
 	"strconv"
 
 	"github.com/context-labs/whip/internal/session"
 )
 
-type EnrollIdentityParams struct {
-	PublicKey    []byte `json:"public_key"`
-	TTYConfirmed bool   `json:"tty_confirmed,omitempty"`
-	AuthorizedBy string `json:"authorized_by,omitempty"`
-	Signature    []byte `json:"signature,omitempty"`
-}
+type EnrollIdentityParams = protocol.EnrollIdentityParams
 
-type IdentityResult struct {
-	ClientID string `json:"client_id"`
-	Kind     string `json:"kind"`
-	Nonce    []byte `json:"nonce"`
-}
+type IdentityResult = protocol.IdentityResult
 
 func randomNonce() ([]byte, error) {
 	nonce := make([]byte, 32)
@@ -35,7 +26,7 @@ func randomNonce() ([]byte, error) {
 
 func enrollmentMessage(generation int64, nonce []byte, clientID, kind string, publicKey []byte) []byte {
 	hash := sha256.New()
-	_, _ = hash.Write([]byte("whip identity enrollment v1\x00"))
+	_, _ = hash.Write([]byte("whip identity enrollment v2\x00"))
 	_, _ = hash.Write([]byte(strconv.FormatInt(generation, 10)))
 	_, _ = hash.Write([]byte{0})
 	_, _ = hash.Write(nonce)
@@ -46,19 +37,8 @@ func enrollmentMessage(generation int64, nonce []byte, clientID, kind string, pu
 	return hash.Sum(nil)
 }
 
-func authorizationMessage(method string, generation int64, nonce []byte, params any) ([]byte, error) {
-	raw, err := json.Marshal(params)
-	if err != nil {
-		return nil, err
-	}
-	hash := sha256.New()
-	_, _ = hash.Write([]byte("whip privileged request v1\x00"))
-	_, _ = hash.Write([]byte(method))
-	_, _ = hash.Write([]byte(strconv.FormatInt(generation, 10)))
-	_, _ = hash.Write([]byte{0})
-	_, _ = hash.Write(nonce)
-	_, _ = hash.Write(raw)
-	return hash.Sum(nil), nil
+func authorizationMessage(method string, generation int64, nonce, raw []byte) ([]byte, error) {
+	return protocol.ApprovalMessage(method, generation, nonce, raw), nil
 }
 
 func (s *Server) enrollIdentity(connection *serverConn, params EnrollIdentityParams) (IdentityResult, error) {
@@ -122,7 +102,7 @@ func (s *Server) identityStatus(connection *serverConn) (IdentityStatusResult, e
 	return result, nil
 }
 
-func (s *Server) verifyPrivileged(connection *serverConn, method string, unsigned any, signature []byte) error {
+func (s *Server) verifyPrivileged(connection *serverConn, method string, unsigned []byte, signature []byte) error {
 	identity, err := s.daemon.store.LoadClientIdentity(s.ctx, connection.client.ClientID)
 	if err != nil || identity.Kind == "automation" || identity.Kind != connection.client.ClientKind {
 		return errors.New("privileged request requires a paired human identity")

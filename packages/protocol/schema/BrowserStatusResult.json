@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "driver": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/BrowserStatusResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserStatusResult",
+  "required": [
+    "enabled"
+  ],
+  "additionalProperties": false
+}

@@ -2,11 +2,15 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/context-labs/whip/internal/protocol"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
@@ -50,10 +54,14 @@ func TestControlSessionCreationIsIdempotent(t *testing.T) {
 		if record.Status != "succeeded" || record.IngressSeq != 1 {
 			t.Fatalf("record = %+v", record)
 		}
+		var result protocol.RootIDResult
+		if err := json.Unmarshal(record.Outcome.Inline, &result); err != nil {
+			t.Fatal(err)
+		}
 		if rootID == "" {
-			rootID = string(record.Outcome.Inline)
-		} else if got := string(record.Outcome.Inline); got != rootID {
-			t.Fatalf("retry root = %q, want %q", got, rootID)
+			rootID = result.RootID
+		} else if result.RootID != rootID {
+			t.Fatalf("retry root=%q want %q", result.RootID, rootID)
 		}
 	}
 	if _, _, err := store.Load(rootID); err != nil {
@@ -109,7 +117,9 @@ func TestControlListsDeletesAndCheckpointsWithDurableOutcomes(t *testing.T) {
 	failed, err := value.control.DeleteSession(t.Context(), admission("delete-failed"), rootID, func(context.Context, string) error {
 		return removeErr
 	})
-	if !errors.Is(err, removeErr) || failed.Status != "failed" || string(failed.Outcome.Inline) != removeErr.Error() {
+	var failure protocol.RPCError
+	decodeErr := json.Unmarshal(failed.Outcome.Inline, &failure)
+	if !errors.Is(err, removeErr) || failed.Status != "failed" || decodeErr != nil || failure.Message != removeErr.Error() {
 		t.Fatalf("failed delete = %+v, %v", failed, err)
 	}
 	if retry, err := value.control.DeleteSession(t.Context(), admission("delete-failed"), rootID, func(context.Context, string) error {
@@ -121,11 +131,91 @@ func TestControlListsDeletesAndCheckpointsWithDurableOutcomes(t *testing.T) {
 	deleted, err := value.control.DeleteSession(t.Context(), admission("delete"), rootID, func(ctx context.Context, id string) error {
 		return store.DeleteSession(ctx, id)
 	})
-	if err != nil || deleted.Status != "succeeded" || string(deleted.Outcome.Inline) != rootID {
+	var deletedRoot protocol.RootIDResult
+	decodeErr = json.Unmarshal(deleted.Outcome.Inline, &deletedRoot)
+	if err != nil || deleted.Status != "succeeded" || decodeErr != nil || deletedRoot.RootID != rootID {
 		t.Fatalf("delete = %+v, %v", deleted, err)
 	}
 	checkpoint, err := value.control.Checkpoint(t.Context(), admission("checkpoint"), 7)
-	if err != nil || checkpoint.Status != "succeeded" || !strings.Contains(string(checkpoint.Outcome.Inline), `"generation":7`) {
+	if err != nil || checkpoint.Status != "succeeded" || !strings.Contains(string(checkpoint.Outcome.Inline), `"generation":"7"`) {
 		t.Fatalf("checkpoint = %+v, %v", checkpoint, err)
+	}
+}
+
+func TestDeleteAcceptanceDoesNotBlockControlOrRepeatWork(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "runtime.db"))
+	ctx, cancel := context.WithCancel(t.Context())
+	control := newControl(ctx, store)
+	entered, release := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(func() { unblock(); cancel(); <-control.done })
+	rootID := createRoot(t, store)
+	admission := session.CommandAdmission{ClientID: "test", CommandID: "delete", RequestDigest: "stable", Payload: session.RuntimePayload{Data: []byte(`{}`)}}
+	remove := func(ctx context.Context, id string) error {
+		close(entered)
+		select {
+		case <-release:
+			return store.DeleteSession(ctx, id)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	record, err := control.AcceptDeleteSession(t.Context(), admission, rootID, remove)
+	if err != nil || record.Status != "queued" {
+		t.Fatalf("receipt=%+v error=%v", record, err)
+	}
+	<-entered
+	queryCtx, queryCancel := context.WithTimeout(t.Context(), time.Second)
+	defer queryCancel()
+	if err := control.route(queryCtx, func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("deletion blocked actor: %v", err)
+	}
+	duplicate, err := control.AcceptDeleteSession(queryCtx, admission, rootID, remove)
+	if err != nil || duplicate.Status != "running" {
+		t.Fatalf("retry=%+v error=%v", duplicate, err)
+	}
+	unblock()
+	for {
+		record, err = store.LoadCommand(queryCtx, admission.ClientID, admission.CommandID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Status == "succeeded" {
+			break
+		}
+		select {
+		case <-queryCtx.Done():
+			t.Fatal("deletion did not complete")
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
+func TestDeleteQueueExhaustionDoesNotAdmitRejectedWork(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "runtime.db"))
+	ctx, cancel := context.WithCancel(t.Context())
+	control := newControl(ctx, store)
+	entered, release := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { cancel(); close(release); <-control.done })
+	admission := func(id string) session.CommandAdmission {
+		return session.CommandAdmission{ClientID: "test", CommandID: id, RequestDigest: id, Payload: session.RuntimePayload{Data: []byte(`{}`)}}
+	}
+	if _, err := control.AcceptDeleteSession(t.Context(), admission("active"), "unused", func(context.Context, string) error { close(entered); <-release; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	<-entered
+	for i := range cap(control.deletes) {
+		if _, err := control.AcceptDeleteSession(t.Context(), admission(fmt.Sprint(i)), "unused", func(context.Context, string) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := control.AcceptDeleteSession(t.Context(), admission("rejected"), "unused", func(context.Context, string) error { t.Error("rejected deletion executed"); return nil }); err == nil {
+		t.Fatal("queue admitted excess work")
+	}
+	if _, err := store.LoadCommand(t.Context(), "test", "rejected"); err == nil {
+		t.Fatal("rejected command entered durable journal")
+	}
+	if record, err := control.AcceptDeleteSession(t.Context(), admission("0"), "unused", nil); err != nil || record.Status != "queued" {
+		t.Fatalf("full queue prevented matching retry: %+v %v", record, err)
 	}
 }

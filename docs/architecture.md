@@ -101,8 +101,20 @@ budgets, and private transcript.
 - `whip _kernel` evaluates Starlark with bounded steps, host calls, memory,
   wall time, output, and frames. It has no ambient provider credentials or
   direct filesystem/network API.
-- Clients submit idempotent commands and rebuild presentation state from event
-  replay or a snapshot. A client disconnect is not an execution boundary.
+- Clients use one typed WHIP v2 contract in JSON-RPC 2.0 envelopes over Unix
+  newline framing or WebSocket text messages. Transport adapters share validation
+  and application handlers. No v1 codec or build-equality attachment check remains.
+- Commands acknowledge committed acceptance; the daemon supervises execution.
+  Status and structured outcomes survive reconnect/restart, with deduplication
+  by client namespace and command ID. Queries and ephemeral secret/terminal
+  operations never enter the command journal.
+- Reconnect reads a bounded snapshot and event cursor consistently, then subscribes
+  strictly after that cursor. Raw transcript pages carry history revisions;
+  collection pages carry collection revisions. Clients discard replaced stream IDs.
+- Provider onboarding, credentials, workspace completion and shared configuration
+  are execution-host services. Only presentation preferences remain client-owned.
+- SQLite WAL with synchronous=NORMAL retains daemon-crash durability. Schema 7
+  is a clean break: incompatible databases fail without deletion or migration.
 - New data lives under `~/.whip/runtime-v2/` (or
   `$WHIP_HOME/runtime-v2/`). The older `~/.whip/sessions.db` is deliberately
   left untouched by this clean break.
@@ -111,7 +123,8 @@ budgets, and private transcript.
 
 | Package | Responsibility |
 | --- | --- |
-| `internal/daemon` | protocol server, root actors, recursive runtime, lifecycle |
+| `internal/protocol`, `packages/protocol` | typed operation/event contract, generated Draft-07 schemas, TypeScript and Ajv |
+| `internal/daemon` | shared handlers, Unix/WebSocket/HTTP adapters, root actors, recursive runtime, lifecycle |
 | `internal/session` | durable commands, transcripts, agents, messages, budgets, recovery |
 | `internal/rlm` | kernel process, Starlark modules, focused-context prompt |
 | `internal/capability` | identities, grants, path policy, operation admission |
@@ -122,3 +135,6 @@ budgets, and private transcript.
 
 Read [rlm-runtime.md](rlm-runtime.md) for the programming model and
 [concurrency.md](concurrency.md) for ownership and ordering.
+
+See [protocol-v2.md](protocol-v2.md) for the wire contract, generation workflow,
+content grants, and opt-in local/trusted-network setup.

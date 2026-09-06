@@ -1,0 +1,87 @@
+{
+  "type": [
+    "null",
+    "array"
+  ],
+  "items": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "model": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "cwd": {
+        "type": "string"
+      },
+      "goal": {
+        "type": "string"
+      },
+      "forked_from": {
+        "type": "string"
+      },
+      "fork_seq": {
+        "type": "integer"
+      },
+      "tags": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "pinned": {
+        "type": "boolean"
+      },
+      "effort": {
+        "type": "string"
+      },
+      "usage_in": {
+        "type": "integer"
+      },
+      "usage_cached": {
+        "type": "integer"
+      },
+      "usage_out": {
+        "type": "integer"
+      },
+      "updated_at": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "kind",
+      "title",
+      "model",
+      "provider",
+      "cwd",
+      "goal",
+      "forked_from",
+      "fork_seq",
+      "tags",
+      "pinned",
+      "effort",
+      "usage_in",
+      "usage_cached",
+      "usage_out",
+      "updated_at"
+    ],
+    "additionalProperties": false
+  },
+  "$id": "https://whip.dev/protocol/v2/SessionListResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SessionListResult"
+}

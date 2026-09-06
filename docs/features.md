@@ -106,8 +106,26 @@ root prompt (`evals/rlm`).
 
 - The daemon is the only runtime/store owner.
 - TUI, `whip run`, sessions commands, ACP, and MCP stdio are protocol clients.
-- Stable command IDs make retries idempotent.
-- Ordered replay and behavioral snapshots restore client presentation state.
+- WHIP v2 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
+  WebSockets; compatible builds attach without replacing the daemon. The operation
+  and event registry generates TypeScript declarations and Ajv validators.
+- Command submission returns committed acceptance. Stable client/command IDs
+  deduplicate retries; changed payloads conflict. Status exposes queued, running,
+  waiting and terminal outcomes. Disconnecting does not cancel accepted execution.
+- Dynamic subscriptions have explicit unsubscribe, durable replay and a 16-root
+  connection cap. Consistent bounded snapshots, history/collection revisions and
+  replaced-subscription filtering let reconnects converge.
+- Recent transcripts bootstrap quickly; older root/child messages are pageable.
+  Large values use granted content references. HTTP transfers reuse the content
+  store and limits. Raw human transcript inspection never changes model context.
+- Provider setup/login, versioned configuration updates and completion execute on
+  the daemon host. TUI themes/keybindings remain local. Secret credentials and
+  ephemeral terminal input are excluded from command journals.
+- Implementation: `internal/protocol`, `internal/daemon/{server,subscription,
+  transport,network,provider_service,completion}.go`, `internal/session`, and
+  `packages/protocol`. Coverage: `v2_acceptance_test.go`, `runtime_parity_test.go`,
+  `transport_test.go`, `client_admission_test.go`, provider/config tests and the
+  generated contract/browser interoperability checks. See [protocol-v2.md](protocol-v2.md).
 - Slow clients lose their bounded connection instead of blocking a root.
 - Schedules and blackboard subscriptions create durable wakeups.
 - Process shutdown is root-owned and waits for supervised workers.

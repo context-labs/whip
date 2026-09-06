@@ -2,272 +2,225 @@ package tui
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/inferencenet"
-	"github.com/context-labs/whip/internal/llm"
 )
 
-// /auth inference-net [key] connects Inference.net. The bare form runs the
-// browser device-authorization login (no key handling); a pasted key goes
-// through the same masked validate-and-upsert path as /auth openrouter.
-//
-// The flow is async: a goroutine runs each network step and reports back via
-// messages, so the UI goroutine owns all appends/config writes. After sign-in
-// the user picks the workspace + project through the input box (choice picker
-// / namePrompt), and can create a project on the spot.
-
-// inferenceNetPending holds the in-flight device-login state across the
-// team → project → create prompts.
+// Only public flow state is retained in the UI; device tokens and machine keys
+// never cross the daemon boundary.
 type inferenceNetPending struct {
-	token string
-	email string
-	teams []inferencenet.Team
-	team  inferencenet.Team
+	flowID          string
+	state           string
+	verificationURL string
 }
 
-// authInferenceNetCommand dispatches the inference-net branch of /auth.
+type inferenceNetLoginMsg struct {
+	status daemon.ProviderLoginStatus
+	err    error
+}
+
+type inferenceNetKeyMsg struct{ err error }
+
 func (m *model) authInferenceNetCommand(args []string) {
 	if len(args) > 1 {
 		m.authInferenceNetKey(config.TrimKey(strings.Join(args[1:], "")), false)
 		return
 	}
-	// Bare: browser device login (the smooth path). The paste-a-key route is
-	// still available via `/auth inference-net <key>`.
 	m.authInferenceNetLogin()
 }
 
-// inferenceNetAuthMsg carries a finished device login back to the UI.
-type inferenceNetAuthMsg struct {
-	auth inferencenet.Auth
-	err  error
-}
-
-// authInferenceNetLogin runs the device-authorization flow in the background,
-// then provisions a machine key and registers the provider.
 func (m *model) authInferenceNetLogin() {
+	if m.infAuth != nil {
+		m.append(dimStyle.Render("Inference.net sign-in is already in progress"))
+		return
+	}
 	m.append(dimStyle.Render("starting Inference.net sign-in… (approve in your browser)"))
 	if m.prog == nil {
-		return // tests drive applyInferenceNetAuth directly
+		return
 	}
+	m.infAuth = &inferenceNetPending{}
+	client, program := m.client, m.prog
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute+10*time.Second)
 		defer cancel()
-		sess, err := inferencenet.Login(ctx, func(verificationURL, userCode string) {
-			m.prog.Send(noticeMsg("approve this terminal in your browser:\n  " + verificationURL + "\n  code: " + userCode))
-			if openBrowserURL(verificationURL) {
-				m.prog.Send(noticeMsg("browser opened; waiting for approval…"))
-			}
-		})
+		status, err := client.BeginLogin(ctx)
 		if err != nil {
-			m.prog.Send(inferenceNetLoginMsg{err: err})
+			program.Send(inferenceNetLoginMsg{err: err})
 			return
 		}
-		m.prog.Send(inferenceNetLoginMsg{email: sess.Email, teams: sess.Teams, token: sess.Token})
-	}()
-}
-
-// inferenceNetLoginMsg carries a finished browser login (identity + the teams
-// to pick from) back to the UI goroutine, which then prompts for team/project.
-type inferenceNetLoginMsg struct {
-	email string
-	token string
-	teams []inferencenet.Team
-	err   error
-}
-
-// applyInferenceNetLogin starts the interactive team → project selection after
-// the browser sign-in completes. Single-team users skip the team prompt.
-func (m *model) applyInferenceNetLogin(msg inferenceNetLoginMsg) {
-	if msg.err != nil {
-		m.append(errStyle.Render("Inference.net sign-in failed: " + msg.err.Error()))
-		return
-	}
-	m.infAuth = &inferenceNetPending{token: msg.token, email: msg.email, teams: msg.teams}
-	m.append(dimStyle.Render("✓ signed in as " + msg.email))
-	if len(msg.teams) == 1 {
-		m.infAuth.team = msg.teams[0]
-		m.inferenceNetPickProject()
-		return
-	}
-	labels := make([]string, len(msg.teams))
-	for i, t := range msg.teams {
-		labels[i] = t.Name
-		if t.Slug != "" {
-			labels[i] += " (" + t.Slug + ")"
-		}
-	}
-	m.openChoicePrompt("workspace:", labels, func(choice string) {
-		for _, t := range m.infAuth.teams {
-			l := t.Name
-			if t.Slug != "" {
-				l += " (" + t.Slug + ")"
-			}
-			if l == choice {
-				m.infAuth.team = t
-				break
-			}
-		}
-		m.inferenceNetPickProject()
-	})
-}
-
-// inferenceNetPickProject loads the team's projects, then offers a picker with
-// a "+ Create new project" option.
-func (m *model) inferenceNetPickProject() {
-	m.append(dimStyle.Render("loading projects for " + m.infAuth.team.Name + "…"))
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		projects, err := inferencenet.ListProjects(ctx, m.infAuth.token, m.infAuth.team)
-		m.prog.Send(inferenceNetProjectsMsg{projects: projects, err: err})
-	}()
-}
-
-type inferenceNetProjectsMsg struct {
-	projects []inferencenet.Project
-	err      error
-}
-
-func (m *model) applyInferenceNetProjects(msg inferenceNetProjectsMsg) {
-	if msg.err != nil {
-		m.append(errStyle.Render("could not load projects: " + msg.err.Error()))
-		m.infAuth = nil
-		return
-	}
-	options := make([]string, 0, len(msg.projects)+1)
-	for _, p := range msg.projects {
-		options = append(options, p.Name)
-	}
-	options = append(options, inferencenet.CreateProjectOption)
-	m.openChoicePrompt("project:", options, func(choice string) {
-		if choice == inferencenet.CreateProjectOption {
-			m.inferenceNetCreateProject()
-			return
-		}
-		for _, p := range msg.projects {
-			if p.Name == choice {
-				m.inferenceNetFinish(p)
+		id := status.FlowID
+		for {
+			program.Send(inferenceNetLoginMsg{status: status})
+			switch status.State {
+			case "succeeded", "failed", "cancelled", "interrupted", "expired":
 				return
 			}
+			timer := time.NewTimer(500 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			status, err = client.LoginStatus(ctx, id)
+			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return
+				}
+				// A request can race a disconnect. The next read waits for reconnection;
+				// mutations and terminal input are never repeated here.
+				status = daemon.ProviderLoginStatus{FlowID: id, State: "reconnecting"}
+			}
 		}
-	})
-}
-
-// inferenceNetCreateProject prompts for a name and creates the project.
-func (m *model) inferenceNetCreateProject() {
-	m.openNamePrompt("new project name:", "", func(name string) {
-		name = config.TrimKey(name)
-		if name == "" {
-			m.append(dimStyle.Render("project creation cancelled"))
-			m.infAuth = nil
-			return
-		}
-		m.append(dimStyle.Render("creating project " + name + "…"))
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			p, err := inferencenet.CreateProject(ctx, m.infAuth.token, m.infAuth.team, name)
-			m.prog.Send(inferenceNetProjectCreatedMsg{project: p, err: err})
-		}()
-	})
-}
-
-type inferenceNetProjectCreatedMsg struct {
-	project inferencenet.Project
-	err     error
-}
-
-func (m *model) applyInferenceNetProjectCreated(msg inferenceNetProjectCreatedMsg) {
-	if msg.err != nil {
-		m.append(errStyle.Render("could not create the project: " + msg.err.Error()))
-		m.infAuth = nil
-		return
-	}
-	m.inferenceNetFinish(msg.project)
-}
-
-// inferenceNetFinish mints the machine key under the chosen project, saves the
-// auth state, and registers the provider.
-func (m *model) inferenceNetFinish(p inferencenet.Project) {
-	auth := inferencenet.Auth{
-		SessionToken: m.infAuth.token,
-		UserEmail:    m.infAuth.email,
-		TeamID:       m.infAuth.team.ID,
-		ProjectID:    p.ID,
-		ProjectName:  p.Name,
-	}
-	m.infAuth = nil
-	m.append(dimStyle.Render("provisioning an API key for this machine…"))
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_, err := auth.EnsureMachineKey(ctx)
-		if err == nil {
-			err = inferencenet.SaveAuth(auth)
-		}
-		m.prog.Send(inferenceNetAuthMsg{auth: auth, err: err})
 	}()
 }
 
-// applyInferenceNetAuth commits a finished device login on the UI goroutine:
-// register the provider (machine key resolves from the stored auth file) and
-// hot-swap the live agent when the session already routes inference-net.
-func (m *model) applyInferenceNetAuth(msg inferenceNetAuthMsg) bool {
+func (m *model) applyInferenceNetLogin(msg inferenceNetLoginMsg) bool {
 	if msg.err != nil {
 		m.append(errStyle.Render("Inference.net sign-in failed: " + msg.err.Error()))
+		m.infAuth = nil
 		return false
 	}
-	m.cfg.UpsertInferenceNet("", false) // machine key resolves from disk
-	if err := m.cfg.Save(); err != nil {
-		m.append(errStyle.Render("config save failed: " + err.Error()))
+	status := msg.status
+	if m.infAuth == nil {
 		return false
 	}
-	m.append(dimStyle.Render("✓ signed in as " + msg.auth.UserEmail + " — project " + msg.auth.ProjectName + "; inference-net provider configured"))
-	return true
+	if m.infAuth.flowID != "" && m.infAuth.flowID != status.FlowID {
+		return false
+	}
+	m.infAuth.flowID = status.FlowID
+	if status.VerificationURL != "" && status.VerificationURL != m.infAuth.verificationURL {
+		m.infAuth.verificationURL = status.VerificationURL
+		m.append(dimStyle.Render("approve in your browser:\n  " + status.VerificationURL + "\n  code: " + status.UserCode))
+		openBrowserURL(status.VerificationURL)
+	}
+	if status.State == "reconnecting" || status.State == m.infAuth.state {
+		return false
+	}
+	m.infAuth.state = status.State
+	switch status.State {
+	case "choose_team":
+		m.append(dimStyle.Render("✓ signed in as " + status.Email))
+		if len(status.Teams) == 1 {
+			m.selectInferenceNetTeam(status.FlowID, status.Teams[0].ID)
+			return false
+		}
+		labels := providerChoiceLabels(status.Teams)
+		m.openChoicePrompt("workspace:", labels, func(choice string) {
+			for i, label := range labels {
+				if choice == label {
+					m.selectInferenceNetTeam(status.FlowID, status.Teams[i].ID)
+					return
+				}
+			}
+		})
+	case "choose_project":
+		labels := providerChoiceLabels(status.Projects)
+		options := append(append([]string{}, labels...), "+ Create new project")
+		m.openChoicePrompt("project:", options, func(choice string) {
+			if choice == "+ Create new project" {
+				m.createInferenceNetProject(status.FlowID)
+				return
+			}
+			for i, label := range labels {
+				if choice == label {
+					m.inferenceNetMutation(func(ctx context.Context) (daemon.ProviderLoginStatus, error) {
+						return m.client.SelectLoginProject(ctx, status.FlowID, status.Projects[i].ID)
+					})
+					return
+				}
+			}
+		})
+	case "loading_projects":
+		m.append(dimStyle.Render("loading projects…"))
+	case "provisioning":
+		m.append(dimStyle.Render("provisioning a key on the execution host…"))
+	case "succeeded":
+		m.infAuth = nil
+		m.append(dimStyle.Render("✓ signed in as " + status.Email + "; inference-net configured on the execution host"))
+		return true
+	case "failed", "expired", "cancelled", "interrupted":
+		m.infAuth = nil
+		m.append(errStyle.Render("Inference.net sign-in " + status.State + ". " + status.Error))
+	}
+	return false
 }
 
-// authInferenceNetKey validates a pasted Inference.net key and upserts the
-// provider (mirrors the openrouter BYOK path).
-func (m *model) authInferenceNetKey(key string, envMode bool) {
-	if key == "" {
+// Include an ordinal because providers can return duplicate display names.
+func providerChoiceLabels(choices []daemon.ProviderChoice) []string {
+	labels := make([]string, len(choices))
+	for i, choice := range choices {
+		labels[i] = fmt.Sprintf("%d. %s", i+1, choice.Name)
+	}
+	return labels
+}
+
+func (m *model) selectInferenceNetTeam(id, teamID string) {
+	client := m.client
+	m.inferenceNetMutation(func(ctx context.Context) (daemon.ProviderLoginStatus, error) {
+		return client.SelectLoginTeam(ctx, id, teamID)
+	})
+}
+
+func (m *model) createInferenceNetProject(id string) {
+	client := m.client
+	m.openNamePrompt("new project name:", "", func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			m.inferenceNetMutation(func(ctx context.Context) (daemon.ProviderLoginStatus, error) { return client.CancelLogin(ctx, id) })
+			return
+		}
+		m.inferenceNetMutation(func(ctx context.Context) (daemon.ProviderLoginStatus, error) {
+			return client.CreateLoginProject(ctx, id, name)
+		})
+	})
+}
+
+func (m *model) inferenceNetMutation(operation func(context.Context) (daemon.ProviderLoginStatus, error)) {
+	program := m.prog
+	if program == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, err := operation(ctx)
+		if err != nil {
+			program.Send(noticeMsg("Inference.net selection could not be confirmed: " + err.Error() + ". Checking host state…"))
+		}
+		// The existing status reader is authoritative, avoiding out-of-order RPC
+		// responses reopening an older picker after the flow has advanced.
+	}()
+}
+
+func (m *model) authInferenceNetKey(key string, environment bool) {
+	if key == "" && !environment {
 		m.append(errStyle.Render("/auth inference-net <key> needs a key (get one at https://inference.net)"))
 		return
 	}
-	m.append(dimStyle.Render("validating key against Inference.net…"))
+	m.append(dimStyle.Render("validating and saving the key on the execution host…"))
 	if m.prog == nil {
 		return
 	}
+	client, program := m.client, m.prog
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		result, err := m.client.ValidateProvider(ctx, daemon.ProviderValidateParams{
-			Name: config.InferenceNetProvider, BaseURL: config.InferenceNetBaseURL, Key: key,
-		})
-		m.prog.Send(inferenceNetKeyMsg{key: key, envMode: envMode, models: result.Models, err: err})
+		_, err := setupProviderKey(ctx, client, config.InferenceNetProvider, key, environment)
+		program.Send(inferenceNetKeyMsg{err: err})
 	}()
-}
-
-type inferenceNetKeyMsg struct {
-	key     string
-	envMode bool
-	models  []llm.ModelInfo
-	err     error
 }
 
 func (m *model) applyInferenceNetKey(msg inferenceNetKeyMsg) bool {
 	if msg.err != nil {
-		m.append(errStyle.Render("Inference.net rejected the key: " + msg.err.Error()))
+		m.append(errStyle.Render("Inference.net setup failed: " + msg.err.Error()))
 		return false
 	}
-	m.cfg.UpsertInferenceNet(msg.key, msg.envMode)
-	if err := m.cfg.Save(); err != nil {
-		m.append(errStyle.Render("config save failed: " + err.Error()))
-		return false
-	}
-	m.append(dimStyle.Render("✓ inference-net configured; /model lists its models"))
+	m.append(dimStyle.Render("✓ inference-net configured on the execution host"))
 	return true
 }

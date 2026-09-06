@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "schedule_id": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ScheduleResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScheduleResult",
+  "required": [
+    "schedule_id"
+  ],
+  "additionalProperties": false
+}

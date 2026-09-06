@@ -203,6 +203,11 @@ func TestClientCommandCancellationDoesNotBlockCompletion(t *testing.T) {
 	if err := root.processWorkerBatch(root.supervisor.take()); err != nil {
 		t.Fatal(err)
 	}
+	// Admission and execution are deliberately separate actor transitions.
+	receiveActorValue(t, root.supervisor.wake)
+	if err := root.processWorkerBatch(root.supervisor.take()); err != nil {
+		t.Fatal(err)
+	}
 	receiveActorValue(t, runner.started)
 	cancel()
 	if err := receiveActorValue(t, returned); !errors.Is(err, context.Canceled) {
@@ -243,7 +248,7 @@ func TestClientCommandCancelledBeforeAdmissionHasNoEffect(t *testing.T) {
 	defer cancel()
 	returned := make(chan error, 1)
 	go func() {
-		_, err := root.ClientCommand(ctx, session.CommandAdmission{ClientID: "client", CommandID: "rename", RequestDigest: "rename-request"}, "session.rename", json.RawMessage(`{"args":"should not apply"}`))
+		_, err := root.ClientCommand(ctx, session.CommandAdmission{ClientID: "client", CommandID: "rename", RequestDigest: "rename-request"}, "session.rename", json.RawMessage(`{"title":"should not apply"}`))
 		returned <- err
 	}()
 	receiveActorValue(t, root.supervisor.wake)

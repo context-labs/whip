@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "goal": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/GoalResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GoalResult",
+  "required": [
+    "goal"
+  ],
+  "additionalProperties": false
+}

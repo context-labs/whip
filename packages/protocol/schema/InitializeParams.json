@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "protocol_major": {
+      "type": "integer"
+    },
+    "build_id": {
+      "type": "string"
+    },
+    "client_kind": {
+      "type": "string"
+    },
+    "client_id": {
+      "type": "string"
+    },
+    "capabilities": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/InitializeParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InitializeParams",
+  "required": [
+    "protocol_major",
+    "build_id",
+    "client_kind",
+    "client_id"
+  ],
+  "additionalProperties": false
+}

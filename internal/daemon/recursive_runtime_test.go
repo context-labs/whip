@@ -241,13 +241,13 @@ func TestRecursiveAgentClientControlsAuthorizeAndPersist(t *testing.T) {
 	if result := clientCommand(t, root, "tui", "list-agents", "agents.list", map[string]string{}); result.Status != "succeeded" || !strings.Contains(result.Output, stoppedID) {
 		t.Fatalf("agents list = %+v", result)
 	}
-	if result := clientCommand(t, root, "tui", "cap-budget", "budget.cap", map[string]string{"args": stoppedID + " tokens 7"}); result.Status != "succeeded" || !strings.Contains(result.Output, `"Limit":7`) {
+	if result := clientCommand(t, root, "tui", "cap-budget", "budget.cap", map[string]string{"id": stoppedID, "kind": "tokens", "limit": "7"}); result.Status != "succeeded" || !strings.Contains(result.Output, `"limit":"7"`) {
 		t.Fatalf("agent budget = %+v", result)
 	}
-	if result := clientCommand(t, root, "tui", "revoke-capability", "capability.revoke", map[string]string{"args": "files:" + stoppedID}); result.Status != "succeeded" || !strings.Contains(result.Output, `"Status":"revoked"`) {
+	if result := clientCommand(t, root, "tui", "revoke-capability", "capability.revoke", map[string]any{"id": "files:" + stoppedID}); result.Status != "succeeded" || !strings.Contains(result.Output, `"status":"revoked"`) {
 		t.Fatalf("agent capability revoke = %+v", result)
 	}
-	if result := clientCommand(t, root, "tui", "stop-agent", "agent.control", map[string]string{"args": stoppedID}); result.Status != "succeeded" || result.Output != "stopped" {
+	if result := clientCommand(t, root, "tui", "stop-agent", "agent.control", map[string]any{"id": stoppedID}); result.Status != "succeeded" || result.Output != "{}" {
 		t.Fatalf("agent stop = %+v", result)
 	}
 	relatives, err := store.ListAgentRelatives(t.Context(), root.ID(), root.AgentID())
@@ -256,7 +256,7 @@ func TestRecursiveAgentClientControlsAuthorizeAndPersist(t *testing.T) {
 	}
 
 	deletedID := spawn("deleted-child")
-	if result := clientCommand(t, root, "tui", "delete-agent", "agent.delete", map[string]string{"args": deletedID}); result.Status != "succeeded" || result.Output != "deleted" {
+	if result := clientCommand(t, root, "tui", "delete-agent", "agent.delete", map[string]any{"id": deletedID}); result.Status != "succeeded" || result.Output != "{}" {
 		t.Fatalf("agent delete = %+v", result)
 	}
 	relatives, err = store.ListAgentRelatives(t.Context(), root.ID(), root.AgentID())

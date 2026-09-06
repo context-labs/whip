@@ -504,8 +504,7 @@ func (b *Bridge) consumeEvent(s *acpSession, event daemon.ProtocolEvent) {
 		}
 		_ = b.update(s.lifecycle, s.id, endToolCall(stream.ID, input.name, input.args, stream.Result))
 	case "stream.usage":
-		var usage daemon.UsageEvent
-		if json.Unmarshal([]byte(stream.Result), &usage) == nil && usage.Size > 0 {
+		if usage := stream.Usage; usage != nil && usage.Size > 0 {
 			_ = b.update(s.lifecycle, s.id, acp.SessionUpdate{UsageUpdate: &acp.SessionUsageUpdate{
 				SessionUpdate: "usage_update", Used: usage.Used, Size: usage.Size,
 			}})

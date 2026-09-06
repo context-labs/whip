@@ -83,9 +83,9 @@ func (m *Manager) Session(name string) (*Session, error) {
 	if !sessionNameRe.MatchString(name) {
 		return nil, fmt.Errorf("invalid session name %q: use 1-64 letters, digits, dashes, or underscores", name)
 	}
-	key := m.driver + ":" + string(mode) + ":" + name
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	key := m.driver + ":" + string(mode) + ":" + name
 	s, ok := m.sessions[key]
 	if !ok {
 		profileName := name
@@ -192,11 +192,12 @@ func (m *Manager) SwitchDriver(d string) {
 	}
 	m.mu.Lock()
 	m.driver = d
-	for _, session := range m.sessions {
-		session.drop()
-	}
+	sessions := m.sessions
 	m.sessions = map[string]*Session{}
 	m.mu.Unlock()
+	for _, session := range sessions {
+		session.drop()
+	}
 }
 
 func (m *Manager) Driver() string {
@@ -210,8 +211,12 @@ func (m *Manager) Driver() string {
 // launched Chrome.
 func (m *Manager) CloseAll() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	sessions := make([]*Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
+		sessions = append(sessions, s)
+	}
+	m.mu.Unlock()
+	for _, s := range sessions {
 		s.drop()
 	}
 }

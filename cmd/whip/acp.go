@@ -22,6 +22,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -127,7 +128,7 @@ func (b *acpDaemonBackend) root(ctx context.Context, rootID, cwd string, servers
 		return nil, err
 	}
 	if len(servers) > 0 {
-		action, err := client.NewAction("mcp.attach", map[string]any{"servers": servers})
+		action, err := client.NewAction("mcp.attach", protocol.MCPAttachParams{Servers: servers})
 		if err != nil {
 			_ = client.Close()
 			return nil, err

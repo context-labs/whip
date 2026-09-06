@@ -111,7 +111,7 @@ func TestActorPersistenceEventFailuresRollBack(t *testing.T) {
 
 	t.Run("root failure", func(t *testing.T) {
 		st, rootID, agentID := actorFailureFixture(t)
-		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'d','running',?,?)`, rootID, now(), now())
+		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'submit','d','running',?,?)`, rootID, now(), now())
 		exec(t, st, `CREATE TRIGGER reject_actor_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'event failure'); END`)
 		if _, err := st.FailRoot(context.Background(), rootID, "actor panic"); err == nil {
 			t.Fatal("event failure should abort root terminalization")
@@ -160,7 +160,7 @@ func TestRecoveryFailureRollsBackEveryStatus(t *testing.T) {
 	}
 	rootID, _ := st.Create(SessionKindAgent, "/workspace", "m", "p")
 	exec(t, st, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at) VALUES('a',?,NULL,'idle',?,?)`, rootID, now(), now())
-	exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'d','queued',?,?)`, rootID, now(), now())
+	exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,created_at,updated_at) VALUES('c','cmd','root',?,'submit','d','queued',?,?)`, rootID, now(), now())
 	exec(t, st, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES('turn',?,'a','running',?,?)`, rootID, now(), now())
 	exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,created_at,updated_at) VALUES('op',?,'a','running',?,?)`, rootID, now(), now())
 	exec(t, st, `INSERT INTO leases(id,root_id,agent_id,operation_id,status,created_at,updated_at) VALUES('lease',?,'a','op','running',?,?)`, rootID, now(), now())

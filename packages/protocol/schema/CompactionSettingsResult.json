@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "model": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "builtin_default": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/CompactionSettingsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CompactionSettingsResult",
+  "required": [
+    "builtin_default"
+  ],
+  "additionalProperties": false
+}

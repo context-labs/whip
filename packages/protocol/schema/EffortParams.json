@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "effort": {
+      "type": "string"
+    },
+    "persist_default": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/EffortParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EffortParams",
+  "required": [
+    "effort",
+    "persist_default"
+  ],
+  "additionalProperties": false
+}

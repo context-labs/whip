@@ -6,12 +6,12 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -208,13 +208,20 @@ func TestPermissionRuleResolvesCoveredPromptsAndSkipsFutureOnes(t *testing.T) {
 	}
 
 	listed := clientCommand(t, root, "human", "rules-1", "permission.rules", clientActionPayload{})
-	if !strings.Contains(listed.Output, rules[0].ID+"  bash  sleep  (human, ") || !strings.Contains(listed.Output, "global  bash:ls") {
-		t.Fatalf("permission.rules = %+v", listed)
+	var listedRules protocol.PermissionRulesResult
+	if err := json.Unmarshal(listed.Result, &listedRules); err != nil {
+		t.Fatal(err)
 	}
-	if forgot := clientCommand(t, root, "human", "forget-1", "permission.forget", clientActionPayload{Args: rules[0].ID}); forgot.Output != "forgot rule "+rules[0].ID {
+	if !slices.ContainsFunc(listedRules.Rules, func(rule session.PermissionRule) bool {
+		return rule.ID == rules[0].ID && rule.Operation == "bash" && rule.Rule == "sleep" && rule.PrincipalID == "human"
+	}) || !slices.Contains(listedRules.Global, "bash:ls") {
+		t.Fatalf("permission.rules=%+v", listedRules)
+	}
+
+	if forgot := clientCommand(t, root, "human", "forget-1", "permission.forget", clientActionPayload{ID: rules[0].ID}); forgot.Status != "succeeded" {
 		t.Fatalf("permission.forget = %+v", forgot)
 	}
-	if forgot := clientCommand(t, root, "human", "forget-2", "permission.forget", clientActionPayload{Args: rules[0].ID}); forgot.Status != "failed" {
+	if forgot := clientCommand(t, root, "human", "forget-2", "permission.forget", clientActionPayload{ID: rules[0].ID}); forgot.Status != "failed" {
 		t.Fatalf("forgetting twice = %+v", forgot)
 	}
 	prompt("sleep-5", "sleep 30")

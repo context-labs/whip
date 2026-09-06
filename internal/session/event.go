@@ -32,20 +32,26 @@ type EventEnvelope struct {
 }
 
 type RootSnapshot struct {
-	RootID             string
-	Cursor             int64
-	Meta               Meta
-	Messages           []llm.Message
-	Presentation       []SnapshotEvent
-	AgentPresentations map[string][]SnapshotEvent
-	Agents             []RuntimeAgent
-	Inbox              []InboxItem
-	Blackboard         []StateValue
-	Budgets            []SnapshotBudget
-	Capabilities       []CapabilityRecord
-	Schedules          []Schedule
-	Permissions        []PermissionSnapshot
-	Questions          []LifecycleEvent // open user.ask prompts (question.pending payloads); they live in daemon memory, so a client connecting mid-question learns of them only here
+	ActiveTurns        map[string]string `json:"active_turns"`
+	view               *SnapshotViewOptions
+	Omitted            map[string]bool            `json:"omitted,omitempty"`
+	MessageSeqs        []int                      `json:"message_seqs"`
+	FirstMessageSeq    int                        `json:"first_message_seq,omitempty"`
+	HistoryRevision    int64                      `json:"history_revision,string"`
+	RootID             string                     `json:"root_id"`
+	Cursor             int64                      `json:"cursor,string"`
+	Meta               Meta                       `json:"meta"`
+	Messages           []llm.Message              `json:"messages"`
+	Presentation       []SnapshotEvent            `json:"presentation"`
+	AgentPresentations map[string][]SnapshotEvent `json:"agent_presentations"`
+	Agents             []RuntimeAgent             `json:"agents"`
+	Inbox              []InboxItem                `json:"inbox"`
+	Blackboard         []StateValue               `json:"blackboard"`
+	Budgets            []SnapshotBudget           `json:"budgets"`
+	Capabilities       []CapabilityRecord         `json:"capabilities"`
+	Schedules          []Schedule                 `json:"schedules"`
+	Permissions        []PermissionSnapshot       `json:"permissions"`
+	Questions          []LifecycleEvent           `json:"questions"` // open user.ask prompts (question.pending payloads); they live in daemon memory, so a client connecting mid-question learns of them only here
 }
 
 // SnapshotEvent is presentation-only state that has been durably observed but
@@ -53,31 +59,31 @@ type RootSnapshot struct {
 // reconnecting client rebuild an in-progress response without replaying events
 // at or before the snapshot cursor.
 type SnapshotEvent struct {
-	Seq     int64
-	Kind    string
-	Payload []byte
+	Seq     int64           `json:"seq,string"`
+	Kind    string          `json:"kind"`
+	Payload json.RawMessage `json:"payload"`
 }
 
 type SnapshotBudget struct {
-	AgentID string
-	State   BudgetState
+	AgentID string      `json:"agent_id"`
+	State   BudgetState `json:"state"`
 }
 
 // PermissionSnapshot intentionally omits raw tool arguments. A reconnecting
 // client gets enough immutable provenance to make a decision without copying
 // credentials or other sensitive arguments into the protocol snapshot.
 type PermissionSnapshot struct {
-	ID                   string
-	AgentID              string
-	OperationID          string
-	Operation            string
-	CanonicalPath        string
-	RequestDigest        string
-	CapabilityID         string
-	CapabilityGeneration int64
-	Status               string
-	Command              string
-	Rule                 string
+	ID                   string `json:"id"`
+	AgentID              string `json:"agent_id"`
+	OperationID          string `json:"operation_id"`
+	Operation            string `json:"operation"`
+	CanonicalPath        string `json:"canonical_path"`
+	RequestDigest        string `json:"request_digest"`
+	CapabilityID         string `json:"capability_id"`
+	CapabilityGeneration int64  `json:"capability_generation,string"`
+	Status               string `json:"status"`
+	Command              string `json:"command"`
+	Rule                 string `json:"rule"`
 }
 
 // ReplayEvents returns retained envelopes strictly after cursor. A cursor
@@ -87,8 +93,20 @@ func (s *Store) ReplayEvents(ctx context.Context, rootID string, cursor int64, l
 	if rootID == "" || cursor < 0 || limit < 1 || limit > MaxEventReplay {
 		return nil, 0, errors.New("event replay requires a root, nonnegative cursor, and bounded limit")
 	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var present bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?)`, rootID).Scan(&present); err != nil {
+		return nil, 0, err
+	}
+	if !present {
+		return nil, 0, fmt.Errorf("no session matches %q", rootID)
+	}
 	var earliest, latest int64
-	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MIN(seq),0),COALESCE(MAX(seq),0) FROM events WHERE root_id=?`, rootID).Scan(&earliest, &latest); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(seq),0),COALESCE(MAX(seq),0) FROM events WHERE root_id=?`, rootID).Scan(&earliest, &latest); err != nil {
 		return nil, 0, err
 	}
 	if cursor > latest {
@@ -97,7 +115,7 @@ func (s *Store) ReplayEvents(ctx context.Context, rootID string, cursor int64, l
 	if earliest > 0 && cursor < earliest-1 {
 		return nil, latest, ErrCursorExpired
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT e.seq,e.kind,substr(e.payload_inline,1,?),COALESCE(e.payload_ref,''),
+	rows, err := tx.QueryContext(ctx, `SELECT e.seq,e.kind,substr(e.payload_inline,1,?),COALESCE(e.payload_ref,''),
 		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,''),e.created_at
 		FROM events e LEFT JOIN content_references r ON r.id=e.payload_ref
 		WHERE e.root_id=? AND e.seq>? ORDER BY e.seq LIMIT ?`, InlineValueLimit+1, rootID, cursor, limit)
@@ -122,7 +140,13 @@ func (s *Store) ReplayEvents(ctx context.Context, rootID string, cursor int64, l
 		event.Created, _ = time.Parse(time.RFC3339, created)
 		events = append(events, event)
 	}
-	return events, latest, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, err
+	}
+	return events, latest, tx.Commit()
 }
 
 func (s *Store) ResolveRuntimeValue(ctx context.Context, rootID string, value RuntimeValue) ([]byte, error) {
@@ -170,6 +194,10 @@ func (s *Store) AppendRootEvent(ctx context.Context, rootID, kind string, payloa
 // SnapshotRoot reads the reconnect baseline and its final event cursor from
 // one SQLite read transaction. Callers serialize this with the root actor.
 func (s *Store) SnapshotRoot(ctx context.Context, rootID string) (RootSnapshot, error) {
+	return s.snapshotRoot(ctx, rootID, nil)
+}
+
+func (s *Store) snapshotRoot(ctx context.Context, rootID string, view *SnapshotViewOptions) (RootSnapshot, error) {
 	if rootID == "" {
 		return RootSnapshot{}, errors.New("snapshot root is required")
 	}
@@ -178,15 +206,15 @@ func (s *Store) SnapshotRoot(ctx context.Context, rootID string) (RootSnapshot, 
 		return RootSnapshot{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	snapshot := RootSnapshot{RootID: rootID}
+	snapshot := RootSnapshot{RootID: rootID, view: view, Omitted: map[string]bool{}}
 	var updated, tags string
 	var pinned int
 	if err := tx.QueryRowContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,effort,
-		usage_in,usage_cached,usage_out,updated_at FROM sessions WHERE id=?`, rootID).Scan(
+		usage_in,usage_cached,usage_out,updated_at,history_revision FROM sessions WHERE id=?`, rootID).Scan(
 		&snapshot.Meta.ID, &snapshot.Meta.Kind, &snapshot.Meta.Title, &snapshot.Meta.Model, &snapshot.Meta.Provider, &snapshot.Meta.CWD,
 		&snapshot.Meta.Goal, &snapshot.Meta.ForkedFrom, &snapshot.Meta.ForkSeq, &tags, &pinned,
 		&snapshot.Meta.Effort, &snapshot.Meta.UsageIn, &snapshot.Meta.UsageCached, &snapshot.Meta.UsageOut,
-		&updated); err != nil {
+		&updated, &snapshot.HistoryRevision); err != nil {
 		return RootSnapshot{}, err
 	}
 	if tags != "" {
@@ -218,17 +246,28 @@ func (s *Store) SnapshotRoot(ctx context.Context, rootID string) (RootSnapshot, 
 	if err := readSnapshotSchedules(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
-	if snapshot.Permissions, err = s.pendingPermissions(ctx, tx, rootID); err != nil {
+	if snapshot.Permissions, err = s.pendingPermissions(ctx, tx, rootID, snapshot.collectionLimit()); err != nil {
+		return RootSnapshot{}, err
+	}
+	if err := readSnapshotTurns(ctx, tx, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
 	deriveSnapshotAgentState(&snapshot)
 	if err := s.readSnapshotPresentation(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
+	if view != nil {
+		if err := boundSnapshot(&snapshot); err != nil {
+			return RootSnapshot{}, err
+		}
+	}
 	return snapshot, tx.Commit()
 }
 
 func (s *Store) readSnapshotPresentation(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
+	if snapshot.view != nil {
+		return s.readBoundedPresentation(ctx, tx, rootID, snapshot)
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT seq,kind,payload_inline,payload_ref FROM events
 		WHERE root_id=? AND (kind LIKE 'stream.%' OR kind IN (
 			'turn.started','turn.succeeded','turn.failed','turn.cancelled','turn.interrupted',
@@ -298,6 +337,9 @@ func (s *Store) readSnapshotPresentation(ctx context.Context, tx *sql.Tx, rootID
 }
 
 func readSnapshotMessages(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
+	if snapshot.view != nil {
+		return readSnapshotRecentMessages(ctx, tx, rootID, snapshot)
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT content FROM messages WHERE session_id=? ORDER BY seq`, rootID)
 	if err != nil {
 		return err
@@ -320,7 +362,7 @@ func readSnapshotMessages(ctx context.Context, tx *sql.Tx, rootID string, snapsh
 func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
 	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.root_id,COALESCE(a.parent_id,''),a.name,a.model,a.provider,a.effort,a.cwd,a.report,a.status,
 		(SELECT count(*) FROM agent_messages m WHERE m.root_id=a.root_id AND m.recipient_agent_id=a.id AND m.status='pending')
-		FROM agents a WHERE a.root_id=? ORDER BY a.created_at,a.id`, rootID)
+		FROM agents a WHERE a.root_id=? ORDER BY a.created_at,a.id LIMIT ?`, rootID, snapshot.collectionLimit())
 	if err != nil {
 		return err
 	}
@@ -338,8 +380,8 @@ func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot
 func readSnapshotInbox(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
 	rows, err := tx.QueryContext(ctx, `SELECT seq,agent_id,kind,status,substr(payload_inline,1,?),COALESCE(payload_ref,''),
 		COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')
-		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref WHERE i.root_id=? AND i.status IN ('queued','running') ORDER BY agent_id,seq`,
-		InlineValueLimit+1, rootID)
+		FROM inbox i LEFT JOIN content_references r ON r.id=i.payload_ref WHERE i.root_id=? AND i.status IN ('queued','running') ORDER BY agent_id,seq LIMIT ?`,
+		InlineValueLimit+1, rootID, snapshot.collectionLimit())
 	if err != nil {
 		return err
 	}
@@ -362,7 +404,7 @@ func readSnapshotInbox(ctx context.Context, tx *sql.Tx, rootID string, snapshot 
 
 func readSnapshotBlackboard(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
 	rows, err := tx.QueryContext(ctx, stateSelect(`FROM blackboard s LEFT JOIN content_references r ON r.id=s.payload_ref
-		WHERE s.root_id=? ORDER BY s.key`), InlineValueLimit+1, rootID)
+		WHERE s.root_id=? ORDER BY s.key LIMIT ?`), InlineValueLimit+1, rootID, snapshot.collectionLimit())
 	if err != nil {
 		return err
 	}
@@ -372,7 +414,7 @@ func readSnapshotBlackboard(ctx context.Context, tx *sql.Tx, rootID string, snap
 
 func readSnapshotBudgets(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
 	rows, err := tx.QueryContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value
-		FROM budgets WHERE root_id=? ORDER BY agent_id,kind`, rootID)
+		FROM budgets WHERE root_id=? ORDER BY agent_id,kind LIMIT ?`, rootID, snapshot.collectionLimit())
 	if err != nil {
 		return err
 	}
@@ -390,7 +432,7 @@ func readSnapshotBudgets(ctx context.Context, tx *sql.Tx, rootID string, snapsho
 
 func readSnapshotCapabilities(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
 	rows, err := tx.QueryContext(ctx, `SELECT id,root_id,agent_id,issuer_agent_id,operations,scopes,generation,status,created_at,updated_at
-		FROM capabilities WHERE root_id=? ORDER BY agent_id,id`, rootID)
+		FROM capabilities WHERE root_id=? ORDER BY agent_id,id LIMIT ?`, rootID, snapshot.collectionLimit())
 	if err != nil {
 		return err
 	}
@@ -431,7 +473,7 @@ func readSnapshotCapabilities(ctx context.Context, tx *sql.Tx, rootID string, sn
 }
 
 func readSnapshotSchedules(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id,schedule,prompt,anchor,last_fire FROM schedules WHERE session_id=? ORDER BY id`, rootID)
+	rows, err := tx.QueryContext(ctx, `SELECT id,schedule,prompt,anchor,last_fire FROM schedules WHERE session_id=? ORDER BY id LIMIT ?`, rootID, snapshot.collectionLimit())
 	if err != nil {
 		return err
 	}
@@ -459,10 +501,14 @@ func readSnapshotSchedules(ctx context.Context, tx *sql.Tx, rootID string, snaps
 
 // pendingPermissions lists the root's open prompts with the provenance a
 // client needs to decide them. Shared by the snapshot and by rule auto-resolve.
-func (s *Store) pendingPermissions(ctx context.Context, tx *sql.Tx, rootID string) ([]PermissionSnapshot, error) {
+func (s *Store) pendingPermissions(ctx context.Context, tx *sql.Tx, rootID string, limits ...int) ([]PermissionSnapshot, error) {
+	limit := -1
+	if len(limits) > 0 {
+		limit = limits[0]
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT p.id,p.agent_id,p.operation_id,p.status,o.payload_inline,o.payload_ref
 		FROM permission_requests p JOIN operations o ON o.root_id=p.root_id AND o.id=p.operation_id
-		WHERE p.root_id=? AND p.status='pending' ORDER BY p.created_at,p.id`, rootID)
+		WHERE p.root_id=? AND p.status='pending' ORDER BY p.created_at,p.id LIMIT ?`, rootID, limit)
 	if err != nil {
 		return nil, err
 	}

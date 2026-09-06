@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "key": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ProviderKeySetup",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderKeySetup",
+  "required": [
+    "revision",
+    "provider",
+    "environment"
+  ],
+  "additionalProperties": false
+}

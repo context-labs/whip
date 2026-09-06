@@ -65,7 +65,16 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 		d.mu.Unlock()
 		return nil, ErrClosed
 	}
+	entry := d.roots[rootID]
 	d.mu.Unlock()
+	if entry != nil {
+		select {
+		case <-entry.ready:
+		case <-d.ctx.Done():
+			return nil, ErrClosed
+		}
+		return d.opened(entry)
+	}
 	meta, history, err := d.store.Load(rootID)
 	if err != nil {
 		return nil, err
@@ -87,7 +96,7 @@ func (d *Daemon) Open(rootID string) (*Session, error) {
 		}
 		return d.opened(entry)
 	}
-	entry := &rootEntry{ready: make(chan struct{})}
+	entry = &rootEntry{ready: make(chan struct{})}
 	d.roots[rootID] = entry
 	d.mu.Unlock()
 

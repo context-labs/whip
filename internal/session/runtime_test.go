@@ -700,8 +700,8 @@ func TestFailRootIsIsolatedAndPreservesTerminalRows(t *testing.T) {
 		}
 		fixtures[i] = fixture{root: rootID, authority: authority}
 		prefix := string(rune('a' + i))
-		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES(?,?, 'root',?,'d','running',?,?)`, prefix, "active", rootID, now(), now())
-		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES(?,?, 'root',?,'d','succeeded',?,?)`, prefix, "done", rootID, now(), now())
+		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,created_at,updated_at) VALUES(?,?, 'root',?,'submit','d','running',?,?)`, prefix, "active", rootID, now(), now())
+		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,created_at,updated_at) VALUES(?,?, 'root',?,'submit','d','succeeded',?,?)`, prefix, "done", rootID, now(), now())
 		for _, status := range []string{"running", "succeeded"} {
 			exec(t, st, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)`, prefix+"-turn-"+status, rootID, authority.AgentID, status, now(), now())
 		}
@@ -818,7 +818,7 @@ func TestRecoveryInterruptsEveryNonterminalRuntimeRecord(t *testing.T) {
 	exec(t, st, `INSERT INTO agents(id,root_id,parent_id,status,created_at,updated_at) VALUES('a',?,NULL,'idle',?,?)`, rootID, now(), now())
 	for _, status := range []string{"queued", "running", "succeeded"} {
 		suffix := status
-		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,created_at,updated_at) VALUES('c',?,'root',?,'d',?,?,?)`, "cmd-"+suffix, rootID, status, now(), now())
+		exec(t, st, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,created_at,updated_at) VALUES('c',?,'root',?,'submit','d',?,?,?)`, "cmd-"+suffix, rootID, status, now(), now())
 		exec(t, st, `INSERT INTO turns(id,root_id,agent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)`, "turn-"+suffix, rootID, "a", status, now(), now())
 		exec(t, st, `INSERT INTO operations(id,root_id,agent_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?)`, "op-"+suffix, rootID, "a", status, now(), now())
 		exec(t, st, `INSERT INTO leases(id,root_id,agent_id,operation_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`, "lease-"+suffix, rootID, "a", "op-"+suffix, status, now(), now())

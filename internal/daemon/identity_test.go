@@ -56,7 +56,7 @@ func TestHumanEnrollmentIsExplicitAuthenticatedAndAutomationSafe(t *testing.T) {
 	}
 	defer func() { _ = server.Close() }()
 
-	automation := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "bot", ClientKind: "automation"})
+	automation := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "bot", ClientKind: "automation"})
 	defer automation.Close()
 	_, botKey, _ := ed25519.GenerateKey(rand.Reader)
 	if _, err := automation.EnrollIdentity(context.Background(), botKey, true, "", nil); err == nil || !strings.Contains(err.Error(), "automation") {
@@ -66,7 +66,7 @@ func TestHumanEnrollmentIsExplicitAuthenticatedAndAutomationSafe(t *testing.T) {
 		t.Fatalf("automation consumed enrollment: count=%d err=%v", count, err)
 	}
 
-	first := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "human-1", ClientKind: "tui"})
+	first := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "human-1", ClientKind: "tui"})
 	defer first.Close()
 	if status, err := first.IdentityStatus(context.Background()); err != nil || status.Paired || !status.EnrollmentOpen {
 		t.Fatalf("initial identity status = %+v, %v", status, err)
@@ -82,7 +82,7 @@ func TestHumanEnrollmentIsExplicitAuthenticatedAndAutomationSafe(t *testing.T) {
 		t.Fatalf("paired identity status = %+v, %v", status, err)
 	}
 
-	second := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "human-2", ClientKind: "acp"})
+	second := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "human-2", ClientKind: "acp"})
 	defer second.Close()
 	_, secondKey, _ := ed25519.GenerateKey(rand.Reader)
 	if _, err := second.EnrollIdentity(context.Background(), secondKey, false, "", nil); err == nil || !strings.Contains(err.Error(), "authenticated") {
@@ -137,14 +137,14 @@ func TestPermissionDecisionsRequireConnectionBoundHumanSignature(t *testing.T) {
 		t.Fatalf("permission admission = %v", err)
 	}
 
-	bot := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "bot-decision", ClientKind: "automation"})
+	bot := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "bot-decision", ClientKind: "automation"})
 	defer bot.Close()
 	_, botKey, _ := ed25519.GenerateKey(rand.Reader)
 	if _, err := bot.DecidePermission(context.Background(), botKey, PermissionDecision{CommandID: "bot", RootID: rootID, PermissionID: pending.PermissionID, Allow: true}); err == nil || !strings.Contains(err.Error(), "paired human") {
 		t.Fatalf("automation decision = %v", err)
 	}
 
-	human := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "approver", ClientKind: "tui"})
+	human := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "approver", ClientKind: "tui"})
 	defer human.Close()
 	_, humanKey, _ := ed25519.GenerateKey(rand.Reader)
 	if _, err := human.EnrollIdentity(context.Background(), humanKey, true, "", nil); err != nil {
@@ -191,13 +191,13 @@ func TestAutomaticPermissionModeRequiresConnectionBoundHumanSignature(t *testing
 		Operation: "permission.mode", Payload: payload,
 	}
 
-	automation := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "automatic-bot", ClientKind: "automation"})
+	automation := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "automatic-bot", ClientKind: "automation"})
 	defer automation.Close()
 	if _, err := automation.Command(context.Background(), command); err == nil || !strings.Contains(err.Error(), "signed paired-human") {
 		t.Fatalf("unsigned automatic mode = %v", err)
 	}
 
-	human := pipeClient(t, server, InitializeParams{ProtocolMajor: 1, ClientID: "automatic-human", ClientKind: "acp"})
+	human := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "automatic-human", ClientKind: "acp"})
 	defer human.Close()
 	_, humanKey, _ := ed25519.GenerateKey(rand.Reader)
 	if _, err := human.EnrollIdentity(context.Background(), humanKey, true, "", nil); err != nil {

@@ -37,6 +37,7 @@ func TestAuthInferenceNetBYOKNoKey(t *testing.T) {
 }
 
 func TestAuthInferenceNetStatusAndLogoutUnsigned(t *testing.T) {
+	useTestDaemon(t)
 	t.Setenv("WHIP_HOME", t.TempDir())
 	if err := authCLI([]string{"inference-net", "status"}); err != nil {
 		t.Errorf("status on a fresh home should not error: %v", err)
@@ -53,6 +54,7 @@ func TestAuthInferenceNetStatusAndLogoutUnsigned(t *testing.T) {
 }
 
 func TestAuthInferenceNetLogoutClearsStoredAuth(t *testing.T) {
+	useTestDaemon(t)
 	t.Setenv("WHIP_HOME", t.TempDir())
 	// Point the remote calls at a dead local port so they fail fast (and the
 	// test never reaches the real relay); the local state is still cleared.
@@ -79,9 +81,12 @@ func TestAuthInferenceNetBYOKValidatesAndPersists(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"data":[]}`)
 	}))
 	t.Cleanup(srv.Close)
 	defer inferencenet.SetURLsForTest("", "", srv.URL)()
+	redirectAuthRequests(t, srv.URL, "api.inference.net", "/v1")
+	useTestDaemon(t)
 
 	if err := authCLI([]string{"inference-net", "login", "--key", "bad"}); err == nil {
 		t.Fatal("rejected key was accepted")
@@ -165,6 +170,8 @@ func TestCLIChooser(t *testing.T) {
 }
 
 func TestAuthInferenceNetDeviceLoginAndKeyRotation(t *testing.T) {
+	t.Setenv(config.InferenceNetEnvVar, "")
+	useTestDaemon(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/device/code", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"device_code":"device","user_code":"CODE","expires_in":30,"interval":1}`)

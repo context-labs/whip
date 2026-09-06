@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"bufio"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
@@ -10,9 +9,11 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -28,20 +29,22 @@ const (
 
 // Client is one initialized JSON-RPC connection to the local daemon.
 type Client struct {
-	conn net.Conn
+	conn messageTransport
 	init InitializeResult
 	self InitializeParams
 
-	writeMu sync.Mutex
-	authMu  sync.Mutex
-	mu      sync.Mutex
-	nextID  int64
-	nonce   []byte
-	pending map[string]chan callResponse
-	events  chan ProtocolEvent
-	done    chan struct{}
-	err     error
-	once    sync.Once
+	writeMu        sync.Mutex
+	authMu         sync.Mutex
+	mu             sync.Mutex
+	nextID         int64
+	nonce          []byte
+	subscriptions  map[string]string
+	pending        map[string]chan callResponse
+	commandChanged chan struct{}
+	events         chan ProtocolEvent
+	done           chan struct{}
+	err            error
+	once           sync.Once
 }
 
 func DialClient(ctx context.Context, paths RuntimePaths, initialize InitializeParams) (*Client, error) {
@@ -68,9 +71,16 @@ func NewClient(ctx context.Context, conn net.Conn, initialize InitializeParams) 
 	if conn == nil {
 		return nil, errors.New("protocol connection is required")
 	}
+	return newTransportClient(ctx, newUnixMessageTransport(conn), initialize)
+}
+
+func newTransportClient(ctx context.Context, conn messageTransport, initialize InitializeParams) (*Client, error) {
+	if conn == nil {
+		return nil, errors.New("protocol connection is required")
+	}
 	client := &Client{
-		conn: conn, self: initialize, nextID: 1, pending: make(map[string]chan callResponse),
-		events: make(chan ProtocolEvent, MaxOutboundEnvelopes), done: make(chan struct{}),
+		conn: conn, self: initialize, subscriptions: make(map[string]string), nextID: 1, pending: make(map[string]chan callResponse),
+		commandChanged: make(chan struct{}), events: make(chan ProtocolEvent, MaxOutboundEnvelopes), done: make(chan struct{}),
 	}
 	params, err := json.Marshal(initialize)
 	if err != nil {
@@ -84,12 +94,12 @@ func NewClient(ctx context.Context, conn net.Conn, initialize InitializeParams) 
 	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
 		deadline = contextDeadline
 	}
-	_ = conn.SetDeadline(deadline)
-	if _, err := conn.Write(frame); err != nil {
+	_ = conn.SetReadDeadline(deadline)
+	_ = conn.SetWriteDeadline(deadline)
+	if err := conn.WriteMessage(frame); err != nil {
 		return nil, err
 	}
-	reader := bufio.NewReaderSize(conn, MaxFrameSize)
-	replyFrame, err := readProtocolFrame(reader)
+	replyFrame, err := conn.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -111,9 +121,19 @@ func NewClient(ctx context.Context, conn net.Conn, initialize InitializeParams) 
 		return nil, fmt.Errorf("daemon selected unsupported protocol major %d", client.init.ProtocolMajor)
 	}
 	client.nonce = append([]byte(nil), client.init.Nonce...)
-	_ = conn.SetDeadline(time.Time{})
-	go client.readLoop(reader)
+	_ = conn.SetReadDeadline(time.Time{})
+	_ = conn.SetWriteDeadline(time.Time{})
+	go client.readLoop()
 	go client.heartbeat(context.WithoutCancel(ctx), clientPingInterval, clientPingTimeout)
+	for rootID, cursor := range initialize.Cursors {
+		if _, err := client.Subscribe(ctx, rootID, cursor); err != nil {
+			if failure, ok := errors.AsType[*RPCError](err); ok && failure.Code == -32010 {
+				continue
+			}
+			client.close(err)
+			return nil, err
+		}
+	}
 	return client, nil
 }
 
@@ -157,7 +177,7 @@ func (c *Client) Call(ctx context.Context, method string, params, result any) er
 	frame, err := marshalFrame(rpcMessage{ID: json.RawMessage(id), Method: method, Params: rawParams})
 	if err == nil {
 		c.writeMu.Lock()
-		_, err = c.conn.Write(frame)
+		err = c.conn.WriteMessage(frame)
 		c.writeMu.Unlock()
 	}
 	if err != nil {
@@ -180,10 +200,72 @@ func (c *Client) Call(ctx context.Context, method string, params, result any) er
 	}
 }
 
-func (c *Client) Command(ctx context.Context, params CommandParams) (CommandResult, error) {
+// Submit accepts durable work without retaining the request until completion.
+func (c *Client) Submit(ctx context.Context, params CommandParams) (CommandResult, error) {
 	var result CommandResult
-	err := c.Call(ctx, "command", params, &result)
+	err := c.Call(ctx, "command.submit", params, &result)
+	fillCommandPresentation(&result)
 	return result, err
+}
+
+func (c *Client) CommandStatus(ctx context.Context, commandID string) (CommandResult, error) {
+	var result CommandResult
+	err := c.Call(ctx, "command.status", CommandStatusParams{CommandID: commandID}, &result)
+	fillCommandPresentation(&result)
+	return result, err
+}
+
+// SubmitAndWait is a convenience for callers that need the terminal result.
+// Cancelling this wait does not cancel the admitted operation.
+func (c *Client) SubmitAndWait(ctx context.Context, params CommandParams) (CommandResult, error) {
+	result, err := c.Submit(ctx, params)
+	if err != nil {
+		return result, err
+	}
+	return c.waitCommand(ctx, params.RootID, result)
+}
+
+func (c *Client) waitCommand(ctx context.Context, rootID string, result CommandResult) (CommandResult, error) {
+	var err error
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for result.Status == "queued" || result.Status == "running" || result.Status == "waiting" {
+		c.mu.Lock()
+		changed := c.commandChanged
+		c.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		case <-c.done:
+			return result, c.Err()
+		case <-changed:
+		case <-ticker.C:
+		}
+		result, err = c.CommandStatus(ctx, result.CommandID)
+		if err != nil {
+			return result, err
+		}
+	}
+	if err := c.commandContent(ctx, rootID, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (c *Client) Command(ctx context.Context, params CommandParams) (CommandResult, error) {
+	if operation, ok := protocol.LookupRuntime(params.Operation); ok && operation.Execution == protocol.Ephemeral {
+		reply, err := c.Invoke(ctx, protocol.QueryParams{RootID: params.RootID, Operation: params.Operation, Payload: params.Payload})
+		result := CommandResult{Operation: params.Operation, Status: "succeeded", Result: reply.Result}
+		fillCommandPresentation(&result)
+		return result, err
+	}
+	if operation, ok := protocol.LookupRuntime(params.Operation); ok && operation.Execution == protocol.Query {
+		query, err := c.Query(ctx, protocol.QueryParams{RootID: params.RootID, Operation: params.Operation, Payload: params.Payload})
+		result := CommandResult{Operation: params.Operation, CommandID: params.CommandID, Status: "succeeded", Result: query.Result}
+		fillCommandPresentation(&result)
+		return result, err
+	}
+	return c.SubmitAndWait(ctx, params)
 }
 
 func (c *Client) Replay(ctx context.Context, params ReplayParams) (ReplayResult, error) {
@@ -193,29 +275,11 @@ func (c *Client) Replay(ctx context.Context, params ReplayParams) (ReplayResult,
 }
 
 func (c *Client) Snapshot(ctx context.Context, rootID string) (session.RootSnapshot, error) {
-	var result SnapshotResult
-	if err := c.Call(ctx, "snapshot", SnapshotParams{RootID: rootID}, &result); err != nil {
-		return session.RootSnapshot{}, err
-	}
-	if result.SnapshotID == "" || result.Count < 1 {
-		return session.RootSnapshot{}, errors.New("daemon returned an empty snapshot")
-	}
-	var data []byte
-	for index := range result.Count {
-		var chunk SnapshotChunk
-		if err := c.Call(ctx, "snapshot.chunk", SnapshotChunkParams{SnapshotID: result.SnapshotID, Index: index}, &chunk); err != nil {
-			return session.RootSnapshot{}, err
-		}
-		if chunk.Index != index || chunk.Count != result.Count || chunk.Cursor != result.Cursor || len(chunk.Data) > MaxSnapshotChunk {
-			return session.RootSnapshot{}, errors.New("daemon returned invalid snapshot chunks")
-		}
-		data = append(data, chunk.Data...)
-	}
 	var snapshot session.RootSnapshot
-	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return session.RootSnapshot{}, err
+	if err := c.Call(ctx, "root.snapshot", SnapshotParams{RootID: rootID}, &snapshot); err != nil {
+		return snapshot, err
 	}
-	if snapshot.RootID != rootID || snapshot.Cursor != result.Cursor {
+	if snapshot.RootID != rootID {
 		return session.RootSnapshot{}, errors.New("daemon returned an inconsistent snapshot")
 	}
 	return snapshot, nil
@@ -234,8 +298,8 @@ func (c *Client) Upload(ctx context.Context, begin UploadBeginParams, data []byt
 	if err := c.Call(ctx, "upload.begin", begin, nil); err != nil {
 		return ContentHandle{}, err
 	}
-	for offset := 0; offset < len(data); offset += MaxSnapshotChunk {
-		end := min(offset+MaxSnapshotChunk, len(data))
+	for offset := 0; offset < len(data); offset += MaxContentChunk {
+		end := min(offset+MaxContentChunk, len(data))
 		if err := c.Call(ctx, "upload.chunk", UploadChunkParams{
 			UploadID: begin.UploadID, Offset: int64(offset), Data: data[offset:end],
 		}, nil); err != nil {
@@ -296,11 +360,15 @@ func (c *Client) DecidePermission(ctx context.Context, private ed25519.PrivateKe
 	c.mu.Lock()
 	nonce := append([]byte(nil), c.nonce...)
 	c.mu.Unlock()
-	message, err := authorizationMessage("permission.decide", c.init.Generation, nonce, decision)
+	rawDecision, err := json.Marshal(decision)
 	if err != nil {
 		return PermissionDecisionResult{}, err
 	}
-	params := PermissionDecisionParams{Decision: decision, Signature: ed25519.Sign(private, message)}
+	message, err := authorizationMessage("permission.decide", c.init.Generation, nonce, rawDecision)
+	if err != nil {
+		return PermissionDecisionResult{}, err
+	}
+	params := PermissionDecisionParams{Decision: rawDecision, Signature: ed25519.Sign(private, message)}
 	var result PermissionDecisionResult
 	if err := c.Call(ctx, "permission.decide", params, &result); err != nil {
 		return PermissionDecisionResult{}, err
@@ -323,11 +391,15 @@ func (c *Client) SetPermissionMode(ctx context.Context, private ed25519.PrivateK
 	c.mu.Lock()
 	nonce := append([]byte(nil), c.nonce...)
 	c.mu.Unlock()
-	message, err := authorizationMessage("permission.mode", c.init.Generation, nonce, command)
+	rawCommand, err := json.Marshal(command)
 	if err != nil {
 		return CommandResult{}, err
 	}
-	params := PermissionModeParams{Command: command, Signature: ed25519.Sign(private, message)}
+	message, err := authorizationMessage("permission.mode", c.init.Generation, nonce, rawCommand)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	params := PermissionModeParams{Command: rawCommand, Signature: ed25519.Sign(private, message)}
 	var result PermissionModeResult
 	if err := c.Call(ctx, "permission.mode", params, &result); err != nil {
 		return CommandResult{}, err
@@ -335,7 +407,8 @@ func (c *Client) SetPermissionMode(ctx context.Context, private ed25519.PrivateK
 	c.mu.Lock()
 	c.nonce = append([]byte(nil), result.Nonce...)
 	c.mu.Unlock()
-	return result.Command, nil
+	fillCommandPresentation(&result.Command)
+	return c.waitCommand(ctx, command.RootID, result.Command)
 }
 
 func (c *Client) RequestRestart(ctx context.Context, generation int64) error {
@@ -356,7 +429,7 @@ func (c *Client) requestLifecycle(ctx context.Context, method string, generation
 		return err
 	}
 	c.writeMu.Lock()
-	_, err = c.conn.Write(frame)
+	err = c.conn.WriteMessage(frame)
 	c.writeMu.Unlock()
 	if err != nil {
 		return err
@@ -369,9 +442,9 @@ func (c *Client) requestLifecycle(ctx context.Context, method string, generation
 	}
 }
 
-func (c *Client) readLoop(reader *bufio.Reader) {
+func (c *Client) readLoop() {
 	for {
-		frame, err := readProtocolFrame(reader)
+		frame, err := c.conn.ReadMessage()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				err = net.ErrClosed
@@ -385,11 +458,42 @@ func (c *Client) readLoop(reader *bufio.Reader) {
 			return
 		}
 		if message.Method != "" {
+			if message.Method == "subscription.failed" {
+				var failure protocol.SubscriptionFailure
+				if err := json.Unmarshal(message.Params, &failure); err != nil {
+					c.close(err)
+					return
+				}
+				c.mu.Lock()
+				active := c.subscriptions[failure.RootID] == failure.SubscriptionID
+				c.mu.Unlock()
+				if !active {
+					continue
+				}
+				if failure.Error != nil {
+					c.close(failure.Error)
+				} else {
+					c.close(errors.New("subscription requires resynchronization"))
+				}
+				return
+			}
 			if message.Method == "event" {
 				var notification eventNotification
 				if err := json.Unmarshal(message.Params, &notification); err != nil {
 					c.close(err)
 					return
+				}
+				c.mu.Lock()
+				active := c.subscriptions[notification.Event.RootID]
+				c.mu.Unlock()
+				if active != notification.Event.SubscriptionID {
+					continue
+				}
+				if !strings.HasPrefix(notification.Event.Kind, "stream.") {
+					c.mu.Lock()
+					close(c.commandChanged)
+					c.commandChanged = make(chan struct{})
+					c.mu.Unlock()
 				}
 				select {
 				case c.events <- notification.Event:
@@ -427,7 +531,7 @@ func (c *Client) heartbeat(parent context.Context, interval, timeout time.Durati
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(parent, timeout)
 			var result struct {
-				Generation int64 `json:"generation"`
+				Generation int64 `json:"generation,string"`
 			}
 			err := c.Call(ctx, "daemon.ping", struct{}{}, &result)
 			cancel()

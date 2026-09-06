@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "after_seq": {
+      "type": "integer"
+    },
+    "before_seq": {
+      "type": "integer"
+    },
+    "through_seq": {
+      "type": "integer"
+    },
+    "revision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "max_bytes": {
+      "type": "integer"
+    },
+    "recent": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/HistoryPageParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HistoryPageParams",
+  "required": [
+    "root_id",
+    "agent_id",
+    "through_seq",
+    "limit",
+    "max_bytes"
+  ],
+  "additionalProperties": false
+}

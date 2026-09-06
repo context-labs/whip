@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ProviderNameParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderNameParams",
+  "required": [
+    "provider"
+  ],
+  "additionalProperties": false
+}

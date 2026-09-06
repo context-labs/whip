@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "upload_id": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/UploadFinishParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UploadFinishParams",
+  "required": [
+    "upload_id"
+  ],
+  "additionalProperties": false
+}

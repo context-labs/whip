@@ -1,0 +1,95 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "model",
+          "provider",
+          "cwd",
+          "pinned",
+          "updated_at",
+          "truncated"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "next_cursor": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "revision": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "offset": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "revision",
+        "offset"
+      ],
+      "additionalProperties": false
+    },
+    "has_more": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/SessionCatalogPage",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SessionCatalogPage",
+  "required": [
+    "revision",
+    "items",
+    "has_more"
+  ],
+  "additionalProperties": false
+}

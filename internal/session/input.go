@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -177,8 +178,12 @@ func (s *Store) RejectTurnInput(ctx context.Context, rootID, agentID, turnID str
 	}
 	stamp := now()
 	if agent.ParentID == "" {
+		outcome, _ := json.Marshal(struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}{Code: -32602, Message: reason})
 		if _, err := tx.ExecContext(ctx, `UPDATE commands SET status='failed',outcome_inline=?,updated_at=?
-			WHERE root_id=? AND scope='root' AND ingress_seq=? AND ingress_seq>0 AND status='running'`, []byte(reason), stamp, rootID, seq); err != nil {
+			WHERE root_id=? AND scope='root' AND ingress_seq=? AND ingress_seq>0 AND status='running'`, outcome, stamp, rootID, seq); err != nil {
 			return err
 		}
 	}

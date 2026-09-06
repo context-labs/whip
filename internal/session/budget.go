@@ -41,11 +41,11 @@ type BudgetLimit struct {
 }
 
 type BudgetState struct {
-	Kind      BudgetKind
-	Limit     int64
-	Used      int64
-	Reserved  int64
-	Remaining int64
+	Kind      BudgetKind `json:"kind"`
+	Limit     int64      `json:"limit,string"`
+	Used      int64      `json:"used,string"`
+	Reserved  int64      `json:"reserved,string"`
+	Remaining int64      `json:"remaining,string"`
 }
 
 var defaultRootBudgets = []BudgetLimit{

@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "properties": {
+    "cutoff": {
+      "type": "integer"
+    },
+    "model": {
+      "type": "string"
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "prompt_tokens": {
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "type": "integer"
+        },
+        "prompt_tokens_details": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "cached_tokens": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cached_tokens"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "prompt_tokens",
+        "completion_tokens"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/CompactionResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CompactionResult",
+  "required": [
+    "cutoff",
+    "usage"
+  ],
+  "additionalProperties": false
+}

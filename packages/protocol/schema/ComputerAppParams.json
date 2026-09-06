@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "app": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ComputerAppParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ComputerAppParams",
+  "required": [
+    "app"
+  ],
+  "additionalProperties": false
+}

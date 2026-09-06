@@ -4,14 +4,9 @@ package daemon
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -45,7 +40,7 @@ func TestEnsureClientStartsDaemonAcrossStaleSocket(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 1, BuildID: "current", ClientID: "client", ClientKind: "test"}, launch)
+	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 2, BuildID: "current", ClientID: "client", ClientKind: "test"}, launch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,116 +131,51 @@ func TestSelfLaunchAndRestartReportExecutableFailures(t *testing.T) {
 	}
 }
 
-func TestEnsureClientReplacesMismatchedBuildAndGeneration(t *testing.T) {
+func TestEnsureClientAttachesAcrossBuildsWithoutRestart(t *testing.T) {
 	home := t.TempDir()
 	paths, err := Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	restart := make(chan struct{})
-	old, err := startTestServer(filepath.Join(home, "sessions.db"), paths, "old", 4, func() { close(restart) })
+	restarted := make(chan struct{}, 1)
+	running, err := startTestServer(filepath.Join(home, "sessions.db"), paths, "old", 4, func() { restarted <- struct{}{} })
 	if err != nil {
 		t.Fatal(err)
 	}
-	replaced := make(chan runningServer, 1)
-	replaceErr := make(chan error, 1)
-	go func() {
-		<-restart
-		if err := old.server.Close(); err != nil {
-			replaceErr <- err
-			return
-		}
-		if err := <-old.served; err != nil {
-			replaceErr <- err
-			return
-		}
-		next, err := startTestServer(filepath.Join(home, "sessions.db"), paths, "new", 5, nil)
-		if err != nil {
-			replaceErr <- err
-			return
-		}
-		replaced <- next
-	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer running.server.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 1, BuildID: "new", ClientID: "stable", ClientKind: "test"}, func() error {
-		return ErrDaemonOwned
-	})
+	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 2, BuildID: "new", ClientID: "stable", ClientKind: "test"}, func() error { t.Error("responsive daemon triggered a launch"); return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := client.InitializeResult(); got.BuildID != "new" || got.Generation != 5 {
-		t.Fatalf("replacement initialize = %+v", got)
+	defer client.Close()
+	if got := client.InitializeResult(); got.BuildID != "old" || got.Generation != 4 {
+		t.Fatalf("unexpected runtime replacement: %+v", got)
 	}
-	_ = client.Close()
 	select {
-	case err := <-replaceErr:
-		t.Fatal(err)
-	case next := <-replaced:
-		if err := next.server.Close(); err != nil {
-			t.Fatal(err)
-		}
-		if err := <-next.served; err != nil {
-			t.Fatal(err)
-		}
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
+	case <-restarted:
+		t.Fatal("build mismatch restarted runtime")
+	default:
 	}
 }
 
-func TestEnsureClientRejectsInvalidRestartNotice(t *testing.T) {
+func TestEnsureClientRejectsOldProtocolWithoutLaunching(t *testing.T) {
 	home := t.TempDir()
 	paths, err := Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.Open(filepath.Join(home, "sessions.db"))
+	running, err := startTestServer(filepath.Join(home, "sessions.db"), paths, "current", 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: &fakeRunner{}}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload, _ := json.Marshal(map[string]string{"build_id": "new"})
-	commandHash := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s", 4, "new")))
-	commandID := "checkpoint-" + hex.EncodeToString(commandHash[:8])
-	digest, err := requestDigest("daemon", "", "daemon.checkpoint", payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.AdmitCommand(context.Background(), session.CommandAdmission{
-		ClientID: "stable", CommandID: commandID, Scope: session.CommandScopeDaemon, RequestDigest: digest,
-		Payload: session.RuntimePayload{Data: payload},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.FinishCommand(context.Background(), "stable", commandID, "succeeded", session.RuntimePayload{Data: []byte("invalid")}); err != nil {
-		t.Fatal(err)
-	}
-	server, err := NewServer(value, ServerOptions{BuildID: "old", Generation: 4})
-	if err != nil {
-		t.Fatal(err)
-	}
-	served := make(chan error, 1)
-	go func() { served <- server.ListenAndServe(paths) }()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Lstat(paths.Socket); err == nil {
-			break
-		}
-		time.Sleep(time.Millisecond)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer running.server.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	if _, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 1, BuildID: "new", ClientID: "stable", ClientKind: "test"}, func() error { return ErrDaemonOwned }); err == nil || !strings.Contains(err.Error(), "invalid restart notice") {
-		t.Fatalf("invalid restart notice = %v", err)
-	}
-	_ = server.Close()
-	if err := <-served; err != nil {
-		t.Fatal(err)
+	_, err = EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 1, ClientID: "old", ClientKind: "test"}, func() error { t.Error("protocol mismatch triggeredlaunch"); return nil })
+	if err == nil {
+		t.Fatal("v1 accepted")
 	}
 }
 

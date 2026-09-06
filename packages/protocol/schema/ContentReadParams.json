@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "reference_id": {
+      "type": "string"
+    },
+    "offset": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "limit": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ContentReadParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContentReadParams",
+  "required": [
+    "root_id",
+    "reference_id",
+    "offset",
+    "limit"
+  ],
+  "additionalProperties": false
+}

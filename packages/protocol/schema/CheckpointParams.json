@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "reason": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/CheckpointParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CheckpointParams",
+  "additionalProperties": false
+}

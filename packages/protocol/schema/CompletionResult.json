@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "properties": {
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "candidates": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "description"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/CompletionResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CompletionResult",
+  "required": [
+    "candidates",
+    "truncated"
+  ],
+  "additionalProperties": false
+}

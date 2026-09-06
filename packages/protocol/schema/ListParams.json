@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "limit": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ListParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ListParams",
+  "additionalProperties": false
+}

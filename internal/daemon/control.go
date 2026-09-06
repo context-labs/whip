@@ -15,20 +15,34 @@ type controlRequest struct {
 
 // Control serializes daemon-wide state changes independently of root actors.
 type Control struct {
-	ctx      context.Context
-	requests chan controlRequest
-	done     chan struct{}
-	store    *session.Store
+	ctx        context.Context
+	requests   chan controlRequest
+	done       chan struct{}
+	store      *session.Store
+	deletes    chan func()
+	deleteDone chan struct{}
 }
 
 func newControl(ctx context.Context, store *session.Store) *Control {
-	control := &Control{ctx: ctx, requests: make(chan controlRequest), done: make(chan struct{}), store: store}
+	control := &Control{ctx: ctx, requests: make(chan controlRequest), done: make(chan struct{}), store: store, deletes: make(chan func(), 64), deleteDone: make(chan struct{})}
+	go func() {
+		defer close(control.deleteDone)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case work := <-control.deletes:
+				work()
+			}
+		}
+	}()
 	go control.run()
 	return control
 }
 
 func (c *Control) run() {
 	defer close(c.done)
+	defer func() { <-c.deleteDone }()
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -81,7 +95,7 @@ func (c *Control) CreateSession(ctx context.Context, admission session.CommandAd
 		}
 		record, err = c.store.CreateSessionForCommand(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider)
 		if err != nil {
-			_, finishErr := c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "failed", session.RuntimePayload{Data: []byte(err.Error())})
+			_, finishErr := c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "failed", session.RuntimePayload{Data: encodeCommandOutcome("session.create", "", err), MediaType: "application/json"})
 			return errors.Join(err, finishErr)
 		}
 		return nil
@@ -122,12 +136,44 @@ func (c *Control) ListSessions(ctx context.Context, admission session.CommandAdm
 	return record, err
 }
 
-func (c *Control) DeleteSession(ctx context.Context, admission session.CommandAdmission, rootID string, remove func(context.Context, string) error) (record session.CommandRecord, err error) {
+// AcceptDeleteSession commits admission before asynchronous root shutdown begins.
+func (c *Control) AcceptDeleteSession(ctx context.Context, admission session.CommandAdmission, rootID string, remove func(context.Context, string) error) (session.CommandRecord, error) {
+	record, _, err := c.deleteSession(ctx, admission, rootID, remove)
+	return record, err
+}
+
+func (c *Control) DeleteSession(ctx context.Context, admission session.CommandAdmission, rootID string, remove func(context.Context, string) error) (session.CommandRecord, error) {
+	record, completion, err := c.deleteSession(ctx, admission, rootID, remove)
+	if err != nil || completion == nil {
+		return record, err
+	}
+	select {
+	case completed := <-completion:
+		return completed.record, completed.err
+	case <-ctx.Done():
+		return record, ctx.Err()
+	case <-c.ctx.Done():
+		return record, ErrClosed
+	}
+}
+
+type deletionResult struct {
+	record session.CommandRecord
+	err    error
+}
+
+func (c *Control) deleteSession(ctx context.Context, admission session.CommandAdmission, rootID string, remove func(context.Context, string) error) (record session.CommandRecord, completion chan deletionResult, err error) {
 	err = c.route(ctx, func(actorCtx context.Context) error {
 		admission.Scope = session.CommandScopeDaemon
-		admission.RootID = ""
-		admission.AgentID = ""
+		admission.RootID, admission.AgentID = "", ""
 		admission.Kind = "session.delete"
+		// Only this actor produces work. Reserve capacity before committing new
+		// work, while allowing retries to observe an existing command.
+		if len(c.deletes) == cap(c.deletes) {
+			if _, loadErr := c.store.LoadCommand(actorCtx, admission.ClientID, admission.CommandID); loadErr != nil {
+				return errors.New("daemon deletion capacity exhausted")
+			}
+		}
 		admitted, err := c.store.AdmitCommand(actorCtx, admission)
 		if err != nil {
 			return err
@@ -136,23 +182,39 @@ func (c *Control) DeleteSession(ctx context.Context, admission session.CommandAd
 		if !admitted.New {
 			return nil
 		}
-		if err := remove(actorCtx, rootID); err != nil {
-			return c.finishFailure(actorCtx, admission, err, &record)
+		completion = make(chan deletionResult, 1)
+		done := completion
+		accepted := record
+		c.deletes <- func() {
+			result := accepted
+			err := c.store.SetCommandState(c.ctx, admission.ClientID, admission.CommandID, "running")
+			if err == nil {
+				err = remove(c.ctx, rootID)
+			}
+			actionErr := err
+			err = c.route(c.ctx, func(actorCtx context.Context) error {
+				if actionErr != nil {
+					return c.finishFailure(actorCtx, admission, actionErr, &result)
+				}
+				var finishErr error
+				result.Outcome, finishErr = c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "succeeded", session.RuntimePayload{
+					Data: encodeCommandOutcome("session.delete", rootID, nil), MediaType: "application/json", Source: "session delete",
+				})
+				if finishErr == nil {
+					result.Status = "succeeded"
+				}
+				return finishErr
+			})
+			done <- deletionResult{record: result, err: err}
 		}
-		record.Outcome, err = c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "succeeded", session.RuntimePayload{
-			Data: []byte(rootID), MediaType: "text/plain", Source: "session delete",
-		})
-		if err == nil {
-			record.Status = "succeeded"
-		}
-		return err
+		return nil
 	})
-	return record, err
+	return record, completion, err
 }
 
 func (c *Control) finishFailure(ctx context.Context, admission session.CommandAdmission, actionErr error, record *session.CommandRecord) error {
 	value, finishErr := c.store.FinishCommand(ctx, admission.ClientID, admission.CommandID, "failed", session.RuntimePayload{
-		Data: []byte(actionErr.Error()), MediaType: "text/plain", Source: admission.Kind,
+		Data: encodeCommandOutcome(admission.Kind, "", actionErr), MediaType: "application/json", Source: admission.Kind,
 	})
 	record.Outcome = value
 	record.Status = "failed"

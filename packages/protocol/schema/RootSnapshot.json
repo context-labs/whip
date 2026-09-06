@@ -1,0 +1,1026 @@
+{
+  "type": "object",
+  "properties": {
+    "active_turns": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "omitted": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
+    "message_seqs": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "integer"
+      }
+    },
+    "first_message_seq": {
+      "type": "integer"
+    },
+    "history_revision": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "root_id": {
+      "type": "string"
+    },
+    "cursor": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "goal": {
+          "type": "string"
+        },
+        "forked_from": {
+          "type": "string"
+        },
+        "fork_seq": {
+          "type": "integer"
+        },
+        "tags": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "usage_in": {
+          "type": "integer"
+        },
+        "usage_cached": {
+          "type": "integer"
+        },
+        "usage_out": {
+          "type": "integer"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "model",
+        "provider",
+        "cwd",
+        "goal",
+        "forked_from",
+        "fork_seq",
+        "tags",
+        "pinned",
+        "effort",
+        "usage_in",
+        "usage_cached",
+        "usage_out",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "messages": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "tool_calls": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "function": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "arguments": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "arguments"
+                  ],
+                  "additionalProperties": false
+                },
+                "duration_ms": {
+                  "type": "integer"
+                },
+                "exit_code": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "type",
+                "function"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "tool_call_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "authored": {
+            "type": "boolean"
+          },
+          "sent_at": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "usage": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "prompt_tokens": {
+                "type": "integer"
+              },
+              "completion_tokens": {
+                "type": "integer"
+              },
+              "prompt_tokens_details": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "cached_tokens": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "cached_tokens"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "prompt_tokens",
+              "completion_tokens"
+            ],
+            "additionalProperties": false
+          },
+          "model": {
+            "type": "string"
+          },
+          "rewound_from": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "presentation": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "payload": true
+        },
+        "required": [
+          "seq",
+          "kind",
+          "payload"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "agent_presentations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "payload": true
+          },
+          "required": [
+            "seq",
+            "kind",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "agents": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "report": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "pending_mail": {
+            "type": "integer"
+          },
+          "lifecycle_phase": {
+            "type": "string"
+          },
+          "blocking_reason": {
+            "type": "string"
+          },
+          "terminal_cause": {
+            "type": "string"
+          },
+          "allowed_controls": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "root_id",
+          "parent_id",
+          "name",
+          "model",
+          "provider",
+          "effort",
+          "cwd",
+          "report",
+          "status",
+          "pending_mail",
+          "lifecycle_phase",
+          "blocking_reason",
+          "terminal_cause",
+          "allowed_controls"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "inbox": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "seq": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "inline": true,
+              "text": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "contentEncoding": "base64"
+              },
+              "reference_id": {
+                "type": "string"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "size": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "media_type": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reference_id",
+              "digest",
+              "size",
+              "media_type",
+              "source"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "root_id",
+          "agent_id",
+          "seq",
+          "kind",
+          "status",
+          "payload"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "blackboard": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "author_agent_id": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "inline": true,
+              "text": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "binary": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "contentEncoding": "base64"
+              },
+              "reference_id": {
+                "type": "string"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "size": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "media_type": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reference_id",
+              "digest",
+              "size",
+              "media_type",
+              "source"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "key",
+          "version",
+          "author_agent_id",
+          "payload"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "budgets": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "used": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "reserved": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "remaining": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              }
+            },
+            "required": [
+              "kind",
+              "limit",
+              "used",
+              "reserved",
+              "remaining"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "agent_id",
+          "state"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "capabilities": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "issuer_agent_id": {
+            "type": "string"
+          },
+          "operations": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "mcp": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "server": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "definition": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "server",
+                "tool",
+                "definition"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "mcp_all": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "root_id",
+          "agent_id",
+          "issuer_agent_id",
+          "operations",
+          "scopes",
+          "mcp",
+          "mcp_all",
+          "generation",
+          "status",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "schedules": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "anchor": {
+            "type": "string"
+          },
+          "last_fire": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "schedule",
+          "prompt",
+          "anchor",
+          "last_fire"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "permissions": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "canonical_path": {
+            "type": "string"
+          },
+          "request_digest": {
+            "type": "string"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "capability_generation": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "operation_id",
+          "operation",
+          "canonical_path",
+          "request_digest",
+          "capability_id",
+          "capability_generation",
+          "status",
+          "command",
+          "rule"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "questions": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "turn_id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "sender_agent_id": {
+            "type": "string"
+          },
+          "inbox_seq": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "inbox_kind": {
+            "type": "string"
+          },
+          "delivery": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "terminal_cause": {
+            "type": "string"
+          },
+          "command_client_id": {
+            "type": "string"
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "trace_id": {
+            "type": "string"
+          },
+          "schedule_id": {
+            "type": "integer"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "acknowledged_inbox": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            }
+          },
+          "subscription_id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "expected_version": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "restored": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "not_restored": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "attempt": {
+            "type": "string"
+          },
+          "budget_kind": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "limit": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "used": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "reserved": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "capability_id": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "permission_id": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "canonical_path": {
+            "type": "string"
+          },
+          "request_digest": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "rule_source": {
+            "type": "string"
+          },
+          "question_id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "multiple": {
+            "type": "boolean"
+          },
+          "answer": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "dismissed": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/RootSnapshot",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RootSnapshot",
+  "required": [
+    "active_turns",
+    "message_seqs",
+    "history_revision",
+    "root_id",
+    "cursor",
+    "meta",
+    "messages",
+    "presentation",
+    "agent_presentations",
+    "agents",
+    "inbox",
+    "blackboard",
+    "budgets",
+    "capabilities",
+    "schedules",
+    "permissions",
+    "questions"
+  ],
+  "additionalProperties": false
+}

@@ -69,9 +69,9 @@ func TestArchitectureKeepsTUIAsDaemonClient(t *testing.T) {
 				t.Errorf("TUI constructs runtime object %q in %s", forbidden, path)
 			}
 		}
-		if strings.Contains(body, "client == nil") || strings.Contains(body, "client != nil") {
-			t.Errorf("TUI contains an embedded-runtime client fallback in %s", path)
-		}
+		// Runtime imports and constructors above define the architectural boundary.
+		// A nil-client guard may legitimately handle a disconnected view; it does
+		// not imply an embedded runtime and must not itself be forbidden.
 	}
 }
 

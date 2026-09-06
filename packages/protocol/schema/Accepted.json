@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "accepted": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/Accepted",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Accepted",
+  "required": [
+    "accepted"
+  ],
+  "additionalProperties": false
+}

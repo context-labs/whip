@@ -135,13 +135,14 @@ func TestProtocolRedactsTerminalInputFromDurableState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	var stored []byte
-	if err := db.QueryRowContext(t.Context(), `SELECT payload_inline FROM commands WHERE client_id=? AND command_id=?`, "terminal-client", "terminal-command").Scan(&stored); err != nil {
+	var count int
+	if err := db.QueryRowContext(t.Context(), `SELECT count(*) FROM commands WHERE client_id=? AND command_id=?`, "terminal-client", "terminal-command").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(stored), secret) || !strings.Contains(string(stored), `"redacted":true`) {
-		t.Fatalf("durable terminal payload = %q", stored)
+	if count != 0 {
+		t.Fatal("terminal input entered the durable command journal")
 	}
+
 	replay, err := client.Replay(t.Context(), ReplayParams{RootID: rootID, Limit: session.MaxEventReplay})
 	if err != nil {
 		t.Fatal(err)

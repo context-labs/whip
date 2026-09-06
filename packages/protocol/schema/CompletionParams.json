@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "prefix": {
+      "type": "string"
+    },
+    "limit": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/CompletionParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CompletionParams",
+  "required": [
+    "root_id",
+    "kind",
+    "prefix",
+    "limit"
+  ],
+  "additionalProperties": false
+}

@@ -119,7 +119,7 @@ func (s *Store) StartAgentTurn(ctx context.Context, rootID, agentID, turnID stri
 		return AgentTurnStart{}, err
 	}
 	_, err = s.insertActorEventTx(ctx, tx, rootID, "agent.turn.started", actorEvent{
-		AgentID: agentID, InboxSeq: inboxSeq, InboxKind: start.Trigger, Phase: "running", Status: "running",
+		AgentID: agentID, TurnID: turnID, InboxSeq: inboxSeq, InboxKind: start.Trigger, Phase: "running", Status: "running",
 	}, stamp)
 	if err != nil {
 		return AgentTurnStart{}, err

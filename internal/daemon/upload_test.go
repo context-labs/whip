@@ -29,8 +29,8 @@ func TestUploadsAcceptEmptyAndMultipleChunks(t *testing.T) {
 		if err := manager.begin("client", begin); err != nil {
 			t.Fatal(err)
 		}
-		for offset := 0; offset < len(test.data); offset += MaxSnapshotChunk {
-			end := min(offset+MaxSnapshotChunk, len(test.data))
+		for offset := 0; offset < len(test.data); offset += MaxContentChunk {
+			end := min(offset+MaxContentChunk, len(test.data))
 			if err := manager.chunk("client", UploadChunkParams{UploadID: test.id, Offset: int64(offset), Data: test.data[offset:end]}); err != nil {
 				t.Fatal(err)
 			}
@@ -116,7 +116,7 @@ func TestUploadAdmissionAndChunkBounds(t *testing.T) {
 	if err := manager.chunk("client", UploadChunkParams{UploadID: "bounded", Offset: 1, Data: data}); err == nil {
 		t.Fatal("out-of-sequence upload chunk was accepted")
 	}
-	if err := manager.chunk("client", UploadChunkParams{UploadID: "bounded", Data: make([]byte, MaxSnapshotChunk+1)}); err == nil {
+	if err := manager.chunk("client", UploadChunkParams{UploadID: "bounded", Data: make([]byte, MaxContentChunk+1)}); err == nil {
 		t.Fatal("oversized upload chunk was accepted")
 	}
 	if _, err := manager.finish(context.Background(), "client", "bounded"); err == nil || !strings.Contains(err.Error(), "incomplete") {

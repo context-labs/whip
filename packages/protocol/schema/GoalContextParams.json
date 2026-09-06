@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "window": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/GoalContextParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GoalContextParams",
+  "additionalProperties": false
+}

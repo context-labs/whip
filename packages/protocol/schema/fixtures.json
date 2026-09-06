@@ -1,0 +1,27 @@
+[
+  {
+    "type": "InitializeParams",
+    "value": {
+      "protocol_major": 2,
+      "build_id": "fixture",
+      "client_kind": "human",
+      "client_id": "browser-fixture"
+    }
+  },
+  {
+    "type": "SubscribeParams",
+    "value": {
+      "root_id": "root-fixture",
+      "subscription_id": "view-fixture",
+      "cursor": "9007199254740993"
+    }
+  },
+  {
+    "type": "ContentHandle",
+    "value": {
+      "reference_id": "ref-fixture",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": "9007199254740993"
+    }
+  }
+]

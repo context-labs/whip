@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "schedule": {
+      "type": "string"
+    },
+    "prompt": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ScheduleCreateParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScheduleCreateParams",
+  "required": [
+    "schedule",
+    "prompt"
+  ],
+  "additionalProperties": false
+}

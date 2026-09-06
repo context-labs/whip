@@ -1,11 +1,11 @@
 package tui
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 func pressKey(m *model, kt rune) *model { return pressMsg(m, keyMsg(kt)) }
@@ -18,13 +18,11 @@ func pressMsg(m *model, msg tea.KeyPressMsg) *model {
 // The reported bug: typing "$go" filtered the skill menu, but tab only moved
 // the selection — the rest of the name never got typed. Tab now completes.
 func TestTabCompletesSkillName(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	os.MkdirAll(filepath.Join(home, ".whip/skills/go-style"), 0o755)
-	os.WriteFile(filepath.Join(home, ".whip/skills/go-style/SKILL.md"),
-		[]byte("---\nname: go-style\ndescription: d\n---\n"), 0o644)
 	m := modelCmdModel()
 	m = typeStr(t, m, "$go-sty")
+	request := &clientCompletion{value: m.input.Value(), rootID: m.sessionID, agentID: m.agentOpen}
+	m.hostCompletion = request
+	m.applyHostCompletion(clientCompletionMsg{request: request, result: daemon.CompletionResult{Candidates: []protocol.CompletionCandidate{{Text: "$go-style", Description: "d"}}}})
 	if m.menu == nil || len(m.menu.cands) != 1 || m.menu.cands[0].Text != "$go-style" {
 		t.Fatalf("menu should hold exactly $go-style: %+v", m.menu)
 	}

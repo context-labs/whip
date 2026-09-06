@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -117,12 +119,12 @@ func TestClientControlCommandsAreActorOwnedAndIdempotent(t *testing.T) {
 		t.Fatalf("empty-history raw cutoff = %d", got)
 	}
 
-	goal := clientCommand(t, root, "tui", "goal", "goal.set", map[string]string{"args": "ship it"})
+	goal := clientCommand(t, root, "tui", "goal", "goal.set", map[string]any{"text": "ship it"})
 	if goal.Status != "succeeded" || goal.Output != "ship it" {
 		t.Fatalf("goal command = %+v", goal)
 	}
-	retry := clientCommand(t, root, "tui", "goal", "goal.set", map[string]string{"args": "ship it"})
-	if retry != goal {
+	retry := clientCommand(t, root, "tui", "goal", "goal.set", map[string]any{"text": "ship it"})
+	if !reflect.DeepEqual(retry, goal) {
 		t.Fatalf("goal retry = %+v, want %+v", retry, goal)
 	}
 	meta, _, err := store.Load(rootID)
@@ -132,7 +134,7 @@ func TestClientControlCommandsAreActorOwnedAndIdempotent(t *testing.T) {
 	if err := store.Save(rootID, 1, []llm.Message{{Role: "system"}, {Role: "user", Content: "listed"}}, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
-	renamed := clientCommand(t, root, "tui", "rename", "session.rename", map[string]string{"args": "Daemon session"})
+	renamed := clientCommand(t, root, "tui", "rename", "session.rename", map[string]any{"title": "Daemon session"})
 	if renamed.Status != "succeeded" || renamed.Output != "Daemon session" {
 		t.Fatalf("rename command = %+v", renamed)
 	}
@@ -140,30 +142,30 @@ func TestClientControlCommandsAreActorOwnedAndIdempotent(t *testing.T) {
 	if listedSessions.Status != "succeeded" || !strings.Contains(listedSessions.Output, "Daemon session") {
 		t.Fatalf("session list = %+v", listedSessions)
 	}
-	opened := clientCommand(t, root, "tui", "open", "session.open", map[string]string{"args": rootID[:8]})
+	opened := clientCommand(t, root, "tui", "open", "session.open", map[string]any{"id": rootID[:8]})
 	if opened.Status != "succeeded" || opened.Output != rootID {
 		t.Fatalf("session open = %+v", opened)
 	}
 
-	created := clientCommand(t, root, "tui", "schedule-create", "schedule.manage", map[string]string{"args": "@every 10m inspect CI"})
-	if created.Status != "succeeded" || created.Output != "schedule 1 created" {
+	created := clientCommand(t, root, "tui", "schedule-create", "schedule.create", map[string]any{"schedule": "@every 10m", "prompt": "inspect CI"})
+	if created.Status != "succeeded" || created.Output != `{"schedule_id":1}` {
 		t.Fatalf("schedule create = %+v", created)
 	}
-	listed := clientCommand(t, root, "tui", "schedule-list", "schedule.manage", map[string]string{"args": "list"})
+	listed := clientCommand(t, root, "tui", "schedule-list", "schedule.list", map[string]any{})
 	if listed.Status != "succeeded" || !strings.Contains(listed.Output, "inspect CI") {
 		t.Fatalf("schedule list = %+v", listed)
 	}
-	cancelled := clientCommand(t, root, "tui", "schedule-cancel", "schedule.manage", map[string]string{"args": "cancel 1"})
-	if cancelled.Status != "succeeded" || cancelled.Output != "schedule 1 cancelled" || len(store.Schedules(rootID)) != 0 {
+	cancelled := clientCommand(t, root, "tui", "schedule-cancel", "schedule.delete", map[string]any{"schedule_id": 1})
+	if cancelled.Status != "succeeded" || cancelled.Output != `{"schedule_id":1}` || len(store.Schedules(rootID)) != 0 {
 		t.Fatalf("schedule cancel = %+v schedules=%+v", cancelled, store.Schedules(rootID))
 	}
 
-	replaced := clientCommand(t, root, "tui", "new-model", "session.model", map[string]string{"args": "other provider"})
+	replaced := clientCommand(t, root, "tui", "new-model", "session.model", map[string]any{"model": "other", "provider": "provider"})
 	if replaced.Status != "succeeded" || replaced.Output != "other @ provider" {
 		t.Fatalf("model control outcome = %+v", replaced)
 	}
-	replacedRetry := clientCommand(t, root, "tui", "new-model", "session.model", map[string]string{"args": "other provider"})
-	if replacedRetry != replaced {
+	replacedRetry := clientCommand(t, root, "tui", "new-model", "session.model", map[string]any{"model": "other", "provider": "provider"})
+	if !reflect.DeepEqual(replacedRetry, replaced) {
 		t.Fatalf("model retry = %+v, want %+v", replacedRetry, replaced)
 	}
 	meta, _, err = store.Load(rootID)
@@ -223,11 +225,15 @@ func TestClientCancelStopsOnlyCurrentTurn(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("turn did not start")
 	}
-	model := clientCommand(t, root, "tui", "model-during-turn", "session.model", map[string]string{"args": "other provider"})
+	model := clientCommand(t, root, "tui", "model-during-turn", "session.model", map[string]any{"model": "other", "provider": "provider"})
 	if model.Status != "failed" || !strings.Contains(model.Error, "operation is running") {
 		t.Fatalf("model command during turn = %+v", model)
 	}
-	cancelled := clientCommand(t, root, "tui", "cancel", "cancel", map[string]string{})
+	target, err := store.ActiveTurn(t.Context(), rootID, root.AgentID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled := clientCommand(t, root, "tui", "cancel", "cancel", map[string]string{"turn_id": target})
 	if cancelled.Status != "succeeded" {
 		t.Fatalf("cancel command = %+v", cancelled)
 	}
@@ -315,8 +321,8 @@ func TestShellCommandLeavesActorResponsiveAndQueuesTurns(t *testing.T) {
 	}{
 		{"shell.run", map[string]string{"command": "true"}},
 		{"history.compact", map[string]string{}},
-		{"goal.from-context", map[string]string{"args": "2"}},
-		{"history.rewind", map[string]string{"args": "1"}},
+		{"goal.from-context", map[string]any{"window": 2}},
+		{"history.rewind", map[string]any{"cut": 1}},
 		{"history.clear", map[string]string{}},
 	} {
 		result := clientCommand(t, root, "tui", fmt.Sprintf("busy-%d", i), test.operation, test.payload)
@@ -330,7 +336,7 @@ func TestShellCommandLeavesActorResponsiveAndQueuesTurns(t *testing.T) {
 	if _, err := root.Snapshot(snapshotCtx); err != nil {
 		t.Fatalf("snapshot blocked behind shell worker: %v", err)
 	}
-	goal := clientCommand(t, root, "tui", "goal-during-shell", "goal.set", map[string]string{"args": "stay responsive"})
+	goal := clientCommand(t, root, "tui", "goal-during-shell", "goal.set", map[string]any{"text": "stay responsive"})
 	if goal.Status != "succeeded" {
 		t.Fatalf("actor command during shell = %+v", goal)
 	}
@@ -466,7 +472,7 @@ func TestClearHistoryAtomicallyDropsDerivedStateAndReleasesSnapshots(t *testing.
 		t.Fatal(err)
 	}
 	result := clientCommand(t, root, "tui", "clear", "history.clear", map[string]string{})
-	if result.Status != "succeeded" || result.Output != "history cleared" {
+	if result.Status != "succeeded" || result.Output != "{}" {
 		t.Fatalf("clear result = %+v", result)
 	}
 	if _, history, err := store.Load(rootID); err != nil || len(history) != 0 {
@@ -511,12 +517,12 @@ func TestGoalFromContextRunsOnceOffActorAndStartsGoal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := clientCommand(t, root, "tui", "goal-context", "goal.from-context", map[string]string{"args": "4"})
+	result := clientCommand(t, root, "tui", "goal-context", "goal.from-context", map[string]any{"window": 4})
 	if result.Status != "succeeded" || result.Output != "ship the daemon-backed client" {
 		t.Fatalf("goal formulation = %+v", result)
 	}
-	retry := clientCommand(t, root, "tui", "goal-context", "goal.from-context", map[string]string{"args": "4"})
-	if retry != result || runner.forms.Load() != 1 {
+	retry := clientCommand(t, root, "tui", "goal-context", "goal.from-context", map[string]any{"window": 4})
+	if !reflect.DeepEqual(retry, result) || runner.forms.Load() != 1 {
 		t.Fatalf("goal retry=%+v formulations=%d", retry, runner.forms.Load())
 	}
 	deadline := time.Now().Add(time.Second)
@@ -560,8 +566,8 @@ func TestTurnSnapshotAndRewindAreDaemonOwnedAndIdempotent(t *testing.T) {
 		t.Fatalf("committed workspace snapshots = %v", snapshots)
 	}
 
-	result := clientCommand(t, root, "tui", "rewind-one", "history.rewind", map[string]string{"args": "1"})
-	if result.Status != "succeeded" || !strings.Contains(result.Output, "restored 1 workspace file") {
+	result := clientCommand(t, root, "tui", "rewind-one", "history.rewind", map[string]any{"cut": 1})
+	if result.Status != "succeeded" || !strings.Contains(result.Output, `"restored_files":1`) {
 		t.Fatalf("rewind result = %+v", result)
 	}
 	if runner.restores.Load() != 1 || len(runner.replaced) != 0 {
@@ -575,8 +581,8 @@ func TestTurnSnapshotAndRewindAreDaemonOwnedAndIdempotent(t *testing.T) {
 		t.Fatalf("rewound history = %+v, %v", history, err)
 	}
 
-	retry := clientCommand(t, root, "tui", "rewind-one", "history.rewind", map[string]string{"args": "1"})
-	if retry != result || runner.restores.Load() != 1 {
+	retry := clientCommand(t, root, "tui", "rewind-one", "history.rewind", map[string]any{"cut": 1})
+	if !reflect.DeepEqual(retry, result) || runner.restores.Load() != 1 {
 		t.Fatalf("stable retry=%+v restore count=%d", retry, runner.restores.Load())
 	}
 }
@@ -596,7 +602,7 @@ func TestGoalRunUsesOneControlCommandAndStartsTheGoalTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := clientCommand(t, root, "tui", "goal-run", "goal.run", map[string]string{"args": "finish it"})
+	result := clientCommand(t, root, "tui", "goal-run", "goal.run", map[string]any{"text": "finish it"})
 	if result.Status != "succeeded" || result.Output != "finish it" {
 		t.Fatalf("goal command = %+v", result)
 	}
@@ -710,24 +716,23 @@ func TestClientControlSurfaceDelegatesEveryAuthorityToDaemon(t *testing.T) {
 		{"workspace-inspect", "workspace.inspect", "", runner.workingDirectory},
 		{"workspace-set", "workspace.set", "nested", "nested"},
 		{"effort", "session.effort", "high", "high"},
-		{"model", "session.model", "", "model @ provider"},
+		{"model", "session.model.get", "", "model @ provider"},
 		{"same-model", "session.model", "model provider", "model @ provider"},
 		{"fork", "session.fork", "control fork", ""},
 		{"agents", "agents.list", "", "child"},
-		{"budget", "budget.cap", root.AgentID() + " tokens 100", `"Limit":100`},
-		{"context", "context.audit", "", rootID},
-		{"terminal", "terminal.input", "", "input delivered"},
-		{"mcp-list", "mcp.control", "list", "alpha"},
-		{"mcp-reconnect", "mcp.control", "alpha reconnect", "alpha: reconnect"},
-		{"mcp-enable", "mcp.control", "alpha enable", "alpha: enable"},
-		{"mcp-disable", "mcp.control", "alpha disable", "alpha: disable"},
-		{"lsp", "lsp.control", "status", "[]"},
-		{"browser", "browser.control", "status", "disabled"},
-		{"computer", "computer.control", "status", "disabled"},
-		{"clear-goal", "goal.set", "clear", ""},
+		{"budget", "budget.cap", root.AgentID() + " tokens 100", `"limit":"100"`},
+		{"terminal", "terminal.input", "", "{}"},
+		{"mcp-list", "mcp.status", "", "alpha"},
+		{"mcp-reconnect", "mcp.reconnect", "alpha", "{}"},
+		{"mcp-enable", "mcp.enable", "alpha", "{}"},
+		{"mcp-disable", "mcp.disable", "alpha", "{}"},
+		{"lsp", "lsp.status", "", "[]"},
+		{"browser", "browser.status", "", `"enabled":false`},
+		{"computer", "computer.status", "", `"enabled":false`},
+		{"clear-goal", "goal.set", "", ""},
 	}
 	for _, test := range tests {
-		payload := map[string]any{"args": test.args}
+		payload := controlTestPayload(test.operation, test.args)
 		if test.operation == "terminal.input" {
 			payload = map[string]any{"id": "terminal-7", "bytes": []byte("yes\n")}
 		}
@@ -785,12 +790,12 @@ func TestClientControlRejectsRootRuntimeMutationDuringTurn(t *testing.T) {
 		{"workspace.set", "nested", "working directory cannot change"},
 		{"session.effort", "high", "effort cannot change"},
 	} {
-		result := clientCommand(t, root, "tui", fmt.Sprintf("busy-mutation-%d", index), test.operation, map[string]string{"args": test.args})
+		result := clientCommand(t, root, "tui", fmt.Sprintf("busy-mutation-%d", index), test.operation, controlTestPayload(test.operation, test.args))
 		if result.Status != "failed" || !strings.Contains(result.Error, test.contains) {
 			t.Fatalf("%s while busy = %+v", test.operation, result)
 		}
 	}
-	result := clientCommand(t, root, "tui", "busy-effort-read", "session.effort", map[string]string{"args": ""})
+	result := clientCommand(t, root, "tui", "busy-effort-read", "session.effort.get", map[string]any{})
 	if result.Status != "succeeded" {
 		t.Fatalf("effort status while busy = %+v", result)
 	}
@@ -824,20 +829,20 @@ func TestClientControlRejectsInvalidActionsDurably(t *testing.T) {
 		{"history.rewind", "not-a-number"},
 		{"session.rename", ""},
 		{"session.open", "missing"},
-		{"schedule.manage", "cancel nope"},
-		{"schedule.manage", "@every nope prompt"},
-		{"schedule.manage", "invalid"},
+		{"schedule.delete", "nope"},
+		{"schedule.create", "@every nope prompt"},
+		{"schedule.create", "invalid"},
 		{"agent.control", ""},
 		{"budget.cap", "missing"},
 		{"budget.cap", root.AgentID() + " tokens nope"},
 		{"capability.revoke", "missing"},
 		{"terminal.input", ""},
-		{"mcp.control", "missing reconnect"},
-		{"mcp.control", "alpha explode"},
+		{"mcp.reconnect", "missing"},
+		{"mcp.explode", "alpha"},
 		{"unsupported", ""},
 	}
 	for i, test := range tests {
-		result := clientCommand(t, root, "tui", fmt.Sprintf("invalid-%d", i), test.operation, map[string]string{"args": test.args})
+		result := clientCommand(t, root, "tui", fmt.Sprintf("invalid-%d", i), test.operation, controlTestPayload(test.operation, test.args))
 		if result.Status != "failed" || result.Error == "" {
 			t.Fatalf("%s %q = %+v", test.operation, test.args, result)
 		}
@@ -885,7 +890,7 @@ func TestProtocolClientCommandsFailClosedWithoutOptionalRunnerCapabilities(t *te
 		{"tool.schema", struct{}{}},
 		{"run.configure", map[string]int{"max_turns": -1}},
 		{"run.configure", struct{}{}},
-		{"workspace.set", map[string]string{"args": "nested"}},
+		{"workspace.set", map[string]any{"path": "nested"}},
 		{"history.clear", struct{}{}},
 	} {
 		result := clientCommand(t, root, "client", fmt.Sprintf("unsupported-%d", i), test.operation, test.payload)
@@ -924,9 +929,9 @@ func TestClientControlReportsUnsupportedRunnerCapabilities(t *testing.T) {
 	}{
 		{"shell.run", map[string]any{"command": "true"}},
 		{"history.compact", map[string]any{}},
-		{"goal.from-context", map[string]any{"args": "2"}},
-		{"history.rewind", map[string]any{"args": "1"}},
-		{"workspace.set", map[string]any{"args": "."}},
+		{"goal.from-context", map[string]any{"window": 2}},
+		{"history.rewind", map[string]any{"cut": 1}},
+		{"workspace.set", map[string]any{"path": "."}},
 		{"history.clear", map[string]any{}},
 		{"terminal.input", map[string]any{"id": "terminal", "bytes": []byte("x")}},
 	}
@@ -936,13 +941,13 @@ func TestClientControlReportsUnsupportedRunnerCapabilities(t *testing.T) {
 			t.Fatalf("%s = %+v", test.operation, result)
 		}
 	}
-	if result := clientCommand(t, root, "tui", "idle-cancel", "cancel", map[string]any{}); result.Status != "succeeded" || result.Output != "already idle" {
+	if result := clientCommand(t, root, "tui", "idle-cancel", "cancel", map[string]any{}); result.Status != "failed" || !strings.Contains(result.Error, "turn ID") {
 		t.Fatalf("idle cancel = %+v", result)
 	}
 	if result := clientCommand(t, root, "tui", "workspace-fallback", "workspace.inspect", map[string]any{}); result.Output != root.meta.CWD {
 		t.Fatalf("workspace fallback = %+v", result)
 	}
-	if result := clientCommand(t, root, "tui", "mcp-fallback", "mcp.control", map[string]any{}); result.Output != "[]" {
+	if result := clientCommand(t, root, "tui", "mcp-fallback", "mcp.status", map[string]any{}); result.Output != "[]" {
 		t.Fatalf("MCP fallback = %+v", result)
 	}
 }
@@ -991,13 +996,13 @@ func TestAsyncClientControlFailuresSettleDurably(t *testing.T) {
 	}
 	tests := []struct {
 		operation string
-		payload   map[string]string
+		payload   any
 		want      string
 	}{
 		{"shell.run", map[string]string{"command": "false"}, "shell failed"},
 		{"history.compact", map[string]string{}, "compact failed"},
-		{"goal.from-context", map[string]string{"args": "2"}, "goal failed"},
-		{"history.rewind", map[string]string{"args": "1"}, "restore failed"},
+		{"goal.from-context", map[string]any{"window": 2}, "goal failed"},
+		{"history.rewind", map[string]any{"cut": 1}, "restore failed"},
 	}
 	for i, test := range tests {
 		result := clientCommand(t, root, "tui", fmt.Sprintf("async-failure-%d", i), test.operation, test.payload)
@@ -1005,7 +1010,7 @@ func TestAsyncClientControlFailuresSettleDurably(t *testing.T) {
 			t.Fatalf("%s = %+v", test.operation, result)
 		}
 		retry := clientCommand(t, root, "tui", fmt.Sprintf("async-failure-%d", i), test.operation, test.payload)
-		if retry != result {
+		if !reflect.DeepEqual(retry, result) {
 			t.Fatalf("%s retry=%+v want=%+v", test.operation, retry, result)
 		}
 	}
@@ -1026,9 +1031,9 @@ func TestMCPImportDefersRuntimeReloadUntilChildrenAreIdle(t *testing.T) {
 	rootID := createRoot(t, store)
 	runtime := &reloadTestRuntime{}
 	runtime.running.Store(true)
-	constructions := 0
+	var constructions atomic.Int32
 	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		constructions++
+		constructions.Add(1)
 		return Components{Runner: &fakeRunner{}, Runtime: runtime}, nil
 	})
 	if err != nil {
@@ -1039,9 +1044,9 @@ func TestMCPImportDefersRuntimeReloadUntilChildrenAreIdle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := clientCommand(t, root, "tui", "mcp-import", "mcp.control", map[string]string{"args": "import claude off"})
-	if result.Status != "succeeded" || !strings.Contains(result.Output, "pending") || !root.reloadPending || constructions != 1 {
-		t.Fatalf("busy import=%+v pending=%t constructions=%d", result, root.reloadPending, constructions)
+	result := clientCommand(t, root, "tui", "mcp-import", "mcp.import.configure", map[string]any{"source": "claude", "enabled": false})
+	if result.Status != "succeeded" || !strings.Contains(result.Output, `"claude":false`) || !root.reloadPending || constructions.Load() != 1 {
+		t.Fatalf("busy import=%+v pending=%t constructions=%d", result, root.reloadPending, constructions.Load())
 	}
 	cfg, err := config.Load()
 	if err != nil || cfg.MCPImport == nil || cfg.MCPImport.Claude == nil || cfg.MCPImport.Claude.Enabled == nil || *cfg.MCPImport.Claude.Enabled {
@@ -1049,8 +1054,19 @@ func TestMCPImportDefersRuntimeReloadUntilChildrenAreIdle(t *testing.T) {
 	}
 	runtime.running.Store(false)
 	root.applyPendingReloadAfterAgent()
-	if root.reloadPending || constructions != 2 {
-		t.Fatalf("idle reload pending=%t constructions=%d", root.reloadPending, constructions)
+	deadline := time.Now().Add(time.Second)
+	for {
+		ready, err := routeControlValue(root, t.Context(), func(context.Context) (bool, error) { return !root.reloadPending && !root.clientBusy, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ready && constructions.Load() == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("idle reload ready=%t constructions=%d", ready, constructions.Load())
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -1071,7 +1087,7 @@ func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(
 		if err != nil {
 			t.Fatal(err)
 		}
-		result := clientCommand(t, root, "tui", "effort-off", "session.effort", map[string]string{"args": "off", "persist_default": "true"})
+		result := clientCommand(t, root, "tui", "effort-off", "session.effort", map[string]any{"effort": "off", "persist_default": true})
 		meta, _, loadErr := store.Load(rootID)
 		cfg, configErr := config.Load()
 		if result.Status != "succeeded" || runner.effort != "" || loadErr != nil || configErr != nil || meta.Effort != "off" || cfg.DefaultEffort != "off" {
@@ -1109,9 +1125,7 @@ func TestEffortControlPreservesExplicitOffAndGlobalDefaultOnCompatibilityChange(
 		if err != nil {
 			t.Fatal(err)
 		}
-		result := clientCommand(t, root, "tui", "model-session-only", "session.model", map[string]string{
-			"args": "limited-model limited-provider", "persist_default": "false",
-		})
+		result := clientCommand(t, root, "tui", "model-session-only", "session.model", map[string]any{"model": "limited-model", "provider": "limited-provider", "persist_default": false})
 		meta, _, loadErr := store.Load(rootID)
 		saved, configErr := config.Load()
 		if result.Status != "succeeded" || loadErr != nil || configErr != nil || meta.Effort != "off" || saved.DefaultEffort != "high" {
@@ -1166,7 +1180,7 @@ func TestModelReplacementRejectsUnsafeFactories(t *testing.T) {
 			if test.clearFactory {
 				root.factory = nil
 			}
-			result := clientCommand(t, root, "tui", "replace", "session.model", map[string]string{"args": "other provider"})
+			result := clientCommand(t, root, "tui", "replace", "session.model", map[string]any{"model": "other", "provider": "provider"})
 			if result.Status != "failed" || !strings.Contains(result.Error, test.want) {
 				t.Fatalf("replacement = %+v, want %q", result, test.want)
 			}
@@ -1250,29 +1264,29 @@ func TestProductionAgentRunnerControlAdapters(t *testing.T) {
 		t.Fatal("configured services were absent from the production adapter")
 	}
 	controlSession := &Session{runner: runner}
-	if output, err := controlSession.clientBrowser("status"); err != nil || output == "" {
+	if output, err := controlSession.clientBrowser("browser.status", ""); err != nil || output == "" {
 		t.Fatalf("browser status=%q err=%v", output, err)
 	}
-	if output, err := controlSession.clientBrowser("driver chromedp"); err != nil || output != browser.DriverChromedp {
+	if output, err := controlSession.clientBrowser("browser.set_driver", "chromedp"); err != nil || !strings.Contains(output, `"driver":"chromedp"`) {
 		t.Fatalf("browser driver=%q err=%v", output, err)
 	}
-	if _, err := controlSession.clientBrowser("invalid"); err == nil {
+	if _, err := controlSession.clientBrowser("browser.set_driver", "invalid"); err == nil {
 		t.Fatal("invalid browser driver was accepted")
 	}
-	if output, err := controlSession.clientComputer("allow Terminal"); err != nil || output != "Terminal: allow" {
+	if output, err := controlSession.clientComputer("computer.allow", "Terminal"); err != nil || !strings.Contains(output, `"terminal"`) {
 		t.Fatalf("computer allow=%q err=%v", output, err)
 	}
-	if output, err := controlSession.clientComputer("deny Preview"); err != nil || output != "Preview: deny" {
+	if output, err := controlSession.clientComputer("computer.deny", "Preview"); err != nil || !strings.Contains(output, `"preview"`) {
 		t.Fatalf("computer deny=%q err=%v", output, err)
 	}
-	if _, err := controlSession.clientComputer("allow"); err == nil {
+	if _, err := controlSession.clientComputer("computer.allow", ""); err == nil {
 		t.Fatal("invalid computer action was accepted")
 	}
-	lspPayload := json.RawMessage(`{"args":"status"}`)
-	if output, err := controlSession.applyClientCommand(t.Context(), "lsp.control", lspPayload); err != nil || !strings.Contains(output, "[") {
+	lspPayload := json.RawMessage(`{}`)
+	if output, err := controlSession.applyClientCommand(t.Context(), "lsp.status", lspPayload); err != nil || !strings.Contains(output, "[") {
 		t.Fatalf("LSP status=%q err=%v", output, err)
 	}
-	if _, err := controlSession.applyClientCommand(t.Context(), "lsp.control", json.RawMessage(`{"args":"restart"}`)); err == nil {
+	if _, err := controlSession.applyClientCommand(t.Context(), "lsp.restart", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("invalid LSP action was accepted")
 	}
 	emptyRunner := &AgentSession{agent: &agent.Agent{}}
@@ -1326,15 +1340,15 @@ func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
 		operation string
 		payload   string
 	}{
-		{"goal.set", `{"args":"persist"}`},
-		{"workspace.set", `{"args":"."}`},
-		{"session.effort", `{"args":"high"}`},
-		{"session.rename", `{"args":"title"}`},
+		{"goal.set", `{"text":"persist"}`},
+		{"workspace.set", `{"path":"."}`},
+		{"session.effort", `{"effort":"high"}`},
+		{"session.rename", `{"title":"title"}`},
 		{"history.clear", `{}`},
-		{"schedule.manage", `{"args":"list"}`},
+		{"schedule.list", `{}`},
 		{"session.list", `{}`},
 		{"context.audit", `{}`},
-		{"budget.cap", fmt.Sprintf(`{"args":%q}`, root.AgentID()+" tokens 1")},
+		{"budget.cap", fmt.Sprintf(`{"id":%q,"kind":"tokens","limit":"1"}`, root.AgentID())},
 	} {
 		if _, err := root.applyClientCommand(t.Context(), test.operation, json.RawMessage(test.payload)); err == nil {
 			t.Fatalf("closed store accepted %s", test.operation)
@@ -1365,5 +1379,65 @@ func TestClientControlStoreFailuresAndAsyncRecovery(t *testing.T) {
 	}
 	if _, err := root.completeClientCommand(completion); err == nil {
 		t.Fatal("goal completion ignored the closed store")
+	}
+}
+
+func controlTestPayload(operation, input string) map[string]any {
+	p := map[string]any{}
+	switch operation {
+	case "workspace.set":
+		p["path"] = input
+	case "session.effort":
+		p["effort"] = input
+	case "goal.set", "goal.run":
+		p["text"] = input
+	case "session.rename", "session.fork":
+		p["title"] = input
+	case "session.open", "agent.control", "agent.delete", "capability.revoke":
+		p["id"] = input
+	case "session.model":
+		f := strings.Fields(input)
+		if len(f) > 0 {
+			p["model"] = f[0]
+		}
+		if len(f) > 1 {
+			p["provider"] = f[1]
+		}
+	case "goal.from-context":
+		p["window"], _ = strconv.Atoi(input)
+	case "history.rewind":
+		p["cut"], _ = strconv.Atoi(input)
+	case "schedule.delete":
+		p["schedule_id"], _ = strconv.Atoi(input)
+	case "schedule.create":
+		f := strings.Fields(input)
+		if len(f) > 2 {
+			p["schedule"] = strings.Join(f[:2], " ")
+			p["prompt"] = strings.Join(f[2:], " ")
+		}
+	case "budget.cap":
+		f := strings.Fields(input)
+		if len(f) == 3 {
+			p["id"], p["kind"], p["limit"] = f[0], f[1], f[2]
+		}
+	case "mcp.reconnect", "mcp.enable", "mcp.disable":
+		p["name"] = input
+	}
+	return p
+}
+
+func TestRuntimeActionsRejectRemovedArgumentsAndUnavailableMutations(t *testing.T) {
+	for _, test := range []struct{ name, operation, payload string }{
+		{"removed arguments", "goal.set", `{"args":"silently cleared before validation"}`},
+		{"unavailable browser mutation", "browser.set_driver", `{"driver":"rod"}`},
+		{"unavailable computer mutation", "computer.allow", `{"app":"Terminal"}`},
+		{"unavailable MCP mutation", "mcp.enable", `{"name":"missing"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := &Session{}
+			if _, err := root.applyClientCommand(t.Context(), test.operation, json.RawMessage(test.payload)); err == nil {
+				t.Fatal("invalid or unavailable action succeeded")
+			}
+		})
 	}
 }

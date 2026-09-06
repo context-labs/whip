@@ -9,14 +9,18 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
+	"runtime"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -26,6 +30,7 @@ const (
 )
 
 type ServerOptions struct {
+	Network               NetworkOptions
 	BuildID               string
 	Generation            int64
 	PID                   int
@@ -42,11 +47,16 @@ type ServerOptions struct {
 }
 
 type Server struct {
-	daemon   *Daemon
-	options  ServerOptions
-	ctx      context.Context
-	cancel   context.CancelFunc
-	listener net.Listener
+	providers       *ProviderService
+	daemon          *Daemon
+	options         ServerOptions
+	ctx             context.Context
+	cancel          context.CancelFunc
+	listener        net.Listener
+	httpServer      *http.Server
+	networkListener net.Listener
+	networkEndpoint string
+	runtimeID       string
 
 	mu        sync.Mutex
 	clients   map[*serverConn]struct{}
@@ -59,19 +69,21 @@ type Server struct {
 }
 
 type serverConn struct {
-	server   *Server
-	conn     net.Conn
-	id       string
-	client   InitializeParams
-	out      chan []byte
-	inFlight chan struct{}
+	ctx           context.Context
+	cancel        context.CancelFunc
+	subscriptions map[string]*subscription
+	server        *Server
+	conn          messageTransport
+	id            string
+	client        InitializeParams
+	out           chan []byte
+	inFlight      chan struct{}
 
 	mu        sync.Mutex
 	authMu    sync.Mutex
 	outBytes  int64
 	nonce     []byte
 	lifecycle int64
-	snapshots map[string][]SnapshotChunk
 	done      chan struct{}
 	closed    bool
 	once      sync.Once
@@ -106,8 +118,13 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 		options.StartedAt = time.Now().UTC()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	runtimeID, err := value.store.RuntimeID(ctx)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	return &Server{
-		daemon: value, options: options, ctx: ctx, cancel: cancel,
+		daemon: value, options: options, ctx: ctx, cancel: cancel, runtimeID: runtimeID, providers: NewProviderService(ctx, strconv.FormatInt(options.Generation, 10)),
 		clients: make(map[*serverConn]struct{}), slots: make(chan struct{}, options.MaxConnections),
 		uploads: newUploadManager(value.store, options.RuntimeDir),
 	}, nil
@@ -135,6 +152,9 @@ func (s *Server) Serve(listener net.Listener) error {
 	s.listener = listener
 	s.lifeMu.Unlock()
 	if err := s.daemon.ResumeActive(s.ctx); err != nil {
+		return err
+	}
+	if err := s.startNetwork(); err != nil {
 		return err
 	}
 	for {
@@ -170,6 +190,9 @@ func (s *Server) Close() error {
 		if s.listener != nil {
 			err = s.listener.Close()
 		}
+		if s.httpServer != nil {
+			err = errors.Join(err, s.httpServer.Close())
+		}
 		s.lifeMu.Unlock()
 		s.mu.Lock()
 		connections := make([]*serverConn, 0, len(s.clients))
@@ -181,6 +204,7 @@ func (s *Server) Close() error {
 			connection.close()
 		}
 		s.uploads.abortClient("")
+		s.providers.Close()
 		s.wg.Wait()
 		err = errors.Join(err, s.daemon.Close())
 	})
@@ -188,57 +212,71 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) serveConn(raw net.Conn) {
+	s.serveTransport(newUnixMessageTransport(raw))
+}
+
+func (s *Server) serveTransport(raw messageTransport) {
 	nonce, err := randomNonce()
 	if err != nil {
 		_ = raw.Close()
 		return
 	}
+	ctx, cancel := context.WithCancel(s.ctx)
 	connection := &serverConn{
+		ctx: ctx, cancel: cancel, subscriptions: make(map[string]*subscription),
 		server: s, conn: raw, id: hex.EncodeToString(nonce[:16]), out: make(chan []byte, s.options.MaxOutbound),
-		inFlight: make(chan struct{}, s.options.MaxInFlight), nonce: nonce, snapshots: make(map[string][]SnapshotChunk),
+		inFlight: make(chan struct{}, s.options.MaxInFlight), nonce: nonce,
 		done: make(chan struct{}),
 	}
 	defer connection.close()
 	_ = raw.SetReadDeadline(time.Now().Add(s.options.InitializationTimeout))
-	reader := bufio.NewReaderSize(raw, MaxFrameSize)
-	frame, err := readProtocolFrame(reader)
+	frame, err := raw.ReadMessage()
 	if err != nil {
 		return
 	}
 	message, err := decodeFrame(frame)
 	if err != nil || message.Method != "initialize" || len(message.ID) == 0 {
-		_ = writeProtocolMessage(raw, rpcMessage{ID: message.ID, Error: rpcFailure(-32600, "initialize must be the first request")})
+		_ = writeTransportMessage(raw, rpcMessage{ID: message.ID, Error: rpcFailure(-32600, "initialize must be the first request")})
+		return
+	}
+	if err := protocol.ValidateRPC("initialize", message.Params); err != nil {
+		_ = writeTransportMessage(raw, rpcMessage{ID: message.ID, Error: rpcFailure(-32602, err.Error())})
 		return
 	}
 	var initialize InitializeParams
 	if err := json.Unmarshal(message.Params, &initialize); err != nil {
-		_ = writeProtocolMessage(raw, rpcMessage{ID: message.ID, Error: rpcFailure(-32602, "invalid initialize params")})
+		_ = writeTransportMessage(raw, rpcMessage{ID: message.ID, Error: rpcFailure(-32602, "invalid initialize params")})
 		return
 	}
 	if err := s.register(connection, initialize); err != nil {
-		_ = writeProtocolMessage(raw, rpcMessage{ID: message.ID, Error: rpcFailure(-32001, err.Error())})
+		_ = writeTransportMessage(raw, rpcMessage{ID: message.ID, Error: rpcFailure(-32001, err.Error())})
 		return
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	if err := writeProtocolMessage(raw, rpcMessage{ID: message.ID, Result: InitializeResult{
-		ProtocolMajor: ProtocolMajor, BuildID: s.options.BuildID, Generation: s.options.Generation,
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "identities", "history_pages", "collections", "host_configuration", "workspace_completion"}
+	negotiated := []string{}
+	for _, feature := range initialize.Capabilities {
+		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {
+			negotiated = append(negotiated, feature)
+		}
+	}
+	if err := writeTransportMessage(raw, rpcMessage{ID: message.ID, Result: InitializeResult{
+		Operations: protocol.Operations(), NegotiatedCapabilities: negotiated,
+		Limits:        protocol.ProtocolLimits{FrameBytes: MaxFrameSize, Connections: s.options.MaxConnections, InFlightRequests: s.options.MaxInFlight, OutboundMessages: s.options.MaxOutbound, OutboundBytes: s.options.MaxOutboundBytes, RootSubscriptions: MaxSubscriptions, ContentChunkBytes: MaxContentChunk, UploadBytes: MaxUploadSize},
+		ProtocolMajor: ProtocolMajor, ProtocolMinor: ProtocolMinor, RuntimeID: s.runtimeID, ConnectionID: connection.id, HostPlatform: runtime.GOOS, HostArchitecture: runtime.GOARCH, NetworkEndpoint: s.networkEndpoint, BuildID: s.options.BuildID, Generation: s.options.Generation,
 		PID: s.options.PID, StartedAt: s.options.StartedAt.Format(time.RFC3339Nano),
-		Capabilities: []string{"commands", "events", "snapshots", "uploads", "identities"}, Nonce: connection.nonceValue(),
+		Capabilities: capabilities, Nonce: connection.nonceValue(),
 	}}); err != nil {
 		return
 	}
 	if !s.goWorker(connection.writeLoop) {
 		return
 	}
-	for rootID, cursor := range initialize.Cursors {
-		if !s.goWorker(func() { s.pumpEvents(connection, rootID, cursor) }) {
-			return
-		}
-	}
+
 	for {
 		_ = raw.SetReadDeadline(time.Now().Add(s.options.ClientIdleTimeout))
-		frame, err := readProtocolFrame(reader)
+		frame, err := raw.ReadMessage()
 		if err != nil {
 			return
 		}
@@ -309,36 +347,122 @@ func (s *Server) unregister(connection *serverConn) {
 }
 
 func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCError) {
+	if _, known := protocol.Lookup(request.Method); !known {
+		return nil, rpcFailure(-32601, "unsupported operation")
+	}
+	if err := protocol.ValidateRPC(request.Method, request.Params); err != nil {
+		return nil, rpcFailure(-32602, err.Error())
+	}
+	if result, failure, handled := s.handleProvider(connection, request); handled {
+		return result, failure
+	}
+
 	switch request.Method {
+	case "sessions.list":
+		var params protocol.SessionCatalogParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, err.Error())
+		}
+		result, err := s.sessionCatalog(connection.ctx, params)
+		return result, rpcFromError(err)
+	case "sessions.revision":
+		result, err := s.daemon.store.SessionCatalogRevision(connection.ctx)
+		return result, rpcFromError(err)
+	case "workspace.complete":
+		var params protocol.CompletionParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, err.Error())
+		}
+		result, err := s.completeWorkspace(connection.ctx, params)
+		return result, rpcFromError(err)
+	case "root.collection":
+		var params protocol.RootCollectionParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, err.Error())
+		}
+		result, err := s.rootCollection(connection.ctx, params)
+		return result, rpcFromError(err)
+	case "content.read":
+		var params protocol.ContentReadParams
+		if err := decodeProviderParams(request.Params, &params); err != nil || params.Offset < 0 || params.Limit < 1 || params.Limit > MaxContentChunk {
+			return nil, rpcFailure(-32602, "invalid bounded content read")
+		}
+		data, meta, err := s.daemon.store.ReadContent(connection.ctx, params.ReferenceID, params.RootID, params.AgentID, params.Offset, params.Limit)
+		return protocol.ContentReadResult{Data: data, Content: ContentHandle{ReferenceID: meta.ReferenceID, Digest: meta.Digest, Size: meta.Size, MediaType: meta.MediaType, Source: meta.Source}}, rpcFromError(err)
+	case "operation.invoke":
+		var params protocol.QueryParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, "invalid operation params")
+		}
+		result, err := s.invoke(connection.ctx, params)
+		return result, rpcFromError(err)
+	case "query":
+		var params protocol.QueryParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, "invalid query params")
+		}
+		result, err := s.query(connection.ctx, params)
+		return result, rpcFromError(err)
 	case "daemon.ping":
-		return map[string]any{"generation": s.options.Generation, "build_id": s.options.BuildID}, nil
-	case "command":
+		return protocol.PingResult{Generation: s.options.Generation, BuildID: s.options.BuildID}, nil
+	case "command.submit":
 		var params CommandParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid command params")
 		}
-		result, err := s.command(connection, params)
+		_, err := s.command(connection, params)
+		if err != nil {
+			return nil, rpcFromError(err)
+		}
+		record, err := s.daemon.store.LoadCommand(s.ctx, connection.client.ClientID, params.CommandID)
+		result, err := s.commandRecordResult(s.ctx, record, err)
+		return result, rpcFromError(err)
+	case "events.subscribe":
+		var params SubscribeParams
+		if err := json.Unmarshal(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, "invalid subscription")
+		}
+		result, err := s.subscribe(connection, params)
+		return result, rpcFromError(err)
+	case "events.unsubscribe":
+		var params UnsubscribeParams
+		if err := json.Unmarshal(request.Params, &params); err != nil || params.SubscriptionID == "" {
+			return nil, rpcFailure(-32602, "subscription ID is required")
+		}
+		connection.unsubscribe(params.SubscriptionID)
+		return struct{}{}, nil
+	case "command.status":
+		var params CommandStatusParams
+		if err := json.Unmarshal(request.Params, &params); err != nil || params.CommandID == "" {
+			return nil, rpcFailure(-32602, "command ID is required")
+		}
+		record, err := s.daemon.store.LoadCommand(connection.ctx, connection.client.ClientID, params.CommandID)
+		result, err := s.commandRecordResult(connection.ctx, record, err)
 		return result, rpcFromError(err)
 	case "events.replay":
 		var params ReplayParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid replay params")
 		}
-		result, err := s.replay(params)
+		result, err := s.replayContext(connection.ctx, params)
 		return result, rpcFromError(err)
-	case "snapshot":
+	case "root.snapshot":
 		var params SnapshotParams
-		if err := json.Unmarshal(request.Params, &params); err != nil {
+		if err := decodeProviderParams(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid snapshot params")
 		}
-		result, err := s.snapshot(connection, params.RootID)
-		return result, rpcFromError(err)
-	case "snapshot.chunk":
-		var params SnapshotChunkParams
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			return nil, rpcFailure(-32602, "invalid snapshot chunk request")
+		root, err := s.daemon.Open(params.RootID)
+		if err != nil {
+			return nil, rpcFromError(err)
 		}
-		result, err := connection.snapshotChunk(params)
+		result, err := root.SnapshotView(connection.ctx)
+		return result, rpcFromError(err)
+	case "history.page":
+		var params HistoryPageParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, "invalid history params")
+		}
+		result, err := s.historyPage(connection.ctx, params)
 		return result, rpcFromError(err)
 	case "provider.validate":
 		var params ProviderValidateParams
@@ -391,25 +515,29 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 			return nil, rpcFailure(-32602, "invalid permission decision")
 		}
 		if err := s.verifyPrivileged(connection, request.Method, params.Decision, params.Signature); err != nil {
-			return nil, rpcFromError(err)
+			return nil, rpcFailure(-32003, err.Error())
 		}
-		root, err := s.daemon.Open(params.Decision.RootID)
+		var decision PermissionDecision
+		if err := decodeProviderParams(params.Decision, &decision); err != nil {
+			return nil, rpcFailure(-32602, "invalid permission decision")
+		}
+		root, err := s.daemon.Open(decision.RootID)
 		if err != nil {
 			return nil, rpcFromError(err)
 		}
-		payload, err := json.Marshal(params.Decision)
+		payload, err := json.Marshal(decision)
 		if err != nil {
 			return nil, rpcFromError(err)
 		}
-		digest, err := requestDigest(string(session.CommandScopeRoot), params.Decision.RootID, "permission.decide", payload)
+		digest, err := requestDigest(string(session.CommandScopeRoot), decision.RootID, "permission.decide", payload)
 		if err != nil {
 			return nil, rpcFromError(err)
 		}
 		ticket, err := root.DecidePermissionCommand(s.ctx, session.CommandAdmission{
-			ClientID: connection.client.ClientID, CommandID: params.Decision.CommandID, RequestDigest: digest,
+			ClientID: connection.client.ClientID, CommandID: decision.CommandID, RequestDigest: digest,
 			Payload: session.RuntimePayload{Data: payload, MediaType: "application/json", Source: "permission decision"},
-		}, params.Decision.PermissionID, capability.Decision{
-			Allow: params.Decision.Allow, PrincipalID: connection.client.ClientID, Reason: params.Decision.Reason, Remember: params.Decision.Remember,
+		}, decision.PermissionID, capability.Decision{
+			Allow: decision.Allow, PrincipalID: connection.client.ClientID, Reason: decision.Reason, Remember: decision.Remember,
 		})
 		if err != nil {
 			return nil, rpcFromError(err)
@@ -424,9 +552,21 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 			return nil, rpcFailure(-32602, "invalid permission mode")
 		}
 		if err := s.verifyPrivileged(connection, request.Method, params.Command, params.Signature); err != nil {
+			return nil, rpcFailure(-32003, err.Error())
+		}
+		var command CommandParams
+		if err := decodeProviderParams(params.Command, &command); err != nil {
+			return nil, rpcFailure(-32602, "invalid permission command")
+		}
+		result, err := s.commandAuthorized(connection, command, true)
+		if err != nil {
 			return nil, rpcFromError(err)
 		}
-		result, err := s.commandAuthorized(connection, params.Command, true)
+		record, loadErr := s.daemon.store.LoadCommand(s.ctx, connection.client.ClientID, command.CommandID)
+		if loadErr != nil {
+			return nil, rpcFromError(loadErr)
+		}
+		result, err = s.commandRecordResult(s.ctx, record, nil)
 		if err != nil {
 			return nil, rpcFromError(err)
 		}
@@ -442,6 +582,12 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 }
 
 func (s *Server) commandAuthorized(connection *serverConn, params CommandParams, automaticPermissionAuthorized bool) (CommandResult, error) {
+	if metadata, ok := protocol.LookupRuntime(params.Operation); !ok || metadata.Execution != protocol.Command {
+		return CommandResult{}, rpcFailure(-32601, "operation is not a command")
+	}
+	if err := protocol.ValidateRuntime(params.Operation, params.Payload); err != nil {
+		return CommandResult{}, rpcFailure(-32602, err.Error())
+	}
 	if params.CommandID == "" || params.Operation == "" {
 		return CommandResult{}, errors.New("command ID and operation are required")
 	}
@@ -450,7 +596,7 @@ func (s *Server) commandAuthorized(connection *serverConn, params CommandParams,
 		return CommandResult{}, err
 	}
 	if params.Scope == string(session.CommandScopeDaemon) {
-		if params.Operation != "session.create" && params.Operation != "session.list" && params.Operation != "session.delete" && params.Operation != "daemon.checkpoint" {
+		if params.Operation != "session.create" && params.Operation != "session.delete" && params.Operation != "daemon.checkpoint" {
 			return CommandResult{}, fmt.Errorf("unsupported daemon command %q", params.Operation)
 		}
 		if params.Operation == "daemon.checkpoint" {
@@ -461,7 +607,7 @@ func (s *Server) commandAuthorized(connection *serverConn, params CommandParams,
 			if err != nil {
 				return CommandResult{}, err
 			}
-			output, err := s.daemon.store.ResolveRuntimeValue(s.ctx, "", record.Outcome)
+			output, err := s.daemon.store.ResolveRuntimeValue(s.ctx, record.RootID, record.Outcome)
 			if err == nil {
 				connection.armLifecycle(s.options.Generation)
 			}
@@ -471,21 +617,7 @@ func (s *Server) commandAuthorized(connection *serverConn, params CommandParams,
 			ClientID: connection.client.ClientID, CommandID: params.CommandID, RequestDigest: digest,
 			Payload: session.RuntimePayload{Data: params.Payload, MediaType: "application/json", Source: params.Operation},
 		}
-		if params.Operation == "session.list" {
-			var payload struct {
-				Limit int `json:"limit"`
-			}
-			if len(params.Payload) > 0 {
-				if err := json.Unmarshal(params.Payload, &payload); err != nil {
-					return CommandResult{}, errors.New("invalid session list payload")
-				}
-			}
-			if payload.Limit == 0 {
-				payload.Limit = 50
-			}
-			record, err := s.daemon.control.ListSessions(s.ctx, admission, payload.Limit)
-			return s.commandRecordResult(record, err)
-		}
+
 		if params.Operation == "session.delete" {
 			var payload struct {
 				RootID string `json:"root_id"`
@@ -493,8 +625,8 @@ func (s *Server) commandAuthorized(connection *serverConn, params CommandParams,
 			if err := json.Unmarshal(params.Payload, &payload); err != nil || payload.RootID == "" {
 				return CommandResult{}, errors.New("invalid session delete payload")
 			}
-			record, err := s.daemon.control.DeleteSession(s.ctx, admission, payload.RootID, s.daemon.DeleteSession)
-			return s.commandRecordResult(record, err)
+			record, err := s.daemon.control.AcceptDeleteSession(s.ctx, admission, payload.RootID, s.daemon.DeleteSession)
+			return s.commandRecordResult(s.ctx, record, err)
 		}
 		var create CreateSession
 		if err := json.Unmarshal(params.Payload, &create); err != nil {
@@ -504,7 +636,7 @@ func (s *Server) commandAuthorized(connection *serverConn, params CommandParams,
 		if err != nil {
 			return CommandResult{}, err
 		}
-		output, err := s.daemon.store.ResolveRuntimeValue(s.ctx, "", record.Outcome)
+		output, err := s.daemon.store.ResolveRuntimeValue(s.ctx, record.RootID, record.Outcome)
 		return CommandResult{CommandID: params.CommandID, IngressSeq: record.IngressSeq, Status: record.Status, Output: string(output)}, err
 	}
 	if params.Scope != string(session.CommandScopeRoot) {
@@ -529,37 +661,9 @@ func (s *Server) commandAuthorized(connection *serverConn, params CommandParams,
 		if !isClientOperation(params.Operation) {
 			return CommandResult{}, fmt.Errorf("unsupported root command %q", params.Operation)
 		}
-		storedPayload := params.Payload
-		switch params.Operation {
-		case "terminal.input":
-			var input clientActionPayload
-			if err := json.Unmarshal(params.Payload, &input); err != nil {
-				return CommandResult{}, errors.New("invalid terminal input payload")
-			}
-			storedPayload, _ = json.Marshal(struct {
-				ID       string `json:"id"`
-				Redacted bool   `json:"redacted"`
-			}{ID: input.ID, Redacted: true})
-		case "mcp.attach":
-			var input struct {
-				Servers map[string]json.RawMessage `json:"servers"`
-			}
-			if err := json.Unmarshal(params.Payload, &input); err != nil {
-				return CommandResult{}, errors.New("invalid MCP attachment payload")
-			}
-			names := make([]string, 0, len(input.Servers))
-			for name := range input.Servers {
-				names = append(names, name)
-			}
-			slices.Sort(names)
-			storedPayload, _ = json.Marshal(struct {
-				Names    []string `json:"names"`
-				Redacted bool     `json:"redacted"`
-			}{Names: names, Redacted: true})
-		}
-		return root.ClientCommand(s.ctx, session.CommandAdmission{
+		return root.AcceptClientCommand(s.ctx, session.CommandAdmission{
 			ClientID: connection.client.ClientID, CommandID: params.CommandID, Kind: params.Operation, RequestDigest: digest,
-			Payload: session.RuntimePayload{Data: storedPayload, MediaType: "application/json", Source: params.Operation},
+			Payload: session.RuntimePayload{Data: params.Payload, MediaType: "application/json", Source: params.Operation},
 		}, params.Operation, params.Payload)
 	}
 	var payload SubmitPayload
@@ -572,125 +676,105 @@ func (s *Server) commandAuthorized(connection *serverConn, params CommandParams,
 		commandKind = params.Operation + ".parts"
 		commandPayload = session.RuntimePayload{Data: params.Payload, MediaType: "application/json", Source: commandKind}
 	}
-	admission, receipt, err := root.AdmitCommand(s.ctx, session.CommandAdmission{
-		ClientID: connection.client.ClientID, CommandID: params.CommandID, Kind: commandKind, RequestDigest: digest,
+	admission, err := root.AcceptCommand(s.ctx, session.CommandAdmission{
+		ClientID: connection.client.ClientID, CommandID: params.CommandID, Kind: commandKind, Operation: params.Operation, RequestDigest: digest,
 		Payload: commandPayload,
 	})
 	if err != nil {
 		return CommandResult{}, err
 	}
-	completion, err := receipt.Wait(s.ctx)
-	if err != nil {
-		return CommandResult{}, err
-	}
-	result := CommandResult{
-		CommandID: params.CommandID, IngressSeq: admission.Command.IngressSeq,
-		Status: admission.Command.Status, Output: completion.Output,
-	}
-	if completion.Err != nil {
-		if admission.Command.Status == "queued" || admission.Command.Status == "running" || admission.Command.Status == "waiting" {
-			result.Status = "failed"
-		}
-		result.Error = completion.Err.Error()
-	} else {
-		result.Status = "succeeded"
-	}
-	return result, nil
+	return s.commandRecordResult(s.ctx, admission.Command, nil)
 }
 
-func (s *Server) commandRecordResult(record session.CommandRecord, actionErr error) (CommandResult, error) {
-	output, resolveErr := s.daemon.store.ResolveRuntimeValue(s.ctx, "", record.Outcome)
-	result := CommandResult{
-		CommandID: record.CommandID, IngressSeq: record.IngressSeq,
-		Status: record.Status, Output: string(output),
-	}
+func (s *Server) commandRecordResult(ctx context.Context, record session.CommandRecord, actionErr error) (CommandResult, error) {
 	if actionErr != nil {
-		result.Error = actionErr.Error()
+		return CommandResult{}, actionErr
 	}
+	if record.Outcome.ReferenceID != "" && record.Status == "succeeded" {
+		value := record.Outcome
+		return CommandResult{Operation: record.Operation, CommandID: record.CommandID, IngressSeq: record.IngressSeq, Status: record.Status, Content: &ContentHandle{ReferenceID: value.ReferenceID, Digest: value.Digest, Size: value.Size, MediaType: value.MediaType, Source: value.Source}}, nil
+	}
+	if record.Scope == session.CommandScopeRoot && record.RootID != "" && record.Status == "running" && (record.IngressSeq > 0 || record.Operation == "shell.run" || record.Operation == "tool.call") {
+		waiting, err := s.daemon.store.CommandPermissionWaiting(ctx, record)
+		if err != nil {
+			return CommandResult{}, err
+		}
+		root, err := s.daemon.Open(record.RootID)
+		if err != nil {
+			return CommandResult{}, err
+		}
+		for _, question := range root.questions.open() {
+			if question.AgentID == root.authority.AgentID {
+				waiting = true
+			}
+		}
+		if waiting {
+			record.Status = "waiting"
+		}
+	}
+	output, resolveErr := s.daemon.store.ResolveRuntimeValue(ctx, record.RootID, record.Outcome)
+	result := CommandResult{CommandID: record.CommandID, Operation: record.Operation, IngressSeq: record.IngressSeq, Status: record.Status}
+	if record.Status == "failed" || record.Status == "cancelled" || record.Status == "interrupted" {
+		if len(output) > 0 {
+			var failure RPCError
+			if err := json.Unmarshal(output, &failure); err != nil {
+				return result, err
+			}
+			result.Failure = &failure
+		}
+		if result.Failure == nil {
+			result.Failure = rpcFailure(-32000, "command is "+record.Status)
+		}
+	} else if len(output) > 0 {
+		result.Result = json.RawMessage(output)
+	}
+	result.Output, result.Error = decodeCommandPresentation(record.Operation, output, record.Status)
+
 	return result, errors.Join(actionErr, resolveErr)
 }
 
 func (s *Server) replay(params ReplayParams) (ReplayResult, error) {
+	return s.replayContext(s.ctx, params)
+}
+
+func (s *Server) replayContext(ctx context.Context, params ReplayParams) (ReplayResult, error) {
 	if params.Limit == 0 {
 		params.Limit = session.MaxEventReplay
 	}
-	events, latest, err := s.daemon.store.ReplayEvents(s.ctx, params.RootID, params.Cursor, params.Limit)
+	events, latest, err := s.daemon.store.ReplayEvents(ctx, params.RootID, params.Cursor, params.Limit)
 	if errors.Is(err, session.ErrCursorExpired) {
 		return ReplayResult{Latest: latest, Expired: true}, nil
 	}
 	if err != nil {
 		return ReplayResult{}, err
 	}
-	result := ReplayResult{Latest: latest}
+	result := ReplayResult{Latest: latest, Events: []ProtocolEvent{}}
+	remaining := 512 << 10
 	for _, event := range events {
-		payload, err := s.daemon.store.ResolveRuntimeValue(s.ctx, params.RootID, event.Payload)
-		if err != nil {
-			return ReplayResult{}, err
+		var payload json.RawMessage
+		if event.Payload.ReferenceID != "" {
+			value := event.Payload
+			payload, _ = json.Marshal(struct {
+				Content   ContentHandle `json:"content"`
+				Truncated bool          `json:"truncated"`
+			}{Content: ContentHandle{ReferenceID: value.ReferenceID, Digest: value.Digest, Size: value.Size, MediaType: value.MediaType, Source: value.Source}, Truncated: true})
+		} else {
+			payload = event.Payload.Inline
 		}
+		if len(payload) == 0 {
+			payload = json.RawMessage(`{}`)
+		}
+		if !json.Valid(payload) || payload[0] != '{' {
+			return ReplayResult{}, errors.New("event payload is not a JSON object")
+		}
+		if len(payload)+512 > remaining {
+			break
+		}
+		remaining -= len(payload) + 512
+
 		result.Events = append(result.Events, ProtocolEvent{RootID: params.RootID, Seq: event.Seq, Kind: event.Kind, Payload: payload})
 	}
 	return result, nil
-}
-
-func (s *Server) snapshot(connection *serverConn, rootID string) (SnapshotResult, error) {
-	root, err := s.daemon.Open(rootID)
-	if err != nil {
-		return SnapshotResult{}, err
-	}
-	snapshot, err := root.Snapshot(s.ctx)
-	if err != nil {
-		return SnapshotResult{}, err
-	}
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		return SnapshotResult{}, err
-	}
-	if len(data) > MaxUploadSize {
-		return SnapshotResult{}, errors.New("snapshot exceeds the 64 MiB protocol limit")
-	}
-	count := (len(data) + MaxSnapshotChunk - 1) / MaxSnapshotChunk
-	chunks := make([]SnapshotChunk, 0, count)
-	for index, start := 0, 0; start < len(data); index, start = index+1, start+MaxSnapshotChunk {
-		end := min(start+MaxSnapshotChunk, len(data))
-		chunks = append(chunks, SnapshotChunk{Index: index, Count: count, Cursor: snapshot.Cursor, Data: append([]byte(nil), data[start:end]...)})
-	}
-	nonce, err := randomNonce()
-	if err != nil {
-		return SnapshotResult{}, err
-	}
-	snapshotID := hex.EncodeToString(nonce[:16])
-	connection.mu.Lock()
-	connection.snapshots = map[string][]SnapshotChunk{snapshotID: chunks}
-	connection.mu.Unlock()
-	return SnapshotResult{SnapshotID: snapshotID, Count: count, Cursor: snapshot.Cursor}, nil
-}
-
-func (s *Server) pumpEvents(connection *serverConn, rootID string, cursor int64) {
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		result, err := s.replay(ReplayParams{RootID: rootID, Cursor: cursor, Limit: 100})
-		if err != nil {
-			return
-		}
-		if result.Expired {
-			connection.notify("snapshot.required", snapshotRequired{RootID: rootID, Cursor: result.Latest})
-			return
-		}
-		for _, event := range result.Events {
-			if !connection.notify("event", eventNotification{Event: event}) {
-				return
-			}
-			cursor = event.Seq
-		}
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-connection.done:
-			return
-		case <-ticker.C:
-		}
-	}
 }
 
 func (c *serverConn) writeLoop() {
@@ -708,7 +792,7 @@ func (c *serverConn) writeLoop() {
 			if closed {
 				return
 			}
-			if _, err := c.conn.Write(frame); err != nil {
+			if err := c.conn.WriteMessage(frame); err != nil {
 				c.close()
 				return
 			}
@@ -756,6 +840,9 @@ func (c *serverConn) notify(method string, params any) bool {
 
 func (c *serverConn) close() {
 	c.once.Do(func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
 		c.mu.Lock()
 		c.closed = true
 		c.mu.Unlock()
@@ -782,18 +869,6 @@ func (c *serverConn) rotateNonce() ([]byte, error) {
 	c.nonce = nonce
 	c.mu.Unlock()
 	return append([]byte(nil), nonce...), nil
-}
-
-func (c *serverConn) snapshotChunk(params SnapshotChunkParams) (SnapshotChunk, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	chunks := c.snapshots[params.SnapshotID]
-	if params.SnapshotID == "" || params.Index < 0 || params.Index >= len(chunks) {
-		return SnapshotChunk{}, errors.New("snapshot chunk is unavailable")
-	}
-	chunk := chunks[params.Index]
-	chunk.Data = append([]byte(nil), chunk.Data...)
-	return chunk, nil
 }
 
 func (c *serverConn) armLifecycle(generation int64) {
@@ -835,11 +910,49 @@ func writeProtocolMessage(writer io.Writer, message rpcMessage) error {
 	return err
 }
 
-func rpcFailure(code int, message string) *RPCError { return &RPCError{Code: code, Message: message} }
+func rpcFailure(code int, message string) *RPCError {
+	kind := "execution_failed"
+	switch code {
+	case -32600, -32602:
+		kind = "invalid_arguments"
+	case -32601:
+		kind = "unsupported_operation"
+	case -32001:
+		kind = "unsupported_protocol"
+	case -32002:
+		kind = "resource_limit"
+	case -32003:
+		kind = "permission_denied"
+	case -32004:
+		kind = "unavailable_capability"
+	case -32009:
+		kind = "conflict"
+	case -32010:
+		kind = "resynchronization_required"
+	case -32603:
+		kind = "internal_error"
+	}
+	return &RPCError{Code: code, Message: message, Data: &protocol.ErrorData{Kind: kind}}
+}
 
 func rpcFromError(err error) *RPCError {
 	if err == nil {
 		return nil
+	}
+	if failure, ok := errors.AsType[*RPCError](err); ok {
+		return failure
+	}
+	if errors.Is(err, session.ErrCursorExpired) || errors.Is(err, session.ErrCursorAhead) || errors.Is(err, session.ErrHistoryRevision) || errors.Is(err, session.ErrCollectionChanged) {
+		return rpcFailure(-32010, err.Error())
+	}
+	if errors.Is(err, capability.ErrDenied) || errors.Is(err, session.ErrContentAccess) {
+		return rpcFailure(-32003, err.Error())
+	}
+	if errors.Is(err, ErrClosed) || errors.Is(err, ErrStopped) {
+		return rpcFailure(-32004, err.Error())
+	}
+	if errors.Is(err, session.ErrCommandConflict) {
+		return rpcFailure(-32009, err.Error())
 	}
 	return rpcFailure(-32000, err.Error())
 }

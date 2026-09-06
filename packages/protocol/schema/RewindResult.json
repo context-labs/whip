@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "cut": {
+      "type": "integer"
+    },
+    "restored_files": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/RewindResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RewindResult",
+  "required": [
+    "cut",
+    "restored_files"
+  ],
+  "additionalProperties": false
+}

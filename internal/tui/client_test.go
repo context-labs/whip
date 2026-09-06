@@ -21,16 +21,17 @@ import (
 )
 
 type fakeDaemonConnection struct {
-	mu          sync.Mutex
-	commands    []daemon.CommandParams
-	replay      daemon.ReplayResult
-	snapshot    session.RootSnapshot
-	events      chan daemon.ProtocolEvent
-	done        chan struct{}
-	err         error
-	closeOnce   sync.Once
-	commandFunc func(daemon.CommandParams) (daemon.CommandResult, error)
-	decisions   []daemon.PermissionDecision
+	mu            sync.Mutex
+	commands      []daemon.CommandParams
+	replay        daemon.ReplayResult
+	snapshot      session.RootSnapshot
+	events        chan daemon.ProtocolEvent
+	done          chan struct{}
+	err           error
+	closeOnce     sync.Once
+	commandFunc   func(daemon.CommandParams) (daemon.CommandResult, error)
+	decisions     []daemon.PermissionDecision
+	subscriptions []daemon.SubscribeParams
 }
 
 func newFakeDaemonConnection(snapshot session.RootSnapshot) *fakeDaemonConnection {
@@ -206,7 +207,7 @@ func TestAuthenticationRefreshesDaemonCatalogsBeforeReload(t *testing.T) {
 		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: output}, nil
 	}
 
-	next, command := m.Update(authResultMsg{key: "secret"})
+	next, command := m.Update(authResultMsg{})
 	m = next.(*model)
 	if command == nil {
 		t.Fatal("successful authentication did not request daemon catalogs")
@@ -231,16 +232,12 @@ func TestClientSnapshotEventsAndStableActions(t *testing.T) {
 		RootID: "root", Cursor: 2, Meta: session.Meta{ID: "root", Model: "m", Provider: "p"},
 		Messages: []llm.Message{{Role: "user", Content: "hello", Authored: true}},
 	}
-	initial := newFakeDaemonConnection(snapshot)
 	connection := newFakeDaemonConnection(snapshot)
 	var connects int
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
 		Connector: func(context.Context, map[string]int64) (daemonConnection, error) {
 			connects++
-			if connects == 1 {
-				return initial, nil
-			}
 			return connection, nil
 		},
 	})
@@ -258,7 +255,7 @@ func TestClientSnapshotEventsAndStableActions(t *testing.T) {
 			break
 		}
 	}
-	if updates[0].State != ClientReconnecting || updates[1].State != ClientSnapshotting || updates[2].Snapshot == nil || connects != 2 {
+	if updates[0].State != ClientReconnecting || updates[1].State != ClientSnapshotting || updates[2].Snapshot == nil || connects != 1 {
 		t.Fatalf("initial synchronization updates = %+v", updates)
 	}
 
@@ -296,7 +293,6 @@ func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
 	first := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Meta: session.Meta{ID: "root"}})
 	second := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Cursor: 9, Meta: session.Meta{ID: "root"}})
 	second.replay = daemon.ReplayResult{Expired: true, Latest: 9}
-	third := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", Cursor: 9, Meta: session.Meta{ID: "root"}})
 	var mu sync.Mutex
 	var calls int
 	var reconnectCursor int64
@@ -313,7 +309,7 @@ func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
 				reconnectCursor = cursors["root"]
 				return second, nil
 			}
-			return third, nil
+			return second, nil
 		},
 	})
 	if err != nil {
@@ -337,7 +333,7 @@ func TestClientReconnectReplayAndSnapshotFallback(t *testing.T) {
 			break
 		}
 	}
-	if !sawDisconnected || reconnectCursor != 1 || client.Cursor() != 9 || calls != 3 {
+	if !sawDisconnected || reconnectCursor != 1 || client.Cursor() != 9 || calls != 2 {
 		t.Fatalf("reconnect: disconnected=%v supplied=%d cursor=%d", sawDisconnected, reconnectCursor, client.Cursor())
 	}
 }
@@ -389,12 +385,11 @@ func TestClientReattachesInFlightActionWithSameIdentityAfterDisconnect(t *testin
 	}
 }
 
-func TestClientCreatesThenReconnectsWithRootSubscription(t *testing.T) {
-	creation := newFakeDaemonConnection(session.RootSnapshot{})
+func TestClientCreatesThenSubscribesOnSameConnection(t *testing.T) {
+	creation := newFakeDaemonConnection(session.RootSnapshot{RootID: "new-root", Meta: session.Meta{ID: "new-root"}})
 	creation.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
 		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: "new-root"}, nil
 	}
-	live := newFakeDaemonConnection(session.RootSnapshot{RootID: "new-root", Meta: session.Meta{ID: "new-root"}})
 	var calls int
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", Create: &daemon.CreateSession{CWD: "/work", Model: "m", Provider: "p"},
@@ -410,7 +405,7 @@ func TestClientCreatesThenReconnectsWithRootSubscription(t *testing.T) {
 			if cursors["new-root"] != 0 {
 				t.Fatalf("root subscription cursors = %v", cursors)
 			}
-			return live, nil
+			return creation, nil
 		},
 	})
 	if err != nil {
@@ -419,11 +414,14 @@ func TestClientCreatesThenReconnectsWithRootSubscription(t *testing.T) {
 	client.Start()
 	defer client.Close()
 	waitClientState(t, client, ClientLive)
-	if client.RootID() != "new-root" || calls != 2 {
+	if client.RootID() != "new-root" || calls != 1 {
 		t.Fatalf("created root=%q connector calls=%d", client.RootID(), calls)
 	}
 	creation.mu.Lock()
 	defer creation.mu.Unlock()
+	if len(creation.subscriptions) != 1 || creation.subscriptions[0].RootID != "new-root" {
+		t.Fatalf("created root subscription=%+v", creation.subscriptions)
+	}
 	if len(creation.commands) != 1 || !strings.HasPrefix(creation.commands[0].CommandID, "tui-session-") {
 		t.Fatalf("creation commands = %+v", creation.commands)
 	}
@@ -465,11 +463,11 @@ func TestThinCommandsMapOneUserActionToOneDaemonCommand(t *testing.T) {
 		client: client, clientState: ClientLive, input: newInput(), now: time.Now,
 	}
 	cases := map[string]string{
-		"/schedule list": "schedule.manage", "/goal ship": "goal.run", "/fork copy": "session.fork",
+		"/schedule list": "schedule.list", "/goal ship": "goal.run", "/fork copy": "session.fork",
 		"/goal-from-context 4": "goal.from-context",
 		"/cd /tmp":             "workspace.set", "/model next": "session.model", "/effort high": "session.effort",
-		"/rewind 2": "history.rewind", "/agents stop child": "agent.control", "/mcp list": "mcp.control",
-		"/lsp list": "lsp.control", "/browser status": "browser.control", "/computer status": "computer.control",
+		"/rewind 2": "history.rewind", "/agents stop child": "agent.control", "/mcp list": "mcp.status",
+		"/lsp list": "lsp.status", "/browser status": "browser.status", "/computer status": "computer.status",
 		"/context-doctor": "context.audit", "/agents budget child tokens 10": "budget.cap",
 		"/agents revoke cap-1": "capability.revoke", "/agents delete child": "agent.delete",
 		"/permissions": "permission.rules", "/permissions forget rule-1": "permission.forget",
@@ -495,7 +493,7 @@ func TestThinCommandsMapOneUserActionToOneDaemonCommand(t *testing.T) {
 			t.Fatalf("duplicate command ID %q", command.CommandID)
 		}
 		seen[command.CommandID] = true
-		var payload map[string]string
+		var payload map[string]any
 		if err := json.Unmarshal(command.Payload, &payload); err != nil {
 			t.Fatalf("payload: %v", err)
 		}
@@ -930,4 +928,11 @@ func TestClosingClientDoesNotCancelDaemonOwnedCommand(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("daemon-owned command did not finish after client close")
 	}
+}
+
+func (c *fakeDaemonConnection) Subscribe(_ context.Context, root string, cursor int64) (daemon.SubscribeResult, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.subscriptions = append(c.subscriptions, daemon.SubscribeParams{RootID: root, Cursor: cursor})
+	return daemon.SubscribeResult{SubscriptionID: "subscription"}, nil
 }

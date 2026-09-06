@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "tool": {
+      "type": "string"
+    },
+    "arguments": true
+  },
+  "$id": "https://whip.dev/protocol/v2/ToolCallParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ToolCallParams",
+  "required": [
+    "tool",
+    "arguments"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string"
+    },
+    "operation": {
+      "type": "string"
+    },
+    "payload": true
+  },
+  "$id": "https://whip.dev/protocol/v2/QueryParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QueryParams",
+  "required": [
+    "operation"
+  ],
+  "additionalProperties": false
+}

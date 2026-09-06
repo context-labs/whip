@@ -121,8 +121,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 			emit("stream.notice", StreamEvent{Text: fmt.Sprintf("request failed (%v); retrying in %s", event.Err, event.Delay)})
 		}
 		events.OnUsage = func(usage llm.Usage) {
-			payload, _ := json.Marshal(UsageEvent{Used: usage.PromptTokens, Size: session.agent.ContextLimit, Usage: usage})
-			emit("stream.usage", StreamEvent{Result: string(payload)})
+			emit("stream.usage", StreamEvent{Usage: &UsageEvent{Used: usage.PromptTokens, Size: session.agent.ContextLimit, Usage: usage}})
 		}
 	}
 	events.OnCompaction = func(summary string, cutoff int, before []llm.Message) {

@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "deny_permissions": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ToolConfigureParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ToolConfigureParams",
+  "required": [
+    "deny_permissions"
+  ],
+  "additionalProperties": false
+}

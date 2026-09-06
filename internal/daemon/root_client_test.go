@@ -525,3 +525,15 @@ func TestRootClientReportsUnsupportedPrivilegesAndCommandFailure(t *testing.T) {
 		t.Fatalf("command error = %v", err)
 	}
 }
+
+func (*reconnectConnection) Subscribe(context.Context, string, int64) (SubscribeResult, error) {
+	return SubscribeResult{}, nil
+}
+
+func (*failingRootConnection) Subscribe(context.Context, string, int64) (SubscribeResult, error) {
+	return SubscribeResult{}, nil
+}
+
+func (*staticRootConnection) Subscribe(context.Context, string, int64) (SubscribeResult, error) {
+	return SubscribeResult{}, nil
+}

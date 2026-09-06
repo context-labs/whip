@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/inferencenet"
+	"github.com/context-labs/whip/internal/daemon"
 )
 
 // setupWizard runs once, on the first launch (no config file existed), after
@@ -41,6 +41,18 @@ func setupWizard(cfg *config.Config, r *bufio.Reader) error {
 // stdin is any reader here — the production path passes the shared
 // *bufio.Reader; tests pass a strings.Reader.
 func runSetupWizard(cfg *config.Config, stdin io.Reader, stderr io.Writer) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	host, err := connectSetupHost(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = host.Close() }()
+	return runSetupWizardOnHost(ctx, host, cfg, stdin, stderr)
+}
+
+func runSetupWizardOnHost(ctx context.Context, host setupHost, cfg *config.Config, stdin io.Reader, stderr io.Writer) error {
+
 	r, ok := stdin.(*bufio.Reader)
 	if !ok {
 		r = bufio.NewReader(stdin)
@@ -52,7 +64,7 @@ func runSetupWizard(cfg *config.Config, stdin io.Reader, stderr io.Writer) error
 	fmt.Fprintln(w, "Every choice is reversible later: /auth, ctrl+p, ~/.whip/config.json.")
 	fmt.Fprintln(w, "")
 
-	setupProvider(cfg, r, w)
+	setupProvider(ctx, host, r, w)
 
 	if !askYN(r, w, "Show thinking (reasoning) tokens in the transcript?", true) {
 		off := false
@@ -61,8 +73,16 @@ func runSetupWizard(cfg *config.Config, stdin io.Reader, stderr io.Writer) error
 
 	setupMCPImports(cfg, r, w)
 
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("saving setup choices: %w", err)
+	current, err := host.ReadConfiguration(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := host.UpdateConfiguration(ctx, daemon.ConfigurationUpdate{Revision: current.Revision,
+		ImportClaude: cfg.MCPImport.Claude.Enabled, ImportCodex: cfg.MCPImport.Codex.Enabled}); err != nil {
+		return fmt.Errorf("saving host setup choices: %w", err)
+	}
+	if err := cfg.SavePreferences(); err != nil {
+		return fmt.Errorf("saving client preferences: %w", err)
 	}
 	config.MarkSetupDone() // only on success: an aborted wizard offers again
 	fmt.Fprintln(w, "Setup complete — starting whip.")
@@ -102,7 +122,7 @@ func askYN(r *bufio.Reader, w io.Writer, question string, def bool) bool {
 // setupProvider asks which inference provider to connect. Enter skips (the
 // shipped config already routes to inference-net and resolves its machine key
 // whenever the user signs in later via /auth).
-func setupProvider(cfg *config.Config, r *bufio.Reader, w io.Writer) {
+func setupProvider(ctx context.Context, host setupHost, r *bufio.Reader, w io.Writer) {
 	fmt.Fprintln(w, "Connect a model provider:")
 	fmt.Fprintln(w, "  1) Inference.net — browser sign-in, no key handling (recommended)")
 	fmt.Fprintln(w, "  2) OpenRouter    — paste an API key from https://openrouter.ai/keys")
@@ -111,59 +131,84 @@ func setupProvider(cfg *config.Config, r *bufio.Reader, w io.Writer) {
 	line, _ := r.ReadString('\n')
 	switch strings.TrimSpace(line) {
 	case "1", "inference-net", "inference":
-		setupInferenceNet(cfg, r, w)
+		setupInferenceNet(ctx, host, r, w)
 	case "2", "openrouter":
-		setupOpenRouter(cfg, r, w)
+		setupOpenRouter(ctx, host, r, w)
 	default:
 		fmt.Fprintln(w, "  skipped — /auth inference-net or /auth openrouter later.")
 	}
 	fmt.Fprintln(w, "")
 }
 
-// setupInferenceNet runs the browser device login in the plain terminal,
-// reusing the CLI's CompleteLogin flow (device code → team/project picker →
-// machine key). Numbered prompts stand in for the TUI's choice picker.
-func setupInferenceNet(cfg *config.Config, r *bufio.Reader, w io.Writer) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	fmt.Fprintln(w, "  starting Inference.net sign-in…")
-	auth, err := inferencenet.CompleteLogin(ctx, func(verificationURL, userCode string) {
-		fmt.Fprintln(w, "\n  Approve this terminal in your browser:")
-		fmt.Fprintln(w, "  "+verificationURL)
-		fmt.Fprintln(w, "\n  Code: "+userCode)
-		if openBrowserURL(verificationURL) {
-			fmt.Fprintln(w, "  Browser opened; waiting for approval…")
-		} else {
-			fmt.Fprintln(w, "  Open the URL manually; waiting for approval…")
+// setupInferenceNet renders provider choices while the daemon owns the flow.
+func setupInferenceNet(ctx context.Context, host setupHost, r *bufio.Reader, w io.Writer) {
+	status, err := host.BeginLogin(ctx)
+	url := ""
+	for err == nil {
+		if status.VerificationURL != "" && status.VerificationURL != url {
+			url = status.VerificationURL
+			fmt.Fprintf(w, "  Approve in your browser:\n  %s\n  Code: %s\n", url, status.UserCode)
+			openBrowserURL(url)
 		}
-	}, func(kind, title string, options []string) (string, error) {
-		return wizardChoose(r, w, title, options)
-	})
-	if err != nil {
-		fmt.Fprintln(w, "  sign-in failed: "+err.Error())
-		fmt.Fprintln(w, "  retry later with /auth inference-net — continuing setup.")
-		return
+		switch status.State {
+		case "choose_team":
+			var id string
+			id, err = wizardProviderChoice(r, w, "workspace", status.Teams)
+			if err == nil {
+				status, err = host.SelectLoginTeam(ctx, status.FlowID, id)
+			}
+		case "choose_project":
+			choices := append(append([]daemon.ProviderChoice{}, status.Projects...), daemon.ProviderChoice{Name: "+ Create new project"})
+			var id string
+			id, err = wizardProviderChoice(r, w, "project", choices)
+			if err == nil {
+				if id != "" {
+					status, err = host.SelectLoginProject(ctx, status.FlowID, id)
+				} else {
+					var name string
+					name, err = wizardChoose(r, w, "new project", nil)
+					if err == nil {
+						status, err = host.CreateLoginProject(ctx, status.FlowID, name)
+					}
+				}
+			}
+		case "succeeded":
+			fmt.Fprintf(w, "  ✓ signed in as %s on the execution host\n", status.Email)
+			return
+		case "failed", "expired", "interrupted", "cancelled":
+			err = fmt.Errorf("provider login %s: %s", status.State, status.Error)
+		default:
+			timer := time.NewTimer(200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				err = ctx.Err()
+			case <-timer.C:
+				status, err = host.LoginStatus(ctx, status.FlowID)
+			}
+		}
 	}
-	fmt.Fprintln(w, "  provisioning an API key for this machine…")
-	if _, err := auth.EnsureMachineKey(ctx); err != nil {
-		fmt.Fprintln(w, "  key provisioning failed: "+err.Error())
-		fmt.Fprintln(w, "  retry later with /auth inference-net — continuing setup.")
-		return
-	}
-	if err := inferencenet.SaveAuth(auth); err != nil {
-		fmt.Fprintln(w, "  could not save sign-in state: "+err.Error())
-		return
-	}
-	// The machine key resolves from ~/.whip/inference-net.json, so the
-	// provider entry carries no literal key.
-	cfg.UpsertInferenceNet("", false)
-	fmt.Fprintf(w, "  ✓ signed in as %s (project %s)\n", auth.UserEmail, auth.ProjectName)
+	fmt.Fprintln(w, "  sign-in failed: "+err.Error()+"; retry later with /auth inference-net")
 }
 
-// setupOpenRouter records a pasted key. The daemon is the sole provider host
-// and will validate the credential when it opens an agent session.
-func setupOpenRouter(cfg *config.Config, r *bufio.Reader, w io.Writer) {
+func wizardProviderChoice(r *bufio.Reader, w io.Writer, title string, choices []daemon.ProviderChoice) (string, error) {
+	if len(choices) == 1 && choices[0].ID != "" {
+		return choices[0].ID, nil
+	}
+	labels := providerChoiceLabels(choices)
+	choice, err := wizardChoose(r, w, title, labels)
+	if err != nil {
+		return "", err
+	}
+	for i, label := range labels {
+		if choice == label {
+			return choices[i].ID, nil
+		}
+	}
+	return "", fmt.Errorf("invalid provider choice")
+}
+
+func setupOpenRouter(ctx context.Context, host setupHost, r *bufio.Reader, w io.Writer) {
 	fmt.Fprint(w, "  paste your OpenRouter key (visible while typing): ")
 	line, _ := r.ReadString('\n')
 	key := config.TrimKey(line)
@@ -171,8 +216,15 @@ func setupOpenRouter(cfg *config.Config, r *bufio.Reader, w io.Writer) {
 		fmt.Fprintln(w, "  skipped — /auth openrouter later.")
 		return
 	}
-	cfg.UpsertOpenRouter(key, false)
-	fmt.Fprintln(w, "  ✓ openrouter configured")
+	current, err := host.ReadConfiguration(ctx)
+	if err == nil {
+		_, err = host.SetProviderKey(ctx, daemon.ProviderKeySetup{Revision: current.Revision, Provider: "openrouter", Key: key})
+	}
+	if err != nil {
+		fmt.Fprintln(w, "  host provider setup failed: "+err.Error())
+		return
+	}
+	fmt.Fprintln(w, "  ✓ openrouter configured on the execution host")
 }
 
 // wizardChoose is the numbered-list ChooseFunc for the wizard's plain

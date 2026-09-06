@@ -12,11 +12,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -116,7 +118,7 @@ func TestProtocolClientCommandReplayAndSnapshot(t *testing.T) {
 		t.Fatalf("command = %+v, %v", result, err)
 	}
 	retry, err := client.Command(context.Background(), params)
-	if err != nil || retry != result || runner.calls.Load() != 1 {
+	if err != nil || !reflect.DeepEqual(retry, result) || runner.calls.Load() != 1 {
 		t.Fatalf("retry = %+v, calls=%d, err=%v", retry, runner.calls.Load(), err)
 	}
 	params.Payload, _ = json.Marshal(map[string]string{"text": "different"})
@@ -174,7 +176,7 @@ func TestProtocolAllowsConcurrentPrincipalConnectionsAndRejectsOversizedFrame(t 
 		t.Fatal(err)
 	}
 	defer func() { _ = first.Close(); _ = server.Close() }()
-	if err := first.Call(context.Background(), "unsupported", struct{}{}, nil); err == nil || !strings.Contains(err.Error(), "method not found") {
+	if err := first.Call(context.Background(), "unsupported", struct{}{}, nil); err == nil || !strings.Contains(err.Error(), "unsupported operation") {
 		t.Fatalf("unsupported method = %v", err)
 	}
 	secondServer, secondClient := net.Pipe()
@@ -303,7 +305,7 @@ func TestProtocolHandlersRejectMalformedParameters(t *testing.T) {
 	t.Cleanup(func() { _ = server.Close() })
 	connection := &serverConn{server: server, client: InitializeParams{ClientID: "malformed", ClientKind: "test"}}
 	for _, method := range []string{
-		"command", "events.replay", "snapshot", "snapshot.chunk", "upload.begin",
+		"command.submit", "command.status", "events.replay", "root.snapshot", "history.page", "upload.begin",
 		"upload.chunk", "upload.finish", "identity.enroll", "permission.decide",
 	} {
 		if result, failure := server.handle(connection, rpcMessage{Method: method, Params: json.RawMessage(`{`)}); result != nil || failure == nil || failure.Code != -32602 {
@@ -334,7 +336,6 @@ func TestServerReportsClosedStoreAndEncodingFailures(t *testing.T) {
 	if _, err := server.replay(ReplayParams{RootID: "root"}); err == nil {
 		t.Fatal("closed store replay succeeded")
 	}
-	server.pumpEvents(nil, "root", 0)
 	if err := server.Serve(&failingListener{err: errors.New("unused")}); err == nil {
 		t.Fatal("server resumed across a closed store")
 	}
@@ -387,16 +388,23 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: 1, ClientKind: "test", ClientID: "first"})
+	client, err := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: 2, ClientKind: "test", ClientID: "first"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
 	extra, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewClient(context.Background(), extra, InitializeParams{ProtocolMajor: 1, ClientKind: "test", ClientID: "excess"}); err == nil {
+	if _, err := NewClient(context.Background(), extra, InitializeParams{ProtocolMajor: 2, ClientKind: "test", ClientID: "excess"}); err == nil {
 		t.Fatal("connection above the configured maximum was initialized")
 	}
 	_ = extra.Close()
@@ -413,8 +421,8 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 		t.Fatal("command did not start")
 	}
 	var ping map[string]any
-	if err := client.Call(context.Background(), "daemon.ping", struct{}{}, &ping); err == nil || !strings.Contains(err.Error(), "too many in-flight") {
-		t.Fatalf("in-flight overflow = %v", err)
+	if err := client.Call(context.Background(), "daemon.ping", struct{}{}, &ping); err != nil {
+		t.Fatalf("accepted execution retained an RPC slot: %v", err)
 	}
 	close(release)
 	if err := <-commandDone; err != nil {
@@ -446,11 +454,11 @@ func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	params, _ := json.Marshal(InitializeParams{ProtocolMajor: 1, ClientKind: "test", ClientID: "idle"})
+	params, _ := json.Marshal(InitializeParams{ProtocolMajor: 2, ClientKind: "test", ClientID: "idle"})
 	if err := writeProtocolMessage(idle, rpcMessage{ID: json.RawMessage("1"), Method: "initialize", Params: params}); err != nil {
 		t.Fatal(err)
 	}
-	reader := bufio.NewReader(idle)
+	reader := bufio.NewReaderSize(idle, MaxFrameSize)
 	if _, err := readProtocolFrame(reader); err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +472,7 @@ func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 	for {
 		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
 		if dialErr == nil {
-			client, clientErr := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: 1, ClientKind: "test", ClientID: "replacement"})
+			client, clientErr := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: 2, ClientKind: "test", ClientID: "replacement"})
 			if clientErr == nil {
 				_ = client.Close()
 				break
@@ -491,7 +499,7 @@ func TestSlowOutboundClientClosesWithoutStoppingDaemon(t *testing.T) {
 		t.Fatal(err)
 	}
 	serverSide, slowSide := net.Pipe()
-	connection := &serverConn{server: server, conn: serverSide, out: make(chan []byte, 1), done: make(chan struct{})}
+	connection := &serverConn{server: server, conn: newUnixMessageTransport(serverSide), out: make(chan []byte, 1), done: make(chan struct{})}
 	server.wg.Go(connection.writeLoop)
 	for i := range 10 {
 		connection.notify("event", map[string]any{"sequence": i, "payload": strings.Repeat("x", 128)})
@@ -534,7 +542,7 @@ func TestOutboundQueueOverflowClosesConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	serverSide, clientSide := net.Pipe()
-	connection := &serverConn{server: server, conn: serverSide, out: make(chan []byte, 1), done: make(chan struct{})}
+	connection := &serverConn{server: server, conn: newUnixMessageTransport(serverSide), out: make(chan []byte, 1), done: make(chan struct{})}
 	if !connection.send(rpcMessage{Result: "first"}) {
 		t.Fatal("empty outbound queue rejected a frame")
 	}
@@ -551,7 +559,7 @@ func TestOutboundQueueOverflowClosesConnection(t *testing.T) {
 	_ = server.Close()
 }
 
-func TestSnapshotStreamsActorConsistentBoundedChunks(t *testing.T) {
+func TestSnapshotBoundsLargeHistoryAndPagesContentReferences(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	large := strings.Repeat("snapshot-data-", 70_000)
@@ -569,9 +577,31 @@ func TestSnapshotStreamsActorConsistentBoundedChunks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.Messages) != 2 || snapshot.Messages[1].Content != large {
-		t.Fatalf("snapshot messages changed: count=%d", len(snapshot.Messages))
+	if !snapshot.Omitted["messages"] {
+		t.Fatal("large history was not explicitly omitted")
 	}
+	page, err := client.HistoryPage(t.Context(), HistoryPageParams{RootID: rootID, AgentID: rootID, ThroughSeq: -1, Limit: 2, MaxBytes: 4096, Recent: true})
+	if err != nil || len(page.Messages) != 2 || page.Messages[1].Body == nil {
+		t.Fatalf("bounded history page: %+v, %v", page, err)
+	}
+	var data []byte
+	handle := page.Messages[1].Body
+	for int64(len(data)) < handle.Size {
+		chunk, err := client.ReadContent(t.Context(), protocol.ContentReadParams{RootID: rootID, AgentID: rootID, ReferenceID: handle.ReferenceID, Offset: int64(len(data)), Limit: MaxContentChunk})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(chunk.Data) == 0 {
+			t.Fatal("premature end of content")
+		}
+		data = append(data, chunk.Data...)
+	}
+
+	var message llm.Message
+	if err := json.Unmarshal(data, &message); err != nil || message.Content != large {
+		t.Fatal("large message did not round trip through its content grant")
+	}
+
 	_ = client.Close()
 	if err := server.Close(); err != nil {
 		t.Fatal(err)
@@ -612,7 +642,7 @@ func TestServerCommandValidation(t *testing.T) {
 			t.Fatalf("invalid command was accepted: %+v", params)
 		}
 	}
-	for _, method := range []string{"command", "events.replay", "snapshot", "snapshot.chunk", "upload.begin", "upload.chunk", "upload.finish", "identity.enroll", "permission.decide", "permission.mode"} {
+	for _, method := range []string{"command.submit", "command.status", "events.replay", "root.snapshot", "history.page", "upload.begin", "upload.chunk", "upload.finish", "identity.enroll", "permission.decide", "permission.mode"} {
 		if _, failure := server.handle(connection, rpcMessage{Method: method, Params: json.RawMessage(`{`)}); failure == nil {
 			t.Fatalf("invalid %s params were accepted", method)
 		}
@@ -623,9 +653,7 @@ func TestServerCommandValidation(t *testing.T) {
 	if connection.notify("invalid", make(chan int)) {
 		t.Fatal("unmarshalable notification was sent")
 	}
-	if _, err := connection.snapshotChunk(SnapshotChunkParams{SnapshotID: "missing"}); err == nil {
-		t.Fatal("missing snapshot chunk was returned")
-	}
+
 	connection.armLifecycle(2)
 	if connection.consumeLifecycle(1) || !connection.consumeLifecycle(2) || connection.consumeLifecycle(2) {
 		t.Fatal("lifecycle generation was not single-use")

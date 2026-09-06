@@ -116,7 +116,7 @@ func TestUserAskRoundTripsThroughQuestionEvents(t *testing.T) {
 	default:
 	}
 
-	if result := clientCommand(t, root, "tui", "answer-1", "question.answer", clientActionPayload{ID: pending.QuestionID, Answer: []string{"Postgres"}}); result.Status != "succeeded" || result.Output != "answered" {
+	if result := clientCommand(t, root, "tui", "answer-1", "question.answer", clientActionPayload{ID: pending.QuestionID, Answer: []string{"Postgres"}}); result.Status != "succeeded" || string(result.Result) != "{}" {
 		t.Fatalf("answer result = %+v", result)
 	}
 	result := waitAsk(t, results)
@@ -158,7 +158,7 @@ func TestUserAskDismissAndCancelClose(t *testing.T) {
 
 	results := askUser(node, t.Context(), questionArguments(false))
 	pending, cursor := waitQuestionEvent(t, store, root.ID(), "question.pending", 0)
-	if result := clientCommand(t, root, "tui", "dismiss", "question.answer", clientActionPayload{ID: pending.QuestionID, Dismissed: true, Answer: []string{"ignored"}}); result.Status != "succeeded" || result.Output != "dismissed" {
+	if result := clientCommand(t, root, "tui", "dismiss", "question.answer", clientActionPayload{ID: pending.QuestionID, Dismissed: true, Answer: []string{"ignored"}}); result.Status != "succeeded" || string(result.Result) != "{}" {
 		t.Fatalf("dismiss result = %+v", result)
 	}
 	result := waitAsk(t, results)

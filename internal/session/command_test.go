@@ -257,3 +257,30 @@ func TestCommandAPIsReturnClosedStoreErrors(t *testing.T) {
 		t.Fatal("closed store created session")
 	}
 }
+
+func TestCommandExecutionStateIsDurableAndCannotResurrect(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	admission := CommandAdmission{ClientID: "client", CommandID: "command", Operation: "test", Scope: CommandScopeDaemon, RequestDigest: "digest"}
+	if _, err := store.AdmitCommand(t.Context(), admission); err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{"running", "waiting", "running"} {
+		if err := store.SetCommandState(t.Context(), "client", "command", state); err != nil {
+			t.Fatal(err)
+		}
+		record, err := store.LoadCommand(t.Context(), "client", "command")
+		if err != nil || record.Status != state {
+			t.Fatalf("state=%+v,error=%v", record, err)
+		}
+	}
+	if _, err := store.FinishCommand(t.Context(), "client", "command", "succeeded", RuntimePayload{Data: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetCommandState(t.Context(), "client", "command", "running"); err == nil {
+		t.Fatal("terminal command resurrected")
+	}
+}

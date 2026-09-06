@@ -67,7 +67,7 @@ func TestManualCompactionUsesRawSequencesAfterFocusAndRestart(t *testing.T) {
 			t.Fatalf("test requires sparse focused history: count=%d last=%+v", len(before), before[len(before)-1])
 		}
 		result := clientCommand(t, root, "tui", fmt.Sprintf("compact-%d", generation), "history.compact", map[string]string{})
-		if result.Status != "succeeded" || !strings.Contains(result.Output, fmt.Sprintf("message %d", expectedCutoff)) {
+		if result.Status != "succeeded" || !strings.Contains(result.Output, fmt.Sprintf(`"cutoff":%d`, expectedCutoff)) {
 			t.Fatalf("manual compaction = %+v", result)
 		}
 		compactions := store.Compactions(rootID)

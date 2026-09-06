@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "delivery": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/AgentInputParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentInputParams",
+  "required": [
+    "id",
+    "text"
+  ],
+  "additionalProperties": false
+}

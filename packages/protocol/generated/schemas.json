@@ -1,0 +1,6593 @@
+{
+  "Accepted": {
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/Accepted",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Accepted",
+    "required": [
+      "accepted"
+    ],
+    "additionalProperties": false
+  },
+  "AgentCancelParams": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "turn_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/AgentCancelParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "AgentCancelParams",
+    "required": [
+      "id",
+      "turn_id"
+    ],
+    "additionalProperties": false
+  },
+  "AgentInputParams": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string"
+      },
+      "delivery": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/AgentInputParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "AgentInputParams",
+    "required": [
+      "id",
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "AgentListResult": {
+    "type": [
+      "null",
+      "array"
+    ],
+    "items": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "root_id": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "report": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "pending_mail": {
+          "type": "integer"
+        },
+        "lifecycle_phase": {
+          "type": "string"
+        },
+        "blocking_reason": {
+          "type": "string"
+        },
+        "terminal_cause": {
+          "type": "string"
+        },
+        "allowed_controls": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "root_id",
+        "parent_id",
+        "name",
+        "model",
+        "provider",
+        "effort",
+        "cwd",
+        "report",
+        "status",
+        "pending_mail",
+        "lifecycle_phase",
+        "blocking_reason",
+        "terminal_cause",
+        "allowed_controls"
+      ],
+      "additionalProperties": false
+    },
+    "$id": "https://whip.dev/protocol/v2/AgentListResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "AgentListResult"
+  },
+  "AgentSubmitResult": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string"
+      },
+      "inbox_seq": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/AgentSubmitResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "AgentSubmitResult",
+    "required": [
+      "agent_id",
+      "inbox_seq",
+      "status"
+    ],
+    "additionalProperties": false
+  },
+  "AgentTranscriptResult": {
+    "type": "object",
+    "properties": {
+      "cursor": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "agent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "report": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "pending_mail": {
+            "type": "integer"
+          },
+          "lifecycle_phase": {
+            "type": "string"
+          },
+          "blocking_reason": {
+            "type": "string"
+          },
+          "terminal_cause": {
+            "type": "string"
+          },
+          "allowed_controls": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "root_id",
+          "parent_id",
+          "name",
+          "model",
+          "provider",
+          "effort",
+          "cwd",
+          "report",
+          "status",
+          "pending_mail",
+          "lifecycle_phase",
+          "blocking_reason",
+          "terminal_cause",
+          "allowed_controls"
+        ],
+        "additionalProperties": false
+      },
+      "page": {
+        "type": "object",
+        "properties": {
+          "history_revision": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "through_seq": {
+            "type": "integer"
+          },
+          "next_seq": {
+            "type": "integer"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "messages": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "authored": {
+                  "type": "boolean"
+                },
+                "sent_at": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "seq": {
+                  "type": "integer"
+                },
+                "message": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "role": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "tool_calls": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "function": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "arguments": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "arguments"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "duration_ms": {
+                            "type": "integer"
+                          },
+                          "exit_code": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "type",
+                          "function"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "tool_call_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "authored": {
+                      "type": "boolean"
+                    },
+                    "sent_at": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "usage": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "prompt_tokens": {
+                          "type": "integer"
+                        },
+                        "completion_tokens": {
+                          "type": "integer"
+                        },
+                        "prompt_tokens_details": {
+                          "type": [
+                            "null",
+                            "object"
+                          ],
+                          "properties": {
+                            "cached_tokens": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "cached_tokens"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "prompt_tokens",
+                        "completion_tokens"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "rewound_from": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "role",
+                    "content"
+                  ],
+                  "additionalProperties": false
+                },
+                "body": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "inline": true,
+                    "text": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "binary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "contentEncoding": "base64"
+                    },
+                    "reference_id": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)$",
+                      "format": "int64"
+                    },
+                    "media_type": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "reference_id",
+                    "digest",
+                    "size",
+                    "media_type",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "seq"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "history_revision",
+          "through_seq",
+          "next_seq",
+          "has_more",
+          "messages"
+        ],
+        "additionalProperties": false
+      },
+      "presentation": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "payload": true
+          },
+          "required": [
+            "seq",
+            "kind",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "inbox": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "root_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "inline": true,
+                "text": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "binary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "contentEncoding": "base64"
+                },
+                "reference_id": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "media_type": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reference_id",
+                "digest",
+                "size",
+                "media_type",
+                "source"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "root_id",
+            "agent_id",
+            "seq",
+            "kind",
+            "status",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/AgentTranscriptResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "AgentTranscriptResult",
+    "required": [
+      "cursor",
+      "agent",
+      "page"
+    ],
+    "additionalProperties": false
+  },
+  "BoundedTranscriptPage": {
+    "type": "object",
+    "properties": {
+      "history_revision": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "through_seq": {
+        "type": "integer"
+      },
+      "next_seq": {
+        "type": "integer"
+      },
+      "has_more": {
+        "type": "boolean"
+      },
+      "messages": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string"
+            },
+            "authored": {
+              "type": "boolean"
+            },
+            "sent_at": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "seq": {
+              "type": "integer"
+            },
+            "message": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "tool_calls": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "function": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "arguments": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "arguments"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "duration_ms": {
+                        "type": "integer"
+                      },
+                      "exit_code": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "type",
+                      "function"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "tool_call_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "authored": {
+                  "type": "boolean"
+                },
+                "sent_at": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "usage": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "prompt_tokens": {
+                      "type": "integer"
+                    },
+                    "completion_tokens": {
+                      "type": "integer"
+                    },
+                    "prompt_tokens_details": {
+                      "type": [
+                        "null",
+                        "object"
+                      ],
+                      "properties": {
+                        "cached_tokens": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "cached_tokens"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "prompt_tokens",
+                    "completion_tokens"
+                  ],
+                  "additionalProperties": false
+                },
+                "model": {
+                  "type": "string"
+                },
+                "rewound_from": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "role",
+                "content"
+              ],
+              "additionalProperties": false
+            },
+            "body": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "inline": true,
+                "text": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "binary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "contentEncoding": "base64"
+                },
+                "reference_id": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "media_type": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reference_id",
+                "digest",
+                "size",
+                "media_type",
+                "source"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "seq"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/BoundedTranscriptPage",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "BoundedTranscriptPage",
+    "required": [
+      "history_revision",
+      "through_seq",
+      "next_seq",
+      "has_more",
+      "messages"
+    ],
+    "additionalProperties": false
+  },
+  "BrowserDriverParams": {
+    "type": "object",
+    "properties": {
+      "driver": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/BrowserDriverParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "BrowserDriverParams",
+    "required": [
+      "driver"
+    ],
+    "additionalProperties": false
+  },
+  "BrowserStatusResult": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      },
+      "driver": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/BrowserStatusResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "BrowserStatusResult",
+    "required": [
+      "enabled"
+    ],
+    "additionalProperties": false
+  },
+  "BudgetCapParams": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "limit": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/BudgetCapParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "BudgetCapParams",
+    "required": [
+      "id",
+      "kind",
+      "limit"
+    ],
+    "additionalProperties": false
+  },
+  "BudgetState": {
+    "type": "object",
+    "properties": {
+      "kind": {
+        "type": "string"
+      },
+      "limit": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "used": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "reserved": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "remaining": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/BudgetState",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "BudgetState",
+    "required": [
+      "kind",
+      "limit",
+      "used",
+      "reserved",
+      "remaining"
+    ],
+    "additionalProperties": false
+  },
+  "CancelParams": {
+    "type": "object",
+    "properties": {
+      "turn_id": {
+        "type": "string"
+      },
+      "target_command_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CancelParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CancelParams",
+    "additionalProperties": false
+  },
+  "CapabilityRecord": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "root_id": {
+        "type": "string"
+      },
+      "agent_id": {
+        "type": "string"
+      },
+      "issuer_agent_id": {
+        "type": "string"
+      },
+      "operations": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "scopes": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "mcp": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "server": {
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            },
+            "definition": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "server",
+            "tool",
+            "definition"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "mcp_all": {
+        "type": "boolean"
+      },
+      "generation": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "status": {
+        "type": "string"
+      },
+      "expires_at": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string"
+      },
+      "updated_at": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CapabilityRecord",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CapabilityRecord",
+    "required": [
+      "id",
+      "root_id",
+      "agent_id",
+      "issuer_agent_id",
+      "operations",
+      "scopes",
+      "mcp",
+      "mcp_all",
+      "generation",
+      "status",
+      "expires_at",
+      "created_at",
+      "updated_at"
+    ],
+    "additionalProperties": false
+  },
+  "CatalogRevision": {
+    "type": "object",
+    "properties": {
+      "revision": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CatalogRevision",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CatalogRevision",
+    "required": [
+      "revision"
+    ],
+    "additionalProperties": false
+  },
+  "CheckpointParams": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CheckpointParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CheckpointParams",
+    "additionalProperties": false
+  },
+  "CommandParams": {
+    "type": "object",
+    "properties": {
+      "command_id": {
+        "type": "string"
+      },
+      "scope": {
+        "type": "string"
+      },
+      "root_id": {
+        "type": "string"
+      },
+      "operation": {
+        "type": "string"
+      },
+      "payload": true
+    },
+    "$id": "https://whip.dev/protocol/v2/CommandParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CommandParams",
+    "required": [
+      "command_id",
+      "scope",
+      "operation"
+    ],
+    "additionalProperties": false
+  },
+  "CommandResult": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "reference_id": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference_id",
+          "digest",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "operation": {
+        "type": "string"
+      },
+      "result": true,
+      "failure": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "data": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "code": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "command_id": {
+        "type": "string"
+      },
+      "ingress_seq": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "status": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CommandResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CommandResult",
+    "required": [
+      "operation",
+      "command_id",
+      "ingress_seq",
+      "status"
+    ],
+    "additionalProperties": false
+  },
+  "CommandStatusParams": {
+    "type": "object",
+    "properties": {
+      "command_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CommandStatusParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CommandStatusParams",
+    "required": [
+      "command_id"
+    ],
+    "additionalProperties": false
+  },
+  "CompactionListResult": {
+    "type": [
+      "null",
+      "array"
+    ],
+    "items": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer"
+        },
+        "cutoff": {
+          "type": "integer"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "cutoff",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "$id": "https://whip.dev/protocol/v2/CompactionListResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CompactionListResult"
+  },
+  "CompactionParams": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CompactionParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CompactionParams",
+    "additionalProperties": false
+  },
+  "CompactionResult": {
+    "type": "object",
+    "properties": {
+      "cutoff": {
+        "type": "integer"
+      },
+      "model": {
+        "type": "string"
+      },
+      "usage": {
+        "type": "object",
+        "properties": {
+          "prompt_tokens": {
+            "type": "integer"
+          },
+          "completion_tokens": {
+            "type": "integer"
+          },
+          "prompt_tokens_details": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "cached_tokens": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "cached_tokens"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "prompt_tokens",
+          "completion_tokens"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CompactionResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CompactionResult",
+    "required": [
+      "cutoff",
+      "usage"
+    ],
+    "additionalProperties": false
+  },
+  "CompactionRetryResult": {
+    "type": "object",
+    "properties": {
+      "undone": {
+        "type": "boolean"
+      },
+      "sequence": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CompactionRetryResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CompactionRetryResult",
+    "required": [
+      "undone"
+    ],
+    "additionalProperties": false
+  },
+  "CompactionSettingsResult": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "builtin_default": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CompactionSettingsResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CompactionSettingsResult",
+    "required": [
+      "builtin_default"
+    ],
+    "additionalProperties": false
+  },
+  "CompletionParams": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      },
+      "agent_id": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "prefix": {
+        "type": "string"
+      },
+      "limit": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CompletionParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CompletionParams",
+    "required": [
+      "root_id",
+      "kind",
+      "prefix",
+      "limit"
+    ],
+    "additionalProperties": false
+  },
+  "CompletionResult": {
+    "type": "object",
+    "properties": {
+      "warnings": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "candidates": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "description"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CompletionResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CompletionResult",
+    "required": [
+      "candidates",
+      "truncated"
+    ],
+    "additionalProperties": false
+  },
+  "ComputerAppParams": {
+    "type": "object",
+    "properties": {
+      "app": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ComputerAppParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ComputerAppParams",
+    "required": [
+      "app"
+    ],
+    "additionalProperties": false
+  },
+  "ComputerStatusResult": {
+    "type": "object",
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      },
+      "default_deny": {
+        "type": "boolean"
+      },
+      "allowed": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "denied": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "session_allowed": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "session_denied": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ComputerStatusResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ComputerStatusResult",
+    "required": [
+      "enabled",
+      "default_deny",
+      "allowed",
+      "denied",
+      "session_allowed",
+      "session_denied"
+    ],
+    "additionalProperties": false
+  },
+  "ConfigurationUpdate": {
+    "type": "object",
+    "properties": {
+      "import_claude": {
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      "import_codex": {
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      "revision": {
+        "type": "string"
+      },
+      "default_model": {
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "default_provider": {
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "default_effort": {
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "compact_model": {
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "compact_provider": {
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "compact_percent": {
+        "type": [
+          "null",
+          "integer"
+        ]
+      },
+      "goal_max_rounds": {
+        "type": [
+          "null",
+          "integer"
+        ]
+      },
+      "max_retries": {
+        "type": [
+          "null",
+          "integer"
+        ]
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ConfigurationUpdate",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ConfigurationUpdate",
+    "required": [
+      "revision"
+    ],
+    "additionalProperties": false
+  },
+  "ContentEventPayload": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "object",
+        "properties": {
+          "reference_id": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference_id",
+          "digest",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "truncated": {
+        "type": "boolean",
+        "const": true
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ContentEventPayload",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ContentEventPayload",
+    "required": [
+      "content",
+      "truncated"
+    ],
+    "additionalProperties": false
+  },
+  "ContentHandle": {
+    "type": "object",
+    "properties": {
+      "reference_id": {
+        "type": "string"
+      },
+      "digest": {
+        "type": "string"
+      },
+      "size": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "media_type": {
+        "type": "string"
+      },
+      "source": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ContentHandle",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ContentHandle",
+    "required": [
+      "reference_id",
+      "digest",
+      "size"
+    ],
+    "additionalProperties": false
+  },
+  "ContentReadParams": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      },
+      "agent_id": {
+        "type": "string"
+      },
+      "reference_id": {
+        "type": "string"
+      },
+      "offset": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "limit": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ContentReadParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ContentReadParams",
+    "required": [
+      "root_id",
+      "reference_id",
+      "offset",
+      "limit"
+    ],
+    "additionalProperties": false
+  },
+  "ContentReadResult": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      },
+      "content": {
+        "type": "object",
+        "properties": {
+          "reference_id": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference_id",
+          "digest",
+          "size"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ContentReadResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ContentReadResult",
+    "required": [
+      "data",
+      "content"
+    ],
+    "additionalProperties": false
+  },
+  "ContextAuditResult": {
+    "type": "object",
+    "properties": {
+      "working_directory": {
+        "type": "string"
+      },
+      "rows": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "bytes": {
+              "type": "integer"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ContextAuditResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ContextAuditResult",
+    "required": [
+      "working_directory",
+      "rows"
+    ],
+    "additionalProperties": false
+  },
+  "CreateSessionParams": {
+    "type": "object",
+    "properties": {
+      "kind": {
+        "type": "string"
+      },
+      "cwd": {
+        "type": "string"
+      },
+      "model": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/CreateSessionParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "CreateSessionParams",
+    "required": [
+      "kind",
+      "cwd",
+      "model",
+      "provider"
+    ],
+    "additionalProperties": false
+  },
+  "EffortParams": {
+    "type": "object",
+    "properties": {
+      "effort": {
+        "type": "string"
+      },
+      "persist_default": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/EffortParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "EffortParams",
+    "required": [
+      "effort",
+      "persist_default"
+    ],
+    "additionalProperties": false
+  },
+  "EffortResult": {
+    "type": "object",
+    "properties": {
+      "effort": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/EffortResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "EffortResult",
+    "required": [
+      "effort"
+    ],
+    "additionalProperties": false
+  },
+  "Empty": {
+    "type": "object",
+    "$id": "https://whip.dev/protocol/v2/Empty",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Empty",
+    "additionalProperties": false
+  },
+  "EmptyParams": {
+    "type": "object",
+    "$id": "https://whip.dev/protocol/v2/EmptyParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "EmptyParams",
+    "additionalProperties": false
+  },
+  "EnrollIdentityParams": {
+    "type": "object",
+    "properties": {
+      "public_key": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      },
+      "tty_confirmed": {
+        "type": "boolean"
+      },
+      "authorized_by": {
+        "type": "string"
+      },
+      "signature": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/EnrollIdentityParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "EnrollIdentityParams",
+    "required": [
+      "public_key"
+    ],
+    "additionalProperties": false
+  },
+  "EventNotification": {
+    "type": "object",
+    "properties": {
+      "event": {
+        "type": "object",
+        "properties": {
+          "subscription_id": {
+            "type": "string"
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "seq": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "payload": true
+        },
+        "required": [
+          "root_id",
+          "seq",
+          "kind"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/EventNotification",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "EventNotification",
+    "required": [
+      "event"
+    ],
+    "additionalProperties": false
+  },
+  "ForkParams": {
+    "type": "object",
+    "properties": {
+      "expected_revision": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "title": {
+        "type": "string"
+      },
+      "cut": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ForkParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ForkParams",
+    "required": [
+      "expected_revision"
+    ],
+    "additionalProperties": false
+  },
+  "GoalContextParams": {
+    "type": "object",
+    "properties": {
+      "window": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/GoalContextParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "GoalContextParams",
+    "additionalProperties": false
+  },
+  "GoalResult": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/GoalResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "GoalResult",
+    "required": [
+      "goal"
+    ],
+    "additionalProperties": false
+  },
+  "HistoryPageParams": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      },
+      "agent_id": {
+        "type": "string"
+      },
+      "after_seq": {
+        "type": "integer"
+      },
+      "before_seq": {
+        "type": "integer"
+      },
+      "through_seq": {
+        "type": "integer"
+      },
+      "revision": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "max_bytes": {
+        "type": "integer"
+      },
+      "recent": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/HistoryPageParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "HistoryPageParams",
+    "required": [
+      "root_id",
+      "agent_id",
+      "through_seq",
+      "limit",
+      "max_bytes"
+    ],
+    "additionalProperties": false
+  },
+  "IDParams": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/IDParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "IDParams",
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false
+  },
+  "IdentityResult": {
+    "type": "object",
+    "properties": {
+      "client_id": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "nonce": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/IdentityResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "IdentityResult",
+    "required": [
+      "client_id",
+      "kind",
+      "nonce"
+    ],
+    "additionalProperties": false
+  },
+  "IdentityStatusResult": {
+    "type": "object",
+    "properties": {
+      "client_id": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "paired": {
+        "type": "boolean"
+      },
+      "enrollment_open": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/IdentityStatusResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "IdentityStatusResult",
+    "required": [
+      "client_id",
+      "kind",
+      "paired",
+      "enrollment_open"
+    ],
+    "additionalProperties": false
+  },
+  "InitializeParams": {
+    "type": "object",
+    "properties": {
+      "protocol_major": {
+        "type": "integer"
+      },
+      "build_id": {
+        "type": "string"
+      },
+      "client_kind": {
+        "type": "string"
+      },
+      "client_id": {
+        "type": "string"
+      },
+      "capabilities": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/InitializeParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "InitializeParams",
+    "required": [
+      "protocol_major",
+      "build_id",
+      "client_kind",
+      "client_id"
+    ],
+    "additionalProperties": false
+  },
+  "InitializeResult": {
+    "type": "object",
+    "properties": {
+      "operations": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "surface": {
+              "type": "string"
+            },
+            "execution": {
+              "type": "string"
+            },
+            "permission": {
+              "type": "string"
+            },
+            "sensitive": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "surface",
+            "execution",
+            "permission"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "limits": {
+        "type": "object",
+        "properties": {
+          "frame_bytes": {
+            "type": "integer"
+          },
+          "connections": {
+            "type": "integer"
+          },
+          "in_flight_requests": {
+            "type": "integer"
+          },
+          "outbound_messages": {
+            "type": "integer"
+          },
+          "outbound_bytes": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "root_subscriptions": {
+            "type": "integer"
+          },
+          "content_chunk_bytes": {
+            "type": "integer"
+          },
+          "upload_bytes": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "frame_bytes",
+          "connections",
+          "in_flight_requests",
+          "outbound_messages",
+          "outbound_bytes",
+          "root_subscriptions",
+          "content_chunk_bytes",
+          "upload_bytes"
+        ],
+        "additionalProperties": false
+      },
+      "negotiated_capabilities": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "protocol_minor": {
+        "type": "integer"
+      },
+      "runtime_id": {
+        "type": "string"
+      },
+      "connection_id": {
+        "type": "string"
+      },
+      "host_platform": {
+        "type": "string"
+      },
+      "host_architecture": {
+        "type": "string"
+      },
+      "network_endpoint": {
+        "type": "string"
+      },
+      "protocol_major": {
+        "type": "integer"
+      },
+      "build_id": {
+        "type": "string"
+      },
+      "generation": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "pid": {
+        "type": "integer"
+      },
+      "started_at": {
+        "type": "string"
+      },
+      "capabilities": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "nonce": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/InitializeResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "InitializeResult",
+    "required": [
+      "operations",
+      "limits",
+      "negotiated_capabilities",
+      "protocol_minor",
+      "runtime_id",
+      "connection_id",
+      "host_platform",
+      "host_architecture",
+      "protocol_major",
+      "build_id",
+      "generation",
+      "capabilities",
+      "nonce"
+    ],
+    "additionalProperties": false
+  },
+  "LSPListResult": {
+    "type": [
+      "null",
+      "array"
+    ],
+    "items": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "$id": "https://whip.dev/protocol/v2/LSPListResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "LSPListResult"
+  },
+  "LifecycleEvent": {
+    "type": "object",
+    "properties": {
+      "turn_id": {
+        "type": "string"
+      },
+      "root_id": {
+        "type": "string"
+      },
+      "agent_id": {
+        "type": "string"
+      },
+      "sender_agent_id": {
+        "type": "string"
+      },
+      "inbox_seq": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "inbox_kind": {
+        "type": "string"
+      },
+      "delivery": {
+        "type": "string"
+      },
+      "message_id": {
+        "type": "string"
+      },
+      "phase": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "terminal_cause": {
+        "type": "string"
+      },
+      "command_client_id": {
+        "type": "string"
+      },
+      "command_id": {
+        "type": "string"
+      },
+      "operation_id": {
+        "type": "string"
+      },
+      "trace_id": {
+        "type": "string"
+      },
+      "schedule_id": {
+        "type": "integer"
+      },
+      "slot": {
+        "type": "string"
+      },
+      "error": {
+        "type": "string"
+      },
+      "acknowledged_inbox": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        }
+      },
+      "subscription_id": {
+        "type": "string"
+      },
+      "key": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "expected_version": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "restored": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "not_restored": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "attempt": {
+        "type": "string"
+      },
+      "budget_kind": {
+        "type": "string"
+      },
+      "amount": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "limit": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "used": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "reserved": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "capability_id": {
+        "type": "string"
+      },
+      "generation": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "permission_id": {
+        "type": "string"
+      },
+      "operation": {
+        "type": "string"
+      },
+      "canonical_path": {
+        "type": "string"
+      },
+      "request_digest": {
+        "type": "string"
+      },
+      "command": {
+        "type": "string"
+      },
+      "rule": {
+        "type": "string"
+      },
+      "rule_source": {
+        "type": "string"
+      },
+      "question_id": {
+        "type": "string"
+      },
+      "question": {
+        "type": "string"
+      },
+      "options": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "multiple": {
+        "type": "boolean"
+      },
+      "answer": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "dismissed": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/LifecycleEvent",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "LifecycleEvent",
+    "additionalProperties": false
+  },
+  "ListParams": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ListParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ListParams",
+    "additionalProperties": false
+  },
+  "MCPAttachParams": {
+    "type": "object",
+    "properties": {
+      "servers": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "headers": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
+            "note": {
+              "type": "string"
+            },
+            "startup_timeout": {
+              "type": "integer"
+            },
+            "tool_timeout": {
+              "type": "integer"
+            },
+            "source": {
+              "type": "string"
+            },
+            "origin": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/MCPAttachParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "MCPAttachParams",
+    "required": [
+      "servers"
+    ],
+    "additionalProperties": false
+  },
+  "MCPImportParams": {
+    "type": "object",
+    "properties": {
+      "source": {
+        "type": "string"
+      },
+      "enabled": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/MCPImportParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "MCPImportParams",
+    "required": [
+      "source",
+      "enabled"
+    ],
+    "additionalProperties": false
+  },
+  "MCPImportStatusResult": {
+    "type": "object",
+    "properties": {
+      "claude": {
+        "type": "boolean"
+      },
+      "codex": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/MCPImportStatusResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "MCPImportStatusResult",
+    "required": [
+      "claude",
+      "codex"
+    ],
+    "additionalProperties": false
+  },
+  "MCPListResult": {
+    "type": [
+      "null",
+      "array"
+    ],
+    "items": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "$id": "https://whip.dev/protocol/v2/MCPListResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "MCPListResult"
+  },
+  "MCPServerParams": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/MCPServerParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "MCPServerParams",
+    "required": [
+      "name"
+    ],
+    "additionalProperties": false
+  },
+  "ModelParams": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "persist_default": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ModelParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ModelParams",
+    "required": [
+      "model",
+      "persist_default"
+    ],
+    "additionalProperties": false
+  },
+  "ModelResult": {
+    "type": "object",
+    "properties": {
+      "reload_pending": {
+        "type": "boolean"
+      },
+      "model": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ModelResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ModelResult",
+    "required": [
+      "model",
+      "provider"
+    ],
+    "additionalProperties": false
+  },
+  "PathParams": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/PathParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PathParams",
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false
+  },
+  "PathResult": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/PathResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PathResult",
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false
+  },
+  "PermissionConfigureParams": {
+    "type": "object",
+    "properties": {
+      "external_permissions": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/PermissionConfigureParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PermissionConfigureParams",
+    "required": [
+      "external_permissions"
+    ],
+    "additionalProperties": false
+  },
+  "PermissionDecisionParams": {
+    "type": "object",
+    "properties": {
+      "decision": true,
+      "signature": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/PermissionDecisionParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PermissionDecisionParams",
+    "required": [
+      "decision",
+      "signature"
+    ],
+    "additionalProperties": false
+  },
+  "PermissionDecisionResult": {
+    "type": "object",
+    "properties": {
+      "operation_id": {
+        "type": "string"
+      },
+      "lease_id": {
+        "type": "string"
+      },
+      "nonce": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/PermissionDecisionResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PermissionDecisionResult",
+    "required": [
+      "operation_id",
+      "lease_id",
+      "nonce"
+    ],
+    "additionalProperties": false
+  },
+  "PermissionModeParams": {
+    "type": "object",
+    "properties": {
+      "command": true,
+      "signature": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/PermissionModeParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PermissionModeParams",
+    "required": [
+      "command",
+      "signature"
+    ],
+    "additionalProperties": false
+  },
+  "PermissionModeResult": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "reference_id": {
+                "type": "string"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "size": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "media_type": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reference_id",
+              "digest",
+              "size"
+            ],
+            "additionalProperties": false
+          },
+          "operation": {
+            "type": "string"
+          },
+          "result": true,
+          "failure": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "data": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              "code": {
+                "type": "integer"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          "command_id": {
+            "type": "string"
+          },
+          "ingress_seq": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "command_id",
+          "ingress_seq",
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "nonce": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/PermissionModeResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PermissionModeResult",
+    "required": [
+      "command",
+      "nonce"
+    ],
+    "additionalProperties": false
+  },
+  "PermissionRulesResult": {
+    "type": "object",
+    "properties": {
+      "rules": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "root_id": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            },
+            "rule": {
+              "type": "string"
+            },
+            "principal_id": {
+              "type": "string"
+            },
+            "created_at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "root_id",
+            "operation",
+            "rule",
+            "principal_id",
+            "created_at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "global": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/PermissionRulesResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PermissionRulesResult",
+    "required": [
+      "rules",
+      "global"
+    ],
+    "additionalProperties": false
+  },
+  "PingResult": {
+    "type": "object",
+    "properties": {
+      "generation": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "build_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/PingResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "PingResult",
+    "required": [
+      "generation",
+      "build_id"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderCatalogsResult": {
+    "type": "object",
+    "properties": {
+      "models": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "providers": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "context": {
+              "type": "integer"
+            },
+            "vision": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "providers"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "providers": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "base_url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "base_url"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "catalogs": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "fetched_at": {
+              "type": "string"
+            },
+            "base_url": {
+              "type": "string"
+            },
+            "models": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "context_length": {
+                    "type": "integer"
+                  },
+                  "max_completion_tokens": {
+                    "type": "integer"
+                  },
+                  "reasoning_efforts": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "in_price": {
+                    "type": "number"
+                  },
+                  "out_price": {
+                    "type": "number"
+                  },
+                  "cache_read_price": {
+                    "type": "number"
+                  },
+                  "input_modalities": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "fetched_at",
+            "base_url",
+            "models"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "errors": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderCatalogsResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderCatalogsResult",
+    "required": [
+      "models",
+      "providers",
+      "catalogs"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderKeySetup": {
+    "type": "object",
+    "properties": {
+      "revision": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "key": {
+        "type": "string"
+      },
+      "environment": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderKeySetup",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderKeySetup",
+    "required": [
+      "revision",
+      "provider",
+      "environment"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderLoginCreateParams": {
+    "type": "object",
+    "properties": {
+      "flow_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderLoginCreateParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderLoginCreateParams",
+    "required": [
+      "flow_id",
+      "name"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderLoginList": {
+    "type": "object",
+    "properties": {
+      "flows": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "flow_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "verification_url": {
+              "type": "string"
+            },
+            "user_code": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string"
+            },
+            "teams": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "projects": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "team_id": {
+              "type": "string"
+            },
+            "project_id": {
+              "type": "string"
+            },
+            "expires_at": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "flow_id",
+            "state",
+            "teams",
+            "projects",
+            "expires_at"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderLoginList",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderLoginList",
+    "required": [
+      "flows"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderLoginParams": {
+    "type": "object",
+    "properties": {
+      "flow_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderLoginParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderLoginParams",
+    "required": [
+      "flow_id"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderLoginProjectParams": {
+    "type": "object",
+    "properties": {
+      "flow_id": {
+        "type": "string"
+      },
+      "project_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderLoginProjectParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderLoginProjectParams",
+    "required": [
+      "flow_id",
+      "project_id"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderLoginStatus": {
+    "type": "object",
+    "properties": {
+      "flow_id": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string"
+      },
+      "verification_url": {
+        "type": "string"
+      },
+      "user_code": {
+        "type": "string"
+      },
+      "email": {
+        "type": "string"
+      },
+      "teams": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "projects": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "team_id": {
+        "type": "string"
+      },
+      "project_id": {
+        "type": "string"
+      },
+      "expires_at": {
+        "type": "string"
+      },
+      "error": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderLoginStatus",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderLoginStatus",
+    "required": [
+      "flow_id",
+      "state",
+      "teams",
+      "projects",
+      "expires_at"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderLoginTeamParams": {
+    "type": "object",
+    "properties": {
+      "flow_id": {
+        "type": "string"
+      },
+      "team_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderLoginTeamParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderLoginTeamParams",
+    "required": [
+      "flow_id",
+      "team_id"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderNameParams": {
+    "type": "object",
+    "properties": {
+      "provider": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderNameParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderNameParams",
+    "required": [
+      "provider"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderStatus": {
+    "type": "object",
+    "properties": {
+      "provider": {
+        "type": "string"
+      },
+      "configured": {
+        "type": "boolean"
+      },
+      "key_source": {
+        "type": "string"
+      },
+      "email": {
+        "type": "string"
+      },
+      "project_id": {
+        "type": "string"
+      },
+      "project_name": {
+        "type": "string"
+      },
+      "machine_key_name": {
+        "type": "string"
+      },
+      "warnings": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderStatus",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderStatus",
+    "required": [
+      "provider",
+      "configured",
+      "key_source",
+      "warnings"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderValidateParams": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "base_url": {
+        "type": "string"
+      },
+      "key": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderValidateParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderValidateParams",
+    "required": [
+      "name",
+      "base_url",
+      "key"
+    ],
+    "additionalProperties": false
+  },
+  "ProviderValidateResult": {
+    "type": "object",
+    "properties": {
+      "models": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "context_length": {
+              "type": "integer"
+            },
+            "max_completion_tokens": {
+              "type": "integer"
+            },
+            "reasoning_efforts": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "pricing": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "prompt": {
+                  "type": "string"
+                },
+                "completion": {
+                  "type": "string"
+                },
+                "input_cache_read": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prompt",
+                "completion"
+              ],
+              "additionalProperties": false
+            },
+            "input_modalities": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ProviderValidateResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ProviderValidateResult",
+    "required": [
+      "models"
+    ],
+    "additionalProperties": false
+  },
+  "QueryParams": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      },
+      "operation": {
+        "type": "string"
+      },
+      "payload": true
+    },
+    "$id": "https://whip.dev/protocol/v2/QueryParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "QueryParams",
+    "required": [
+      "operation"
+    ],
+    "additionalProperties": false
+  },
+  "QueryResult": {
+    "type": "object",
+    "properties": {
+      "result": true,
+      "content": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "reference_id": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference_id",
+          "digest",
+          "size"
+        ],
+        "additionalProperties": false
+      },
+      "root_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/QueryResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "QueryResult",
+    "additionalProperties": false
+  },
+  "QuestionAnswerParams": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "answer": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "string"
+        }
+      },
+      "dismissed": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/QuestionAnswerParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "QuestionAnswerParams",
+    "required": [
+      "id",
+      "answer",
+      "dismissed"
+    ],
+    "additionalProperties": false
+  },
+  "ReplayParams": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      },
+      "cursor": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "limit": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ReplayParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ReplayParams",
+    "required": [
+      "root_id",
+      "cursor"
+    ],
+    "additionalProperties": false
+  },
+  "ReplayResult": {
+    "type": "object",
+    "properties": {
+      "events": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "subscription_id": {
+              "type": "string"
+            },
+            "root_id": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "payload": true
+          },
+          "required": [
+            "root_id",
+            "seq",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "latest": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "expired": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ReplayResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ReplayResult",
+    "required": [
+      "events",
+      "latest"
+    ],
+    "additionalProperties": false
+  },
+  "RestartNotice": {
+    "type": "object",
+    "properties": {
+      "generation": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "cursors": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RestartNotice",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RestartNotice",
+    "required": [
+      "generation",
+      "cursors"
+    ],
+    "additionalProperties": false
+  },
+  "RestartParams": {
+    "type": "object",
+    "properties": {
+      "generation": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RestartParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RestartParams",
+    "required": [
+      "generation"
+    ],
+    "additionalProperties": false
+  },
+  "RewindParams": {
+    "type": "object",
+    "properties": {
+      "expected_revision": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "cut": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RewindParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RewindParams",
+    "required": [
+      "expected_revision",
+      "cut"
+    ],
+    "additionalProperties": false
+  },
+  "RewindResult": {
+    "type": "object",
+    "properties": {
+      "cut": {
+        "type": "integer"
+      },
+      "restored_files": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RewindResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RewindResult",
+    "required": [
+      "cut",
+      "restored_files"
+    ],
+    "additionalProperties": false
+  },
+  "RootCollectionPage": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      },
+      "collection": {
+        "type": "string"
+      },
+      "revision": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "event_cursor": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "items": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "root_id": {
+                  "type": "string"
+                },
+                "parent_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string"
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "report": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "pending_mail": {
+                  "type": "integer"
+                },
+                "lifecycle_phase": {
+                  "type": "string"
+                },
+                "blocking_reason": {
+                  "type": "string"
+                },
+                "terminal_cause": {
+                  "type": "string"
+                },
+                "allowed_controls": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "root_id",
+                "parent_id",
+                "name",
+                "model",
+                "provider",
+                "effort",
+                "cwd",
+                "report",
+                "status",
+                "pending_mail",
+                "lifecycle_phase",
+                "blocking_reason",
+                "terminal_cause",
+                "allowed_controls"
+              ],
+              "additionalProperties": false
+            },
+            "inbox": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "root_id": {
+                  "type": "string"
+                },
+                "agent_id": {
+                  "type": "string"
+                },
+                "seq": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "payload": {
+                  "type": "object",
+                  "properties": {
+                    "inline": true,
+                    "text": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "binary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "contentEncoding": "base64"
+                    },
+                    "reference_id": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)$",
+                      "format": "int64"
+                    },
+                    "media_type": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "reference_id",
+                    "digest",
+                    "size",
+                    "media_type",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "root_id",
+                "agent_id",
+                "seq",
+                "kind",
+                "status",
+                "payload"
+              ],
+              "additionalProperties": false
+            },
+            "blackboard": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "author_agent_id": {
+                  "type": "string"
+                },
+                "payload": {
+                  "type": "object",
+                  "properties": {
+                    "inline": true,
+                    "text": {
+                      "type": [
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "binary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "contentEncoding": "base64"
+                    },
+                    "reference_id": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)$",
+                      "format": "int64"
+                    },
+                    "media_type": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "reference_id",
+                    "digest",
+                    "size",
+                    "media_type",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "key",
+                "version",
+                "author_agent_id",
+                "payload"
+              ],
+              "additionalProperties": false
+            },
+            "budget": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "agent_id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "limit": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)$",
+                      "format": "int64"
+                    },
+                    "used": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)$",
+                      "format": "int64"
+                    },
+                    "reserved": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)$",
+                      "format": "int64"
+                    },
+                    "remaining": {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)$",
+                      "format": "int64"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "limit",
+                    "used",
+                    "reserved",
+                    "remaining"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "agent_id",
+                "state"
+              ],
+              "additionalProperties": false
+            },
+            "capability": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "root_id": {
+                  "type": "string"
+                },
+                "agent_id": {
+                  "type": "string"
+                },
+                "issuer_agent_id": {
+                  "type": "string"
+                },
+                "operations": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "scopes": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "mcp": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "server": {
+                        "type": "string"
+                      },
+                      "tool": {
+                        "type": "string"
+                      },
+                      "definition": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "server",
+                      "tool",
+                      "definition"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "mcp_all": {
+                  "type": "boolean"
+                },
+                "generation": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "expires_at": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "root_id",
+                "agent_id",
+                "issuer_agent_id",
+                "operations",
+                "scopes",
+                "mcp",
+                "mcp_all",
+                "generation",
+                "status",
+                "expires_at",
+                "created_at",
+                "updated_at"
+              ],
+              "additionalProperties": false
+            },
+            "schedule": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "schedule": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "anchor": {
+                  "type": "string"
+                },
+                "last_fire": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "schedule",
+                "prompt",
+                "anchor",
+                "last_fire"
+              ],
+              "additionalProperties": false
+            },
+            "permission": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "agent_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "operation": {
+                  "type": "string"
+                },
+                "canonical_path": {
+                  "type": "string"
+                },
+                "request_digest": {
+                  "type": "string"
+                },
+                "capability_id": {
+                  "type": "string"
+                },
+                "capability_generation": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                },
+                "rule": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "agent_id",
+                "operation_id",
+                "operation",
+                "canonical_path",
+                "request_digest",
+                "capability_id",
+                "capability_generation",
+                "status",
+                "command",
+                "rule"
+              ],
+              "additionalProperties": false
+            },
+            "body": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "inline": true,
+                "text": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "binary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "contentEncoding": "base64"
+                },
+                "reference_id": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "media_type": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reference_id",
+                "digest",
+                "size",
+                "media_type",
+                "source"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false,
+          "oneOf": [
+            {
+              "required": [
+                "agent"
+              ]
+            },
+            {
+              "required": [
+                "inbox"
+              ]
+            },
+            {
+              "required": [
+                "blackboard"
+              ]
+            },
+            {
+              "required": [
+                "budget"
+              ]
+            },
+            {
+              "required": [
+                "capability"
+              ]
+            },
+            {
+              "required": [
+                "schedule"
+              ]
+            },
+            {
+              "required": [
+                "permission"
+              ]
+            },
+            {
+              "required": [
+                "body"
+              ]
+            }
+          ]
+        }
+      },
+      "next_cursor": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "root_id": {
+            "type": "string"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "root_id",
+          "collection",
+          "revision",
+          "offset"
+        ],
+        "additionalProperties": false
+      },
+      "has_more": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RootCollectionPage",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RootCollectionPage",
+    "required": [
+      "root_id",
+      "collection",
+      "revision",
+      "event_cursor",
+      "items",
+      "has_more"
+    ],
+    "additionalProperties": false
+  },
+  "RootCollectionParams": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      },
+      "collection": {
+        "type": "string"
+      },
+      "cursor": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "root_id": {
+            "type": "string"
+          },
+          "collection": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "root_id",
+          "collection",
+          "revision",
+          "offset"
+        ],
+        "additionalProperties": false
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "max_bytes": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RootCollectionParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RootCollectionParams",
+    "required": [
+      "root_id",
+      "collection",
+      "limit",
+      "max_bytes"
+    ],
+    "additionalProperties": false
+  },
+  "RootIDResult": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RootIDResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RootIDResult",
+    "required": [
+      "root_id"
+    ],
+    "additionalProperties": false
+  },
+  "RootParams": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RootParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RootParams",
+    "required": [
+      "root_id"
+    ],
+    "additionalProperties": false
+  },
+  "RootSnapshot": {
+    "type": "object",
+    "properties": {
+      "active_turns": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "omitted": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "boolean"
+        }
+      },
+      "message_seqs": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "integer"
+        }
+      },
+      "first_message_seq": {
+        "type": "integer"
+      },
+      "history_revision": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "root_id": {
+        "type": "string"
+      },
+      "cursor": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "meta": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "forked_from": {
+            "type": "string"
+          },
+          "fork_seq": {
+            "type": "integer"
+          },
+          "tags": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "effort": {
+            "type": "string"
+          },
+          "usage_in": {
+            "type": "integer"
+          },
+          "usage_cached": {
+            "type": "integer"
+          },
+          "usage_out": {
+            "type": "integer"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "model",
+          "provider",
+          "cwd",
+          "goal",
+          "forked_from",
+          "fork_seq",
+          "tags",
+          "pinned",
+          "effort",
+          "usage_in",
+          "usage_cached",
+          "usage_out",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "messages": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "tool_calls": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "function": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "arguments": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "arguments"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "duration_ms": {
+                    "type": "integer"
+                  },
+                  "exit_code": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "function"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "tool_call_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "authored": {
+              "type": "boolean"
+            },
+            "sent_at": {
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "usage": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "prompt_tokens": {
+                  "type": "integer"
+                },
+                "completion_tokens": {
+                  "type": "integer"
+                },
+                "prompt_tokens_details": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "cached_tokens": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "cached_tokens"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "prompt_tokens",
+                "completion_tokens"
+              ],
+              "additionalProperties": false
+            },
+            "model": {
+              "type": "string"
+            },
+            "rewound_from": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "content"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "presentation": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "payload": true
+          },
+          "required": [
+            "seq",
+            "kind",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "agent_presentations": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "seq": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "payload": true
+            },
+            "required": [
+              "seq",
+              "kind",
+              "payload"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "agents": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "root_id": {
+              "type": "string"
+            },
+            "parent_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "effort": {
+              "type": "string"
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "report": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "pending_mail": {
+              "type": "integer"
+            },
+            "lifecycle_phase": {
+              "type": "string"
+            },
+            "blocking_reason": {
+              "type": "string"
+            },
+            "terminal_cause": {
+              "type": "string"
+            },
+            "allowed_controls": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "root_id",
+            "parent_id",
+            "name",
+            "model",
+            "provider",
+            "effort",
+            "cwd",
+            "report",
+            "status",
+            "pending_mail",
+            "lifecycle_phase",
+            "blocking_reason",
+            "terminal_cause",
+            "allowed_controls"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "inbox": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "root_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "inline": true,
+                "text": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "binary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "contentEncoding": "base64"
+                },
+                "reference_id": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "media_type": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reference_id",
+                "digest",
+                "size",
+                "media_type",
+                "source"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "root_id",
+            "agent_id",
+            "seq",
+            "kind",
+            "status",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "blackboard": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "author_agent_id": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "inline": true,
+                "text": {
+                  "type": [
+                    "null",
+                    "string"
+                  ]
+                },
+                "binary": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "contentEncoding": "base64"
+                },
+                "reference_id": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "media_type": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reference_id",
+                "digest",
+                "size",
+                "media_type",
+                "source"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "key",
+            "version",
+            "author_agent_id",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "budgets": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "limit": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "used": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "reserved": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "remaining": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                }
+              },
+              "required": [
+                "kind",
+                "limit",
+                "used",
+                "reserved",
+                "remaining"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "agent_id",
+            "state"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "capabilities": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "root_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "issuer_agent_id": {
+              "type": "string"
+            },
+            "operations": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "mcp": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "server": {
+                    "type": "string"
+                  },
+                  "tool": {
+                    "type": "string"
+                  },
+                  "definition": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "server",
+                  "tool",
+                  "definition"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "mcp_all": {
+              "type": "boolean"
+            },
+            "generation": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "status": {
+              "type": "string"
+            },
+            "expires_at": {
+              "type": "string"
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "updated_at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "root_id",
+            "agent_id",
+            "issuer_agent_id",
+            "operations",
+            "scopes",
+            "mcp",
+            "mcp_all",
+            "generation",
+            "status",
+            "expires_at",
+            "created_at",
+            "updated_at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "schedules": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "schedule": {
+              "type": "string"
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "anchor": {
+              "type": "string"
+            },
+            "last_fire": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "schedule",
+            "prompt",
+            "anchor",
+            "last_fire"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "permissions": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            },
+            "canonical_path": {
+              "type": "string"
+            },
+            "request_digest": {
+              "type": "string"
+            },
+            "capability_id": {
+              "type": "string"
+            },
+            "capability_generation": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "status": {
+              "type": "string"
+            },
+            "command": {
+              "type": "string"
+            },
+            "rule": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "agent_id",
+            "operation_id",
+            "operation",
+            "canonical_path",
+            "request_digest",
+            "capability_id",
+            "capability_generation",
+            "status",
+            "command",
+            "rule"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "questions": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "turn_id": {
+              "type": "string"
+            },
+            "root_id": {
+              "type": "string"
+            },
+            "agent_id": {
+              "type": "string"
+            },
+            "sender_agent_id": {
+              "type": "string"
+            },
+            "inbox_seq": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "inbox_kind": {
+              "type": "string"
+            },
+            "delivery": {
+              "type": "string"
+            },
+            "message_id": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "terminal_cause": {
+              "type": "string"
+            },
+            "command_client_id": {
+              "type": "string"
+            },
+            "command_id": {
+              "type": "string"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "schedule_id": {
+              "type": "integer"
+            },
+            "slot": {
+              "type": "string"
+            },
+            "error": {
+              "type": "string"
+            },
+            "acknowledged_inbox": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              }
+            },
+            "subscription_id": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "expected_version": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "restored": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "not_restored": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "reason"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "attempt": {
+              "type": "string"
+            },
+            "budget_kind": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "limit": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "used": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "reserved": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "capability_id": {
+              "type": "string"
+            },
+            "generation": {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)$",
+              "format": "int64"
+            },
+            "permission_id": {
+              "type": "string"
+            },
+            "operation": {
+              "type": "string"
+            },
+            "canonical_path": {
+              "type": "string"
+            },
+            "request_digest": {
+              "type": "string"
+            },
+            "command": {
+              "type": "string"
+            },
+            "rule": {
+              "type": "string"
+            },
+            "rule_source": {
+              "type": "string"
+            },
+            "question_id": {
+              "type": "string"
+            },
+            "question": {
+              "type": "string"
+            },
+            "options": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "multiple": {
+              "type": "boolean"
+            },
+            "answer": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "dismissed": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RootSnapshot",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RootSnapshot",
+    "required": [
+      "active_turns",
+      "message_seqs",
+      "history_revision",
+      "root_id",
+      "cursor",
+      "meta",
+      "messages",
+      "presentation",
+      "agent_presentations",
+      "agents",
+      "inbox",
+      "blackboard",
+      "budgets",
+      "capabilities",
+      "schedules",
+      "permissions",
+      "questions"
+    ],
+    "additionalProperties": false
+  },
+  "RunConfigureParams": {
+    "type": "object",
+    "properties": {
+      "system": {
+        "type": "string"
+      },
+      "max_turns": {
+        "type": "integer"
+      },
+      "headless": {
+        "type": "boolean"
+      },
+      "cache_key": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RunConfigureParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RunConfigureParams",
+    "additionalProperties": false
+  },
+  "RuntimeConfiguration": {
+    "type": "object",
+    "properties": {
+      "import_claude": {
+        "type": "boolean"
+      },
+      "import_codex": {
+        "type": "boolean"
+      },
+      "revision": {
+        "type": "string"
+      },
+      "default_model": {
+        "type": "string"
+      },
+      "default_provider": {
+        "type": "string"
+      },
+      "default_effort": {
+        "type": "string"
+      },
+      "compact_model": {
+        "type": "string"
+      },
+      "compact_provider": {
+        "type": "string"
+      },
+      "compact_percent": {
+        "type": "integer"
+      },
+      "goal_max_rounds": {
+        "type": "integer"
+      },
+      "max_retries": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/RuntimeConfiguration",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "RuntimeConfiguration",
+    "required": [
+      "import_claude",
+      "import_codex",
+      "revision",
+      "default_model",
+      "default_provider",
+      "default_effort",
+      "compact_model",
+      "compact_provider",
+      "compact_percent",
+      "goal_max_rounds",
+      "max_retries"
+    ],
+    "additionalProperties": false
+  },
+  "ScheduleCreateParams": {
+    "type": "object",
+    "properties": {
+      "schedule": {
+        "type": "string"
+      },
+      "prompt": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ScheduleCreateParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ScheduleCreateParams",
+    "required": [
+      "schedule",
+      "prompt"
+    ],
+    "additionalProperties": false
+  },
+  "ScheduleDeleteParams": {
+    "type": "object",
+    "properties": {
+      "schedule_id": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ScheduleDeleteParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ScheduleDeleteParams",
+    "required": [
+      "schedule_id"
+    ],
+    "additionalProperties": false
+  },
+  "ScheduleListResult": {
+    "type": [
+      "null",
+      "array"
+    ],
+    "items": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "schedule": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "anchor": {
+          "type": "string"
+        },
+        "last_fire": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "schedule",
+        "prompt",
+        "anchor",
+        "last_fire"
+      ],
+      "additionalProperties": false
+    },
+    "$id": "https://whip.dev/protocol/v2/ScheduleListResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ScheduleListResult"
+  },
+  "ScheduleResult": {
+    "type": "object",
+    "properties": {
+      "schedule_id": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ScheduleResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ScheduleResult",
+    "required": [
+      "schedule_id"
+    ],
+    "additionalProperties": false
+  },
+  "SessionCatalogPage": {
+    "type": "object",
+    "properties": {
+      "revision": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "items": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "pinned": {
+              "type": "boolean"
+            },
+            "updated_at": {
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title",
+            "model",
+            "provider",
+            "cwd",
+            "pinned",
+            "updated_at",
+            "truncated"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "next_cursor": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "revision": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "revision",
+          "offset"
+        ],
+        "additionalProperties": false
+      },
+      "has_more": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/SessionCatalogPage",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SessionCatalogPage",
+    "required": [
+      "revision",
+      "items",
+      "has_more"
+    ],
+    "additionalProperties": false
+  },
+  "SessionCatalogParams": {
+    "type": "object",
+    "properties": {
+      "cursor": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "revision": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "revision",
+          "offset"
+        ],
+        "additionalProperties": false
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "max_bytes": {
+        "type": "integer"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/SessionCatalogParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SessionCatalogParams",
+    "required": [
+      "limit",
+      "max_bytes"
+    ],
+    "additionalProperties": false
+  },
+  "SessionListResult": {
+    "type": [
+      "null",
+      "array"
+    ],
+    "items": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "goal": {
+          "type": "string"
+        },
+        "forked_from": {
+          "type": "string"
+        },
+        "fork_seq": {
+          "type": "integer"
+        },
+        "tags": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "usage_in": {
+          "type": "integer"
+        },
+        "usage_cached": {
+          "type": "integer"
+        },
+        "usage_out": {
+          "type": "integer"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "model",
+        "provider",
+        "cwd",
+        "goal",
+        "forked_from",
+        "fork_seq",
+        "tags",
+        "pinned",
+        "effort",
+        "usage_in",
+        "usage_cached",
+        "usage_out",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "$id": "https://whip.dev/protocol/v2/SessionListResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SessionListResult"
+  },
+  "SessionPreviewResult": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      },
+      "user": {
+        "type": "string"
+      },
+      "assistant": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/SessionPreviewResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SessionPreviewResult",
+    "required": [
+      "root_id",
+      "user",
+      "assistant"
+    ],
+    "additionalProperties": false
+  },
+  "SessionUpdateEvent": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string"
+      },
+      "model": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "effort": {
+        "type": "string"
+      },
+      "effort_changed": {
+        "type": "boolean"
+      },
+      "working_directory": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/SessionUpdateEvent",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SessionUpdateEvent",
+    "additionalProperties": false
+  },
+  "ShellParams": {
+    "type": "object",
+    "properties": {
+      "command": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ShellParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ShellParams",
+    "required": [
+      "command"
+    ],
+    "additionalProperties": false
+  },
+  "SnapshotParams": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/SnapshotParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SnapshotParams",
+    "required": [
+      "root_id"
+    ],
+    "additionalProperties": false
+  },
+  "StreamEvent": {
+    "type": "object",
+    "properties": {
+      "usage": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "used": {
+            "type": "integer"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "prompt_tokens": {
+                "type": "integer"
+              },
+              "completion_tokens": {
+                "type": "integer"
+              },
+              "prompt_tokens_details": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "cached_tokens": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "cached_tokens"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "prompt_tokens",
+              "completion_tokens"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "used",
+          "size",
+          "usage"
+        ],
+        "additionalProperties": false
+      },
+      "agent_id": {
+        "type": "string"
+      },
+      "id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string"
+      },
+      "args": {
+        "type": "string"
+      },
+      "result": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/StreamEvent",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "StreamEvent",
+    "additionalProperties": false
+  },
+  "SubmitPayload": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string"
+      },
+      "parts": {
+        "type": [
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "image_url": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false
+            },
+            "w": {
+              "type": "integer"
+            },
+            "h": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/SubmitPayload",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SubmitPayload",
+    "required": [
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "SubscribeParams": {
+    "type": "object",
+    "properties": {
+      "root_id": {
+        "type": "string"
+      },
+      "subscription_id": {
+        "type": "string"
+      },
+      "cursor": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/SubscribeParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SubscribeParams",
+    "required": [
+      "root_id",
+      "subscription_id",
+      "cursor"
+    ],
+    "additionalProperties": false
+  },
+  "SubscribeResult": {
+    "type": "object",
+    "properties": {
+      "subscription_id": {
+        "type": "string"
+      },
+      "cursor": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/SubscribeResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SubscribeResult",
+    "required": [
+      "subscription_id",
+      "cursor"
+    ],
+    "additionalProperties": false
+  },
+  "SubscriptionFailure": {
+    "type": "object",
+    "properties": {
+      "subscription_id": {
+        "type": "string"
+      },
+      "root_id": {
+        "type": "string"
+      },
+      "error": {
+        "type": [
+          "null",
+          "object"
+        ],
+        "properties": {
+          "data": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "code": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/SubscriptionFailure",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "SubscriptionFailure",
+    "required": [
+      "subscription_id",
+      "root_id",
+      "error"
+    ],
+    "additionalProperties": false
+  },
+  "TerminalInputParams": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "bytes": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/TerminalInputParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "TerminalInputParams",
+    "required": [
+      "id",
+      "bytes"
+    ],
+    "additionalProperties": false
+  },
+  "TextParams": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/TextParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "TextParams",
+    "required": [
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "TextResult": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/TextResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "TextResult",
+    "required": [
+      "text"
+    ],
+    "additionalProperties": false
+  },
+  "TitleParams": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/TitleParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "TitleParams",
+    "required": [
+      "title"
+    ],
+    "additionalProperties": false
+  },
+  "TitleResult": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/TitleResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "TitleResult",
+    "required": [
+      "title"
+    ],
+    "additionalProperties": false
+  },
+  "ToolCallParams": {
+    "type": "object",
+    "properties": {
+      "tool": {
+        "type": "string"
+      },
+      "arguments": true
+    },
+    "$id": "https://whip.dev/protocol/v2/ToolCallParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ToolCallParams",
+    "required": [
+      "tool",
+      "arguments"
+    ],
+    "additionalProperties": false
+  },
+  "ToolConfigureParams": {
+    "type": "object",
+    "properties": {
+      "deny_permissions": {
+        "type": "boolean"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/ToolConfigureParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ToolConfigureParams",
+    "required": [
+      "deny_permissions"
+    ],
+    "additionalProperties": false
+  },
+  "ToolSchemaResult": {
+    "type": [
+      "null",
+      "array"
+    ],
+    "items": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "function": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "parameters": true
+          },
+          "required": [
+            "name",
+            "description",
+            "parameters"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "function"
+      ],
+      "additionalProperties": false
+    },
+    "$id": "https://whip.dev/protocol/v2/ToolSchemaResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "ToolSchemaResult"
+  },
+  "UnsubscribeParams": {
+    "type": "object",
+    "properties": {
+      "subscription_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/UnsubscribeParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "UnsubscribeParams",
+    "required": [
+      "subscription_id"
+    ],
+    "additionalProperties": false
+  },
+  "UploadBeginParams": {
+    "type": "object",
+    "properties": {
+      "upload_id": {
+        "type": "string"
+      },
+      "root_id": {
+        "type": "string"
+      },
+      "expected_digest": {
+        "type": "string"
+      },
+      "size": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "media_type": {
+        "type": "string"
+      },
+      "source": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/UploadBeginParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "UploadBeginParams",
+    "required": [
+      "upload_id",
+      "root_id",
+      "expected_digest",
+      "size"
+    ],
+    "additionalProperties": false
+  },
+  "UploadChunkParams": {
+    "type": "object",
+    "properties": {
+      "upload_id": {
+        "type": "string"
+      },
+      "offset": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]*)$",
+        "format": "int64"
+      },
+      "data": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        "contentEncoding": "base64"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/UploadChunkParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "UploadChunkParams",
+    "required": [
+      "upload_id",
+      "offset",
+      "data"
+    ],
+    "additionalProperties": false
+  },
+  "UploadFinishParams": {
+    "type": "object",
+    "properties": {
+      "upload_id": {
+        "type": "string"
+      }
+    },
+    "$id": "https://whip.dev/protocol/v2/UploadFinishParams",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "UploadFinishParams",
+    "required": [
+      "upload_id"
+    ],
+    "additionalProperties": false
+  },
+  "UserHistoryResult": {
+    "type": [
+      "null",
+      "array"
+    ],
+    "items": {
+      "type": "string"
+    },
+    "$id": "https://whip.dev/protocol/v2/UserHistoryResult",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "UserHistoryResult"
+  }
+}

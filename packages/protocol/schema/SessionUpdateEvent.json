@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "effort": {
+      "type": "string"
+    },
+    "effort_changed": {
+      "type": "boolean"
+    },
+    "working_directory": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/SessionUpdateEvent",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SessionUpdateEvent",
+  "additionalProperties": false
+}

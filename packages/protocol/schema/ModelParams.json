@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "model": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "persist_default": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ModelParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ModelParams",
+  "required": [
+    "model",
+    "persist_default"
+  ],
+  "additionalProperties": false
+}

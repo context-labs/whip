@@ -1,0 +1,31 @@
+{
+  "type": [
+    "null",
+    "array"
+  ],
+  "items": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "root": {
+        "type": "string"
+      },
+      "state": {
+        "type": "string"
+      },
+      "error": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "state"
+    ],
+    "additionalProperties": false
+  },
+  "$id": "https://whip.dev/protocol/v2/LSPListResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LSPListResult"
+}

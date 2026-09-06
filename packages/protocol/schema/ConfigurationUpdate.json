@@ -1,0 +1,75 @@
+{
+  "type": "object",
+  "properties": {
+    "import_claude": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    },
+    "import_codex": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    },
+    "revision": {
+      "type": "string"
+    },
+    "default_model": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "default_provider": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "default_effort": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "compact_model": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "compact_provider": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "compact_percent": {
+      "type": [
+        "null",
+        "integer"
+      ]
+    },
+    "goal_max_rounds": {
+      "type": [
+        "null",
+        "integer"
+      ]
+    },
+    "max_retries": {
+      "type": [
+        "null",
+        "integer"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ConfigurationUpdate",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConfigurationUpdate",
+  "required": [
+    "revision"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "model": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/CreateSessionParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CreateSessionParams",
+  "required": [
+    "kind",
+    "cwd",
+    "model",
+    "provider"
+  ],
+  "additionalProperties": false
+}

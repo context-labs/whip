@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 6
-	schemaIdentity       = "whip-recursive-runtime-v6"
+	currentSchemaVersion = 7
+	schemaIdentity       = "whip-recursive-runtime-v7"
 )
 
 // MaxInboxRetries bounds how many times a failed turn may return its claimed
@@ -20,7 +20,7 @@ const MaxInboxRetries = 3
 // agents, not legacy tasks or one-shot child executions.
 const cleanSchema = `
 CREATE TABLE runtime_schema (
-	id INTEGER PRIMARY KEY CHECK(id=1), identity TEXT NOT NULL
+	id INTEGER PRIMARY KEY CHECK(id=1), identity TEXT NOT NULL, runtime_id TEXT NOT NULL, catalog_revision INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE sessions (
 	id TEXT PRIMARY KEY,
@@ -30,6 +30,8 @@ CREATE TABLE sessions (
 	cwd TEXT NOT NULL,
 	model TEXT NOT NULL,
 	provider TEXT NOT NULL,
+	history_revision INTEGER NOT NULL DEFAULT 0,
+ collection_revision INTEGER NOT NULL DEFAULT 0,
 	title TEXT NOT NULL DEFAULT '',
 	goal TEXT NOT NULL DEFAULT '',
 	forked_from TEXT NOT NULL DEFAULT '',
@@ -115,7 +117,7 @@ CREATE INDEX agent_messages_recipient_status
 	ON agent_messages(root_id,recipient_agent_id,status,created_at,id);
 CREATE TABLE commands (
 	client_id TEXT NOT NULL, command_id TEXT NOT NULL, scope TEXT NOT NULL CHECK(scope IN ('daemon','root')),
-	root_id TEXT REFERENCES sessions(id), request_digest TEXT NOT NULL, status TEXT NOT NULL,
+	root_id TEXT REFERENCES sessions(id), operation TEXT NOT NULL, request_digest TEXT NOT NULL, status TEXT NOT NULL,
 	payload_inline BLOB, payload_ref TEXT REFERENCES content_references(id), outcome_inline BLOB,
 	outcome_ref TEXT REFERENCES content_references(id), ingress_seq INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(client_id,command_id),
@@ -227,7 +229,60 @@ CREATE TABLE daemon_state (
 CREATE TABLE client_identities (
 	client_id TEXT PRIMARY KEY, kind TEXT NOT NULL, public_key BLOB NOT NULL,
 	paired_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, CHECK(length(public_key)=32)
-);`
+);
+CREATE TRIGGER collection_agents_insert AFTER INSERT ON agents
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_agents_update AFTER UPDATE ON agents
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_agents_delete AFTER DELETE ON agents
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=OLD.root_id; END;
+CREATE TRIGGER collection_inbox_insert AFTER INSERT ON inbox
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_inbox_update AFTER UPDATE ON inbox
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_inbox_delete AFTER DELETE ON inbox
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=OLD.root_id; END;
+CREATE TRIGGER collection_blackboard_insert AFTER INSERT ON blackboard
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_blackboard_update AFTER UPDATE ON blackboard
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_blackboard_delete AFTER DELETE ON blackboard
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=OLD.root_id; END;
+CREATE TRIGGER collection_budgets_insert AFTER INSERT ON budgets
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_budgets_update AFTER UPDATE ON budgets
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_budgets_delete AFTER DELETE ON budgets
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=OLD.root_id; END;
+CREATE TRIGGER collection_capabilities_insert AFTER INSERT ON capabilities
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_capabilities_update AFTER UPDATE ON capabilities
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_capabilities_delete AFTER DELETE ON capabilities
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=OLD.root_id; END;
+CREATE TRIGGER collection_schedules_insert AFTER INSERT ON schedules
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.session_id; END;
+CREATE TRIGGER collection_schedules_update AFTER UPDATE ON schedules
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.session_id; END;
+CREATE TRIGGER collection_schedules_delete AFTER DELETE ON schedules
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=OLD.session_id; END;
+CREATE TRIGGER collection_permission_requests_insert AFTER INSERT ON permission_requests
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_permission_requests_update AFTER UPDATE ON permission_requests
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_permission_requests_delete AFTER DELETE ON permission_requests
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=OLD.root_id; END;
+CREATE TRIGGER collection_agent_messages_insert AFTER INSERT ON agent_messages
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_agent_messages_update AFTER UPDATE ON agent_messages
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
+CREATE TRIGGER collection_agent_messages_delete AFTER DELETE ON agent_messages
+BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=OLD.root_id; END;
+CREATE TRIGGER session_catalog_insert AFTER INSERT ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
+CREATE TRIGGER session_catalog_delete AFTER DELETE ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
+CREATE TRIGGER session_catalog_update AFTER UPDATE OF title,model,provider,cwd,pinned,updated_at ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
+
+`
 
 func migrate(ctx context.Context, db *sql.DB, path string) error {
 	conn, err := db.Conn(ctx)
@@ -251,7 +306,12 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
 			return err
 		}
-		if _, err := conn.ExecContext(ctx, `INSERT INTO runtime_schema(id,identity) VALUES(1,?)`, schemaIdentity); err != nil {
+		newRuntimeID, err := runtimeID()
+		if err != nil {
+			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `INSERT INTO runtime_schema(id,identity,runtime_id) VALUES(1,?,?)`, schemaIdentity, newRuntimeID); err != nil {
 			_, _ = conn.ExecContext(ctx, `ROLLBACK`)
 			return err
 		}

@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/TextResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TextResult",
+  "required": [
+    "text"
+  ],
+  "additionalProperties": false
+}

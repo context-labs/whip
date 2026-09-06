@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -44,6 +46,10 @@ func runDaemon(ctx context.Context, args []string) error {
 	}
 	if fs.NArg() != 0 {
 		return errors.New("hidden daemon mode does not accept arguments")
+	}
+	network, err := daemonNetworkEnvironment()
+	if err != nil {
+		return err
 	}
 	dir, err := config.Dir()
 	if err != nil {
@@ -233,7 +239,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		lifecycleOnce.Do(func() { lifecycleRequested <- restart })
 	}
 	server, err := daemon.NewServer(ownerDaemon, daemon.ServerOptions{
-		BuildID: version, Generation: generation, RuntimeDir: paths.Runtime,
+		BuildID: version, Generation: generation, RuntimeDir: paths.Runtime, Network: network,
 		Restart: func() { requestLifecycle(true) }, Stop: func() { requestLifecycle(false) },
 	})
 	if err != nil {
@@ -348,4 +354,30 @@ func screenshotParts(images [][]byte) []llm.ContentPart {
 		parts = append(parts, llm.ImagePart(ext, data))
 	}
 	return parts
+}
+
+// Network settings are inherited by explicit starts, automatic starts, and
+// binary replacement. An ordinary invocation never enables a TCP listener.
+func daemonNetworkEnvironment() (daemon.NetworkOptions, error) {
+	options := daemon.NetworkOptions{Address: strings.TrimSpace(os.Getenv("WHIP_LISTEN"))}
+	options.Enabled = options.Address != ""
+	if value := os.Getenv("WHIP_NETWORK"); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			return daemon.NetworkOptions{}, fmt.Errorf("WHIP_NETWORK must be a boolean: %w", err)
+		}
+		options.Enabled = enabled
+	}
+	parseList := func(value string) []string {
+		result := []string{}
+		for item := range strings.SplitSeq(value, ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				result = append(result, item)
+			}
+		}
+		return result
+	}
+	options.AllowedOrigins = parseList(os.Getenv("WHIP_ALLOWED_ORIGINS"))
+	options.AllowedHosts = parseList(os.Getenv("WHIP_ALLOWED_HOSTS"))
+	return options, nil
 }

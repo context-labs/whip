@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "subscription_id": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/UnsubscribeParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UnsubscribeParams",
+  "required": [
+    "subscription_id"
+  ],
+  "additionalProperties": false
+}

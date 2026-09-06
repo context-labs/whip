@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "limit": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/BudgetCapParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BudgetCapParams",
+  "required": [
+    "id",
+    "kind",
+    "limit"
+  ],
+  "additionalProperties": false
+}

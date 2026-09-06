@@ -1,0 +1,100 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "root_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "issuer_agent_id": {
+      "type": "string"
+    },
+    "operations": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "scopes": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "mcp": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server",
+          "tool",
+          "definition"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "mcp_all": {
+      "type": "boolean"
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "status": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/CapabilityRecord",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CapabilityRecord",
+  "required": [
+    "id",
+    "root_id",
+    "agent_id",
+    "issuer_agent_id",
+    "operations",
+    "scopes",
+    "mcp",
+    "mcp_all",
+    "generation",
+    "status",
+    "expires_at",
+    "created_at",
+    "updated_at"
+  ],
+  "additionalProperties": false
+}

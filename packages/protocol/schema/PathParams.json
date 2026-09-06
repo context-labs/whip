@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/PathParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PathParams",
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false
+}

@@ -10,9 +10,10 @@ import (
 )
 
 type rewindEntry struct {
-	cut  int
-	text string
-	when *time.Time
+	index int
+	cut   int
+	text  string
+	when  *time.Time
 }
 
 type rewindState struct {
@@ -27,7 +28,11 @@ func (m *model) rewindEntries() []rewindEntry {
 	var entries []rewindEntry
 	for i, message := range m.displayMessages() {
 		if message.Role == "user" && message.Authored {
-			entries = append(entries, rewindEntry{cut: i, text: oneLine(message.TextContent()), when: message.SentAt})
+			cut := message.RawSequence
+			if cut == 0 {
+				cut = i
+			}
+			entries = append(entries, rewindEntry{index: i, cut: cut, text: oneLine(message.TextContent()), when: message.SentAt})
 		}
 	}
 	return entries
@@ -91,7 +96,7 @@ func (m *model) openRewind() {
 		return
 	}
 	m.rew = &rewindState{entries: entries, sel: len(entries) - 1, savedVP: m.vp.YOffset()}
-	m.scrollToMsg(entries[len(entries)-1].cut)
+	m.scrollToMsg(entries[len(entries)-1].index)
 }
 
 func (m *model) rewindKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -102,20 +107,25 @@ func (m *model) rewindKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.vp.SetYOffset(state.savedVP)
 		m.rew = nil
 	case "up":
+		if state.sel == 0 {
+			if command := m.requestOlderHistory(); command != nil {
+				return m, command
+			}
+		}
 		state.sel = max(state.sel-1, 0)
-		m.scrollToMsg(selected().cut)
+		m.scrollToMsg(selected().index)
 	case "down":
 		state.sel = min(state.sel+1, len(state.entries)-1)
-		m.scrollToMsg(selected().cut)
+		m.scrollToMsg(selected().index)
 	case "enter":
 		entry := selected()
 		m.rew = nil
 		messages := m.displayMessages()
-		if entry.cut >= 0 && entry.cut < len(messages) {
-			m.input.SetValue(messages[entry.cut].TextContent())
+		if entry.index >= 0 && entry.index < len(messages) {
+			m.input.SetValue(messages[entry.index].TextContent())
 			m.input.CursorEnd()
 		}
-		return m.submitClientAction("history.rewind", map[string]string{"args": strconv.Itoa(entry.cut)}, "")
+		return m.submitClientCLI("history.rewind", strconv.Itoa(entry.cut))
 	case "f":
 		{
 			entry := selected()

@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "external_permissions": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/PermissionConfigureParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PermissionConfigureParams",
+  "required": [
+    "external_permissions"
+  ],
+  "additionalProperties": false
+}

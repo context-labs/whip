@@ -50,7 +50,7 @@ func TestPromptRootCWDReloadAndRestorePreserveApplicableSources(t *testing.T) {
 
 	for i, directory := range []string{firstDir, secondDir} {
 		before := root.runner.(*AgentSession).ContextAudit()
-		command := clientCommand(t, root, "prompt-client", fmt.Sprintf("cd-%d", i), "workspace.set", map[string]string{"args": directory})
+		command := clientCommand(t, root, "prompt-client", fmt.Sprintf("cd-%d", i), "workspace.set", map[string]any{"path": directory})
 		if command.Status != "succeeded" {
 			t.Fatalf("cwd command = %+v", command)
 		}
@@ -80,7 +80,7 @@ func TestPromptRootCWDReloadAndRestorePreserveApplicableSources(t *testing.T) {
 	for _, operation := range []string{"session.reload", "session.model"} {
 		payload := map[string]string{}
 		if operation == "session.model" {
-			payload["args"] = "replacement-model provider"
+			payload["model"], payload["provider"] = "replacement-model", "provider"
 		}
 		command := clientCommand(t, root, "prompt-client", operation, operation, payload)
 		if command.Status != "succeeded" {

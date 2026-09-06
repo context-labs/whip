@@ -2,13 +2,11 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/llm"
 )
 
 // /auth <provider> [key] turns a pasted API key into a working provider
@@ -51,47 +49,40 @@ func (m *model) authCommand(args []string) {
 	m.namePrompt.mask = true
 }
 
-// authResultMsg carries a finished key validation back to the UI goroutine.
-type authResultMsg struct {
-	key     string
-	envMode bool
-	models  []llm.ModelInfo
-	err     error
-}
+// authResultMsg contains only the outcome of host-side setup, never a key.
+type authResultMsg struct{ err error }
 
-// authOpenRouter stores provider credentials. Provider construction and
-// validation belong to the daemon, which will report an invalid key on use.
 func (m *model) authOpenRouter(key string, envMode bool) {
 	if key == "" && !envMode {
 		m.append(errStyle.Render("/auth openrouter needs a key (get one at https://openrouter.ai/keys)"))
 		return
 	}
-	m.append(dimStyle.Render("validating key against OpenRouter…"))
+	m.append(dimStyle.Render("validating and saving the key on the execution host…"))
 	if m.prog == nil {
 		return
 	}
+	client, program := m.client, m.prog
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		result, err := m.client.ValidateProvider(ctx, daemon.ProviderValidateParams{
-			Name: "openrouter", BaseURL: config.OpenRouterBaseURL, Key: key,
-		})
-		m.prog.Send(authResultMsg{key: key, envMode: envMode, models: result.Models, err: err})
+		_, err := setupProviderKey(ctx, client, "openrouter", key, envMode)
+		program.Send(authResultMsg{err: err})
 	}()
 }
 
-// applyAuthResult commits auth configuration on the UI goroutine. The daemon
-// remains the only component that constructs providers or rewires sessions.
-func (m *model) applyAuthResult(res authResultMsg) bool {
-	if res.err != nil {
-		m.append(errStyle.Render("OpenRouter rejected the key: " + res.err.Error()))
+func setupProviderKey(ctx context.Context, client *Client, provider, key string, environment bool) (daemon.RuntimeConfiguration, error) {
+	current, err := client.ReadConfiguration(ctx)
+	if err != nil {
+		return daemon.RuntimeConfiguration{}, err
+	}
+	return client.SetProviderKey(ctx, daemon.ProviderKeySetup{Revision: current.Revision, Provider: provider, Key: key, Environment: environment})
+}
+
+func (m *model) applyAuthResult(result authResultMsg) bool {
+	if result.err != nil {
+		m.append(errStyle.Render("OpenRouter setup failed: " + result.err.Error()))
 		return false
 	}
-	m.cfg.UpsertOpenRouter(res.key, res.envMode)
-	if err := m.cfg.Save(); err != nil {
-		m.append(errStyle.Render("config save failed: " + err.Error()))
-		return false
-	}
-	m.append(dimStyle.Render(fmt.Sprintf("✓ openrouter configured — %d models available", len(res.models))))
+	m.append(dimStyle.Render("✓ openrouter configured on the execution host"))
 	return true
 }

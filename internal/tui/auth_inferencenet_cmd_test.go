@@ -2,54 +2,78 @@ package tui
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/inferencenet"
+	"github.com/context-labs/whip/internal/daemon"
 )
 
 func TestAuthInferenceNetDispatch(t *testing.T) {
 	m := authTestModel(t)
-	// The legacy "inference" alias routes to the same handler.
 	m.authCommand([]string{"inference"})
 	if !strings.Contains(m.transcriptText(), "sign-in") {
-		t.Errorf("bare /auth inference should start device login:\n%s", m.transcriptText())
+		t.Fatal("bare auth did not start device login")
 	}
 }
 
-func TestApplyInferenceNetKeyUpsertsProvider(t *testing.T) {
-	m := authTestModel(t)
-	m.applyInferenceNetKey(inferenceNetKeyMsg{key: "inf-good"})
-	p, ok := m.cfg.Providers[config.InferenceNetProvider]
-	if !ok {
-		t.Fatal("inference-net provider not upserted")
-	}
-	if p.APIKey != "inf-good" {
-		t.Errorf("key not stored: %+v", p)
-	}
-	if !strings.Contains(m.transcriptText(), "inference-net configured") {
-		t.Errorf("no confirmation appended:\n%s", m.transcriptText())
+func TestProviderCompletionDoesNotWriteClientConfiguration(t *testing.T) {
+	for _, provider := range []string{"inference-net", "openrouter", "device-login"} {
+		t.Run(provider, func(t *testing.T) {
+			m := authTestModel(t)
+			before := m.cfg.Snapshot()
+			switch provider {
+			case "inference-net":
+				m.applyInferenceNetKey(inferenceNetKeyMsg{})
+			case "openrouter":
+				m.applyAuthResult(authResultMsg{})
+			case "device-login":
+				m.infAuth = &inferenceNetPending{flowID: "flow"}
+				if !m.applyInferenceNetLogin(inferenceNetLoginMsg{status: daemon.ProviderLoginStatus{FlowID: "flow", State: "succeeded", Email: "person@example.com"}}) {
+					t.Fatal("completion not reported")
+				}
+			}
+			after, err := config.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(before, m.cfg) {
+				t.Fatal("client authentication modified configuration")
+			}
+			if !strings.Contains(m.transcriptText(), "execution host") {
+				t.Fatal("missing host-side confirmation")
+			}
+		})
 	}
 }
 
-func TestApplyInferenceNetAuthUsesMachineKey(t *testing.T) {
+func TestProviderLoginIgnoresStaleFlowAndSurfacesInterruption(t *testing.T) {
 	m := authTestModel(t)
-	auth := inferencenet.Auth{UserEmail: "abe@x.dev", ProjectName: "Primary"}
-	m.applyInferenceNetAuth(inferenceNetAuthMsg{auth: auth})
-	p := m.cfg.Providers[config.InferenceNetProvider]
-	if p.APIKey != "" || p.APIKeyEnv != "" {
-		t.Errorf("device login should leave key fields empty (machine key resolves from disk): %+v", p)
+	m.infAuth = &inferenceNetPending{flowID: "new"}
+	if m.applyInferenceNetLogin(inferenceNetLoginMsg{status: daemon.ProviderLoginStatus{FlowID: "old", State: "succeeded"}}) {
+		t.Fatal("stale login changed active flow")
 	}
-	if !strings.Contains(m.transcriptText(), "signed in as abe@x.dev") {
-		t.Errorf("no sign-in confirmation:\n%s", m.transcriptText())
+	if m.infAuth == nil {
+		t.Fatal("stale login cleared current flow")
+	}
+	m.applyInferenceNetLogin(inferenceNetLoginMsg{status: daemon.ProviderLoginStatus{FlowID: "new", State: "interrupted"}})
+	if m.infAuth != nil || !strings.Contains(m.transcriptText(), "interrupted") {
+		t.Fatal("interruption not surfaced")
 	}
 }
 
-func TestApplyInferenceNetAuthError(t *testing.T) {
+func TestProviderLoginError(t *testing.T) {
 	m := authTestModel(t)
-	m.applyInferenceNetAuth(inferenceNetAuthMsg{err: errors.New("denied")})
+	m.applyInferenceNetLogin(inferenceNetLoginMsg{err: errors.New("denied")})
 	if !strings.Contains(m.transcriptText(), "sign-in failed") {
-		t.Errorf("error not surfaced:\n%s", m.transcriptText())
+		t.Fatal("error not surfaced")
+	}
+}
+
+func TestProviderChoicesDisambiguateDuplicateNames(t *testing.T) {
+	labels := providerChoiceLabels([]daemon.ProviderChoice{{ID: "one", Name: "Project"}, {ID: "two", Name: "Project"}})
+	if labels[0] == labels[1] {
+		t.Fatal("duplicate project names cannot be selected independently")
 	}
 }

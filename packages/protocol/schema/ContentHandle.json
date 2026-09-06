@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "reference_id": {
+      "type": "string"
+    },
+    "digest": {
+      "type": "string"
+    },
+    "size": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "media_type": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ContentHandle",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContentHandle",
+  "required": [
+    "reference_id",
+    "digest",
+    "size"
+  ],
+  "additionalProperties": false
+}

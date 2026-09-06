@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -18,7 +18,7 @@ import (
 // key, 401 for anything else — mirroring OpenRouter's auth behavior.
 func fakeOpenRouter(t *testing.T, goodKey string) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models" {
 			http.NotFound(w, r)
 			return
@@ -38,6 +38,9 @@ func fakeOpenRouter(t *testing.T, goodKey string) *httptest.Server {
 			},
 		})
 	}))
+	redirectAuthRequests(t, server.URL, "openrouter.ai", "/api/v1")
+	useTestDaemon(t)
+	return server
 }
 
 func TestAuthOpenRouterGoodKey(t *testing.T) {
@@ -45,7 +48,7 @@ func TestAuthOpenRouterGoodKey(t *testing.T) {
 	srv := fakeOpenRouter(t, "sk-or-good")
 	defer srv.Close()
 
-	if err := authOpenRouter(srv.URL, "sk-or-good", false); err != nil {
+	if err := authOpenRouter("sk-or-good", false); err != nil {
 		t.Fatalf("auth failed: %v", err)
 	}
 
@@ -92,7 +95,7 @@ func TestAuthOpenRouterBadKeyWritesNothing(t *testing.T) {
 	srv := fakeOpenRouter(t, "sk-or-good")
 	defer srv.Close()
 
-	err := authOpenRouter(srv.URL, "sk-or-bad", false)
+	err := authOpenRouter("sk-or-bad", false)
 	if err == nil {
 		t.Fatal("expected rejection for a bad key")
 	}
@@ -120,7 +123,7 @@ func TestAuthOpenRouterReauthKeepsOtherState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := authOpenRouter(srv.URL, "sk-or-new", false); err != nil {
+	if err := authOpenRouter("sk-or-new", false); err != nil {
 		t.Fatalf("re-auth failed: %v", err)
 	}
 	cfg, _ = config.Load()
@@ -151,25 +154,7 @@ func TestAuthCLIDispatch(t *testing.T) {
 	}
 }
 
-// Without a terminal (tests, pipes) offerShellExport prints the manual
-// export line and never touches the rc file — appending needs a confirmed
-// [y/N], which needs a TTY.
-func TestOfferShellExportNonTTY(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	for _, shell := range []string{"/bin/zsh", "/bin/fish"} { // known rc target and none
-		t.Setenv("SHELL", shell)
-		out := captureStdout(t, func() { offerShellExport("sk-or-test") })
-		if !strings.Contains(out, "export "+config.OpenRouterEnvVar+"=sk-or-test") {
-			t.Errorf("SHELL=%s: manual export line missing:\n%s", shell, out)
-		}
-	}
-	if _, err := os.Stat(home + "/.zshrc"); !os.IsNotExist(err) {
-		t.Error("non-tty run must not create or modify the rc file")
-	}
-}
-
-func TestTerminalKeyPromptAndShellExport(t *testing.T) {
+func TestTerminalKeyPrompt(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SHELL", "/bin/zsh")
@@ -199,52 +184,6 @@ func TestTerminalKeyPromptAndShellExport(t *testing.T) {
 	key, err := promptKey("key: ")
 	if err != nil || key != "sk-or-terminal" {
 		t.Fatalf("terminal key=%q err=%v", key, err)
-	}
-	if _, err := peer.WriteString("yes\n"); err != nil {
-		t.Fatal(err)
-	}
-	offerShellExport("sk-or-export")
-	content, err := os.ReadFile(filepath.Join(home, ".zshrc"))
-	if err != nil || !strings.Contains(string(content), "export "+config.OpenRouterEnvVar+"=sk-or-export") {
-		t.Fatalf("shell export=%q err=%v", content, err)
-	}
-	if _, err := peer.WriteString("no\n"); err != nil {
-		t.Fatal(err)
-	}
-	offerShellExport("sk-or-skipped")
-	if err := os.Remove(filepath.Join(home, ".zshrc")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(home, ".zshrc"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := peer.WriteString("yes\n"); err != nil {
-		t.Fatal(err)
-	}
-	offerShellExport("sk-or-open-error")
-}
-
-func TestShellRC(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	type tc struct{ shell, want string }
-	for _, c := range []tc{
-		{"/bin/zsh", home + "/.zshrc"},
-		{"/usr/bin/bash", home + "/.bashrc"},
-		{"/bin/fish", ""}, // unsupported shell: no rc target
-		{"", ""},
-	} {
-		t.Setenv("SHELL", c.shell)
-		if got := shellRC(); got != c.want {
-			t.Errorf("SHELL=%q: got %q, want %q", c.shell, got, c.want)
-		}
-	}
-
-	// no home directory: nothing to append to, whatever the shell is
-	t.Setenv("HOME", "")
-	t.Setenv("SHELL", "/bin/zsh")
-	if got := shellRC(); got != "" {
-		t.Errorf("without a home directory shellRC should be empty, got %q", got)
 	}
 }
 
@@ -293,7 +232,7 @@ func TestAuthOpenRouterUnreadableConfig(t *testing.T) {
 	defer srv.Close()
 	unusableHome(t)
 
-	if err := authOpenRouter(srv.URL, "sk-or-good", false); err == nil {
+	if err := authOpenRouter("sk-or-good", false); err == nil {
 		t.Error("an unusable config dir should surface as an error")
 	}
 }
@@ -309,7 +248,37 @@ func TestAuthOpenRouterUnwritableConfig(t *testing.T) {
 	}
 	freezeHome(t, home)
 
-	if err := authOpenRouter(srv.URL, "sk-or-good", false); err == nil {
+	if err := authOpenRouter("sk-or-good", false); err == nil {
 		t.Error("an unwritable config dir should surface as an error")
 	}
+}
+
+// Redirect only the provider gateway; daemon RPC and provider control-plane
+// requests continue through their real transport paths.
+type authRedirectTransport struct {
+	next         http.RoundTripper
+	endpoint     *url.URL
+	host, prefix string
+}
+
+func (r authRedirectTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Host != r.host {
+		return r.next.RoundTrip(request)
+	}
+	request = request.Clone(request.Context())
+	target := *request.URL
+	target.Scheme, target.Host = r.endpoint.Scheme, r.endpoint.Host
+	target.Path = strings.TrimPrefix(target.Path, r.prefix)
+	request.URL = &target
+	return r.next.RoundTrip(request)
+}
+func redirectAuthRequests(t *testing.T, endpoint, host, prefix string) {
+	t.Helper()
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := http.DefaultTransport
+	http.DefaultTransport = authRedirectTransport{next: previous, endpoint: parsed, host: host, prefix: prefix}
+	t.Cleanup(func() { http.DefaultTransport = previous })
 }

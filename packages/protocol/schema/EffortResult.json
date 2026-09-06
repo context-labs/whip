@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "effort": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/EffortResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EffortResult",
+  "required": [
+    "effort"
+  ],
+  "additionalProperties": false
+}

@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
@@ -37,6 +38,23 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := message.(type) {
+	case clientExportMsg:
+		if msg.err != nil {
+			return m, m.toastError("export failed: " + msg.err.Error())
+		}
+		m.append(dimStyle.Render("⤓ full transcript exported → " + msg.path))
+		return m, nil
+	case clientSkillsMsg:
+		if msg.rootID == m.sessionID {
+			for _, warning := range msg.warnings {
+				m.append(errStyle.Render("  ⚠ " + warning))
+			}
+		}
+		return m, nil
+	case clientCompletionMsg:
+		return m.applyHostCompletion(msg)
+	case clientHistoryMsg:
+		return m.applyOlderHistory(msg)
 	case clientUpdateMsg:
 		var commands []tea.Cmd
 		if m.anyAgentRunning() && !m.spinning { // sub-agent activity keeps the rows' elapsed times moving
@@ -56,6 +74,9 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if !m.historyRequested {
 					m.historyRequested = true
+					commands = append(commands, m.requestHostSkills())
+					_, catalogsCommand := m.submitClientAction("provider.catalogs", map[string]string{}, "")
+					commands = append(commands, catalogsCommand)
 					_, command := m.submitClientAction("history.user.list", map[string]string{}, "")
 					commands = append(commands, command)
 				}
@@ -141,7 +162,20 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if err := json.Unmarshal([]byte(msg.result.Output), &result); err != nil {
 				m.append(errStyle.Render("model catalogs: " + err.Error()))
 			} else {
+				if result.Models != nil {
+					m.cfg.Models = make(map[string]config.Model, len(result.Models))
+					for name, model := range result.Models {
+						m.cfg.Models[name] = config.Model{Name: model.Name, ID: model.ID, Providers: model.Providers, Context: model.Context, Vision: model.Vision}
+					}
+				}
+				if result.Providers != nil {
+					m.cfg.Providers = make(map[string]config.Provider, len(result.Providers))
+					for name, provider := range result.Providers {
+						m.cfg.Providers[name] = config.Provider{BaseURL: provider.BaseURL}
+					}
+				}
 				m.updateCatalogs(result.Catalogs)
+				m.applyClientRoute(m.modelName, m.provName)
 				m.append(dimStyle.Render(fmt.Sprintf("✓ refreshed %d provider catalog(s)", len(result.Catalogs))))
 				for provider, message := range result.Errors {
 					m.append(errStyle.Render(provider + ": " + message))
@@ -173,7 +207,8 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if err := json.Unmarshal([]byte(msg.result.Output), &transcript); err != nil {
 				m.append(errStyle.Render("agent transcript: " + err.Error()))
 			} else if transcript.Agent.ParentID == "" {
-				m.clientView.messages = append([]llm.Message{{Role: "system"}}, transcript.Messages...)
+				m.clientView.messages = append([]llm.Message{{Role: "system"}}, pageMessages(transcript.Page)...)
+				m.setHistoryPage(m.sessionID, transcript.Page)
 				m.clientView.presentation = mergePresentation(transcript.Presentation, m.clientView.presentation, transcript.Cursor)
 				m.replaceAgentInbox(transcript.Agent.ID, transcript.Inbox)
 				m.rebuildClientTranscript()
@@ -210,15 +245,28 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.question.inFlight = false // transport failure: the error line follows, keys work again
 			}
 		}
+		if succeeded {
+			if rendered, handled, err := renderRuntimeControl(msg.action.Operation, msg.result.Output); handled {
+				if err != nil {
+					m.append(errStyle.Render(msg.action.Operation + ": " + err.Error()))
+				} else {
+					m.append(dimStyle.Render(rendered))
+				}
+				if m.clientState == ClientLive && clientCommandNeedsSnapshot(msg.action.Operation) {
+					return m, m.requestClientSnapshot()
+				}
+				return m, nil
+			}
+		}
 		if succeeded && strings.HasPrefix(strings.TrimSpace(msg.result.Output), "[") {
 			var rendered string
 			var renderErr error
 			switch msg.action.Operation {
-			case "mcp.control":
+			case "mcp.status":
 				rendered, renderErr = renderMCPStatus(msg.result.Output)
-			case "lsp.control":
+			case "lsp.status":
 				rendered, renderErr = renderLSPStatus(msg.result.Output)
-			case "schedule.manage":
+			case "schedule.list":
 				rendered, renderErr = renderSchedules(msg.result.Output)
 			}
 			if rendered != "" || renderErr != nil {
@@ -456,16 +504,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case inferenceNetLoginMsg:
-		m.applyInferenceNetLogin(msg)
-		return m, nil
-	case inferenceNetProjectsMsg:
-		m.applyInferenceNetProjects(msg)
-		return m, nil
-	case inferenceNetProjectCreatedMsg:
-		m.applyInferenceNetProjectCreated(msg)
-		return m, nil
-	case inferenceNetAuthMsg:
-		if m.applyInferenceNetAuth(msg) {
+		if m.applyInferenceNetLogin(msg) {
 			m.reloadAfterCatalogs = true
 			return m.submitClientAction("provider.catalogs", map[string]string{}, "")
 		}
@@ -592,6 +631,9 @@ func (m *model) thinMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	var command tea.Cmd
 	m.vp, command = m.vp.Update(msg)
 	m.follow = m.vp.AtBottom()
+	if isWheel && mouse.Button == tea.MouseWheelUp && m.vp.YOffset() == 0 {
+		command = tea.Batch(command, m.requestOlderHistory())
+	}
 	return m, command
 }
 

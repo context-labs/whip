@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "generation": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "build_id": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/PingResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PingResult",
+  "required": [
+    "generation",
+    "build_id"
+  ],
+  "additionalProperties": false
+}

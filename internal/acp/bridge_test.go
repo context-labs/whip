@@ -205,8 +205,7 @@ func (c *fakeConnection) submit(ctx context.Context, params daemon.CommandParams
 		c.emit("stream.reasoning", daemon.StreamEvent{Text: "thinking"})
 		c.emit("stream.tool.started", daemon.StreamEvent{ID: "tool-1", Name: "read", Args: `{"path":"a.go"}`})
 		c.emit("stream.tool.completed", daemon.StreamEvent{ID: "tool-1", Name: "read", Result: "contents"})
-		usage, _ := json.Marshal(daemon.UsageEvent{Used: 7, Size: 100})
-		c.emit("stream.usage", daemon.StreamEvent{Result: string(usage)})
+		c.emit("stream.usage", daemon.StreamEvent{Usage: &daemon.UsageEvent{Used: 7, Size: 100}})
 		plan, _ := json.Marshal(daemon.PlanEvent{Items: []daemon.PlanItem{{Content: "check", Status: "completed"}}})
 		c.emit("stream.plan", daemon.StreamEvent{Result: string(plan)})
 	}
@@ -826,4 +825,8 @@ func TestBridgeSessionRequestErrorsRemainSessionScoped(t *testing.T) {
 	if _, err := fixture.bridge.ListSessions(t.Context(), acpsdk.ListSessionsRequest{}); err == nil {
 		t.Fatal("backend list error was hidden")
 	}
+}
+
+func (*fakeConnection) Subscribe(context.Context, string, int64) (daemon.SubscribeResult, error) {
+	return daemon.SubscribeResult{}, nil
 }

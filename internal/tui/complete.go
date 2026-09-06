@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -42,11 +40,6 @@ var execNow = map[string]bool{
 // $skills and @files complete on later lines too. nil efforts uses the
 // default /effort candidates.
 func completions(val string, models, providers, skillCands, efforts []cand) (head string, cands []cand) {
-	root, _ := currentRoot()
-	return completionsAtRoot(root, val, models, providers, skillCands, efforts)
-}
-
-func completionsAtRoot(root, val string, models, providers, skillCands, efforts []cand) (head string, cands []cand) {
 	if efforts == nil {
 		efforts = effortCands
 	}
@@ -69,21 +62,10 @@ func completionsAtRoot(root, val string, models, providers, skillCands, efforts 
 	case strings.HasPrefix(token, "$"): // codex-style skill invocation
 		cands = filterPrefix(skillCands, token)
 	case strings.HasPrefix(token, "@"):
-		// @file mentions: path-like queries (with a separator, ~, or leading
-		// dot) complete like paths; bare words fuzzy-match the recursive
-		// index so "@roadmap" finds docs/roadmap.md without the full path.
-		if q := token[1:]; isPathQuery(q) {
-			for _, c := range mentionPathMatchesAtRoot(root, q) {
-				cands = append(cands, cand{"@" + c.Text, c.Desc})
-			}
-		} else {
-			for _, f := range fuzzyFilesAt(root, q, menuRows) {
-				cands = append(cands, cand{"@" + f, ""})
-			}
-		}
+		// File candidates arrive asynchronously from the execution host.
 	case strings.HasPrefix(val, "/"): // other slash-command args: nothing to complete
 	default:
-		cands = pathMatchesAtRoot(root, token)
+		cands = nil
 	}
 	sort.Slice(cands, func(a, b int) bool { return cands[a].Text < cands[b].Text })
 	return head, cands
@@ -121,68 +103,4 @@ func filterFuzzy(all []cand, q string) []cand {
 		out = append(out, h.c)
 	}
 	return out
-}
-
-// isPathQuery reports whether an @mention query looks like a path (has a
-// separator, ~, or leading dot) and should use plain glob completion rather
-// than the recursive fuzzy index.
-func isPathQuery(q string) bool {
-	return q == "" || strings.ContainsAny(q, "/\\") || strings.HasPrefix(q, "~") || strings.HasPrefix(q, ".")
-}
-
-func mentionPathMatchesAtRoot(root, q string) []cand {
-	if filepath.IsAbs(q) || q == "~" || strings.HasPrefix(q, "~/") {
-		return pathMatches(q)
-	}
-	if root == "" {
-		return nil
-	}
-	var out []cand
-	for _, c := range pathMatches(filepath.Join(root, q)) {
-		dir := strings.HasSuffix(c.Text, "/")
-		if rel, err := filepath.Rel(root, strings.TrimSuffix(c.Text, "/")); err == nil {
-			c.Text = filepath.ToSlash(rel)
-			if dir {
-				c.Text += "/"
-			}
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-func pathMatches(prefix string) []cand {
-	p := prefix
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			p = home + p[1:]
-		}
-	}
-	matches, _ := filepath.Glob(p + "*")
-	var out []cand
-	for _, m := range matches {
-		if fi, err := os.Stat(m); err == nil && fi.IsDir() {
-			out = append(out, cand{m + "/", "dir"})
-		} else {
-			out = append(out, cand{m, ""})
-		}
-	}
-	return out
-}
-
-func pathMatchesAtRoot(root, prefix string) []cand {
-	if root == "" || filepath.IsAbs(prefix) || prefix == "~" || strings.HasPrefix(prefix, "~/") {
-		return pathMatches(prefix)
-	}
-	matches := pathMatches(filepath.Join(root, prefix))
-	for i := range matches {
-		directory := strings.HasSuffix(matches[i].Text, "/")
-		if relative, err := filepath.Rel(root, strings.TrimSuffix(matches[i].Text, "/")); err == nil {
-			matches[i].Text = filepath.ToSlash(relative)
-			if directory {
-				matches[i].Text += "/"
-			}
-		}
-	}
-	return matches
 }

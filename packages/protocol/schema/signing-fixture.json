@@ -1,0 +1,10 @@
+{
+  "method": "permission.decide",
+  "generation": "9007199254740993",
+  "nonce": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=",
+  "payload": "{\"root_id\":\"root\", \"reason\":\"\u003ctag\u003e \u0026 café\", \"permission_id\":\"permission\", \"allow\":true,\"command_id\":\"fixture\"}",
+  "public_key": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
+  "seed": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=",
+  "digest": "4BUAWK8EcZVeSfd4cNEfxC3S2ATuNzTD5RLF6ebBh2M=",
+  "signature": "TAVO9U9ZK14+rsLZ3T8kdDtyY5cu/aWeumaWBYsClbZ4CTDpVGZ6Jfx+TjTgXMZKxZUf8tT4MOWQpbqEPd0NDA=="
+}

@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/SnapshotParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SnapshotParams",
+  "required": [
+    "root_id"
+  ],
+  "additionalProperties": false
+}

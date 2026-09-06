@@ -137,3 +137,10 @@ func validateClientIdentity(identity ClientIdentity) error {
 	}
 	return nil
 }
+
+// RuntimeID identifies this database independently of daemon generations or builds.
+func (s *Store) RuntimeID(ctx context.Context) (string, error) {
+	var id string
+	err := s.db.QueryRowContext(ctx, `SELECT runtime_id FROM runtime_schema WHERE id=1`).Scan(&id)
+	return id, err
+}

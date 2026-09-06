@@ -269,13 +269,15 @@ type Session struct {
 	goalRounds int
 	goalMax    int
 
-	running        *rootTurn
-	turnCancel     context.CancelFunc
-	clientBusy     bool
-	reloadPending  bool
-	titleAttempted bool
-	autoTitle      bool
-	deferredWake   time.Time
+	running            *rootTurn
+	turnCancel         context.CancelFunc
+	clientBusy         bool
+	clientIntegrations int
+	clientPreparing    bool
+	reloadPending      bool
+	titleAttempted     bool
+	autoTitle          bool
+	deferredWake       time.Time
 
 	pricingMu sync.RWMutex
 	pricing   modelPricing
@@ -332,6 +334,16 @@ func (s *Session) Steer(ctx context.Context, text string) (*Receipt, error) {
 // AdmitCommand binds one stable protocol command to the root actor's durable
 // inbox. Matching retries attach to the existing sequence or terminal result.
 func (s *Session) AdmitCommand(ctx context.Context, admission sessionstore.CommandAdmission) (sessionstore.CommandAdmissionResult, *Receipt, error) {
+	return s.admitCommand(ctx, admission, true)
+}
+
+// AcceptCommand admits durable inbox work without retaining a process-local waiter.
+func (s *Session) AcceptCommand(ctx context.Context, admission sessionstore.CommandAdmission) (sessionstore.CommandAdmissionResult, error) {
+	result, _, err := s.admitCommand(ctx, admission, false)
+	return result, err
+}
+
+func (s *Session) admitCommand(ctx context.Context, admission sessionstore.CommandAdmission, wait bool) (sessionstore.CommandAdmissionResult, *Receipt, error) {
 	admission.Scope = sessionstore.CommandScopeRoot
 	admission.RootID = s.meta.ID
 	admission.AgentID = s.authority.AgentID
@@ -345,6 +357,12 @@ func (s *Session) AdmitCommand(ctx context.Context, admission sessionstore.Comma
 		if err != nil {
 			return admittedCommand{}, err
 		}
+		if result.New {
+			s.notify()
+		}
+		if !wait {
+			return admittedCommand{result: result}, nil
+		}
 		receipt := newReceipt(result.Command.IngressSeq)
 		switch result.Command.Status {
 		case "queued", "running", "waiting":
@@ -354,9 +372,10 @@ func (s *Session) AdmitCommand(ctx context.Context, admission sessionstore.Comma
 			if resolveErr != nil {
 				receipt.finish(Completion{Sequence: result.Command.IngressSeq, Err: resolveErr})
 			} else if result.Command.Status == "succeeded" {
-				receipt.finish(Completion{Sequence: result.Command.IngressSeq, Output: string(output)})
+				text, _ := decodeCommandPresentation(result.Command.Operation, output, result.Command.Status)
+				receipt.finish(Completion{Sequence: result.Command.IngressSeq, Output: text})
 			} else {
-				message := string(output)
+				_, message := decodeCommandPresentation(result.Command.Operation, output, result.Command.Status)
 				if message == "" {
 					message = "command is " + result.Command.Status
 				}
@@ -364,9 +383,6 @@ func (s *Session) AdmitCommand(ctx context.Context, admission sessionstore.Comma
 			}
 		default:
 			receipt.finish(Completion{Sequence: result.Command.IngressSeq, Err: fmt.Errorf("command is %s", result.Command.Status)})
-		}
-		if result.New {
-			s.notify()
 		}
 		return admittedCommand{result: result, receipt: receipt}, nil
 	})
@@ -378,9 +394,11 @@ func (s *Session) AdmitCommand(ctx context.Context, admission sessionstore.Comma
 
 func (s *Session) Snapshot(ctx context.Context) (sessionstore.RootSnapshot, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.RootSnapshot, error) {
+		s.questions.mu.Lock()
+		defer s.questions.mu.Unlock()
 		snapshot, err := s.store.SnapshotRoot(actorCtx, s.meta.ID)
 		if err == nil {
-			snapshot.Questions = s.questions.open() // in memory, not in the store: a mid-question client has no question.pending to replay
+			snapshot.Questions = s.questions.openLocked() // in memory, not in the store: a mid-question client has no question.pending to replay
 		}
 		return snapshot, err
 	})
@@ -631,6 +649,9 @@ func (s *Session) processWorkerBatch(events []workerEnvelope) (err error) {
 // replyWorkerEvent is the only sender for actor-owned replies. Clearing the
 // channel transfers ownership and lets batch cleanup safely revisit an event.
 func (s *Session) replyWorkerEvent(event *workerEnvelope, result CommandResult, err error) {
+	if err != nil && event.client != nil {
+		event.client.replacement.close()
+	}
 	if event.reply != nil {
 		reply := event.reply
 		event.reply = nil
@@ -895,7 +916,7 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 		WorkspaceSeq: completion.workspaceSeq, WorkspaceRef: completion.workspaceRef,
 		ClearGoal: clearGoal, GoalContinuation: goalContinuation,
 		Model: s.meta.Model, Provider: s.meta.Provider, Status: status, Error: errorText,
-		Outcome: sessionstore.RuntimePayload{Data: []byte(outcome), MediaType: "text/plain", Source: "command outcome"},
+		Outcome: sessionstore.RuntimePayload{Data: encodeCommandOutcome("submit", outcome, completion.err), MediaType: "application/json", Source: "command outcome"},
 	}); err != nil {
 		return err
 	}
@@ -926,30 +947,13 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 	if completion.err == nil {
 		s.maybeGenerateTitle()
 	}
-	if s.reloadPending && !s.hasRunningAgent() {
-		s.reloadPending = false
-		if _, err := s.replaceModel(s.supervisor.ctx, s.meta.Model, s.meta.Provider, true); err != nil {
-			payload, _ := json.Marshal(sessionstore.LifecycleEvent{Error: err.Error()})
-			_, _ = s.store.AppendRootEvent(s.supervisor.ctx, s.meta.ID, "session.reload.failed", sessionstore.RuntimePayload{
-				Data: payload, MediaType: "application/json", Source: "session reload failure",
-			})
-		}
-	}
+	s.startPendingReload()
 	return nil
 }
 
 func (s *Session) applyPendingReloadAfterAgent() {
 	_ = s.routeControl(context.Background(), func(ctx context.Context) error {
-		if !s.reloadPending || s.hasRunningAgent() {
-			return nil
-		}
-		s.reloadPending = false
-		if _, err := s.replaceModel(ctx, s.meta.Model, s.meta.Provider, true); err != nil {
-			payload, _ := json.Marshal(sessionstore.LifecycleEvent{Error: err.Error()})
-			_, _ = s.store.AppendRootEvent(ctx, s.meta.ID, "session.reload.failed", sessionstore.RuntimePayload{
-				Data: payload, MediaType: "application/json", Source: "session reload failure",
-			})
-		}
+		s.startPendingReload()
 		return nil
 	})
 }

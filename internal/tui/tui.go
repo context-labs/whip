@@ -21,7 +21,6 @@ import (
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
-	"github.com/context-labs/whip/internal/skills"
 	"github.com/context-labs/whip/internal/tui/ui"
 
 	uv "github.com/charmbracelet/ultraviolet"
@@ -96,6 +95,7 @@ type menu struct {
 }
 
 type model struct {
+	hostCompletion      *clientCompletion
 	cfg                 *config.Config
 	client              *Client
 	clientView          clientPresentation
@@ -110,6 +110,7 @@ type model struct {
 	clientTurnError     string
 	terminalAgentID     string
 	terminalMarker      string
+	historyPages        map[string]*clientHistoryPage
 	historyRequested    bool
 	reloadAfterCatalogs bool
 	modelName           string
@@ -294,26 +295,9 @@ func (m *model) startupReport() {
 		// point at the one-line fix.
 		m.append(dimStyle.Render("◐ shift+enter needs tmux extended-keys on — add `set -s extended-keys on` to ~/.tmux.conf (meanwhile ctrl+j / alt+enter insert newlines)"))
 	}
-	sk, problems := skills.ScanDetailed(skills.DefaultDirs()...)
 	var b strings.Builder
 	var warned bool
-
-	line := func(format string, args ...any) {
-		fmt.Fprintf(&b, format+"\n", args...)
-	}
-	if len(sk) > 0 && !quiet {
-		line("skills: %d loaded", len(sk))
-	}
-	for _, s := range sk {
-		if s.Warning != "" {
-			line("  ⚠ %s: %s", s.Name, s.Warning)
-			warned = true
-		}
-	}
-	for _, p := range problems {
-		line("  ⚠ %s: %s", p.Path, p.Err)
-		warned = true
-	}
+	line := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
 	if m.updateLatest != "" {
 		line("update available: %s (run: whip update)", m.updateLatest)
 		warned = true
@@ -396,7 +380,7 @@ func (m *model) setTheme(theme string) {
 	} else {
 		m.cfgExtra["theme"] = theme
 	}
-	if err := m.cfg.Save(); err != nil {
+	if err := m.cfg.SavePreferences(); err != nil {
 		m.append(errStyle.Render("config save failed: " + err.Error()))
 	}
 	m.refreshVP() // re-render the transcript under the new scheme
@@ -1142,7 +1126,7 @@ func (m *model) sessionCost() (float64, bool) {
 // agent's threshold fraction. Out-of-range values clamp to [10, 90]; 0 (unset)
 // means the built-in default.
 func (m *model) openMenu() {
-	head, cands := completionsAtRoot(m.completionRoot(), m.input.Value(), m.modelCands(), m.providerCands(), m.skillCands(), effortCandsFor(m.effortsFor()))
+	head, cands := m.completionCandidates(m.input.Value(), true)
 	if len(cands) == 0 {
 		return
 	}
@@ -1162,7 +1146,7 @@ func (m *model) refreshMenu() {
 	val := m.input.Value()
 	token := val[strings.LastIndexAny(val, " \n")+1:]
 	if strings.HasPrefix(val, "/") || strings.HasPrefix(token, "@") || strings.HasPrefix(token, "$") {
-		head, cands := completionsAtRoot(m.completionRoot(), val, m.modelCands(), m.providerCands(), m.skillCands(), effortCandsFor(m.effortsFor()))
+		head, cands := m.completionCandidates(val, false)
 		if len(cands) > 0 {
 			idx := 0
 			if m.menu != nil && m.menu.idx < len(cands) && m.menu.frozen == nil {
@@ -1237,7 +1221,7 @@ func (m *model) modelCands() []cand {
 	}
 	// catalog-advertised models are usable without a config entry (catalog
 	// fallback in Resolve); offer them in completion too
-	for _, it := range buildModelItems(m.cfg) {
+	for _, it := range buildModelItems(m.cfg, m.catalogs) {
 		if it.fromCatalog {
 			out = append(out, cand{it.model, "via " + it.provider + " (catalog)"})
 		}
@@ -1249,21 +1233,6 @@ func (m *model) providerCands() []cand {
 	out := make([]cand, 0, len(m.cfg.Providers))
 	for name, p := range m.cfg.Providers {
 		out = append(out, cand{name, p.BaseURL})
-	}
-	return out
-}
-
-// skillCands rescans skill dirs so newly added skills appear immediately.
-// ponytail: full rescan per keystroke; cache with a TTL if a huge skill tree drags
-func (m *model) skillCands() []cand {
-	sk := skills.Scan(skills.DirsFor(m.completionRoot())...)
-	out := make([]cand, 0, len(sk))
-	for _, s := range sk {
-		d := s.Description
-		if len(d) > 80 {
-			d = d[:80] + "…"
-		}
-		out = append(out, cand{"$" + s.Name, d})
 	}
 	return out
 }
@@ -1328,7 +1297,7 @@ func (m *model) setThinking(on bool) {
 	}
 	b := on
 	m.cfg.Thinking = &b
-	if err := m.cfg.Save(); err != nil {
+	if err := m.cfg.SavePreferences(); err != nil {
 		m.append(errStyle.Render("config save failed: " + err.Error()))
 	}
 }

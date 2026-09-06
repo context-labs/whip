@@ -15,6 +15,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -210,7 +211,7 @@ func TestMCPAttachmentReplacesRootOwnerAndInvalidatesChild(t *testing.T) {
 	child := spawnMCPChild(t, runtime.rootNode, map[string]any{"name": "child"})
 	secondInstructions := strings.TrimSpace(strings.Repeat("current server guidance\n", 1000))
 	secondURL, secondEffects := localMCPFixture(t, secondInstructions)
-	result := clientCommand(t, root, "acp", "attach-current", "mcp.attach", clientActionPayload{
+	result := clientCommand(t, root, "acp", "attach-current", "mcp.attach", protocol.MCPAttachParams{
 		Servers: map[string]mcp.ServerConfig{"local": {URL: secondURL, Origin: "whip", Source: "forged native", Trusted: true}},
 	})
 	if result.Status != "succeeded" {
@@ -268,7 +269,7 @@ func TestMCPAttachmentCannotOverrideNativeConfiguration(t *testing.T) {
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
-	result := clientCommand(t, root, "acp", "attach-forged", "mcp.attach", clientActionPayload{
+	result := clientCommand(t, root, "acp", "attach-forged", "mcp.attach", protocol.MCPAttachParams{
 		Servers: map[string]mcp.ServerConfig{"local": {URL: "http://127.0.0.1:1", Origin: "whip"}},
 	})
 	if result.Status != "succeeded" {
@@ -355,17 +356,17 @@ func TestMCPDurableConsentAndLifecycleWaiters(t *testing.T) {
 			}
 			switch action {
 			case "revoke":
-				result := clientCommand(t, root, "human", "revoke-mcp", "capability.revoke", clientActionPayload{Args: root.authority.MCP.ID})
+				result := clientCommand(t, root, "human", "revoke-mcp", "capability.revoke", clientActionPayload{ID: root.authority.MCP.ID})
 				if result.Status != "succeeded" {
 					t.Fatalf("revoke=%+v", result)
 				}
 			case "replace":
-				result := clientCommand(t, root, "acp", "replace-pending", "mcp.attach", clientActionPayload{Servers: map[string]mcp.ServerConfig{"local": {URL: url}}})
+				result := clientCommand(t, root, "acp", "replace-pending", "mcp.attach", protocol.MCPAttachParams{Servers: map[string]mcp.ServerConfig{"local": {URL: url}}})
 				if result.Status != "succeeded" {
 					t.Fatalf("replace=%+v", result)
 				}
 			case "disable":
-				result := clientCommand(t, root, "human", "disable-pending", "mcp.control", clientActionPayload{Args: "local disable"})
+				result := clientCommand(t, root, "human", "disable-pending", "mcp.disable", clientActionPayload{Name: "local"})
 				if result.Status != "succeeded" {
 					t.Fatalf("disable=%+v", result)
 				}

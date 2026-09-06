@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "answer": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "dismissed": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/QuestionAnswerParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QuestionAnswerParams",
+  "required": [
+    "id",
+    "answer",
+    "dismissed"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "command_id": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "string"
+    },
+    "root_id": {
+      "type": "string"
+    },
+    "operation": {
+      "type": "string"
+    },
+    "payload": true
+  },
+  "$id": "https://whip.dev/protocol/v2/CommandParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CommandParams",
+  "required": [
+    "command_id",
+    "scope",
+    "operation"
+  ],
+  "additionalProperties": false
+}

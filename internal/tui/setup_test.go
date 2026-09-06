@@ -3,10 +3,12 @@ package tui
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/daemon"
 )
 
 // TestAskYN pins the parsing contract: Enter takes the default, y/n parse in
@@ -46,7 +48,7 @@ func driveWizard(t *testing.T, input string) *config.Config {
 	t.Setenv("WHIP_HOME", home)
 
 	cfg := config.Default()
-	if err := runSetupWizard(cfg, strings.NewReader(input), &bytes.Buffer{}); err != nil {
+	if err := runSetupWizardOnHost(t.Context(), wizardTestHost{}, cfg, strings.NewReader(input), &bytes.Buffer{}); err != nil {
 		t.Fatalf("runSetupWizard: %v", err)
 	}
 	saved, err := config.Load()
@@ -104,4 +106,24 @@ func TestWizardProviderOpenRouterStoresKeyWithoutConstructingProvider(t *testing
 	if p.APIKey != "sk-or-good" {
 		t.Fatalf("provider key = %q", p.APIKey)
 	}
+}
+
+// The wizard's host double applies requests to the host configuration. Provider
+// validation/persistence is exercised through the real daemon in CLI tests.
+type wizardTestHost struct{ setupHost }
+
+func (wizardTestHost) ReadConfiguration(ctx context.Context) (daemon.RuntimeConfiguration, error) {
+	_, revision, err := config.ReadVersioned()
+	return daemon.RuntimeConfiguration{Revision: revision}, err
+}
+func (wizardTestHost) UpdateConfiguration(ctx context.Context, p daemon.ConfigurationUpdate) (daemon.RuntimeConfiguration, error) {
+	_, revision, err := config.UpdateVersioned(p.Revision, func(c *config.Config) error {
+		c.MCPImport = &config.MCPImport{Claude: &config.MCPImportSource{Enabled: p.ImportClaude}, Codex: &config.MCPImportSource{Enabled: p.ImportCodex}}
+		return nil
+	})
+	return daemon.RuntimeConfiguration{Revision: revision}, err
+}
+func (wizardTestHost) SetProviderKey(ctx context.Context, p daemon.ProviderKeySetup) (daemon.RuntimeConfiguration, error) {
+	_, revision, err := config.UpdateVersioned(p.Revision, func(c *config.Config) error { c.UpsertOpenRouter(p.Key, p.Environment); return nil })
+	return daemon.RuntimeConfiguration{Revision: revision}, err
 }

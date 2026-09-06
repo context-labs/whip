@@ -55,12 +55,12 @@ type RuntimePayload struct {
 }
 
 type RuntimeValue struct {
-	Inline      []byte
-	ReferenceID string
-	Digest      string
-	Size        int64
-	MediaType   string
-	Source      string
+	Inline      []byte `json:"inline"`
+	ReferenceID string `json:"reference_id"`
+	Digest      string `json:"digest"`
+	Size        int64  `json:"size,string"`
+	MediaType   string `json:"media_type"`
+	Source      string `json:"source"`
 }
 
 type ContentMetadata struct {
@@ -78,24 +78,25 @@ type ContentGrant struct {
 }
 
 type RuntimeAgent struct {
-	ID              string
-	RootID          string
-	ParentID        string
-	Name            string
-	Model           string
-	Provider        string
-	Effort          string
-	CWD             string
-	Report          string
-	Status          string
-	PendingMail     int
-	LifecyclePhase  string
-	BlockingReason  string
-	TerminalCause   string
-	AllowedControls []string
+	ID              string   `json:"id"`
+	RootID          string   `json:"root_id"`
+	ParentID        string   `json:"parent_id"`
+	Name            string   `json:"name"`
+	Model           string   `json:"model"`
+	Provider        string   `json:"provider"`
+	Effort          string   `json:"effort"`
+	CWD             string   `json:"cwd"`
+	Report          string   `json:"report"`
+	Status          string   `json:"status"`
+	PendingMail     int      `json:"pending_mail"`
+	LifecyclePhase  string   `json:"lifecycle_phase"`
+	BlockingReason  string   `json:"blocking_reason"`
+	TerminalCause   string   `json:"terminal_cause"`
+	AllowedControls []string `json:"allowed_controls"`
 }
 
 type RuntimeCommand struct {
+	Operation     string
 	ClientID      string
 	ID            string
 	Scope         CommandScope
@@ -131,12 +132,12 @@ type InboxSequence struct {
 }
 
 type InboxItem struct {
-	RootID  string
-	AgentID string
-	Seq     int64
-	Kind    string
-	Status  string
-	Payload RuntimeValue
+	RootID  string       `json:"root_id"`
+	AgentID string       `json:"agent_id"`
+	Seq     int64        `json:"seq,string"`
+	Kind    string       `json:"kind"`
+	Status  string       `json:"status"`
+	Payload RuntimeValue `json:"payload"`
 }
 
 type ScheduleFireClaim struct {
@@ -155,39 +156,40 @@ type ScheduleFireClaim struct {
 // can reduce ordinary lifecycle changes without replacing their whole root
 // snapshot after every event.
 type LifecycleEvent struct {
-	RootID          string  `json:"root_id,omitempty"`
-	AgentID         string  `json:"agent_id,omitempty"`
-	SenderAgentID   string  `json:"sender_agent_id,omitempty"`
-	InboxSeq        int64   `json:"inbox_seq,omitempty"`
-	InboxKind       string  `json:"inbox_kind,omitempty"`
-	Delivery        string  `json:"delivery,omitempty"`
-	MessageID       string  `json:"message_id,omitempty"`
-	Phase           string  `json:"phase,omitempty"`
-	Status          string  `json:"status,omitempty"`
-	TerminalCause   string  `json:"terminal_cause,omitempty"`
-	CommandClientID string  `json:"command_client_id,omitempty"`
-	CommandID       string  `json:"command_id,omitempty"`
-	OperationID     string  `json:"operation_id,omitempty"`
-	TraceID         string  `json:"trace_id,omitempty"`
-	ScheduleID      int     `json:"schedule_id,omitempty"`
-	Slot            string  `json:"slot,omitempty"`
-	Error           string  `json:"error,omitempty"`
-	Acknowledged    []int64 `json:"acknowledged_inbox,omitempty"`
-	SubscriptionID  string  `json:"subscription_id,omitempty"`
-	Key             string  `json:"key,omitempty"`
-	Version         int64   `json:"version,omitempty"`
-	ExpectedVersion int64   `json:"expected_version,omitempty"`
+	TurnID          string          `json:"turn_id,omitempty"`
+	RootID          string          `json:"root_id,omitempty"`
+	AgentID         string          `json:"agent_id,omitempty"`
+	SenderAgentID   string          `json:"sender_agent_id,omitempty"`
+	InboxSeq        int64           `json:"inbox_seq,omitempty,string"`
+	InboxKind       string          `json:"inbox_kind,omitempty"`
+	Delivery        string          `json:"delivery,omitempty"`
+	MessageID       string          `json:"message_id,omitempty"`
+	Phase           string          `json:"phase,omitempty"`
+	Status          string          `json:"status,omitempty"`
+	TerminalCause   string          `json:"terminal_cause,omitempty"`
+	CommandClientID string          `json:"command_client_id,omitempty"`
+	CommandID       string          `json:"command_id,omitempty"`
+	OperationID     string          `json:"operation_id,omitempty"`
+	TraceID         string          `json:"trace_id,omitempty"`
+	ScheduleID      int             `json:"schedule_id,omitempty"`
+	Slot            string          `json:"slot,omitempty"`
+	Error           string          `json:"error,omitempty"`
+	Acknowledged    DecimalCounters `json:"acknowledged_inbox,omitempty"`
+	SubscriptionID  string          `json:"subscription_id,omitempty"`
+	Key             string          `json:"key,omitempty"`
+	Version         int64           `json:"version,omitempty,string"`
+	ExpectedVersion int64           `json:"expected_version,omitempty,string"`
 	// Scratch restore outcome (kind scratch.restored).
 	Restored      []string      `json:"restored,omitempty"`
 	NotRestored   []ScratchSkip `json:"not_restored,omitempty"`
 	Attempt       string        `json:"attempt,omitempty"`
 	BudgetKind    string        `json:"budget_kind,omitempty"`
-	Amount        int64         `json:"amount,omitempty"`
-	Limit         int64         `json:"limit,omitempty"`
-	Used          int64         `json:"used,omitempty"`
-	Reserved      int64         `json:"reserved,omitempty"`
+	Amount        int64         `json:"amount,omitempty,string"`
+	Limit         int64         `json:"limit,omitempty,string"`
+	Used          int64         `json:"used,omitempty,string"`
+	Reserved      int64         `json:"reserved,omitempty,string"`
 	CapabilityID  string        `json:"capability_id,omitempty"`
-	Generation    int64         `json:"generation,omitempty"`
+	Generation    int64         `json:"generation,omitempty,string"`
 	PermissionID  string        `json:"permission_id,omitempty"`
 	Operation     string        `json:"operation,omitempty"`
 	CanonicalPath string        `json:"canonical_path,omitempty"`
@@ -416,7 +418,7 @@ func (s *Store) StartRootTurn(ctx context.Context, rootID, agentID string, inbox
 		return err
 	}
 	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{
-		AgentID: agentID, InboxSeq: inboxSeq, Phase: "running", Status: "running",
+		AgentID: agentID, TurnID: rootTurnID(agentID, inboxSeq), InboxSeq: inboxSeq, Phase: "running", Status: "running",
 	}, stamp); err != nil {
 		return err
 	}
@@ -441,7 +443,7 @@ func (s *Store) StartRootMailboxTurn(ctx context.Context, rootID, agentID string
 		return "", err
 	}
 	if _, err := s.insertActorEventTx(ctx, tx, rootID, "turn.started", actorEvent{
-		AgentID: agentID, InboxKind: "mailbox", Phase: "running", Status: "running",
+		AgentID: agentID, TurnID: turnID, InboxKind: "mailbox", Phase: "running", Status: "running",
 	}, stamp); err != nil {
 		return "", err
 	}
@@ -1168,8 +1170,8 @@ func (s *Store) commitRuntime(ctx context.Context, transition RuntimeTransition,
 		c := transition.Command
 		rootID := nullableString(c.RootID)
 		inline, reference := runtimeValueColumns(prepared.command.RuntimeValue)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO commands(client_id,command_id,scope,root_id,request_digest,status,payload_inline,payload_ref,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-			c.ClientID, c.ID, c.Scope, rootID, c.RequestDigest, c.Status, inline, reference, stamp, stamp); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,payload_inline,payload_ref,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+			c.ClientID, c.ID, c.Scope, rootID, c.Operation, c.RequestDigest, c.Status, inline, reference, stamp, stamp); err != nil {
 			return RuntimeResult{}, err
 		}
 	}

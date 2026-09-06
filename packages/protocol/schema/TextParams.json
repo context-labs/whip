@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/TextParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TextParams",
+  "required": [
+    "text"
+  ],
+  "additionalProperties": false
+}

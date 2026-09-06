@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "subscription_id": {
+      "type": "string"
+    },
+    "root_id": {
+      "type": "string"
+    },
+    "error": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "data": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        "code": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/SubscriptionFailure",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SubscriptionFailure",
+  "required": [
+    "subscription_id",
+    "root_id",
+    "error"
+  ],
+  "additionalProperties": false
+}

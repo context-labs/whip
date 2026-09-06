@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "turn_id": {
+      "type": "string"
+    },
+    "target_command_id": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/CancelParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CancelParams",
+  "additionalProperties": false
+}

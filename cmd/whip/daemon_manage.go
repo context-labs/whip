@@ -35,18 +35,19 @@ var (
 )
 
 type daemonStatus struct {
-	State         string `json:"state"`
-	PID           int    `json:"pid,omitempty"`
-	Generation    int64  `json:"generation,omitempty"`
-	DaemonBuild   string `json:"daemon_build,omitempty"`
-	ClientBuild   string `json:"client_build"`
-	BuildMatch    bool   `json:"build_match"`
-	StartedAt     string `json:"started_at,omitempty"`
-	UptimeSeconds int64  `json:"uptime_seconds,omitempty"`
-	Socket        string `json:"socket"`
-	Database      string `json:"database"`
-	Log           string `json:"log"`
-	Error         string `json:"error,omitempty"`
+	State           string `json:"state"`
+	NetworkEndpoint string `json:"network_endpoint,omitempty"`
+	PID             int    `json:"pid,omitempty"`
+	Generation      int64  `json:"generation,omitempty"`
+	DaemonBuild     string `json:"daemon_build,omitempty"`
+	ClientBuild     string `json:"client_build"`
+	BuildMatch      bool   `json:"build_match"`
+	StartedAt       string `json:"started_at,omitempty"`
+	UptimeSeconds   int64  `json:"uptime_seconds,omitempty"`
+	Socket          string `json:"socket"`
+	Database        string `json:"database"`
+	Log             string `json:"log"`
+	Error           string `json:"error,omitempty"`
 }
 
 func daemonManageCLI(args []string) error {
@@ -108,7 +109,7 @@ func daemonStatusCLI(args []string) error {
 
 func daemonStartCLI(args []string) error {
 	if len(args) != 0 {
-		return errors.New("usage: whip daemon start")
+		return errors.New("usage: whip daemon start (set WHIP_NETWORK=1 for ephemeral loopback, WHIP_LISTEN for a trusted bind, WHIP_ALLOWED_ORIGINS and WHIP_ALLOWED_HOSTS for exact allowlists)")
 	}
 	paths, err := daemonRuntimePaths()
 	if err != nil {
@@ -241,6 +242,7 @@ func probeDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus
 	status.DaemonBuild = initialized.BuildID
 	status.BuildMatch = initialized.BuildID == version
 	status.StartedAt = initialized.StartedAt
+	status.NetworkEndpoint = initialized.NetworkEndpoint
 	if started, parseErr := time.Parse(time.RFC3339Nano, initialized.StartedAt); parseErr == nil {
 		status.UptimeSeconds = max(0, int64(time.Since(started).Seconds()))
 	}
@@ -366,6 +368,9 @@ func printDaemonStatus(status daemonStatus) {
 		}
 	} else if status.PID > 0 {
 		fmt.Printf("pid:           %d\n", status.PID)
+	}
+	if status.NetworkEndpoint != "" {
+		fmt.Printf("network:       %s\n", status.NetworkEndpoint)
 	}
 	fmt.Printf("socket:        %s\n", status.Socket)
 	fmt.Printf("database:      %s\n", status.Database)

@@ -1,0 +1,78 @@
+{
+  "type": "object",
+  "properties": {
+    "usage": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "used": {
+          "type": "integer"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "prompt_tokens": {
+              "type": "integer"
+            },
+            "completion_tokens": {
+              "type": "integer"
+            },
+            "prompt_tokens_details": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "cached_tokens": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "cached_tokens"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "prompt_tokens",
+            "completion_tokens"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "used",
+        "size",
+        "usage"
+      ],
+      "additionalProperties": false
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "args": {
+      "type": "string"
+    },
+    "result": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/StreamEvent",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StreamEvent",
+  "additionalProperties": false
+}

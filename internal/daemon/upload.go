@@ -63,7 +63,7 @@ func (m *uploadManager) begin(clientID string, begin UploadBeginParams) error {
 }
 
 func (m *uploadManager) chunk(clientID string, chunk UploadChunkParams) error {
-	if len(chunk.Data) > MaxSnapshotChunk {
+	if len(chunk.Data) > MaxContentChunk {
 		return errors.New("upload chunk exceeds 256 KiB")
 	}
 	m.mu.Lock()

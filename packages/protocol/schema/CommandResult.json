@@ -1,0 +1,95 @@
+{
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "reference_id": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_id",
+        "digest",
+        "size"
+      ],
+      "additionalProperties": false
+    },
+    "operation": {
+      "type": "string"
+    },
+    "result": true,
+    "failure": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "data": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        "code": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "command_id": {
+      "type": "string"
+    },
+    "ingress_seq": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "status": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/CommandResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CommandResult",
+  "required": [
+    "operation",
+    "command_id",
+    "ingress_seq",
+    "status"
+  ],
+  "additionalProperties": false
+}

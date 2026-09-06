@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/inferencenet"
+	"github.com/context-labs/whip/internal/daemon"
 )
 
 // authInferenceNetCLI implements `whip auth inference-net …`: first-class
@@ -75,87 +75,104 @@ func inferenceNetLoginCLI(args []string) error {
 	return inferenceNetDeviceLogin()
 }
 
-// inferenceNetBYOK validates a user-supplied key and persists it on the
-// provider entry. Nothing is written until the key validates.
+// inferenceNetBYOK validates and saves credentials on the execution host.
 func inferenceNetBYOK(key string, envMode bool) error {
-	if key == "" {
-		return errors.New("no API key provided (set " + config.InferenceNetEnvVar + " or pass --key; get one at https://inference.net)")
+	if key == "" && !envMode {
+		return errors.New("no API key provided (set " + config.InferenceNetEnvVar + " or pass --key)")
 	}
-	fmt.Print("validating key against Inference.net… ")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	err := inferencenet.ValidateKey(ctx, key)
-	cancel()
-	if err != nil {
-		fmt.Println("failed")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := setupProviderCLI(ctx, config.InferenceNetProvider, key, envMode); err != nil {
 		return err
 	}
-	fmt.Println("ok")
-
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	cfg.UpsertInferenceNet(key, envMode)
-	if err := cfg.Save(); err != nil {
-		return err
-	}
-	if envMode && os.Getenv(config.InferenceNetEnvVar) == "" {
-		offerShellExport(key)
-	}
-	fmt.Println("inference-net provider configured.")
-	fmt.Println("  run `whip`, then /model to pick a model on inference-net.")
+	fmt.Println("inference-net provider configured on the execution host.")
 	return nil
 }
 
-// inferenceNetDeviceLogin runs the browser device flow, prompts for the
-// team/project (creating a project on the spot if asked), mints a machine API
-// key, and registers the provider — the user never touches a key.
 func inferenceNetDeviceLogin() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-
-	fmt.Println("Starting secure terminal authorization…")
-	var opened bool
-	auth, err := inferencenet.CompleteLogin(ctx, func(verificationURL, userCode string) {
-		fmt.Println("\n  Approve this terminal in your browser:")
-		fmt.Println("  " + verificationURL + "\n")
-		fmt.Println("  Code: " + userCode + "\n")
-		opened = openBrowser(verificationURL)
-		if opened {
-			fmt.Println("  Browser opened. Waiting for approval…")
-		} else {
-			fmt.Println("  Open the URL manually. Waiting for approval…")
+	client, err := connectProviderDaemon(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	status, err := client.BeginLogin(ctx)
+	if err != nil {
+		return err
+	}
+	verificationURL := ""
+	fmt.Println("Starting provider authorization on the execution host…")
+	for {
+		if status.VerificationURL != "" && verificationURL != status.VerificationURL {
+			verificationURL = status.VerificationURL
+			fmt.Printf("Approve in your browser:\n  %s\n  Code: %s\n", verificationURL, status.UserCode)
+			openBrowser(verificationURL)
 		}
-	}, cliChooser)
+		switch status.State {
+		case "choose_team":
+			id, chooseErr := chooseProviderID("workspace", status.Teams)
+			if chooseErr != nil {
+				return chooseErr
+			}
+			status, err = client.SelectLoginTeam(ctx, status.FlowID, id)
+		case "choose_project":
+			choices := append(append([]daemon.ProviderChoice{}, status.Projects...), daemon.ProviderChoice{ID: "", Name: "+ Create new project"})
+			id, chooseErr := chooseProviderID("project", choices)
+			if chooseErr != nil {
+				return chooseErr
+			}
+			if id != "" {
+				status, err = client.SelectLoginProject(ctx, status.FlowID, id)
+			} else {
+				name, chooseErr := cliChooser("name", "new project", nil)
+				if chooseErr != nil {
+					return chooseErr
+				}
+				status, err = client.CreateLoginProject(ctx, status.FlowID, name)
+			}
+		case "succeeded":
+			fmt.Printf("✓ Signed in as %s; project %s. Provider configured on the execution host.\n", status.Email, status.ProjectID)
+			return nil
+		case "failed", "interrupted", "expired", "cancelled":
+			return fmt.Errorf("provider login %s: %s", status.State, status.Error)
+		default:
+			timer := time.NewTimer(200 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+			status, err = client.LoginStatus(ctx, status.FlowID)
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func chooseProviderID(kind string, choices []daemon.ProviderChoice) (string, error) {
+	if len(choices) == 0 {
+		return "", errors.New("provider returned no choices")
+	}
+	if len(choices) == 1 && choices[0].ID != "" {
+		return choices[0].ID, nil
+	}
+	labels := make([]string, len(choices))
+	for i, choice := range choices {
+		labels[i] = fmt.Sprintf("%s [%s]", choice.Name, choice.ID)
+	}
+	selected, err := cliChooser(kind, kind, labels)
 	if err != nil {
-		return err
+		return "", err
 	}
-
-	fmt.Println("Provisioning an API key for this machine…")
-	if _, err := auth.EnsureMachineKey(ctx); err != nil {
-		_ = inferencenet.ClearAuth()
-		return err
+	for i, label := range labels {
+		if label == selected {
+			return choices[i].ID, nil
+		}
 	}
-	if err := inferencenet.SaveAuth(auth); err != nil {
-		return err
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	// The machine key resolves via the ~/.whip/inference-net.json fallback, so
-	// the provider entry carries no literal key.
-	cfg.UpsertInferenceNet("", false)
-	if err := cfg.Save(); err != nil {
-		return err
-	}
-
-	fmt.Printf("\n✓ Signed in as %s\n", auth.UserEmail)
-	fmt.Printf("  Project: %s (%s)\n", auth.ProjectName, auth.ProjectID)
-	fmt.Printf("  Machine key: %s\n", auth.MachineKeyName)
-	fmt.Println("  inference-net provider configured — run `whip`, then /model.")
-	return nil
+	return "", errors.New("invalid provider choice")
 }
 
 // cliChooser is the interactive picker for team/project selection. For a list
@@ -194,81 +211,53 @@ func readLine() (string, error) {
 }
 
 func inferenceNetStatusCLI() error {
-	auth, err := inferencenet.LoadAuth()
-	if err != nil {
-		return err
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	p, ok := cfg.Providers[config.InferenceNetProvider]
-	fmt.Println("Inference.net")
-	if auth.SignedIn() {
-		fmt.Println("  Account     " + auth.UserEmail)
-		fmt.Println("  Project     " + auth.ProjectName + " (" + auth.ProjectID + ")")
-	} else {
-		fmt.Println("  Account     not signed in (whip auth inference-net login)")
-	}
-	if auth.HasMachineKey() {
-		fmt.Println("  Machine key " + auth.MachineKeyName)
-	}
-	switch {
-	case !ok:
-		fmt.Println("  Provider    not configured")
-	case p.APIKeyEnv != "":
-		fmt.Println("  Provider    apiKeyEnv " + p.APIKeyEnv)
-	case p.APIKey != "":
-		fmt.Println("  Provider    literal apiKey")
-	default:
-		fmt.Println("  Provider    machine key (browser login)")
-	}
-	return nil
+	return providerAccountCLI("status")
 }
 
 func inferenceNetLogoutCLI() error {
-	auth, err := inferencenet.LoadAuth()
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if auth.HasMachineKey() {
-		if err := auth.ArchiveMachineKey(ctx); err != nil {
-			fmt.Fprintln(os.Stderr, "whip: could not disable the machine API key:", err)
-		} else {
-			fmt.Println("  Disabled this machine's API key.")
-		}
-	}
-	if auth.SignedIn() {
-		if err := inferencenet.SignOut(ctx, auth.SessionToken); err != nil {
-			fmt.Fprintln(os.Stderr, "whip: the remote session could not be closed:", err)
-		}
-	}
-	if err := inferencenet.ClearAuth(); err != nil {
-		return err
-	}
-	fmt.Println("✓ Signed out of inference-net.")
-	return nil
+	return providerAccountCLI("logout")
 }
 
 func inferenceNetKeyRotateCLI() error {
-	auth, err := inferencenet.LoadAuth()
+	return providerAccountCLI("rotate")
+}
+
+func providerAccountCLI(operation string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	client, err := connectProviderDaemon(ctx)
 	if err != nil {
 		return err
 	}
-	if !auth.SignedIn() {
-		return errors.New("run `whip auth inference-net login` before rotating the machine API key")
+	defer func() { _ = client.Close() }()
+	var status daemon.ProviderStatus
+	switch operation {
+	case "status":
+		status, err = client.ProviderStatus(ctx, config.InferenceNetProvider)
+	case "logout":
+		status, err = client.LogoutProvider(ctx, config.InferenceNetProvider)
+	case "rotate":
+		status, err = client.RotateProviderKey(ctx, config.InferenceNetProvider)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if _, err := auth.Rotate(ctx); err != nil {
+	if err != nil {
 		return err
 	}
-	if err := inferencenet.SaveAuth(auth); err != nil {
-		return err
+	fmt.Println("Inference.net")
+	if status.Email != "" {
+		fmt.Println("  Account     " + status.Email)
+	} else {
+		fmt.Println("  Account     not signed in (whip auth inference-net login)")
 	}
-	fmt.Println("✓ Rotated the machine API key: " + auth.MachineKeyName)
+	if status.ProjectID != "" {
+		fmt.Println("  Project     " + status.ProjectName + " (" + status.ProjectID + ")")
+	}
+	if status.MachineKeyName != "" {
+		fmt.Println("  Machine key " + status.MachineKeyName)
+	}
+	fmt.Println("  Provider    " + status.KeySource)
+	for _, warning := range status.Warnings {
+		fmt.Fprintln(os.Stderr, "whip:", warning)
+	}
 	return nil
 }
 

@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -48,6 +50,7 @@ type RootConnection interface {
 	Command(context.Context, CommandParams) (CommandResult, error)
 	Replay(context.Context, ReplayParams) (ReplayResult, error)
 	Snapshot(context.Context, string) (session.RootSnapshot, error)
+	Subscribe(context.Context, string, int64) (SubscribeResult, error)
 	Events() <-chan ProtocolEvent
 	Done() <-chan struct{}
 	Err() error
@@ -102,19 +105,20 @@ type RootClient struct {
 	once    sync.Once
 	started atomic.Bool
 
-	mu      sync.RWMutex
-	state   RootClientState
-	err     error
-	rootID  string
-	cursor  int64
-	conn    RootConnection
-	changed chan struct{}
+	mu                sync.RWMutex
+	state             RootClientState
+	err               error
+	rootID            string
+	cursor            int64
+	subscriptionID    string
+	activeTurns       map[string]string
+	submittedCommands map[string]string
+	conn              RootConnection
+	changed           chan struct{}
 
 	updates chan RootUpdate
 	nextID  atomic.Uint64
 }
-
-var errReconnectWithSynchronizedCursor = errors.New("reconnect with synchronized root cursor")
 
 func NewRootClient(options RootClientOptions) (*RootClient, error) {
 	if options.ClientID == "" || options.Connector == nil {
@@ -222,6 +226,38 @@ func (c *RootClient) NewAction(operation string, payload any) (RootAction, error
 	if err != nil {
 		return RootAction{}, err
 	}
+	if operation == "cancel" || operation == "agent.turn.cancel" {
+		var target struct {
+			ID              string `json:"id"`
+			TurnID          string `json:"turn_id"`
+			TargetCommandID string `json:"target_command_id,omitempty"`
+		}
+		if err := json.Unmarshal(raw, &target); err != nil {
+			return RootAction{}, err
+		}
+		c.mu.RLock()
+		agentID := target.ID
+		if agentID == "" {
+			agentID = c.rootID
+		}
+		if target.TurnID == "" && target.TargetCommandID == "" {
+			if operation == "cancel" {
+				target.TargetCommandID = c.submittedCommands[agentID]
+			}
+			if target.TargetCommandID == "" {
+				target.TurnID = c.activeTurns[agentID]
+			}
+		}
+		c.mu.RUnlock()
+		if operation == "cancel" {
+			raw, _ = json.Marshal(struct {
+				TurnID          string `json:"turn_id"`
+				TargetCommandID string `json:"target_command_id,omitempty"`
+			}{TurnID: target.TurnID, TargetCommandID: target.TargetCommandID})
+		} else {
+			raw, _ = json.Marshal(target)
+		}
+	}
 	id := c.nextID.Add(1)
 	return RootAction{
 		CommandID: c.clientID + "-" + c.instanceID + "-" + strconv.FormatUint(id, 10),
@@ -233,6 +269,7 @@ func (c *RootClient) Command(ctx context.Context, action RootAction) (CommandRes
 	if action.CommandID == "" || action.Operation == "" || action.RootID == "" {
 		return CommandResult{}, errors.New("action identity and operation are required")
 	}
+	tracked := false
 	for {
 		c.mu.RLock()
 		state, connection := c.state, c.conn
@@ -249,12 +286,31 @@ func (c *RootClient) Command(ctx context.Context, action RootAction) (CommandRes
 			}
 			continue
 		}
+		if !tracked && (action.Operation == "submit" || action.Operation == "steer") {
+			c.mu.Lock()
+			if c.submittedCommands == nil {
+				c.submittedCommands = make(map[string]string)
+			}
+			c.submittedCommands[action.RootID] = action.CommandID
+			tracked = true
+			c.mu.Unlock()
+		}
 		result, err := connection.Command(ctx, CommandParams{
 			CommandID: action.CommandID, Scope: string(session.CommandScopeRoot), RootID: action.RootID,
 			Operation: action.Operation, Payload: action.Payload,
 		})
+		if tracked && (result.Status == "succeeded" || result.Status == "failed" || result.Status == "cancelled" || result.Status == "interrupted") {
+			c.mu.Lock()
+			if c.submittedCommands[action.RootID] == action.CommandID {
+				delete(c.submittedCommands, action.RootID)
+			}
+			c.mu.Unlock()
+		}
 		if err == nil {
 			return result, nil
+		}
+		if operation, ok := protocol.LookupRuntime(action.Operation); ok && operation.Execution == protocol.Ephemeral {
+			return result, err
 		}
 		if ctx.Err() != nil {
 			return CommandResult{}, ctx.Err()
@@ -460,6 +516,9 @@ func (c *RootClient) run() {
 		connection, err := c.connect(c.ctx, cursors)
 		if err != nil {
 			c.transition(RootDisconnected, err)
+			if failure, ok := errors.AsType[*RPCError](err); ok && failure.Code != -32002 && failure.Code != -32004 {
+				return
+			}
 			if !c.retry(delay) {
 				return
 			}
@@ -469,11 +528,7 @@ func (c *RootClient) run() {
 		delay = c.retryMin
 		c.setConnection(connection)
 		if err := c.synchronize(connection); err != nil {
-			if errors.Is(err, errReconnectWithSynchronizedCursor) {
-				_ = connection.Close()
-				c.clearConnection(connection)
-				continue
-			}
+
 			select {
 			case <-connection.Done():
 				_ = connection.Close()
@@ -516,7 +571,7 @@ func (c *RootClient) synchronize(connection RootConnection) error {
 		c.mu.Lock()
 		c.rootID, c.cursor = result.Output, 0
 		c.mu.Unlock()
-		return errReconnectWithSynchronizedCursor
+		rootID, cursor = result.Output, 0
 	}
 
 	c.transition(RootSnapshotting, nil)
@@ -534,7 +589,11 @@ func (c *RootClient) synchronize(connection RootConnection) error {
 				}
 			}
 			if contiguous {
-				return nil
+				subscription, err := connection.Subscribe(c.ctx, rootID, c.Cursor())
+				c.mu.Lock()
+				c.subscriptionID = subscription.SubscriptionID
+				c.mu.Unlock()
+				return err
 			}
 		}
 	}
@@ -544,15 +603,14 @@ func (c *RootClient) synchronize(connection RootConnection) error {
 	}
 	c.mu.Lock()
 	c.cursor = snapshot.Cursor
+	c.activeTurns = snapshot.ActiveTurns
 	c.mu.Unlock()
 	c.emit(RootUpdate{Snapshot: &snapshot})
-	if snapshot.Cursor == cursor {
-		return nil
-	}
-	// The server's event pump was created with the cursor sent during
-	// initialization. Reconnect after replacing that cursor with a snapshot so
-	// the live subscription starts at the same authoritative boundary.
-	return errReconnectWithSynchronizedCursor
+	subscription, err := connection.Subscribe(c.ctx, rootID, snapshot.Cursor)
+	c.mu.Lock()
+	c.subscriptionID = subscription.SubscriptionID
+	c.mu.Unlock()
+	return err
 }
 
 func (c *RootClient) consume(connection RootConnection) bool {
@@ -577,13 +635,28 @@ func (c *RootClient) consume(connection RootConnection) bool {
 
 func (c *RootClient) emitEvent(event ProtocolEvent) bool {
 	c.mu.Lock()
-	if event.RootID != c.rootID || event.Seq <= c.cursor {
+	if (event.SubscriptionID != "" && event.SubscriptionID != c.subscriptionID) || event.RootID != c.rootID || event.Seq <= c.cursor {
 		c.mu.Unlock()
 		return true
 	}
 	if c.cursor > 0 && event.Seq != c.cursor+1 {
 		c.mu.Unlock()
 		return false
+	}
+	var lifecycle session.LifecycleEvent
+	if json.Unmarshal(event.Payload, &lifecycle) == nil {
+		if c.activeTurns == nil {
+			c.activeTurns = map[string]string{}
+		}
+		if event.Kind == "turn.started" || event.Kind == "agent.turn.started" {
+			c.activeTurns[lifecycle.AgentID] = lifecycle.TurnID
+		}
+		if strings.HasPrefix(event.Kind, "turn.") || strings.HasPrefix(event.Kind, "agent.turn.") {
+			switch lifecycle.Status {
+			case "succeeded", "failed", "cancelled", "interrupted":
+				delete(c.activeTurns, lifecycle.AgentID)
+			}
+		}
 	}
 	c.cursor = event.Seq
 	c.mu.Unlock()

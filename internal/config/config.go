@@ -377,6 +377,20 @@ func (c *Config) fingerprint() string {
 // Load reads ~/.whip/config.json, writing a default config on first run. The
 // file is JSONC: comments and trailing commas are allowed.
 func Load() (*Config, error) {
+	configurationMu.Lock()
+	defer configurationMu.Unlock()
+	c, err := loadUnlocked()
+	if err != nil {
+		return nil, err
+	}
+	// Invalid client preferences must not prevent the execution daemon starting.
+	if err := loadClientPreferences(c); err != nil {
+		logf("config.preferences", "could not load client preferences: %v", err)
+	}
+	return c, nil
+}
+
+func loadUnlocked() (*Config, error) {
 	p, err := path()
 	if err != nil {
 		return nil, err
@@ -385,7 +399,7 @@ func Load() (*Config, error) {
 	if os.IsNotExist(err) {
 		cfg := Default()
 		logf("config.load", "missing file, writing defaults (%s)", cfg.fingerprint())
-		return cfg, cfg.Save()
+		return cfg, cfg.saveUnlocked()
 	}
 	if err != nil {
 		return nil, err
@@ -412,14 +426,14 @@ func Load() (*Config, error) {
 				if restored.MCPImport == nil {
 					restored.MCPImport = cfg.MCPImport // keep import gating too
 				}
-				return &restored, restored.Save()
+				return &restored, restored.saveUnlocked()
 			}
 		}
 		def := Default()
 		def.MCPServers = cfg.MCPServers // mcp-only configs are valid; keep them
 		def.MCPImport = cfg.MCPImport
 		logf("config.load", "no usable .bak; regenerated defaults (%s), keeping %d mcp entries", def.fingerprint(), len(cfg.MCPServers))
-		return def, def.Save()
+		return def, def.saveUnlocked()
 	}
 	logf("config.load", "ok (%s)", cfg.fingerprint())
 	cfg.normalize()
@@ -461,6 +475,12 @@ func (c *Config) normalize() {
 // with providers/models) with a structurally empty one — that path has only
 // ever been reached by a bug, never intentionally.
 func (c *Config) Save() error {
+	configurationMu.Lock()
+	defer configurationMu.Unlock()
+	return c.saveUnlocked()
+}
+
+func (c *Config) saveUnlocked() error {
 	p, err := path()
 	if err != nil {
 		return err

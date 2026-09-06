@@ -1,0 +1,102 @@
+{
+  "type": "object",
+  "properties": {
+    "flows": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "flow_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "verification_url": {
+            "type": "string"
+          },
+          "user_code": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "teams": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "projects": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "flow_id",
+          "state",
+          "teams",
+          "projects",
+          "expires_at"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/ProviderLoginList",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderLoginList",
+  "required": [
+    "flows"
+  ],
+  "additionalProperties": false
+}
