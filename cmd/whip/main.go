@@ -139,11 +139,9 @@ func main() {
 		return
 	}
 
-	// The setup wizard triggers on "no config file AND no setup-done marker":
-	// Load creates the config on first run, so only a pre-Load stat can tell
-	// this install has never launched — and the marker keeps a subcommand's
-	// Load (whip auth/run/mcp/…) from permanently consuming the first run.
-	firstRun := !config.Exists() && !config.SetupDone()
+	// Daemon startup and other subcommands may already have written config.json.
+	// Only completing setup consumes the first interactive launch.
+	firstRun := !config.SetupDone()
 
 	// `whip up <words...>`: flag.Parse stops at "up", so flags go before it
 	// (whip -m kimi up …) and the prompt may start with "-" untouched.

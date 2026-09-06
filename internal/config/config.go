@@ -333,10 +333,8 @@ func Exists() bool {
 }
 
 // setupDonePath is the marker the first-run wizard leaves when it completes.
-// The wizard triggers on "no config file AND no marker": any whip subcommand
-// (auth/run/mcp/…) that calls Load on a fresh install creates the config
-// without running the wizard, and the marker keeps that from permanently
-// consuming the first run.
+// The wizard triggers until this marker exists. Subcommands may create the
+// config without running the wizard; a config file alone is not completion.
 func setupDonePath() (string, error) {
 	dir, err := Dir()
 	if err != nil {

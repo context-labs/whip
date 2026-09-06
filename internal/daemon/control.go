@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -93,7 +94,10 @@ func (c *Control) CreateSession(ctx context.Context, admission session.CommandAd
 		if !admitted.New {
 			return nil
 		}
-		record, err = c.store.CreateSessionForCommand(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider)
+		create, err = resolveSessionDefaults(create)
+		if err == nil {
+			record, err = c.store.CreateSessionForCommand(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider)
+		}
 		if err != nil {
 			_, finishErr := c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "failed", session.RuntimePayload{Data: encodeCommandOutcome("session.create", "", err), MediaType: "application/json"})
 			return errors.Join(err, finishErr)
@@ -252,4 +256,34 @@ func (c *Control) Checkpoint(ctx context.Context, admission session.CommandAdmis
 		return err
 	})
 	return record, err
+}
+
+// Resolve omitted routing on the execution host, after deduplication. A retry
+// must observe the original session even if host defaults have since changed.
+func resolveSessionDefaults(create CreateSession) (CreateSession, error) {
+	if create.Kind != session.SessionKindAgent || (create.Model != "" && create.Provider != "") {
+		return create, nil
+	}
+	cfg, _, err := config.ReadVersioned()
+	if err != nil {
+		return create, err
+	}
+	if create.Model == "" {
+		create.Model = cfg.DefaultModel
+	}
+	_, model, _, err := cfg.Resolve(create.Model, create.Provider)
+	if err != nil {
+		return create, err
+	}
+	if create.Provider == "" {
+		// Catalog-only models select their advertising provider in Resolve;
+		// configured aliases otherwise use the configured default provider first.
+		if _, configured := cfg.Models[create.Model]; configured {
+			create.Provider = cfg.DefaultProvider
+		}
+		if create.Provider == "" && len(model.Providers) > 0 {
+			create.Provider = model.Providers[0]
+		}
+	}
+	return create, nil
 }

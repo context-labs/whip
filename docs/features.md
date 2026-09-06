@@ -118,6 +118,9 @@ root prompt (`evals/rlm`).
 - Recent transcripts bootstrap quickly; older root/child messages are pageable.
   Large values use granted content references. HTTP transfers reuse the content
   store and limits. Raw human transcript inspection never changes model context.
+- Omitted session model/provider routes resolve from host defaults after command
+  deduplication. First-run setup remains pending after daemon startup creates its
+  configuration (`session_defaults_test.go`, setup marker tests).
 - Provider setup/login, versioned configuration updates and completion execute on
   the daemon host. TUI themes/keybindings remain local. Secret credentials and
   ephemeral terminal input are excluded from command journals.
