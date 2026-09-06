@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 7
-	schemaIdentity       = "whip-recursive-runtime-v7"
+	currentSchemaVersion = 8
+	schemaIdentity       = "whip-recursive-runtime-v8"
 )
 
 // MaxInboxRetries bounds how many times a failed turn may return its claimed
@@ -152,7 +152,7 @@ CREATE TABLE agent_state (
 );
 CREATE TABLE agent_scratch (
 	root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL,
-	program TEXT NOT NULL, manifest TEXT NOT NULL DEFAULT '', bytes INTEGER NOT NULL DEFAULT 0,
+	snapshot TEXT NOT NULL, manifest TEXT NOT NULL DEFAULT '', bytes INTEGER NOT NULL DEFAULT 0,
 	updated_at TEXT NOT NULL, PRIMARY KEY(root_id,agent_id),
 	FOREIGN KEY(root_id,agent_id) REFERENCES agents(root_id,id)
 );

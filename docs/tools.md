@@ -11,7 +11,8 @@ model request; configured MCP operations remain under the `mcp` module.
 
 ## Modules
 
-All operations accept keyword arguments.
+Host operations accept keyword arguments. The local `json` module accepts
+positional arguments and does not contact the daemon.
 
 | Module | Operations |
 | --- | --- |
@@ -29,6 +30,7 @@ All operations accept keyword arguments.
 | `schedules` | `create`, `list`, `cancel` |
 | `permissions` | `request`, `status`; a kernel cannot approve |
 | `user` | `ask`; root agent only |
+| `json` | local `encode`, `decode`, `encode_indent`, `indent` |
 
 Example:
 
@@ -47,9 +49,43 @@ child = agents.spawn(
 ```
 
 Starlark is not Python: there is no `import`, `open`, or `try/except`.
-Interpreter globals survive worker and daemon restarts except closures and
-self-referential values (see the scratch snapshot in `rlm-runtime.md`). Use
-`state`, `artifacts`, messages, and retained children for shared work.
+Supported data and top-level helpers survive worker eviction and restart.
+Unsupported bindings are reported; see the scratch contract in
+`rlm-runtime.md`. A completed cell can still have an unsaved checkpoint:
+check its scratch warning and do not repeat external effects merely to save
+the checkpoint. Use `state`, `artifacts`, messages, and retained children for
+important durable work.
+
+## Structured state
+
+Private state belongs to one agent. The blackboard is shared within the root
+tree. Both return records with `key`, `version`, `author_agent_id`, and a decoded
+`value` when small:
+
+```python
+saved = state.private_set(key="progress", value={"files": ["main.go"], "done": False})
+progress = state.private_get(key="progress")["value"]
+state.private_cas(key="progress", version=saved["version"], value={"files": progress["files"], "done": True})
+state.blackboard_set(key="findings", value=[])
+state.blackboard_append(key="findings", value={"file": "main.go", "issue": "missing check"})
+```
+
+Values are JSON-compatible trees: `None`, booleans, strings, arbitrary integers,
+finite floats, lists, and string-keyed dictionaries. Bytes, tuples, functions,
+cycles, and non-finite floats are rejected. Mutation calls require `value`;
+explicit `None` stores JSON null. Append adds one value to a JSON array. CAS
+conflicts require rereading the current record before choosing another update.
+
+Large records return `handle`, `size`, and `media_type` instead of `value`.
+Use existing authorized `context.inspect/search/read` operations for bounded
+retrieval. `json.decode(text)` decodes complete JSON retrieved that way; it
+cannot decode a chunk that ends in the middle of a JSON document.
+
+`state.private_list(after_key="", limit=20)` and
+`state.blackboard_history(key="findings", after_version=0, limit=20)` return
+`items`, `next` when more remain, and `truncated`. Pass the fields of `next`
+to continue. Pages allow at most 100 entries and 64 KiB of encoded response.
+List pagination is a live view; individual records carry versions for writes.
 
 ## user.ask
 

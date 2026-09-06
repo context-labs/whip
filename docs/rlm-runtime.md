@@ -166,21 +166,42 @@ fail the turn explicitly instead of applying partial constraints. Existing
 inspection reports the actual applied sources and application time, with file
 and cwd changes identified as taking effect next turn.
 
-Starlark globals persist across cells and survive worker restarts. After
-every cell the kernel snapshots the worker's globals as Starlark source
-(`name = repr(value)` for data, the original text for top-level `def`s and
-lambda assignments, `b = a` for aliases) into the `agent_scratch` table, and
-a fresh worker executes that program before its first cell, whether the old
-worker was evicted by the pool, killed by the cell deadline, or lost to a
-daemon restart. Closures, self-referential values, non-finite floats, values
-over 256 KiB, and anything past a 768 KiB aggregate are skipped by name, and
-the restart notice lists what was not restored. Every restore also appends a
-`scratch.restored` actor event carrying the restored and not-restored names,
-so a worker restart is auditable from the event log rather than from the
-model's account of its ephemeral notice; the TUI renders it as a dim line. Helpers see globals as bound
-when they were defined, so agents mutate containers in place or pass values
-rather than rebinding a name a helper reads. Shared or long-lived information
-still belongs in `state`, `artifacts`, messages, files, or child transcripts.
+Starlark globals persist in a live worker. After each cell the kernel saves a
+structured scratch checkpoint in `agent_scratch`. A fresh worker reconstructs
+supported data directly and compiles validated helper definitions before use.
+Restoration never replays data assignments or host effects.
+
+The supported data subset is `None`, booleans, arbitrary integers, finite
+floats, strings, bytes, lists, tuples, and dictionaries. Types, dictionary order,
+and shared nested list/dictionary references survive. Cycles, unsupported
+runtime objects, and containers containing functions are skipped without losing
+unrelated bindings. Checkpoints are bounded to 256 KiB per binding, 768 KiB
+aggregate, and the complete encoded protocol frame, including escaped strings
+and manifest metadata.
+
+Top-level `def`s and assigned lambdas can survive when they have immutable
+literal defaults, no captured closure state, and supported dependencies.
+Helper-to-helper references and recursion are supported. Source belongs to the
+actual function object, including definitions executed before a later ordinary
+cell error. Helpers with mutable/nonliteral defaults or changed, missing, or
+unsupported global dependencies are reported as skipped. Helpers see globals
+as bound when defined; pass arguments or mutate shared containers rather than
+rebinding a name a helper reads. Restoration must not silently change that
+binding. Tool-calling helper bodies run only when subsequently invoked.
+
+Changed omissions and persistence failures appear in the cell's scratch
+report. A failed checkpoint does not undo a completed cell or justify repeating
+its external effects; the previous durable checkpoint remains available and
+the next cell retries saving. Failed loads stop the replacement worker and
+release its reservation; the next acquisition retries. Corrupt checkpoints fail
+explicitly instead of being overwritten with an empty environment. A cell lost
+with its running worker is outside the last completed checkpoint.
+
+Every restore produces a bounded runtime notice and a `scratch.restored` actor
+event naming restored and omitted bindings. The daemon owns audit delivery;
+there is no detached notification goroutine. Important durable information
+belongs in `state`, `artifacts`, messages, files, or child transcripts. The
+development schema has no migration or legacy scratch replay path.
 
 Cells are observable while they run. The worker publishes its print output
 so far as `stream.tool.output` (throttled to 100 ms; the result carries the

@@ -164,20 +164,20 @@ func (s *Session) SubmitAgentInput(ctx context.Context, callerAgentID, agentID, 
 // snapshot through the root actor.
 func (s *Session) LoadAgentScratch(ctx context.Context, agentID string) (string, []byte, error) {
 	type result struct {
-		program  string
+		snapshot string
 		manifest []byte
 	}
 	value, err := routeControlValue(s, ctx, func(actorCtx context.Context) (result, error) {
-		program, manifest, err := s.store.LoadAgentScratch(actorCtx, s.meta.ID, agentID)
-		return result{program, manifest}, err
+		snapshot, manifest, err := s.store.LoadAgentScratch(actorCtx, s.meta.ID, agentID)
+		return result{snapshot, manifest}, err
 	})
-	return value.program, value.manifest, err
+	return value.snapshot, value.manifest, err
 }
 
-func (s *Session) SaveAgentScratch(ctx context.Context, agentID, program string, manifest []byte) error {
+func (s *Session) SaveAgentScratch(ctx context.Context, agentID, snapshot string, manifest []byte) error {
 	manifest = slices.Clone(manifest)
 	return s.routeControl(ctx, func(actorCtx context.Context) error {
-		return s.store.SaveAgentScratch(actorCtx, s.meta.ID, agentID, program, manifest)
+		return s.store.SaveAgentScratch(actorCtx, s.meta.ID, agentID, snapshot, manifest)
 	})
 }
 

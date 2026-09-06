@@ -9,10 +9,12 @@ import (
 	"io"
 	"maps"
 	"math"
+	"math/big"
 	"runtime/debug"
 	"strings"
 	"time"
 
+	starlarkjson "go.starlark.net/lib/json"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
@@ -81,7 +83,7 @@ type worker struct {
 	requests     int
 	nextRequest  uint64
 	cellOutput   strings.Builder
-	sources      map[string]scratchSource // top-level defs and lambdas, for snapshots
+	sources      map[*starlark.Function]scratchSource // top-level defs and lambdas, for snapshots
 	nextSource   int
 	restoring    bool
 	currentEval  uint64    // id of the eval frame being served; 0 outside the protocol
@@ -96,6 +98,8 @@ const outputStreamInterval = 100 * time.Millisecond
 var cellFileOptions = &syntax.FileOptions{While: true, TopLevelControl: true, GlobalReassign: true, Recursion: true}
 
 func (w *worker) installModules() {
+	w.modules["json"] = starlarkjson.Module
+	w.globals["json"] = starlarkjson.Module
 	for module, operations := range moduleRegistry {
 		members := make(starlark.StringDict, len(operations))
 		for _, operation := range operations {
@@ -109,7 +113,11 @@ func (w *worker) installModules() {
 					if !ok {
 						return nil, errors.New("RLM keyword name is not a string")
 					}
-					value, err := starlarkToGo(item[1])
+					convert := starlarkToGo
+					if module == "state" {
+						convert = stateToGo
+					}
+					value, err := convert(item[1])
 					if err != nil {
 						return nil, fmt.Errorf("%s: %w", key, err)
 					}
@@ -152,7 +160,14 @@ func (w *worker) run() error {
 		result.Type = "result"
 		result.ID = request.ID
 		if err := writeFrame(w.output, w.frameBytes, result); err != nil {
-			return err
+			if request.Type != "snapshot" || !errors.Is(err, ErrFrameLimit) {
+				return err
+			}
+			// Oversized scratch is a checkpoint failure, not a worker failure.
+			// writeFrame checks the complete escaped payload before any write.
+			if err := writeFrame(w.output, w.frameBytes, frame{Type: "result", ID: request.ID, Error: "scratch snapshot exceeds protocol frame limit"}); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -174,7 +189,8 @@ func (w *worker) evaluate(code string) frame {
 		w.streamOutput()
 	}
 
-	file, err := cellFileOptions.Parse("<rlm-cell>", code, 0)
+	w.nextSource++
+	file, err := cellFileOptions.Parse(fmt.Sprintf("<rlm-cell-%d>", w.nextSource), code, 0)
 	if err != nil {
 		return frame{Output: w.cellOutput.String(), Error: err.Error()}
 	}
@@ -193,12 +209,12 @@ func (w *worker) evaluate(code string) frame {
 			err = starlark.ExecREPLChunk(file, thread, w.globals)
 		}
 	}
+	w.recordSources(code, statements)
 	result := frame{Output: w.cellOutput.String(), Steps: thread.ExecutionSteps()}
 	if err != nil {
 		result.Error = err.Error()
 		return result
 	}
-	w.recordSources(code, statements)
 	result.Value, err = starlarkToGo(value)
 	if err != nil {
 		result.Error = err.Error()
@@ -245,7 +261,7 @@ func (w *worker) hostCall(module, operation string, arguments map[string]any) (s
 	if err := writeFrame(w.output, w.frameBytes, frame{Type: "host_request", ID: id, Module: module, Operation: operation, Arguments: arguments}); err != nil {
 		return nil, err
 	}
-	response, err := readFrame(w.input, w.frameBytes)
+	response, err := readFrame(w.input, w.frameBytes, module == "state")
 	if err != nil {
 		return nil, err
 	}
@@ -326,6 +342,19 @@ func goToStarlark(value any) (starlark.Value, error) {
 		return starlark.Bool(value), nil
 	case string:
 		return starlark.String(value), nil
+	case json.Number:
+		if !strings.ContainsAny(string(value), ".eE") {
+			integer, ok := new(big.Int).SetString(string(value), 10)
+			if !ok {
+				return nil, errors.New("invalid JSON integer")
+			}
+			return starlark.MakeBigInt(integer), nil
+		}
+		number, err := value.Float64()
+		if err != nil || math.IsInf(number, 0) || math.IsNaN(number) {
+			return nil, errors.New("invalid JSON float")
+		}
+		return starlark.Float(number), nil
 	case float64:
 		if value == math.Trunc(value) && value >= math.MinInt64 && value <= math.MaxInt64 {
 			return starlark.MakeInt64(int64(value)), nil

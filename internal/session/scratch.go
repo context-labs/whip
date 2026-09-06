@@ -4,36 +4,40 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
-// SaveAgentScratch stores one node's Starlark scratch snapshot: the program
-// that re-creates its globals plus the manifest describing what it holds.
+// SaveAgentScratch stores one node's Starlark scratch snapshot: the structured data
+// and helper definitions plus the manifest describing what it holds.
 // It is runtime-owned state, bounded by the kernel's caps rather than
 // budgets, and survives worker eviction and daemon restarts.
-func (s *Store) SaveAgentScratch(ctx context.Context, rootID, agentID, program string, manifest []byte) error {
+func (s *Store) SaveAgentScratch(ctx context.Context, rootID, agentID, snapshot string, manifest []byte) error {
 	if rootID == "" || agentID == "" {
 		return ErrAgentAccess
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO agent_scratch(root_id,agent_id,program,manifest,bytes,updated_at) VALUES(?,?,?,?,?,?)
-		ON CONFLICT(root_id,agent_id) DO UPDATE SET program=excluded.program,manifest=excluded.manifest,bytes=excluded.bytes,updated_at=excluded.updated_at`,
-		rootID, agentID, program, string(manifest), len(program), now())
+	_, err := s.db.ExecContext(ctx, `INSERT INTO agent_scratch(root_id,agent_id,snapshot,manifest,bytes,updated_at) VALUES(?,?,?,?,?,?)
+		ON CONFLICT(root_id,agent_id) DO UPDATE SET snapshot=excluded.snapshot,manifest=excluded.manifest,bytes=excluded.bytes,updated_at=excluded.updated_at`,
+		rootID, agentID, snapshot, string(manifest), len(snapshot), now())
 	return err
 }
 
 // LoadAgentScratch returns the stored snapshot, or empty values when none.
-func (s *Store) LoadAgentScratch(ctx context.Context, rootID, agentID string) (program string, manifest []byte, err error) {
+func (s *Store) LoadAgentScratch(ctx context.Context, rootID, agentID string) (snapshot string, manifest []byte, err error) {
 	if rootID == "" || agentID == "" {
 		return "", nil, ErrAgentAccess
 	}
 	var encoded string
-	err = s.db.QueryRowContext(ctx, `SELECT program,manifest FROM agent_scratch WHERE root_id=? AND agent_id=?`, rootID, agentID).Scan(&program, &encoded)
+	err = s.db.QueryRowContext(ctx, `SELECT snapshot,manifest FROM agent_scratch WHERE root_id=? AND agent_id=?`, rootID, agentID).Scan(&snapshot, &encoded)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil, nil
 	}
 	if err != nil {
 		return "", nil, err
 	}
-	return program, []byte(encoded), nil
+	if strings.TrimSpace(snapshot) == "" {
+		return "", nil, errors.New("empty stored scratch snapshot")
+	}
+	return snapshot, []byte(encoded), nil
 }
 
 // ScratchSkip names a global a restore could not revive, with the reason.

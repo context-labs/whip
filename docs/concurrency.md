@@ -24,8 +24,14 @@ does not execute the operation twice.
 
 Each live agent has one serialized kernel because its Starlark globals belong
 to that worker. Different agents can progress concurrently up to the shared
-`rlm.maxWorkers` semaphore. Worker capacity is reserved before durable child
-admission.
+`rlm.maxWorkers` pool. Children are admitted durably and queue for a worker;
+idle workers can be evicted, while a running turn pins its worker.
+
+Scratch restoration is part of acquiring a worker. A failed load or restore
+stops the new subprocess before releasing its pool reservation and remains
+retryable. Post-cell checkpoint failure preserves the cell result and the
+previous checkpoint; it never replays a cell. Restore audit work belongs to
+the root supervisor and ends with that owner.
 
 Children are retained identities, not goroutines treated as records. A live
 node owns its cancellation context, provider loop, services, and kernel. The

@@ -754,7 +754,7 @@ func TestSuspendedKernelRestoresScratchWithEphemeralNotice(t *testing.T) {
 		t.Fatalf("first turn err=%v", err)
 	}
 	program, _, err := store.LoadAgentScratch(t.Context(), root.ID(), root.AgentID())
-	if err != nil || !strings.Contains(program, "kids = [1, 2]") || !strings.Contains(program, "def pick(i):") {
+	if err != nil || !json.Valid([]byte(program)) || !strings.Contains(program, "kids") || !strings.Contains(program, "def pick(i):") {
 		t.Fatalf("stored scratch = %q err=%v", program, err)
 	}
 	if err := runtime.rootNode.kernel.Suspend(); err != nil {
@@ -916,12 +916,12 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 	}
 	deadline = time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err == nil && strings.Contains(program, `memo = "kept"`) {
+		if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err == nil && (json.Valid([]byte(program)) && strings.Contains(program, `"memo"`)) {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err != nil || !strings.Contains(program, `memo = "kept"`) {
+	if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err != nil || !(json.Valid([]byte(program)) && strings.Contains(program, `"memo"`)) {
 		t.Fatalf("child scratch = %q err=%v", program, err)
 	}
 	waitAgentIdle(t, (*firstRef).agents[childID])

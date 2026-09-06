@@ -155,12 +155,12 @@ func (store scratchStore) Load(ctx context.Context) (string, rlm.SnapshotManifes
 	if node.root == nil || node.id == "" {
 		return "", rlm.SnapshotManifest{}, nil
 	}
-	program, encoded, err := node.root.LoadAgentScratch(ctx, node.id)
+	snapshot, encoded, err := node.root.LoadAgentScratch(ctx, node.id)
 	var manifest rlm.SnapshotManifest
 	if err == nil && len(encoded) > 0 {
-		_ = json.Unmarshal(encoded, &manifest)
+		err = json.Unmarshal(encoded, &manifest)
 	}
-	return program, manifest, err
+	return snapshot, manifest, err
 }
 
 // emitHostCall publishes one host call made inside a cell as a presentation
@@ -184,10 +184,16 @@ func (node *AgentSession) recordScratchRestore(ctx context.Context, report rlm.R
 	if root == nil || id == "" {
 		return
 	}
-	go func() { _ = root.RecordScratchRestore(context.WithoutCancel(ctx), id, report) }()
+	root.supervisor.launchWorker("scratch restore audit", func() {
+		auditCtx, cancel := context.WithTimeout(root.supervisor.ctx, 5*time.Second)
+		defer cancel()
+		if err := root.RecordScratchRestore(auditCtx, id, report); err != nil && auditCtx.Err() == nil {
+			root.supervisor.report("scratch restore audit", err)
+		}
+	})
 }
 
-func (store scratchStore) Save(ctx context.Context, program string, manifest rlm.SnapshotManifest) error {
+func (store scratchStore) Save(ctx context.Context, snapshot string, manifest rlm.SnapshotManifest) error {
 	node := store.node
 	if node.root == nil || node.id == "" {
 		return nil
@@ -196,7 +202,7 @@ func (store scratchStore) Save(ctx context.Context, program string, manifest rlm
 	if err != nil {
 		return err
 	}
-	return node.root.SaveAgentScratch(ctx, node.id, program, encoded)
+	return node.root.SaveAgentScratch(ctx, node.id, snapshot, encoded)
 }
 
 func (runtime *RecursiveRuntime) newNode(value *agent.Agent, parentID, name string, capabilities []string, authority capability.Authority) (*AgentSession, error) {
@@ -1531,31 +1537,47 @@ func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments 
 func (host *recursiveHost) state(ctx context.Context, operation string, arguments map[string]any) (any, error) {
 	node := host.session
 	key, _ := stringArgument(arguments, "key")
-	payload, err := runtimeStatePayload(arguments["value"])
-	if err != nil {
-		return nil, err
+	var payload sessionstore.RuntimePayload
+	if strings.HasSuffix(operation, "_set") || strings.HasSuffix(operation, "_append") || strings.HasSuffix(operation, "_cas") {
+		value, exists := arguments["value"]
+		if !exists {
+			return nil, errors.New("state mutation requires value (use None for JSON null)")
+		}
+		var err error
+		payload, err = runtimeStatePayload(value)
+		if err != nil {
+			return nil, err
+		}
+	}
+	version := int64(0)
+	if strings.HasSuffix(operation, "_cas") {
+		var err error
+		version, err = statePageInteger(arguments, "version", 0)
+		if err != nil || version < 0 {
+			return nil, errors.New("version must be a non-negative integer")
+		}
 	}
 	switch operation {
 	case "private_get":
-		return node.root.GetPrivateState(ctx, node.id, key)
+		return stateResult(node.root.GetPrivateState(ctx, node.id, key))
 	case "private_list":
-		return node.root.ListPrivateState(ctx, node.id)
+		return host.statePage(ctx, operation, arguments)
 	case "private_set":
-		return node.root.SetPrivateState(ctx, node.id, key, payload)
+		return stateResult(node.root.SetPrivateState(ctx, node.id, key, payload))
 	case "private_append":
-		return node.root.AppendPrivateState(ctx, node.id, key, payload)
+		return stateResult(node.root.AppendPrivateState(ctx, node.id, key, payload))
 	case "private_cas":
-		return node.root.CompareAndSwapPrivateState(ctx, node.id, key, int64Argument(arguments, "version", 0), payload)
+		return stateResult(node.root.CompareAndSwapPrivateState(ctx, node.id, key, version, payload))
 	case "blackboard_get":
-		return node.root.GetBlackboard(ctx, node.id, key)
+		return stateResult(node.root.GetBlackboard(ctx, node.id, key))
 	case "blackboard_set":
-		return node.root.SetBlackboard(ctx, node.id, key, payload)
+		return stateResult(node.root.SetBlackboard(ctx, node.id, key, payload))
 	case "blackboard_append":
-		return node.root.AppendBlackboard(ctx, node.id, key, payload)
+		return stateResult(node.root.AppendBlackboard(ctx, node.id, key, payload))
 	case "blackboard_cas":
-		return node.root.CompareAndSwapBlackboard(ctx, node.id, key, int64Argument(arguments, "version", 0), payload)
+		return stateResult(node.root.CompareAndSwapBlackboard(ctx, node.id, key, version, payload))
 	case "blackboard_history":
-		return node.root.BlackboardHistory(ctx, node.id, key)
+		return host.statePage(ctx, operation, arguments)
 	case "subscribe":
 		return node.root.CreateBlackboardSubscription(ctx, node.id, key)
 	case "subscriptions":
@@ -1674,7 +1696,11 @@ func requestedBudgets(value any) ([]sessionstore.BudgetLimit, error) {
 }
 
 func runtimeStatePayload(value any) (sessionstore.RuntimePayload, error) {
-	data, err := json.Marshal(value)
+	normalized, err := normalizeStateJSON(value, 0)
+	if err != nil {
+		return sessionstore.RuntimePayload{}, err
+	}
+	data, err := json.Marshal(normalized)
 	return sessionstore.RuntimePayload{Data: data, MediaType: "application/json", Source: "agent state"}, err
 }
 
