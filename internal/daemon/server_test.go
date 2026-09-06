@@ -662,3 +662,47 @@ func TestServerCommandValidation(t *testing.T) {
 		t.Fatalf("unterminated frame = %v", err)
 	}
 }
+
+func TestCommandStatusNotFoundIsDistinctFromLookupFailure(t *testing.T) {
+	for _, transport := range []string{"unix", "websocket"} {
+		t.Run(transport, func(t *testing.T) {
+			fixture := newV2Fixture(t, &fakeRunner{})
+			client := fixture.dial(transport, "status-owner")
+			if client.InitializeResult().ProtocolMinor != protocol.Minor {
+				t.Fatalf("protocol minor = %d", client.InitializeResult().ProtocolMinor)
+			}
+			_, err := client.CommandStatus(t.Context(), "missing-command")
+			failure, ok := errors.AsType[*RPCError](err)
+			if !ok || failure.Code != -32011 || failure.Data == nil || failure.Data.Kind != "command_not_found" {
+				t.Fatalf("missing command error = %#v", err)
+			}
+
+			_, err = client.SubmitAndWait(t.Context(), CommandParams{
+				CommandID: "existing-command", Scope: "root", RootID: fixture.rootID,
+				Operation: "submit", Payload: json.RawMessage(`{"text":"hello"}`),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			other := fixture.dial(transport, "other-client")
+			_, err = other.CommandStatus(t.Context(), "existing-command")
+			failure, ok = errors.AsType[*RPCError](err)
+			if !ok || failure.Code != -32011 {
+				t.Fatalf("foreign command error = %#v", err)
+			}
+			status, err := client.CommandStatus(t.Context(), "existing-command")
+			if err != nil || status.Status != "succeeded" {
+				t.Fatalf("owner command status = %+v, %v", status, err)
+			}
+		})
+	}
+
+	// Infrastructure errors must never give clients permission to treat work
+	// as absent and retry it. Only the specific no-rows status path does that.
+	for _, err := range []error{context.Canceled, errors.New("database unavailable")} {
+		failure := rpcFromError(err)
+		if failure.Data.Kind == "command_not_found" {
+			t.Fatalf("lookup failure classified as absent: %v", err)
+		}
+	}
+}

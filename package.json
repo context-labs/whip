@@ -1,0 +1,32 @@
+{
+  "name": "whip-clients",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "generate": "npm run generate -w @whip/protocol",
+    "build": "npm run build -w @whip/sdk",
+    "check": "npm run check -w @whip/protocol && npm run check -w @whip/sdk && npm run build -w @whip/client-example",
+    "test": "npm run test -w @whip/sdk",
+    "acceptance": "npm run build && node packages/sdk/scripts/acceptance.mjs",
+    "test:browser": "npm run build && node packages/sdk/scripts/browser-smoke.mjs",
+    "test:package": "npm run build && node packages/sdk/scripts/package-smoke.mjs",
+    "test:example": "npm run build && node examples/client/smoke.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "esbuild": "0.28.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "typescript": "5.9.3"
+  }
+}

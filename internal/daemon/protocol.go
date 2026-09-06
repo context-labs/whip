@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	ProtocolMajor        = 2
-	ProtocolMinor        = 0
+	ProtocolMajor        = protocol.Major
+	ProtocolMinor        = protocol.Minor
 	MaxSubscriptions     = 16
 	MaxFrameSize         = 1 << 20
 	MaxContentChunk      = 256 << 10
@@ -158,6 +158,11 @@ func requestDigest(scope, rootID, operation string, payload json.RawMessage) (st
 
 func marshalFrame(message rpcMessage) ([]byte, error) {
 	message.JSONRPC = "2.0"
+	if message.Error != nil {
+		message.Result = nil
+	} else if message.Method == "" && len(message.ID) != 0 && message.Result == nil {
+		message.Result = json.RawMessage("null")
+	}
 	data, err := json.Marshal(message)
 	if err != nil {
 		return nil, err

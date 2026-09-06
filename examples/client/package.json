@@ -1,0 +1,7 @@
+{
+  "name": "@whip/client-example",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node serve.mjs", "build": "tsc --noEmit && node serve.mjs --build" },
+  "dependencies": { "@whip/sdk": "0.1.0", "react": "19.2.8", "react-dom": "19.2.8" }
+}

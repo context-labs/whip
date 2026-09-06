@@ -48,6 +48,8 @@ func generate(dir string, check bool) error {
 		contract.Operations = append(contract.Operations, operationManifest{Operation: operation, ParamsType: add(operation.Params), ResultType: add(operation.Result)})
 	}
 	add(reflect.TypeFor[protocol.ContentEventPayload]())
+	add(reflect.TypeFor[protocol.RPCError]())
+	add(reflect.TypeFor[protocol.PermissionDecision]())
 	contract.EventPayloads = map[string]string{}
 	for name, event := range protocol.EventPayloads() {
 		contract.EventPayloads[name] = add(event)
@@ -91,6 +93,24 @@ func generate(dir string, check bool) error {
 		{Type: "InitializeParams", Value: protocol.InitializeParams{ProtocolMajor: protocol.Major, BuildID: "fixture", ClientID: "browser-fixture", ClientKind: "human"}},
 		{Type: "SubscribeParams", Value: protocol.SubscribeParams{RootID: "root-fixture", SubscriptionID: "view-fixture", Cursor: 9007199254740993}},
 		{Type: "ContentHandle", Value: protocol.ContentHandle{ReferenceID: "ref-fixture", Digest: strings.Repeat("0", 64), Size: 9007199254740993}},
+	}
+	// Every registered wire shape is marshaled by Go, rather than fabricated in
+	// JavaScript, so type/schema drift is caught across the complete registry.
+	seen := map[string]bool{}
+	for _, item := range fixture {
+		seen[item.Type] = true
+	}
+	for _, operation := range protocol.Operations() {
+		for _, wireType := range []reflect.Type{operation.Params, operation.Result} {
+			if seen[wireType.Name()] {
+				continue
+			}
+			seen[wireType.Name()] = true
+			fixture = append(fixture, struct {
+				Type  string `json:"type"`
+				Value any    `json:"value"`
+			}{Type: wireType.Name(), Value: fixtureValue(wireType).Interface()})
+		}
 	}
 	private := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
 	nonce := bytes.Repeat([]byte{3}, 32)
@@ -149,4 +169,25 @@ func generate(dir string, check bool) error {
 		}
 	}
 	return nil
+}
+
+// Non-nil collections match the daemon's initialized presentation state. The
+// fixture still uses the wire type's real Go marshaler, including custom forms.
+func fixtureValue(t reflect.Type) reflect.Value {
+	value := reflect.New(t).Elem()
+	switch t.Kind() {
+	case reflect.Map:
+		value.Set(reflect.MakeMap(t))
+	case reflect.Slice:
+		if t.Elem().Kind() != reflect.Uint8 {
+			value.Set(reflect.MakeSlice(t, 0, 0))
+		}
+	case reflect.Struct:
+		for index := range t.NumField() {
+			if value.Field(index).CanSet() {
+				value.Field(index).Set(fixtureValue(t.Field(index).Type))
+			}
+		}
+	}
+	return value
 }

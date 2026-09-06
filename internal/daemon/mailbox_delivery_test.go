@@ -12,10 +12,129 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
+
+func TestRootMailboxFailureRequiresExplicitInputAcrossRestart(t *testing.T) {
+	for _, failure := range []error{capability.ErrDenied, errors.New("provider unavailable"), context.Canceled} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "sessions.db")
+			store := openStore(t, dbPath)
+			rootID := createRoot(t, store)
+			open := func() (*Daemon, *Session, *fakeRunner) {
+				runner := &fakeRunner{turn: func(_ context.Context, input string, _ bool) (string, error) {
+					if input == "resume successfully" {
+						return "done", nil
+					}
+					return "", failure
+				}}
+				owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+					return Components{Runner: runner}, nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = owner.Close() })
+				root, err := owner.Open(rootID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return owner, root, runner
+			}
+			owner, root, runner := open()
+			childID := rootID + ":sender"
+			if err := root.AdmitAgent(t.Context(), session.AgentAdmission{
+				ParentAgentID: rootID, ChildAgentID: childID, Name: "sender", Prompt: session.RuntimePayload{Data: []byte("work")},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := root.SendMailboxMessage(t.Context(), childID, rootID, session.MailboxSend{Body: "result"}); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(3 * time.Second)
+			for {
+				blocked, err := store.RootMailboxNeedsInput(t.Context(), rootID, rootID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if blocked {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("mailbox turn never settled")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			// Queries and duplicate wakes must not bypass the durable retry barrier.
+			for range 10 {
+				root.notify()
+				if err := root.routeControl(t.Context(), func(context.Context) error { return nil }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := runner.calls.Load(); got != 1 {
+				t.Fatalf("failed mail ran %d times", got)
+			}
+			pending, err := store.ListMailboxMessages(t.Context(), rootID, rootID, "pending", "", 10)
+			if err != nil || len(pending) != 1 {
+				t.Fatalf("pending mail was lost: %+v, %v", pending, err)
+			}
+			if err := owner.Close(); err != nil {
+				t.Fatal(err)
+			}
+			store = openStore(t, dbPath)
+			_, root, runner = open()
+			for range 10 {
+				root.notify()
+				if err := root.routeControl(t.Context(), func(context.Context) error { return nil }); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := runner.calls.Load(); got != 0 {
+				t.Fatalf("restart retried failed mail %d times", got)
+			}
+			receipt, err := root.Submit(t.Context(), "try again")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := waitReceipt(t, receipt); !errors.Is(got.Err, failure) {
+				t.Fatalf("explicit turn did not run: %+v", got)
+			}
+			if got := runner.calls.Load(); got != 1 {
+				t.Fatalf("explicit input ran %d times", got)
+			}
+			receipt, err = root.Submit(t.Context(), "resume successfully")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := waitReceipt(t, receipt); got.Err != nil {
+				t.Fatalf("explicit recovery failed: %+v", got)
+			}
+			// The fake runner does not deliver mail. Successful explicit input
+			// must restore automatic delivery, which now makes one more attempt.
+			deadline = time.Now().Add(3 * time.Second)
+			for {
+				blocked, err := store.RootMailboxNeedsInput(t.Context(), rootID, rootID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if runner.calls.Load() >= 3 && blocked {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("successful input did not restore mailbox delivery")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if got := runner.calls.Load(); got != 3 {
+				t.Fatalf("recovery retried failed mail: %d calls", got)
+			}
+		})
+	}
+}
 
 // Keep the node outside the recursive runtime so durable wakes cannot launch
 // model work while the test controls its turn boundaries and commit.

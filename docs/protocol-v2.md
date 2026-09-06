@@ -10,9 +10,16 @@ The executable contract is `internal/protocol`: wire DTOs, operation registry,
 permission metadata and schemas. `packages/protocol/schema/manifest.json`
 lists RPCs and runtime operations with their parameter/result types. Generated
 TypeScript declarations and Ajv validators are exported by `@whip/protocol`.
-Run `npm ci --prefix packages/protocol`, then `npm run check --prefix
-packages/protocol`. Regenerate after editing Go types with `npm run generate
---prefix packages/protocol`; drift checks compare without rewriting files.
+Run `npm ci` and `npm run check` from the repository root. Regenerate after
+editing Go types with `npm run generate`; drift checks compare without rewriting
+files. Standalone validators require no runtime code generation or Ajv dependency.
+Typed RPC/runtime maps classify query, durable and ephemeral operations. The
+handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
+
+Protocol minor **1** adds structured `command_not_found` (`-32011`) for a missing
+command in the initialized client namespace. A generic lookup failure is never
+proof that a command was not accepted. Responses contain exactly one of `result`
+and `error`, including `result: null` for a successful null result.
 
 ## Local and trusted-network setup
 
@@ -171,40 +178,31 @@ and generation drift. Full runtime acceptance and race suites remain required.
 
 ## Real-browser smoke harness
 
-`TestV2BrowserBridge` is opt-in and starts a temporary daemon with a fake runner,
-an allowed frontend origin and a temporary database. It never connects to the
-user's active daemon. Install Playwright in a disposable directory, outside the
-contract package, then run the bridge and browser runner in separate terminals:
+The SDK acceptance harness starts a temporary daemon with a fake runner, an
+allowed frontend origin and an isolated database. It never connects to the user's
+active daemon. It runs the **built SDK**, not a second handwritten RPC client:
 
 ```sh
-mkdir -p /tmp/whip-v2-browser
-npm install --prefix /tmp/whip-v2-browser --no-save playwright@1.63.0
-PLAYWRIGHT_SKIP_BROWSER_GC=1 node /tmp/whip-v2-browser/node_modules/playwright/cli.js install chromium firefox
-WHIP_BROWSER_SMOKE_DIR=/tmp/whip-v2-browser go test ./internal/daemon -run '^TestV2BrowserBridge$' -count=1 -timeout=6m
+npm ci
+npx playwright install chromium firefox
+npm run test:browser
+WHIP_SDK_RACE=1 npm run acceptance
+npm run test:package
 ```
 
-Once `/tmp/whip-v2-browser/bridge.json` exists:
+Chromium and Firefox run headlessly. On macOS the browser runner also opens an
+isolated page in actual Safari and receives the result through the temporary
+frontend. No remote-automation setting changes are needed. Set
+`WHIP_SDK_BROWSERS=chromium,firefox` for Linux CI; an omitted Safari run is not
+reported as a Safari pass. `WHIP_SAFARIDRIVER_URL` can optionally select an already
+enabled WebDriver. The test page can be closed after completion.
 
-```sh
-WHIP_PLAYWRIGHT_MODULE=/tmp/whip-v2-browser/node_modules/playwright/index.mjs \
-node packages/protocol/scripts/browser-smoke.mjs /tmp/whip-v2-browser/bridge.json
-```
-
-On macOS the runner opens an isolated autorun page in actual Safari and receives
-its result through the temporary frontend. This needs no remote-automation
-setting. The page declares UTF-8 explicitly so non-ASCII signature fixtures
-have identical bytes. The result page can be closed after the test.
-
-Optionally start `safaridriver -p 49071` and provide
-`WHIP_SAFARIDRIVER_URL=http://127.0.0.1:49071` to use an existing enabled WebDriver
-configuration. If Safari remote automation is disabled, the normal-tab fallback
-runs instead. No settings are changed, and WebKit is never labeled as Safari.
-Stop any driver started for the test after completion.
-
-On 2026-09-05, Chromium 153, Firefox 155, and actual Safari 26.3.1 passed
-initialization, command acceptance/completion, snapshot/subscription,
-Go-signature verification through browser WebCrypto, and CORS upload/download.
-Results are written beside `bridge.json` as `browser-results.json`.
+The external ES module runs under strict CSP without unsafe-inline or unsafe-eval.
+Coverage includes command acceptance/recovery, snapshots/views, React StrictMode
+subscriptions, exact-byte Go/JavaScript Ed25519 fixtures, signed human mode
+changes, scoped uploads/downloads and cleanup. JSON results are written to
+`/tmp/whip-sdk-browser-results.json`; acceptance measurements to
+`/tmp/whip-sdk-measurements.json` (or the OS temporary directory on other hosts).
 
 ### Bounded collections and session catalog
 

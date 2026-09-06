@@ -6,3 +6,10 @@
 # is force-added instead).
 driver/.build/
 internal/tui/whip-transcript-*.md
+
+# TypeScript clients: generated contracts are tracked, build output is not.
+node_modules/
+packages/sdk/dist/
+packages/sdk/build/
+examples/*/dist/
+*.tgz

@@ -567,6 +567,17 @@ func (s *Store) MailboxSummary(ctx context.Context, rootID, recipientAgentID str
 	return summary, rows.Err()
 }
 
+// RootMailboxNeedsInput prevents pending mail from automatically repeating a
+// failed or cancelled root turn. A new explicit inbox turn can still run and
+// deliver the pending mail. Deriving this from turns preserves it on restart.
+func (s *Store) RootMailboxNeedsInput(ctx context.Context, rootID, agentID string) (bool, error) {
+	var blocked bool
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE((
+		SELECT status FROM turns WHERE root_id=? AND agent_id=? ORDER BY rowid DESC LIMIT 1
+	),'') IN ('failed','cancelled','interrupted')`, rootID, agentID).Scan(&blocked)
+	return blocked, err
+}
+
 // AgentWorkStatus derives readiness from canonical rows.
 func (s *Store) AgentWorkStatus(ctx context.Context, rootID, agentID string, at time.Time) (AgentWork, error) {
 	if rootID == "" || agentID == "" {

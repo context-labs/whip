@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "properties": {
+    "command_id": {
+      "type": "string"
+    },
+    "root_id": {
+      "type": "string"
+    },
+    "permission_id": {
+      "type": "string"
+    },
+    "allow": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "remember": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/PermissionDecision",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PermissionDecision",
+  "required": [
+    "command_id",
+    "root_id",
+    "permission_id",
+    "allow"
+  ],
+  "additionalProperties": false
+}

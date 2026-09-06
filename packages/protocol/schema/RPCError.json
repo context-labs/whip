@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "code": {
+      "type": "integer"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v2/RPCError",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RPCError",
+  "required": [
+    "code",
+    "message"
+  ],
+  "additionalProperties": false
+}

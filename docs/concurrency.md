@@ -50,8 +50,13 @@ loop boundary by the one delivery engine in `AgentSession.RunTurn`; there is
 no stream interruption. Queued mail starts a mailbox-triggered turn whose
 input is a bounded digest (excerpts, never bodies). Ten messages to a busy
 node produce one digest, not ten turns. Messages become `delivered` only when
-the turn that showed them commits successfully, so a failed turn redelivers
-them. Delivery records include a message revision: a replacement or deferral
+the turn that showed them commits successfully. After a failed, cancelled, or
+interrupted root turn, pending mail waits for explicit inbox input instead of
+immediately launching another failing mailbox turn. This retry barrier is
+derived from the latest durable root turn, so opening a view, receiving another
+wake, or restarting the daemon cannot bypass it. A successful explicit turn
+restores automatic mailbox delivery. Delivery records include a message
+revision: a replacement or deferral
 creates a newer revision that an older turn cannot acknowledge. Listing
 metadata establishes a revision for explicit controls without marking it
 delivered. A stale explicit completion or deferral fails with a reread request.
@@ -174,3 +179,33 @@ with collection rows. Pagination rejects stale revisions instead of mixing views
 Configuration writes serialize revision comparison, fresh patch application and
 atomic replacement. Provider flows and terminals are ephemeral; restart interrupts
 login flows and terminal input is never automatically retried.
+
+## TypeScript connection and view ownership
+
+`WhipClient` owns one native transport, pending RPC table, reconnect generation,
+heartbeat and waiter-driven command polling. Each connection attempt has an epoch;
+late readers, initialization and heartbeat continuations cannot revive a closed
+client or mutate a replacement connection. Request and outbound buffers use the
+daemon's negotiated bounds. Closing rejects pending queries and subscriptions;
+it does not cancel accepted execution.
+
+Command handles retain frozen request bytes and runtime/client/command identities.
+Application storage commits identity-only recovery metadata before submission.
+Acknowledgement loss remains uncertain until status resolves it; absent commands
+are retried only explicitly. Cancellation waits for original admission before
+sending its exact target. Concurrent waiters share status lookups and wakeups,
+without retaining a permanent poller for historical commands.
+
+A subscription registers routing before admission and owns one bounded async
+iterator. Abort during admission retains cleanup until the late acknowledgement
+can be unsubscribed; uncertain admission refreshes the connection. Stream IDs,
+root IDs and decimal sequence counters guard delivery. A slow consumer or gap
+fails explicitly rather than dropping deltas. Views own snapshot/subscription
+replacement and immutable bounded state; React only subscribes. Notification
+batching does not discard events. Local UI drafts/layout are application-owned.
+
+Human signing helpers serialize nonce use and preserve exact payload bytes. A
+connection change while signing invalidates that attempt. Ambiguous signed
+responses refresh the nonce and require explicit reconciliation; provider secrets
+and terminal input never enter a replay queue. HTTP transfer lifetimes are bound
+to the connection as well as the caller's abort signal.

@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -437,6 +438,9 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 			return nil, rpcFailure(-32602, "command ID is required")
 		}
 		record, err := s.daemon.store.LoadCommand(connection.ctx, connection.client.ClientID, params.CommandID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, rpcFailure(-32011, "command not found")
+		}
 		result, err := s.commandRecordResult(connection.ctx, record, err)
 		return result, rpcFromError(err)
 	case "events.replay":
@@ -929,6 +933,8 @@ func rpcFailure(code int, message string) *RPCError {
 		kind = "conflict"
 	case -32010:
 		kind = "resynchronization_required"
+	case -32011:
+		kind = "command_not_found"
 	case -32603:
 		kind = "internal_error"
 	}

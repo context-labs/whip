@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -84,7 +85,7 @@ func (s *Session) reserveModelCall(ctx context.Context, agentID string, amount i
 	if _, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (struct{}, error) {
 		return struct{}{}, s.store.ReserveBudget(actorCtx, s.meta.ID, agentID, reservation)
 	}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reserve model budget: %w", err)
 	}
 	return func(usage llm.Usage) error {
 		actual := make([]capability.Usage, 0, 3)

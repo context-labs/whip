@@ -789,6 +789,9 @@ func (s *Session) dispatch() error {
 			s.scheduleDeferredWake(work.NextDeferredAt)
 			return nil
 		}
+		if blocked, err := s.store.RootMailboxNeedsInput(ctx, s.meta.ID, s.authority.AgentID); err != nil || blocked {
+			return err
+		}
 		turnID, err := s.store.StartRootMailboxTurn(ctx, s.meta.ID, s.authority.AgentID)
 		if err != nil {
 			return err

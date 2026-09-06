@@ -69,6 +69,8 @@ in
 - [x] Durable acceptance/status, consistent reconnect and bounded transcript views.
 - [x] Generated TypeScript/Ajv contract for thin React and Electron clients.
 - [x] Host-owned providers/configuration and complete existing Go client cutover.
+- [x] Attach-only TypeScript SDK, durable command handles, bounded synchronized
+  views, scoped content, signed approval helpers and minimal React example.
 - [ ] React web application and Electron desktop packaging (next milestone).
 - [ ] Hosted execution, connection authentication and relay infrastructure.
 

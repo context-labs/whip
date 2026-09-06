@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -423,6 +424,10 @@ func reserveCapabilityBudgets(ctx context.Context, tx *sql.Tx, rootID, agentID s
 			return err
 		}
 		for _, row := range rows {
+			if remaining, valid := budgetRemaining(row); !valid || reservation.Amount > remaining {
+				return fmt.Errorf("%w: %s budget needs %d, remaining %d (limit %d, used %d, reserved %d)",
+					capability.ErrDenied, row.kind, reservation.Amount, remaining, row.limit, row.used, row.reserved)
+			}
 			result, err := tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=reserved_value+?,updated_at=?
 				WHERE root_id=? AND agent_id=? AND kind=? AND used_value<=limit_value
 				AND reserved_value<=limit_value-used_value AND ?<=limit_value-used_value-reserved_value`,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -67,7 +68,7 @@ func TestBudgetKindsExhaustIndependently(t *testing.T) {
 			if err := store.ReserveBudget(context.Background(), rootID, rootAgentID, []capability.Reservation{reservation}); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.ReserveBudget(context.Background(), rootID, rootAgentID, []capability.Reservation{{Kind: string(kind), Amount: 1}}); !errors.Is(err, capability.ErrDenied) {
+			if err := store.ReserveBudget(context.Background(), rootID, rootAgentID, []capability.Reservation{{Kind: string(kind), Amount: 1}}); !errors.Is(err, capability.ErrDenied) || !strings.Contains(err.Error(), string(kind)+" budget needs 1, remaining 0") {
 				t.Fatalf("exhaustion error=%v", err)
 			}
 			actual := []capability.Usage{{Kind: string(kind), Amount: 1}}

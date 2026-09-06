@@ -344,6 +344,53 @@ func TestInboxSequencesPersistAndConsumedItemsDoNotReplay(t *testing.T) {
 	}
 }
 
+func TestRootTurnLifecycleIdentifiesExactTurn(t *testing.T) {
+	for _, status := range []string{"succeeded", "failed", "cancelled", "interrupted"} {
+		t.Run(status, func(t *testing.T) {
+			store, rootID, agentID := newSwarmFixture(t)
+			turnID, err := store.StartRootMailboxTurn(t.Context(), rootID, agentID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status == "interrupted" {
+				_, err = store.InterruptRoot(t.Context(), rootID, "daemon stopped")
+			} else {
+				commit := RootTurnCommit{RootID: rootID, AgentID: agentID, TurnID: turnID, Status: status, Model: "model", Provider: "provider"}
+				if status == "failed" {
+					commit.Error = "provider unavailable"
+				} else if status == "cancelled" {
+					commit.Error = context.Canceled.Error()
+				}
+				err = store.CommitRootTurn(t.Context(), commit)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			events, _, err := store.ReplayEvents(t.Context(), rootID, 0, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, event := range events {
+				if event.Kind != "turn."+status {
+					continue
+				}
+				found = true
+				var payload LifecycleEvent
+				if err := json.Unmarshal(event.Payload.Inline, &payload); err != nil {
+					t.Fatal(err)
+				}
+				if payload.TurnID != turnID || payload.AgentID != agentID {
+					t.Fatalf("terminal event lost its turn identity: %+v", payload)
+				}
+			}
+			if !found {
+				t.Fatalf("missing terminal turn event: %+v", events)
+			}
+		})
+	}
+}
+
 func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
 	if err != nil {

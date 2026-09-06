@@ -54,15 +54,23 @@ tasks:
       - go test -race ./internal/daemon ./internal/session ./internal/protocol -run '^(TestV2|TestRuntimeRegistry|TestCommandAcceptance|TestClientAcceptance|TestDeleteAcceptance|TestQuestionSnapshot|TestRootCollection|TestSessionCatalog|TestIncompatible|TestVersionFive|TestVersionSix|TestBounded|TestTranscriptPage)'
       - go test -race ./internal/mcp ./internal/tools ./internal/session ./internal/daemon ./internal/acp ./internal/tui -run '^(TestMCP|TestCheckedManager|TestConfigTrust|TestConfigDiscoveryReportsWinningProvenance|TestManagerOwnsConfigMapsAndNeverTrustsSourceLabels|TestCapabilityFinishStorageFailureSettlesAndReleasesCapacity|TestCapabilityFinishDeniedSettlesAdmittedOperation|TestBridgeMCP)'
       - go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState|TestArchitecture.*|TestRecursiveRuntimeUsesOneInterfaceAtEveryDepth|TestRecursiveSpawnQueuesUnderWorkerPressure|TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration|TestRecursiveAgentClientControlsAuthorizeAndPersist|TestRecursiveRuntimeRestoresRetainedAgentAndTranscript|TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce|TestConcurrentChildTurnPressureKeepsPromptQueued|TestSuspendedKernelNoticeIsEphemeral|TestSuspendedKernelRestoresScratchWithEphemeralNotice|TestBackgroundShellJobOutlivesTheCellAndTurn|TestToolHostRunsOnlyRestrictedToolCommands|TestPermissionRuleResolvesCoveredPromptsAndSkipsFutureOnes|TestUserAskRoundTripsThroughQuestionEvents|TestUserAskDismissAndCancelClose|TestUserAskIsRootOnlyAndValidatesArguments)$'
-      - go test -race ./internal/session ./internal/capability ./internal/daemon -run '^(TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked|TestStatePrivateIsolationBlackboardVisibilityAndHandles|TestMailboxMessageIsCanonicalAndBodyStaysBehindRead|TestMailboxTurnDeliversOnCommitAndNewMailStaysPending|TestFailedMailboxTurnRedeliversPendingMail|TestMessageDeliveryClassesAndDeferral|TestAgentAdmissionPersistsPromptAtomically|TestRecoveryKeepsQueuedAgentPromptButInterruptsRunningInput|TestChildBudgetClampingDepthAndActiveChildLimits|TestBudgetKindsExhaustIndependently|TestCapabilityPermissionSurvivesDispatcherAndRevalidates|TestDispatcherRunsDirectAndPersistedPermissionThroughOnePath|TestDispatcherRejectsCanonicalPathChangeAfterApproval|TestDispatcherWorkspaceMutationRunsAlongsidePathMutations|TestRecoveryInterruptsEveryNonterminalRuntimeRecord|TestSlowOutboundClientClosesWithoutStoppingDaemon|TestRootsRunConcurrentlyAndCallerCancellationDoesNotOwnWork|TestMCPLifecyclePanicFailsOnlyItsRoot|TestRootClientReconnectsStableCommandWithoutDuplicateEvent|TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution)$'
+      - go test -race ./internal/session ./internal/capability ./internal/daemon -run '^(TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked|TestStatePrivateIsolationBlackboardVisibilityAndHandles|TestMailboxMessageIsCanonicalAndBodyStaysBehindRead|TestMailboxTurnDeliversOnCommitAndNewMailStaysPending|TestFailedMailboxTurnRedeliversPendingMail|TestRootMailboxFailureRequiresExplicitInputAcrossRestart|TestRootTurnLifecycleIdentifiesExactTurn|TestMessageDeliveryClassesAndDeferral|TestAgentAdmissionPersistsPromptAtomically|TestRecoveryKeepsQueuedAgentPromptButInterruptsRunningInput|TestChildBudgetClampingDepthAndActiveChildLimits|TestBudgetKindsExhaustIndependently|TestCapabilityPermissionSurvivesDispatcherAndRevalidates|TestDispatcherRunsDirectAndPersistedPermissionThroughOnePath|TestDispatcherRejectsCanonicalPathChangeAfterApproval|TestDispatcherWorkspaceMutationRunsAlongsidePathMutations|TestRecoveryInterruptsEveryNonterminalRuntimeRecord|TestSlowOutboundClientClosesWithoutStoppingDaemon|TestRootsRunConcurrentlyAndCallerCancellationDoesNotOwnWork|TestMCPLifecyclePanicFailsOnlyItsRoot|TestRootClientReconnectsStableCommandWithoutDuplicateEvent|TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution)$'
       - go test -race ./internal/tui ./internal/acp ./cmd/whip -run '^(TestClientReconnectReplayAndSnapshotFallback|TestClientReattachesInFlightActionWithSameIdentityAfterDisconnect|TestDaemonBackedModelRendersWithoutAnAgent|TestThinPaletteAndAgentControlsStayDaemonBacked|TestBridgeDaemonCutoverMapsEventsAndContent|TestBridgePairedPermissionAndModes|TestBridgeQuestionMapsToPermissionPromptAndAnswerOp|TestBridgeConcurrentSessionsAndCloseDetach|TestRunDaemonAlwaysUsesRLMRuntime|TestRunTextOutput|TestSessionsCLI|TestMCPServeStopsCleanlyOnStdinEOF|TestMCPTestCLIReady|TestACPDaemonBackendAndMCPToolsRoundTrip)$'
       - go test -race ./internal/rlm -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup|TestKernelDeniesAmbientAuthority|TestKernelStripsDaemonEnvironment|TestKernelReservationAndCrashRestart|TestKernelManagerSchedulesFIFOWithoutEvictingRunningTurns|TestKernelManagerEvictsIdleWorkersInLRUOrderAcrossRetainedSessions|TestKernelManagerRemovesCancelledWaitersAndWakesOnShutdown|TestKernelTurnLeasePreservesScratchAndSuspendRejectsRunning|TestKernelScratchSurvivesSuspensionAndMidTurnRestart)$'
       - go test -race ./evals/rlm -run '^TestDeterministicRLMEvaluationReport$'
+      - WHIP_SDK_RACE=1 npm run acceptance
+      - npm run test:package
 
   contract:
-    desc: "Validate Node 24 TypeScript/Ajv contracts and deterministic generation (run npm ci --prefix packages/protocol first)"
+    desc: "Validate generated Node 24 contracts and deterministic generation (run npm ci first)"
     cmds:
-      - npm run check --prefix packages/protocol
+      - npm run check -w @whip/protocol
+
+  sdk:
+    desc: "Build and test the TypeScript SDK, synchronized views, and React example"
+    cmds:
+      - npm run check -w @whip/sdk
+      - npm run build -w @whip/client-example
 
   check:
     desc: "Format + vet + test (what the pre-commit hook runs, plus golangci-lint when installed)"
@@ -76,6 +84,7 @@ tasks:
       - go run ./cmd/whipvet ./...
       - go test ./...
       - task: contract
+      - task: sdk
 
   lint:
     desc: "golangci-lint with the repo's .golangci.yml (the CI lint gate)"

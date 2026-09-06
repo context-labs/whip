@@ -1,5 +1,12 @@
 # Architecture
 
+The TypeScript SDK in `packages/sdk` is another thin protocol client. Browser and
+Node WebSockets and Node Unix sockets feed one request/command engine; optional
+framework-independent views reconstruct daemon state, and React subscribes to
+those views. It never starts a daemon, runs an agent loop, owns provider keys, or
+creates another history database. See [SDK usage](../packages/sdk/README.md) for
+identity, cancellation, recovery, content and application ownership contracts.
+
 whip is organized around one recursive agent abstraction. A root and a child
 are both `AgentSession`s: each owns a provider loop, a bounded Starlark kernel,
 a durable transcript, and an identity. Every model sees exactly one tool,

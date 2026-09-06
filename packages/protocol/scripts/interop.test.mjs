@@ -47,3 +47,40 @@ test('Go and WebCrypto signatures bind exact transmitted payload bytes', async (
  const changedDigest=await crypto.subtle.digest('SHA-256',changed);
  assert.equal(await crypto.subtle.verify('Ed25519',publicKey,bytes(fixture.signature),changedDigest),false);
 });
+
+test('responses accept additive fields without weakening known fields or changing input', () => {
+  const value = { event: { root_id: 'root', seq: '9007199254740993', kind: 'new.event', payload: { future: true }, future: 1 }, future: true };
+  const original = structuredClone(value);
+  assert.equal(validate('EventNotification', value), false);
+  assert.equal(validate('EventNotification', value, 'response'), true);
+  assert.deepEqual(value, original);
+  assert.equal(validate('EventNotification', { ...value, event: { ...value.event, seq: 42 } }, 'response'), false);
+  assert.equal(validate('EventNotification', { ...value, event: { ...value.event, root_id: null } }, 'response'), false);
+  assert.throws(() => validate('EventNotification', value, 'unexpected'), /Unknown WHIP validation mode/);
+});
+
+test('decimal string counters preserve signed int64 boundaries in both modes', () => {
+  for (const mode of ['request', 'response']) {
+    for (const cursor of ['0', '-1', '9007199254740993', '9223372036854775807', '-9223372036854775808']) {
+      assert.equal(validate('SubscribeParams', { root_id: 'root', subscription_id: 'view', cursor }, mode), true, cursor);
+    }
+    for (const cursor of ['01', '+1', '1.0', '1e3', ' 1', '9223372036854775808', '-9223372036854775809', '9'.repeat(100)]) {
+      assert.equal(validate('SubscribeParams', { root_id: 'root', subscription_id: 'view', cursor }, mode), false, cursor);
+    }
+  }
+});
+
+test('generated operation lookups and Go fixtures cover every registry entry', async () => {
+  const { rpcOperations, runtimeOperations } = await import('../generated/index.js');
+  const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
+  const fixtureTypes = new Set(fixtures.map(fixture => fixture.type));
+  assert.equal(Object.keys(rpcOperations).length + Object.keys(runtimeOperations).length, manifest.operations.length);
+  for (const operation of manifest.operations) {
+    const lookup = operation.surface === 'rpc' ? rpcOperations : runtimeOperations;
+    assert.deepEqual(lookup[operation.name], { ...operation, sensitive: operation.sensitive ?? false });
+    assert.ok(fixtureTypes.has(operation.params_type), `${operation.name} request fixture`);
+    assert.ok(fixtureTypes.has(operation.result_type), `${operation.name} result fixture`);
+  }
+  assert.equal(rpcOperations['permission.mode'].execution, 'ephemeral');
+  assert.equal(runtimeOperations['permission.mode'].execution, 'command');
+});

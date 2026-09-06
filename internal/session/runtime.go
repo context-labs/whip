@@ -650,7 +650,7 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 		acknowledged = append([]int64{commit.InboxSeq}, acknowledged...)
 	}
 	if _, err := s.insertActorEventTx(ctx, tx, commit.RootID, eventKind, actorEvent{
-		AgentID: commit.AgentID, InboxSeq: commit.InboxSeq, Phase: "idle", Status: status,
+		AgentID: commit.AgentID, TurnID: turnID, InboxSeq: commit.InboxSeq, Phase: "idle", Status: status,
 		TerminalCause: status, Error: commit.Error, Acknowledged: acknowledged,
 	}, stamp); err != nil {
 		return err
@@ -896,7 +896,7 @@ func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason,
 // in-progress presentation instead of showing a phantom turn. An empty rootID
 // covers every root (daemon restart).
 func (s *Store) emitInterruptedTurnEventsTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string) error {
-	query := `SELECT t.root_id,t.agent_id,COALESCE(a.parent_id,'') FROM turns t
+	query := `SELECT t.id,t.root_id,t.agent_id,COALESCE(a.parent_id,'') FROM turns t
 		JOIN agents a ON a.root_id=t.root_id AND a.id=t.agent_id WHERE t.status='running'`
 	args := []any{}
 	if rootID != "" {
@@ -907,11 +907,11 @@ func (s *Store) emitInterruptedTurnEventsTx(ctx context.Context, tx *sql.Tx, roo
 	if err != nil {
 		return err
 	}
-	type running struct{ root, agent, parent string }
+	type running struct{ id, root, agent, parent string }
 	var turns []running
 	for rows.Next() {
 		var value running
-		if err := rows.Scan(&value.root, &value.agent, &value.parent); err != nil {
+		if err := rows.Scan(&value.id, &value.root, &value.agent, &value.parent); err != nil {
 			_ = rows.Close() //nolint:sqlclosecheck // rows must close before the tx runs more statements
 			return err
 		}
@@ -930,7 +930,7 @@ func (s *Store) emitInterruptedTurnEventsTx(ctx context.Context, tx *sql.Tx, roo
 			kind = "agent.turn.interrupted"
 		}
 		if _, err := s.insertActorEventTx(ctx, tx, turn.root, kind, actorEvent{
-			AgentID: turn.agent, Phase: "idle", Status: "interrupted", TerminalCause: "interrupted", Error: reason,
+			TurnID: turn.id, AgentID: turn.agent, Phase: "idle", Status: "interrupted", TerminalCause: "interrupted", Error: reason,
 		}, stamp); err != nil {
 			return err
 		}

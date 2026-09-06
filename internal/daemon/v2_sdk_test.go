@@ -1,0 +1,292 @@
+//go:build integration && unix
+
+package daemon
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/session"
+)
+
+// TestV2SDKBridge runs only as a subprocess of the SDK acceptance scripts. Its
+// temporary home survives deliberate process kills so the SDK can prove recovery
+// from committed WAL rather than a graceful in-process simulation.
+func TestV2SDKBridge(t *testing.T) {
+	directory := os.Getenv("WHIP_SDK_FIXTURE_DIR")
+	if directory == "" {
+		t.Skip("started by packages/sdk/scripts/fixture.mjs")
+	}
+	paths, err := Paths(filepath.Join(directory, "home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := openStore(t, filepath.Join(paths.Home, "sessions.db"))
+	var previous sdkBridgeInfo
+	if data, err := os.ReadFile(filepath.Join(directory, "bridge.json")); err == nil {
+		if err := json.Unmarshal(data, &previous); err != nil {
+			t.Fatal(err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	rootID := previous.RootID
+	if rootID == "" {
+		rootID, err = store.Create(session.SessionKindAgent, directory, "model", "provider")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	frontendAddress := "127.0.0.1:0"
+	if previous.Frontend != "" {
+		frontendAddress = strings.TrimPrefix(previous.Frontend, "http://")
+	}
+	listener, err := net.Listen("tcp", frontendAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frontend := "http://" + listener.Addr().String()
+	runner := &sdkRunnerControl{directory: directory, holds: make(map[string]chan struct{})}
+	owner, err := New(store, func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
+		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history, turn: runner.turn}}
+		return Components{Runner: value, Bind: func(_ context.Context, root *Session) error {
+			value.root = root
+			return nil
+		}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	network := NetworkOptions{Enabled: true, AllowedOrigins: []string{frontend}}
+	if previous.Endpoint != "" {
+		network.Address = strings.TrimSuffix(strings.TrimPrefix(previous.Endpoint, "ws://"), "/api/v2/ws")
+	}
+	server, err := NewServer(owner, ServerOptions{Generation: previous.Generation + 1, BuildID: "sdk-fixture", RuntimeDir: paths.Runtime, Network: network})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unixListener, err := listenLocal(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(unixListener) }()
+	t.Cleanup(func() {
+		if err := server.Close(); err != nil {
+			t.Error(err)
+		}
+		if err := <-served; err != nil {
+			t.Error(err)
+		}
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	probe, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: 2, ClientID: "sdk-probe", ClientKind: "automation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialized := probe.InitializeResult()
+	_ = probe.Close()
+	// This test-only terminal identity matches the public signing fixture. Browser
+	// clients must still enroll through a signature by this existing human.
+	if previous.Generation == 0 {
+		human, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: 2, ClientID: "sdk-terminal-fixture", ClientKind: "human"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, enrollErr := human.EnrollIdentity(ctx, ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize)), true, "", nil)
+		_ = human.Close()
+		if enrollErr != nil {
+			t.Fatal(enrollErr)
+		}
+	}
+	info := sdkBridgeInfo{
+		Frontend: frontend, Endpoint: "ws" + strings.TrimPrefix(initialized.NetworkEndpoint, "http") + "/api/v2/ws",
+		RootID: rootID, Socket: paths.Socket, RuntimeID: initialized.RuntimeID,
+		Generation: previous.Generation + 1, Directory: directory,
+	}
+	done := make(chan struct{})
+	var once sync.Once
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /done", func(http.ResponseWriter, *http.Request) { once.Do(func() { close(done) }) })
+	mux.HandleFunc("GET /bridge.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(info)
+	})
+	mux.HandleFunc("POST /control/release", func(w http.ResponseWriter, r *http.Request) {
+		runner.release(r.URL.Query().Get("key"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /control/effects", func(w http.ResponseWriter, _ *http.Request) {
+		runner.mu.Lock()
+		defer runner.mu.Unlock()
+		data, err := os.ReadFile(filepath.Join(directory, "effects.jsonl"))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = w.Write(data)
+	})
+	mux.HandleFunc("POST /result/{browser}", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("browser")
+		if name != "chromium" && name != "firefox" && name != "safari" && name != "webkit" {
+			http.Error(w, "invalid browser", http.StatusBadRequest)
+			return
+		}
+		data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+		if err != nil || !json.Valid(data) {
+			http.Error(w, "invalid result", http.StatusBadRequest)
+			return
+		}
+		if err := os.WriteFile(filepath.Join(directory, name+"-result.json"), data, 0o600); err != nil {
+			http.Error(w, "cannot save result", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	assets := http.FileServer(http.Dir(filepath.Join(directory, "public")))
+	mux.Handle("GET /", assets)
+	frontendServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self' "+info.Endpoint+" "+initialized.NetworkEndpoint+"; style-src 'self'; base-uri 'none'; frame-ancestors 'none'")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		mux.ServeHTTP(w, r)
+	}))
+	frontendServer.Listener = listener
+	frontendServer.Start()
+	defer frontendServer.Close()
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "bridge.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(4 * time.Minute):
+		t.Fatal("SDK bridge timed out")
+	}
+}
+
+type sdkBridgeInfo struct {
+	Frontend   string `json:"frontend"`
+	Endpoint   string `json:"endpoint"`
+	Socket     string `json:"socket"`
+	RootID     string `json:"root_id"`
+	RuntimeID  string `json:"runtime_id"`
+	Directory  string `json:"directory"`
+	Generation int64  `json:"generation"`
+}
+
+type sdkRunnerControl struct {
+	mu        sync.Mutex
+	directory string
+	holds     map[string]chan struct{}
+}
+
+type sdkFixtureRunner struct {
+	*fakeRunner
+	root     *Session
+	external bool
+}
+
+func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
+	return r.fakeRunner.Turn(ctx, input, authored, func() {
+		started()
+		for _, text := range []string{input[:len(input)/2], input[len(input)/2:]} {
+			r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{kind: "stream.text", event: StreamEvent{Text: text}}})
+		}
+		if input == "hold:tool-stream" {
+			// Interleave calls so the supervisor cannot coalesce all updates before
+			// they reach the SDK. These payloads are cumulative, not deltas.
+			for _, args := range []string{`{"code":"print(`, `{"code":"print(1)"}`} {
+				for _, id := range []string{"tool-a", "tool-b"} {
+					r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+						kind: "stream.tool.call", event: StreamEvent{ID: id, Name: "rlm_exec", Args: args},
+					}})
+				}
+			}
+			for _, output := range []string{"first", "first\nsecond"} {
+				for _, id := range []string{"tool-a", "tool-b"} {
+					r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+						kind: "stream.tool.output", event: StreamEvent{ID: id, Text: output},
+					}})
+				}
+			}
+		}
+	}, accepted)
+}
+
+func (r *sdkFixtureRunner) ReplaceHistory(history []llm.Message) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.history = append([]llm.Message(nil), history...)
+}
+
+func (r *sdkFixtureRunner) SetExternalPermissions(enabled bool) { r.external = enabled }
+func (r *sdkFixtureRunner) ExternalPermissionsEnabled() bool    { return r.external }
+func (r *sdkFixtureRunner) ResolvePermission(string, capability.Decision) error {
+	return nil
+}
+
+func (r *sdkRunnerControl) turn(ctx context.Context, input string, _ bool) (string, error) {
+	r.mu.Lock()
+	file, err := os.OpenFile(filepath.Join(r.directory, "effects.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err == nil {
+		err = errors.Join(json.NewEncoder(file).Encode(input), file.Close())
+	}
+	var hold chan struct{}
+	if key, ok := strings.CutPrefix(input, "hold:"); ok {
+		hold = r.hold(key)
+	}
+	r.mu.Unlock()
+	if err != nil {
+		return "", fmt.Errorf("record fake effect: %w", err)
+	}
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	return input, nil
+}
+
+func (r *sdkRunnerControl) hold(key string) chan struct{} {
+	hold := r.holds[key]
+	if hold == nil {
+		hold = make(chan struct{})
+		r.holds[key] = hold
+	}
+	return hold
+}
+
+func (r *sdkRunnerControl) release(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	hold := r.hold(key)
+	select {
+	case <-hold:
+	default:
+		close(hold)
+	}
+}

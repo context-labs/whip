@@ -685,6 +685,15 @@ export interface PermissionConfigureParams {
   external_permissions: boolean;
 }
 
+export interface PermissionDecision {
+  command_id: string;
+  root_id: string;
+  permission_id: string;
+  allow: boolean;
+  reason?: string;
+  remember?: string;
+}
+
 export interface PermissionDecisionParams {
   decision: unknown;
   signature: string | null;
@@ -921,6 +930,14 @@ export interface QuestionAnswerParams {
   id: string;
   answer: null | string[];
   dismissed: boolean;
+}
+
+export interface RPCError {
+  data?: null | {
+    kind: string;
+  };
+  code: number;
+  message: string;
 }
 
 export interface ReplayParams {
@@ -1563,6 +1580,7 @@ export interface ContractTypes {
   PathParams: PathParams;
   PathResult: PathResult;
   PermissionConfigureParams: PermissionConfigureParams;
+  PermissionDecision: PermissionDecision;
   PermissionDecisionParams: PermissionDecisionParams;
   PermissionDecisionResult: PermissionDecisionResult;
   PermissionModeParams: PermissionModeParams;
@@ -1584,6 +1602,7 @@ export interface ContractTypes {
   QueryParams: QueryParams;
   QueryResult: QueryResult;
   QuestionAnswerParams: QuestionAnswerParams;
+  RPCError: RPCError;
   ReplayParams: ReplayParams;
   ReplayResult: ReplayResult;
   RestartNotice: RestartNotice;
@@ -1700,12 +1719,145 @@ export interface EventPayloadTypes {
   "turn.started": LifecycleEvent | ContentEventPayload;
   "turn.succeeded": LifecycleEvent | ContentEventPayload;
 }
-export type TypedRootEvent = { [K in keyof EventPayloadTypes]: { kind: K; payload: EventPayloadTypes[K] } }[keyof EventPayloadTypes];
-export declare function validate<T extends keyof ContractTypes>(type: T, value: unknown): value is ContractTypes[T];
-export declare function assertValid<T extends keyof ContractTypes>(type: T, value: unknown): asserts value is ContractTypes[T];
+export interface RpcMethods {
+  "command.status": { params: CommandStatusParams; result: CommandResult; execution: "query"; permission: "client-command-namespace"; sensitive: false };
+  "command.submit": { params: CommandParams; result: CommandResult; execution: "command"; permission: "operation-specific"; sensitive: false };
+  "config.get": { params: Empty; result: RuntimeConfiguration; execution: "query"; permission: "none"; sensitive: false };
+  "config.update": { params: ConfigurationUpdate; result: RuntimeConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: false };
+  "content.read": { params: ContentReadParams; result: ContentReadResult; execution: "query"; permission: "root-agent-content-grant"; sensitive: false };
+  "daemon.ping": { params: Empty; result: PingResult; execution: "query"; permission: "none"; sensitive: false };
+  "daemon.restart": { params: RestartParams; result: Empty; execution: "lifecycle"; permission: "armed-generation"; sensitive: false };
+  "daemon.stop": { params: RestartParams; result: Empty; execution: "lifecycle"; permission: "armed-generation"; sensitive: false };
+  "events.replay": { params: ReplayParams; result: ReplayResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "events.subscribe": { params: SubscribeParams; result: SubscribeResult; execution: "subscription"; permission: "root-association"; sensitive: false };
+  "events.unsubscribe": { params: UnsubscribeParams; result: Empty; execution: "subscription"; permission: "connection-subscription"; sensitive: false };
+  "history.page": { params: HistoryPageParams; result: BoundedTranscriptPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "identity.enroll": { params: EnrollIdentityParams; result: IdentityResult; execution: "ephemeral"; permission: "existing-human-enrollment"; sensitive: true };
+  "identity.status": { params: Empty; result: IdentityStatusResult; execution: "query"; permission: "none"; sensitive: false };
+  "initialize": { params: InitializeParams; result: InitializeResult; execution: "query"; permission: "none"; sensitive: false };
+  "operation.invoke": { params: QueryParams; result: QueryResult; execution: "ephemeral"; permission: "operation-specific"; sensitive: true };
+  "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "signed-human-decision"; sensitive: true };
+  "permission.mode": { params: PermissionModeParams; result: PermissionModeResult; execution: "ephemeral"; permission: "signed-human-mode"; sensitive: true };
+  "provider.key.rotate": { params: ProviderNameParams; result: ProviderStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: true };
+  "provider.key.set": { params: ProviderKeySetup; result: RuntimeConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
+  "provider.login.begin": { params: Empty; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.login.cancel": { params: ProviderLoginParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.login.list": { params: Empty; result: ProviderLoginList; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "provider.login.project.create": { params: ProviderLoginCreateParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.login.project.select": { params: ProviderLoginProjectParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.login.status": { params: ProviderLoginParams; result: ProviderLoginStatus; execution: "query"; permission: "none"; sensitive: false };
+  "provider.login.team.select": { params: ProviderLoginTeamParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.logout": { params: ProviderNameParams; result: ProviderStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.status": { params: ProviderNameParams; result: ProviderStatus; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "provider.validate": { params: ProviderValidateParams; result: ProviderValidateResult; execution: "ephemeral"; permission: "host-configuration"; sensitive: true };
+  "query": { params: QueryParams; result: QueryResult; execution: "query"; permission: "operation-specific"; sensitive: false };
+  "root.collection": { params: RootCollectionParams; result: RootCollectionPage; execution: "query"; permission: "root-association"; sensitive: false };
+  "root.snapshot": { params: SnapshotParams; result: RootSnapshot; execution: "query"; permission: "root-association"; sensitive: false };
+  "sessions.list": { params: SessionCatalogParams; result: SessionCatalogPage; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "sessions.revision": { params: EmptyParams; result: CatalogRevision; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "upload.begin": { params: UploadBeginParams; result: Accepted; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
+  "upload.chunk": { params: UploadChunkParams; result: Accepted; execution: "ephemeral"; permission: "connection-upload"; sensitive: false };
+  "upload.finish": { params: UploadFinishParams; result: ContentHandle; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
+  "workspace.complete": { params: CompletionParams; result: CompletionResult; execution: "query"; permission: "root-agent-association"; sensitive: false };
+}
+export interface RuntimeOperations {
+  "agent.control": { params: IDParams; result: Empty; execution: "command"; permission: "agent-authority"; sensitive: false };
+  "agent.delete": { params: IDParams; result: Empty; execution: "command"; permission: "agent-authority"; sensitive: false };
+  "agent.submit": { params: AgentInputParams; result: AgentSubmitResult; execution: "command"; permission: "agent-admission"; sensitive: false };
+  "agent.transcript": { params: IDParams; result: AgentTranscriptResult; execution: "query"; permission: "human-transcript-inspection"; sensitive: false };
+  "agent.turn.cancel": { params: AgentCancelParams; result: Empty; execution: "command"; permission: "target-turn"; sensitive: false };
+  "agents.list": { params: EmptyParams; result: AgentListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "browser.set_driver": { params: BrowserDriverParams; result: BrowserStatusResult; execution: "command"; permission: "host-configuration"; sensitive: false };
+  "browser.status": { params: EmptyParams; result: BrowserStatusResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "budget.cap": { params: BudgetCapParams; result: BudgetState; execution: "command"; permission: "budget-authority"; sensitive: false };
+  "cancel": { params: CancelParams; result: Empty; execution: "command"; permission: "target-turn"; sensitive: false };
+  "capability.revoke": { params: IDParams; result: CapabilityRecord; execution: "command"; permission: "capability-authority"; sensitive: false };
+  "compaction.configure": { params: CompactionParams; result: CompactionSettingsResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "computer.allow": { params: ComputerAppParams; result: ComputerStatusResult; execution: "command"; permission: "human-computer-policy"; sensitive: false };
+  "computer.deny": { params: ComputerAppParams; result: ComputerStatusResult; execution: "command"; permission: "human-computer-policy"; sensitive: false };
+  "computer.status": { params: EmptyParams; result: ComputerStatusResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "context.audit": { params: EmptyParams; result: ContextAuditResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "daemon.checkpoint": { params: CheckpointParams; result: RestartNotice; execution: "command"; permission: "host-runtime"; sensitive: false };
+  "goal.from-context": { params: GoalContextParams; result: GoalResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "goal.run": { params: TextParams; result: GoalResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "goal.set": { params: TextParams; result: GoalResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "history.clear": { params: EmptyParams; result: Empty; execution: "command"; permission: "root-idle"; sensitive: false };
+  "history.compact": { params: EmptyParams; result: CompactionResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "history.compact.log": { params: EmptyParams; result: CompactionListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "history.compact.retry": { params: EmptyParams; result: CompactionRetryResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "history.rewind": { params: RewindParams; result: RewindResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "history.user.list": { params: EmptyParams; result: UserHistoryResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "lsp.status": { params: EmptyParams; result: LSPListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "mcp.attach": { params: MCPAttachParams; result: Empty; execution: "ephemeral"; permission: "delegated-mcp-authority"; sensitive: true };
+  "mcp.disable": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };
+  "mcp.enable": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };
+  "mcp.import.configure": { params: MCPImportParams; result: MCPImportStatusResult; execution: "command"; permission: "host-configuration"; sensitive: false };
+  "mcp.import.status": { params: EmptyParams; result: MCPImportStatusResult; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "mcp.reconnect": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };
+  "mcp.status": { params: EmptyParams; result: MCPListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "permission.forget": { params: IDParams; result: Empty; execution: "command"; permission: "rule-authority"; sensitive: false };
+  "permission.mode": { params: PermissionConfigureParams; result: Empty; execution: "command"; permission: "signed-human-if-disabling"; sensitive: false };
+  "permission.rules": { params: EmptyParams; result: PermissionRulesResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "provider.catalogs": { params: EmptyParams; result: ProviderCatalogsResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "question.answer": { params: QuestionAnswerParams; result: Empty; execution: "command"; permission: "pending-question"; sensitive: false };
+  "run.configure": { params: RunConfigureParams; result: Empty; execution: "command"; permission: "root-idle"; sensitive: false };
+  "schedule.create": { params: ScheduleCreateParams; result: ScheduleResult; execution: "command"; permission: "schedule-budget"; sensitive: false };
+  "schedule.delete": { params: ScheduleDeleteParams; result: ScheduleResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "schedule.list": { params: EmptyParams; result: ScheduleListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.autotitle": { params: EmptyParams; result: Empty; execution: "command"; permission: "root-association"; sensitive: false };
+  "session.create": { params: CreateSessionParams; result: RootIDResult; execution: "command"; permission: "host-runtime"; sensitive: false };
+  "session.delete": { params: RootParams; result: RootIDResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "session.effort": { params: EffortParams; result: EffortResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "session.effort.get": { params: EmptyParams; result: EffortResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.fork": { params: ForkParams; result: RootIDResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "session.list": { params: ListParams; result: SessionListResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "session.model": { params: ModelParams; result: ModelResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "session.model.get": { params: EmptyParams; result: ModelResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.open": { params: IDParams; result: RootIDResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.preview": { params: IDParams; result: SessionPreviewResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.reload": { params: EmptyParams; result: ModelResult; execution: "command"; permission: "root-idle"; sensitive: false };
+  "session.rename": { params: TitleParams; result: TitleResult; execution: "command"; permission: "root-association"; sensitive: false };
+  "shell.run": { params: ShellParams; result: TextResult; execution: "command"; permission: "tool-permissions"; sensitive: false };
+  "steer": { params: SubmitPayload; result: TextResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "submit": { params: SubmitPayload; result: TextResult; execution: "command"; permission: "root-admission"; sensitive: false };
+  "terminal.input": { params: TerminalInputParams; result: Empty; execution: "ephemeral"; permission: "active-terminal"; sensitive: true };
+  "tool.call": { params: ToolCallParams; result: TextResult; execution: "command"; permission: "tool-permissions"; sensitive: false };
+  "tool.configure": { params: ToolConfigureParams; result: Empty; execution: "command"; permission: "tool-permissions"; sensitive: false };
+  "tool.schema": { params: EmptyParams; result: ToolSchemaResult; execution: "query"; permission: "tool-authority"; sensitive: false };
+  "workspace.inspect": { params: EmptyParams; result: PathResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "workspace.set": { params: PathParams; result: PathResult; execution: "command"; permission: "workspace-authority"; sensitive: false };
+}
+
+export type RpcMethod = keyof RpcMethods;
+export type RuntimeOperation = keyof RuntimeOperations;
+export type RuntimeOperationOf<E extends RuntimeOperations[RuntimeOperation]['execution']> = {
+  [K in RuntimeOperation]: RuntimeOperations[K]['execution'] extends E ? K : never
+}[RuntimeOperation];
+export type QueryOperation = RuntimeOperationOf<'query'>;
+export type CommandOperation = RuntimeOperationOf<'command'>;
+export type EphemeralOperation = RuntimeOperationOf<'ephemeral'>;
+export interface OperationMetadata {
+  readonly name: string;
+  readonly surface: 'rpc' | 'runtime';
+  readonly execution: 'query' | 'command' | 'ephemeral' | 'subscription' | 'lifecycle';
+  readonly permission: string;
+  readonly sensitive: boolean;
+  readonly params_type: keyof ContractTypes;
+  readonly result_type: keyof ContractTypes;
+}
+export declare const rpcOperations: Readonly<{ [K in RpcMethod]: OperationMetadata & { readonly name: K; readonly execution: RpcMethods[K]['execution']; readonly permission: RpcMethods[K]['permission']; readonly sensitive: RpcMethods[K]['sensitive'] } }>;
+export declare const runtimeOperations: Readonly<{ [K in RuntimeOperation]: OperationMetadata & { readonly name: K; readonly execution: RuntimeOperations[K]['execution']; readonly permission: RuntimeOperations[K]['permission']; readonly sensitive: RuntimeOperations[K]['sensitive'] } }>;
+export type RootEventEnvelope = Omit<EventNotification['event'], 'kind' | 'payload'>;
+export type TypedRootEvent = { [K in keyof EventPayloadTypes]: RootEventEnvelope & { unknown?: false; kind: K; payload: EventPayloadTypes[K] } }[keyof EventPayloadTypes];
+export type UnknownRootEvent = RootEventEnvelope & { unknown: true; kind: string; payload: unknown };
+export type RootEvent = TypedRootEvent | UnknownRootEvent;
+export type TypedEventNotification = { event: RootEvent };
+export type ValidationMode = 'request' | 'response';
+export declare function validate<T extends keyof ContractTypes>(type: T, value: unknown, mode?: ValidationMode): value is ContractTypes[T];
+export declare function assertValid<T extends keyof ContractTypes>(type: T, value: unknown, mode?: ValidationMode): asserts value is ContractTypes[T];
 export declare const manifest: {
   major: number; minor: number;
-  operations: readonly { name: string; surface: string; execution: string; permission: string; sensitive?: boolean; params_type: keyof ContractTypes; result_type: keyof ContractTypes }[];
+  operations: readonly (Omit<OperationMetadata, 'sensitive'> & { readonly sensitive?: boolean })[];
   events: Readonly<Record<string, keyof ContractTypes>>;
- event_payloads: Readonly<Record<string, keyof ContractTypes>>;
+  event_payloads: Readonly<Record<string, keyof ContractTypes>>;
 };

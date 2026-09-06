@@ -1,9 +1,9 @@
 // Generated from Go wire types. Run npm run generate.
-import Ajv from 'ajv';
-import schemas from './schemas.json' with { type: 'json' };
+import * as requests from './request-validators.js';
+import * as responses from './response-validators.js';
 export const manifest = {
   "major": 2,
-  "minor": 0,
+  "minor": 1,
   "operations": [
     {
       "name": "command.status",
@@ -925,19 +925,26 @@ export const manifest = {
     "turn.succeeded": "LifecycleEvent"
   }
 };
-const ajv = new Ajv({ allErrors: true, strict: false, validateFormats: true });
-ajv.addFormat('int64', { type: 'string', validate: value => {
-  if (!/^-?(0|[1-9][0-9]*)$/.test(value) || value.length > 20) return false;
-  const number = BigInt(value);
-  return number >= -9223372036854775808n && number <= 9223372036854775807n;
-}});
-const validators = new Map();
-export function validate(type, value) {
-  if (!Object.hasOwn(schemas, type)) throw new TypeError('Unknown WHIP contract type: ' + type);
-  let validator = validators.get(type);
-  if (!validator) { validator = ajv.compile(schemas[type]); validators.set(type, validator); }
-  return validator(value);
+function operationLookup(surface) {
+  return Object.freeze(Object.fromEntries(manifest.operations.filter(operation => operation.surface === surface).map(operation =>
+    [operation.name, Object.freeze({ ...operation, sensitive: operation.sensitive ?? false })],
+  )));
 }
-export function assertValid(type, value) {
-  if (!validate(type, value)) throw new TypeError('Invalid WHIP ' + type + ': ' + ajv.errorsText(validators.get(type).errors));
+export const rpcOperations = operationLookup('rpc');
+export const runtimeOperations = operationLookup('runtime');
+function validatorFor(type, mode) {
+  if (mode !== 'request' && mode !== 'response') throw new TypeError('Unknown WHIP validation mode: ' + mode);
+  const validators = mode === 'response' ? responses : requests;
+  if (!Object.hasOwn(validators, type)) throw new TypeError('Unknown WHIP contract type: ' + type);
+  return validators[type];
+}
+export function validate(type, value, mode = 'request') {
+  return validatorFor(type, mode)(value);
+}
+export function assertValid(type, value, mode = 'request') {
+  const validator = validatorFor(type, mode);
+  if (!validator(value)) {
+    const details = validator.errors.map(error => (error.instancePath || '/') + ' ' + error.message).join('; ');
+    throw new TypeError('Invalid WHIP ' + type + ': ' + details);
+  }
 }

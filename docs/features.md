@@ -135,7 +135,33 @@ root prompt (`evals/rlm`).
 - Schedules and blackboard subscriptions create durable wakeups.
 - Process shutdown is root-owned and waits for supervised workers.
 
-## Terminal UI and adapters
+## TypeScript client SDK
+
+- Private Node 24 ESM workspace: `@whip/protocol` generates typed RPC/runtime
+  maps and standalone CSP-safe validators; `@whip/sdk` attaches over native
+  WebSockets or Node Unix sockets without owning daemon processes.
+- Stable session handles, committed command acceptance, typed terminal outcomes,
+  metadata-only application recovery storage, explicit identical-request retries,
+  runtime identity checks and targeted cancellation share one connection engine.
+- Optional `/state` views reconstruct bounded snapshots/history/live output,
+  questions, permissions and recursive agent state. History revisions prevent
+  mixing rewind epochs; catalog polling is observed and never opens every root.
+  Live and snapshot presentation share delta/cumulative update rules and stable
+  row keys; interleaved tool updates do not create duplicate transcript rows.
+- `/react` hooks subscribe to those immutable views. The working example owns
+  drafts and storage; no React dependency is loaded by core/state consumers.
+  Consecutive identical internal mailbox digests share one expandable row with
+  a delivery count; raw transcript entries and authored messages remain intact.
+- Content reads verify root/agent grants, size and SHA-256. Signed human helpers
+  preserve exact transmitted bytes and serialize connection nonces. Provider
+  configuration and terminal input are ephemeral and never enter SDK recovery
+  storage. First-human enrollment remains in the terminal.
+- Implementation: `packages/sdk`, `examples/client`. Coverage: SDK TypeScript
+  unit tests, `daemon.acceptance.mjs`, isolated `TestV2SDKBridge`, actual SDK
+  strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed
+  package installation. See [SDK usage](../packages/sdk/README.md).
+
+## Terminal UI behavior
 
 - Streaming text, reasoning, tool, plan, permission, usage, and terminal
   events are rendered from daemon events.

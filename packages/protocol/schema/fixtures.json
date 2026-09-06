@@ -23,5 +23,882 @@
       "digest": "0000000000000000000000000000000000000000000000000000000000000000",
       "size": "9007199254740993"
     }
+  },
+  {
+    "type": "CommandStatusParams",
+    "value": {
+      "command_id": ""
+    }
+  },
+  {
+    "type": "CommandResult",
+    "value": {
+      "operation": "",
+      "command_id": "",
+      "ingress_seq": "0",
+      "status": ""
+    }
+  },
+  {
+    "type": "CommandParams",
+    "value": {
+      "command_id": "",
+      "scope": "",
+      "operation": ""
+    }
+  },
+  {
+    "type": "Empty",
+    "value": {}
+  },
+  {
+    "type": "RuntimeConfiguration",
+    "value": {
+      "import_claude": false,
+      "import_codex": false,
+      "revision": "",
+      "default_model": "",
+      "default_provider": "",
+      "default_effort": "",
+      "compact_model": "",
+      "compact_provider": "",
+      "compact_percent": 0,
+      "goal_max_rounds": 0,
+      "max_retries": 0
+    }
+  },
+  {
+    "type": "ConfigurationUpdate",
+    "value": {
+      "revision": ""
+    }
+  },
+  {
+    "type": "ContentReadParams",
+    "value": {
+      "root_id": "",
+      "reference_id": "",
+      "offset": "0",
+      "limit": 0
+    }
+  },
+  {
+    "type": "ContentReadResult",
+    "value": {
+      "data": null,
+      "content": {
+        "reference_id": "",
+        "digest": "",
+        "size": "0"
+      }
+    }
+  },
+  {
+    "type": "PingResult",
+    "value": {
+      "generation": "0",
+      "build_id": ""
+    }
+  },
+  {
+    "type": "RestartParams",
+    "value": {
+      "generation": "0"
+    }
+  },
+  {
+    "type": "ReplayParams",
+    "value": {
+      "root_id": "",
+      "cursor": "0"
+    }
+  },
+  {
+    "type": "ReplayResult",
+    "value": {
+      "events": [],
+      "latest": "0"
+    }
+  },
+  {
+    "type": "SubscribeResult",
+    "value": {
+      "subscription_id": "",
+      "cursor": "0"
+    }
+  },
+  {
+    "type": "UnsubscribeParams",
+    "value": {
+      "subscription_id": ""
+    }
+  },
+  {
+    "type": "HistoryPageParams",
+    "value": {
+      "root_id": "",
+      "agent_id": "",
+      "through_seq": 0,
+      "limit": 0,
+      "max_bytes": 0
+    }
+  },
+  {
+    "type": "BoundedTranscriptPage",
+    "value": {
+      "history_revision": "0",
+      "through_seq": 0,
+      "next_seq": 0,
+      "has_more": false,
+      "messages": []
+    }
+  },
+  {
+    "type": "EnrollIdentityParams",
+    "value": {
+      "public_key": null
+    }
+  },
+  {
+    "type": "IdentityResult",
+    "value": {
+      "client_id": "",
+      "kind": "",
+      "nonce": null
+    }
+  },
+  {
+    "type": "IdentityStatusResult",
+    "value": {
+      "client_id": "",
+      "kind": "",
+      "paired": false,
+      "enrollment_open": false
+    }
+  },
+  {
+    "type": "InitializeResult",
+    "value": {
+      "operations": [],
+      "limits": {
+        "frame_bytes": 0,
+        "connections": 0,
+        "in_flight_requests": 0,
+        "outbound_messages": 0,
+        "outbound_bytes": "0",
+        "root_subscriptions": 0,
+        "content_chunk_bytes": 0,
+        "upload_bytes": "0"
+      },
+      "negotiated_capabilities": [],
+      "protocol_minor": 0,
+      "runtime_id": "",
+      "connection_id": "",
+      "host_platform": "",
+      "host_architecture": "",
+      "protocol_major": 0,
+      "build_id": "",
+      "generation": "0",
+      "capabilities": [],
+      "nonce": null
+    }
+  },
+  {
+    "type": "QueryParams",
+    "value": {
+      "operation": ""
+    }
+  },
+  {
+    "type": "QueryResult",
+    "value": {}
+  },
+  {
+    "type": "PermissionDecisionParams",
+    "value": {
+      "decision": null,
+      "signature": null
+    }
+  },
+  {
+    "type": "PermissionDecisionResult",
+    "value": {
+      "operation_id": "",
+      "lease_id": "",
+      "nonce": null
+    }
+  },
+  {
+    "type": "PermissionModeParams",
+    "value": {
+      "command": null,
+      "signature": null
+    }
+  },
+  {
+    "type": "PermissionModeResult",
+    "value": {
+      "command": {
+        "operation": "",
+        "command_id": "",
+        "ingress_seq": "0",
+        "status": ""
+      },
+      "nonce": null
+    }
+  },
+  {
+    "type": "ProviderNameParams",
+    "value": {
+      "provider": ""
+    }
+  },
+  {
+    "type": "ProviderStatus",
+    "value": {
+      "provider": "",
+      "configured": false,
+      "key_source": "",
+      "warnings": []
+    }
+  },
+  {
+    "type": "ProviderKeySetup",
+    "value": {
+      "revision": "",
+      "provider": "",
+      "environment": false
+    }
+  },
+  {
+    "type": "ProviderLoginStatus",
+    "value": {
+      "flow_id": "",
+      "state": "",
+      "teams": [],
+      "projects": [],
+      "expires_at": "0001-01-01T00:00:00Z"
+    }
+  },
+  {
+    "type": "ProviderLoginParams",
+    "value": {
+      "flow_id": ""
+    }
+  },
+  {
+    "type": "ProviderLoginList",
+    "value": {
+      "flows": []
+    }
+  },
+  {
+    "type": "ProviderLoginCreateParams",
+    "value": {
+      "flow_id": "",
+      "name": ""
+    }
+  },
+  {
+    "type": "ProviderLoginProjectParams",
+    "value": {
+      "flow_id": "",
+      "project_id": ""
+    }
+  },
+  {
+    "type": "ProviderLoginTeamParams",
+    "value": {
+      "flow_id": "",
+      "team_id": ""
+    }
+  },
+  {
+    "type": "ProviderValidateParams",
+    "value": {
+      "name": "",
+      "base_url": "",
+      "key": ""
+    }
+  },
+  {
+    "type": "ProviderValidateResult",
+    "value": {
+      "models": []
+    }
+  },
+  {
+    "type": "RootCollectionParams",
+    "value": {
+      "root_id": "",
+      "collection": "",
+      "limit": 0,
+      "max_bytes": 0
+    }
+  },
+  {
+    "type": "RootCollectionPage",
+    "value": {
+      "root_id": "",
+      "collection": "",
+      "revision": "0",
+      "event_cursor": "0",
+      "items": [],
+      "has_more": false
+    }
+  },
+  {
+    "type": "SnapshotParams",
+    "value": {
+      "root_id": ""
+    }
+  },
+  {
+    "type": "RootSnapshot",
+    "value": {
+      "active_turns": {},
+      "message_seqs": [],
+      "history_revision": "0",
+      "root_id": "",
+      "cursor": "0",
+      "meta": {
+        "id": "",
+        "kind": "",
+        "title": "",
+        "model": "",
+        "provider": "",
+        "cwd": "",
+        "goal": "",
+        "forked_from": "",
+        "fork_seq": 0,
+        "tags": [],
+        "pinned": false,
+        "effort": "",
+        "usage_in": 0,
+        "usage_cached": 0,
+        "usage_out": 0,
+        "updated_at": "0001-01-01T00:00:00Z"
+      },
+      "messages": [],
+      "presentation": [],
+      "agent_presentations": {},
+      "agents": [],
+      "inbox": [],
+      "blackboard": [],
+      "budgets": [],
+      "capabilities": [],
+      "schedules": [],
+      "permissions": [],
+      "questions": []
+    }
+  },
+  {
+    "type": "SessionCatalogParams",
+    "value": {
+      "limit": 0,
+      "max_bytes": 0
+    }
+  },
+  {
+    "type": "SessionCatalogPage",
+    "value": {
+      "revision": "0",
+      "items": [],
+      "has_more": false
+    }
+  },
+  {
+    "type": "EmptyParams",
+    "value": {}
+  },
+  {
+    "type": "CatalogRevision",
+    "value": {
+      "revision": "0"
+    }
+  },
+  {
+    "type": "UploadBeginParams",
+    "value": {
+      "upload_id": "",
+      "root_id": "",
+      "expected_digest": "",
+      "size": "0"
+    }
+  },
+  {
+    "type": "Accepted",
+    "value": {
+      "accepted": false
+    }
+  },
+  {
+    "type": "UploadChunkParams",
+    "value": {
+      "upload_id": "",
+      "offset": "0",
+      "data": null
+    }
+  },
+  {
+    "type": "UploadFinishParams",
+    "value": {
+      "upload_id": ""
+    }
+  },
+  {
+    "type": "CompletionParams",
+    "value": {
+      "root_id": "",
+      "kind": "",
+      "prefix": "",
+      "limit": 0
+    }
+  },
+  {
+    "type": "CompletionResult",
+    "value": {
+      "candidates": [],
+      "truncated": false
+    }
+  },
+  {
+    "type": "IDParams",
+    "value": {
+      "id": ""
+    }
+  },
+  {
+    "type": "AgentInputParams",
+    "value": {
+      "id": "",
+      "text": ""
+    }
+  },
+  {
+    "type": "AgentSubmitResult",
+    "value": {
+      "agent_id": "",
+      "inbox_seq": "0",
+      "status": ""
+    }
+  },
+  {
+    "type": "AgentTranscriptResult",
+    "value": {
+      "cursor": "0",
+      "agent": {
+        "id": "",
+        "root_id": "",
+        "parent_id": "",
+        "name": "",
+        "model": "",
+        "provider": "",
+        "effort": "",
+        "cwd": "",
+        "report": "",
+        "status": "",
+        "pending_mail": 0,
+        "lifecycle_phase": "",
+        "blocking_reason": "",
+        "terminal_cause": "",
+        "allowed_controls": []
+      },
+      "page": {
+        "history_revision": "0",
+        "through_seq": 0,
+        "next_seq": 0,
+        "has_more": false,
+        "messages": []
+      }
+    }
+  },
+  {
+    "type": "AgentCancelParams",
+    "value": {
+      "id": "",
+      "turn_id": ""
+    }
+  },
+  {
+    "type": "AgentListResult",
+    "value": []
+  },
+  {
+    "type": "BrowserDriverParams",
+    "value": {
+      "driver": ""
+    }
+  },
+  {
+    "type": "BrowserStatusResult",
+    "value": {
+      "enabled": false
+    }
+  },
+  {
+    "type": "BudgetCapParams",
+    "value": {
+      "id": "",
+      "kind": "",
+      "limit": "0"
+    }
+  },
+  {
+    "type": "BudgetState",
+    "value": {
+      "kind": "",
+      "limit": "0",
+      "used": "0",
+      "reserved": "0",
+      "remaining": "0"
+    }
+  },
+  {
+    "type": "CancelParams",
+    "value": {}
+  },
+  {
+    "type": "CapabilityRecord",
+    "value": {
+      "id": "",
+      "root_id": "",
+      "agent_id": "",
+      "issuer_agent_id": "",
+      "operations": [],
+      "scopes": [],
+      "mcp": [],
+      "mcp_all": false,
+      "generation": "0",
+      "status": "",
+      "expires_at": "0001-01-01T00:00:00Z",
+      "created_at": "0001-01-01T00:00:00Z",
+      "updated_at": "0001-01-01T00:00:00Z"
+    }
+  },
+  {
+    "type": "CompactionParams",
+    "value": {}
+  },
+  {
+    "type": "CompactionSettingsResult",
+    "value": {
+      "builtin_default": false
+    }
+  },
+  {
+    "type": "ComputerAppParams",
+    "value": {
+      "app": ""
+    }
+  },
+  {
+    "type": "ComputerStatusResult",
+    "value": {
+      "enabled": false,
+      "default_deny": false,
+      "allowed": [],
+      "denied": [],
+      "session_allowed": [],
+      "session_denied": []
+    }
+  },
+  {
+    "type": "ContextAuditResult",
+    "value": {
+      "working_directory": "",
+      "rows": []
+    }
+  },
+  {
+    "type": "CheckpointParams",
+    "value": {}
+  },
+  {
+    "type": "RestartNotice",
+    "value": {
+      "generation": "0",
+      "cursors": {}
+    }
+  },
+  {
+    "type": "GoalContextParams",
+    "value": {}
+  },
+  {
+    "type": "GoalResult",
+    "value": {
+      "goal": ""
+    }
+  },
+  {
+    "type": "TextParams",
+    "value": {
+      "text": ""
+    }
+  },
+  {
+    "type": "CompactionResult",
+    "value": {
+      "cutoff": 0,
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0
+      }
+    }
+  },
+  {
+    "type": "CompactionListResult",
+    "value": []
+  },
+  {
+    "type": "CompactionRetryResult",
+    "value": {
+      "undone": false
+    }
+  },
+  {
+    "type": "RewindParams",
+    "value": {
+      "expected_revision": null,
+      "cut": 0
+    }
+  },
+  {
+    "type": "RewindResult",
+    "value": {
+      "cut": 0,
+      "restored_files": 0
+    }
+  },
+  {
+    "type": "UserHistoryResult",
+    "value": []
+  },
+  {
+    "type": "LSPListResult",
+    "value": []
+  },
+  {
+    "type": "MCPAttachParams",
+    "value": {
+      "servers": {}
+    }
+  },
+  {
+    "type": "MCPServerParams",
+    "value": {
+      "name": ""
+    }
+  },
+  {
+    "type": "MCPImportParams",
+    "value": {
+      "source": "",
+      "enabled": false
+    }
+  },
+  {
+    "type": "MCPImportStatusResult",
+    "value": {
+      "claude": false,
+      "codex": false
+    }
+  },
+  {
+    "type": "MCPListResult",
+    "value": []
+  },
+  {
+    "type": "PermissionConfigureParams",
+    "value": {
+      "external_permissions": false
+    }
+  },
+  {
+    "type": "PermissionRulesResult",
+    "value": {
+      "rules": [],
+      "global": []
+    }
+  },
+  {
+    "type": "ProviderCatalogsResult",
+    "value": {
+      "models": {},
+      "providers": {},
+      "catalogs": {}
+    }
+  },
+  {
+    "type": "QuestionAnswerParams",
+    "value": {
+      "id": "",
+      "answer": [],
+      "dismissed": false
+    }
+  },
+  {
+    "type": "RunConfigureParams",
+    "value": {}
+  },
+  {
+    "type": "ScheduleCreateParams",
+    "value": {
+      "schedule": "",
+      "prompt": ""
+    }
+  },
+  {
+    "type": "ScheduleResult",
+    "value": {
+      "schedule_id": 0
+    }
+  },
+  {
+    "type": "ScheduleDeleteParams",
+    "value": {
+      "schedule_id": 0
+    }
+  },
+  {
+    "type": "ScheduleListResult",
+    "value": []
+  },
+  {
+    "type": "CreateSessionParams",
+    "value": {
+      "kind": "",
+      "cwd": "",
+      "model": "",
+      "provider": ""
+    }
+  },
+  {
+    "type": "RootIDResult",
+    "value": {
+      "root_id": ""
+    }
+  },
+  {
+    "type": "RootParams",
+    "value": {
+      "root_id": ""
+    }
+  },
+  {
+    "type": "EffortParams",
+    "value": {
+      "effort": "",
+      "persist_default": false
+    }
+  },
+  {
+    "type": "EffortResult",
+    "value": {
+      "effort": ""
+    }
+  },
+  {
+    "type": "ForkParams",
+    "value": {
+      "expected_revision": null
+    }
+  },
+  {
+    "type": "ListParams",
+    "value": {}
+  },
+  {
+    "type": "SessionListResult",
+    "value": []
+  },
+  {
+    "type": "ModelParams",
+    "value": {
+      "model": "",
+      "persist_default": false
+    }
+  },
+  {
+    "type": "ModelResult",
+    "value": {
+      "model": "",
+      "provider": ""
+    }
+  },
+  {
+    "type": "SessionPreviewResult",
+    "value": {
+      "root_id": "",
+      "user": "",
+      "assistant": ""
+    }
+  },
+  {
+    "type": "TitleParams",
+    "value": {
+      "title": ""
+    }
+  },
+  {
+    "type": "TitleResult",
+    "value": {
+      "title": ""
+    }
+  },
+  {
+    "type": "ShellParams",
+    "value": {
+      "command": ""
+    }
+  },
+  {
+    "type": "TextResult",
+    "value": {
+      "text": ""
+    }
+  },
+  {
+    "type": "SubmitPayload",
+    "value": {
+      "text": ""
+    }
+  },
+  {
+    "type": "TerminalInputParams",
+    "value": {
+      "id": "",
+      "bytes": null
+    }
+  },
+  {
+    "type": "ToolCallParams",
+    "value": {
+      "tool": "",
+      "arguments": null
+    }
+  },
+  {
+    "type": "ToolConfigureParams",
+    "value": {
+      "deny_permissions": false
+    }
+  },
+  {
+    "type": "ToolSchemaResult",
+    "value": []
+  },
+  {
+    "type": "PathResult",
+    "value": {
+      "path": ""
+    }
+  },
+  {
+    "type": "PathParams",
+    "value": {
+      "path": ""
+    }
   }
 ]
