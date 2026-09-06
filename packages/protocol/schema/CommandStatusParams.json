@@ -5,7 +5,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/CommandStatusParams",
+  "$id": "https://whip.dev/protocol/v3/CommandStatusParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CommandStatusParams",
   "required": [

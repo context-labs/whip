@@ -136,7 +136,6 @@ test('every generated operation dispatches through the SDK with its execution cl
   assert.deepEqual([...rpcHits].sort(), Object.keys(rpcOperations).sort());
   assert.deepEqual([...runtimeHits.keys()].sort(), Object.keys(runtimeOperations).sort());
   assert.equal(runtimeHits.get('permission.mode'), 'command.submit');
-  assert.equal(rpcOperations['permission.mode'].execution, 'ephemeral');
   assert.equal(runtimeHits.get('terminal.input'), 'operation.invoke');
 });
 
@@ -156,7 +155,7 @@ function classificationTypes(client: WhipClient): void {
   client.query('submit', { text: 'hello' });
   // @ts-expect-error Durable work cannot use the ephemeral interface.
   client.invoke('submit', { text: 'hello' });
-  // @ts-expect-error The two permission.mode surfaces have distinct payloads.
+  // @ts-expect-error Permission modes use durable runtime operations, not a separate RPC.
   client.call('permission.mode', { enabled: true });
 }
 void classificationTypes;

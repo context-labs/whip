@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -61,7 +59,7 @@ func newV2Fixture(t *testing.T, runner Runner, origins ...string) v2Fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint := "ws" + strings.TrimPrefix(initial.InitializeResult().NetworkEndpoint, "http") + "/api/v2/ws"
+	endpoint := "ws" + strings.TrimPrefix(initial.InitializeResult().NetworkEndpoint, "http") + "/api/v3/ws"
 	if initial.InitializeResult().RuntimeID == "" {
 		t.Fatal("missing persistent runtime identity")
 	}
@@ -207,27 +205,26 @@ func TestV2CrossTransportSubscriptionBoundaries(t *testing.T) {
 	}
 }
 
-func TestV2CrossTransportHumanIdentity(t *testing.T) {
+func TestV3CrossTransportPermissionModesWithoutSetup(t *testing.T) {
 	fixture := newV2Fixture(t, &permissionModeRunner{fakeRunner: &fakeRunner{}})
-	unix := fixture.dial("unix", "same-human")
-	websocket := fixture.dial("websocket", "same-human")
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	if _, err := unix.EnrollIdentity(ctx, private, true, "", nil); err != nil {
-		t.Fatal(err)
-	}
-	for index, client := range []*Client{unix, websocket} {
-		status, err := client.IdentityStatus(ctx)
-		if err != nil || !status.Paired {
-			t.Fatalf("shared identity %+v %v", status, err)
-		}
-		command := CommandParams{CommandID: fmt.Sprintf("permission-%d", index), Scope: "root", RootID: fixture.rootID, Operation: "permission.mode", Payload: json.RawMessage(`{"external_permissions":false}`)}
-		if _, err := client.SetPermissionMode(ctx, private, command); err != nil {
-			t.Fatal(err)
+	for _, transport := range []string{"unix", "websocket"} {
+		clientID := transport + "-client"
+		client := fixture.dial(transport, clientID)
+		for _, external := range []bool{false, true} {
+			command := CommandParams{
+				CommandID: fmt.Sprintf("permission-%t", external), Scope: "root", RootID: fixture.rootID,
+				Operation: "permission.mode", Payload: mustJSON(t, map[string]bool{"external_permissions": external}),
+			}
+			result, err := client.Command(ctx, command)
+			if err != nil || result.Status != "succeeded" {
+				t.Fatalf("permission mode external=%t = %+v, %v", external, result, err)
+			}
+			record, err := fixture.store.LoadCommand(ctx, clientID, command.CommandID)
+			if err != nil || record.Status != "succeeded" || record.Operation != "permission.mode" {
+				t.Fatalf("durable mode command = %+v, %v", record, err)
+			}
 		}
 	}
 }

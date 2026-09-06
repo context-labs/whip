@@ -58,7 +58,7 @@ func TestMCPLatePermissionDecisionsCannotOutliveInvocation(t *testing.T) {
 	defer tick.Stop()
 	for id == "" {
 		services.mu.RLock()
-		for pendingID := range services.permissionWaiters {
+		for pendingID := range services.permissions {
 			id = pendingID
 		}
 		services.mu.RUnlock()
@@ -80,12 +80,12 @@ func TestMCPLatePermissionDecisionsCannotOutliveInvocation(t *testing.T) {
 
 	// The waiter is gone, but its durable record is still pending. A human
 	// decision at this exact point can be cached until the invocation finishes.
-	allow := capability.Decision{Allow: true, PrincipalID: "paired-human"}
+	allow := capability.Decision{Allow: true, PrincipalID: "trusted-client"}
 	if err := services.ResolvePermission(id, allow); err != nil {
 		t.Fatalf("decision before terminalization error=%v", err)
 	}
 	services.mu.RLock()
-	cached := len(services.permissionEarly)
+	cached := len(services.permissions)
 	services.mu.RUnlock()
 	if cached != 1 {
 		t.Fatalf("preterminal decision count=%d, want 1", cached)
@@ -112,10 +112,10 @@ func TestMCPLatePermissionDecisionsCannotOutliveInvocation(t *testing.T) {
 		t.Fatalf("decision after invocation cleanup error=%v", err)
 	}
 	services.mu.RLock()
-	cached, waiting := len(services.permissionEarly), len(services.permissionWaiters)
+	retained := len(services.permissions)
 	services.mu.RUnlock()
-	if cached != 0 || waiting != 0 || provider.effects.Load() != 0 {
-		t.Fatalf("canceled call retained state or effects: cached=%d waiting=%d effects=%d", cached, waiting, provider.effects.Load())
+	if retained != 0 || provider.effects.Load() != 0 {
+		t.Fatalf("canceled call retained state or effects: retained=%d effects=%d", retained, provider.effects.Load())
 	}
 	assertMCPSettled(t, ledger, authority)
 }

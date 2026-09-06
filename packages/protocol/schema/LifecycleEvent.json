@@ -210,7 +210,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/LifecycleEvent",
+  "$id": "https://whip.dev/protocol/v3/LifecycleEvent",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "LifecycleEvent",
   "additionalProperties": false

@@ -8,7 +8,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/MCPImportParams",
+  "$id": "https://whip.dev/protocol/v3/MCPImportParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "MCPImportParams",
   "required": [

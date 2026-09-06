@@ -438,13 +438,6 @@ export interface Empty {}
 
 export interface EmptyParams {}
 
-export interface EnrollIdentityParams {
-  public_key: string | null;
-  tty_confirmed?: boolean;
-  authorized_by?: string;
-  signature?: string | null;
-}
-
 export interface EventNotification {
   event: {
     subscription_id?: string;
@@ -483,19 +476,6 @@ export interface HistoryPageParams {
 
 export interface IDParams {
   id: string;
-}
-
-export interface IdentityResult {
-  client_id: string;
-  kind: string;
-  nonce: string | null;
-}
-
-export interface IdentityStatusResult {
-  client_id: string;
-  kind: string;
-  paired: boolean;
-  enrollment_open: boolean;
 }
 
 export interface InitializeParams {
@@ -539,7 +519,6 @@ export interface InitializeResult {
   pid?: number;
   started_at?: string;
   capabilities: null | string[];
-  nonce: string | null;
 }
 
 export type LSPListResult =
@@ -695,44 +674,19 @@ export interface PermissionDecision {
 }
 
 export interface PermissionDecisionParams {
-  decision: unknown;
-  signature: string | null;
+  decision: {
+    command_id: string;
+    root_id: string;
+    permission_id: string;
+    allow: boolean;
+    reason?: string;
+    remember?: string;
+  };
 }
 
 export interface PermissionDecisionResult {
   operation_id: string;
   lease_id: string;
-  nonce: string | null;
-}
-
-export interface PermissionModeParams {
-  command: unknown;
-  signature: string | null;
-}
-
-export interface PermissionModeResult {
-  command: {
-    content?: null | {
-      reference_id: string;
-      digest: string;
-      size: string;
-      media_type?: string;
-      source?: string;
-    };
-    operation: string;
-    result?: unknown;
-    failure?: null | {
-      data?: null | {
-        kind: string;
-      };
-      code: number;
-      message: string;
-    };
-    command_id: string;
-    ingress_seq: string;
-    status: string;
-  };
-  nonce: string | null;
 }
 
 export interface PermissionRulesResult {
@@ -1556,15 +1510,12 @@ export interface ContractTypes {
   EffortResult: EffortResult;
   Empty: Empty;
   EmptyParams: EmptyParams;
-  EnrollIdentityParams: EnrollIdentityParams;
   EventNotification: EventNotification;
   ForkParams: ForkParams;
   GoalContextParams: GoalContextParams;
   GoalResult: GoalResult;
   HistoryPageParams: HistoryPageParams;
   IDParams: IDParams;
-  IdentityResult: IdentityResult;
-  IdentityStatusResult: IdentityStatusResult;
   InitializeParams: InitializeParams;
   InitializeResult: InitializeResult;
   LSPListResult: LSPListResult;
@@ -1583,8 +1534,6 @@ export interface ContractTypes {
   PermissionDecision: PermissionDecision;
   PermissionDecisionParams: PermissionDecisionParams;
   PermissionDecisionResult: PermissionDecisionResult;
-  PermissionModeParams: PermissionModeParams;
-  PermissionModeResult: PermissionModeResult;
   PermissionRulesResult: PermissionRulesResult;
   PingResult: PingResult;
   ProviderCatalogsResult: ProviderCatalogsResult;
@@ -1732,12 +1681,9 @@ export interface RpcMethods {
   "events.subscribe": { params: SubscribeParams; result: SubscribeResult; execution: "subscription"; permission: "root-association"; sensitive: false };
   "events.unsubscribe": { params: UnsubscribeParams; result: Empty; execution: "subscription"; permission: "connection-subscription"; sensitive: false };
   "history.page": { params: HistoryPageParams; result: BoundedTranscriptPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
-  "identity.enroll": { params: EnrollIdentityParams; result: IdentityResult; execution: "ephemeral"; permission: "existing-human-enrollment"; sensitive: true };
-  "identity.status": { params: Empty; result: IdentityStatusResult; execution: "query"; permission: "none"; sensitive: false };
   "initialize": { params: InitializeParams; result: InitializeResult; execution: "query"; permission: "none"; sensitive: false };
   "operation.invoke": { params: QueryParams; result: QueryResult; execution: "ephemeral"; permission: "operation-specific"; sensitive: true };
-  "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "signed-human-decision"; sensitive: true };
-  "permission.mode": { params: PermissionModeParams; result: PermissionModeResult; execution: "ephemeral"; permission: "signed-human-mode"; sensitive: true };
+  "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "trusted-client-decision"; sensitive: false };
   "provider.key.rotate": { params: ProviderNameParams; result: ProviderStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: true };
   "provider.key.set": { params: ProviderKeySetup; result: RuntimeConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
   "provider.login.begin": { params: Empty; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
@@ -1796,7 +1742,7 @@ export interface RuntimeOperations {
   "mcp.reconnect": { params: MCPServerParams; result: Empty; execution: "command"; permission: "delegated-mcp-authority"; sensitive: false };
   "mcp.status": { params: EmptyParams; result: MCPListResult; execution: "query"; permission: "root-association"; sensitive: false };
   "permission.forget": { params: IDParams; result: Empty; execution: "command"; permission: "rule-authority"; sensitive: false };
-  "permission.mode": { params: PermissionConfigureParams; result: Empty; execution: "command"; permission: "signed-human-if-disabling"; sensitive: false };
+  "permission.mode": { params: PermissionConfigureParams; result: Empty; execution: "command"; permission: "trusted-client-mode"; sensitive: false };
   "permission.rules": { params: EmptyParams; result: PermissionRulesResult; execution: "query"; permission: "root-association"; sensitive: false };
   "provider.catalogs": { params: EmptyParams; result: ProviderCatalogsResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "question.answer": { params: QuestionAnswerParams; result: Empty; execution: "command"; permission: "pending-question"; sensitive: false };

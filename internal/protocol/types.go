@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-const Major = 2
-const Minor = 1
+const Major = 3
+const Minor = 0
 
 type ErrorData struct {
 	Kind string `json:"kind"`
@@ -58,7 +58,6 @@ type InitializeResult struct {
 	PID                    int            `json:"pid,omitempty"`
 	StartedAt              string         `json:"started_at,omitempty"`
 	Capabilities           []string       `json:"capabilities"`
-	Nonce                  []byte         `json:"nonce"`
 }
 
 type CommandParams struct {
@@ -261,32 +260,13 @@ type PermissionDecision struct {
 	Remember     string `json:"remember,omitempty"` // "", "tree", or "global"
 }
 
-type IdentityStatusResult struct {
-	ClientID       string `json:"client_id"`
-	Kind           string `json:"kind"`
-	Paired         bool   `json:"paired"`
-	EnrollmentOpen bool   `json:"enrollment_open"`
-}
-
 type PermissionDecisionParams struct {
-	Decision  json.RawMessage `json:"decision"`
-	Signature []byte          `json:"signature"`
+	Decision PermissionDecision `json:"decision"`
 }
 
 type PermissionDecisionResult struct {
 	OperationID string `json:"operation_id"`
 	LeaseID     string `json:"lease_id"`
-	Nonce       []byte `json:"nonce"`
-}
-
-type PermissionModeParams struct {
-	Command   json.RawMessage `json:"command"`
-	Signature []byte          `json:"signature"`
-}
-
-type PermissionModeResult struct {
-	Command CommandResult `json:"command"`
-	Nonce   []byte        `json:"nonce"`
 }
 
 type RestartNotice struct {
@@ -296,19 +276,6 @@ type RestartNotice struct {
 
 type RestartParams struct {
 	Generation int64 `json:"generation,string"`
-}
-
-type EnrollIdentityParams struct {
-	PublicKey    []byte `json:"public_key"`
-	TTYConfirmed bool   `json:"tty_confirmed,omitempty"`
-	AuthorizedBy string `json:"authorized_by,omitempty"`
-	Signature    []byte `json:"signature,omitempty"`
-}
-
-type IdentityResult struct {
-	ClientID string `json:"client_id"`
-	Kind     string `json:"kind"`
-	Nonce    []byte `json:"nonce"`
 }
 
 type SubscribeParams struct {

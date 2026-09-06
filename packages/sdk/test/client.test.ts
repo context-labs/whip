@@ -17,10 +17,10 @@ interface Connection {
 
 function initialize(): InitializeResult {
   return {
-    protocol_major: 2, protocol_minor: 1, runtime_id: 'runtime-fixture',
+    protocol_major: 3, protocol_minor: 0, runtime_id: 'runtime-fixture',
     connection_id: 'connection-fixture', host_platform: 'darwin', host_architecture: 'arm64',
     build_id: 'different-daemon-build', generation: '9007199254740993',
-    capabilities: [], negotiated_capabilities: [], nonce: '',
+    capabilities: [], negotiated_capabilities: [],
     operations: manifest.operations.map(operation => ({ ...operation })),
     limits: {
       frame_bytes: 1 << 20, connections: 64, in_flight_requests: 2,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { writeFile } from 'node:fs/promises';
-import { createWhipClient, createWebCryptoSigner, webSocket } from '../dist/index.js';
+import { createWhipClient, webSocket } from '../dist/index.js';
 import { unixSocket } from '../dist/node.js';
 import { createSessionView } from '../dist/state.js';
 import { eventually, startFixture } from '../scripts/fixture.mjs';
@@ -183,26 +183,46 @@ for (const transport of ['unix', 'websocket']) {
     client.close();
   });
 
-  test(`${transport}: signed human enrollment and parallel nonce rotation use exact bytes`, async () => {
-    const key = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']);
-    const signer = createWebCryptoSigner(key.privateKey);
-    const terminalKey = await crypto.subtle.importKey('pkcs8', Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), Buffer.alloc(32, 7)]), 'Ed25519', false, ['sign']);
-    const client = await connect(transport, crypto.randomUUID(), { clientKind: 'human', signer });
-    const publicKey = new Uint8Array(await crypto.subtle.exportKey('raw', key.publicKey));
-    await client.permissions.enroll(publicKey, 'sdk-terminal-fixture', createWebCryptoSigner(terminalKey));
-    assert.equal((await client.permissions.status()).paired, true);
+  test(`${transport}: unsigned permission decisions preserve scope, deduplication, and competing-client convergence`, async () => {
+    const client = await connect(transport);
+    const observer = await connect(transport === 'unix' ? 'websocket' : 'unix', crypto.randomUUID(), { clientKind: 'human' });
     const rootId = await createRoot(client);
-    const outcomes = await Promise.all([
-      client.permissions.setMode(rootId, false, { commandId: 'literal <tag> & café ' + crypto.randomUUID() }),
-      client.permissions.setMode(rootId, true, { commandId: 'next nonce ' + crypto.randomUUID() }),
-    ]);
-    for (const outcome of outcomes) {
-      const handle = client.recover({ version: 1, runtimeId: fixture.info.runtime_id, clientId: client.clientId, commandId: outcome.command_id, operation: 'permission.mode', rootId });
-      assert.equal((await handle.result(deadline())).status, 'succeeded');
+    const otherRoot = await createRoot(client);
+    const views = [client, observer].map(connection => createSessionView(connection.session(rootId)));
+    try {
+      const mode = client.permissions.setMode(rootId, false, { commandId: 'mode <tag> & café ' + crypto.randomUUID() });
+      assert.equal((await mode.result(deadline())).status, 'succeeded');
+      assert.equal((await client.recover(mode.record).result(deadline())).status, 'succeeded');
+      assert.equal((await observer.permissions.setMode(rootId, true).result(deadline())).status, 'succeeded');
+      await Promise.all(views.map(view => view.start()));
+      for (const allow of [true, false]) {
+        const command = client.session(rootId).submit({ text: 'permission:' + crypto.randomUUID() });
+        await command.accepted(deadline());
+        const permission = await eventually(() => views[0].getSnapshot().root.permissions?.find(item => item.status === 'pending'));
+        await eventually(() => views[1].getSnapshot().root.permissions?.some(item => item.id === permission.id && item.status === 'pending'));
+        await assert.rejects(observer.permissions.decide({ root_id: otherRoot, permission_id: permission.id, allow }));
+        const decision = { root_id: rootId, permission_id: permission.id, allow, command_id: crypto.randomUUID(), reason: 'Reviewed <tag> & café' };
+        const accepted = await observer.permissions.decide(decision);
+        assert.deepEqual(await observer.permissions.decide(decision), accepted);
+        await assert.rejects(observer.permissions.decide({ ...decision, allow: !allow }), error => error.kind === 'conflict');
+        await assert.rejects(client.permissions.decide({ ...decision, command_id: crypto.randomUUID(), allow: !allow }));
+        assert.equal((await command.result(deadline())).status, allow ? 'succeeded' : 'failed');
+        await eventually(() => views.every(view => !view.getSnapshot().root.permissions?.some(item => item.id === permission.id && item.status === 'pending')));
+      }
+      const racing = client.session(rootId).submit({ text: 'permission:' + crypto.randomUUID() });
+      await racing.accepted(deadline());
+      const permission = await eventually(() => views[0].getSnapshot().root.permissions?.find(item => item.status === 'pending'));
+      const results = await Promise.allSettled([
+        client.permissions.decide({ root_id: rootId, permission_id: permission.id, allow: true }),
+        observer.permissions.decide({ root_id: rootId, permission_id: permission.id, allow: false }),
+      ]);
+      assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+      assert.equal((await racing.result(deadline())).status, results[0].status === 'fulfilled' ? 'succeeded' : 'failed');
+      await eventually(() => views.every(view => !view.getSnapshot().root.permissions?.some(item => item.id === permission.id && item.status === 'pending')));
+    } finally {
+      await Promise.all(views.map(view => view.dispose()));
+      observer.close(); client.close();
     }
-    const automation = await connect(transport, crypto.randomUUID(), { signer });
-    await assert.rejects(automation.permissions.setMode(rootId, false), error => error.kind === 'permission_denied');
-    automation.close(); client.close();
   });
 
   test(`${transport}: view converges, shares a subscription, and invalidates destructive history`, async () => {

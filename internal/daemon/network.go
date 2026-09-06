@@ -54,7 +54,7 @@ func newNetworkHandler(
 		}
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v2/ws", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v3/ws", func(w http.ResponseWriter, r *http.Request) {
 		if !reserve() {
 			http.Error(w, "connection limit reached", http.StatusServiceUnavailable)
 			return
@@ -68,7 +68,7 @@ func newNetworkHandler(
 		accept(newWebsocketMessageTransport(conn, buffered.Reader))
 	})
 	if content != nil {
-		mux.Handle("/api/v2/content/", content)
+		mux.Handle("/api/v3/content/", content)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !options.Enabled {

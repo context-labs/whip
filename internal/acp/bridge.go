@@ -26,8 +26,8 @@ const (
 )
 
 var modes = []acp.SessionMode{
-	{Id: ModeAsk, Name: "Ask", Description: new("Require an authenticated human decision for side effects")},
-	{Id: ModeAuto, Name: "Auto", Description: new("Run within the session's configured grants (paired humans only)")},
+	{Id: ModeAsk, Name: "Ask", Description: new("Ask before performing side effects")},
+	{Id: ModeAuto, Name: "Auto", Description: new("Run within the session's configured grants")},
 }
 
 // Backend creates protocol-only root clients and handles daemon-scoped
@@ -37,7 +37,6 @@ type Backend interface {
 	NewRoot(context.Context, string, map[string]mcp.ServerConfig) (*daemon.RootClient, error)
 	LoadRoot(context.Context, string, string, map[string]mcp.ServerConfig) (*daemon.RootClient, error)
 	ListSessions(context.Context, int) ([]session.Meta, error)
-	Paired(context.Context) bool
 }
 
 type Bridge struct {
@@ -356,9 +355,6 @@ func (b *Bridge) SetSessionMode(ctx context.Context, params acp.SetSessionModeRe
 	if mode != ModeAsk && mode != ModeAuto {
 		return acp.SetSessionModeResponse{}, acp.NewInvalidParams(fmt.Sprintf("unknown mode %q", params.ModeId))
 	}
-	if mode == ModeAuto && !b.backend.Paired(ctx) {
-		return acp.SetSessionModeResponse{}, acp.NewInvalidParams("automatic permissions require a paired human identity")
-	}
 	if err := b.setPermissionMode(ctx, s, mode); err != nil {
 		return acp.SetSessionModeResponse{}, acp.NewInternalError(err.Error())
 	}
@@ -373,7 +369,7 @@ func (b *Bridge) setPermissionMode(ctx context.Context, s *acpSession, mode stri
 	if err != nil {
 		return err
 	}
-	result, err := s.root.SetPermissionMode(ctx, action, mode == ModeAsk)
+	result, err := s.root.SetPermissionMode(ctx, action)
 	if err != nil {
 		return err
 	}

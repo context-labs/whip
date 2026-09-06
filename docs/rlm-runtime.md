@@ -206,6 +206,11 @@ jobs run per agent at once.
 
 ## Permission rules
 
+Permission requests can be approved or denied by any connected client. Clients
+are trusted on the local machine or configured trusted network; pairing and
+signing keys are not required. Agent capabilities and budgets remain enforced,
+and internal MCP calls still require delegated authority.
+
 A permission prompt names its rules: for shell operations (`bash`,
 `workspace_process`, `shell_start`) every command on the line is collapsed to
 its arity prefix (`go test ./...` -> `go test`, `ls -la` -> `ls`), so
@@ -231,7 +236,7 @@ global allowlist; `/permissions forget <id>` deletes a tree rule.
 
 `whip --yolo` starts the TUI with prompts off: every root it opens (and every
 root it reconnects to after a daemon restart) is put into the daemon's
-automatic permission mode through a signed `permission.mode` request, so each
+automatic permission mode through a durable `permission.mode` command, so each
 admission is approved as it arrives under the session's existing grants.
 Capabilities and budgets still apply; the mode cannot change while an agent
 is running. `--cautious` is the opposite and matches the default. The footer

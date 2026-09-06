@@ -7,7 +7,7 @@
       "format": "int64"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/RestartParams",
+  "$id": "https://whip.dev/protocol/v3/RestartParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RestartParams",
   "required": [

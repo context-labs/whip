@@ -31,7 +31,7 @@
     ],
     "additionalProperties": false
   },
-  "$id": "https://whip.dev/protocol/v2/ScheduleListResult",
+  "$id": "https://whip.dev/protocol/v3/ScheduleListResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ScheduleListResult"
 }

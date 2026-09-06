@@ -20,7 +20,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/SessionUpdateEvent",
+  "$id": "https://whip.dev/protocol/v3/SessionUpdateEvent",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SessionUpdateEvent",
   "additionalProperties": false

@@ -25,7 +25,7 @@ func TestNetworkHandlerValidatesHostOriginAndUpgrade(t *testing.T) {
 		{name: "normal upgrade checks", host: "127.0.0.1:7000", origin: "http://localhost:3000", key: "nil", status: 400},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/v2/ws", nil)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/v3/ws", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -54,7 +54,7 @@ func TestNetworkDisabledAndConnectionExhaustion(t *testing.T) {
 			t.Fatal(err)
 		}
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost/api/v2/ws", nil))
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost/api/v3/ws", nil))
 		want := http.StatusNotFound
 		if enabled {
 			want = http.StatusServiceUnavailable

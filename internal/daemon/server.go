@@ -3,8 +3,8 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,9 +81,7 @@ type serverConn struct {
 	inFlight      chan struct{}
 
 	mu        sync.Mutex
-	authMu    sync.Mutex
 	outBytes  int64
-	nonce     []byte
 	lifecycle int64
 	done      chan struct{}
 	closed    bool
@@ -217,17 +215,12 @@ func (s *Server) serveConn(raw net.Conn) {
 }
 
 func (s *Server) serveTransport(raw messageTransport) {
-	nonce, err := randomNonce()
-	if err != nil {
-		_ = raw.Close()
-		return
-	}
 	ctx, cancel := context.WithCancel(s.ctx)
 	connection := &serverConn{
 		ctx: ctx, cancel: cancel, subscriptions: make(map[string]*subscription),
-		server: s, conn: raw, id: hex.EncodeToString(nonce[:16]), out: make(chan []byte, s.options.MaxOutbound),
-		inFlight: make(chan struct{}, s.options.MaxInFlight), nonce: nonce,
-		done: make(chan struct{}),
+		server: s, conn: raw, id: rand.Text(), out: make(chan []byte, s.options.MaxOutbound),
+		inFlight: make(chan struct{}, s.options.MaxInFlight),
+		done:     make(chan struct{}),
 	}
 	defer connection.close()
 	_ = raw.SetReadDeadline(time.Now().Add(s.options.InitializationTimeout))
@@ -255,7 +248,7 @@ func (s *Server) serveTransport(raw messageTransport) {
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	capabilities := []string{"commands", "events", "snapshots", "uploads", "identities", "history_pages", "collections", "host_configuration", "workspace_completion"}
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion"}
 	negotiated := []string{}
 	for _, feature := range initialize.Capabilities {
 		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {
@@ -267,7 +260,7 @@ func (s *Server) serveTransport(raw messageTransport) {
 		Limits:        protocol.ProtocolLimits{FrameBytes: MaxFrameSize, Connections: s.options.MaxConnections, InFlightRequests: s.options.MaxInFlight, OutboundMessages: s.options.MaxOutbound, OutboundBytes: s.options.MaxOutboundBytes, RootSubscriptions: MaxSubscriptions, ContentChunkBytes: MaxContentChunk, UploadBytes: MaxUploadSize},
 		ProtocolMajor: ProtocolMajor, ProtocolMinor: ProtocolMinor, RuntimeID: s.runtimeID, ConnectionID: connection.id, HostPlatform: runtime.GOOS, HostArchitecture: runtime.GOARCH, NetworkEndpoint: s.networkEndpoint, BuildID: s.options.BuildID, Generation: s.options.Generation,
 		PID: s.options.PID, StartedAt: s.options.StartedAt.Format(time.RFC3339Nano),
-		Capabilities: capabilities, Nonce: connection.nonceValue(),
+		Capabilities: capabilities,
 	}}); err != nil {
 		return
 	}
@@ -348,7 +341,7 @@ func (s *Server) unregister(connection *serverConn) {
 }
 
 func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCError) {
-	if _, known := protocol.Lookup(request.Method); !known {
+	if operation, known := protocol.Lookup(request.Method); !known || operation.Surface != "rpc" {
 		return nil, rpcFailure(-32601, "unsupported operation")
 	}
 	if err := protocol.ValidateRPC(request.Method, request.Params); err != nil {
@@ -499,31 +492,14 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		}
 		result, err := s.uploads.finish(s.ctx, connection.id, params.UploadID)
 		return result, rpcFromError(err)
-	case "identity.enroll":
-		connection.authMu.Lock()
-		defer connection.authMu.Unlock()
-		var params EnrollIdentityParams
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			return nil, rpcFailure(-32602, "invalid identity enrollment")
-		}
-		result, err := s.enrollIdentity(connection, params)
-		return result, rpcFromError(err)
-	case "identity.status":
-		result, err := s.identityStatus(connection)
-		return result, rpcFromError(err)
 	case "permission.decide":
-		connection.authMu.Lock()
-		defer connection.authMu.Unlock()
 		var params PermissionDecisionParams
 		if err := json.Unmarshal(request.Params, &params); err != nil {
 			return nil, rpcFailure(-32602, "invalid permission decision")
 		}
-		if err := s.verifyPrivileged(connection, request.Method, params.Decision, params.Signature); err != nil {
-			return nil, rpcFailure(-32003, err.Error())
-		}
-		var decision PermissionDecision
-		if err := decodeProviderParams(params.Decision, &decision); err != nil {
-			return nil, rpcFailure(-32602, "invalid permission decision")
+		decision := params.Decision
+		if decision.CommandID == "" || decision.RootID == "" || decision.PermissionID == "" {
+			return nil, rpcFailure(-32602, "permission decision requires command, root, and permission IDs")
 		}
 		root, err := s.daemon.Open(decision.RootID)
 		if err != nil {
@@ -546,46 +522,13 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		if err != nil {
 			return nil, rpcFromError(err)
 		}
-		nonce, err := connection.rotateNonce()
-		return PermissionDecisionResult{OperationID: ticket.OperationID, LeaseID: ticket.LeaseID, Nonce: nonce}, rpcFromError(err)
-	case "permission.mode":
-		connection.authMu.Lock()
-		defer connection.authMu.Unlock()
-		var params PermissionModeParams
-		if err := json.Unmarshal(request.Params, &params); err != nil {
-			return nil, rpcFailure(-32602, "invalid permission mode")
-		}
-		if err := s.verifyPrivileged(connection, request.Method, params.Command, params.Signature); err != nil {
-			return nil, rpcFailure(-32003, err.Error())
-		}
-		var command CommandParams
-		if err := decodeProviderParams(params.Command, &command); err != nil {
-			return nil, rpcFailure(-32602, "invalid permission command")
-		}
-		result, err := s.commandAuthorized(connection, command, true)
-		if err != nil {
-			return nil, rpcFromError(err)
-		}
-		record, loadErr := s.daemon.store.LoadCommand(s.ctx, connection.client.ClientID, command.CommandID)
-		if loadErr != nil {
-			return nil, rpcFromError(loadErr)
-		}
-		result, err = s.commandRecordResult(s.ctx, record, nil)
-		if err != nil {
-			return nil, rpcFromError(err)
-		}
-		nonce, err := connection.rotateNonce()
-		return PermissionModeResult{Command: result, Nonce: nonce}, rpcFromError(err)
+		return PermissionDecisionResult{OperationID: ticket.OperationID, LeaseID: ticket.LeaseID}, nil
 	default:
 		return nil, rpcFailure(-32601, "method not found")
 	}
 }
 
 func (s *Server) command(connection *serverConn, params CommandParams) (CommandResult, error) {
-	return s.commandAuthorized(connection, params, false)
-}
-
-func (s *Server) commandAuthorized(connection *serverConn, params CommandParams, automaticPermissionAuthorized bool) (CommandResult, error) {
 	if metadata, ok := protocol.LookupRuntime(params.Operation); !ok || metadata.Execution != protocol.Command {
 		return CommandResult{}, rpcFailure(-32601, "operation is not a command")
 	}
@@ -649,17 +592,6 @@ func (s *Server) commandAuthorized(connection *serverConn, params CommandParams,
 	root, err := s.daemon.Open(params.RootID)
 	if err != nil {
 		return CommandResult{}, err
-	}
-	if params.Operation == "permission.mode" {
-		var mode struct {
-			External bool `json:"external_permissions"`
-		}
-		if err := json.Unmarshal(params.Payload, &mode); err != nil {
-			return CommandResult{}, errors.New("invalid permission mode payload")
-		}
-		if !mode.External && !automaticPermissionAuthorized {
-			return CommandResult{}, errors.New("automatic permissions require a signed paired-human request")
-		}
 	}
 	if params.Operation != "submit" && params.Operation != "steer" {
 		if !isClientOperation(params.Operation) {
@@ -856,23 +788,6 @@ func (c *serverConn) close() {
 		_ = c.conn.Close()
 		c.server.uploads.abortClient(c.id)
 	})
-}
-
-func (c *serverConn) nonceValue() []byte {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return append([]byte(nil), c.nonce...)
-}
-
-func (c *serverConn) rotateNonce() ([]byte, error) {
-	nonce, err := randomNonce()
-	if err != nil {
-		return nil, err
-	}
-	c.mu.Lock()
-	c.nonce = nonce
-	c.mu.Unlock()
-	return append([]byte(nil), nonce...), nil
 }
 
 func (c *serverConn) armLifecycle(generation int64) {

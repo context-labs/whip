@@ -81,7 +81,7 @@
     ],
     "additionalProperties": false
   },
-  "$id": "https://whip.dev/protocol/v2/SessionListResult",
+  "$id": "https://whip.dev/protocol/v3/SessionListResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SessionListResult"
 }

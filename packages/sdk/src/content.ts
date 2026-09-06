@@ -24,7 +24,7 @@ export class ContentReference {
     const size = Number(this.handle.size); // Checked against the caller's safe integer bound.
     const bytes = new Uint8Array(size);
     if (this.client.transportKind === 'websocket') {
-      const url = new URL(`/api/v2/content/${encodeURIComponent(this.handle.reference_id)}`, this.client.httpEndpoint);
+      const url = new URL(`/api/v3/content/${encodeURIComponent(this.handle.reference_id)}`, this.client.httpEndpoint);
       url.searchParams.set('root_id', this.scope.rootId);
       if (this.scope.agentId) url.searchParams.set('agent_id', this.scope.agentId);
       const response = await fetch(url, { signal, cache: 'no-store' });
@@ -86,7 +86,7 @@ export async function upload(client: WhipClient, input: Uint8Array<ArrayBuffer>,
   signal.throwIfAborted();
   let handle: ContentHandle;
   if (client.transportKind === 'websocket') {
-    const url = new URL('/api/v2/content/upload', client.httpEndpoint);
+    const url = new URL('/api/v3/content/upload', client.httpEndpoint);
     url.searchParams.set('root_id', options.rootId);
     const response = await fetch(url, { method: 'POST', signal, headers: { 'Content-Type': options.mediaType ?? 'application/octet-stream', 'X-Content-SHA256': digest }, body: bytes });
     if (!response.ok) throw httpError(response.status);

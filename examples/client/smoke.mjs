@@ -76,10 +76,23 @@ try {
   await expect(composer).toHaveValue(draft);
   await expect(page.locator('.transcript article .role')).toHaveText(['user', 'assistant', 'user', 'assistant']);
   await expect(page.getByRole('alert')).toHaveCount(0);
+  // A normal browser connection can answer both ways, with no identity injection.
+  for (const allow of [true, false]) {
+    await composer.fill('permission:' + crypto.randomUUID());
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    const permission = page.locator('.question').filter({ has: page.getByRole('heading', { name: 'Permission requested', exact: true }) });
+    await expect(permission).toHaveCount(1);
+    await expect(permission.getByRole('button', { name: 'Allow once', exact: true })).toBeEnabled();
+    await expect(permission.getByRole('button', { name: 'Deny', exact: true })).toBeEnabled();
+    await permission.getByRole('button', { name: allow ? 'Allow once' : 'Deny', exact: true }).click();
+    await expect(page.locator('.composer [role=status]')).toHaveText(allow ? 'succeeded' : 'failed');
+    await expect(permission).toHaveCount(0);
+    if (!allow) await expect(page.getByRole('alert')).toContainText('denied');
+  }
   assert.deepEqual(errors, [], 'Unexpected browser console or JavaScript errors');
   const screenshot = process.env.WHIP_SDK_EXAMPLE_SCREENSHOT ?? '/tmp/whip-sdk-example.png';
   await page.screenshot({ path: screenshot, fullPage: true });
-  console.log(JSON.stringify({ passed: true, created_session: true, transcript: true, reconnect_draft: true, console_errors: errors.length, screenshot }, null, 2));
+  console.log(JSON.stringify({ passed: true, created_session: true, transcript: true, reconnect_draft: true, unsigned_permissions: true, console_errors: errors.length, screenshot }, null, 2));
 } finally {
   await browser.close();
   await fixture.close();

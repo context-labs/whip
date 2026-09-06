@@ -1,4 +1,4 @@
-import { createWhipClient, createWebCryptoSigner } from '../dist/index.js';
+import { createWhipClient } from '../dist/index.js';
 import { createSessionView } from '../dist/state.js';
 import { useSessionView } from '../dist/react.js';
 import { createElement, StrictMode } from 'react';
@@ -6,10 +6,9 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 
 const check = (condition, message) => { if (!condition) throw new Error(message); };
-const bytes = value => Uint8Array.from(atob(value), char => char.charCodeAt(0));
 async function until(condition) {
   const deadline = Date.now() + 15_000;
-  while (!condition()) {
+  while (!await condition()) {
     if (Date.now() > deadline) throw new Error('React view update timed out');
     await new Promise(resolve => setTimeout(resolve, 20));
   }
@@ -47,8 +46,7 @@ async function reactSmoke(view, client, rootId) {
 
 async function smoke() {
   const info = await (await fetch('/bridge.json')).json();
-  const keys = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']);
-  const client = createWhipClient({ endpoint: info.endpoint, clientId: crypto.randomUUID(), clientKind: 'human', signer: createWebCryptoSigner(keys.privateKey) });
+  const client = createWhipClient({ endpoint: info.endpoint, clientId: crypto.randomUUID(), clientKind: 'human' });
   await client.connect();
   try {
     const initialized = await client.call('daemon.ping', {});
@@ -69,29 +67,25 @@ async function smoke() {
       check(view.getSnapshot().status === 'live' && view.getSnapshot().history[rootId].messages.length === 2, 'session view did not bootstrap');
       await reactSmoke(view, client, rootId);
     } finally { await view.dispose(); }
+    check((await client.permissions.setMode(rootId, false).result()).status === 'succeeded', 'Permission mode update failed');
+    check((await client.permissions.setMode(rootId, true).result()).status === 'succeeded', 'Permission mode reset failed');
+    for (const allow of [true, false]) {
+      const command = client.session(rootId).submit({ text: 'permission:' + crypto.randomUUID() });
+      await command.accepted();
+      let permission;
+      await until(async () => {
+        permission = (await client.session(rootId).snapshot()).permissions?.find(item => item.status === 'pending');
+        return permission;
+      });
+      await client.permissions.decide({ root_id: rootId, permission_id: permission.id, allow });
+      const outcome = await command.result({ signal: AbortSignal.timeout(15_000) });
+      check(outcome.status === (allow ? 'succeeded' : 'failed'), 'Permission decision did not control execution');
+    }
     const encoder = new TextEncoder();
-    const signing = await (await fetch('/signing-fixture.json')).json();
-    const prefix = encoder.encode('whip privileged request v2\0' + signing.method + signing.generation + '\0');
-    const nonce = bytes(signing.nonce);
-    const payload = encoder.encode(signing.payload);
-    const input = new Uint8Array(prefix.length + nonce.length + payload.length);
-    input.set(prefix); input.set(nonce, prefix.length); input.set(payload, prefix.length + nonce.length);
-    const digest = await crypto.subtle.digest('SHA-256', input);
-    const key = await crypto.subtle.importKey('raw', bytes(signing.public_key), { name: 'Ed25519' }, false, ['verify']);
-    check(await crypto.subtle.verify('Ed25519', key, bytes(signing.signature), digest), 'Go signature fixture mismatch');
-    const prefixBytes = Uint8Array.from('302e020100300506032b657004220420'.match(/../g), value => parseInt(value, 16));
-    const privateBytes = new Uint8Array(prefixBytes.length + 32);
-    privateBytes.set(prefixBytes); privateBytes.set(bytes(signing.seed), prefixBytes.length);
-    const authorizer = await crypto.subtle.importKey('pkcs8', privateBytes, 'Ed25519', false, ['sign']);
-    await client.permissions.enroll(new Uint8Array(await crypto.subtle.exportKey('raw', keys.publicKey)), 'sdk-terminal-fixture', createWebCryptoSigner(authorizer));
-    check((await client.permissions.status()).paired, 'SDK human enrollment failed');
-    await client.permissions.setMode(rootId, false, { commandId: 'browser <tag> & café ' + crypto.randomUUID() });
-    await client.permissions.setMode(rootId, true);
-
     const data = encoder.encode('browser HTTP content through SDK contracts');
     const uploaded = await client.upload(data, { rootId, mediaType: 'text/plain' });
     check(await uploaded.readText({ maxBytes: 1024 }) === new TextDecoder().decode(data), 'SDK content read differs from uploaded bytes');
-    return { passed: true, user_agent: navigator.userAgent, command_status: result.status, event_cursor: snapshot.cursor, strict_csp: true, react_strict_mode: true, ed25519: true, content: true };
+    return { passed: true, user_agent: navigator.userAgent, command_status: result.status, event_cursor: snapshot.cursor, strict_csp: true, react_strict_mode: true, unsigned_permissions: true, content: true };
   } finally { client.close(); }
 }
 

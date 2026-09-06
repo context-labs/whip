@@ -2,8 +2,8 @@
 import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
-  "major": 2,
-  "minor": 1,
+  "major": 3,
+  "minor": 0,
   "operations": [
     {
       "name": "command.status",
@@ -102,23 +102,6 @@ export const manifest = {
       "result_type": "BoundedTranscriptPage"
     },
     {
-      "name": "identity.enroll",
-      "surface": "rpc",
-      "execution": "ephemeral",
-      "permission": "existing-human-enrollment",
-      "sensitive": true,
-      "params_type": "EnrollIdentityParams",
-      "result_type": "IdentityResult"
-    },
-    {
-      "name": "identity.status",
-      "surface": "rpc",
-      "execution": "query",
-      "permission": "none",
-      "params_type": "Empty",
-      "result_type": "IdentityStatusResult"
-    },
-    {
       "name": "initialize",
       "surface": "rpc",
       "execution": "query",
@@ -139,19 +122,9 @@ export const manifest = {
       "name": "permission.decide",
       "surface": "rpc",
       "execution": "ephemeral",
-      "permission": "signed-human-decision",
-      "sensitive": true,
+      "permission": "trusted-client-decision",
       "params_type": "PermissionDecisionParams",
       "result_type": "PermissionDecisionResult"
-    },
-    {
-      "name": "permission.mode",
-      "surface": "rpc",
-      "execution": "ephemeral",
-      "permission": "signed-human-mode",
-      "sensitive": true,
-      "params_type": "PermissionModeParams",
-      "result_type": "PermissionModeResult"
     },
     {
       "name": "provider.key.rotate",
@@ -609,7 +582,7 @@ export const manifest = {
       "name": "permission.mode",
       "surface": "runtime",
       "execution": "command",
-      "permission": "signed-human-if-disabling",
+      "permission": "trusted-client-mode",
       "params_type": "PermissionConfigureParams",
       "result_type": "Empty"
     },

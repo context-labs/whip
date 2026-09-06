@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"database/sql"
 	"errors"
 	"net"
@@ -209,20 +207,18 @@ func (c *staticRootConnection) Close() error {
 	return nil
 }
 
-type privilegedRootConnection struct {
+type permissionRootConnection struct {
 	*staticRootConnection
 	decision PermissionDecision
-	mode     CommandParams
+	decide   func(PermissionDecision) (PermissionDecisionResult, error)
 }
 
-func (c *privilegedRootConnection) DecidePermission(_ context.Context, _ ed25519.PrivateKey, decision PermissionDecision) (PermissionDecisionResult, error) {
+func (c *permissionRootConnection) DecidePermission(_ context.Context, decision PermissionDecision) (PermissionDecisionResult, error) {
 	c.decision = decision
+	if c.decide != nil {
+		return c.decide(decision)
+	}
 	return PermissionDecisionResult{OperationID: "operation", LeaseID: "lease"}, nil
-}
-
-func (c *privilegedRootConnection) SetPermissionMode(_ context.Context, _ ed25519.PrivateKey, command CommandParams) (CommandResult, error) {
-	c.mode = command
-	return CommandResult{CommandID: command.CommandID, Status: "succeeded", Output: "configured"}, nil
 }
 
 func TestRootClientValidationAndDisconnectedSurface(t *testing.T) {
@@ -282,18 +278,15 @@ func TestRootClientValidationAndDisconnectedSurface(t *testing.T) {
 	if _, err := client.DecidePermission(t.Context(), permission, "", true, "", ""); err == nil {
 		t.Fatal("permission without an id should fail")
 	}
-	if _, err := client.DecidePermission(t.Context(), permission, "permission", true, "", ""); err == nil {
-		t.Fatal("permission without a private key should fail")
-	}
 	mode, err := client.NewAction("permission.mode", map[string]bool{"external_permissions": false})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.SetPermissionMode(t.Context(), RootAction{}, false); err == nil {
+	if _, err := client.SetPermissionMode(t.Context(), RootAction{}); err == nil {
 		t.Fatal("identity-free permission mode should fail")
 	}
-	if _, err := client.SetPermissionMode(t.Context(), mode, false); err == nil {
-		t.Fatal("automatic mode without a private key should fail")
+	if _, err := client.SetPermissionMode(t.Context(), mode); err == nil {
+		t.Fatal("permission mode should be disabled before start")
 	}
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
@@ -443,15 +436,11 @@ func TestRootClientReceivesEventsAfterExpiredCursorSnapshot(t *testing.T) {
 	}
 }
 
-func TestRootClientRetriesAndUsesPrivilegedConnection(t *testing.T) {
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	connection := &privilegedRootConnection{staticRootConnection: newStaticRootConnection()}
+func TestRootClientRetriesAndApprovesWithoutCredentials(t *testing.T) {
+	connection := &permissionRootConnection{staticRootConnection: newStaticRootConnection()}
 	attempts := 0
 	client, err := NewRootClient(RootClientOptions{
-		ClientID: "paired", PrivateKey: private, RootID: "root",
+		ClientID: "interactive", RootID: "root",
 		RetryMin: time.Millisecond, RetryMax: time.Millisecond,
 		Connector: func(context.Context, map[string]int64) (RootConnection, error) {
 			attempts++
@@ -476,11 +465,11 @@ func TestRootClientRetriesAndUsesPrivilegedConnection(t *testing.T) {
 		t.Fatalf("snapshot = %+v, %v", snapshot, err)
 	}
 	external, _ := client.NewAction("permission.mode", map[string]bool{"external_permissions": true})
-	if result, err := client.SetPermissionMode(t.Context(), external, true); err != nil || result.Output != "ok" {
+	if result, err := client.SetPermissionMode(t.Context(), external); err != nil || result.Output != "ok" {
 		t.Fatalf("external mode = %+v, %v", result, err)
 	}
 	automatic, _ := client.NewAction("permission.mode", map[string]bool{"external_permissions": false})
-	if result, err := client.SetPermissionMode(t.Context(), automatic, false); err != nil || result.Output != "configured" {
+	if result, err := client.SetPermissionMode(t.Context(), automatic); err != nil || result.Output != "ok" {
 		t.Fatalf("automatic mode = %+v, %v", result, err)
 	}
 	permission, _ := client.NewAction("permission.decide", struct{}{})
@@ -488,19 +477,15 @@ func TestRootClientRetriesAndUsesPrivilegedConnection(t *testing.T) {
 	if err != nil || decision.LeaseID != "lease" {
 		t.Fatalf("permission decision = %+v, %v", decision, err)
 	}
-	if connection.decision.PermissionID != "permission-1" || !connection.decision.Allow || connection.mode.Operation != "permission.mode" {
-		t.Fatalf("privileged calls decision=%+v mode=%+v", connection.decision, connection.mode)
+	if connection.decision.PermissionID != "permission-1" || !connection.decision.Allow {
+		t.Fatalf("permission decision=%+v", connection.decision)
 	}
 }
 
-func TestRootClientReportsUnsupportedPrivilegesAndCommandFailure(t *testing.T) {
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestRootClientReportsUnsupportedDecisionsAndCommandFailure(t *testing.T) {
 	connection := newStaticRootConnection()
 	client, err := NewRootClient(RootClientOptions{
-		ClientID: "plain", PrivateKey: private, RootID: "root",
+		ClientID: "plain", RootID: "root",
 		Connector: func(context.Context, map[string]int64) (RootConnection, error) { return connection, nil },
 	})
 	if err != nil {
@@ -516,8 +501,8 @@ func TestRootClientReportsUnsupportedPrivilegesAndCommandFailure(t *testing.T) {
 		t.Fatal("plain connection should not approve permissions")
 	}
 	mode, _ := client.NewAction("permission.mode", map[string]bool{"external_permissions": false})
-	if _, err := client.SetPermissionMode(t.Context(), mode, false); err == nil {
-		t.Fatal("plain connection should not authorize automatic mode")
+	if _, err := client.SetPermissionMode(t.Context(), mode); err != nil {
+		t.Fatalf("ordinary command connection should support automatic mode: %v", err)
 	}
 	connection.commandErr = errors.New("command rejected")
 	action, _ := client.NewAction("submit", SubmitPayload{Text: "hello"})
@@ -536,4 +521,55 @@ func (*failingRootConnection) Subscribe(context.Context, string, int64) (Subscri
 
 func (*staticRootConnection) Subscribe(context.Context, string, int64) (SubscribeResult, error) {
 	return SubscribeResult{}, nil
+}
+
+func TestRootClientRetriesPermissionDecisionWithSameCommandAfterDisconnect(t *testing.T) {
+	var mu sync.Mutex
+	decisions := []PermissionDecision{}
+	client, err := NewRootClient(RootClientOptions{
+		ClientID: "client", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
+		Connector: func(context.Context, map[string]int64) (RootConnection, error) {
+			connection := &permissionRootConnection{staticRootConnection: newStaticRootConnection()}
+			connection.decide = func(decision PermissionDecision) (PermissionDecisionResult, error) {
+				select {
+				case <-connection.Done():
+					return PermissionDecisionResult{}, net.ErrClosed
+				default:
+				}
+				mu.Lock()
+				decisions = append(decisions, decision)
+				attempt := len(decisions)
+				mu.Unlock()
+				if attempt == 1 {
+					_ = connection.Close()
+					return PermissionDecisionResult{}, net.ErrClosed
+				}
+				return PermissionDecisionResult{OperationID: "operation", LeaseID: "lease"}, nil
+			}
+			return connection, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Start()
+	defer client.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := client.WaitLive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	action, err := client.NewAction("permission.decide", struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.DecidePermission(ctx, action, "permission", true, "approved", "tree")
+	if err != nil || result.OperationID != "operation" {
+		t.Fatalf("recovered decision = %+v, %v", result, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(decisions) != 2 || decisions[0] != decisions[1] || decisions[0].CommandID != action.CommandID {
+		t.Fatalf("permission retry changed its identity or payload: %+v", decisions)
+	}
 }

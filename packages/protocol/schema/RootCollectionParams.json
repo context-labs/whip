@@ -45,7 +45,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/RootCollectionParams",
+  "$id": "https://whip.dev/protocol/v3/RootCollectionParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RootCollectionParams",
   "required": [

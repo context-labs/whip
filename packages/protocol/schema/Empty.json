@@ -1,6 +1,6 @@
 {
   "type": "object",
-  "$id": "https://whip.dev/protocol/v2/Empty",
+  "$id": "https://whip.dev/protocol/v3/Empty",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Empty",
   "additionalProperties": false

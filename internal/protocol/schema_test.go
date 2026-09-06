@@ -48,6 +48,12 @@ func TestValidateParametersBeforeAdmission(t *testing.T) {
 		{name: "daemon.ping", raw: `{}`, valid: true},
 		{name: "events.replay", raw: `{"root_id":"root","cursor":"0","limit":100}`, valid: true},
 		{name: "daemon.ping", valid: true},
+		{name: "permission.decide", raw: `{"decision":{"command_id":"decision","root_id":"root","permission_id":"permission","allow":true}}`, valid: true},
+		{name: "permission.decide", raw: `{"decision":{"command_id":"decision","root_id":"root","permission_id":"permission","allow":"true"}}`},
+		{name: "permission.decide", raw: `{"decision":{"command_id":"decision","root_id":"root","permission_id":"permission","allow":true},"signature":"old-signature"}`},
+		{name: "identity.enroll", raw: `{}`},
+		{name: "identity.status", raw: `{}`},
+		{name: "permission.mode", raw: `{}`},
 		{name: "unknown", raw: `{}`},
 	} {
 		t.Run(test.name+test.raw, func(t *testing.T) {

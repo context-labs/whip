@@ -36,12 +36,9 @@ export function encodeBase64(bytes: Uint8Array): string {
   }
   return btoa(text);
 }
-export function subtle(): SubtleCrypto {
-  if (!globalThis.crypto?.subtle) throw new WhipError('unavailable_capability', 'WebCrypto is unavailable. Use a secure browser context or supply a signing implementation.');
-  return crypto.subtle;
-}
 export async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
-  return new Uint8Array(await subtle().digest('SHA-256', bytes));
+  if (!globalThis.crypto?.subtle) throw new WhipError('unavailable_capability', 'WebCrypto is unavailable. Use a secure browser context for content integrity checks.');
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
 }
 export async function digestHex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   return Array.from(await sha256(bytes), byte => byte.toString(16).padStart(2, '0')).join('');

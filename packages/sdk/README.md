@@ -1,7 +1,7 @@
 # WHIP TypeScript SDK
 
 Private, ESM client package for Node 24, browsers and future Electron clients.
-The SDK attaches to an existing WHIP v2 daemon. Execution, credentials, SQLite,
+The SDK attaches to an existing WHIP v3 daemon. Execution, credentials, SQLite,
 model context, permissions and schedules remain on the execution host.
 
 ## Install and check in this repository
@@ -177,17 +177,19 @@ stay content references rather than causing implicit downloads. Upload failure
 never submits a prompt or attaches a partial file. Browser WebCrypto requires
 a secure context such as localhost or HTTPS.
 
-Interactive clients supply `clientKind: 'human'` and an `ApprovalSigner` for a
-paired identity. `createWebCryptoSigner(privateKey)` supports an application-owned
-nonextractable Ed25519 key. `permissions.decide` and `permissions.setMode` serialize
-nonce use and sign the exact transmitted payload bytes. They do not replay after
-an uncertain acknowledgement. Reconcile pending state and retry explicitly.
+Connected clients can approve or deny requests directly:
 
-`permissions.enroll(publicKey, authorizedBy, authorizer)` requires an existing
-paired human. First-human enrollment remains in the terminal; the browser helper
-never claims TTY confirmation. These signatures preserve tool approvals, not
-connection authentication. Signing keys and provider secrets stay outside SDK
-recovery storage and logging; the SDK does not log payloads.
+```ts
+await client.permissions.decide({ root_id: rootId, permission_id: permissionId, allow: true });
+await client.permissions.setMode(rootId, false).result();
+```
+
+Permission decisions require no signer, enrollment, or authentication. Both human
+and automation client kinds can answer requests. The daemon validates the
+permission's root and enforces tool permissions and delegated authority. Decisions are sent once; after an uncertain acknowledgement, inspect
+pending state before explicitly retrying with the original `command_id`.
+Permission-mode changes use ordinary durable command handles. Provider secrets
+stay outside recovery storage and logging; the SDK does not log payloads.
 
 Provider/configuration helpers (`client.providers`, `client.configuration`) call
 host services. Login status/list allow reconnect; restart interrupts incomplete
@@ -207,9 +209,8 @@ npm start -w @whip/client-example
 
 Open http://localhost:3000 and enter the reported endpoint. The example supplies
 its own metadata-only localStorage recovery adapter and sessionStorage drafts.
-Its optional `window.whipIdentity` host injection supplies a paired client ID and
-signer; without it, permissions are answered in a paired terminal. This is an SDK
-example, not the future product UI or a new pairing workflow.
+Pending permissions expose Allow once and Deny whenever the client is connected.
+This remains a minimal example of the SDK primitives.
 
 ```sh
 WHIP_SDK_RACE=1 npm run acceptance

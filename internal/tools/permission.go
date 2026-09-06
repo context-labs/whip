@@ -33,6 +33,18 @@ type GateRequest struct {
 // consent, native trust, a saved rule, or automatic permission mode.
 type Gate func(context.Context, GateRequest) (GateDecision, string)
 
+// A resolution is claimed once and retained until its dispatcher invocation ends.
+// Retaining consumed decisions closes the gap before the durable ledger commits.
+type permissionResolution struct {
+	waiter   chan capability.Decision
+	decision capability.Decision
+	resolved bool
+	revision uint64
+}
+
+type permissionInvocationKey struct{}
+type permissionInvocation struct{ id string }
+
 type (
 	servicesKey   struct{}
 	localHumanKey struct{}
@@ -92,6 +104,9 @@ func (s *Services) CheckGate(ctx context.Context, tool, command string) string {
 
 // Decide adapts the session gate to durable dispatcher permission decisions.
 func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPrompt) (capability.Decision, error) {
+	if invocation, _ := ctx.Value(permissionInvocationKey{}).(*permissionInvocation); invocation != nil {
+		invocation.id = prompt.ID
+	}
 	if prompt.Operation == "mcp.call" {
 		return s.decideMCP(ctx, prompt)
 	}
@@ -143,35 +158,43 @@ func (s *Services) waitPermission(ctx context.Context, permissionID string) (cap
 		s.mu.Unlock()
 		return capability.Decision{}, capability.ErrStaleAdmission
 	}
-	if decision, ok := s.permissionEarly[permissionID]; ok {
-		delete(s.permissionEarly, permissionID)
+	if resolution := s.permissions[permissionID]; resolution != nil && resolution.resolved {
+		if resolution.revision != s.permissionRevision {
+			s.mu.Unlock()
+			return capability.Decision{}, capability.ErrStaleAdmission
+		}
+		decision := resolution.decision
 		s.mu.Unlock()
 		return decision, nil
 	}
 	waiter := make(chan capability.Decision, 1)
-	s.permissionWaiters[permissionID] = waiter
+	resolution := &permissionResolution{waiter: waiter, revision: s.permissionRevision}
+	s.permissions[permissionID] = resolution
 	s.mu.Unlock()
 	select {
 	case decision := <-waiter:
 		return decision, nil
 	case <-ctx.Done():
 		s.mu.Lock()
-		if s.permissionWaiters[permissionID] == waiter {
-			delete(s.permissionWaiters, permissionID)
+		if s.permissions[permissionID] == resolution && !resolution.resolved {
+			delete(s.permissions, permissionID)
 		}
 		s.mu.Unlock()
 		return capability.Decision{}, ctx.Err()
 	}
 }
 
-// Policy changes invalidate admitted consent and wake existing prompts. Every
-// waiter has capacity one; removing it under the lock excludes ResolvePermission
-// from sending a second decision to that channel.
+// Policy changes settle unresolved prompts and invalidate early decisions. Claims
+// remain until invocation cleanup, so a policy change cannot admit a second answer.
 func (s *Services) invalidatePermissionPolicyLocked() {
 	s.permissionRevision++
-	for id, waiter := range s.permissionWaiters {
-		delete(s.permissionWaiters, id)
-		waiter <- capability.Decision{PrincipalID: "permission-policy", Reason: "permission policy changed"}
+	for _, resolution := range s.permissions {
+		if !resolution.resolved {
+			resolution.decision = capability.Decision{PrincipalID: "permission-policy", Reason: "permission policy changed"}
+			resolution.resolved = true
+			if resolution.waiter != nil {
+				resolution.waiter <- resolution.decision
+			}
+		}
 	}
-	clear(s.permissionEarly)
 }

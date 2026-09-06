@@ -3,7 +3,7 @@ package tui
 import (
 	"bufio"
 	"context"
-	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,28 +94,21 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 	if err != nil {
 		return "", err
 	}
-	credentials, err := daemon.LoadOrCreateClientCredentials(daemon.SystemKeyStore(), "tui")
-	if err != nil {
-		return "", fmt.Errorf("TUI identity: %w", err)
-	}
+	clientID := "tui-" + rand.Text()
 	connector := func(ctx context.Context, cursors map[string]int64) (daemonConnection, error) {
 		return daemon.EnsureClient(ctx, paths, daemon.InitializeParams{
 			ProtocolMajor: daemon.ProtocolMajor, BuildID: Version, ClientKind: "tui",
-			ClientID: credentials.ClientID, Capabilities: []string{"commands", "events", "snapshots", "permissions"},
+			ClientID: clientID, Capabilities: []string{"commands", "events", "snapshots", "permissions"},
 			Cursors: cursors,
 		}, func() error { return daemon.LaunchSelfDaemon(paths) })
-	}
-	identityWarning, err := prepareTUIIdentity(connector, credentials, stdin)
-	if err != nil {
-		return "", err
 	}
 	var create *daemon.CreateSession
 	if resumeID == "" {
 		create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName}
 	}
 	client, err := NewClient(ClientOptions{
-		ClientID: credentials.ClientID, PrivateKey: credentials.PrivateKey,
-		RootID: resumeID, Create: create, Connector: connector,
+		ClientID: clientID,
+		RootID:   resumeID, Create: create, Connector: connector,
 	})
 	if err != nil {
 		return "", err
@@ -152,9 +145,6 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 	m.applyOpencodeStyles()
 	m.startupReport()
 	m.append(dimStyle.Render("daemon: connecting…"))
-	if identityWarning != "" {
-		m.append(errStyle.Render(identityWarning))
-	}
 
 	// alt screen and mouse mode are View fields; the filter thins mouse motion
 	options := []bubbletea.ProgramOption{bubbletea.WithFilter(newInputFilter().Filter)}
@@ -187,7 +177,7 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 }
 
 // setPermissionMode asks the daemon to prompt a human (external) or to approve
-// every permission itself (--yolo). Turning prompts off is a signed request.
+// every permission itself (--yolo).
 func setPermissionMode(ctx context.Context, client *Client, external bool) error {
 	label := "automatic"
 	if external {
@@ -197,7 +187,7 @@ func setPermissionMode(ctx context.Context, client *Client, external bool) error
 	if err != nil {
 		return fmt.Errorf("configure %s permission mode: %w", label, err)
 	}
-	result, err := client.SetPermissionMode(ctx, action, external)
+	result, err := client.SetPermissionMode(ctx, action)
 	if err != nil {
 		return fmt.Errorf("configure %s permission mode: %w", label, err)
 	}
@@ -253,42 +243,6 @@ func configureInteractiveSession(ctx context.Context, client *Client, cautious, 
 		return fmt.Errorf("configure automatic titles: %s", result.Error)
 	}
 	return nil
-}
-
-type identityConnection interface {
-	IdentityStatus(context.Context) (daemon.IdentityStatusResult, error)
-	EnrollIdentity(context.Context, ed25519.PrivateKey, bool, string, ed25519.PrivateKey) (daemon.IdentityResult, error)
-}
-
-func prepareTUIIdentity(connector clientConnector, credentials daemon.ClientCredentials, stdin *bufio.Reader) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	connection, err := connector(ctx, nil)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = connection.Close() }()
-	identity, ok := connection.(identityConnection)
-	if !ok {
-		return "permission approvals unavailable: daemon does not support identities", nil
-	}
-	status, err := identity.IdentityStatus(ctx)
-	if err != nil {
-		return "", err
-	}
-	if status.Paired {
-		return "", nil
-	}
-	if !status.EnrollmentOpen {
-		return "permission approvals unavailable: this TUI identity is not paired", nil
-	}
-	if !askYN(stdin, os.Stdout, "Pair this terminal as the first human permission approver?", false) {
-		return "permission approvals disabled until a human identity is paired", nil
-	}
-	if _, err := identity.EnrollIdentity(ctx, credentials.PrivateKey, true, "", nil); err != nil {
-		return "", fmt.Errorf("pair TUI identity: %w", err)
-	}
-	return "", nil
 }
 
 type clientUpdateMsg struct {

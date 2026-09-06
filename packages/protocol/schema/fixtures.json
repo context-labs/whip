@@ -2,7 +2,7 @@
   {
     "type": "InitializeParams",
     "value": {
-      "protocol_major": 2,
+      "protocol_major": 3,
       "build_id": "fixture",
       "client_kind": "human",
       "client_id": "browser-fixture"
@@ -154,29 +154,6 @@
     }
   },
   {
-    "type": "EnrollIdentityParams",
-    "value": {
-      "public_key": null
-    }
-  },
-  {
-    "type": "IdentityResult",
-    "value": {
-      "client_id": "",
-      "kind": "",
-      "nonce": null
-    }
-  },
-  {
-    "type": "IdentityStatusResult",
-    "value": {
-      "client_id": "",
-      "kind": "",
-      "paired": false,
-      "enrollment_open": false
-    }
-  },
-  {
     "type": "InitializeResult",
     "value": {
       "operations": [],
@@ -199,8 +176,7 @@
       "protocol_major": 0,
       "build_id": "",
       "generation": "0",
-      "capabilities": [],
-      "nonce": null
+      "capabilities": []
     }
   },
   {
@@ -216,35 +192,19 @@
   {
     "type": "PermissionDecisionParams",
     "value": {
-      "decision": null,
-      "signature": null
+      "decision": {
+        "command_id": "",
+        "root_id": "",
+        "permission_id": "",
+        "allow": false
+      }
     }
   },
   {
     "type": "PermissionDecisionResult",
     "value": {
       "operation_id": "",
-      "lease_id": "",
-      "nonce": null
-    }
-  },
-  {
-    "type": "PermissionModeParams",
-    "value": {
-      "command": null,
-      "signature": null
-    }
-  },
-  {
-    "type": "PermissionModeResult",
-    "value": {
-      "command": {
-        "operation": "",
-        "command_id": "",
-        "ingress_seq": "0",
-        "status": ""
-      },
-      "nonce": null
+      "lease_id": ""
     }
   },
   {

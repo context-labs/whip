@@ -174,7 +174,7 @@ func TestAuthorityCloneKeepsHostIntegrationsAndPermissionMode(t *testing.T) {
 	if screenshot != nil || !clone.ExternalPermissionsEnabled() {
 		t.Fatal("authority clone copied an agent callback or lost external permission mode")
 	}
-	if clone.permissionWaiters == nil || clone.permissionEarly == nil || clone.generationFor("Finder") != 7 {
+	if clone.permissions == nil || clone.generationFor("Finder") != 7 {
 		t.Fatal("authority clone did not initialize independent runtime state")
 	}
 }

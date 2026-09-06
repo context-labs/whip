@@ -2,8 +2,6 @@ package tui
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -62,15 +60,11 @@ func (f *fakeDaemonConnection) Snapshot(context.Context, string) (session.RootSn
 	return f.snapshot, nil
 }
 
-func (f *fakeDaemonConnection) DecidePermission(_ context.Context, _ ed25519.PrivateKey, decision daemon.PermissionDecision) (daemon.PermissionDecisionResult, error) {
+func (f *fakeDaemonConnection) DecidePermission(_ context.Context, decision daemon.PermissionDecision) (daemon.PermissionDecisionResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.decisions = append(f.decisions, decision)
 	return daemon.PermissionDecisionResult{OperationID: "operation", LeaseID: "lease"}, nil
-}
-
-func (f *fakeDaemonConnection) SetPermissionMode(_ context.Context, _ ed25519.PrivateKey, params daemon.CommandParams) (daemon.CommandResult, error) {
-	return f.Command(context.Background(), params)
 }
 
 func (f *fakeDaemonConnection) Events() <-chan daemon.ProtocolEvent { return f.events }
@@ -128,13 +122,9 @@ func TestInteractiveSetupAppliesCautiousModeBeforeAutomaticTitles(t *testing.T) 
 }
 
 func TestInteractiveSetupAppliesYoloModeAndReappliesOnForgottenRoots(t *testing.T) {
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
 	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
 	client, err := NewClient(ClientOptions{
-		ClientID: "tui", PrivateKey: private, RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
+		ClientID: "tui", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
 		Connector: func(context.Context, map[string]int64) (daemonConnection, error) { return connection, nil },
 	})
 	if err != nil {
@@ -175,7 +165,7 @@ func TestInteractiveSetupStopsWhenCautiousModeFails(t *testing.T) {
 	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
 	connection.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
 		if params.Operation == "permission.mode" {
-			return daemon.CommandResult{CommandID: params.CommandID, Status: "failed", Error: "identity rejected"}, nil
+			return daemon.CommandResult{CommandID: params.CommandID, Status: "failed", Error: "mode change rejected"}, nil
 		}
 		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded"}, nil
 	}
@@ -188,7 +178,7 @@ func TestInteractiveSetupStopsWhenCautiousModeFails(t *testing.T) {
 	}
 	client.Start()
 	t.Cleanup(func() { _ = client.Close() })
-	if err := configureInteractiveSession(t.Context(), client, true, false); err == nil || !strings.Contains(err.Error(), "identity rejected") {
+	if err := configureInteractiveSession(t.Context(), client, true, false); err == nil || !strings.Contains(err.Error(), "mode change rejected") {
 		t.Fatalf("cautious setup error=%v", err)
 	}
 	connection.mu.Lock()
@@ -655,14 +645,10 @@ func TestThinKeyKeepsDraftWhileSynchronizing(t *testing.T) {
 	}
 }
 
-func TestThinPermissionSendsOneStableSignedDecision(t *testing.T) {
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestThinPermissionSendsOneStableDecisionWithoutCredentials(t *testing.T) {
 	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
 	client, err := NewClient(ClientOptions{
-		ClientID: "tui", PrivateKey: private, RootID: "root",
+		ClientID: "tui", RootID: "root",
 		Connector: func(context.Context, map[string]int64) (daemonConnection, error) { return connection, nil },
 	})
 	if err != nil {

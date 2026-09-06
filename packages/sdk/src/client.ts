@@ -6,7 +6,7 @@ import {
 } from '@whip/protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
-import { Permissions, Providers, Configuration, type ApprovalSigner } from './services.js';
+import { Permissions, Providers, Configuration } from './services.js';
 import { Session, Sessions } from './session.js';
 import { Subscription, type SubscriptionOptions } from './subscription.js';
 import { WhipError, RpcError, abortError, asError } from './errors.js';
@@ -33,7 +33,6 @@ export interface ClientOptions {
   heartbeatTimeoutMs?: number;
   commandPollMs?: number;
   recoveryStorage?: RecoveryStorage;
-  signer?: ApprovalSigner;
 }
 export type QueryOutcome<O extends RuntimeOperation> = Omit<QueryResult, 'result'> & { result?: RuntimeOperations[O]['result'] };
 interface Pending {
@@ -102,7 +101,7 @@ export class WhipClient {
     this.sessions = new Sessions(this);
     this.providers = new Providers(this);
     this.configuration = new Configuration(this);
-    this.permissions = new Permissions(this, options.signer);
+    this.permissions = new Permissions(this);
   }
   getSnapshot = (): ConnectionSnapshot => this.snapshot;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
@@ -140,7 +139,7 @@ export class WhipClient {
       this.connection = connection;
       const info = await this.dispatch('initialize', {
         protocol_major: manifest.major, client_id: this.clientId, client_kind: this.clientKind,
-        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'identities', 'history_pages', 'collections', 'host_configuration', 'workspace_completion'],
+        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion'],
       }, { signal: controller.signal }, true);
       if (epoch !== this.epoch || this.closed || controller.signal.aborted) throw abortError(controller.signal);
       if (info.protocol_major !== manifest.major) throw new WhipError('unsupported_protocol', 'Daemon protocol major is incompatible');
@@ -150,7 +149,6 @@ export class WhipClient {
       }
       this.runtimeId = info.runtime_id;
       this.retries = 0;
-      this.permissions.connected(info);
       this.setState('connected', undefined, frozen(info));
       this.scheduleHeartbeat();
     } catch (value) {
@@ -184,7 +182,7 @@ export class WhipClient {
       this.retryTimer = setTimeout(() => { void this.connect().catch(() => { /* open records state and schedules recovery */ }); }, delay);
     }
   }
-  /** Refreshes a connection after uncertain signed operations; never replays them. */
+  /** Refreshes a connection without replaying pending requests. */
   reconnect(): void {
     this.requireConnected();
     this.disconnected(new WhipError('disconnected', 'Refreshing daemon connection'));
@@ -223,7 +221,7 @@ export class WhipClient {
   call<M extends RpcMethod>(method: M, params: RpcMethods[M]['params'], options: CallOptions = {}): Promise<RpcMethods[M]['result']> {
     return this.dispatch(method, params, options);
   }
-  /** Internal exact JSON path shared with command retries and signed approval payloads. */
+  /** Internal exact JSON path for command retries. */
   callEncoded<M extends RpcMethod>(method: M, paramsJSON: string, options: CallOptions = {}): Promise<RpcMethods[M]['result']> {
     return this.dispatch(method, JSON.parse(paramsJSON), options, false, paramsJSON);
   }

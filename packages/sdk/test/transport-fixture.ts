@@ -17,9 +17,9 @@ export function transportFixture(options: {
 } = {}) {
   const connections: FixtureConnection[] = [];
   const info: InitializeResult = {
-    protocol_major: 2, protocol_minor: 1, runtime_id: 'fixture-runtime', connection_id: 'fixture-connection',
+    protocol_major: 3, protocol_minor: 0, runtime_id: 'fixture-runtime', connection_id: 'fixture-connection',
     generation: '9007199254740993', build_id: 'fixture', host_platform: 'darwin', host_architecture: 'arm64',
-    capabilities: [], negotiated_capabilities: [], nonce: btoa('\x03'.repeat(32)),
+    capabilities: [], negotiated_capabilities: [],
     operations: manifest.operations.map(operation => ({ ...operation })),
     limits: { frame_bytes: 1 << 20, connections: 64, in_flight_requests: 32, outbound_messages: 1024,
       outbound_bytes: String(8 << 20), root_subscriptions: 16, content_chunk_bytes: 4, upload_bytes: String(64 << 20) },

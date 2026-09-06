@@ -34,7 +34,7 @@
     ],
     "additionalProperties": false
   },
-  "$id": "https://whip.dev/protocol/v2/ToolSchemaResult",
+  "$id": "https://whip.dev/protocol/v3/ToolSchemaResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ToolSchemaResult"
 }

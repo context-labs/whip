@@ -3,9 +3,8 @@
 package daemon
 
 import (
-	"bytes"
 	"context"
-	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +22,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 // TestV2SDKBridge runs only as a subprocess of the SDK acceptance scripts. Its
@@ -64,10 +64,23 @@ func TestV2SDKBridge(t *testing.T) {
 	frontend := "http://" + listener.Addr().String()
 	runner := &sdkRunnerControl{directory: directory, holds: make(map[string]chan struct{})}
 	owner, err := New(store, func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
-		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history, turn: runner.turn}}
+		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history}, services: tools.NewServices()}
+		value.services.SetExternalPermissions(true)
+		value.fakeRunner.turn = func(ctx context.Context, input string, authored bool) (string, error) {
+			if strings.HasPrefix(input, "permission:") {
+				arguments, err := json.Marshal(map[string]string{
+					"path": "sdk-permission-" + rand.Text() + ".txt", "content": input,
+				})
+				if err != nil {
+					return "", err
+				}
+				return value.services.CallTool(ctx, "write", arguments)
+			}
+			return runner.turn(ctx, input, authored)
+		}
 		return Components{Runner: value, Bind: func(_ context.Context, root *Session) error {
 			value.root = root
-			return nil
+			return value.services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority)
 		}}, nil
 	})
 	if err != nil {
@@ -75,7 +88,7 @@ func TestV2SDKBridge(t *testing.T) {
 	}
 	network := NetworkOptions{Enabled: true, AllowedOrigins: []string{frontend}}
 	if previous.Endpoint != "" {
-		network.Address = strings.TrimSuffix(strings.TrimPrefix(previous.Endpoint, "ws://"), "/api/v2/ws")
+		network.Address = strings.TrimSuffix(strings.TrimPrefix(previous.Endpoint, "ws://"), "/api/v3/ws")
 	}
 	server, err := NewServer(owner, ServerOptions{Generation: previous.Generation + 1, BuildID: "sdk-fixture", RuntimeDir: paths.Runtime, Network: network})
 	if err != nil {
@@ -97,27 +110,14 @@ func TestV2SDKBridge(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	probe, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: 2, ClientID: "sdk-probe", ClientKind: "automation"})
+	probe, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "sdk-probe", ClientKind: "automation"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	initialized := probe.InitializeResult()
 	_ = probe.Close()
-	// This test-only terminal identity matches the public signing fixture. Browser
-	// clients must still enroll through a signature by this existing human.
-	if previous.Generation == 0 {
-		human, err := DialClient(ctx, paths, InitializeParams{ProtocolMajor: 2, ClientID: "sdk-terminal-fixture", ClientKind: "human"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, enrollErr := human.EnrollIdentity(ctx, ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize)), true, "", nil)
-		_ = human.Close()
-		if enrollErr != nil {
-			t.Fatal(enrollErr)
-		}
-	}
 	info := sdkBridgeInfo{
-		Frontend: frontend, Endpoint: "ws" + strings.TrimPrefix(initialized.NetworkEndpoint, "http") + "/api/v2/ws",
+		Frontend: frontend, Endpoint: "ws" + strings.TrimPrefix(initialized.NetworkEndpoint, "http") + "/api/v3/ws",
 		RootID: rootID, Socket: paths.Socket, RuntimeID: initialized.RuntimeID,
 		Generation: previous.Generation + 1, Directory: directory,
 	}
@@ -205,7 +205,7 @@ type sdkRunnerControl struct {
 type sdkFixtureRunner struct {
 	*fakeRunner
 	root     *Session
-	external bool
+	services *tools.Services
 }
 
 func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
@@ -241,10 +241,19 @@ func (r *sdkFixtureRunner) ReplaceHistory(history []llm.Message) {
 	r.history = append([]llm.Message(nil), history...)
 }
 
-func (r *sdkFixtureRunner) SetExternalPermissions(enabled bool) { r.external = enabled }
-func (r *sdkFixtureRunner) ExternalPermissionsEnabled() bool    { return r.external }
-func (r *sdkFixtureRunner) ResolvePermission(string, capability.Decision) error {
-	return nil
+func (r *sdkFixtureRunner) SetExternalPermissions(enabled bool) {
+	r.services.SetExternalPermissions(enabled)
+}
+func (r *sdkFixtureRunner) ExternalPermissionsEnabled() bool {
+	return r.services.ExternalPermissionsEnabled()
+}
+func (r *sdkFixtureRunner) ResolvePermission(id string, decision capability.Decision) error {
+	return r.services.ResolvePermission(id, decision)
+}
+
+func (r *sdkFixtureRunner) Close() {
+	r.services.Close()
+	r.fakeRunner.Close()
 }
 
 func (r *sdkRunnerControl) turn(ctx context.Context, input string, _ bool) (string, error) {

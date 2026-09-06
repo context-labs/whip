@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
 import { chromium, firefox, webkit } from '@playwright/test';
-import { copyFile, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eventually, run, startFixture } from './fixture.mjs';
@@ -14,7 +14,6 @@ try {
     entryPoints: [fileURLToPath(new URL('../test/browser-smoke.mjs', import.meta.url))],
     outfile: join(publicDirectory, 'sdk-smoke.js'), bundle: true, format: 'esm', platform: 'browser', target: 'es2022',
   });
-  await copyFile(new URL('../../protocol/schema/signing-fixture.json', import.meta.url), join(publicDirectory, 'signing-fixture.json'));
   await writeFile(join(publicDirectory, 'index.html'), '<!doctype html><html lang="en"><meta charset="utf-8"><title>WHIP SDK acceptance</title><body><pre id="status">Running isolated WHIP SDK checks…</pre><script type="module" src="/sdk-smoke.js"></script></body></html>');
   for (const name of requested) {
     let browser;

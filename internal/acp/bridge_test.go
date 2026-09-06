@@ -2,8 +2,6 @@ package acp
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,12 +22,10 @@ import (
 type fakeACPBackend struct {
 	mu       sync.Mutex
 	next     int
-	paired   bool
 	newErr   error
 	listErr  error
 	roots    map[string]*fakeRoot
 	attached map[string]map[string]mcp.ServerConfig
-	private  ed25519.PrivateKey
 }
 
 type fakeRoot struct {
@@ -53,13 +49,9 @@ type fakeRoot struct {
 	closeCount   int
 }
 
-func newFakeBackend(t *testing.T, paired bool) *fakeACPBackend {
+func newFakeBackend(t *testing.T) *fakeACPBackend {
 	t.Helper()
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &fakeACPBackend{paired: paired, roots: make(map[string]*fakeRoot), attached: make(map[string]map[string]mcp.ServerConfig), private: private}
+	return &fakeACPBackend{roots: make(map[string]*fakeRoot), attached: make(map[string]map[string]mcp.ServerConfig)}
 }
 
 func (b *fakeACPBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
@@ -91,9 +83,9 @@ func (b *fakeACPBackend) LoadRoot(ctx context.Context, id, _ string, servers map
 
 func (b *fakeACPBackend) client(ctx context.Context, root *fakeRoot) (*daemon.RootClient, error) {
 	client, err := daemon.NewRootClient(daemon.RootClientOptions{
-		ClientID: "acp-test", PrivateKey: b.private, RootID: root.id,
+		ClientID: "acp-test", RootID: root.id,
 		Connector: func(context.Context, map[string]int64) (daemon.RootConnection, error) {
-			return newFakeConnection(b, root), nil
+			return newFakeConnection(root), nil
 		},
 		RetryMin: time.Millisecond, RetryMax: 5 * time.Millisecond,
 	})
@@ -123,8 +115,6 @@ func (b *fakeACPBackend) ListSessions(context.Context, int) ([]session.Meta, err
 	return out, nil
 }
 
-func (b *fakeACPBackend) Paired(context.Context) bool { return b.paired }
-
 func (b *fakeACPBackend) seed(cwd string, messages ...llm.Message) string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -135,15 +125,14 @@ func (b *fakeACPBackend) seed(cwd string, messages ...llm.Message) string {
 }
 
 type fakeConnection struct {
-	backend *fakeACPBackend
-	root    *fakeRoot
-	events  chan daemon.ProtocolEvent
-	done    chan struct{}
-	once    sync.Once
+	root   *fakeRoot
+	events chan daemon.ProtocolEvent
+	done   chan struct{}
+	once   sync.Once
 }
 
-func newFakeConnection(backend *fakeACPBackend, root *fakeRoot) *fakeConnection {
-	return &fakeConnection{backend: backend, root: root, events: make(chan daemon.ProtocolEvent, 64), done: make(chan struct{})}
+func newFakeConnection(root *fakeRoot) *fakeConnection {
+	return &fakeConnection{root: root, events: make(chan daemon.ProtocolEvent, 64), done: make(chan struct{})}
 }
 
 func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParams) (daemon.CommandResult, error) {
@@ -154,10 +143,6 @@ func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParam
 			External bool `json:"external_permissions"`
 		}
 		_ = json.Unmarshal(params.Payload, &payload)
-		if !payload.External && !c.backend.paired {
-			result.Status, result.Error = "failed", "automatic permissions require a paired human identity"
-			return result, nil
-		}
 		c.root.mu.Lock()
 		c.root.external = payload.External
 		c.root.mu.Unlock()
@@ -186,10 +171,6 @@ func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParam
 	default:
 		return result, nil
 	}
-}
-
-func (c *fakeConnection) SetPermissionMode(ctx context.Context, _ ed25519.PrivateKey, params daemon.CommandParams) (daemon.CommandResult, error) {
-	return c.Command(ctx, params)
 }
 
 func (c *fakeConnection) submit(ctx context.Context, params daemon.CommandParams, result daemon.CommandResult) (daemon.CommandResult, error) {
@@ -287,10 +268,7 @@ func (c *fakeConnection) Snapshot(context.Context, string) (session.RootSnapshot
 	}, nil
 }
 
-func (c *fakeConnection) DecidePermission(_ context.Context, _ ed25519.PrivateKey, decision daemon.PermissionDecision) (daemon.PermissionDecisionResult, error) {
-	if !c.backend.paired {
-		return daemon.PermissionDecisionResult{}, errors.New("unpaired")
-	}
+func (c *fakeConnection) DecidePermission(_ context.Context, decision daemon.PermissionDecision) (daemon.PermissionDecisionResult, error) {
 	c.root.mu.Lock()
 	c.root.decisions++
 	c.root.remember = decision.Remember
@@ -316,10 +294,11 @@ func (c *fakeConnection) Close() error {
 }
 
 type fakeACPClient struct {
-	mu      sync.Mutex
-	updates []acpsdk.SessionNotification
-	perms   []acpsdk.RequestPermissionRequest
-	answer  string
+	permissionGate <-chan struct{}
+	mu             sync.Mutex
+	updates        []acpsdk.SessionNotification
+	perms          []acpsdk.RequestPermissionRequest
+	answer         string
 }
 
 func (c *fakeACPClient) SessionUpdate(_ context.Context, update acpsdk.SessionNotification) error {
@@ -329,11 +308,18 @@ func (c *fakeACPClient) SessionUpdate(_ context.Context, update acpsdk.SessionNo
 	return nil
 }
 
-func (c *fakeACPClient) RequestPermission(_ context.Context, request acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
+func (c *fakeACPClient) RequestPermission(ctx context.Context, request acpsdk.RequestPermissionRequest) (acpsdk.RequestPermissionResponse, error) {
 	c.mu.Lock()
 	c.perms = append(c.perms, request)
 	answer := c.answer
 	c.mu.Unlock()
+	if c.permissionGate != nil {
+		select {
+		case <-c.permissionGate:
+		case <-ctx.Done():
+			return acpsdk.RequestPermissionResponse{}, ctx.Err()
+		}
+	}
 	if answer == "" {
 		answer = optAllowOnce
 	}
@@ -474,7 +460,7 @@ func (f *acpFixture) newSession(t *testing.T) acpsdk.SessionId {
 }
 
 func TestBridgeDaemonCutoverMapsEventsAndContent(t *testing.T) {
-	backend := newFakeBackend(t, true)
+	backend := newFakeBackend(t)
 	fixture := newACPFixture(t, backend, nil)
 	fixture.initialize(t)
 	id := fixture.newSession(t)
@@ -515,7 +501,7 @@ func TestBridgeDaemonCutoverMapsEventsAndContent(t *testing.T) {
 }
 
 func TestBridgeLoadReplaysBeforeResponseAndLists(t *testing.T) {
-	backend := newFakeBackend(t, false)
+	backend := newFakeBackend(t)
 	cwd := t.TempDir()
 	id := backend.seed(cwd,
 		llm.Message{Role: "user", Content: "remember"},
@@ -542,8 +528,8 @@ func TestBridgeLoadReplaysBeforeResponseAndLists(t *testing.T) {
 	}
 }
 
-func TestBridgePairedPermissionAndModes(t *testing.T) {
-	backend := newFakeBackend(t, true)
+func TestBridgePermissionAndModesWithoutCredentials(t *testing.T) {
+	backend := newFakeBackend(t)
 	client := &fakeACPClient{answer: optAllowAlways}
 	fixture := newACPFixture(t, backend, client)
 	fixture.initialize(t)
@@ -571,12 +557,12 @@ func TestBridgePairedPermissionAndModes(t *testing.T) {
 		t.Fatalf("permission options = %+v", options)
 	}
 	if _, err := fixture.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: id, ModeId: ModeAuto}); err != nil {
-		t.Fatalf("paired auto mode: %v", err)
+		t.Fatalf("auto mode: %v", err)
 	}
 }
 
 func TestBridgeQuestionMapsToPermissionPromptAndAnswerOp(t *testing.T) {
-	backend := newFakeBackend(t, true)
+	backend := newFakeBackend(t)
 	client := &fakeACPClient{answer: "1"}
 	fixture := newACPFixture(t, backend, client)
 	fixture.initialize(t)
@@ -620,7 +606,7 @@ func TestBridgeQuestionMapsToPermissionPromptAndAnswerOp(t *testing.T) {
 }
 
 func TestBridgeLoadSessionPromptsTheOpenQuestion(t *testing.T) {
-	backend := newFakeBackend(t, true)
+	backend := newFakeBackend(t)
 	cwd := t.TempDir()
 	id := backend.seed(cwd, llm.Message{Role: "user", Content: "pick"})
 	backend.roots[id].questions = []session.LifecycleEvent{{
@@ -651,41 +637,8 @@ func TestBridgeLoadSessionPromptsTheOpenQuestion(t *testing.T) {
 	}
 }
 
-func TestBridgeUnpairedCannotApproveOrEnableAuto(t *testing.T) {
-	backend := newFakeBackend(t, false)
-	fixture := newACPFixture(t, backend, nil)
-	fixture.initialize(t)
-	id := fixture.newSession(t)
-	if _, err := fixture.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: id, ModeId: ModeAuto}); err == nil {
-		t.Fatal("unpaired auto mode succeeded")
-	}
-	done := make(chan acpsdk.PromptResponse, 1)
-	go func() {
-		response, _ := fixture.conn.Prompt(context.Background(), acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("permission")}})
-		done <- response
-	}()
-	time.Sleep(20 * time.Millisecond)
-	if err := fixture.conn.Cancel(t.Context(), acpsdk.CancelNotification{SessionId: id}); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case response := <-done:
-		if response.StopReason != acpsdk.StopReasonCancelled {
-			t.Fatalf("cancelled prompt = %+v", response)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("cancel did not stop the prompt")
-	}
-	fixture.client.mu.Lock()
-	requests := len(fixture.client.perms)
-	fixture.client.mu.Unlock()
-	if requests != 0 {
-		t.Fatalf("unpaired client received %d permission requests", requests)
-	}
-}
-
 func TestBridgeConcurrentSessionsAndCloseDetach(t *testing.T) {
-	backend := newFakeBackend(t, true)
+	backend := newFakeBackend(t)
 	fixture := newACPFixture(t, backend, nil)
 	fixture.initialize(t)
 	first, second := fixture.newSession(t), fixture.newSession(t)
@@ -711,9 +664,8 @@ func TestBridgeConcurrentSessionsAndCloseDetach(t *testing.T) {
 }
 
 func TestFakeConnectionImplementsRootProtocol(t *testing.T) {
-	backend := newFakeBackend(t, true)
 	root := &fakeRoot{id: "root", cancel: make(chan struct{}, 1), permission: make(chan bool, 1)}
-	var _ daemon.RootConnection = newFakeConnection(backend, root)
+	var _ daemon.RootConnection = newFakeConnection(root)
 }
 
 func TestBridgeRejectsUnsupportedAndInvalidProtocolRequests(t *testing.T) {
@@ -770,7 +722,7 @@ func TestBridgeRejectsUnsupportedAndInvalidProtocolRequests(t *testing.T) {
 }
 
 func TestBridgeSessionRequestErrorsRemainSessionScoped(t *testing.T) {
-	backend := newFakeBackend(t, true)
+	backend := newFakeBackend(t)
 	fixture := newACPFixture(t, backend, nil)
 	fixture.initialize(t)
 	if _, err := fixture.bridge.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: "missing", ModeId: ModeAsk}); err == nil {
@@ -829,4 +781,44 @@ func TestBridgeSessionRequestErrorsRemainSessionScoped(t *testing.T) {
 
 func (*fakeConnection) Subscribe(context.Context, string, int64) (daemon.SubscribeResult, error) {
 	return daemon.SubscribeResult{}, nil
+}
+
+func TestBridgeCancelsWhilePermissionDecisionIsPending(t *testing.T) {
+	gate := make(chan struct{})
+	defer close(gate)
+	backend := newFakeBackend(t)
+	fixture := newACPFixture(t, backend, &fakeACPClient{permissionGate: gate})
+	fixture.initialize(t)
+	id := fixture.newSession(t)
+	done := make(chan acpsdk.PromptResponse, 1)
+	go func() {
+		response, _ := fixture.conn.Prompt(t.Context(), acpsdk.PromptRequest{
+			SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("permission")},
+		})
+		done <- response
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		fixture.client.mu.Lock()
+		requests := len(fixture.client.perms)
+		fixture.client.mu.Unlock()
+		if requests == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("permission request was not displayed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := fixture.conn.Cancel(t.Context(), acpsdk.CancelNotification{SessionId: id}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-done:
+		if response.StopReason != acpsdk.StopReasonCancelled {
+			t.Fatalf("cancelled prompt = %+v", response)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancel did not stop the prompt waiting for permission")
+	}
 }

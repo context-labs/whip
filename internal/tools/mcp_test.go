@@ -395,7 +395,7 @@ func TestMCPExternalConsentSettlesPendingOperations(t *testing.T) {
 			}
 			for {
 				services.mu.RLock()
-				waiting := services.permissionWaiters[permissionID] != nil
+				waiting := services.permissions[permissionID] != nil
 				services.mu.RUnlock()
 				if waiting {
 					break
@@ -438,10 +438,10 @@ func TestMCPExternalConsentSettlesPendingOperations(t *testing.T) {
 			}
 			assertMCPSettled(t, ledger, authority)
 			services.mu.RLock()
-			waiters, early := len(services.permissionWaiters), len(services.permissionEarly)
+			retained := len(services.permissions)
 			services.mu.RUnlock()
-			if waiters != 0 || early != 0 {
-				t.Fatalf("permission state leaked: waiters=%d early=%d", waiters, early)
+			if retained != 0 {
+				t.Fatalf("permission state leaked: retained=%d", retained)
 			}
 		})
 	}

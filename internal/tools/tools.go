@@ -69,8 +69,7 @@ type Services struct {
 	permissionRevision  uint64
 	mcpProvider         func() MCPProvider
 	permissionLedger    capability.Ledger
-	permissionWaiters   map[string]chan capability.Decision
-	permissionEarly     map[string]capability.Decision
+	permissions         map[string]*permissionResolution
 
 	// Background shell jobs owned by this agent; see jobs.go.
 	jobs     map[string]*bashrun.Job
@@ -79,17 +78,16 @@ type Services struct {
 
 func NewServices() *Services { return &Services{} }
 
-// SetExternalPermissions makes dispatcher admissions wait for an authenticated
-// daemon decision instead of consulting an in-process consent callback.
+// SetExternalPermissions makes dispatcher admissions wait for a trusted
+// client decision instead of consulting an in-process consent callback.
 func (s *Services) SetExternalPermissions(enabled bool) {
 	s.mu.Lock()
 	if s.externalPermissions != enabled {
 		s.invalidatePermissionPolicyLocked()
 	}
 	s.externalPermissions = enabled
-	if enabled && s.permissionWaiters == nil {
-		s.permissionWaiters = make(map[string]chan capability.Decision)
-		s.permissionEarly = make(map[string]capability.Decision)
+	if enabled && s.permissions == nil {
+		s.permissions = make(map[string]*permissionResolution)
 	}
 	s.mu.Unlock()
 }
@@ -108,23 +106,22 @@ func (s *Services) CopyPermissionPolicyFrom(previous *Services) {
 	s.invalidatePermissionPolicyLocked()
 	s.gate, s.externalPermissions = gate, external
 	s.mcpAutomatic, s.headlessPermissions = automatic, headless
-	if external && s.permissionWaiters == nil {
-		s.permissionWaiters = make(map[string]chan capability.Decision)
-		s.permissionEarly = make(map[string]capability.Decision)
+	if external && s.permissions == nil {
+		s.permissions = make(map[string]*permissionResolution)
 	}
 	s.mu.Unlock()
 }
 
-// ExternalPermissionsEnabled reports whether admissions are delegated to an
-// authenticated daemon client instead of the in-process consent callback.
+// ExternalPermissionsEnabled reports whether admissions are delegated to a
+// trusted daemon client instead of the in-process consent callback.
 func (s *Services) ExternalPermissionsEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.externalPermissions
 }
 
-// ResolvePermission delivers one authenticated decision to the dispatcher
-// call waiting on that permission ID.
+// ResolvePermission accepts one decision for a dispatcher invocation. The claim
+// remains until the invocation settles, including while the ledger commits it.
 func (s *Services) ResolvePermission(permissionID string, decision capability.Decision) error {
 	if permissionID == "" || decision.PrincipalID == "" {
 		return errors.New("permission and principal identities are required")
@@ -134,8 +131,14 @@ func (s *Services) ResolvePermission(permissionID string, decision capability.De
 		s.mu.Unlock()
 		return errors.New("external permissions are not enabled")
 	}
-	if waiter := s.permissionWaiters[permissionID]; waiter != nil {
-		delete(s.permissionWaiters, permissionID)
+	resolution := s.permissions[permissionID]
+	if resolution != nil && resolution.resolved {
+		s.mu.Unlock()
+		return capability.ErrDenied
+	}
+	if resolution != nil && resolution.waiter != nil {
+		resolution.decision, resolution.resolved = decision, true
+		waiter := resolution.waiter
 		s.mu.Unlock()
 		waiter <- decision
 		return nil
@@ -153,7 +156,7 @@ func (s *Services) ResolvePermission(permissionID string, decision capability.De
 			return capability.ErrDenied
 		}
 	}
-	s.permissionEarly[permissionID] = decision
+	s.permissions[permissionID] = &permissionResolution{decision: decision, resolved: true, revision: s.permissionRevision}
 	s.mu.Unlock()
 	return nil
 }
@@ -623,8 +626,7 @@ func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capab
 	}
 	s.mu.RUnlock()
 	if clone.externalPermissions {
-		clone.permissionWaiters = make(map[string]chan capability.Decision)
-		clone.permissionEarly = make(map[string]capability.Decision)
+		clone.permissions = make(map[string]*permissionResolution)
 	}
 	if err := clone.BindDispatcher(ledger, workspaces, processes, authority); err != nil {
 		return nil, err
@@ -696,6 +698,13 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 			return "", err
 		}
 	}
+	permission := &permissionInvocation{}
+	ctx = context.WithValue(ctx, permissionInvocationKey{}, permission)
+	defer func() {
+		s.mu.Lock()
+		delete(s.permissions, permission.id)
+		s.mu.Unlock()
+	}()
 	response, err := dispatcher.Dispatch(ctx, request)
 	return response.Output, err
 }

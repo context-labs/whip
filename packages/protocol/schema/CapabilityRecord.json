@@ -78,7 +78,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/CapabilityRecord",
+  "$id": "https://whip.dev/protocol/v3/CapabilityRecord",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CapabilityRecord",
   "required": [

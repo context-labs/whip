@@ -6,8 +6,6 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -87,15 +85,6 @@ func TestAcpCLIServeExitsOnEOF(t *testing.T) {
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
 	}`)
 	useTestDaemon(t)
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	previousCredentials := loadACPClientCredentials
-	loadACPClientCredentials = func() (daemon.ClientCredentials, error) {
-		return daemon.ClientCredentials{ClientID: "acp-test", PrivateKey: private}, nil
-	}
-	t.Cleanup(func() { loadACPClientCredentials = previousCredentials })
 
 	// stdin/stdout become the ends of two pipes: the test acts as the ACP
 	// client on the other side.
@@ -173,13 +162,9 @@ func TestAcpCLIServeExitsOnEOF(t *testing.T) {
 func TestACPDaemonBackendAndMCPToolsRoundTrip(t *testing.T) {
 	var requests []llm.Request
 	runFixture(t, "daemon reply", &requests)
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
 	backend := &acpDaemonBackend{
-		clientID: "acp-round-trip", privateKey: private,
-		model: "test", provider: "testprov",
+		clientID: "acp-round-trip",
+		model:    "test", provider: "testprov",
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
@@ -243,35 +228,13 @@ func TestACPDaemonBackendAndMCPToolsRoundTrip(t *testing.T) {
 	if _, err := provider.CallTool(ctx, "write", writeArgs); err == nil || !strings.Contains(err.Error(), "Permission denied") {
 		t.Fatalf("write tool should be denied, got %v", err)
 	}
-	if backend.Paired(ctx) {
-		t.Fatal("an untrusted ACP identity should not report as paired")
-	}
-
-	// Pair the ACP identity, switch to external prompts, and resolve the real
-	// daemon-owned permission. This covers the signed boundary rather than a
-	// protocol mock: the tool worker stays blocked until the decision lands.
-	identityConnection, err := connectDaemon(ctx, "acp", backend.clientID, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	enroller, ok := identityConnection.(interface {
-		EnrollIdentity(context.Context, ed25519.PrivateKey, bool, string, ed25519.PrivateKey) (daemon.IdentityResult, error)
-	})
-	if !ok {
-		t.Fatal("daemon connection does not support identity enrollment")
-	}
-	if _, err := enroller.EnrollIdentity(ctx, private, true, "", nil); err != nil {
-		t.Fatal(err)
-	}
-	_ = identityConnection.Close()
-	if !backend.Paired(ctx) {
-		t.Fatal("enrolled ACP identity should report as paired")
-	}
+	// Switch to external prompts and resolve the real daemon-owned permission
+	// without identity setup. The tool worker waits until the decision lands.
 	external, err := root.NewAction("permission.mode", map[string]bool{"external_permissions": true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err := root.SetPermissionMode(ctx, external, true); err != nil || result.Status != "succeeded" {
+	if result, err := root.SetPermissionMode(ctx, external); err != nil || result.Status != "succeeded" {
 		t.Fatalf("external permission mode = %+v, %v", result, err)
 	}
 	beforeWrite, err := root.Snapshot(ctx)
@@ -340,7 +303,7 @@ func TestACPDaemonBackendAndMCPToolsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err := root.SetPermissionMode(ctx, automatic, false); err != nil || result.Status != "succeeded" {
+	if result, err := root.SetPermissionMode(ctx, automatic); err != nil || result.Status != "succeeded" {
 		t.Fatalf("automatic permission mode = %+v, %v", result, err)
 	}
 

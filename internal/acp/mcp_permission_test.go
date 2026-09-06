@@ -7,7 +7,7 @@ import (
 )
 
 func TestBridgeMCPPermissionKeepsConcreteArguments(t *testing.T) {
-	backend := newFakeBackend(t, true)
+	backend := newFakeBackend(t)
 	client := &fakeACPClient{answer: optAllowAlways}
 	fixture := newACPFixture(t, backend, client)
 	fixture.initialize(t)

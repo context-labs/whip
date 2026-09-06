@@ -21,7 +21,7 @@ import (
 
 // Exercise the TUI's actual startup requests against the daemon's validation,
 // handlers, persistence and subscriptions, without provider credentials.
-func TestInteractiveSessionOverV2(t *testing.T) {
+func TestInteractiveSessionOverTrustedProtocol(t *testing.T) {
 	for _, transport := range []string{"unix", "websocket"} {
 		t.Run(transport, func(t *testing.T) {
 			home := t.TempDir()
@@ -77,12 +77,12 @@ func TestInteractiveSessionOverV2(t *testing.T) {
 			})
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			initialize := daemon.InitializeParams{ProtocolMajor: 2, ClientID: "tui-startup", ClientKind: "tui"}
+			initialize := daemon.InitializeParams{ProtocolMajor: daemon.ProtocolMajor, ClientID: "tui-startup", ClientKind: "tui"}
 			probe, err := daemon.DialClient(ctx, paths, initialize)
 			if err != nil {
 				t.Fatal(err)
 			}
-			endpoint := "ws" + strings.TrimPrefix(probe.InitializeResult().NetworkEndpoint, "http") + "/api/v2/ws"
+			endpoint := "ws" + strings.TrimPrefix(probe.InitializeResult().NetworkEndpoint, "http") + "/api/v3/ws"
 			_ = probe.Close()
 			client, err := NewClient(ClientOptions{
 				ClientID: initialize.ClientID,

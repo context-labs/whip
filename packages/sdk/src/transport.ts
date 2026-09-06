@@ -20,7 +20,7 @@ export function webSocket(endpoint: string): TransportFactory {
   if (url.protocol === 'https:') url.protocol = 'wss:';
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') throw new TypeError('Expected a WebSocket or HTTP endpoint');
   if (url.username || url.password || url.hash) throw new TypeError('Endpoint must not contain credentials or a fragment');
-  if (url.pathname === '/') url.pathname = '/api/v2/ws';
+  if (url.pathname === '/') url.pathname = '/api/v3/ws';
   const base = new URL(url);
   base.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
   base.pathname = '/'; base.search = '';

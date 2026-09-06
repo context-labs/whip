@@ -40,7 +40,7 @@ func TestEnsureClientStartsDaemonAcrossStaleSocket(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 2, BuildID: "current", ClientID: "client", ClientKind: "test"}, launch)
+	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "current", ClientID: "client", ClientKind: "test"}, launch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestEnsureClientAttachesAcrossBuildsWithoutRestart(t *testing.T) {
 	defer running.server.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 2, BuildID: "new", ClientID: "stable", ClientKind: "test"}, func() error { t.Error("responsive daemon triggered a launch"); return nil })
+	client, err := EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: ProtocolMajor, BuildID: "new", ClientID: "stable", ClientKind: "test"}, func() error { t.Error("responsive daemon triggered a launch"); return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,9 +173,14 @@ func TestEnsureClientRejectsOldProtocolWithoutLaunching(t *testing.T) {
 	defer running.server.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	_, err = EnsureClient(ctx, paths, InitializeParams{ProtocolMajor: 1, ClientID: "old", ClientKind: "test"}, func() error { t.Error("protocol mismatch triggeredlaunch"); return nil })
-	if err == nil {
-		t.Fatal("v1 accepted")
+	for _, major := range []int{1, 2} {
+		_, err = EnsureClient(ctx, paths, InitializeParams{
+			ProtocolMajor: major, ClientID: "old", ClientKind: "test",
+		}, func() error { t.Error("protocol mismatch triggered a launch"); return nil })
+		failure, ok := errors.AsType[*RPCError](err)
+		if !ok || failure.Code != -32001 {
+			t.Fatalf("protocol %d rejection = %v", major, err)
+		}
 	}
 }
 

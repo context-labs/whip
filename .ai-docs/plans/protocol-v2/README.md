@@ -1,5 +1,11 @@
 # WHIP v2 protocol foundation
 
+> Protocol 3.0 supersedes the approval-authentication portions of this historical
+> plan. All connected clients may approve/deny without enrollment or signatures.
+> Permission prompts/rules, internal agent/MCP authority, content grants and
+> Host/Origin validation remain. See `docs/protocol-v2.md` for the current contract.
+
+
 Branch: whip-rlm
 
 ## Goal

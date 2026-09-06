@@ -3,8 +3,6 @@ package daemon
 import (
 	"bufio"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net"
@@ -37,13 +35,13 @@ func TestClientValidationAndCancellationPaths(t *testing.T) {
 	go func() {
 		reader := bufio.NewReader(serverSide)
 		_, _ = readProtocolFrame(reader)
-		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 2}})
+		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: ProtocolMajor}})
 		_, _ = readProtocolFrame(reader)
 		_, _ = readProtocolFrame(reader)
 		<-time.After(50 * time.Millisecond)
 		_ = serverSide.Close()
 	}()
-	client, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: 2})
+	client, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: ProtocolMajor})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,15 +74,19 @@ func TestClientValidationAndCancellationPaths(t *testing.T) {
 	if _, err := client.Upload(context.Background(), UploadBeginParams{Size: 2}, []byte("x")); err == nil {
 		t.Fatal("upload size mismatch was accepted")
 	}
-	if _, err := client.EnrollIdentity(context.Background(), nil, true, "", nil); err == nil {
-		t.Fatal("invalid enrollment key was accepted")
+	for _, decision := range []PermissionDecision{
+		{RootID: "root", PermissionID: "permission"},
+		{CommandID: "command", PermissionID: "permission"},
+		{CommandID: "command", RootID: "root"},
+	} {
+		if _, err := client.DecidePermission(context.Background(), decision); err == nil {
+			t.Fatalf("incomplete decision identities were accepted: %+v", decision)
+		}
 	}
-	_, private, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := client.EnrollIdentity(context.Background(), private, false, "authorizer", nil); err == nil {
-		t.Fatal("missing enrollment authorizer key was accepted")
-	}
-	if _, err := client.DecidePermission(context.Background(), nil, PermissionDecision{}); err == nil {
-		t.Fatal("invalid decision key was accepted")
+	if _, err := client.DecidePermission(context.Background(), PermissionDecision{
+		CommandID: "command", RootID: "root", PermissionID: "permission", Allow: true,
+	}); err == nil {
+		t.Fatal("closed client accepted a permission decision")
 	}
 }
 
@@ -101,7 +103,7 @@ func TestClientRejectsBadInitializeAndSnapshotReplies(t *testing.T) {
 			_ = writeProtocolMessage(serverSide, result)
 			_ = serverSide.Close()
 		}()
-		if _, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: 2}); err == nil {
+		if _, err := NewClient(context.Background(), clientSide, InitializeParams{ProtocolMajor: ProtocolMajor}); err == nil {
 			t.Fatalf("bad initialize reply %+v was accepted", result)
 		}
 	}
@@ -112,12 +114,12 @@ func TestClientRejectsBadInitializeAndSnapshotReplies(t *testing.T) {
 			defer serverSide.Close()
 			reader := bufio.NewReader(serverSide)
 			_, _ = readProtocolFrame(reader)
-			_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 2}})
+			_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: ProtocolMajor}})
 			frame, _ := readProtocolFrame(reader)
 			request, _ := decodeFrame(frame)
 			_ = writeProtocolMessage(serverSide, rpcMessage{ID: request.ID, Result: result})
 		}()
-		client, err := NewClient(t.Context(), clientSide, InitializeParams{ProtocolMajor: 2})
+		client, err := NewClient(t.Context(), clientSide, InitializeParams{ProtocolMajor: ProtocolMajor})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -187,7 +189,7 @@ func TestClientCallRejectsInvalidResultAndRestartCancellation(t *testing.T) {
 	go func() {
 		reader := bufio.NewReader(serverSide)
 		_, _ = readProtocolFrame(reader)
-		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 2}})
+		_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: ProtocolMajor}})
 		frame, _ := readProtocolFrame(reader)
 		request, _ := decodeFrame(frame)
 		_ = writeProtocolMessage(serverSide, rpcMessage{ID: request.ID, Result: "wrong shape"})
@@ -218,7 +220,7 @@ func TestClientUploadPropagatesEachProtocolFailure(t *testing.T) {
 			go func() {
 				reader := bufio.NewReader(serverSide)
 				_, _ = readProtocolFrame(reader)
-				_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: 2}})
+				_ = writeProtocolMessage(serverSide, rpcMessage{ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: ProtocolMajor}})
 				for {
 					frame, err := readProtocolFrame(reader)
 					if err != nil {
@@ -251,4 +253,43 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return raw
+}
+
+func TestClientPermissionDecisionUsesUnsignedPayload(t *testing.T) {
+	serverSide, clientSide := net.Pipe()
+	requests := make(chan rpcMessage, 1)
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		_, _ = readProtocolFrame(reader)
+		_ = writeProtocolMessage(serverSide, rpcMessage{
+			ID: json.RawMessage("1"), Result: InitializeResult{ProtocolMajor: ProtocolMajor},
+		})
+		frame, _ := readProtocolFrame(reader)
+		request, _ := decodeFrame(frame)
+		requests <- request
+		_ = writeProtocolMessage(serverSide, rpcMessage{
+			ID: request.ID, Result: PermissionDecisionResult{OperationID: "operation", LeaseID: "lease"},
+		})
+	}()
+	client, err := NewClient(t.Context(), clientSide, InitializeParams{ProtocolMajor: ProtocolMajor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	decision := PermissionDecision{
+		CommandID: "decision-1", RootID: "root", PermissionID: "permission",
+		Allow: true, Reason: "approved", Remember: "tree",
+	}
+	result, err := client.DecidePermission(t.Context(), decision)
+	if err != nil || result.OperationID != "operation" || result.LeaseID != "lease" {
+		t.Fatalf("decision = %+v, %v", result, err)
+	}
+	request := <-requests
+	want := mustJSON(t, struct {
+		Decision PermissionDecision `json:"decision"`
+	}{Decision: decision})
+	if request.Method != "permission.decide" || string(request.Params) != string(want) {
+		t.Fatalf("decision wire message = %s %s, want permission.decide %s", request.Method, request.Params, want)
+	}
 }

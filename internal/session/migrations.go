@@ -226,10 +226,7 @@ CREATE TABLE daemon_state (
 	id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL CHECK(generation>=0),
 	build_id TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL
 );
-CREATE TABLE client_identities (
-	client_id TEXT PRIMARY KEY, kind TEXT NOT NULL, public_key BLOB NOT NULL,
-	paired_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, CHECK(length(public_key)=32)
-);
+
 CREATE TRIGGER collection_agents_insert AFTER INSERT ON agents
 BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=NEW.root_id; END;
 CREATE TRIGGER collection_agents_update AFTER UPDATE ON agents

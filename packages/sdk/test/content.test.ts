@@ -138,7 +138,7 @@ test('HTTP content preserves scoped URLs and detects interrupted or excessive bo
   await client.connect();
   const reference = client.content(content, { rootId: 'root/?', agentId: 'child&' });
   assert.equal(await reference.readText({ maxBytes: 4 }), 'body');
-  assert.equal(urls[0]!.pathname, '/api/v2/content/ref%2Fwith%3Freserved');
+  assert.equal(urls[0]!.pathname, '/api/v3/content/ref%2Fwith%3Freserved');
   assert.equal(urls[0]!.searchParams.get('root_id'), 'root/?');
   assert.equal(urls[0]!.searchParams.get('agent_id'), 'child&');
   mode = 'short';
@@ -155,7 +155,7 @@ test('HTTP upload verifies SHA header and returned handle, with bounded response
   const content = handle(bytes);
   let mode = 'ok';
   t.mock.method(globalThis, 'fetch', async (url: URL, options: RequestInit) => {
-    assert.equal(url.pathname, '/api/v2/content/upload');
+    assert.equal(url.pathname, '/api/v3/content/upload');
     assert.equal(url.searchParams.get('root_id'), 'root');
     assert.equal(options.method, 'POST');
     assert.equal(new Headers(options.headers).get('X-Content-SHA256'), content.digest);

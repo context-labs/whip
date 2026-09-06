@@ -306,7 +306,7 @@ func TestProtocolHandlersRejectMalformedParameters(t *testing.T) {
 	connection := &serverConn{server: server, client: InitializeParams{ClientID: "malformed", ClientKind: "test"}}
 	for _, method := range []string{
 		"command.submit", "command.status", "events.replay", "root.snapshot", "history.page", "upload.begin",
-		"upload.chunk", "upload.finish", "identity.enroll", "permission.decide",
+		"upload.chunk", "upload.finish", "permission.decide",
 	} {
 		if result, failure := server.handle(connection, rpcMessage{Method: method, Params: json.RawMessage(`{`)}); result != nil || failure == nil || failure.Code != -32602 {
 			t.Errorf("%s malformed params = %v, %+v", method, result, failure)
@@ -388,7 +388,7 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: 2, ClientKind: "test", ClientID: "first"})
+	client, err := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "first"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestProtocolBoundsInitializationConnectionsAndInFlightWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewClient(context.Background(), extra, InitializeParams{ProtocolMajor: 2, ClientKind: "test", ClientID: "excess"}); err == nil {
+	if _, err := NewClient(context.Background(), extra, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "excess"}); err == nil {
 		t.Fatal("connection above the configured maximum was initialized")
 	}
 	_ = extra.Close()
@@ -454,7 +454,7 @@ func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	params, _ := json.Marshal(InitializeParams{ProtocolMajor: 2, ClientKind: "test", ClientID: "idle"})
+	params, _ := json.Marshal(InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "idle"})
 	if err := writeProtocolMessage(idle, rpcMessage{ID: json.RawMessage("1"), Method: "initialize", Params: params}); err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +472,7 @@ func TestInitializedIdleConnectionExpiresAndReleasesItsSlot(t *testing.T) {
 	for {
 		conn, dialErr := (&net.Dialer{}).DialContext(context.Background(), "tcp", listener.Addr().String())
 		if dialErr == nil {
-			client, clientErr := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: 2, ClientKind: "test", ClientID: "replacement"})
+			client, clientErr := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientKind: "test", ClientID: "replacement"})
 			if clientErr == nil {
 				_ = client.Close()
 				break
@@ -642,7 +642,7 @@ func TestServerCommandValidation(t *testing.T) {
 			t.Fatalf("invalid command was accepted: %+v", params)
 		}
 	}
-	for _, method := range []string{"command.submit", "command.status", "events.replay", "root.snapshot", "history.page", "upload.begin", "upload.chunk", "upload.finish", "identity.enroll", "permission.decide", "permission.mode"} {
+	for _, method := range []string{"command.submit", "command.status", "events.replay", "root.snapshot", "history.page", "upload.begin", "upload.chunk", "upload.finish", "permission.decide"} {
 		if _, failure := server.handle(connection, rpcMessage{Method: method, Params: json.RawMessage(`{`)}); failure == nil {
 			t.Fatalf("invalid %s params were accepted", method)
 		}

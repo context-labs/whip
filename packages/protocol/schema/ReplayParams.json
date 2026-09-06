@@ -13,7 +13,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/ReplayParams",
+  "$id": "https://whip.dev/protocol/v3/ReplayParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ReplayParams",
   "required": [

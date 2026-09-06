@@ -3,7 +3,6 @@ package acp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -33,10 +32,6 @@ func (b *Bridge) handlePermission(s *acpSession, payload []byte) {
 	mode := s.mode
 	s.mu.Unlock()
 	if mode != ModeAsk {
-		return
-	}
-	if !b.backend.Paired(s.lifecycle) {
-		_ = b.update(s.lifecycle, s.id, acp.UpdateAgentMessageText(fmt.Sprintf("\n[Permission %s is pending for %s; approve it from a paired whip client.]\n", pending.PermissionID, pending.Operation)))
 		return
 	}
 	if b.conn == nil {
@@ -84,13 +79,13 @@ func (b *Bridge) handlePermission(s *acpSession, payload []byte) {
 	}
 	switch string(response.Outcome.Selected.OptionId) {
 	case optAllowOnce:
-		b.decidePermission(s, pending, true, "approved by paired ACP client", "")
+		b.decidePermission(s, pending, true, "approved by ACP client", "")
 	case optAllowAlways:
 		if pending.Rule == "" {
 			b.decidePermission(s, pending, false, "allow-always requires a rule", "")
 			return
 		}
-		b.decidePermission(s, pending, true, "approved by paired ACP client for this tree", "tree")
+		b.decidePermission(s, pending, true, "approved by ACP client for this tree", "tree")
 	default:
 		b.decidePermission(s, pending, false, "the user rejected this action", "")
 	}

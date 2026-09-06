@@ -11,7 +11,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/ModelParams",
+  "$id": "https://whip.dev/protocol/v3/ModelParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ModelParams",
   "required": [

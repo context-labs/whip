@@ -1000,7 +1000,7 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v2/RootSnapshot",
+  "$id": "https://whip.dev/protocol/v3/RootSnapshot",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RootSnapshot",
   "required": [

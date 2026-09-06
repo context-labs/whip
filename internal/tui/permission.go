@@ -78,7 +78,7 @@ func (m *model) permView() string {
 	}
 	out.WriteString(dimStyle.Render("\n  agent " + permission.AgentID + " · permission " + permission.ID))
 	if m.permDialog.deciding {
-		out.WriteString(dimStyle.Render("\n  sending signed decision…"))
+		out.WriteString(dimStyle.Render("\n  sending decision…"))
 		return out.String()
 	}
 	if m.permDialog.rejecting {

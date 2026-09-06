@@ -72,7 +72,7 @@ var runtimeOperations = []Operation{
 	action[ToolConfigureParams, Empty]("tool.configure", Command, "tool-permissions", false),
 	action[EmptyParams, ToolSchemaResult]("tool.schema", Query, "tool-authority", false),
 	action[ToolCallParams, TextResult]("tool.call", Command, "tool-permissions", false),
-	action[PermissionConfigureParams, Empty]("permission.mode", Command, "signed-human-if-disabling", false),
+	action[PermissionConfigureParams, Empty]("permission.mode", Command, "trusted-client-mode", false),
 	action[EmptyParams, PermissionRulesResult]("permission.rules", Query, "root-association", false),
 	action[IDParams, Empty]("permission.forget", Command, "rule-authority", false),
 	action[MCPAttachParams, Empty]("mcp.attach", Ephemeral, "delegated-mcp-authority", true),

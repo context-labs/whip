@@ -15,7 +15,7 @@ import (
 
 // user.ask: the root agent's Starlark cell blocks on a question; the daemon
 // publishes it as question.pending, this dialog floats over the dimmed
-// session, and the pick goes back as the unsigned client op question.answer.
+// session, and the pick goes back as the client operation question.answer.
 // question.answered / question.closed (turn cancelled, agent stopped) close
 // the dialog wherever the answer came from — another client may have picked.
 

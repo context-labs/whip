@@ -38,7 +38,7 @@
       "additionalProperties": false
     }
   },
-  "$id": "https://whip.dev/protocol/v2/ContentReadResult",
+  "$id": "https://whip.dev/protocol/v3/ContentReadResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ContentReadResult",
   "required": [

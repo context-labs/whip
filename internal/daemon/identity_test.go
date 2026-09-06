@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net"
@@ -42,7 +40,7 @@ func (r *permissionModeRunner) ResolvePermission(permissionID string, decision c
 	return nil
 }
 
-func TestHumanEnrollmentIsExplicitAuthenticatedAndAutomationSafe(t *testing.T) {
+func TestTrustedClientPermissionIdentityMethodsAreRemoved(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil
@@ -54,123 +52,112 @@ func TestHumanEnrollmentIsExplicitAuthenticatedAndAutomationSafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = server.Close() }()
-
-	automation := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "bot", ClientKind: "automation"})
-	defer automation.Close()
-	_, botKey, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := automation.EnrollIdentity(context.Background(), botKey, true, "", nil); err == nil || !strings.Contains(err.Error(), "automation") {
-		t.Fatalf("automation enrollment = %v", err)
+	defer server.Close()
+	client := pipeClient(t, server, InitializeParams{
+		ProtocolMajor: ProtocolMajor, ClientID: "client", ClientKind: "automation",
+	})
+	defer client.Close()
+	for _, method := range []string{"identity.enroll", "identity.status"} {
+		err := client.Call(t.Context(), method, struct{}{}, nil)
+		failure, ok := errors.AsType[*RPCError](err)
+		if !ok || failure.Code != -32601 {
+			t.Fatalf("removed method %s = %v", method, err)
+		}
 	}
-	if count, err := store.HumanIdentityCount(context.Background()); err != nil || count != 0 {
-		t.Fatalf("automation consumed enrollment: count=%d err=%v", count, err)
-	}
-
-	first := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "human-1", ClientKind: "tui"})
-	defer first.Close()
-	if status, err := first.IdentityStatus(context.Background()); err != nil || status.Paired || !status.EnrollmentOpen {
-		t.Fatalf("initial identity status = %+v, %v", status, err)
-	}
-	_, firstKey, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := first.EnrollIdentity(context.Background(), firstKey, false, "", nil); err == nil || !strings.Contains(err.Error(), "TTY") {
-		t.Fatalf("non-TTY first enrollment = %v", err)
-	}
-	if result, err := first.EnrollIdentity(context.Background(), firstKey, true, "", nil); err != nil || result.ClientID != "human-1" {
-		t.Fatalf("first enrollment = %+v, %v", result, err)
-	}
-	if status, err := first.IdentityStatus(context.Background()); err != nil || !status.Paired || status.EnrollmentOpen {
-		t.Fatalf("paired identity status = %+v, %v", status, err)
-	}
-
-	second := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "human-2", ClientKind: "acp"})
-	defer second.Close()
-	_, secondKey, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := second.EnrollIdentity(context.Background(), secondKey, false, "", nil); err == nil || !strings.Contains(err.Error(), "authenticated") {
-		t.Fatalf("unsigned later enrollment = %v", err)
-	}
-	_, wrongKey, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := second.EnrollIdentity(context.Background(), secondKey, false, "human-1", wrongKey); err == nil || !strings.Contains(err.Error(), "signature") {
-		t.Fatalf("wrong signer enrollment = %v", err)
-	}
-	if result, err := second.EnrollIdentity(context.Background(), secondKey, false, "human-1", firstKey); err != nil || result.ClientID != "human-2" {
-		t.Fatalf("authenticated enrollment = %+v, %v", result, err)
-	}
-	if count, err := store.HumanIdentityCount(context.Background()); err != nil || count != 2 {
-		t.Fatalf("human count = %d, %v", count, err)
+	if err := client.Call(t.Context(), "permission.mode", struct{}{}, nil); err == nil {
+		t.Fatal("removed permission mode RPC was accepted")
 	}
 }
 
-func TestPermissionDecisionsRequireConnectionBoundHumanSignature(t *testing.T) {
-	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	rootID := createRoot(t, store)
-	otherRootID := createRoot(t, store)
-	value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{Runner: &fakeRunner{}}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server, err := NewServer(value, ServerOptions{Generation: 9})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = server.Close() }()
-	root, err := value.Open(rootID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatcher := capability.NewDispatcher(store, store.Workspaces(), nil)
-	if err := dispatcher.Register(capability.Registration{
-		Operation: "write", Mutation: capability.MutationPath, Permission: true,
-		Path:    func(json.RawMessage) (string, error) { return "approved.txt", nil },
-		Handler: func(context.Context, capability.Call) (string, error) { return "ok", nil },
-	}); err != nil {
-		t.Fatal(err)
-	}
-	_, err = dispatcher.Dispatch(context.Background(), capability.Request{
-		RootID: rootID, AgentID: root.authority.AgentID, CapabilityID: root.authority.Files.ID,
-		CapabilityGeneration: root.authority.Files.Generation, OperationID: "pending-operation", Operation: "write",
-		Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
-	})
-	var pending *capability.PermissionPendingError
-	if !errors.As(err, &pending) {
-		t.Fatalf("permission admission = %v", err)
-	}
-
-	bot := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "bot-decision", ClientKind: "automation"})
-	defer bot.Close()
-	_, botKey, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := bot.DecidePermission(context.Background(), botKey, PermissionDecision{CommandID: "bot", RootID: rootID, PermissionID: pending.PermissionID, Allow: true}); err == nil || !strings.Contains(err.Error(), "paired human") {
-		t.Fatalf("automation decision = %v", err)
-	}
-
-	human := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "approver", ClientKind: "tui"})
-	defer human.Close()
-	_, humanKey, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := human.EnrollIdentity(context.Background(), humanKey, true, "", nil); err != nil {
-		t.Fatal(err)
-	}
-	wrongRoot := PermissionDecision{CommandID: "wrong-root", RootID: otherRootID, PermissionID: pending.PermissionID, Allow: true}
-	if _, err := human.DecidePermission(context.Background(), humanKey, wrongRoot); !errors.Is(err, capability.ErrDenied) && (err == nil || !strings.Contains(err.Error(), capability.ErrDenied.Error())) {
-		t.Fatalf("wrong-root decision = %v", err)
-	}
-	decision := PermissionDecision{CommandID: "approve", RootID: rootID, PermissionID: pending.PermissionID, Allow: true}
-	result, err := human.DecidePermission(context.Background(), humanKey, decision)
-	if err != nil || result.OperationID != "pending-operation" || result.LeaseID == "" {
-		t.Fatalf("signed decision = %+v, %v", result, err)
-	}
-	if retry, err := human.DecidePermission(context.Background(), humanKey, decision); err != nil || retry.OperationID != result.OperationID || retry.LeaseID != result.LeaseID {
-		t.Fatalf("idempotent permission retry = %+v, %v", retry, err)
-	}
-	if _, err := human.DecidePermission(context.Background(), humanKey, PermissionDecision{CommandID: "stale", RootID: rootID, PermissionID: pending.PermissionID, Allow: true}); err == nil {
-		t.Fatal("stale permission decision was not authoritative")
-	}
-	if _, err := os.Stat(filepath.Join(root.meta.CWD, "approved.txt")); !os.IsNotExist(err) {
-		t.Fatalf("test decision unexpectedly bypassed operation ownership: %v", err)
+func TestTrustedClientPermissionDecisionsAreScopedAndIdempotent(t *testing.T) {
+	for _, kind := range []string{"tui", "automation"} {
+		t.Run(kind, func(t *testing.T) {
+			store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+			rootID := createRoot(t, store)
+			otherRootID := createRoot(t, store)
+			value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+				return Components{Runner: &fakeRunner{}}, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			server, err := NewServer(value, ServerOptions{Generation: 9})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+			root, err := value.Open(rootID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dispatcher := capability.NewDispatcher(store, store.Workspaces(), nil)
+			if err := dispatcher.Register(capability.Registration{
+				Operation: "write", Mutation: capability.MutationPath, Permission: true,
+				Path:    func(json.RawMessage) (string, error) { return "approved.txt", nil },
+				Handler: func(context.Context, capability.Call) (string, error) { return "ok", nil },
+			}); err != nil {
+				t.Fatal(err)
+			}
+			_, err = dispatcher.Dispatch(t.Context(), capability.Request{
+				RootID: rootID, AgentID: root.authority.AgentID, CapabilityID: root.authority.Files.ID,
+				CapabilityGeneration: root.authority.Files.Generation, OperationID: "pending-operation", Operation: "write",
+				Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+			})
+			pending, ok := errors.AsType[*capability.PermissionPendingError](err)
+			if !ok {
+				t.Fatalf("permission admission = %v", err)
+			}
+			initialize := InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "approver", ClientKind: kind}
+			client := pipeClient(t, server, initialize)
+			defer client.Close()
+			wrongRoot := PermissionDecision{
+				CommandID: "wrong-root", RootID: otherRootID, PermissionID: pending.PermissionID, Allow: true,
+			}
+			_, err = client.DecidePermission(t.Context(), wrongRoot)
+			failure, ok := errors.AsType[*RPCError](err)
+			if !ok || failure.Code != -32003 {
+				t.Fatalf("wrong-root decision = %v", err)
+			}
+			decision := PermissionDecision{
+				CommandID: "approve", RootID: rootID, PermissionID: pending.PermissionID, Allow: true,
+			}
+			result, err := client.DecidePermission(t.Context(), decision)
+			if err != nil || result.OperationID != "pending-operation" || result.LeaseID == "" {
+				t.Fatalf("ordinary client decision = %+v, %v", result, err)
+			}
+			_ = client.Close()
+			reconnected := pipeClient(t, server, initialize)
+			defer reconnected.Close()
+			if retry, err := reconnected.DecidePermission(t.Context(), decision); err != nil || retry != result {
+				t.Fatalf("permission retry after reconnect = %+v, %v", retry, err)
+			}
+			changed := decision
+			changed.Allow = false
+			_, err = reconnected.DecidePermission(t.Context(), changed)
+			failure, ok = errors.AsType[*RPCError](err)
+			if !ok || failure.Code != -32009 {
+				t.Fatalf("changed decision with reused command ID = %v", err)
+			}
+			stale := decision
+			stale.CommandID = "stale"
+			if _, err := reconnected.DecidePermission(t.Context(), stale); err == nil {
+				t.Fatal("a new command approved an already resolved permission")
+			}
+			competing := pipeClient(t, server, InitializeParams{
+				ProtocolMajor: ProtocolMajor, ClientID: "other-client", ClientKind: "tui",
+			})
+			defer competing.Close()
+			if _, err := competing.DecidePermission(t.Context(), decision); err == nil {
+				t.Fatal("another client's command namespace reused a resolved permission")
+			}
+			if _, err := os.Stat(filepath.Join(root.meta.CWD, "approved.txt")); !os.IsNotExist(err) {
+				t.Fatalf("permission approval bypassed operation ownership: %v", err)
+			}
+		})
 	}
 }
 
-func TestAutomaticPermissionModeRequiresConnectionBoundHumanSignature(t *testing.T) {
+func TestTrustedClientPermissionModesUseOrdinaryCommands(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
 	runner := &permissionModeRunner{fakeRunner: &fakeRunner{}}
@@ -184,42 +171,34 @@ func TestAutomaticPermissionModeRequiresConnectionBoundHumanSignature(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = server.Close() }()
-	payload, _ := json.Marshal(map[string]bool{"external_permissions": false})
-	command := CommandParams{
-		CommandID: "automatic", Scope: string(session.CommandScopeRoot), RootID: rootID,
-		Operation: "permission.mode", Payload: payload,
-	}
-
-	automation := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "automatic-bot", ClientKind: "automation"})
-	defer automation.Close()
-	if _, err := automation.Command(context.Background(), command); err == nil || !strings.Contains(err.Error(), "signed paired-human") {
-		t.Fatalf("unsigned automatic mode = %v", err)
-	}
-
-	human := pipeClient(t, server, InitializeParams{ProtocolMajor: 2, ClientID: "automatic-human", ClientKind: "acp"})
-	defer human.Close()
-	_, humanKey, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := human.EnrollIdentity(context.Background(), humanKey, true, "", nil); err != nil {
+	defer server.Close()
+	root, err := value.Open(rootID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, wrongKey, _ := ed25519.GenerateKey(rand.Reader)
-	if _, err := human.SetPermissionMode(context.Background(), wrongKey, command); err == nil || !strings.Contains(err.Error(), "signature") {
-		t.Fatalf("wrong automatic signer = %v", err)
-	}
-	command.CommandID = "automatic-signed"
-	result, err := human.SetPermissionMode(context.Background(), humanKey, command)
-	if err != nil || result.Status != "succeeded" || runner.external {
-		t.Fatalf("signed automatic mode = %+v, external=%v, err=%v", result, runner.external, err)
-	}
-
-	payload, _ = json.Marshal(map[string]bool{"external_permissions": true})
-	result, err = automation.Command(context.Background(), CommandParams{
-		CommandID: "ask", Scope: string(session.CommandScopeRoot), RootID: rootID,
-		Operation: "permission.mode", Payload: payload,
-	})
-	if err != nil || result.Status != "succeeded" || !runner.external {
-		t.Fatalf("safe ask mode = %+v, external=%v, err=%v", result, runner.external, err)
+	for _, kind := range []string{"automation", "tui"} {
+		client := pipeClient(t, server, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: kind, ClientKind: kind})
+		defer client.Close()
+		for _, external := range []bool{false, true} {
+			commandID := "automatic"
+			if external {
+				commandID = "ask"
+			}
+			payload := mustJSON(t, map[string]bool{"external_permissions": external})
+			result, err := client.Command(t.Context(), CommandParams{
+				CommandID: commandID, Scope: string(session.CommandScopeRoot), RootID: rootID,
+				Operation: "permission.mode", Payload: payload,
+			})
+			if err != nil || result.Status != "succeeded" {
+				t.Fatalf("%s mode %s = %+v, %v", kind, commandID, result, err)
+			}
+			got, err := routeControlValue(root, t.Context(), func(context.Context) (bool, error) {
+				return runner.external, nil
+			})
+			if err != nil || got != external {
+				t.Fatalf("%s mode %s external=%v, want %v: %v", kind, commandID, got, external, err)
+			}
+		}
 	}
 }
 

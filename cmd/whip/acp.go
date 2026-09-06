@@ -5,16 +5,14 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
-	"sync/atomic"
 	"syscall"
-	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
@@ -64,15 +62,9 @@ func acpCLI(args []string) error {
 	if key == "" {
 		return fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)", providerName)
 	}
-	credentials, err := loadACPClientCredentials()
-	if err != nil {
-		return fmt.Errorf("ACP identity: %w", err)
-	}
 	backend := &acpDaemonBackend{
-		clientID: credentials.ClientID, privateKey: credentials.PrivateKey,
-		model: modelName, provider: providerName,
+		clientID: "acp-" + rand.Text(), model: modelName, provider: providerName,
 	}
-	backend.refreshPaired(context.Background())
 
 	vision := acpSupportsVision(cfg, modelName, apiID, providerName)
 	acp.SetEventLog(func(format string, args ...any) { config.LogEvent("acp", fmt.Sprintf(format, args...)) })
@@ -90,16 +82,10 @@ func acpCLI(args []string) error {
 	return nil
 }
 
-var loadACPClientCredentials = func() (daemon.ClientCredentials, error) {
-	return daemon.LoadOrCreateClientCredentials(daemon.SystemKeyStore(), "acp")
-}
-
 type acpDaemonBackend struct {
-	clientID   string
-	privateKey ed25519.PrivateKey
-	model      string
-	provider   string
-	paired     atomic.Bool
+	clientID string
+	model    string
+	provider string
 }
 
 func (b *acpDaemonBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
@@ -112,7 +98,7 @@ func (b *acpDaemonBackend) LoadRoot(ctx context.Context, rootID, _ string, serve
 
 func (b *acpDaemonBackend) root(ctx context.Context, rootID, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
 	options := daemon.RootClientOptions{
-		ClientID: b.clientID, PrivateKey: b.privateKey, RootID: rootID,
+		ClientID: b.clientID, RootID: rootID,
 		Connector: daemonConnector("acp", b.clientID),
 	}
 	if rootID == "" {
@@ -171,31 +157,6 @@ func (b *acpDaemonBackend) ListSessions(ctx context.Context, limit int) ([]sessi
 		return nil, err
 	}
 	return metas, nil
-}
-
-func (b *acpDaemonBackend) Paired(ctx context.Context) bool {
-	b.refreshPaired(ctx)
-	return b.paired.Load()
-}
-
-func (b *acpDaemonBackend) refreshPaired(ctx context.Context) {
-	query, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	connection, err := connectDaemon(query, "acp", b.clientID, nil)
-	if err != nil {
-		return
-	}
-	defer func() { _ = connection.Close() }()
-	identity, ok := connection.(interface {
-		IdentityStatus(context.Context) (daemon.IdentityStatusResult, error)
-	})
-	if !ok {
-		return
-	}
-	status, err := identity.IdentityStatus(query)
-	if err == nil {
-		b.paired.Store(status.Paired)
-	}
 }
 
 func acpSupportsVision(cfg *config.Config, modelName, modelID, providerName string) bool {

@@ -2,8 +2,7 @@ package daemon
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/hex"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,13 +78,12 @@ type RootUpdate struct {
 
 // RootClientOptions contains behavioral inputs for one daemon root.
 type RootClientOptions struct {
-	ClientID   string
-	PrivateKey ed25519.PrivateKey
-	RootID     string
-	Create     *CreateSession
-	Connector  RootConnector
-	RetryMin   time.Duration
-	RetryMax   time.Duration
+	ClientID  string
+	RootID    string
+	Create    *CreateSession
+	Connector RootConnector
+	RetryMin  time.Duration
+	RetryMax  time.Duration
 }
 
 // RootClient reconnects one daemon-root subscription and retries commands
@@ -93,7 +91,6 @@ type RootClientOptions struct {
 type RootClient struct {
 	clientID   string
 	instanceID string
-	privateKey ed25519.PrivateKey
 	create     *CreateSession
 	connect    RootConnector
 	retryMin   time.Duration
@@ -122,7 +119,7 @@ type RootClient struct {
 
 func NewRootClient(options RootClientOptions) (*RootClient, error) {
 	if options.ClientID == "" || options.Connector == nil {
-		return nil, errors.New("root client requires an identity and connector")
+		return nil, errors.New("root client requires a client ID and connector")
 	}
 	if options.RootID == "" && options.Create == nil {
 		return nil, errors.New("root client requires a root or session template")
@@ -136,15 +133,10 @@ func NewRootClient(options RootClientOptions) (*RootClient, error) {
 	if options.RetryMax < options.RetryMin {
 		options.RetryMax = time.Second
 	}
-	instanceNonce, err := randomNonce()
-	if err != nil {
-		return nil, fmt.Errorf("create client instance identity: %w", err)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &RootClient{
-		clientID: options.ClientID, privateKey: append(ed25519.PrivateKey(nil), options.PrivateKey...),
-		instanceID: hex.EncodeToString(instanceNonce[:16]),
-		rootID:     options.RootID, create: options.Create, connect: options.Connector,
+		clientID: options.ClientID, instanceID: rand.Text(),
+		rootID: options.RootID, create: options.Create, connect: options.Connector,
 		retryMin: options.RetryMin, retryMax: options.RetryMax,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}), changed: make(chan struct{}),
 		updates: make(chan RootUpdate, MaxOutboundEnvelopes),
@@ -367,9 +359,6 @@ func (c *RootClient) DecidePermission(ctx context.Context, action RootAction, pe
 	if action.CommandID == "" || action.Operation != "permission.decide" || action.RootID == "" || permissionID == "" {
 		return PermissionDecisionResult{}, errors.New("permission action requires stable command and permission identities")
 	}
-	if len(c.privateKey) != ed25519.PrivateKeySize {
-		return PermissionDecisionResult{}, errors.New("this client identity cannot approve permissions")
-	}
 	for {
 		c.mu.RLock()
 		state, connection := c.state, c.conn
@@ -383,13 +372,13 @@ func (c *RootClient) DecidePermission(ctx context.Context, action RootAction, pe
 			}
 			continue
 		}
-		privileged, ok := connection.(interface {
-			DecidePermission(context.Context, ed25519.PrivateKey, PermissionDecision) (PermissionDecisionResult, error)
+		approver, ok := connection.(interface {
+			DecidePermission(context.Context, PermissionDecision) (PermissionDecisionResult, error)
 		})
 		if !ok {
 			return PermissionDecisionResult{}, errors.New("daemon connection cannot approve permissions")
 		}
-		result, err := privileged.DecidePermission(ctx, c.privateKey, PermissionDecision{
+		result, err := approver.DecidePermission(ctx, PermissionDecision{
 			CommandID: action.CommandID, RootID: action.RootID, PermissionID: permissionID, Allow: allow, Reason: reason, Remember: remember,
 		})
 		if err == nil {
@@ -407,55 +396,12 @@ func (c *RootClient) DecidePermission(ctx context.Context, action RootAction, pe
 	}
 }
 
-// SetPermissionMode enables external prompts as an ordinary command, but
-// requires a paired identity signature before disabling them for automatic
-// execution under the session's existing grants.
-func (c *RootClient) SetPermissionMode(ctx context.Context, action RootAction, external bool) (CommandResult, error) {
+// SetPermissionMode changes prompting behavior through the durable command path.
+func (c *RootClient) SetPermissionMode(ctx context.Context, action RootAction) (CommandResult, error) {
 	if action.CommandID == "" || action.Operation != "permission.mode" || action.RootID == "" {
 		return CommandResult{}, errors.New("permission mode requires stable command and root identities")
 	}
-	if external {
-		return c.Command(ctx, action)
-	}
-	if len(c.privateKey) != ed25519.PrivateKeySize {
-		return CommandResult{}, errors.New("automatic permission mode requires a paired client identity")
-	}
-	for {
-		c.mu.RLock()
-		state, connection := c.state, c.conn
-		c.mu.RUnlock()
-		if state != RootLive || connection == nil {
-			if !c.waitForLive(ctx) {
-				if err := ctx.Err(); err != nil {
-					return CommandResult{}, err
-				}
-				return CommandResult{}, c.ctx.Err()
-			}
-			continue
-		}
-		privileged, ok := connection.(interface {
-			SetPermissionMode(context.Context, ed25519.PrivateKey, CommandParams) (CommandResult, error)
-		})
-		if !ok {
-			return CommandResult{}, errors.New("daemon connection cannot authorize automatic permission mode")
-		}
-		result, err := privileged.SetPermissionMode(ctx, c.privateKey, CommandParams{
-			CommandID: action.CommandID, Scope: string(session.CommandScopeRoot), RootID: action.RootID,
-			Operation: action.Operation, Payload: action.Payload,
-		})
-		if err == nil {
-			return result, nil
-		}
-		if ctx.Err() != nil {
-			return CommandResult{}, ctx.Err()
-		}
-		select {
-		case <-connection.Done():
-			continue
-		default:
-			return CommandResult{}, err
-		}
-	}
+	return c.Command(ctx, action)
 }
 
 func (c *RootClient) Snapshot(ctx context.Context) (session.RootSnapshot, error) {

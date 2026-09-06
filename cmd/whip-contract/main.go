@@ -2,8 +2,6 @@
 package main
 
 import (
-	"bytes"
-	"crypto/ed25519"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -79,7 +77,7 @@ func generate(dir string, check bool) error {
 			return err
 		}
 		schema.Schema = "http://json-schema.org/draft-07/schema#"
-		schema.ID = "https://whip.dev/protocol/v2/" + name
+		schema.ID = fmt.Sprintf("https://whip.dev/protocol/v%d/%s", protocol.Major, name)
 		schema.Title = name
 		if err := encode(name+".json", schema); err != nil {
 			return err
@@ -111,24 +109,6 @@ func generate(dir string, check bool) error {
 				Value any    `json:"value"`
 			}{Type: wireType.Name(), Value: fixtureValue(wireType).Interface()})
 		}
-	}
-	private := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
-	nonce := bytes.Repeat([]byte{3}, 32)
-	payload := `{"root_id":"root", "reason":"<tag> & café", "permission_id":"permission", "allow":true,"command_id":"fixture"}`
-	message := protocol.ApprovalMessage("permission.decide", 9007199254740993, nonce, []byte(payload))
-	signing := struct {
-		Method     string `json:"method"`
-		Generation int64  `json:"generation,string"`
-		Nonce      []byte `json:"nonce"`
-		Payload    string `json:"payload"`
-		PublicKey  []byte `json:"public_key"`
-		Seed       []byte `json:"seed"`
-		Digest     []byte `json:"digest"`
-		Signature  []byte `json:"signature"`
-	}{Method: "permission.decide", Generation: 9007199254740993, Nonce: nonce, Payload: payload,
-		PublicKey: private.Public().(ed25519.PublicKey), Seed: bytes.Repeat([]byte{7}, ed25519.SeedSize), Digest: message, Signature: ed25519.Sign(private, message)}
-	if err := encode("signing-fixture.json", signing); err != nil {
-		return err
 	}
 	if err := encode("fixtures.json", fixture); err != nil {
 		return err

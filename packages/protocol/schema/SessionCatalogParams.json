@@ -31,7 +31,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/SessionCatalogParams",
+  "$id": "https://whip.dev/protocol/v3/SessionCatalogParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SessionCatalogParams",
   "required": [

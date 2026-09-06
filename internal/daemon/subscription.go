@@ -2,7 +2,7 @@ package daemon
 
 import (
 	"context"
-	"encoding/hex"
+	"crypto/rand"
 	"errors"
 	"github.com/context-labs/whip/internal/protocol"
 	"time"
@@ -114,11 +114,7 @@ func (s *Server) pumpSubscription(ctx context.Context, c *serverConn, sub *subsc
 }
 
 func (c *Client) Subscribe(ctx context.Context, rootID string, cursor int64) (SubscribeResult, error) {
-	nonce, err := randomNonce()
-	if err != nil {
-		return SubscribeResult{}, err
-	}
-	id := hex.EncodeToString(nonce[:16])
+	id := rand.Text()
 	c.mu.Lock()
 	previous := c.subscriptions[rootID]
 	c.subscriptions[rootID] = id
@@ -129,7 +125,7 @@ func (c *Client) Subscribe(ctx context.Context, rootID string, cursor int64) (Su
 		}
 	}
 	var result SubscribeResult
-	err = c.Call(ctx, "events.subscribe", SubscribeParams{RootID: rootID, SubscriptionID: id, Cursor: cursor}, &result)
+	err := c.Call(ctx, "events.subscribe", SubscribeParams{RootID: rootID, SubscriptionID: id, Cursor: cursor}, &result)
 	if err != nil {
 		c.mu.Lock()
 		if c.subscriptions[rootID] == id {

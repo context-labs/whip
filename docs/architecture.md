@@ -108,7 +108,7 @@ budgets, and private transcript.
 - `whip _kernel` evaluates Starlark with bounded steps, host calls, memory,
   wall time, output, and frames. It has no ambient provider credentials or
   direct filesystem/network API.
-- Clients use one typed WHIP v2 contract in JSON-RPC 2.0 envelopes over Unix
+- Clients use one typed WHIP v3 contract in JSON-RPC 2.0 envelopes over Unix
   newline framing or WebSocket text messages. Transport adapters share validation
   and application handlers. No v1 codec or build-equality attachment check remains.
 - Commands acknowledge committed acceptance; the daemon supervises execution.
@@ -118,6 +118,10 @@ budgets, and private transcript.
 - Reconnect reads a bounded snapshot and event cursor consistently, then subscribes
   strictly after that cursor. Raw transcript pages carry history revisions;
   collection pages carry collection revisions. Clients discard replaced stream IDs.
+- Every connected client is trusted to answer permission requests and change
+  permission modes. There is no pairing, signing key or client authentication.
+  Agent capabilities, budgets, content grants and delegated MCP authority remain
+  daemon-enforced; browser Host/Origin validation remains transport-owned.
 - Provider onboarding, credentials, workspace completion and shared configuration
   are execution-host services. Only presentation preferences remain client-owned.
 - SQLite WAL with synchronous=NORMAL retains daemon-crash durability. Schema 7

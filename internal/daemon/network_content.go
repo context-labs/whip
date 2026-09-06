@@ -1,7 +1,7 @@
 package daemon
 
 import (
-	"encoding/hex"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,17 +16,12 @@ import (
 func newContentHTTPHandler(uploads *uploadManager) http.Handler {
 	slots := make(chan struct{}, 16)
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v2/content/upload", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/v3/content/upload", func(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength < 0 || r.ContentLength > MaxUploadSize {
 			http.Error(w, "a bounded Content-Length is required", http.StatusRequestEntityTooLarge)
 			return
 		}
-		nonce, err := randomNonce()
-		if err != nil {
-			http.Error(w, "cannot allocate transfer", http.StatusInternalServerError)
-			return
-		}
-		transferID := "http-" + hex.EncodeToString(nonce)
+		transferID := "http-" + rand.Text()
 		begin := UploadBeginParams{
 			UploadID: transferID, RootID: r.URL.Query().Get("root_id"), Size: r.ContentLength,
 			ExpectedDigest: r.Header.Get("X-Content-SHA256"),
@@ -69,7 +64,7 @@ func newContentHTTPHandler(uploads *uploadManager) http.Handler {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(handle)
 	})
-	mux.HandleFunc("GET /api/v2/content/{reference_id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v3/content/{reference_id}", func(w http.ResponseWriter, r *http.Request) {
 		referenceID := r.PathValue("reference_id")
 		rootID, agentID := r.URL.Query().Get("root_id"), r.URL.Query().Get("agent_id")
 		data, meta, err := uploads.store.ReadContent(r.Context(), referenceID, rootID, agentID, 0, MaxContentChunk)

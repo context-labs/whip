@@ -12,7 +12,7 @@ import (
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
-// DecidePermissionCommand gives a signed human decision the same durable
+// DecidePermissionCommand gives a client decision the same durable
 // idempotency boundary as every other user action.
 func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionstore.CommandAdmission, permissionID string, decision capability.Decision) (capability.Ticket, error) {
 	command.Scope = sessionstore.CommandScopeRoot

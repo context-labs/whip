@@ -35,7 +35,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/RuntimeConfiguration",
+  "$id": "https://whip.dev/protocol/v3/RuntimeConfiguration",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RuntimeConfiguration",
   "required": [

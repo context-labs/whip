@@ -12,6 +12,11 @@ execution: code
 
 # RLM Swarm Runtime - Plan
 
+> Approval-authentication update: protocol 3.0 supersedes the client pairing,
+> signing-key and human/automation approval restrictions in this historical
+> plan. Every connected client is trusted to answer permissions. Agent capability,
+> budget, content and delegated MCP authority checks remain enforced.
+
 ## Goal Capsule
 
 - **Objective:** Turn WHIP into a single-binary, daemon-owned agent runtime whose default RLM mode can reason over large contexts and coordinate durable agent swarms through programmable Go-hosted primitives.

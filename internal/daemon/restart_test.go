@@ -95,7 +95,7 @@ func startTCPClient(t *testing.T, value *Daemon, clientID string) (*Server, *Cli
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: 2, ClientID: clientID, ClientKind: "test"})
+	client, err := NewClient(context.Background(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: clientID, ClientKind: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

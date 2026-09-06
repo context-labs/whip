@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createWhipClient, isTerminal, type WhipClient, type CommandHandle, type RecoveryRecord, type RecoveryStorage, type ApprovalSigner, type ContentReference } from '@whip/sdk';
+import { createWhipClient, isTerminal, type WhipClient, type CommandHandle, type RecoveryRecord, type RecoveryStorage, type ContentReference } from '@whip/sdk';
 import { createSessionView, createSessionListView, type SessionView, type HistoryView, type DeepReadonly } from '@whip/sdk/state';
 import { useSessionView, useSessionListView, useWhipConnection } from '@whip/sdk/react';
 
-// Optional host integration owns its human signing key. This example never stores keys.
-declare global { interface Window { whipIdentity?: { clientId: string; signer: ApprovalSigner } } }
-const clientId = window.whipIdentity?.clientId ?? localStorage.getItem('whip.example.clientId') ?? crypto.randomUUID();
+const clientId = localStorage.getItem('whip.example.clientId') ?? crypto.randomUUID();
 localStorage.setItem('whip.example.clientId', clientId);
 const key = (record: RecoveryRecord) => `whip.example.recovery:${record.runtimeId}:${record.clientId}:${record.commandId}`;
 const storage: RecoveryStorage = {
@@ -24,7 +22,7 @@ function App() {
   async function connect(event: FormEvent) {
     event.preventDefault(); client?.close(); setError('');
     try {
-      const next = createWhipClient({ endpoint, clientId, clientKind: 'human', signer: window.whipIdentity?.signer, recoveryStorage: storage });
+      const next = createWhipClient({ endpoint, clientId, clientKind: 'human', recoveryStorage: storage });
       setClient(next); localStorage.setItem('whip.example.endpoint', endpoint); await next.connect();
     } catch (error) { setError(message(error)); }
   }
@@ -95,7 +93,7 @@ function Conversation({ client, rootId }: { client: WhipClient; rootId: string }
       {presentation?.map(event => <article key={event.seq}><span className="role">{event.kind}</span><pre>{presentationText(event.payload)}</pre></article>)}
     </div>
     {state.root?.questions?.filter(question => question.question_id).map(question => <Question key={question.question_id} id={question.question_id!} question={question.question ?? ''} options={(question.options ?? []).map(option => option.label)} multiple={question.multiple ?? false} view={view} onError={setError} />)}
-    {state.root?.permissions?.filter(permission => permission.status === 'pending').map(permission => <div className="question" key={permission.id}><h2>Permission requested</h2><pre>{permission.command || permission.operation}</pre><p>{permission.canonical_path}</p>{window.whipIdentity ? <div className="row">{[true, false].map(allow => <button key={String(allow)} onClick={async () => { try { await client.permissions.decide({ root_id: rootId, permission_id: permission.id, allow }); } catch (error) { setError(message(error)); } }}>{allow ? 'Allow once' : 'Deny'}</button>)}</div> : <p>Approve this request in your paired terminal.</p>}</div>)}
+    {state.root?.permissions?.filter(permission => permission.status === 'pending').map(permission => <div className="question" key={permission.id}><h2>Permission requested</h2><pre>{permission.command || permission.operation}</pre><p>{permission.canonical_path}</p><div className="row">{[true, false].map(allow => <button key={String(allow)} disabled={connection.state !== 'connected'} onClick={async () => { try { await client.permissions.decide({ root_id: rootId, permission_id: permission.id, allow }); } catch (error) { setError(message(error)); } }}>{allow ? 'Allow once' : 'Deny'}</button>)}</div></div>)}
     {(error || state.error) && <p role="alert">{error || state.error?.message}</p>}
     <form className="composer" onSubmit={submit}><label htmlFor="prompt">Message the root agent</label><textarea id="prompt" value={draft} onChange={event => setDraft(event.target.value)} placeholder="What would you like to work on?" /><div className="row"><label>Attach file <input type="file" disabled={connection.state !== 'connected'} onChange={async event => { const file = event.target.files?.[0]; if (!file) return; try { setAttachment(await client.upload(new Uint8Array(await file.arrayBuffer()), { rootId, mediaType: file.type || 'application/octet-stream' })); } catch (error) { setError(message(error)); } }} /></label><button className="primary" disabled={connection.state !== 'connected' || !draft.trim()}>Send</button></div>
       {attachment && <button type="button" onClick={async () => { try { setError(await attachment.readText({ maxBytes: 1 << 20 })); } catch (error) { setError(message(error)); } }}>Read attachment · {attachment.handle.size} bytes</button>}

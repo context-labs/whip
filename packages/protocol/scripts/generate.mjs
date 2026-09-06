@@ -6,7 +6,7 @@ import { _ } from 'ajv/dist/compile/codegen/index.js';
 
 const check = process.argv.includes('--check');
 const schemas = {};
-const filenames = (await readdir('schema')).filter(name => !['manifest.json', 'fixtures.json', 'signing-fixture.json'].includes(name)).sort();
+const filenames = (await readdir('schema')).filter(name => !['manifest.json', 'fixtures.json'].includes(name)).sort();
 for (const filename of filenames) {
   schemas[filename.slice(0, -5)] = JSON.parse(await readFile(`schema/${filename}`, 'utf8'));
 }

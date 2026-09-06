@@ -2,6 +2,35 @@
 
 Branch: whip-rlm
 
+> Superseded approval design: protocol 3.0 removes client enrollment, signing
+> keys, signatures and connection nonces. Every connected client is trusted to
+> approve or deny permissions. Permission prompts/rules and internal agent/MCP
+> authority remain enforced. The signed-approval descriptions and validation
+> results below record the original SDK milestone, not the current requirement.
+
+## Trusted-client permission follow-up
+
+Protocol 3 removes approval enrollment, signing keys, nonces and the signed
+permission-mode RPC. Any connected client may answer permission requests;
+mode changes use ordinary durable commands. TUI/ACP startup no longer accesses
+the approval keychain or asks to pair a first human. The React example exposes
+Allow once and Deny without identity injection. Tool permissions, remembered
+rules, content grants, budgets and delegated agent/MCP authority remain.
+
+The shared external permission resolver retains one decision claim until its
+invocation settles, preventing competing clients from both receiving successful
+handoff receipts. One resolver map replaces the waiter/early-answer maps;
+generic invocation cleanup covers built-ins and MCP. Receipts retain their
+existing asynchronous handoff semantics, documented in the protocol reference.
+
+Validation passed: `task check` (149 SDK tests, protocol types/fixtures/drift and
+full Go checks), `task acceptance`, full tools race tests, focused client and
+schema-7 reopen race regressions, 20 SDK daemon scenarios on Unix/WebSocket with
+race detection, packed-package installation, Chromium/Firefox/actual Safari,
+and the example's unsigned Allow/Deny/reconnect UI smoke with zero console errors.
+Older protocol majors are rejected without launching/replacing a daemon.
+Schema 7 and the runtime-v2 data directory remain usable without a reset.
+
 ## Goal
 
 Implement the approved six-phase SDK plan: attach-only browser/Node WebSocket

@@ -21,7 +21,7 @@ func TestContentHTTPTransferGrantsAndCleanup(t *testing.T) {
 	handler := newContentHTTPHandler(manager)
 	data := bytes.Repeat([]byte("<script>unsafe()</script>"), 30000)
 	digest := sha256.Sum256(data)
-	request := httptest.NewRequest(http.MethodPost, "http://localhost/api/v2/content/upload?root_id="+root, bytes.NewReader(data))
+	request := httptest.NewRequest(http.MethodPost, "http://localhost/api/v3/content/upload?root_id="+root, bytes.NewReader(data))
 	request.Header.Set("Content-Type", "text/html")
 	request.Header.Set("X-Content-SHA256", hex.EncodeToString(digest[:]))
 	response := httptest.NewRecorder()
@@ -41,7 +41,7 @@ func TestContentHTTPTransferGrantsAndCleanup(t *testing.T) {
 		{root: other, status: http.StatusForbidden},
 		{root: root, agent: "unknown", status: http.StatusForbidden},
 	} {
-		request := httptest.NewRequest(http.MethodGet, "http://localhost/api/v2/content/"+handle.ReferenceID+"?root_id="+test.root+"&agent_id="+test.agent, nil)
+		request := httptest.NewRequest(http.MethodGet, "http://localhost/api/v3/content/"+handle.ReferenceID+"?root_id="+test.root+"&agent_id="+test.agent, nil)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != test.status {
@@ -56,7 +56,7 @@ func TestContentHTTPTransferGrantsAndCleanup(t *testing.T) {
 			}
 		}
 	}
-	request = httptest.NewRequest(http.MethodPost, "http://localhost/api/v2/content/upload?root_id="+root, bytes.NewReader(data[:10]))
+	request = httptest.NewRequest(http.MethodPost, "http://localhost/api/v3/content/upload?root_id="+root, bytes.NewReader(data[:10]))
 	request.ContentLength = int64(len(data))
 	request.Header.Set("X-Content-SHA256", hex.EncodeToString(digest[:]))
 	response = httptest.NewRecorder()

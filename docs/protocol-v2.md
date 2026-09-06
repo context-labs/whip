@@ -1,9 +1,9 @@
-# WHIP protocol v2
+# WHIP protocol v3
 
 The Go daemon owns execution, admission, provider credentials, model context,
 configuration and SQLite persistence. Unix sockets and WebSockets use the same
 JSON-RPC 2.0 methods, typed payloads, validation and handlers. WHIP's protocol
-major is `2`; the JSON-RPC envelope version remains `"2.0"`. Compatible builds
+major is `3`; the JSON-RPC envelope version remains `"2.0"`. Compatible builds
 attach regardless of build ID. Replacement of a running daemon is explicit.
 
 The executable contract is `internal/protocol`: wire DTOs, operation registry,
@@ -16,10 +16,17 @@ files. Standalone validators require no runtime code generation or Ajv dependenc
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
 
-Protocol minor **1** adds structured `command_not_found` (`-32011`) for a missing
-command in the initialized client namespace. A generic lookup failure is never
-proof that a command was not accepted. Responses contain exactly one of `result`
-and `error`, including `result: null` for a successful null result.
+Protocol **3.0** removes client enrollment, signing keys and connection nonces.
+All connected clients may answer permission requests and change permission modes.
+This is an incompatible trust-model change: protocol 2 clients must update and
+explicitly restart the daemon; older majors are rejected, with no fallback.
+The JSON-RPC envelope remains 2.0 and the runtime data directory remains
+`runtime-v2`; wire version and storage location are separate.
+
+`command_not_found` (`-32011`) identifies a missing command in the initialized
+client namespace. A generic lookup failure is never proof that a command was
+not accepted. Responses contain exactly one of `result` and `error`, including
+`result: null` for a successful null result.
 
 ## Local and trusted-network setup
 
@@ -32,7 +39,7 @@ whip daemon status --json
 ```
 
 The reported `network_endpoint` is an HTTP base URL. Connect a browser
-WebSocket to `/api/v2/ws` on that endpoint, replacing `http:` with `ws:`.
+WebSocket to `/api/v3/ws` on that endpoint, replacing `http:` with `ws:`.
 An existing daemon must be explicitly stopped/restarted for a changed network
 configuration to take effect. Environment options are inherited by automatic
 starts and daemon binary replacement.
@@ -55,11 +62,14 @@ supported. Requests without an Origin header are permitted for native clients.
 A supplied browser Origin must match the configured list, including for HTTP
 content transfers. The `null` browser origin is not accepted.
 
-This milestone adds no connection authentication or hosted relay. Client IDs
-are command namespaces, not authenticated user identities. Existing signed
-human approvals, automation restrictions, content grants and delegated MCP
-checks still apply. A reverse proxy may terminate TLS when desired; configure
-its externally visible Host and browser Origin explicitly.
+Clients run locally or on an explicitly trusted network. There is no connection
+authentication, device pairing or hosted relay. Client IDs are command namespaces,
+not authenticated user identities; client kind does not restrict permission
+decisions. Every connected client is trusted to approve or deny requests.
+Permission prompts, remembered rules, content grants, budgets and internal agent
+and delegated MCP authority checks still apply. A reverse proxy may terminate
+TLS when desired; configure its externally visible Host and browser Origin
+explicitly.
 
 ## Envelopes and initialization
 
@@ -76,7 +86,7 @@ capabilities. Build equality is not required for compatibility. Older protocol
 majors are rejected without restarting the runtime.
 
 ```json
-{"jsonrpc":"2.0","id":"request-1","method":"initialize","params":{"protocol_major":2,"build_id":"browser-build","client_kind":"human","client_id":"browser-installation"}}
+{"jsonrpc":"2.0","id":"request-1","method":"initialize","params":{"protocol_major":3,"build_id":"browser-build","client_kind":"human","client_id":"browser-installation"}}
 ```
 
 Fields use snake_case. Signed 64-bit counters use decimal strings; JavaScript
@@ -131,33 +141,47 @@ are included in reconnect state; answering resolves the shared pending item.
 
 ## Content transfers
 
-Upload a body with `POST /api/v2/content/upload?root_id=ROOT`. Supply the body
+Upload a body with `POST /api/v3/content/upload?root_id=ROOT`. Supply the body
 length, `X-Content-SHA256` with a lowercase hexadecimal SHA-256 digest, and an
 optional Content-Type. The response is a content handle. The upload must fit
 the existing input limit (64 MiB); interrupted or mismatched transfers remove
 temporary state. Browsers supply Content-Length automatically.
 
-Download with `GET /api/v2/content/REFERENCE?root_id=ROOT&agent_id=AGENT`.
+Download with `GET /api/v3/content/REFERENCE?root_id=ROOT&agent_id=AGENT`.
 The reference/root/agent association must satisfy the existing content grant.
 The agent may be omitted for a root grant. Reads are bounded and recheck the
 grant between chunks. Content is served as an attachment with an inert media
 type so uploaded HTML cannot execute on the daemon's origin. No tickets are
 issued. Transfers have a separate limit of 16 concurrent HTTP requests.
 
-## Existing human approval signatures
+## Permission decisions
 
-Human approval uses the existing enrollment and challenge flow. Sign the
-SHA-256 digest produced by `protocol.ApprovalMessage` with Ed25519. Its input is
-UTF-8 `"whip privileged request v2\0"`, the method, the decimal daemon generation,
-a zero byte, the raw connection nonce, and the exact transmitted JSON payload
-bytes, in that order. The payload is the `decision` or `command` field, without
-its surrounding envelope. Verification precedes decoding that payload.
+Any connected client can approve or deny a pending request. No enrollment,
+signer, signature, keychain entry or connection nonce is required. Permission
+requests remain durable and appear in root snapshots and events. The daemon
+resolves competing answers once and revalidates the operation, capability,
+budget, path and policy before resuming execution. Client approval cannot grant
+an agent a capability it does not have.
 
-Never parse and reserialize a received payload before verification. JSON
-whitespace, escaping and property order affect the signature. The generated
-`signing-fixture.json` includes non-ASCII text, HTML characters and intentional
-whitespace; the interoperability test verifies matching Go/WebCrypto digests
-and Ed25519 signatures. Its fixed seed is test-only, not a runtime credential.
+```json
+{"jsonrpc":"2.0","id":"decision-request","method":"permission.decide","params":{"decision":{"command_id":"decision-7","root_id":"root-id","permission_id":"permission-id","allow":true}}}
+```
+
+The result contains `operation_id` and `lease_id`. A successful reply accepts one
+decision handoff to the dispatcher. Revalidation and the tool operation settle
+asynchronously; observe runtime state and events for their authoritative outcome.
+The reply does not establish tool completion, and a crash during the handoff can
+interrupt the underlying operation. Optional `reason` explains a decision;
+`remember` accepts `tree` or `global` for an allowed request. An uncertain
+acknowledgement requires reconciling current permission state; the SDK
+does not automatically repeat decisions.
+
+Permission mode changes use the ordinary durable runtime `permission.mode`
+operation through `command.submit`, with typed `external_permissions` parameters.
+There is no separate `permission.mode` RPC. Mode changes and rules still obey
+runtime admission checks. `identity.enroll` and `identity.status` are removed.
+This trusted-client assumption does not expose an approval tool to agents or
+remove delegated MCP authority validation.
 
 ## Persistence and validation
 
@@ -169,11 +193,11 @@ workspace files.
 
 `TestV2CrossTransport*` exercises concurrent Unix/WebSocket clients, committed
 admission, cross-transport retries and conflicts, reconnect snapshots, replay
-boundaries, subscription exhaustion, and existing signed human identity. The
+boundaries, subscription exhaustion, and trusted-client permission decisions. The
 transport tests additionally cover fragmented-message limits, invalid frames,
 concurrent ping/data writes, close during fragmentation, exact host/origin
 checks, content grants and interrupted upload cleanup. The generated package
-checks TypeScript declarations, Go wire fixtures, signature interoperability
+checks TypeScript declarations, Go wire fixtures, typed permission decisions
 and generation drift. Full runtime acceptance and race suites remain required.
 
 ## Real-browser smoke harness
@@ -199,8 +223,8 @@ enabled WebDriver. The test page can be closed after completion.
 
 The external ES module runs under strict CSP without unsafe-inline or unsafe-eval.
 Coverage includes command acceptance/recovery, snapshots/views, React StrictMode
-subscriptions, exact-byte Go/JavaScript Ed25519 fixtures, signed human mode
-changes, scoped uploads/downloads and cleanup. JSON results are written to
+subscriptions, unsigned permission decisions and mode changes, scoped
+uploads/downloads and cleanup. JSON results are written to
 `/tmp/whip-sdk-browser-results.json`; acceptance measurements to
 `/tmp/whip-sdk-measurements.json` (or the OS temporary directory on other hosts).
 

@@ -63,14 +63,16 @@ The consolidation plan for completing the single recursive architecture lives
 in
 [`docs/plans/2026-09-02-1200-refactor-single-recursive-agent-runtime-plan.md`](plans/2026-09-02-1200-refactor-single-recursive-agent-runtime-plan.md).
 
-## WHIP v2 client foundation
+## WHIP client foundation
 
 - [x] One typed protocol over Unix sockets and WebSockets; v1 removed.
 - [x] Durable acceptance/status, consistent reconnect and bounded transcript views.
 - [x] Generated TypeScript/Ajv contract for thin React and Electron clients.
 - [x] Host-owned providers/configuration and complete existing Go client cutover.
 - [x] Attach-only TypeScript SDK, durable command handles, bounded synchronized
-  views, scoped content, signed approval helpers and minimal React example.
+  views, scoped content, permission helpers and minimal React example.
+- [x] Trusted-client approvals: no enrollment, signer or first-run pairing prompt.
+  Protocol v3 preserves permission decisions, rules and internal agent authority.
 - [ ] React web application and Electron desktop packaging (next milestone).
 - [ ] Hosted execution, connection authentication and relay infrastructure.
 

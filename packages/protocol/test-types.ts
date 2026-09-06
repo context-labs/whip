@@ -5,22 +5,22 @@ import {
   type CommandOperation, type EphemeralOperation, type RootEvent,
 } from './generated/index.js';
 
-const initialize: InitializeParams = { protocol_major: 2, build_id: 'fixture', client_kind: 'human', client_id: 'browser' };
+const initialize: InitializeParams = { protocol_major: 3, build_id: 'fixture', client_kind: 'human', client_id: 'browser' };
 const subscription: SubscribeParams = { root_id: 'root', subscription_id: 'view', cursor: '9007199254740993' };
 assertValid('InitializeParams', initialize);
 assertValid('SubscribeParams', subscription);
 
 // Instantiate the generated public metadata contract for every registry entry.
-// Identically named methods on different surfaces retain separate classifications.
+// RPCs and runtime operations retain separate classifications.
 type Executions<T extends Record<keyof T, { execution: string }>> = { [K in keyof T]: T[K]['execution'] };
 function executionOf<T extends Record<keyof T, { execution: string }>>(operations: T): Executions<T> {
   return Object.fromEntries(Object.entries(operations).map(([name, metadata]) => [name, (metadata as { execution: string }).execution])) as Executions<T>;
 }
 const rpcClassifications: Executions<RpcMethods> = executionOf(rpcOperations);
 const runtimeClassifications: Executions<RuntimeOperations> = executionOf(runtimeOperations);
-const signedMode: 'ephemeral' = rpcClassifications['permission.mode'];
+const decision: 'ephemeral' = rpcClassifications['permission.decide'];
 const inspectMode: 'command' = runtimeClassifications['permission.mode'];
-void [signedMode, inspectMode];
+void [decision, inspectMode];
 
 declare function rpc<K extends RpcMethod>(name: K, params: RpcMethods[K]['params']): Promise<RpcMethods[K]['result']>;
 declare function query<K extends QueryOperation>(name: K, params: RuntimeOperations[K]['params']): Promise<RuntimeOperations[K]['result']>;
@@ -28,6 +28,15 @@ declare function submit<K extends CommandOperation>(name: K, params: RuntimeOper
 declare function invoke<K extends EphemeralOperation>(name: K, params: RuntimeOperations[K]['params']): void;
 
 rpc('command.status', { command_id: 'command' });
+rpc('permission.decide', { decision: { command_id: 'decision', root_id: 'root', permission_id: 'permission', allow: true } });
+submit('permission.mode', { external_permissions: true });
+// @ts-expect-error Permission decisions no longer accept signing credentials.
+rpc('permission.decide', { decision: { command_id: 'decision', root_id: 'root', permission_id: 'permission', allow: true }, signature: 'old-signature' });
+// @ts-expect-error Client enrollment is not part of the trusted-client protocol.
+rpc('identity.enroll', {});
+// @ts-expect-error Permission mode is a runtime command, not a second RPC.
+rpc('permission.mode', {});
+
 query('session.model.get', {});
 submit('submit', { text: 'hello' });
 invoke('terminal.input', { id: 'terminal', bytes: 'aGVsbG8=' });

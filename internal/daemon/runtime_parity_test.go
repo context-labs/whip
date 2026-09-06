@@ -163,7 +163,7 @@ func runtimeUnixClient(t *testing.T, value *Daemon) *Client {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(t.Context(), conn, InitializeParams{ProtocolMajor: 2, ClientID: "fixture-client", ClientKind: "test"})
+	client, err := NewClient(t.Context(), conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "fixture-client", ClientKind: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

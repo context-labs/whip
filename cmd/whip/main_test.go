@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -281,11 +279,7 @@ func promptSubmitter(t *testing.T, kind, workingDirectory string) func(string) {
 	var root *daemon.RootClient
 	var err error
 	if kind == "acp" {
-		_, privateKey, keyErr := ed25519.GenerateKey(rand.Reader)
-		if keyErr != nil {
-			t.Fatal(keyErr)
-		}
-		backend := &acpDaemonBackend{clientID: "prompt-acp", privateKey: privateKey, model: "test", provider: "testprov"}
+		backend := &acpDaemonBackend{clientID: "prompt-acp", model: "test", provider: "testprov"}
 		root, err = backend.NewRoot(ctx, workingDirectory, nil)
 	} else {
 		// Mirror the presentation-only TUI's root creation and submit path.

@@ -16,7 +16,7 @@
     "check": "npm run build && npm test",
     "test": "tsc -p tsconfig.test.json && node --test build/test/*.test.js"
   },
-  "dependencies": { "@whip/protocol": "2.1.0" },
+  "dependencies": { "@whip/protocol": "3.0.0" },
   "peerDependencies": { "react": "^19.0.0" },
   "peerDependenciesMeta": { "react": { "optional": true } }
 }

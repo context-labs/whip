@@ -1,4 +1,4 @@
-# WHIP v2 parity inventory
+# WHIP v3 parity inventory
 
 Every registered runtime action has a typed request and result and a real-RPC
 fixture in `TestRuntimeRegistryEveryOperationOverUnixRPC`. Service-specific
@@ -92,12 +92,9 @@ use `operation.invoke` or their named RPC and never enter the command journal.
 | `events.subscribe` | subscription | `SubscribeParams` → `SubscribeResult` | Cross-transport views/reconnect; collection, history, root client and snapshot tests |
 | `events.unsubscribe` | subscription | `UnsubscribeParams` → `Empty` | Cross-transport views/reconnect; collection, history, root client and snapshot tests |
 | `history.page` | query | `HistoryPageParams` → `BoundedTranscriptPage` | Cross-transport views/reconnect; collection, history, root client and snapshot tests |
-| `identity.enroll` | ephemeral | `EnrollIdentityParams` → `IdentityResult` | Cross-transport human identity; identity, permission and MCP authority tests |
-| `identity.status` | query | `Empty` → `IdentityStatusResult` | Cross-transport human identity; identity, permission and MCP authority tests |
 | `initialize` | query | `InitializeParams` → `InitializeResult` | Cross-transport initialize; autostart, lifecycle and protocol edge tests |
 | `operation.invoke` | ephemeral | `QueryParams` → `QueryResult` | Runtime registry RPC fixtures; admission, cancellation, deduplication and restart tests |
-| `permission.decide` | ephemeral | `PermissionDecisionParams` → `PermissionDecisionResult` | Cross-transport human identity; identity, permission and MCP authority tests |
-| `permission.mode` | ephemeral | `PermissionModeParams` → `PermissionModeResult` | Cross-transport human identity; identity, permission and MCP authority tests |
+| `permission.decide` | ephemeral | `PermissionDecisionParams` → `PermissionDecisionResult` | Cross-transport trusted-client decisions; permission and MCP authority tests |
 | `provider.key.rotate` | ephemeral | `ProviderNameParams` → `ProviderStatus` | Provider service, revision/configuration and CLI/TUI onboarding tests |
 | `provider.key.set` | ephemeral | `ProviderKeySetup` → `RuntimeConfiguration` | Provider service, revision/configuration and CLI/TUI onboarding tests |
 | `provider.login.begin` | ephemeral | `Empty` → `ProviderLoginStatus` | Provider service, revision/configuration and CLI/TUI onboarding tests |
@@ -122,7 +119,7 @@ use `operation.invoke` or their named RPC and never enter the command journal.
 
 ## Shipped clients
 
-| Client/workflow | v2 boundary | Coverage |
+| Client/workflow | protocol boundary | Coverage |
 | --- | --- | --- |
 | TUI, recursive tree and dialogs | RootClient + typed query/command/ephemeral dispatch | TUI, question, permission and recursive acceptance suites |
 | Headless run and session CLI | Shared Go client | cmd/whip runtime/session tests |

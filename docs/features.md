@@ -87,8 +87,9 @@ root prompt (`evals/rlm`).
 - `browser`: live/dedicated/headless/extension backends behind daemon policy.
 - `computer`: macOS accessibility and screenshots with per-app policy.
 - LSP diagnostics can be attached after file changes.
-- Human permission requests are durable, signed at the client boundary, and
-  revalidated before an exact operation resumes.
+- Permission requests are durable and any connected client can approve or deny.
+  The daemon revalidates authority before the exact operation resumes; there is
+  no client pairing, signing key or first-run approver enrollment prompt.
 
 ## Provider loop and models
 
@@ -106,7 +107,7 @@ root prompt (`evals/rlm`).
 
 - The daemon is the only runtime/store owner.
 - TUI, `whip run`, sessions commands, ACP, and MCP stdio are protocol clients.
-- WHIP v2 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
+- WHIP v3 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
   WebSockets; compatible builds attach without replacing the daemon. The operation
   and event registry generates TypeScript declarations and Ajv validators.
 - Command submission returns committed acceptance. Stable client/command IDs
@@ -152,10 +153,10 @@ root prompt (`evals/rlm`).
   drafts and storage; no React dependency is loaded by core/state consumers.
   Consecutive identical internal mailbox digests share one expandable row with
   a delivery count; raw transcript entries and authored messages remain intact.
-- Content reads verify root/agent grants, size and SHA-256. Signed human helpers
-  preserve exact transmitted bytes and serialize connection nonces. Provider
-  configuration and terminal input are ephemeral and never enter SDK recovery
-  storage. First-human enrollment remains in the terminal.
+- Content reads verify root/agent grants, size and SHA-256. Permission helpers
+  send typed decisions from trusted clients without a signer; the example always
+  exposes Allow once and Deny. Provider configuration and terminal input are
+  ephemeral and never enter SDK recovery storage.
 - Implementation: `packages/sdk`, `examples/client`. Coverage: SDK TypeScript
   unit tests, `daemon.acceptance.mjs`, isolated `TestV2SDKBridge`, actual SDK
   strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed

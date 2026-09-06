@@ -204,8 +204,14 @@ fails explicitly rather than dropping deltas. Views own snapshot/subscription
 replacement and immutable bounded state; React only subscribes. Notification
 batching does not discard events. Local UI drafts/layout are application-owned.
 
-Human signing helpers serialize nonce use and preserve exact payload bytes. A
-connection change while signing invalidates that attempt. Ambiguous signed
-responses refresh the nonce and require explicit reconciliation; provider secrets
-and terminal input never enter a replay queue. HTTP transfer lifetimes are bound
-to the connection as well as the caller's abort signal.
+Permission decisions are typed requests from trusted clients. The live resolver
+claims each permission once under its mutex and retains the claim until the
+entire dispatcher invocation settles; consuming a channel value does not release
+it. This includes early answers before waiter registration. Invocation cleanup
+bounds retained state for both built-ins and MCP. The durable ledger revalidates
+execution authority before resuming an operation. Decision replies acknowledge
+the handoff; the revalidation and operation outcome settle asynchronously.
+There is no client enrollment or shared signing nonce to serialize. An uncertain decision is reconciled through pending permission state,
+not automatically replayed. Provider secrets and terminal input never enter a
+replay queue. HTTP transfer lifetimes are bound to the connection as well as the
+caller's abort signal.

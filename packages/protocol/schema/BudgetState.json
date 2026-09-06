@@ -25,7 +25,7 @@
       "format": "int64"
     }
   },
-  "$id": "https://whip.dev/protocol/v2/BudgetState",
+  "$id": "https://whip.dev/protocol/v3/BudgetState",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "BudgetState",
   "required": [

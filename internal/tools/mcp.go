@@ -70,11 +70,10 @@ type mcpConsentKey struct{}
 // One invocation uses one gate decision. A policy change invalidates it rather
 // than repeating an interactive prompt while holding the remote server queue.
 type mcpConsent struct {
-	revision     uint64
-	checked      bool
-	hasGate      bool
-	decision     capability.Decision
-	permissionID string
+	revision uint64
+	checked  bool
+	hasGate  bool
+	decision capability.Decision
 }
 
 // InvokeMCP resolves trusted metadata internally; callers supply only the exact
@@ -126,11 +125,6 @@ func (s *Services) InvokeMCP(ctx context.Context, server, tool string, arguments
 	s.mu.RLock()
 	consent := &mcpConsent{revision: s.permissionRevision}
 	s.mu.RUnlock()
-	defer func() {
-		s.mu.Lock()
-		delete(s.permissionEarly, consent.permissionID)
-		s.mu.Unlock()
-	}()
 	ctx = context.WithValue(ctx, mcpConsentKey{}, consent)
 	return s.run(ctx, "mcp.call", envelope)
 }
@@ -232,10 +226,6 @@ func (s *Services) mcpGateDecision(ctx context.Context, arguments json.RawMessag
 }
 
 func (s *Services) decideMCP(ctx context.Context, prompt capability.PermissionPrompt) (capability.Decision, error) {
-	consent, _ := ctx.Value(mcpConsentKey{}).(*mcpConsent)
-	if consent != nil {
-		consent.permissionID = prompt.ID
-	}
 	consent, err := s.mcpGateDecision(ctx, prompt.Arguments)
 	if err != nil {
 		return capability.Decision{}, err

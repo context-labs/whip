@@ -106,15 +106,9 @@ type ContentHandle = protocol.ContentHandle
 
 type PermissionDecision = protocol.PermissionDecision
 
-type IdentityStatusResult = protocol.IdentityStatusResult
-
 type PermissionDecisionParams = protocol.PermissionDecisionParams
 
 type PermissionDecisionResult = protocol.PermissionDecisionResult
-
-type PermissionModeParams = protocol.PermissionModeParams
-
-type PermissionModeResult = protocol.PermissionModeResult
 
 type RestartNotice = protocol.RestartNotice
 
