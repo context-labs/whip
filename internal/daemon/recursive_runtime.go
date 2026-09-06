@@ -19,7 +19,6 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/schedule"
 	sessionstore "github.com/context-labs/whip/internal/session"
@@ -32,7 +31,6 @@ type RecursiveRuntimeOptions struct {
 	Limits         rlm.Limits
 	Kernels        *rlm.Manager
 	KernelCommand  []string
-	MCP            *mcp.Manager
 	InputPrice     float64
 	OutputPrice    float64
 	CacheReadPrice float64
@@ -48,7 +46,6 @@ type RecursiveRuntime struct {
 	limits      rlm.Limits
 	kernels     *rlm.Manager
 	command     []string
-	mcp         *mcp.Manager
 	pricing     [3]float64
 	hookMu      sync.RWMutex
 	runTurnHook func(*AgentSession)
@@ -110,7 +107,7 @@ func NewRecursiveRuntime(options RecursiveRuntimeOptions) (*RecursiveRuntime, er
 	}
 	runtime := &RecursiveRuntime{
 		agents: make(map[string]*AgentSession), limits: options.Limits, kernels: options.Kernels,
-		command: append([]string(nil), options.KernelCommand...), mcp: options.MCP,
+		command: append([]string(nil), options.KernelCommand...),
 		pricing: [3]float64{options.InputPrice, options.OutputPrice, options.CacheReadPrice},
 	}
 	node, err := runtime.newNode(options.Agent, "", "root", nil, capability.Authority{})
@@ -235,7 +232,7 @@ func (runtime *RecursiveRuntime) Bind(ctx context.Context, root *Session) error 
 	runtime.root = root
 	node := runtime.rootNode
 	node.root, node.id, node.authority = root, root.AgentID(), root.authority
-	node.capabilities = []string{"read", "write", "shell", "browser", "computer"}
+	node.capabilities = []string{"read", "write", "shell", "browser", "computer", "mcp"}
 	runtime.agents[node.id] = node
 	runtime.mu.Unlock()
 	if err := root.ConfigureModelPricing(runtime.pricing[0], runtime.pricing[1], runtime.pricing[2]); err != nil {
@@ -294,6 +291,8 @@ func (runtime *RecursiveRuntime) SetExternalPermissions(enabled bool) {
 	for _, node := range runtime.agents {
 		if node.agent.Services != nil {
 			node.agent.Services.SetExternalPermissions(enabled)
+			node.agent.Services.SetMCPAutomatic(!enabled)
+			node.agent.Services.SetHeadlessPermissions(false)
 		}
 	}
 }
@@ -306,6 +305,25 @@ func (runtime *RecursiveRuntime) PermissionResolver(agentID string) clientPermis
 		return nil
 	}
 	return node.agent.Services
+}
+
+func (runtime *RecursiveRuntime) DenyToolPermissions() {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
+	for _, node := range runtime.agents {
+		node.DenyToolPermissions()
+	}
+}
+
+func (runtime *RecursiveRuntime) SetHeadlessPermissions(headless bool) {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
+	for _, node := range runtime.agents {
+		node.agent.Services.SetHeadlessPermissions(headless)
+		if headless {
+			node.agent.Services.SetExternalPermissions(false)
+		}
+	}
 }
 
 func (runtime *RecursiveRuntime) ControlAgent(ctx context.Context, id, status string) error {
@@ -1053,8 +1071,19 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 		RootID: parent.root.ID(), AgentID: id,
 		Files: capability.Reference{ID: "files:" + id, Generation: 1},
 		Shell: capability.Reference{ID: "shell:" + id, Generation: 1},
+		MCP:   capability.Reference{ID: "mcp:" + id, Generation: 1},
 	}
 	delegations := capabilityDelegations(parent, authority, capabilities)
+	mcpTools, err := delegatedMCPTools(ctx, parent, capabilities, arguments["mcp_tools"])
+	if err != nil {
+		return nil, err
+	}
+	if slices.Contains(capabilities, "mcp") {
+		delegations = append(delegations, sessionstore.CapabilityDelegation{
+			ID: authority.MCP.ID, Issuer: parent.authority.MCP, AgentID: id,
+			Operations: []string{"mcp.call"}, MCP: mcpTools,
+		})
+	}
 	services, err := parent.agent.Services.CloneForAuthority(parent.root.store, parent.root.store.Workspaces(), parent.root.store.Processes(), authority)
 	if err != nil {
 		return nil, err
@@ -1099,6 +1128,10 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 		_ = parent.root.TerminalizeSubtree(ctx, parent.id, id, "deleted")
 		return nil, errors.New("recursive runtime is closed")
 	}
+	// A policy update may have happened while durable admission was queued.
+	// Copy under the publication lock so tree-wide updates either include this
+	// node or precede the copy; a newly admitted child cannot miss a denial.
+	child.Services.CopyPermissionPolicyFrom(parent.agent.Services)
 	runtime.agents[id] = node
 	runtime.mu.Unlock()
 	node.wake()
@@ -1106,6 +1139,7 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 	return map[string]any{
 		"id": id, "name": name, "parent_id": parent.id, "status": "queued", "report": report,
 		"effective_capabilities": capabilities, "effective_budgets": effectiveBudgets,
+		"effective_mcp_tools": mcpTools,
 	}, nil
 }
 
@@ -1295,10 +1329,13 @@ func (runtime *RecursiveRuntime) inspect(ctx context.Context, caller *AgentSessi
 	}
 	summary, _ := caller.root.MailboxSummary(ctx, id)
 	budgets, _ := caller.root.InspectBudgets(ctx, caller.id, id)
+	authority, names, _ := caller.root.store.LoadAgentAuthority(ctx, caller.root.ID(), id)
+	mcpTools, _, _ := caller.root.store.MCPSelectors(ctx, caller.root.ID(), id, authority.MCP)
 	return map[string]any{
 		"id": found.ID, "name": found.Name, "parent_id": found.ParentID, "status": found.Status,
 		"model": found.Model, "provider": found.Provider, "effort": found.Effort, "cwd": found.CWD,
 		"unread_messages": summary.UnreadCount, "budgets": budgets, "report": found.Report,
+		"effective_capabilities": names, "effective_mcp_tools": mcpTools,
 	}, nil
 }
 
@@ -1428,7 +1465,7 @@ func (host *recursiveHost) messages(ctx context.Context, operation string, argum
 }
 
 func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments map[string]any) (any, error) {
-	manager := host.session.runtime.mcp
+	manager := host.session.root.mcpManager()
 	if manager == nil {
 		return nil, errors.New("no MCP servers are configured")
 	}
@@ -1437,12 +1474,38 @@ func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments 
 		servers := manager.Statuses()
 		result := make([]map[string]any, 0, len(servers))
 		for _, server := range servers {
-			result = append(result, map[string]any{"name": server.Name, "status": server.Status.String(), "error": server.Err, "tools": server.Tools, "source": server.Source})
+			cfg, _ := manager.Config(server.Name)
+			result = append(result, map[string]any{"name": server.Name, "status": server.Status.String(), "error": server.Err, "tools": server.Tools, "source": server.Source, "trusted": cfg.Trusted})
 		}
 		return result, nil
 	case "list_tools":
 		server, _ := stringArgument(arguments, "server")
-		return manager.ListTools(server)
+		listed, err := manager.ListTools(server)
+		if err != nil {
+			return nil, err
+		}
+		node := host.session
+		result := make([]map[string]any, 0, len(listed))
+		for _, tool := range listed {
+			call, err := manager.ResolveTool(server, tool.Name)
+			authorized := err == nil && node.root.store.AuthorizeMCP(ctx, node.root.ID(), node.id, node.authority.MCP, call.MCPSelector) == nil
+			result = append(result, map[string]any{
+				"name": tool.Name, "title": tool.Title, "description": tool.Description, "input_schema": tool.InputSchema,
+				"authorized": authorized, "definition": call.Definition, "generation": call.Generation,
+			})
+		}
+		return result, nil
+	case "instructions":
+		server, _ := stringArgument(arguments, "server")
+		text, generation, source, err := manager.Instructions(server)
+		if err != nil {
+			return nil, err
+		}
+		result, err := host.boundedText(ctx, "MCP instructions: "+server+" ("+source+", generation "+generation+")", text)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"server": server, "generation": generation, "source": source, "instructions": result}, nil
 	case "call":
 		server, _ := stringArgument(arguments, "server")
 		tool, _ := stringArgument(arguments, "tool")
@@ -1454,7 +1517,7 @@ func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments 
 		if err != nil {
 			return nil, err
 		}
-		output, err := manager.Call(ctx, server, tool, body)
+		output, err := host.session.agent.Services.InvokeMCP(ctx, server, tool, body)
 		result, boundErr := host.boundedText(ctx, "MCP "+server+"."+tool+" output", output)
 		if err != nil {
 			return result, err

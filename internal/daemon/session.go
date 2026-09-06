@@ -251,6 +251,7 @@ type Session struct {
 	meta       sessionstore.Meta
 	authority  capability.Authority
 	runner     Runner
+	mcpMu      sync.RWMutex
 	mcp        Closeable
 	runtime    Closeable
 	factory    Factory
@@ -549,8 +550,8 @@ func (s *Session) run() {
 	// may be waiting on a worker that routed a control through this actor.
 	cleanupErr := s.flushPendingEvents()
 	cleanupErr = errors.Join(cleanupErr, safeClose("runner", s.runner.Close))
-	if s.mcp != nil {
-		cleanupErr = errors.Join(cleanupErr, safeClose("mcp", s.mcp.Close))
+	if manager := s.swapMCP(nil); manager != nil {
+		cleanupErr = errors.Join(cleanupErr, safeClose("mcp", manager.Close))
 	}
 	if s.runtime != nil {
 		cleanupErr = errors.Join(cleanupErr, safeClose("runtime", s.runtime.Close))

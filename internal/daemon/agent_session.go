@@ -14,6 +14,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
 	sessionstore "github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 func (session *AgentSession) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
@@ -447,8 +448,8 @@ func (session *AgentSession) ContextAudit() ContextAuditResult {
 		}
 	}
 	result.Rows = append(result.Rows, ContextAuditRow{Label: "retained history", Note: "context.history() retrieves this agent's raw transcript; current-turn entries are provisional"})
-	if session.runtime != nil && session.runtime.mcp != nil {
-		mcpTools := session.runtime.mcp.Tools()
+	if manager := session.root.mcpManager(); manager != nil {
+		mcpTools := manager.Tools()
 		mcpBytes := 0
 		for _, tool := range mcpTools {
 			definition, _ := json.Marshal(tool.Def)
@@ -506,10 +507,13 @@ func (session *AgentSession) turnJournal() turnJournal {
 
 func (session *AgentSession) Close() { session.close(true) }
 
+func (session *AgentSession) permissionServices() *tools.Services { return session.agent.Services }
+
 func (session *AgentSession) bind(root *Session) error {
 	if session.agent.Services == nil {
 		return errors.New("agent services are required")
 	}
+	session.agent.Services.SetMCPProvider(root.mcpProvider)
 	if err := session.agent.Services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority); err != nil {
 		return err
 	}

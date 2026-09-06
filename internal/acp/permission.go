@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
 )
@@ -51,17 +52,27 @@ func (b *Bridge) handlePermission(s *acpSession, payload []byte) {
 		{OptionId: optReject, Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce},
 	}
 	if pending.Rule != "" {
+		label := "Always allow " + pending.Operation + " " + pending.Rule + " in this tree"
+		if pending.Operation == "mcp.call" {
+			label = "Always allow this MCP tool and server definition in this tree"
+		}
 		options = append(options, acp.PermissionOption{
-			OptionId: optAllowAlways, Name: "Always allow " + pending.Operation + " " + pending.Rule + " in this tree", Kind: acp.PermissionOptionKindAllowAlways,
+			OptionId: optAllowAlways, Name: label, Kind: acp.PermissionOptionKindAllowAlways,
 		})
+	}
+	toolCall := acp.ToolCallUpdate{
+		ToolCallId: acp.ToolCallId("perm-" + pending.PermissionID),
+		Title:      new(name), Kind: new(toolKind(pending.Operation)),
+	}
+	if pending.Operation == "mcp.call" {
+		title, _, _ := strings.Cut(name, "\n")
+		toolCall.Title = &title
+		toolCall.Content = []acp.ToolCallContent{acp.ToolContent(acp.TextBlock(pending.Command))}
 	}
 	response, err := b.conn.RequestPermission(s.lifecycle, acp.RequestPermissionRequest{
 		SessionId: s.id,
-		ToolCall: acp.ToolCallUpdate{
-			ToolCallId: acp.ToolCallId("perm-" + pending.PermissionID),
-			Title:      new(name), Kind: new(toolKind(pending.Operation)),
-		},
-		Options: options,
+		ToolCall:  toolCall,
+		Options:   options,
 	})
 	if err != nil || response.Outcome.Selected == nil {
 		reason := "the user cancelled the permission prompt"

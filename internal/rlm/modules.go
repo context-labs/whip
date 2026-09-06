@@ -28,7 +28,7 @@ var moduleRegistry = map[string][]string{
 	"models":      {"call", "batch"},
 	"agents":      {"spawn", "submit", "wait", "inspect", "list", "stop", "delete"},
 	"messages":    {"send", "list", "read", "complete", "ack", "defer"},
-	"mcp":         {"list_servers", "list_tools", "call"},
+	"mcp":         {"list_servers", "list_tools", "instructions", "call"},
 	"state":       {"private_get", "private_set", "private_append", "private_cas", "private_list", "blackboard_get", "blackboard_set", "blackboard_append", "blackboard_cas", "blackboard_history", "subscribe", "subscriptions", "cancel_subscription"},
 	"artifacts":   {"put", "inspect", "read"},
 	"schedules":   {"create", "list", "cancel"},

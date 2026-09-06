@@ -3,6 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -101,5 +104,80 @@ func TestExternalPermissionsWaitForAuthenticatedDaemonDecision(t *testing.T) {
 	}
 	if err := services.ResolvePermission("disabled", want); err == nil {
 		t.Fatal("disabled external permissions accepted a decision")
+	}
+}
+
+func TestHeadlessBuiltinsRequirePreauthorization(t *testing.T) {
+	services, ledger, _, authority := newMCPServices(t)
+	services.SetExternalPermissions(true)
+	services.SetHeadlessPermissions(true)
+	path := filepath.Join(services.ProcessOptions().Cwd, "result.txt")
+	arguments, err := json.Marshal(map[string]string{"path": path, "content": "approved"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := services.Invoke(t.Context(), "write", arguments); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("headless write without approval error=%v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unapproved file exists: %v", err)
+	}
+	if _, err := ledger.AddPermissionRule(t.Context(), authority.RootID, "write", path, "paired-human"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := services.Invoke(t.Context(), "write", arguments); err != nil {
+		t.Fatalf("preapproved headless write error=%v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "approved" {
+		t.Fatalf("preapproved file=%q, error=%v", data, err)
+	}
+	assertMCPSettled(t, ledger, authority)
+}
+
+func TestHeadlessBuiltinDecisionDoesNotConsultGate(t *testing.T) {
+	services := NewServices()
+	services.SetHeadlessPermissions(true)
+	services.SetGate(func(context.Context, GateRequest) (GateDecision, string) {
+		t.Fatal("headless permission decision called an interactive gate")
+		return GateReject, ""
+	})
+	decision, err := services.Decide(t.Context(), capability.PermissionPrompt{Operation: "bash", Arguments: json.RawMessage(`{"command":"pwd"}`)})
+	if err != nil || decision.Allow {
+		t.Fatalf("headless decision=%+v, error=%v", decision, err)
+	}
+}
+
+func TestCopyPermissionPolicyDoesNotTransferPendingDecisions(t *testing.T) {
+	previous := NewServices()
+	previous.SetExternalPermissions(true)
+	previous.permissionEarly["early"] = capability.Decision{Allow: true, PrincipalID: "previous-client"}
+	previous.permissionWaiters["pending"] = make(chan capability.Decision, 1)
+	replacement := NewServices()
+	replacement.CopyPermissionPolicyFrom(previous)
+	if !replacement.ExternalPermissionsEnabled() || len(replacement.permissionEarly) != 0 || len(replacement.permissionWaiters) != 0 {
+		t.Fatal("replacement copied pending decisions or lost external permission policy")
+	}
+	if len(previous.permissionEarly) != 1 || len(previous.permissionWaiters) != 1 {
+		t.Fatal("copying permission policy changed the previous runtime's pending requests")
+	}
+	if err := replacement.ResolvePermission("replacement", capability.Decision{PrincipalID: "new-client"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(previous.permissionEarly) != 1 {
+		t.Fatal("replacement permission state aliases the previous runtime")
+	}
+}
+
+func TestMCPPolicyChangeBeforeWaiterRegistrationFailsClosed(t *testing.T) {
+	services := NewServices()
+	services.SetExternalPermissions(true)
+	ctx := context.WithValue(t.Context(), mcpConsentKey{}, &mcpConsent{revision: services.permissionRevision})
+	services.SetGate(func(context.Context, GateRequest) (GateDecision, string) { return GateReject, "deny" })
+	if _, err := services.waitPermission(ctx, "stale"); !errors.Is(err, capability.ErrStaleAdmission) {
+		t.Fatalf("policy changed before registration error=%v", err)
+	}
+	if len(services.permissionWaiters) != 0 {
+		t.Fatal("stale invocation registered a waiter after policy invalidation")
 	}
 }

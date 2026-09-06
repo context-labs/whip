@@ -203,7 +203,7 @@ func runDaemon(ctx context.Context, args []string) error {
 			inputPrice, outputPrice, cacheReadPrice, _ = catalog.Pricing(apiID)
 		}
 		runtime, err := daemon.NewRecursiveRuntime(daemon.RecursiveRuntimeOptions{
-			Agent: ag, History: history, Limits: limits, Kernels: kernels, MCP: mcpManager,
+			Agent: ag, History: history, Limits: limits, Kernels: kernels,
 			KernelCommand: daemonKernelCommand,
 			InputPrice:    inputPrice, OutputPrice: outputPrice, CacheReadPrice: cacheReadPrice,
 		})

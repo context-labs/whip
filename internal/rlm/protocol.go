@@ -64,5 +64,18 @@ func readFrame(r *bufio.Reader, limit int) (frame, error) {
 	if value.Version != protocolVersion {
 		return frame{}, fmt.Errorf("unsupported RLM protocol version %d", value.Version)
 	}
+	if value.Module == "mcp" && value.Operation == "call" {
+		// MCP arguments cross another JSON boundary. Preserve integer IDs rather
+		// than round them through float64 before authorization and transmission.
+		var exact struct {
+			Arguments map[string]any `json:"arguments"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.UseNumber()
+		if err := decoder.Decode(&exact); err != nil {
+			return frame{}, fmt.Errorf("decode MCP arguments: %w", err)
+		}
+		value.Arguments = exact.Arguments
+	}
 	return value, nil
 }

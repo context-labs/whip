@@ -23,7 +23,7 @@ All operations accept keyword arguments.
 | `models` | `call`, `batch` for stateless model work |
 | `agents` | `spawn`, `submit`, `wait`, `inspect`, `list`, `stop`, `delete` |
 | `messages` | `send`, `list`, `read`, `complete`, `defer` |
-| `mcp` | `list_servers`, `list_tools`, `call` |
+| `mcp` | `list_servers`, `list_tools`, `instructions`, `call` |
 | `state` | private/blackboard get, set, append, CAS, list/history, subscriptions |
 | `artifacts` | `put`, `inspect`, `read` |
 | `schedules` | `create`, `list`, `cancel` |
@@ -89,26 +89,52 @@ The daemon owns MCP connections. Both root and child kernels call:
 ```python
 mcp.list_servers()
 mcp.list_tools(server="docs")
+mcp.instructions(server="docs")
 mcp.call(server="docs", tool="search", arguments={"query": "leases"})
 ```
 
-Calls are addressed by server and original tool name. The manager preserves
-normal connection, timeout, reconnect, and per-server serialization behavior.
+Calls use the exact configured server and original tool name. `list_tools`
+marks which definitions the caller is authorized to use. Each call runs through
+the durable capability dispatcher, reserves operation capacity, and rechecks its
+grant and current server definition after permission and the server's call queue.
 Large results become handles through the same bounded-output path as built-in
 operations.
+
+Servers explicitly configured in native WHIP configuration are trusted. Imported
+Claude/Codex definitions retain their provenance, including when saved by the
+import command; ACP attachments also require consent or a saved allow rule.
+Only the daemon's native configuration establishes native trust. A client cannot
+claim it or replace a native definition by attaching a server of the same name.
+Explicit permission denials and revoked grants still win. Headless execution
+uses preauthorization or denies promptly; it never waits for a permission UI.
+
+Children inherit the parent's currently available MCP tools when capabilities
+are omitted. `capabilities=["read"]` has no MCP access. An explicit list can
+include `"mcp"`, optionally narrowed by
+`mcp_tools=[{"server": "docs", "tool": "search"}]`. These exact definitions are
+persisted with the child's issuer grant. New tools or changed endpoints and
+schemas do not expand an existing child's authority; ancestor revocation still
+applies after restart.
+
+`mcp.instructions` returns server usage guidance with its source and connection
+generation. Large guidance returns a handle for bounded `context.read` calls.
+Instructions and tool annotations do not authorize effects. Replacing or
+reconnecting a manager invalidates pending calls; transmitted calls are never
+automatically retried because their external outcome may be uncertain.
 
 `whip mcp serve` is a protocol bridge for external MCP clients. It hosts
 daemon-owned tool services directly and does not create a model agent.
 
 ## Authorization and output
 
-- File and shell operations use the capability dispatcher with the calling
+- File, shell, and MCP operations use the capability dispatcher with the calling
   agent’s identity and grants.
 - Omitted child capabilities inherit the parent set; an explicit list may
   only narrow it.
 - Permission approval is human/protocol-side and revalidates the exact
   operation before it resumes. Approving "always" installs a rule (the
-  arity-collapsed command prefix, or the canonical path) for the session
+  arity-collapsed command prefix, the canonical path, or the exact MCP server,
+  raw tool name, and definition digest) for the session
   tree; `permissions.allow` in the config holds the global `operation:rule`
   allowlist, and `/permissions` lists or forgets tree rules.
 - Inline output is bounded. Larger content is stored immutably and returned

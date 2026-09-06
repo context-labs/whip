@@ -352,7 +352,7 @@ func TestServicesValidationPaths(t *testing.T) {
 	}
 
 	services.dispatcher = capability.NewDispatcher(nil, nil, nil)
-	if _, err := services.run(context.Background(), "missing", nil, nil); err == nil || !strings.Contains(err.Error(), "unknown host operation") {
+	if _, err := services.run(context.Background(), "missing", nil); err == nil || !strings.Contains(err.Error(), "unknown host operation") {
 		t.Fatalf("unknown operation error = %v", err)
 	}
 }

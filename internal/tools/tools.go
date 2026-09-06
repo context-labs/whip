@@ -64,6 +64,11 @@ type Services struct {
 	computerHelper      *computer.Helper
 	appGenerations      map[string]int
 	externalPermissions bool
+	headlessPermissions bool
+	mcpAutomatic        bool
+	permissionRevision  uint64
+	mcpProvider         func() MCPProvider
+	permissionLedger    capability.Ledger
 	permissionWaiters   map[string]chan capability.Decision
 	permissionEarly     map[string]capability.Decision
 
@@ -78,8 +83,32 @@ func NewServices() *Services { return &Services{} }
 // daemon decision instead of consulting an in-process consent callback.
 func (s *Services) SetExternalPermissions(enabled bool) {
 	s.mu.Lock()
+	if s.externalPermissions != enabled {
+		s.invalidatePermissionPolicyLocked()
+	}
 	s.externalPermissions = enabled
 	if enabled && s.permissionWaiters == nil {
+		s.permissionWaiters = make(map[string]chan capability.Decision)
+		s.permissionEarly = make(map[string]capability.Decision)
+	}
+	s.mu.Unlock()
+}
+
+// CopyPermissionPolicyFrom preserves the current permission mode when a
+// runtime is replaced. Live waiters and the MCP manager belong to their runtime.
+func (s *Services) CopyPermissionPolicyFrom(previous *Services) {
+	if previous == nil || previous == s {
+		return
+	}
+	previous.mu.RLock()
+	gate, external := previous.gate, previous.externalPermissions
+	automatic, headless := previous.mcpAutomatic, previous.headlessPermissions
+	previous.mu.RUnlock()
+	s.mu.Lock()
+	s.invalidatePermissionPolicyLocked()
+	s.gate, s.externalPermissions = gate, external
+	s.mcpAutomatic, s.headlessPermissions = automatic, headless
+	if external && s.permissionWaiters == nil {
 		s.permissionWaiters = make(map[string]chan capability.Decision)
 		s.permissionEarly = make(map[string]capability.Decision)
 	}
@@ -110,6 +139,19 @@ func (s *Services) ResolvePermission(permissionID string, decision capability.De
 		s.mu.Unlock()
 		waiter <- decision
 		return nil
+	}
+	if s.permissionLedger != nil {
+		// Keep validation and insertion ordered with the invocation's final
+		// cleanup. A decision after terminalization cannot become an orphan.
+		admission, err := s.permissionLedger.Pending(context.Background(), permissionID)
+		if err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		if admission.Request.RootID != s.authority.RootID || admission.Request.AgentID != s.authority.AgentID {
+			s.mu.Unlock()
+			return capability.ErrDenied
+		}
 	}
 	s.permissionEarly[permissionID] = decision
 	s.mu.Unlock()
@@ -216,6 +258,7 @@ func (s *Services) Diagnostics() Diagnostics {
 func (s *Services) SetGate(gate Gate) {
 	s.mu.Lock()
 	s.gate = gate
+	s.invalidatePermissionPolicyLocked()
 	s.mu.Unlock()
 }
 
@@ -321,7 +364,7 @@ func (s *Services) RunBash(ctx context.Context, command string, timeout time.Dur
 	}
 	var result bashrun.Result
 	ctx = context.WithValue(ctx, bashResultKey{}, &result)
-	_, err = s.run(ctx, "bash", arguments, bashTool(s).Run)
+	_, err = s.run(ctx, "bash", arguments)
 	return result, err
 }
 
@@ -351,7 +394,7 @@ func (s *Services) RunWorkspaceProcess(ctx context.Context, name string, args ..
 	if err != nil {
 		return nil, err
 	}
-	out, err := s.run(ctx, "workspace_process", arguments, workspaceProcessTool(s).Run)
+	out, err := s.run(ctx, "workspace_process", arguments)
 	return []byte(out), err
 }
 
@@ -483,7 +526,7 @@ func (s *Services) wrap(tool Tool) Tool {
 		if _, dispatched := dispatchCall(ctx); dispatched {
 			return direct(ctx, arguments)
 		}
-		return s.run(ctx, operation, arguments, direct)
+		return s.run(ctx, operation, arguments)
 	}
 	return tool
 }
@@ -491,7 +534,7 @@ func (s *Services) wrap(tool Tool) Tool {
 type dispatchCallKey struct{}
 
 func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capability.Workspaces, processes *capability.ProcessManager, authority capability.Authority) error {
-	if ledger == nil || workspaces == nil || processes == nil || authority.RootID == "" || authority.AgentID == "" || authority.Files.ID == "" || authority.Shell.ID == "" {
+	if ledger == nil || workspaces == nil || processes == nil || authority.RootID == "" || authority.AgentID == "" {
 		return errors.New("host dispatcher authority is incomplete")
 	}
 	s.mu.RLock()
@@ -519,6 +562,9 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 			return err
 		}
 	}
+	if err := dispatcher.Register(s.mcpRegistration(ledger)); err != nil {
+		return err
+	}
 	s.mu.RLock()
 	env := maps.Clone(s.processEnv)
 	browserManager := s.browser
@@ -532,6 +578,7 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 	}
 	s.mu.Lock()
 	s.dispatcher = dispatcher
+	s.permissionLedger = ledger
 	s.authority = authority
 	s.processes = processes
 	s.workspace = workspace
@@ -569,6 +616,10 @@ func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capab
 		computerApprover:    s.computerApprover,
 		appGenerations:      maps.Clone(s.appGenerations),
 		externalPermissions: s.externalPermissions,
+		headlessPermissions: s.headlessPermissions,
+		mcpAutomatic:        s.mcpAutomatic,
+		permissionRevision:  s.permissionRevision,
+		mcpProvider:         s.mcpProvider,
 	}
 	s.mu.RUnlock()
 	if clone.externalPermissions {
@@ -594,7 +645,7 @@ func toolPath(arguments json.RawMessage) (string, error) {
 	return args.Path, nil
 }
 
-func (s *Services) run(ctx context.Context, operation string, arguments json.RawMessage, direct func(context.Context, json.RawMessage) (string, error)) (string, error) {
+func (s *Services) run(ctx context.Context, operation string, arguments json.RawMessage) (string, error) {
 	s.mu.RLock()
 	dispatcher, authority := s.dispatcher, s.authority
 	s.mu.RUnlock()
@@ -602,10 +653,13 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 		return "", errors.New("tool services are not bound to dispatcher authority")
 	}
 	spec, ok := hostSpec(operation)
-	if !ok {
+	if !ok && operation != "mcp.call" {
 		return "", fmt.Errorf("unknown host operation %q", operation)
 	}
 	capabilityRef := authority.Files
+	if operation == "mcp.call" {
+		capabilityRef = authority.MCP
+	}
 	identity, ok := ctx.Value(invocationKey{}).(invocation)
 	if !ok || identity.traceID == "" {
 		var err error
@@ -622,13 +676,18 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 	if spec.shell {
 		capabilityRef = authority.Shell
 	}
+	if capabilityRef.ID == "" {
+		return "", capability.ErrDenied
+	}
 	if spec.writer {
 		request.WriterCapabilityID = authority.Files.ID
 		request.WriterCapabilityGeneration = authority.Files.Generation
 	}
 	request.CapabilityID = capabilityRef.ID
 	request.CapabilityGeneration = capabilityRef.Generation
-	request.WorkingDirectory = workingDirectory(ctx)
+	if operation != "mcp.call" {
+		request.WorkingDirectory = workingDirectory(ctx)
+	}
 	request.OperationID = identity.operationID
 	if request.OperationID == "" {
 		var err error
@@ -645,11 +704,11 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 // authority, permission, budget, mutation-ordering, and trace path used by
 // runtime modules.
 func (s *Services) Invoke(ctx context.Context, operation string, arguments json.RawMessage) (string, error) {
-	spec, ok := hostSpec(operation)
+	_, ok := hostSpec(operation)
 	if !ok {
 		return "", fmt.Errorf("unknown host operation %q", operation)
 	}
-	return s.run(ctx, operation, arguments, spec.build(s).Run)
+	return s.run(ctx, operation, arguments)
 }
 
 func randomID() (string, error) {

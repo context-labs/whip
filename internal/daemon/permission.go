@@ -213,6 +213,7 @@ func (s *Session) InspectCapability(ctx context.Context, callerAgentID, capabili
 func (s *Session) DelegateCapability(ctx context.Context, callerAgentID string, delegation sessionstore.CapabilityDelegation) (sessionstore.CapabilityRecord, error) {
 	delegation.Operations = slices.Clone(delegation.Operations)
 	delegation.Scopes = slices.Clone(delegation.Scopes)
+	delegation.MCP = slices.Clone(delegation.MCP)
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.CapabilityRecord, error) {
 		return s.store.DelegateCapability(actorCtx, s.meta.ID, callerAgentID, delegation)
 	})
@@ -220,6 +221,26 @@ func (s *Session) DelegateCapability(ctx context.Context, callerAgentID string, 
 
 func (s *Session) RevokeCapability(ctx context.Context, callerAgentID, capabilityID string) (sessionstore.CapabilityRecord, error) {
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (sessionstore.CapabilityRecord, error) {
-		return s.store.RevokeCapabilityFor(actorCtx, s.meta.ID, callerAgentID, capabilityID)
+		return s.revokeCapability(actorCtx, callerAgentID, capabilityID)
 	})
+}
+
+func (s *Session) revokeCapability(ctx context.Context, callerAgentID, capabilityID string) (sessionstore.CapabilityRecord, error) {
+	pending, err := s.store.ListPendingPermissions(ctx, s.meta.ID)
+	if err != nil {
+		return sessionstore.CapabilityRecord{}, err
+	}
+	record, err := s.store.RevokeCapabilityFor(ctx, s.meta.ID, callerAgentID, capabilityID)
+	if err != nil {
+		return record, err
+	}
+	for _, prompt := range pending {
+		if _, err := s.store.Pending(ctx, prompt.ID); !errors.Is(err, capability.ErrDenied) {
+			continue
+		}
+		if resolver := s.permissionResolver(prompt.AgentID); resolver != nil && resolver.ExternalPermissionsEnabled() {
+			_ = resolver.ResolvePermission(prompt.ID, capability.Decision{PrincipalID: "capability-revoked", Reason: "capability revoked"})
+		}
+	}
+	return record, nil
 }

@@ -128,7 +128,7 @@ func TestRemoveDuringInFlightConnect(t *testing.T) {
 		defer close(exited)
 		select {
 		case <-release:
-			return serveTestServer(t, cfg.Command[0]), nil
+			return serveTestServer(t, m, cfg.Command[0]), nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
@@ -173,7 +173,7 @@ func TestRemoveWhileConnecting(t *testing.T) {
 			for range 50 {
 				_ = m.Tools()
 				_ = m.Statuses()
-				_ = m.InstructionsBlock()
+				_, _, _, _ = m.Instructions("docs")
 			}
 		})
 	}

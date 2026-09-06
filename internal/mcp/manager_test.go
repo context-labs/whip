@@ -82,7 +82,7 @@ func newTestManager(t *testing.T, cfgs map[string]ServerConfig) *Manager {
 	t.Helper()
 	m := NewManager(cfgs)
 	m.connectTransport = func(_ context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
-		return serveTestServer(t, cfg.Command[0]), nil // Command[0] is the server name in tests
+		return serveTestServer(t, m, cfg.Command[0]), nil // Command[0] is the server name in tests
 	}
 	t.Cleanup(m.Close)
 	return m
@@ -92,7 +92,7 @@ func newTestManager(t *testing.T, cfgs map[string]ServerConfig) *Manager {
 // client transport. The server is connected (not Run) so a client
 // disconnect ends just the session, leaving the server able to accept a
 // reconnect on a fresh transport — like a real stdio server respawn.
-func serveTestServer(t *testing.T, name string) *sdkmcp.InMemoryTransport {
+func serveTestServer(t *testing.T, m *Manager, name string) *sdkmcp.InMemoryTransport {
 	t.Helper()
 	srv := newTestServer(name)
 	clientT, serverT := sdkmcp.NewInMemoryTransports()
@@ -100,7 +100,7 @@ func serveTestServer(t *testing.T, name string) *sdkmcp.InMemoryTransport {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { ss.Close() })
+	t.Cleanup(func() { m.Close(); ss.Close() })
 	return clientT
 }
 
@@ -372,7 +372,7 @@ func TestManagerAutoReconnectGivesUp(t *testing.T) {
 	m.connectTransport = func(_ context.Context, cfg ServerConfig, stderr *ringBuffer) (sdkmcp.Transport, error) {
 		connects.Add(1)
 		if connects.Load() == 1 {
-			return serveTestServer(t, "flaky"), nil // first connect succeeds
+			return serveTestServer(t, m, "flaky"), nil // first connect succeeds
 		}
 		return nil, errors.New("server keeps dying") // every reconnect fails
 	}
@@ -460,17 +460,16 @@ func TestNormalizeSchemaDoesNotMutateSharedInput(t *testing.T) {
 	}
 }
 
-func TestFlattenTruncates(t *testing.T) {
-	big := strings.Repeat("x", 60_000)
+func TestFlattenPreservesLargeText(t *testing.T) {
+	big := strings.Repeat("x", 60_000) + "middle evidence" + strings.Repeat("y", 60_000)
 	res := &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: big}}}
 	out := flattenResult(res)
-	if len(out) > 60_0000 || !strings.Contains(out, "bytes elided from the middle") {
-		t.Errorf("truncation missing, len=%d", len(out))
+	if out != big {
+		t.Errorf("tool output lost before host storage: got %d bytes, want %d", len(out), len(big))
 	}
 }
 
-// TestServerInstructions: a server that publishes instructions shows up in
-// the system-prompt block; servers without instructions don't; sorted by name.
+// TestServerInstructions verifies per-server guidance from initialization.
 func TestServerInstructions(t *testing.T) {
 	// ServerOptions.Instructions flows into the initialize result.
 	srvWithInstr := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "docs"}, &sdkmcp.ServerOptions{Instructions: "Call ping to check liveness. Always pass a name."})
@@ -487,21 +486,21 @@ func TestServerInstructions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { ss.Close() })
+			t.Cleanup(func() { m.Close(); ss.Close() })
 			return ct, nil
 		}
-		return serveTestServer(t, cfg.Command[0]), nil
+		return serveTestServer(t, m, cfg.Command[0]), nil
 	}
 	t.Cleanup(m.Close)
 	m.Start(context.Background())
 	waitReady(t, m)
 
-	block := m.InstructionsBlock()
-	if !strings.Contains(block, `<server name="docs">`) || !strings.Contains(block, "Call ping to check liveness") {
-		t.Errorf("block missing docs instructions:\n%s", block)
+	text, generation, _, err := m.Instructions("docs")
+	if err != nil || generation == "" || !strings.Contains(text, "Call ping to check liveness") {
+		t.Fatalf("instructions=%q generation=%q error=%v", text, generation, err)
 	}
-	if strings.Contains(block, `"plain"`) {
-		t.Errorf("server without instructions must not appear:\n%s", block)
+	if text, _, _, err := m.Instructions("plain"); err != nil || text != "" {
+		t.Fatalf("plain instructions=%q error=%v", text, err)
 	}
 
 	// After the docs session drops, its instructions leave the block.

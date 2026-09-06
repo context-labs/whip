@@ -3,6 +3,7 @@ package capability
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +87,51 @@ func TestPermissionRule(t *testing.T) {
 	}
 	if got := RuleLabel([]string{"git checkout", "rm"}); got != "git checkout, rm" {
 		t.Errorf("RuleLabel = %q", got)
+	}
+}
+
+func TestMCPPermissionRuleBindsRawNamesAndStableDefinition(t *testing.T) {
+	call := MCPCall{
+		MCPSelector: MCPSelector{Server: "raw-server", Tool: "raw.tool", Definition: "opaque-definition"},
+		Generation:  "ephemeral-generation", Source: "attached client", Arguments: json.RawMessage(`{"text":"concrete content"}`),
+	}
+	ruleFor := func(call MCPCall) (string, string) {
+		t.Helper()
+		envelope, err := json.Marshal(call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		command, rules, ok := PermissionRule("mcp.call", envelope, "")
+		if !ok || len(rules) != 1 {
+			t.Fatalf("MCP rule=%q ok=%v", rules, ok)
+		}
+		return command, rules[0]
+	}
+	command, original := ruleFor(call)
+	for _, value := range []string{"raw-server", "raw.tool", "attached client", `"text":"concrete content"`} {
+		if !strings.Contains(command, value) {
+			t.Errorf("consent omitted %q: %s", value, command)
+		}
+	}
+	call.Generation = "reconnected"
+	call.Arguments = json.RawMessage(`{"text":"another call"}`)
+	if _, current := ruleFor(call); current != original {
+		t.Fatal("connection generation or per-call arguments changed remembered tool rule")
+	}
+	for _, changed := range []MCPSelector{
+		{Server: "raw_server", Tool: call.Tool, Definition: call.Definition},
+		{Server: call.Server, Tool: "raw_tool", Definition: call.Definition},
+		{Server: call.Server, Tool: call.Tool, Definition: "new-definition"},
+	} {
+		copy := call
+		copy.MCPSelector = changed
+		if _, current := ruleFor(copy); current == original {
+			t.Errorf("different selector reused permission rule: %+v", changed)
+		}
+	}
+	for _, raw := range []string{`{}`, `{"server":"s","tool":"t"}`, `{`} {
+		if _, _, ok := PermissionRule("mcp.call", json.RawMessage(raw), ""); ok {
+			t.Errorf("malformed identity produced permission rule: %q", raw)
+		}
 	}
 }

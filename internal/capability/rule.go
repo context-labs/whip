@@ -2,6 +2,7 @@ package capability
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -87,6 +88,17 @@ func CommandRules(command string) (rules []string, ok bool) {
 // the operation has no rule.
 func PermissionRule(operation string, arguments json.RawMessage, canonicalPath string) (command string, rules []string, ok bool) {
 	switch operation {
+	case "mcp.call":
+		var call MCPCall
+		if err := json.Unmarshal(arguments, &call); err != nil || call.Server == "" || call.Tool == "" || call.Definition == "" {
+			return "", nil, false
+		}
+		rule, err := json.Marshal(call.MCPSelector)
+		if err != nil {
+			return "", nil, false
+		}
+		command = fmt.Sprintf("MCP server %q, tool %q, source %q\nArguments: %s", call.Server, call.Tool, call.Source, call.Arguments)
+		return command, []string{string(rule)}, true
 	case "bash", "workspace_process", "shell_start":
 		var args struct {
 			Command string `json:"command"`

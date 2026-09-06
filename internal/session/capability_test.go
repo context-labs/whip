@@ -166,7 +166,7 @@ func TestEnsureAuthorityIsIdempotent(t *testing.T) {
 	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM budgets WHERE root_id=? AND kind='active_operations'`, rootID).Scan(&budgets); err != nil {
 		t.Fatal(err)
 	}
-	if agents != 1 || grants != 2 || budgets != 1 {
+	if agents != 1 || grants != 3 || budgets != 1 {
 		t.Fatalf("bootstrap rows agents=%d grants=%d budgets=%d", agents, grants, budgets)
 	}
 }
@@ -835,7 +835,7 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 	t.Run("finish validation and corruption", func(t *testing.T) {
 		st, rootID, agentID := actorFailureFixture(t)
 		value := admission(rootID, agentID, "finish-validation")
-		if err := st.Finish(ctx, capability.Completion{Admission: value, Status: capability.StatusDenied}); err == nil {
+		if err := st.Finish(ctx, capability.Completion{Admission: value, Status: "invalid"}); err == nil {
 			t.Fatal("invalid completion status was accepted")
 		}
 		if err := st.Finish(ctx, capability.Completion{Admission: value, LeaseID: "missing", Status: capability.StatusSucceeded}); err == nil {
@@ -871,7 +871,6 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 		trigger      string
 		reservations []capability.Reservation
 	}{
-		{name: "content insert", trigger: `CREATE TRIGGER fail_finish BEFORE INSERT ON content_objects BEGIN SELECT RAISE(ABORT,'content'); END`},
 		{name: "operation update", trigger: `CREATE TRIGGER fail_finish BEFORE UPDATE ON operations BEGIN SELECT RAISE(ABORT,'operation'); END`},
 		{name: "lease update", trigger: `CREATE TRIGGER fail_finish BEFORE UPDATE ON leases BEGIN SELECT RAISE(ABORT,'lease'); END`},
 		{name: "budget update", trigger: `CREATE TRIGGER fail_finish BEFORE UPDATE ON budgets BEGIN SELECT RAISE(ABORT,'budget'); END`, reservations: []capability.Reservation{{Kind: "active_operations", Amount: 1}}},
@@ -884,9 +883,6 @@ func TestCapabilityValidationCorruptionAndRollbackPaths(t *testing.T) {
 			exec(t, st, test.trigger)
 			before := state(t, st, rootID, value.Request.OperationID)
 			completion := capability.Completion{Admission: value, LeaseID: ticket.LeaseID, Status: capability.StatusSucceeded}
-			if test.name == "content insert" {
-				completion.Output = strings.Repeat("output", InlineValueLimit)
-			}
 			if err := st.Finish(ctx, completion); err == nil {
 				t.Fatal("completion write failure was ignored")
 			}

@@ -16,8 +16,12 @@ import (
 )
 
 type storedCapabilityScopes struct {
-	Paths     []string `json:"paths,omitempty"`
-	ExpiresAt string   `json:"expires_at,omitempty"`
+	Paths               []string                 `json:"paths,omitempty"`
+	ExpiresAt           string                   `json:"expires_at,omitempty"`
+	MCP                 []capability.MCPSelector `json:"mcp,omitempty"`
+	MCPAll              bool                     `json:"mcp_all,omitempty"`
+	MCPIssuerID         string                   `json:"mcp_issuer_id,omitempty"`
+	MCPIssuerGeneration int64                    `json:"mcp_issuer_generation,omitempty"`
 }
 
 func (s *Store) Workspaces() *capability.Workspaces { return s.workspaces }
@@ -30,6 +34,7 @@ func (s *Store) EnsureAuthority(ctx context.Context, rootID string) (capability.
 		RootID: rootID, AgentID: rootID,
 		Files: capability.Reference{ID: "files:" + rootID},
 		Shell: capability.Reference{ID: "shell:" + rootID},
+		MCP:   capability.Reference{ID: "mcp:" + rootID},
 	}
 	return s.ensureAuthority(ctx, rootID, authority)
 }
@@ -61,6 +66,13 @@ func (s *Store) LoadAgentAuthority(ctx context.Context, rootID, agentID string) 
 		}
 		for _, operation := range operations {
 			switch operation {
+			case "mcp.call":
+				if authority.MCP.ID == "" {
+					authority.MCP = capability.Reference{ID: id, Generation: generation}
+				}
+				if !slices.Contains(names, "mcp") {
+					names = append(names, "mcp")
+				}
 			case "read":
 				if authority.Files.ID == "" {
 					authority.Files = capability.Reference{ID: id, Generation: generation}
@@ -146,6 +158,116 @@ func (s *Store) CapabilityPaths(ctx context.Context, rootID, agentID string, ref
 	return grant.scopes.Paths, tx.Commit()
 }
 
+// AuthorizeMCP checks an exact tool definition against the complete, live
+// delegation chain without reserving operation capacity.
+func (s *Store) AuthorizeMCP(ctx context.Context, rootID, agentID string, reference capability.Reference, selector capability.MCPSelector) error {
+	if !validMCPSelector(selector) {
+		return capability.ErrDenied
+	}
+	selectors, all, err := s.MCPSelectors(ctx, rootID, agentID, reference)
+	if err != nil {
+		return err
+	}
+	if !all && !slices.Contains(selectors, selector) {
+		return capability.ErrDenied
+	}
+	return nil
+}
+
+// MCPSelectors returns the effective persisted grant. Only a root grant may
+// cover all tools; child grants always retain a finite snapshot of definitions.
+func (s *Store) MCPSelectors(ctx context.Context, rootID, agentID string, reference capability.Reference) ([]capability.MCPSelector, bool, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	scopes, err := loadMCPAuthorityTx(ctx, tx, rootID, agentID, reference)
+	if err != nil {
+		return nil, false, err
+	}
+	return scopes.MCP, scopes.MCPAll, tx.Commit()
+}
+
+func validMCPSelector(selector capability.MCPSelector) bool {
+	return selector.Server != "" && selector.Tool != "" && selector.Definition != ""
+}
+
+func validMCPSelectors(selectors []capability.MCPSelector) bool {
+	seen := make(map[capability.MCPSelector]bool, len(selectors))
+	for _, selector := range selectors {
+		if !validMCPSelector(selector) || seen[selector] {
+			return false
+		}
+		seen[selector] = true
+	}
+	return true
+}
+
+func loadMCPAuthorityTx(ctx context.Context, tx *sql.Tx, rootID, agentID string, reference capability.Reference) (storedCapabilityScopes, error) {
+	// Validate every intermediate agent, including parents skipped by a direct
+	// root-to-descendant delegation. A terminal ancestor cannot retain authority.
+	ancestors := make(map[string]int)
+	for id := agentID; ; {
+		if id == "" || ancestors[id] != 0 {
+			return storedCapabilityScopes{}, capability.ErrDenied
+		}
+		ancestors[id] = len(ancestors) + 1
+		record, err := loadAgentTx(ctx, tx, rootID, id)
+		if err != nil {
+			if errors.Is(err, ErrAgentAccess) {
+				return storedCapabilityScopes{}, capability.ErrDenied
+			}
+			return storedCapabilityScopes{}, err
+		}
+		if isTerminalAgentStatus(record.Status) {
+			return storedCapabilityScopes{}, capability.ErrDenied
+		}
+		if id == rootID {
+			break
+		}
+		id = record.ParentID
+	}
+	var result storedCapabilityScopes
+	var child *storedCapabilityScopes
+	seen := make(map[string]bool)
+	for {
+		if reference.ID == "" || reference.Generation <= 0 || seen[reference.ID] {
+			return storedCapabilityScopes{}, capability.ErrDenied
+		}
+		seen[reference.ID] = true
+		grant, err := loadCapabilityGrant(ctx, tx, rootID, agentID, reference.ID, reference.Generation)
+		if err != nil {
+			return storedCapabilityScopes{}, err
+		}
+		scopes := grant.scopes
+		if len(grant.operations) != 1 || grant.operations[0] != "mcp.call" || len(scopes.Paths) != 0 || !validMCPSelectors(scopes.MCP) {
+			return storedCapabilityScopes{}, capability.ErrDenied
+		}
+		if child == nil {
+			result = scopes
+		} else if !scopes.MCPAll {
+			for _, selector := range child.MCP {
+				if !slices.Contains(scopes.MCP, selector) {
+					return storedCapabilityScopes{}, capability.ErrDenied
+				}
+			}
+		}
+		if agentID == rootID {
+			if grant.issuerAgentID != "" || scopes.MCPIssuerID != "" || scopes.MCPIssuerGeneration != 0 {
+				return storedCapabilityScopes{}, capability.ErrDenied
+			}
+			return result, nil
+		}
+		if scopes.MCPAll || ancestors[grant.issuerAgentID] <= ancestors[agentID] {
+			return storedCapabilityScopes{}, capability.ErrDenied
+		}
+		child = &scopes
+		agentID = grant.issuerAgentID
+		reference = capability.Reference{ID: scopes.MCPIssuerID, Generation: scopes.MCPIssuerGeneration}
+	}
+}
+
 func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority capability.Authority) (capability.Authority, error) {
 	root, err := s.WorkspaceRoot(ctx, rootID)
 	if err != nil {
@@ -159,6 +281,8 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 	fileScopes, _ := json.Marshal(storedCapabilityScopes{Paths: []string{workspace.Root()}})
 	shellOperations, _ := json.Marshal([]string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process"})
 	shellScopes, _ := json.Marshal(storedCapabilityScopes{})
+	mcpOperations, _ := json.Marshal([]string{"mcp.call"})
+	mcpScopes, _ := json.Marshal(storedCapabilityScopes{MCPAll: true})
 	stamp := now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -186,6 +310,7 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 	}{
 		{authority.Files.ID, fileOperations, fileScopes},
 		{authority.Shell.ID, shellOperations, shellScopes},
+		{authority.MCP.ID, mcpOperations, mcpScopes},
 	} {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO capabilities(id,root_id,agent_id,operations,scopes,generation,status,created_at,updated_at)
 			VALUES(?,?,?,?,?,1,'active',?,?) ON CONFLICT(id) DO NOTHING`, grant.id, rootID, authority.AgentID, grant.operations, grant.scopes, stamp, stamp); err != nil {
@@ -201,6 +326,10 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT generation FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
 		authority.Shell.ID, rootID, authority.AgentID).Scan(&authority.Shell.Generation); err != nil {
+		return capability.Authority{}, err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT generation FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
+		authority.MCP.ID, rootID, authority.AgentID).Scan(&authority.MCP.Generation); err != nil {
 		return capability.Authority{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -221,6 +350,15 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 	if grant.ID == "" || grant.RootID == "" || grant.AgentID == "" || len(grant.Operations) == 0 {
 		return errors.New("capability grant identity and operations are required")
 	}
+	hasMCP := slices.Contains(grant.Operations, "mcp.call")
+	if hasMCP {
+		// Child MCP grants must record a validated issuer reference through delegation.
+		if grant.AgentID != grant.RootID || grant.IssuerAgentID != "" || len(grant.Operations) != 1 || len(grant.Scopes) != 0 || !validMCPSelectors(grant.MCP) {
+			return capability.ErrDenied
+		}
+	} else if grant.MCPAll || len(grant.MCP) != 0 {
+		return capability.ErrDenied
+	}
 	root, err := s.WorkspaceRoot(ctx, grant.RootID)
 	if err != nil {
 		return err
@@ -229,7 +367,7 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 	if err != nil {
 		return err
 	}
-	scopes := storedCapabilityScopes{}
+	scopes := storedCapabilityScopes{MCP: grant.MCP, MCPAll: grant.MCPAll}
 	for _, scope := range grant.Scopes {
 		canonical, err := workspace.Resolve(scope)
 		if err != nil {
@@ -477,7 +615,7 @@ func (s *Store) Decide(ctx context.Context, admission capability.Admission, perm
 }
 
 func (s *Store) Finish(ctx context.Context, completion capability.Completion) error {
-	if completion.Status != capability.StatusSucceeded && completion.Status != capability.StatusFailed {
+	if completion.Status != capability.StatusSucceeded && completion.Status != capability.StatusFailed && completion.Status != capability.StatusDenied {
 		return fmt.Errorf("invalid capability completion status %q", completion.Status)
 	}
 	result, err := json.Marshal(map[string]string{"output": completion.Output, "error": completion.Error})
@@ -516,28 +654,44 @@ func (s *Store) Finish(ctx context.Context, completion capability.Completion) er
 		return capability.ErrStaleAdmission
 	}
 	completion.Admission = stored
-	prepared, err := s.prepareRuntimeValue(RuntimePayload{Data: result, MediaType: "application/json", Source: "capability result"}, ContentGrant{
+	prepared, storageErr := s.prepareRuntimeValue(RuntimePayload{Data: result, MediaType: "application/json", Source: "capability result"}, ContentGrant{
 		RootID: stored.Request.RootID, AgentID: stored.Request.AgentID, Scope: ContentGrantAgent,
 	})
-	if err != nil {
-		return err
-	}
 	stamp := now()
-	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
-		return err
+	if storageErr == nil && prepared.ReferenceID != "" {
+		// A failed content insert can leave earlier metadata writes in the
+		// transaction. Roll them back before settling with a small inline error.
+		if _, err := tx.ExecContext(ctx, `SAVEPOINT capability_result`); err != nil {
+			return err
+		}
+		storageErr = insertRuntimeValue(ctx, tx, prepared, stamp)
+		if storageErr != nil {
+			if _, err := tx.ExecContext(ctx, `ROLLBACK TO capability_result`); err != nil {
+				return errors.Join(storageErr, err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `RELEASE capability_result`); err != nil {
+			return errors.Join(storageErr, err)
+		}
+	}
+	if storageErr != nil {
+		completion.Status = capability.StatusFailed
+		prepared = preparedRuntimeValue{RuntimeValue: RuntimeValue{
+			Inline: []byte(`{"output":"","error":"operation result could not be stored"}`),
+		}}
 	}
 	resultInline, resultReference := runtimeValueColumns(prepared.RuntimeValue)
 	if _, err := tx.ExecContext(ctx, `UPDATE operations SET status=?,result_inline=?,result_ref=?,updated_at=? WHERE id=? AND status='running'`,
 		completion.Status, resultInline, resultReference, stamp, completion.Admission.Request.OperationID); err != nil {
-		return err
+		return errors.Join(storageErr, err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE leases SET status=?,updated_at=? WHERE id=? AND status='running'`, completion.Status, stamp, completion.LeaseID); err != nil {
-		return err
+		return errors.Join(storageErr, err)
 	}
 	if err := settleCapabilityBudgets(ctx, tx, stored.Request.RootID, stored.Request.AgentID, stored.Request.Reservations, completion.Usage); err != nil {
-		return err
+		return errors.Join(storageErr, err)
 	}
-	return tx.Commit()
+	return errors.Join(storageErr, tx.Commit())
 }
 
 func validateCapabilityAgent(ctx context.Context, tx *sql.Tx, rootID, agentID string) error {
@@ -552,6 +706,31 @@ func validateCapabilityAgent(ctx context.Context, tx *sql.Tx, rootID, agentID st
 }
 
 func validateCapabilityAdmission(ctx context.Context, tx *sql.Tx, admission capability.Admission) error {
+	if admission.Request.Operation == "mcp.call" {
+		var call capability.MCPCall
+		decoder := json.NewDecoder(bytes.NewReader(admission.Request.Arguments))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&call); err != nil || !validMCPSelector(call.MCPSelector) || call.Generation == "" {
+			return capability.ErrDenied
+		}
+		var arguments map[string]json.RawMessage
+		if err := json.Unmarshal(call.Arguments, &arguments); err != nil || arguments == nil {
+			return capability.ErrDenied
+		}
+		if admission.CanonicalPath != "" || admission.Mutation != capability.MutationNone || admission.Request.WriterCapabilityID != "" {
+			return capability.ErrDenied
+		}
+		scopes, err := loadMCPAuthorityTx(ctx, tx, admission.Request.RootID, admission.Request.AgentID, capability.Reference{
+			ID: admission.Request.CapabilityID, Generation: admission.Request.CapabilityGeneration,
+		})
+		if err != nil {
+			return err
+		}
+		if !scopes.MCPAll && !slices.Contains(scopes.MCP, call.MCPSelector) {
+			return capability.ErrDenied
+		}
+		return nil
+	}
 	grant, err := loadCapabilityGrant(ctx, tx, admission.Request.RootID, admission.Request.AgentID, admission.Request.CapabilityID, admission.Request.CapabilityGeneration)
 	if err != nil {
 		return err
@@ -580,22 +759,26 @@ func validateCapabilityAdmission(ctx context.Context, tx *sql.Tx, admission capa
 }
 
 type loadedCapability struct {
-	operations []string
-	scopes     storedCapabilityScopes
+	operations    []string
+	scopes        storedCapabilityScopes
+	issuerAgentID string
 }
 
 func loadCapabilityGrant(ctx context.Context, tx *sql.Tx, rootID, agentID, capabilityID string, generation int64) (loadedCapability, error) {
 	var operationsJSON, scopesJSON []byte
 	var currentGeneration int64
 	var status string
-	if err := tx.QueryRowContext(ctx, `SELECT operations,scopes,generation,status FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
-		capabilityID, rootID, agentID).Scan(&operationsJSON, &scopesJSON, &currentGeneration, &status); err != nil {
+	var grant loadedCapability
+	if err := tx.QueryRowContext(ctx, `SELECT operations,scopes,generation,status,issuer_agent_id FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
+		capabilityID, rootID, agentID).Scan(&operationsJSON, &scopesJSON, &currentGeneration, &status, &grant.issuerAgentID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return loadedCapability{}, err
+		}
 		return loadedCapability{}, capability.ErrDenied
 	}
 	if status != "active" || currentGeneration != generation {
 		return loadedCapability{}, capability.ErrDenied
 	}
-	var grant loadedCapability
 	if err := json.Unmarshal(operationsJSON, &grant.operations); err != nil {
 		return loadedCapability{}, err
 	}

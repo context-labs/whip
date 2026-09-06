@@ -10,12 +10,14 @@
 package mcp
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,9 +44,43 @@ type ServerConfig struct {
 
 	// Source is the config file this server came from (".mcp.json",
 	// "~/.codex/config.toml", "~/.whip/config.json"). Set by discovery for
-	// display (a failed server should point at the file to fix); never
-	// persisted.
-	Source string `json:"-"`
+	// display (a failed server should point at the file to fix). Neither a
+	// source label nor serialized provenance can confer trust on attachments.
+	Source  string `json:"source,omitempty"`
+	Origin  string `json:"origin,omitempty"`
+	Trusted bool   `json:"-"`
+}
+
+// Decoding a payload also clears trust on a reused value. Only native
+// server-side discovery may populate Trusted.
+func (c *ServerConfig) UnmarshalJSON(data []byte) error {
+	type wire ServerConfig
+	var decoded wire
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*c = ServerConfig(decoded)
+	return nil
+}
+
+func cloneConfig(cfg ServerConfig) ServerConfig {
+	cfg.Command, cfg.Env, cfg.Headers = slices.Clone(cfg.Command), maps.Clone(cfg.Env), maps.Clone(cfg.Headers)
+	if cfg.Enabled != nil {
+		cfg.Enabled = new(*cfg.Enabled)
+	}
+	return cfg
+}
+
+// AttachedConfigs marks every client-supplied definition as untrusted, even
+// when the client claims a native source. Merge native rediscovery over this.
+func AttachedConfigs(in map[string]ServerConfig) map[string]ServerConfig {
+	out := make(map[string]ServerConfig, len(in))
+	for name, cfg := range in {
+		cfg = cloneConfig(cfg)
+		cfg.Origin, cfg.Source, cfg.Trusted = "attachment", "client attachment", false
+		out[name] = cfg
+	}
+	return out
 }
 
 // Remote reports whether the server connects over HTTP rather than stdio.
@@ -224,9 +260,11 @@ type Filtered struct {
 }
 
 // setSource stamps every entry of src with the file it was discovered from.
-func setSource(src map[string]ServerConfig, path string) {
+func setSource(src map[string]ServerConfig, path, origin string) {
 	for name, c := range src {
 		c.Source = path
+		c.Trusted = false
+		c.Origin = origin
 		src[name] = c
 	}
 }
@@ -251,10 +289,18 @@ func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy Impo
 	if err != nil && !os.IsNotExist(err) {
 		errs[codexPath] = err
 	}
-	setSource(claudeGlobal, claudeGlobalPath)
-	setSource(claude, claudePath)
-	setSource(codex, codexPath)
-	setSource(whipCfg, whipConfigPath())
+	setSource(claudeGlobal, claudeGlobalPath, "claude")
+	setSource(claude, claudePath, "claude")
+	setSource(codex, codexPath, "codex")
+	whipCfg = maps.Clone(whipCfg)
+	for name, cfg := range whipCfg {
+		cfg = cloneConfig(cfg)
+		cfg.Trusted = cfg.Origin == "" || cfg.Origin == "whip"
+		if cfg.Trusted {
+			cfg.Origin, cfg.Source = "whip", whipConfigPath()
+		}
+		whipCfg[name] = cfg
+	}
 	blocked := map[string]ServerConfig{}
 	split := func(src map[string]ServerConfig, p ImportSourcePolicy) map[string]ServerConfig {
 		kept := make(map[string]ServerConfig, len(src))
@@ -280,9 +326,6 @@ func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy Impo
 	claudeKept := split(claude, policy.Claude)
 	codexKept := split(codex, policy.Codex)
 	sources := make(map[string]string, len(whipCfg)+len(codex)+len(claude)+len(claudeGlobal))
-	for name := range whipCfg {
-		sources[name] = "whip"
-	}
 	for name := range claudeGlobal { // lowest precedence: project, codex, whip all overwrite
 		sources[name] = "~/.claude.json"
 	}
@@ -292,8 +335,25 @@ func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy Impo
 	for name := range codex { // codex wins over claude in Merge
 		sources[name] = "codex"
 	}
+	for name := range whipCfg {
+		sources[name] = "whip"
+	}
+	merged := Merge(whipCfg, codexKept, claudeKept, claudeGlobalKept)
+	for name, cfg := range merged {
+		delete(blocked, name)
+		switch cfg.Origin {
+		case "whip", "codex":
+			sources[name] = cfg.Origin
+		case "claude":
+			if cfg.Source == claudeGlobalPath {
+				sources[name] = "~/.claude.json"
+			} else {
+				sources[name] = ".mcp.json"
+			}
+		}
+	}
 	return Filtered{
-		Merged:  Merge(whipCfg, codexKept, claudeKept, claudeGlobalKept),
+		Merged:  merged,
 		Blocked: blocked,
 		Sources: sources,
 		Errs:    errs,
@@ -341,6 +401,8 @@ func FromConfigMap(in map[string]config.MCPServer) map[string]ServerConfig {
 	out := make(map[string]ServerConfig, len(in))
 	for name, c := range in {
 		out[name] = ServerConfig{
+			Origin: c.Origin, Source: c.Source,
+			Trusted:        c.Origin == "" || c.Origin == "whip",
 			Command:        c.Command,
 			Env:            c.Env, // secret references stay references;
 			Cwd:            c.Cwd,
@@ -350,6 +412,10 @@ func FromConfigMap(in map[string]config.MCPServer) map[string]ServerConfig {
 			Note:           c.Note,
 			StartupTimeout: c.StartupTimeout,
 			ToolTimeout:    c.ToolTimeout,
+		}
+		if value := out[name]; value.Trusted {
+			value.Origin, value.Source = "whip", whipConfigPath()
+			out[name] = value
 		}
 	}
 	return out

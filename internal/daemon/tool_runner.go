@@ -24,6 +24,7 @@ func (r *toolRunner) bind(root *Session) error {
 	if r.services == nil {
 		return errors.New("tool services are required")
 	}
+	r.services.SetMCPProvider(root.mcpProvider)
 	return r.services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority)
 }
 
@@ -38,6 +39,8 @@ func (r *toolRunner) Close() {
 		r.services.Close()
 	}
 }
+
+func (r *toolRunner) permissionServices() *tools.Services { return r.services }
 
 func (r *toolRunner) ToolDefinitions(ctx context.Context) ([]llm.Tool, error) {
 	return r.services.ToolDefinitions(ctx)
@@ -56,6 +59,8 @@ func (r *toolRunner) DenyToolPermissions() {
 
 func (r *toolRunner) SetExternalPermissions(enabled bool) {
 	r.services.SetExternalPermissions(enabled)
+	r.services.SetMCPAutomatic(!enabled)
+	r.services.SetHeadlessPermissions(false)
 }
 
 func (r *toolRunner) ExternalPermissionsEnabled() bool {

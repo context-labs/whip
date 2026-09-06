@@ -284,6 +284,8 @@ type MCPImportSource struct {
 // MCPServer is the config-file form of an MCP server entry. It mirrors
 // mcp.ServerConfig without importing that package (config is a leaf).
 type MCPServer struct {
+	Origin         string            `json:"origin,omitempty"`
+	Source         string            `json:"source,omitempty"`
 	Command        []string          `json:"command,omitempty"`
 	Env            map[string]string `json:"env,omitempty"`
 	Cwd            string            `json:"cwd,omitempty"`

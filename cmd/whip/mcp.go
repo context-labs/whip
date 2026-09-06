@@ -287,6 +287,7 @@ func mcpImportCLI(args []string) error {
 			continue // already whip's own — importing is a no-op
 		}
 		add[name] = config.MCPServer{
+			Origin: sc.Origin, Source: sc.Source,
 			Command: sc.Command, Env: sc.Env, Cwd: sc.Cwd,
 			URL: sc.URL, Headers: sc.Headers, Enabled: sc.Enabled,
 			Note: sc.Note, StartupTimeout: sc.StartupTimeout, ToolTimeout: sc.ToolTimeout,

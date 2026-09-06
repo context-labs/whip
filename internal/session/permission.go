@@ -17,6 +17,8 @@ type CapabilityDelegation struct {
 	AgentID    string
 	Operations []string
 	Scopes     []string
+	MCP        []capability.MCPSelector
+	MCPAll     bool
 	Generation int64
 	ExpiresAt  time.Time
 }
@@ -28,6 +30,8 @@ type CapabilityRecord struct {
 	IssuerAgentID string
 	Operations    []string
 	Scopes        []string
+	MCP           []capability.MCPSelector
+	MCPAll        bool
 	Generation    int64
 	Status        string
 	ExpiresAt     time.Time
@@ -118,7 +122,7 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 		return CapabilityRecord{}, capability.ErrDenied
 	}
 	seen := make(map[string]struct{}, len(delegation.Operations))
-	hasShell, hasWriter := false, false
+	hasShell, hasWriter, hasMCP := false, false, false
 	for _, operation := range delegation.Operations {
 		if operation == "" || !slices.Contains(issuer.Operations, operation) {
 			return CapabilityRecord{}, capability.ErrDenied
@@ -129,6 +133,24 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 		seen[operation] = struct{}{}
 		hasShell = hasShell || isShellOperation(operation)
 		hasWriter = hasWriter || operation == "workspace.write"
+		hasMCP = hasMCP || operation == "mcp.call"
+	}
+	if delegation.MCPAll || (!hasMCP && len(delegation.MCP) != 0) {
+		return CapabilityRecord{}, capability.ErrDenied
+	}
+	if hasMCP {
+		if len(delegation.Operations) != 1 || len(delegation.Scopes) != 0 || !validMCPSelectors(delegation.MCP) {
+			return CapabilityRecord{}, capability.ErrDenied
+		}
+		issuerScopes, err := loadMCPAuthorityTx(ctx, tx, rootID, callerAgentID, delegation.Issuer)
+		if err != nil {
+			return CapabilityRecord{}, err
+		}
+		for _, selector := range delegation.MCP {
+			if !issuerScopes.MCPAll && !slices.Contains(issuerScopes.MCP, selector) {
+				return CapabilityRecord{}, capability.ErrDenied
+			}
+		}
 	}
 	var workspaceRoot string
 	if err := tx.QueryRowContext(ctx, `SELECT cwd FROM sessions WHERE id=?`, rootID).Scan(&workspaceRoot); err != nil {
@@ -160,6 +182,11 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 		return CapabilityRecord{}, err
 	}
 	storedScopes := storedCapabilityScopes{Paths: scopes}
+	if hasMCP {
+		storedScopes.MCP = delegation.MCP
+		storedScopes.MCPIssuerID = delegation.Issuer.ID
+		storedScopes.MCPIssuerGeneration = delegation.Issuer.Generation
+	}
 	if !expiresAt.IsZero() {
 		storedScopes.ExpiresAt = expiresAt.UTC().Format(time.RFC3339Nano)
 	}
@@ -257,6 +284,8 @@ func loadCapabilityRecordTx(ctx context.Context, tx *sql.Tx, rootID, capabilityI
 		return CapabilityRecord{}, err
 	}
 	record.Scopes = scopes.Paths
+	record.MCP = scopes.MCP
+	record.MCPAll = scopes.MCPAll
 	if scopes.ExpiresAt != "" {
 		record.ExpiresAt, err = time.Parse(time.RFC3339Nano, scopes.ExpiresAt)
 		if err != nil {
@@ -308,7 +337,20 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 		if err := json.Unmarshal(payload, &item.admission); err != nil {
 			return err
 		}
-		if capabilityID == "" || item.admission.Request.CapabilityID == capabilityID || item.admission.Request.WriterCapabilityID == capabilityID {
+		matches := capabilityID == "" || item.admission.Request.CapabilityID == capabilityID || item.admission.Request.WriterCapabilityID == capabilityID
+		if !matches && item.admission.Request.Operation == "mcp.call" {
+			// Revoking any ancestor invalidates the pending descendant grant.
+			// Revalidation also closes already-invalid chains while releasing their
+			// reservations in this same revocation transaction.
+			_, err := loadMCPAuthorityTx(ctx, tx, item.admission.Request.RootID, item.admission.Request.AgentID, capability.Reference{
+				ID: item.admission.Request.CapabilityID, Generation: item.admission.Request.CapabilityGeneration,
+			})
+			if err != nil && !errors.Is(err, capability.ErrDenied) {
+				return err
+			}
+			matches = errors.Is(err, capability.ErrDenied)
+		}
+		if matches {
 			pending = append(pending, item)
 		}
 	}

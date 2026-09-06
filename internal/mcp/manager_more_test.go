@@ -163,11 +163,12 @@ func TestSetBlockedAndBlockedByPolicy(t *testing.T) {
 	}
 }
 
-// TestInstructionsBlockSortedAndEmpty: no instructions → no block; several →
-// name-sorted sections.
-func TestInstructionsBlockSortedAndEmpty(t *testing.T) {
-	if got := NewManager(nil).InstructionsBlock(); got != "" {
-		t.Errorf("no servers → %q, want empty", got)
+// Instructions are requested per server, with missing sources explicit.
+func TestInstructionsPerServerAndMissing(t *testing.T) {
+	empty := NewManager(nil)
+	defer empty.Close()
+	if _, _, _, err := empty.Instructions("missing"); err == nil {
+		t.Fatal("missing server appeared empty")
 	}
 
 	mk := func(name, instr string) *sdkmcp.Server {
@@ -187,18 +188,20 @@ func TestInstructionsBlockSortedAndEmpty(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		t.Cleanup(func() { ss.Close() })
+		t.Cleanup(func() { m.Close(); ss.Close() })
 		return ct, nil
 	}
 	t.Cleanup(m.Close)
 	m.Start(context.Background())
 	waitReady(t, m)
 
-	block := m.InstructionsBlock()
-	ai, zi := strings.Index(block, "alpha rules"), strings.Index(block, "zeta rules")
-	if ai < 0 || zi < 0 || ai > zi {
-		t.Errorf("instructions must be name-sorted:\n%s", block)
+	for _, name := range []string{"alpha", "zeta"} {
+		text, generation, _, err := m.Instructions(name)
+		if err != nil || text != name+" rules" || generation == "" {
+			t.Fatalf("instructions %s = %q, %q, %v", name, text, generation, err)
+		}
 	}
+
 }
 
 // TestCallUnavailableVariants: the sess==nil branches speak in the user's
@@ -271,7 +274,7 @@ func TestCallToolTimeout(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		t.Cleanup(func() { ss.Close() })
+		t.Cleanup(func() { m.Close(); ss.Close() })
 		return ct, nil
 	}
 	t.Cleanup(m.Close)
@@ -291,7 +294,7 @@ func TestCallWaitsForLateConnect(t *testing.T) {
 	m := NewManager(map[string]ServerConfig{"late": testCfg("late")})
 	m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
 		<-release
-		return serveTestServer(t, "late"), nil
+		return serveTestServer(t, m, "late"), nil
 	}
 	t.Cleanup(m.Close)
 	m.Start(context.Background())
@@ -364,7 +367,7 @@ func TestConnectListToolsFailureClosesSession(t *testing.T) {
 		if err != nil {
 			return nil, err
 		}
-		t.Cleanup(func() { ss.Close() })
+		t.Cleanup(func() { m.Close(); ss.Close() })
 		return ct, nil
 	}
 	t.Cleanup(m.Close)
@@ -412,7 +415,7 @@ func TestRunDropsRedundantReconnect(t *testing.T) {
 	m := NewManager(map[string]ServerConfig{"docs": testCfg("docs")})
 	m.connectTransport = func(_ context.Context, _ ServerConfig, _ *ringBuffer) (sdkmcp.Transport, error) {
 		connects.Add(1)
-		return serveTestServer(t, "docs"), nil
+		return serveTestServer(t, m, "docs"), nil
 	}
 	t.Cleanup(m.Close)
 	m.Start(context.Background())
@@ -545,7 +548,7 @@ func TestProcessScopeChangeInvalidatesInflightConnect(t *testing.T) {
 			close(started)
 			<-release
 		}
-		return serveTestServer(t, "docs"), nil
+		return serveTestServer(t, m, "docs"), nil
 	}
 	processes := capability.NewProcessManager()
 	t.Cleanup(func() {

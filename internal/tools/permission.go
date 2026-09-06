@@ -2,8 +2,7 @@
 // The TUI installs Gate; a gated call blocks until the user answers Allow
 // once / Allow always / Reject. "Always" records a rule at command-prefix
 // arity (so "git checkout main" allows future "git checkout …", not the whole
-// string). No gate (tests, headless) means allow — the gate is a UX layer,
-// not a sandbox.
+// string). MCP consent also binds the exact server and tool definition.
 package tools
 
 import (
@@ -25,12 +24,13 @@ const (
 
 // GateRequest describes one gated tool call for the prompt.
 type GateRequest struct {
-	Tool    string // bash | write | edit
-	Command string // the bash command or the file path
+	Tool    string // bash | write | edit | mcp.call
+	Command string // command, file path, or MCP identity and arguments
 	Rule    string // the rule "always" would install (arity-collapsed)
 }
 
-// Gate is a session-scoped permission hook. Nil means allow.
+// Gate is a session-scoped permission hook. MCP additionally requires explicit
+// consent, native trust, a saved rule, or automatic permission mode.
 type Gate func(context.Context, GateRequest) (GateDecision, string)
 
 type (
@@ -70,12 +70,14 @@ func CommandRule(command string) string { return capability.CommandRule(command)
 // CheckGate runs the installed gate; "" means proceed.
 func (s *Services) CheckGate(ctx context.Context, tool, command string) string {
 	s.mu.RLock()
-	gate := s.gate
+	gate, headless := s.gate, s.headlessPermissions
 	s.mu.RUnlock()
+	if headless {
+		return "Permission denied: headless execution cannot request consent"
+	}
 	if gate == nil {
 		// Direct embedded callers historically run under the local user's
-		// authority. Production daemon services select external prompts, while
-		// headless clients install an explicit rejecting gate.
+		// authority. Production daemon services select external prompts.
 		return ""
 	}
 	decision, redirect := gate(ctx, GateRequest{Tool: tool, Command: command, Rule: CommandRule(command)})
@@ -90,6 +92,15 @@ func (s *Services) CheckGate(ctx context.Context, tool, command string) string {
 
 // Decide adapts the session gate to durable dispatcher permission decisions.
 func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPrompt) (capability.Decision, error) {
+	if prompt.Operation == "mcp.call" {
+		return s.decideMCP(ctx, prompt)
+	}
+	s.mu.RLock()
+	headless, external := s.headlessPermissions, s.externalPermissions
+	s.mu.RUnlock()
+	if headless {
+		return capability.Decision{PrincipalID: "headless", Reason: "headless execution cannot request consent"}, nil
+	}
 	if local, _ := ctx.Value(localHumanKey{}).(bool); local {
 		return capability.Decision{Allow: true, PrincipalID: "local-human"}, nil
 	}
@@ -97,29 +108,9 @@ func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPromp
 		Command string `json:"command"`
 		Path    string `json:"path"`
 	}
-	s.mu.Lock()
-	if s.externalPermissions {
-		if decision, ok := s.permissionEarly[prompt.ID]; ok {
-			delete(s.permissionEarly, prompt.ID)
-			s.mu.Unlock()
-			return decision, nil
-		}
-		waiter := make(chan capability.Decision, 1)
-		s.permissionWaiters[prompt.ID] = waiter
-		s.mu.Unlock()
-		select {
-		case decision := <-waiter:
-			return decision, nil
-		case <-ctx.Done():
-			s.mu.Lock()
-			if s.permissionWaiters[prompt.ID] == waiter {
-				delete(s.permissionWaiters, prompt.ID)
-			}
-			s.mu.Unlock()
-			return capability.Decision{}, ctx.Err()
-		}
+	if external {
+		return s.waitPermission(ctx, prompt.ID)
 	}
-	s.mu.Unlock()
 	if err := json.Unmarshal(prompt.Arguments, &args); err != nil {
 		return capability.Decision{}, err
 	}
@@ -142,4 +133,45 @@ func (s *Services) Decide(ctx context.Context, prompt capability.PermissionPromp
 	}
 	decision, reason := gate(ctx, GateRequest{Tool: prompt.Operation, Command: command, Rule: CommandRule(command)})
 	return capability.Decision{Allow: decision != GateReject, PrincipalID: "local-human", Reason: reason}, nil
+}
+
+func (s *Services) waitPermission(ctx context.Context, permissionID string) (capability.Decision, error) {
+	s.mu.Lock()
+	consent, _ := ctx.Value(mcpConsentKey{}).(*mcpConsent)
+	staleMCP := consent != nil && consent.revision != s.permissionRevision
+	if !s.externalPermissions || s.headlessPermissions || staleMCP {
+		s.mu.Unlock()
+		return capability.Decision{}, capability.ErrStaleAdmission
+	}
+	if decision, ok := s.permissionEarly[permissionID]; ok {
+		delete(s.permissionEarly, permissionID)
+		s.mu.Unlock()
+		return decision, nil
+	}
+	waiter := make(chan capability.Decision, 1)
+	s.permissionWaiters[permissionID] = waiter
+	s.mu.Unlock()
+	select {
+	case decision := <-waiter:
+		return decision, nil
+	case <-ctx.Done():
+		s.mu.Lock()
+		if s.permissionWaiters[permissionID] == waiter {
+			delete(s.permissionWaiters, permissionID)
+		}
+		s.mu.Unlock()
+		return capability.Decision{}, ctx.Err()
+	}
+}
+
+// Policy changes invalidate admitted consent and wake existing prompts. Every
+// waiter has capacity one; removing it under the lock excludes ResolvePermission
+// from sending a second decision to that channel.
+func (s *Services) invalidatePermissionPolicyLocked() {
+	s.permissionRevision++
+	for id, waiter := range s.permissionWaiters {
+		delete(s.permissionWaiters, id)
+		waiter <- capability.Decision{PrincipalID: "permission-policy", Reason: "permission policy changed"}
+	}
+	clear(s.permissionEarly)
 }

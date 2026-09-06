@@ -53,6 +53,8 @@ type Grant struct {
 	IssuerAgentID string
 	Operations    []string
 	Scopes        []string
+	MCP           []MCPSelector
+	MCPAll        bool
 	Generation    int64
 	ExpiresAt     time.Time
 }
@@ -68,6 +70,7 @@ type Authority struct {
 	AgentID string
 	Files   Reference
 	Shell   Reference
+	MCP     Reference
 }
 
 type Request struct {
@@ -168,11 +171,12 @@ type Call struct {
 }
 
 type Registration struct {
-	Operation  string
-	Mutation   Mutation
-	Permission bool
-	Path       func(json.RawMessage) (string, error)
-	Handler    func(context.Context, Call) (string, error)
+	Operation          string
+	Mutation           Mutation
+	Permission         bool
+	PermissionRequired func(json.RawMessage) bool
+	Path               func(json.RawMessage) (string, error)
+	Handler            func(context.Context, Call) (string, error)
 }
 
 type Response struct {
@@ -342,6 +346,9 @@ func (d *Dispatcher) admission(ctx context.Context, request Request, registratio
 		Request: request, CanonicalRoot: workspace.Root(), Mutation: registration.Mutation,
 		RequirePermission: registration.Permission,
 	}
+	if registration.PermissionRequired != nil {
+		admission.RequirePermission = registration.PermissionRequired(arguments)
+	}
 	workingDir := workspace.Root()
 	if request.WorkingDirectory != "" {
 		workingDir, err = workspace.Resolve(request.WorkingDirectory)
@@ -402,6 +409,9 @@ func (d *Dispatcher) execute(ctx context.Context, registration Registration, adm
 	completion := Completion{Admission: admission, LeaseID: ticket.LeaseID, Status: StatusSucceeded, Output: output}
 	if handlerErr != nil {
 		completion.Status = StatusFailed
+		if errors.Is(handlerErr, ErrDenied) {
+			completion.Status = StatusDenied
+		}
 		completion.Error = handlerErr.Error()
 	}
 	if finishErr := d.ledger.Finish(context.WithoutCancel(ctx), completion); finishErr != nil {

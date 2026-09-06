@@ -240,9 +240,23 @@ shows `yolo` while the mode is on.
 ## MCP
 
 MCP servers are daemon-owned integrations available from every authorized
-node through `mcp.list_servers`, `mcp.list_tools`, and `mcp.call`. Their tools
+node through `mcp.list_servers`, `mcp.list_tools`, `mcp.instructions`, and `mcp.call`. Their tools
 are not appended to the provider’s tool catalog. Root and child therefore keep
 the same stable interface even as MCP servers connect, fail, or reconnect.
+
+The root session owns the only live manager; attachment, model reload, status,
+root calls, and descendant calls use that synchronized owner. Tool invocations
+use the existing operation ledger and an MCP grant separate from file/shell
+authority. Native WHIP configuration confers trust; imported and attached
+definitions require consent or a saved rule. Approval binds the exact server,
+raw tool name, and definition, and cannot override revoked capabilities.
+
+Omitted child capabilities inherit a snapshot of the parent's currently
+advertised MCP definitions. Explicit `capabilities=["read"]` excludes MCP;
+`"mcp"` and optional `mcp_tools=[{"server": "...", "tool": "..."}]` allow
+bounded delegation. Issuer references and selectors live in the existing
+capability scopes and survive restart. Newly discovered tools never expand a
+retained child's grant. See [MCP tools and consent](tools.md#mcp) for examples.
 
 ## Limits
 

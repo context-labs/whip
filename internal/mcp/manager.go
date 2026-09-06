@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,17 +73,22 @@ type Tool struct {
 
 // server holds one server's live state.
 type server struct {
-	name string
-	cfg  ServerConfig
+	name  string
+	cfg   ServerConfig
+	owner *Manager
 
-	status Status
-	err    string
-	note   string
-	defs   []*sdkmcp.Tool
-	instr  string // server instructions from initialize (opencode injects these)
-	sess   *sdkmcp.ClientSession
-	gen    int // increments per connect; a stale session's watcher no-ops
-	stderr *ringBuffer
+	status         Status
+	err            string
+	note           string
+	defs           []*sdkmcp.Tool
+	instr          string // server instructions from initialize (opencode injects these)
+	sess           *sdkmcp.ClientSession
+	gen            int // increments per connect; a stale session's watcher no-ops
+	catalogChanges uint64
+	generation     string
+	connectionCtx  context.Context
+	connectionStop context.CancelFunc
+	stderr         *ringBuffer
 
 	// ready closes exactly once when the FIRST connect attempt settles
 	// (ready or failed): the close-to-broadcast pattern from agent's
@@ -101,6 +107,7 @@ type server struct {
 	autoTries int // auto-reconnect attempts since the last successful connect
 	runCtx    context.Context
 	stop      context.CancelFunc
+	running   bool
 
 	mu sync.Mutex // guards status/err/defs/sess/cfg.Enabled
 }
@@ -202,9 +209,10 @@ type Manager struct {
 // servers immediately; disabled entries never spawn (birth-settled, so their
 // ready channel is already closed and tool calls never wait on them).
 func newServer(name string, cfg ServerConfig) *server {
+	cfg.Trusted = cfg.Trusted && (cfg.Origin == "" || cfg.Origin == "whip")
 	s := &server{
 		name:      name,
-		cfg:       cfg,
+		cfg:       cloneConfig(cfg),
 		note:      cfg.Note,
 		ready:     make(chan struct{}),
 		calling:   make(chan struct{}, 1),
@@ -235,6 +243,7 @@ func NewManager(cfgs map[string]ServerConfig) *Manager {
 	m.connectTransport = m.defaultTransport
 	for name, cfg := range cfgs {
 		m.servers[name] = newServer(name, cfg)
+		m.servers[name].owner = m
 	}
 	return m
 }
@@ -302,9 +311,11 @@ func (m *Manager) AddServers(_ context.Context, cfgs map[string]ServerConfig) {
 			continue
 		}
 		s := newServer(name, cfg)
+		s.owner = m
 		s.runCtx, s.stop = context.WithCancel(m.runCtx) //nolint:fatcontext // each server stores an independent child context
 		m.servers[name] = s
 		if s.status == StatusConnecting {
+			s.running = true
 			fresh = append(fresh, s)
 		}
 	}
@@ -335,8 +346,8 @@ func (m *Manager) RemoveServers(names ...string) {
 			s.stop()
 		}
 		s.cfg.Enabled = new(false)
-		old := s.sess
-		s.sess, s.defs = nil, nil
+		s.setStateLocked(StatusDisabled, "")
+		old := s.retireLocked()
 		s.gen++
 		s.mu.Unlock()
 		if old != nil {
@@ -360,6 +371,7 @@ func (m *Manager) Start(ctx context.Context) {
 	servers := make([]*server, 0, len(m.servers))
 	for _, s := range m.servers {
 		if s.status == StatusConnecting {
+			s.running = true
 			s.runCtx, s.stop = context.WithCancel(startCtx) //nolint:fatcontext // each server stores an independent child context
 			servers = append(servers, s)
 		}
@@ -487,39 +499,58 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 
 	transport, err := m.connectTransport(ctx, cfg, s.stderr)
 	if err == nil {
-		client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "whip", Title: "whip"}, nil)
+		client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "whip", Title: "whip"}, &sdkmcp.ClientOptions{
+			ToolListChangedHandler: func(_ context.Context, request *sdkmcp.ToolListChangedRequest) {
+				s.refreshCatalog(m, request.Session)
+			},
+		})
 		var sess *sdkmcp.ClientSession
 		sess, err = client.Connect(ctx, transport, nil)
 		if err == nil {
-			var listed *sdkmcp.ListToolsResult
-			listed, err = sess.ListTools(ctx, nil)
-			if err == nil {
+			for {
+				s.mu.Lock()
+				catalogChanges := s.catalogChanges
+				s.mu.Unlock()
+				var listed *sdkmcp.ListToolsResult
+				listed, err = sess.ListTools(ctx, nil)
+				if err != nil {
+					break
+				}
 				m.mu.Lock()
 				closed := m.closed
-				_, stillOurs := m.servers[s.name]
-				m.mu.Unlock()
+				stillOurs := m.servers[s.name] == s
 				s.mu.Lock()
 				removed := s.gen != startGen
-				s.mu.Unlock()
 				if closed || removed || !stillOurs {
+					s.mu.Unlock()
+					m.mu.Unlock()
 					// Manager closing, or this server was removed mid-connect
 					// (import source toggled off): don't store the session.
 					_ = sess.Close()
 					return
 				}
+				// A notification may arrive before this session is published.
+				// Re-list within the startup deadline instead of losing it.
+				if s.catalogChanges != catalogChanges {
+					s.mu.Unlock()
+					m.mu.Unlock()
+					continue
+				}
 				var instr string
 				if ir := sess.InitializeResult(); ir != nil {
 					instr = strings.TrimSpace(ir.Instructions)
 				}
-				s.mu.Lock()
 				s.defs = listed.Tools
 				s.instr = instr
 				s.sess = sess
 				s.gen++
+				s.generation = rand.Text()
+				s.connectionCtx, s.connectionStop = context.WithCancel(m.runCtx)
+				s.setStateLocked(StatusReady, "")
 				s.autoTries = 0
 				gen := s.gen
 				s.mu.Unlock()
-				s.setState(StatusReady, "")
+				m.mu.Unlock()
 				// Watch for a dropped session: mark failed so tool calls stop
 				// being routed (opencode's client.onclose → status failed,
 				// guarded by a client-identity check, index.ts:443). The gen
@@ -533,13 +564,13 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 					s.mu.Lock()
 					stale := s.gen != gen
 					if !stale {
-						s.sess = nil
-						s.defs = nil
-						s.instr = ""
+						s.retireLocked()
+						if !closing {
+							s.setStateLocked(StatusFailed, "connection closed")
+						}
 					}
 					s.mu.Unlock()
 					if !stale && !closing {
-						s.setState(StatusFailed, "connection closed")
 						s.kickAutoReconnect(m)
 					}
 				})
@@ -557,22 +588,32 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 			msg += " — stderr: " + tail
 		}
 	}
-	s.setState(StatusFailed, msg)
+	m.mu.Lock()
+	s.mu.Lock()
+	if !m.closed && m.servers[s.name] == s && s.gen == startGen {
+		s.setStateLocked(StatusFailed, msg)
+	}
+	s.mu.Unlock()
+	m.mu.Unlock()
 }
 
 // setState transitions status and wakes every waiter on the first settle.
 func (s *server) setState(st Status, errMsg string) {
 	s.mu.Lock()
+	s.setStateLocked(st, errMsg)
+	s.mu.Unlock()
+	logf("server %s -> %s %s", s.name, st, errMsg)
+}
+
+func (s *server) setStateLocked(st Status, errMsg string) {
 	firstSettle := !s.settled
 	if st != StatusConnecting {
 		s.settled = true
 	}
 	s.status, s.err = st, errMsg
-	s.mu.Unlock()
 	if firstSettle && st != StatusConnecting {
 		close(s.ready)
 	}
-	logf("server %s -> %s %s", s.name, st, errMsg)
 }
 
 // Tools returns one tool per listed MCP tool on every ready server, for
@@ -632,25 +673,12 @@ func (m *Manager) ListTools(serverName string) ([]Tool, error) {
 // Call invokes a named tool on a named server. The server retains its normal
 // connection, timeout, and per-server serialization behavior.
 func (m *Manager) Call(ctx context.Context, serverName, toolName string, arguments json.RawMessage) (string, error) {
-	m.mu.Lock()
-	server := m.servers[serverName]
-	m.mu.Unlock()
-	if server == nil {
-		return "", fmt.Errorf("MCP server %q not found", serverName)
+	call, err := m.ResolveTool(serverName, toolName)
+	if err != nil {
+		return "", err
 	}
-	server.mu.Lock()
-	found := false
-	for _, definition := range server.defs {
-		if definition.Name == toolName {
-			found = true
-			break
-		}
-	}
-	server.mu.Unlock()
-	if !found {
-		return "", fmt.Errorf("MCP tool %s.%s not found", serverName, toolName)
-	}
-	return server.call(ctx, toolName, arguments)
+	call.Arguments = arguments
+	return m.CallChecked(ctx, call, nil)
 }
 
 // bridge converts one listed MCP tool into the agent-loop tools.Tool. The
@@ -664,10 +692,18 @@ func (s *server) bridge(d *sdkmcp.Tool) tools.Tool {
 	if d.Title != "" && desc == "" {
 		desc = d.Title
 	}
+	s.mu.Lock()
+	call, _, resolveErr := s.descriptorLocked(d.Name)
+	s.mu.Unlock()
 	return tools.Tool{
 		Def: llm.NewTool(name, fmt.Sprintf("[MCP %s] %s", s.name, desc), schema),
 		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
-			return s.call(ctx, d.Name, args)
+			if resolveErr != nil {
+				return "", resolveErr
+			}
+			call := call
+			call.Arguments = args
+			return s.owner.CallChecked(ctx, call, nil)
 		},
 	}
 }
@@ -683,67 +719,30 @@ func (s *server) bridge(d *sdkmcp.Tool) tools.Tool {
 const connectGrace = 5 * time.Second
 
 func (s *server) call(ctx context.Context, tool string, args json.RawMessage) (string, error) {
-	// Fail fast: a server whose first connect already settled (ready/failed/
-	// disabled) never waits on the channel at all.
 	s.mu.Lock()
-	settled, sess, status, errMsg := s.settled, s.sess, s.status, s.err
+	settled := s.settled
 	s.mu.Unlock()
 	if !settled {
-		// Still connecting: wait out the grace period, not the full timeout.
 		grace, cancel := context.WithTimeout(ctx, connectGrace)
+		defer cancel()
 		select {
 		case <-s.ready:
 		case <-grace.Done():
-			cancel()
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
 			return "", fmt.Errorf("mcp server %q is still connecting — retry in a moment (/mcp shows status)", s.name)
 		}
-		cancel()
+	}
+	if s.owner == nil {
 		s.mu.Lock()
-		sess, status, errMsg = s.sess, s.status, s.err
-		s.mu.Unlock()
+		defer s.mu.Unlock()
+		return "", s.unavailableLocked()
 	}
-	if sess == nil {
-		switch status {
-		case StatusFailed:
-			if errMsg != "" {
-				return "", fmt.Errorf("mcp server %q unavailable: %s (/mcp %s reconnect)", s.name, errMsg, s.name)
-			}
-			return "", fmt.Errorf("mcp server %q unavailable (/mcp %s reconnect)", s.name, s.name)
-		case StatusDisabled:
-			return "", fmt.Errorf("mcp server %q is disabled (/mcp %s enable)", s.name, s.name)
-		default:
-			return "", fmt.Errorf("mcp server %q is %s", s.name, status)
-		}
-	}
-	// Serialize calls per server.
-	select {
-	case s.calling <- struct{}{}:
-		defer func() { <-s.calling }()
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.ToolTimeoutDuration())
-	defer cancel()
-	var argMap map[string]any
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &argMap); err != nil {
-			return "", fmt.Errorf("invalid tool arguments: %w", err)
-		}
-	}
-	res, err := sess.CallTool(ctx, &sdkmcp.CallToolParams{Name: tool, Arguments: argMap})
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("mcp tool %s timed out after %s", tool, s.cfg.ToolTimeoutDuration())
-		}
-		return "", err
-	}
-	return flattenResult(res), nil
+	return s.owner.Call(ctx, s.name, tool, args)
 }
 
-// flattenResult renders a CallToolResult as model-facing text (pure).
+// flattenResult renders a CallToolResult as text for host storage (pure).
 // Text content is concatenated; binary/resource parts become placeholders
 // (ponytail: feed images to vision models); structured content is appended
 // as JSON when no text exists (opencode catalog.ts does the same). IsError
@@ -784,7 +783,7 @@ func flattenResult(res *sdkmcp.CallToolResult) string {
 	if res.IsError {
 		out = "Error: " + out
 	}
-	return tools.Truncate(out)
+	return out
 }
 
 // normalizeSchema passes the server's input schema through as a JSON string,
@@ -826,7 +825,7 @@ func (m *Manager) Config(name string) (ServerConfig, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.cfg, true
+	return cloneConfig(s.cfg), true
 }
 
 // Disable tears down a server's live session without touching config (the
@@ -841,14 +840,13 @@ func (m *Manager) Disable(name string) bool {
 	}
 	s.mu.Lock()
 	s.cfg.Enabled = new(false)
-	old := s.sess
-	s.sess, s.defs = nil, nil
+	s.setStateLocked(StatusDisabled, "")
+	old := s.retireLocked()
 	s.gen++
 	s.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
 	}
-	s.setState(StatusDisabled, "")
 	return true
 }
 
@@ -856,49 +854,23 @@ func (m *Manager) Disable(name string) bool {
 func (m *Manager) Enable(name string) bool {
 	m.mu.Lock()
 	s, ok := m.servers[name]
-	m.mu.Unlock()
-	if !ok {
+	if !ok || m.closed {
+		m.mu.Unlock()
 		return false
 	}
 	s.mu.Lock()
 	s.cfg.Enabled = nil
+	start := !s.running
+	if start {
+		s.runCtx, s.stop = context.WithCancel(m.runCtx)
+		s.running, s.status = true, StatusConnecting
+	}
 	s.mu.Unlock()
-	return m.Reconnect(name)
-}
-
-// InstructionsBlock renders the <mcp_instructions> system-prompt section:
-// ready servers' initialize instructions, name-sorted ("" when none publish
-// any). Servers that publish instructions are telling the model how to use
-// their tools — injecting them (opencode does, session/system.ts) improves
-// usage quality, not just availability.
-func (m *Manager) InstructionsBlock() string {
-	m.mu.Lock()
-	servers := make([]*server, 0, len(m.servers))
-	for _, s := range m.servers {
-		servers = append(servers, s)
-	}
 	m.mu.Unlock()
-	type entry struct{ name, text string }
-	var instr []entry
-	for _, s := range servers {
-		s.mu.Lock()
-		ready, text := s.sess != nil, s.instr
-		s.mu.Unlock()
-		if ready && text != "" {
-			instr = append(instr, entry{s.name, text})
-		}
+	if start {
+		return m.launch("MCP server "+s.name, func() { s.run(s.runCtx, m) })
 	}
-	if len(instr) == 0 {
-		return ""
-	}
-	sort.Slice(instr, func(i, j int) bool { return instr[i].name < instr[j].name })
-	var b strings.Builder
-	b.WriteString("\n<mcp_instructions>\n")
-	for _, e := range instr {
-		fmt.Fprintf(&b, "<server name=%q>\n%s\n</server>\n", e.name, e.text)
-	}
-	b.WriteString("</mcp_instructions>")
-	return b.String()
+	return m.Reconnect(name)
 }
 
 // Probe connects a single server for `whip mcp test`: builds a throwaway
@@ -997,8 +969,7 @@ func (m *Manager) Reconnect(name string) bool {
 		return false
 	}
 	s.mu.Lock()
-	old := s.sess
-	s.sess, s.defs = nil, nil
+	old := s.retireLocked()
 	s.status = StatusConnecting
 	s.gen++
 	s.mu.Unlock()
@@ -1033,8 +1004,8 @@ func (m *Manager) Close() {
 		}
 		for _, s := range servers {
 			s.mu.Lock()
-			sess := s.sess
-			s.sess, s.defs = nil, nil
+			sess := s.retireLocked()
+			s.setStateLocked(StatusFailed, "manager closed")
 			s.mu.Unlock()
 			if sess != nil {
 				_ = sess.Close()
@@ -1066,9 +1037,8 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 		return &sdkmcp.StreamableClientTransport{
 			Endpoint:   cfg.URL,
 			HTTPClient: &http.Client{Transport: headerTransport(headers)},
-			// ponytail: the standalone SSE stream would deliver server-initiated
-			// notifications (tool list changes); request-response is enough for v1
-			DisableStandaloneSSE: true,
+			// Catalog notifications invalidate queued admissions before refresh.
+			DisableStandaloneSSE: false,
 		}, nil
 	}
 	if len(cfg.Command) == 0 {

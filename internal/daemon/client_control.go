@@ -188,8 +188,9 @@ func (r *AgentSession) ConfigureRun(system string, maxTurns int, headless bool, 
 	r.promptOverride = system
 	r.mu.Unlock()
 	r.agent.MaxTurns = maxTurns
+	r.agent.Services.SetHeadlessPermissions(headless)
 	if headless {
-		r.DenyToolPermissions()
+		r.agent.Services.SetExternalPermissions(false)
 	}
 	// bind keyed the prompt cache by session id; a stable caller-chosen key
 	// (`whip run -cache-key repo/reviewer`) shares the cached prefix across
@@ -216,6 +217,8 @@ func (r *AgentSession) DenyToolPermissions() {
 
 func (r *AgentSession) SetExternalPermissions(enabled bool) {
 	r.agent.Services.SetExternalPermissions(enabled)
+	r.agent.Services.SetMCPAutomatic(!enabled)
+	r.agent.Services.SetHeadlessPermissions(false)
 }
 
 func (r *AgentSession) ExternalPermissionsEnabled() bool {
@@ -326,7 +329,7 @@ func (s *Session) ClientCommand(ctx context.Context, admission sessionstore.Comm
 			}
 			return finish(nil)
 		}
-		if operation == "permission.mode" && s.hasRunningAgent() {
+		if operation == "permission.mode" && (s.hasRunningAgent() || s.clientBusy) {
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("permission mode cannot change while an agent is running"), &result))
 		}
 		if operation == "tool.call" {
@@ -642,12 +645,8 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 	}
 	switch operation {
 	case "mcp.attach":
-		manager := mcp.NewManager(payload.Servers)
-		previous := s.mcp
-		s.mcp = manager
-		configureMCP(s, Components{MCP: manager})
-		if previous != nil {
-			_ = safeClose("previous mcp", previous.Close)
+		if err := s.attachMCP(payload.Servers); err != nil {
+			return "", err
 		}
 		return "configured", nil
 	case "permission.mode":
@@ -667,6 +666,9 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 		if payload.DenyPermissions {
 			runner.DenyToolPermissions()
+			if runtime, ok := s.runtime.(interface{ DenyToolPermissions() }); ok {
+				runtime.DenyToolPermissions()
+			}
 		}
 		return "configured", nil
 	case "tool.schema":
@@ -677,7 +679,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		definitions, err := runner.ToolDefinitions(ctx)
 		return marshalClientOutput(definitions, err)
 	case "run.configure":
-		if s.running != nil || s.clientBusy {
+		if s.hasRunningAgent() || s.clientBusy {
 			return "", errors.New("run configuration cannot change while a root operation is running")
 		}
 		if payload.MaxTurns < 0 {
@@ -688,6 +690,9 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 			return "", errors.New("session runner does not support run configuration")
 		}
 		runner.ConfigureRun(payload.System, payload.MaxTurns, payload.Headless, payload.CacheKey)
+		if runtime, ok := s.runtime.(interface{ SetHeadlessPermissions(bool) }); ok {
+			runtime.SetHeadlessPermissions(payload.Headless)
+		}
 		return "configured", nil
 	case "cancel":
 		if s.turnCancel == nil {
@@ -933,7 +938,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 	case "budget.cap":
 		return s.clientBudget(ctx, payload.Args)
 	case "capability.revoke":
-		record, err := s.store.RevokeCapabilityFor(ctx, s.meta.ID, s.authority.AgentID, strings.TrimSpace(payload.Args))
+		record, err := s.revokeCapability(ctx, s.authority.AgentID, strings.TrimSpace(payload.Args))
 		return marshalClientOutput(record, err)
 	case "permission.rules":
 		rules, err := s.store.ListPermissionRules(ctx, s.meta.ID)
@@ -998,7 +1003,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 }
 
 func (s *Session) clientMCP(ctx context.Context, args string) (string, error) {
-	manager, ok := s.mcp.(clientMCPManager)
+	manager, ok := s.currentMCP().(clientMCPManager)
 	fields := strings.Fields(args)
 	if len(fields) > 0 && fields[0] == "import" {
 		return s.clientMCPImport(ctx, fields[1:])
@@ -1195,6 +1200,11 @@ func (s *Session) replaceModel(ctx context.Context, model, provider string, forc
 		cleanup()
 		return "", errors.New("root factory returned no replacement runner")
 	}
+	if current, ok := s.runner.(interface{ permissionServices() *tools.Services }); ok {
+		if replacement, ok := components.Runner.(interface{ permissionServices() *tools.Services }); ok {
+			replacement.permissionServices().CopyPermissionPolicyFrom(current.permissionServices())
+		}
+	}
 	if binder, ok := components.Runner.(interface{ bind(*Session) error }); ok {
 		if err := binder.bind(s); err != nil {
 			cleanup()
@@ -1218,8 +1228,9 @@ func (s *Session) replaceModel(ctx context.Context, model, provider string, forc
 			return "", err
 		}
 	}
-	oldRunner, oldMCP, oldRuntime := s.runner, s.mcp, s.runtime
-	s.runner, s.mcp, s.runtime = components.Runner, components.MCP, components.Runtime
+	oldRunner, oldRuntime := s.runner, s.runtime
+	oldMCP := s.swapMCP(components.MCP)
+	s.runner, s.runtime = components.Runner, components.Runtime
 	s.meta.Model, s.meta.Provider, s.meta.Effort = model, provider, meta.Effort
 	s.emitSessionUpdate(ctx, "session.model.updated", SessionUpdateEvent{
 		Model: model, Provider: provider, Effort: meta.Effort, EffortChanged: true,

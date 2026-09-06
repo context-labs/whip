@@ -1500,6 +1500,17 @@ func (m *model) thinPermissionKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, b
 	if dialog == nil || dialog.daemon == nil || dialog.deciding {
 		return m, nil
 	}
+	if dialog.daemon.Operation == "mcp.call" && (msg.String() == "pgup" || msg.String() == "pgdown") {
+		lines, pageSize := m.permissionDetailLines(dialog.daemon.Command)
+		lastPage := (len(lines) - 1) / pageSize
+		dialog.detailPage = min(dialog.detailPage, lastPage)
+		if msg.String() == "pgup" {
+			dialog.detailPage = max(0, dialog.detailPage-1)
+		} else {
+			dialog.detailPage = min(lastPage, dialog.detailPage+1)
+		}
+		return m, nil
+	}
 	decide := func(allow bool, reason, remember string) (bubbletea.Model, bubbletea.Cmd) {
 		action, err := m.client.NewAction("permission.decide", map[string]any{
 			"permission_id": dialog.daemon.ID, "allow": allow, "reason": reason, "remember": remember,

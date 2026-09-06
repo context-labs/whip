@@ -121,7 +121,17 @@ No filesystem watcher or mid-turn prompt mutation is involved.
   calls (shell, permission prompts, `agents.wait`, MCP) is not counted; each
   host call is bounded by its own limit and by turn cancellation.
 - `models.batch` fans out stateless calls and returns results in input order.
-- MCP calls serialize per server and obey connection/tool deadlines.
+- MCP calls reserve existing operation capacity and serialize per server without
+  workspace writer locks. Tool deadlines include the server queue. Immediately
+  before transmission they recheck the live manager/catalog generation, exact
+  definition, permission policy, and every issuer grant in the delegation chain.
+  Disable, reconnect, replacement, and root shutdown cancel queued and active
+  work. An interrupted transmitted effect is never automatically replayed.
+- A root session owns the MCP manager behind a mutex. RLM hosts and protocol
+  adapters resolve that owner at use time; runtimes keep no duplicate pointer.
+- MCP tool errors, RPC failures, cancellation, and output-storage failures
+  settle the same durable operation and release its reservation. If content
+  storage fails, a small inline failed result preserves settlement.
 - Every managed process belongs to a root and is cancelled on root shutdown.
 
 Callbacks copy state under a mutex, release the mutex, then invoke external

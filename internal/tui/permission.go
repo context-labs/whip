@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/context-labs/whip/internal/session"
@@ -8,11 +9,12 @@ import (
 
 // permDialog is presentation state for a daemon-owned permission request.
 type permDialog struct {
-	sel       int
-	rejecting bool
-	rejectIn  string
-	daemon    *session.PermissionSnapshot
-	deciding  bool
+	sel        int
+	rejecting  bool
+	rejectIn   string
+	daemon     *session.PermissionSnapshot
+	deciding   bool
+	detailPage int
 }
 
 // permOptions lists the dialog's choices; "always" exists only when the
@@ -55,9 +57,24 @@ func (m *model) permView() string {
 	if detail == "" {
 		detail = "request " + permission.RequestDigest
 	}
-	out.WriteString("\n  " + ansiTruncate(detail, m.width-4))
+	if permission.Operation == "mcp.call" {
+		lines, pageSize := m.permissionDetailLines(detail)
+		page := min(m.permDialog.detailPage, (len(lines)-1)/pageSize)
+		start := page * pageSize
+		end := min(start+pageSize, len(lines))
+		out.WriteString("\n  " + strings.Join(lines[start:end], "\n  "))
+		if len(lines) > pageSize {
+			out.WriteString(dimStyle.Render(fmt.Sprintf("\n  details %d–%d of %d · pgup/pgdown", start+1, end, len(lines))))
+		}
+	} else {
+		out.WriteString("\n  " + ansiTruncate(detail, m.width-4))
+	}
 	if permission.Rule != "" {
-		out.WriteString(dimStyle.Render("\n  always: " + permission.Operation + " " + permission.Rule))
+		label := permission.Operation + " " + permission.Rule
+		if permission.Operation == "mcp.call" {
+			label = "this MCP tool and server definition in this tree"
+		}
+		out.WriteString(dimStyle.Render("\n  always: " + label))
 	}
 	out.WriteString(dimStyle.Render("\n  agent " + permission.AgentID + " · permission " + permission.ID))
 	if m.permDialog.deciding {
@@ -78,6 +95,14 @@ func (m *model) permView() string {
 		}
 	}
 	return out.String()
+}
+
+func (m *model) permissionDetailLines(detail string) ([]string, int) {
+	pageSize := max(1, m.height/3)
+	if m.height == 0 {
+		pageSize = 8
+	}
+	return strings.Split(wrap(detail, max(m.width-4, 20)), "\n"), pageSize
 }
 
 func ansiTruncate(value string, width int) string {
