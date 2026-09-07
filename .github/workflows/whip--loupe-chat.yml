@@ -38,7 +38,7 @@ jobs:
       contains(github.event.comment.body, '@loupe') &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install whip (latest release)
         continue-on-error: true
         env:

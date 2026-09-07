@@ -39,7 +39,7 @@ jobs:
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Install whip (latest release)
         continue-on-error: true
         env:
