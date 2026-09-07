@@ -30,7 +30,11 @@ func scheduleTick() tea.Cmd {
 // each tick; a busy agent defers the fire to the next one (grid stays
 // anchored, so a defer doesn't drift the schedule).
 func (m *model) fireDueSchedules() tea.Cmd {
-	if m.store == nil || m.sessionID == "" || m.busy {
+	// An open trust gate (deferred to the TUI on non-TTY stdin) holds the
+	// wakeup channel too: a fire is a full agent turn, and the folder is
+	// untrusted until the user answers. Unstamped, so the tasks catch up on the
+	// first tick after approval — or never, since a decline quits.
+	if m.store == nil || m.sessionID == "" || m.busy || m.trustPending != "" {
 		return nil
 	}
 	now := time.Now()

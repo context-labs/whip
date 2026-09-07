@@ -54,6 +54,39 @@ func TestSchedulePersistence(t *testing.T) {
 	}
 }
 
+// An open deferred trust gate holds due schedules: a fire is a full agent
+// turn in an untrusted folder. The task stays unstamped, so it fires on the
+// first tick after the gate closes.
+func TestScheduleHeldWhileTrustPending(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	m := compactCmdModel()
+	st, err := session.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	m.store = st
+	m.sessionID, _ = st.Create("/tmp", m.modelName, m.provName)
+	m.agent.SetSessionID(m.sessionID)
+
+	if _, err := st.AddSchedule(m.sessionID, "@every 10m", "say hi", time.Now().Add(-2*time.Minute).Truncate(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	m.trustPending = "/untrusted/dir"
+	if cmd := m.fireDueSchedules(); cmd != nil {
+		t.Fatal("an open trust gate must hold due schedules — no turn in an untrusted folder")
+	}
+	if got := st.Schedules(m.sessionID); !got[0].LastFire.IsZero() {
+		t.Fatal("a held schedule must not be stamped fired — it catches up after approval")
+	}
+
+	m.trustPending = "" // approved: the gate is closed
+	if cmd := m.fireDueSchedules(); cmd == nil {
+		t.Fatal("after the gate closes the held schedule should fire")
+	}
+}
+
 // A due task fires a machine-authored turn into the agent loop (the wakeup),
 // and a fired one-shot never fires again.
 func TestScheduleFiresWakeup(t *testing.T) {

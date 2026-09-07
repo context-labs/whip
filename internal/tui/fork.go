@@ -25,6 +25,9 @@ type namePrompt struct {
 	draft string // input content stashed while the prompt owns the box
 	mask  bool   // render the value as ••• (secret entry, e.g. /auth)
 	onOK  func(string)
+	// onCancel, when set, runs on Esc instead of just closing the prompt —
+	// the in-TUI trust gate uses it to treat Esc as "decline" and exit.
+	onCancel func()
 }
 
 // openNamePrompt repurposes the input box as a one-shot text prompt. The
