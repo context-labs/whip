@@ -3,10 +3,35 @@ package protocol
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/context-labs/whip/internal/llm"
 )
+
+func TestSessionSummariesParametersAreBounded(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		raw   string
+		valid bool
+	}{
+		{"empty-set", `{"root_ids":[]}`, true},
+		{"root-set", `{"root_ids":["root","missing"]}`, true},
+		{"missing-set", `{}`, false},
+		{"null-set", `{"root_ids":null}`, false},
+		{"empty-id", `{"root_ids":[""]}`, false},
+		{"duplicate", `{"root_ids":["root","root"]}`, false},
+		{"long-id", `{"root_ids":["` + strings.Repeat("a", 257) + `"]}`, false},
+		{"non-string", `{"root_ids":[42]}`, false},
+		{"extra", `{"root_ids":[],"max_bytes":1000000}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateRPC("sessions.summaries", json.RawMessage(test.raw)); (err == nil) != test.valid {
+				t.Fatalf("valid=%v, err=%v", test.valid, err)
+			}
+		})
+	}
+}
 
 func TestRegistrySchemasResolveAndHaveUniqueNames(t *testing.T) {
 	operations := map[string]bool{}

@@ -23,6 +23,20 @@ explicitly restart the daemon; older majors are rejected, with no fallback.
 The JSON-RPC envelope remains 2.0 and the runtime data directory remains
 `runtime-v2`; wire version and storage location are separate.
 
+Protocol **3.1** adds the negotiated `session_summaries` capability and read-only
+`sessions.summaries({root_ids})`. Clients send at most 32 distinct root IDs, each
+at most 256 UTF-8 bytes. The response returns one item per requested ID in request
+order, with `missing`, bounded `title`/`cwd`, optional stable `workspace_id`, decimal
+string `running_agents`, `queued_agents`, `pending_permissions` and
+`pending_questions`, plus `truncated`. The complete result is bounded to 64 KiB;
+identity and counts are preserved when presentation strings need shortening.
+These are advisory observations across descendants, not an atomic execution
+snapshot or completion guarantee. Lookup failures return errors rather than
+inventing missing roots. This query opens no actor/transcript, writes no journal,
+and requires no schema change. Protocol 3.0 hosts remain usable with tab activity
+explicitly unknown. Coverage: daemon/session `TestSessionSummaries*`, SDK summary
+and generated interoperability tests.
+
 `command_not_found` (`-32011`) identifies a missing command in the initialized
 client namespace. A generic lookup failure is never proof that a command was
 not accepted. Responses contain exactly one of `result` and `error`, including

@@ -17,28 +17,35 @@ import {
   Badge,
   ThemePicker,
   CommandPicker,
+  Menu,
+  ContextMenu,
 } from '@whip/ui';
+import { workspaceTabId } from '@whip/ui/workspace-tabs';
 import {
   MessageSquare,
   Plus,
-  Search,
   Settings2,
   PanelLeft,
   Plug,
   X,
   ArrowUpRight,
+  MoreHorizontal,
 } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
-import { useAppState, useRuntime } from './context';
+import { useAppState, useRuntime, useSessionTabs } from './context';
 import { inspectorSections, isInspectorSection } from './navigation';
 import { Attention } from './attention';
+import { ConnectionNotice } from './connection-notice';
+import { SessionTabStrip, type SessionTabActions } from './session-tab-strip';
 
 export function AppShell({ children }: { children: ReactNode }) {
   const runtime = useRuntime();
   const state = useAppState();
   const navigate = useNavigate();
   const params = useParams({ strict: false });
+  const tabState = useSessionTabs();
+  const selectedTab = tabState.workspaces.find(item => item.runtimeId === params.runtimeId)?.tabs.find(item => item.rootId === params.rootId);
   const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 767px)').matches);
   useEffect(() => { const query = window.matchMedia('(max-width: 767px)'); const update = () => setCompact(query.matches); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, []);
   const [navigation, setNavigation] = useState(false);
@@ -46,6 +53,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [commands, setCommands] = useState(false);
   const [endpoint, setEndpoint] = useState(state.endpoint);
   const [connecting, setConnecting] = useState(false);
+  const tabActions = useRef<SessionTabActions>(null);
   const focusComposer = () =>
     document
       .querySelector<HTMLTextAreaElement>('[data-whip-composer]')
@@ -64,38 +72,30 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
       </aside>}
       <div {...stylex.props(layout.main)}>
-        <header {...stylex.props(layout.header)}>
+        {state.client ? <SessionTabStrip ref={tabActions} client={state.client} compact={compact} utilities={<>
           <IconButton
+            variant="ghost"
             label="Open navigation"
             xstyle={layout.mobileOnly}
             onClick={() => setNavigation(true)}
           >
             <PanelLeft size={18} />
           </IconButton>
-          {state.client ? (
+          {!compact && (
             <ConnectionBadge
               client={state.client}
               onConnect={() => setConnection(true)}
             />
-          ) : (
-            <Button variant="ghost" onClick={() => setConnection(true)}>
-              <Plug size={14} /> Connect to host
-            </Button>
           )}
-          <span {...stylex.props(layout.grow)} />
-          {state.client && <Attention client={state.client} />}
-          <ThemePicker compact />
-          <IconButton label="Commands" xstyle={layout.desktopOnly} onClick={() => setCommands(true)}>
-            <Search size={16} />
-          </IconButton>
-          <Link
-            to="/settings"
-            aria-label="Settings"
-            {...stylex.props(layout.subtleButton, layout.desktopOnly)}
-          >
-            <Settings2 size={16} />
-          </Link>
-        </header>
+          <Attention client={state.client} />
+          {!compact && <Menu trigger={<IconButton variant="ghost" label="Application menu"><MoreHorizontal size={16} /></IconButton>} items={[
+            { id: 'commands', label: 'Commands', onSelect: () => setCommands(true) },
+            { id: 'reopen', label: 'Reopen closed tab', onSelect: () => tabActions.current?.reopen() },
+            { id: 'appearance', label: 'Appearance', onSelect: () => void navigate({ to: '/settings', search: { section: 'appearance' } }) },
+            { id: 'settings', label: 'Settings', onSelect: () => void navigate({ to: '/settings' }) },
+          ]} />}
+        </>} /> : <header {...stylex.props(layout.header)}><Button variant="ghost" onClick={() => setConnection(true)}><Plug size={14} /> Connect to host</Button><span {...stylex.props(layout.grow)} /><ThemePicker compact /></header>}
+        {state.client && <ConnectionNotice client={state.client} />}
         {state.error && (
           <div role="alert" {...stylex.props(layout.row, layout.notice)}>
             <span {...stylex.props(layout.grow)}>{state.error}</span>
@@ -107,7 +107,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </IconButton>
           </div>
         )}
-        {children}
+        {params.rootId ? <section id="whip-session-panel" role="tabpanel" aria-labelledby={!compact && selectedTab && state.client?.getSnapshot().info?.runtime_id === params.runtimeId ? workspaceTabId(params.rootId) : undefined} aria-label="Session" {...stylex.props(layout.main)}>{children}</section> : children}
       </div>
       <Sheet open={navigation} onOpenChange={setNavigation} title="WHIP">
         <div {...stylex.props(layout.sidebar, layout.sidebarMobile)}>
@@ -134,8 +134,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             try {
               await runtime.connect(endpoint);
               setConnection(false);
-            } catch (error) {
-              runtime.report(error);
+            } catch {
+              // Setup and connection errors are displayed by their owners.
             } finally {
               setConnecting(false);
             }
@@ -197,6 +197,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           { value: 'focus', label: 'Focus message composer' },
           { value: 'navigation', label: 'Browse sessions' },
           { value: 'connect', label: 'Change execution host' },
+          { value: 'tabs:search', label: 'Search open tabs' },
+          { value: 'tabs:next', label: 'Next session tab' },
+          { value: 'tabs:previous', label: 'Previous session tab' },
+          { value: 'tabs:close', label: 'Close session tab' },
+          { value: 'tabs:reopen', label: 'Reopen closed tab' },
           ...(params.rootId ? inspectorSections.map(item => ({ value: `panel:${item.value}`, label: item.label })) : []),
           ...['appearance', 'providers', 'runtime', 'device', 'recovery'].map(
             (value) => ({
@@ -210,6 +215,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           else if (action === 'focus') requestAnimationFrame(focusComposer);
           else if (action === 'navigation') setNavigation(true);
           else if (action === 'connect') setConnection(true);
+          else if (action === 'tabs:search') tabActions.current?.showPicker();
+          else if (action === 'tabs:next') tabActions.current?.next(1);
+          else if (action === 'tabs:previous') tabActions.current?.next(-1);
+          else if (action === 'tabs:close') tabActions.current?.close();
+          else if (action === 'tabs:reopen') tabActions.current?.reopen();
           else if (action.startsWith('panel:') && params.runtimeId && params.rootId && isInspectorSection(action.slice(6))) void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: params.runtimeId, rootId: params.rootId }, search: previous => ({ ...previous, panel: action.slice(6) as import('./navigation').InspectorSection }) });
           else void navigate({ to: '/settings', search: { section: action } });
         }}
@@ -235,9 +245,6 @@ function ConnectionBadge({
       <Badge tone={connection.state === 'connected' ? 'success' : 'warning'}>
         {connection.state === 'connected' ? 'Connected' : connection.state}
       </Badge>
-      <span {...stylex.props(layout.muted, layout.desktopOnly)}>
-        {connection.info?.host_platform ?? 'Execution host'}
-      </span>
     </button>
   );
 }
@@ -427,6 +434,8 @@ function SessionRows({
   onNavigate(): void;
   loadMore(): void;
 }) {
+  const runtime = useRuntime();
+  useSessionTabs();
   const connection = useWhipConnection(client);
   const scroll = useRef<HTMLDivElement>(null);
   const location = useLocation();
@@ -443,6 +452,8 @@ function SessionRows({
       <div style={{ height: virtual.getTotalSize(), position: 'relative' }}>
         {virtual.getVirtualItems().map((row) => {
           const session = items[row.index]!;
+          const runtimeId = connection.info?.runtime_id ?? '';
+          const saved = runtime.tabs.workspace(runtimeId).tabs.find(item => item.rootId === session.id);
           return (
             <div
               key={session.id}
@@ -455,15 +466,22 @@ function SessionRows({
                 transform: `translateY(${row.start}px)`,
               }}
             >
-              <Link
+              <ContextMenu items={[{ id: 'open-background', label: 'Open in background tab', onSelect: () => {
+                try { runtime.tabs.open(runtimeId, session.id, session.title); }
+                catch (error) { runtime.report(error); }
+              } }]}><Link
                 to="/h/$runtimeId/s/$rootId"
                 params={{
-                  runtimeId: connection.info?.runtime_id ?? '',
+                  runtimeId,
                   rootId: session.id,
                 }}
-                search={{}}
+                search={saved?.location ?? {}}
                 preload={false}
-                onClick={onNavigate}
+                onClick={event => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  try { runtime.tabs.open(runtimeId, session.id, session.title); onNavigate(); }
+                  catch (error) { event.preventDefault(); runtime.report(error); }
+                }}
                 {...stylex.props(
                   layout.sessionLink,
                   location.pathname.endsWith(`/s/${session.id}`) &&
@@ -479,7 +497,7 @@ function SessionRows({
                     {session.cwd}
                   </div>
                 </div>
-              </Link>
+              </Link></ContextMenu>
             </div>
           );
         })}

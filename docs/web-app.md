@@ -27,6 +27,46 @@ inspect and forget saved identities after reload; those records contain no promp
 Its separate, confirmed discard action clears unsent drafts, including drafts for
 removed sessions, without deleting command identities or device preferences.
 
+## Session tabs
+
+Selecting a saved session opens one root tab, reused on subsequent visits. Tabs
+span projects on the connected host; child agents stay inside their root tab.
+The URL controls selection, including browser Back/Forward and deep links.
+On an initial Home load, the window restores its last active session after the
+host identity is known. Intentional Home navigation stays on the New session
+launcher. Other browser windows have independent layouts.
+
+The strip supports drag reordering, close/close others/close right, Move left/right,
+Copy session link, and Reopen closed tab. Closing selects the right neighbor, then
+the left, and closing the last tab returns Home. Closing never deletes or cancels
+work or sends a draft. The command palette includes next/previous/close/reopen and
+search open tabs. Arrow keys move tab focus; Enter/Space activate; Delete closes
+the focused tab. Browser-owned new-tab/close-tab shortcuts remain untouched.
+On phones, the current-session button opens a searchable list with explicit actions.
+
+Window layout uses sessionStorage with memory fallback: 32 open tabs, 20 closed
+entries, four host layouts and 64 KiB total metadata. It contains only IDs, bounded
+title hints, order and child/inspector route hints. It contains no messages or
+credentials. Only the selected conversation mounts; at most four root views stay
+warm for 30 seconds after release, with least-recently-used eviction. Reading
+anchors and composer selection are bounded memory hints; history changes fall
+back visibly to retained content instead of fetching unbounded history.
+
+Attachments remain in window memory across switching and closing/reopening tabs.
+The limits are 16 files per recipient and 20 MiB across the window; uploads run
+serially. A reload or page close requires selecting files again, and the browser
+warns while attachments remain. Switching hosts interrupts transfers and marks
+attachments unavailable. Explicit removal, accepted submission and Settings →
+Recovery → Discard drafts clear the corresponding attachment state.
+
+Protocol 3.1's negotiated `session_summaries` capability supplies tab titles and
+running/queued agent and pending permission/question counts without opening each
+root. The window batches all open IDs into one query every two visible seconds;
+local lifecycle events coalesce refreshes. Hidden and disconnected windows pause
+polling. An unavailable host/capability or failed lookup shows unknown activity;
+authoritative missing roots show unavailable. A quiet tab is not a promise that
+all descendants, schedules or future work are complete.
+
 ## Run the packaged application locally
 
 Release binaries contain the web application. Start a daemon with its optional
@@ -96,16 +136,30 @@ browser development origin. Example values:
 
 ```sh
 WHIP_NETWORK=1 WHIP_LISTEN=127.0.0.1:8080 \
-  WHIP_ALLOWED_ORIGINS=http://localhost:3000 \
+  WHIP_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000 \
   WHIP_ALLOWED_HOSTS=127.0.0.1:8080 \
   ./whip daemon start
 WHIP_WEB_DAEMON=http://127.0.0.1:8080 npm run dev:web
 ```
 
-Open `http://localhost:3000`. An existing daemon retains the configuration it was
-started with; substitute `daemon restart` explicitly when changing listener
+Open `http://localhost:3000` or `http://127.0.0.1:3000`. These are distinct browser
+origins, so both are explicitly allowed above. An existing daemon retains the
+configuration it was started with; substitute `daemon restart` explicitly when changing listener
 settings. The release application uses its own origin and needs no copied port
 or separately configured browser origin.
+
+If Vite reports WebSocket proxy errors (`EPIPE`) and the app stays reconnecting,
+check the daemon's protocol and allowed origins. A running older daemon is not
+upgraded by starting Vite: this app requires protocol 3. Build it with `task build`,
+stop the old daemon using its original binary, and start `./whip` with the network
+settings above. Use the same `WHIP_HOME` on both commands to retain the same
+runtime. Stopping a daemon interrupts active work. Do not reset a compatible
+database to resolve a protocol or origin mismatch.
+
+`GET /api/v3/web` on the configured daemon reports its protocol and web paths.
+A 404 indicates that the web-discovery endpoint is unavailable; a 403 with
+`origin is not allowed` means the exact browser origin needs to be allowed at
+daemon startup. Vite preserves that origin when proxying WebSockets.
 
 ## Trusted-network and phone access
 
@@ -338,3 +392,19 @@ Storybook browser checks, Chromium/Firefox application tests, loaded-history
 correctness/measurement and packed-consumer checks. Actual Safari remains an explicit macOS release gate. Keep physical-device
 and assistive-technology testing on the release checklist; automated checks are
 not a substitute for those remaining manual checks.
+
+### Session-tab validation
+
+The [session-tabs acceptance record](../.ai-docs/plans/session-tabs/acceptance.json)
+contains the 2026-09-07 Chromium/Firefox tab workflows, actual Safari checks,
+all-theme/component results, and 1/8/32-tab heap/subscription observations. Run
+`node apps/web/scripts/session-tabs.mjs` after building/packing the web assets.
+Both transports pass the narrow summary query's race and bound tests. At 32 tabs,
+there are at most four root subscriptions and one shared two-second poll; simulated
+hidden visibility issues no summary polls. Switching preserves uploads and grouped
+streams, missing-root errors remain scoped, and the 33rd route waits for explicit
+space. The history stress fixture preserves independent child/root reading anchors.
+
+These automated results do not complete manual VoiceOver or physical-mobile gates.
+Playwright switching measurements include automation overhead and are not physical
+paint timings; the sub-100ms target is not certified by those measurements.

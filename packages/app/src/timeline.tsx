@@ -24,6 +24,7 @@ import {
 } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
+import { readingTarget } from './reading-positions';
 
 export interface TimelineRow {
   id: string;
@@ -583,19 +584,32 @@ export function Timeline({
   loadOlder,
   readBody,
   historyAction,
+  bookmarkKey,
+  historyRevision,
+  historyReady = true,
 }: {
   rows: TimelineRow[];
   hasMore: boolean;
   loadOlder(): Promise<void>;
   readBody(row: TimelineRow): void;
   historyAction?(row: TimelineRow, action: 'fork' | 'rewind'): void;
+  bookmarkKey?: string;
+  historyRevision?: string;
+  historyReady?: boolean;
 }) {
+  const runtime = useRuntime();
   const viewport = useRef<HTMLDivElement>(null);
-  const follow = useRef(true);
-  const [atEnd, setAtEnd] = useState(true);
+  const saved = useRef(
+    bookmarkKey ? runtime.readingPositions.get(bookmarkKey) : undefined,
+  );
+  const follow = useRef(saved.current?.follow ?? true);
+  const [atEnd, setAtEnd] = useState(follow.current);
   const [loading, setLoading] = useState(false);
   const [pinned, setPinned] = useState<string[]>([]);
-  const runtime = useRuntime();
+  const [positionNotice, setPositionNotice] = useState('');
+  const appliedRevision = useRef<string | undefined>(undefined);
+  const restoring = useRef(false);
+  const restoreFrame = useRef(0);
   const virtual = useVirtualizer({
     count: rows.length,
     getScrollElement: () => viewport.current,
@@ -620,12 +634,118 @@ export function Timeline({
     },
   });
   const total = virtual.getTotalSize();
+  const savePosition = useRef(() => {});
+  savePosition.current = () => {
+    const root = viewport.current;
+    if (
+      !root ||
+      !bookmarkKey ||
+      !historyRevision ||
+      !historyReady ||
+      restoring.current ||
+      appliedRevision.current !== historyRevision
+    )
+      return;
+    const top = root.getBoundingClientRect().top;
+    const element = [
+      ...root.querySelectorAll<HTMLElement>('[data-message-id]'),
+    ].find((row) => row.getBoundingClientRect().bottom > top);
+    const row = rows.find((row) => row.id === element?.dataset.messageId);
+    if (!row || !element) return;
+    runtime.readingPositions.set(bookmarkKey, {
+      messageId: row.id,
+      revision: historyRevision,
+      seq: row.seq,
+      offset: top - element.getBoundingClientRect().top,
+      follow: follow.current,
+    });
+  };
+  const stopRestore = () => {
+    cancelAnimationFrame(restoreFrame.current);
+    restoring.current = false;
+  };
+  useLayoutEffect(() => {
+    if (
+      !bookmarkKey ||
+      !historyRevision ||
+      !historyReady ||
+      appliedRevision.current === historyRevision
+    )
+      return;
+    stopRestore();
+    const bookmark = runtime.readingPositions.get(bookmarkKey);
+    appliedRevision.current = historyRevision;
+    if (!bookmark || bookmark.follow) {
+      follow.current = true;
+      setAtEnd(true);
+      setPositionNotice('');
+      return;
+    }
+    const target = readingTarget(rows, historyRevision, bookmark);
+    setPositionNotice(
+      target.fallback
+        ? 'Your saved place is no longer in this history. Showing the nearest loaded messages.'
+        : '',
+    );
+    follow.current = false;
+    setAtEnd(false);
+    if (target.index < 0) return;
+    const id = rows[target.index]!.id;
+    restoring.current = true;
+    virtual.scrollToOffset(
+      (virtual.getOffsetForIndex(target.index, 'start')?.[0] ?? 0) +
+        target.offset,
+    );
+    let attempts = 0;
+    const align = () => {
+      const root = viewport.current;
+      if (!root) {
+        restoring.current = false;
+        return;
+      }
+      const element = [
+        ...root.querySelectorAll<HTMLElement>('[data-message-id]'),
+      ].find((row) => row.dataset.messageId === id);
+      if (element) {
+        const delta =
+          element.getBoundingClientRect().top -
+          root.getBoundingClientRect().top +
+          target.offset;
+        virtual.scrollToOffset(root.scrollTop + delta);
+      } else
+        virtual.scrollToOffset(
+          (virtual.getOffsetForIndex(target.index, 'start')?.[0] ?? 0) +
+            target.offset,
+        );
+      // Measurements can settle over several frames. This bounded one-time
+      // restore hands scrolling back to TanStack's existing prepend/follow logic.
+      if (++attempts < 8) restoreFrame.current = requestAnimationFrame(align);
+      else {
+        restoring.current = false;
+        if (!element)
+          setPositionNotice(
+            'Your saved place could not be restored. Showing loaded messages.',
+          );
+        savePosition.current();
+      }
+    };
+    restoreFrame.current = requestAnimationFrame(align);
+  }, [bookmarkKey, historyRevision, historyReady, rows, runtime, virtual]);
+  useLayoutEffect(
+    () => () => {
+      savePosition.current();
+      cancelAnimationFrame(restoreFrame.current);
+      restoring.current = false;
+      appliedRevision.current = undefined;
+    },
+    [bookmarkKey],
+  );
   useLayoutEffect(() => {
     // A fixed offset lets the next user scroll take over. An indexed scroll can
     // keep reconciling toward the last row after the user starts reading history.
-    if (follow.current)
+    if (follow.current && historyReady && !restoring.current)
       virtual.scrollToOffset(viewport.current?.scrollHeight ?? 0);
-  }, [rows, total, virtual]);
+  }, [rows, total, virtual, historyReady]);
   useEffect(() => {
     const update = () => {
       const root = viewport.current;
@@ -654,18 +774,41 @@ export function Timeline({
   }, []);
   return (
     <div {...stylex.props(styles.region)}>
+      {positionNotice && (
+        <div role="status" {...stylex.props(layout.notice)}>
+          {positionNotice}
+        </div>
+      )}
       <div
         ref={viewport}
         {...stylex.props(styles.viewport)}
         role="region"
         tabIndex={0}
         aria-label="Conversation"
+        onWheel={stopRestore}
+        onTouchStart={stopRestore}
+        onKeyDown={(event) => {
+          if (
+            [
+              'ArrowUp',
+              'ArrowDown',
+              'PageUp',
+              'PageDown',
+              'Home',
+              'End',
+              ' ',
+            ].includes(event.key)
+          )
+            stopRestore();
+        }}
         onScroll={(event) => {
+          if (restoring.current) return;
           const target = event.currentTarget;
           const end =
             target.scrollHeight - target.scrollTop - target.clientHeight < 64;
           follow.current = end;
           setAtEnd(end);
+          savePosition.current();
         }}
       >
         <div {...stylex.props(styles.inner)}>
@@ -674,6 +817,7 @@ export function Timeline({
               variant="ghost"
               loading={loading}
               onClick={async () => {
+                stopRestore();
                 follow.current = false;
                 setLoading(true);
                 try {
@@ -716,7 +860,9 @@ export function Timeline({
           variant="secondary"
           xstyle={styles.jump}
           onClick={() => {
+            stopRestore();
             follow.current = true;
+            setAtEnd(true);
             virtual.scrollToOffset(viewport.current?.scrollHeight ?? 0);
           }}
         >

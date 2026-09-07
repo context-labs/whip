@@ -49,7 +49,8 @@ CommonJS store shims still need prebundling, as described in
 Run the plugin from the consumer's working directory; a programmatic `root`
 alone does not change StyleX package discovery.
 
-Use named imports from `@whip/ui`, `@whip/ui/tokens.stylex`, or `@whip/ui/themes`. Do not
+Use named imports from `@whip/ui`, `@whip/ui/tokens.stylex`, `@whip/ui/themes`, or
+the browser-only `@whip/ui/workspace-tabs`. Do not
 import component implementation paths. Native refs, ARIA/data attributes, events,
 and runtime `style` are preserved where an underlying control is exposed. `xstyle`
 is a typed StyleX extension, not a raw style object; Base UI positioning remains
@@ -63,6 +64,7 @@ in its native style path. Composition uses Base UI's `mergeProps` and `render`.
 | Forms | Field, Fieldset, Label, Input, Textarea, NumberField, Checkbox, RadioGroup, Switch, Select, Combobox | Field connects labels/descriptions/errors with controls. Select/Combobox use keyboard navigation and typeahead/filtering; errors remain visible. |
 | Overlays | Dialog, AlertDialog, Sheet, Menu, ContextMenu, Popover, CommandPicker | Controlled open state; focus trap/return and escape/outside behavior from Base UI. Confirming asynchronous work never silently closes a dialog. |
 | Structure | Tabs, Collapsible, Accordion, Separator, Stack, Row, Panel, ScrollArea, SettingsRow, Breadcrumbs, VisuallyHidden | Native scrollbars/touch scrolling; explicit selected sections. App owns navigation and virtualization. |
+| Workspace navigation | WorkspaceTabs, workspaceTabId (from `@whip/ui/workspace-tabs`) | Controlled session strip, link composition, close, pointer reorder and utility slots. No session state or content loading. |
 | Feedback | Badge, StatusIndicator, Progress, Meter, Spinner, Skeleton, Alert, EmptyState, ErrorState, Avatar, useToast | Status includes text, never color alone. Error/stale/loading/empty remain distinct. |
 | Appearance | ThemeProvider, initializeTheme, useTheme, ThemePicker, ThemePreview | Per-device selection, reversible previews, all generated TUI themes and validated custom colors. |
 | Read-only code | CodeBlock | Lazy focused syntax grammars; React text nodes, exact source text, theme-aware Chroma styling, bounded presentation. No editing or content fetching. |
@@ -85,6 +87,46 @@ including strings that resemble HTML. A 16 KiB input cap and a 4,096-token cap
 bound highlighting and DOM work. Larger bodies show a visible excerpt notice;
 the caller supplies the authorized full-content/download action. Resolved Chroma
 backgrounds and token bold, italic, underline and backgrounds are retained.
+
+## Workspace tabs
+
+Import the browser-only control from `@whip/ui/workspace-tabs`; this keeps its DOM
+drag engine out of ordinary component imports and server-side tooling. It accepts
+controlled `value: string | null`, `items`, `onClose(value)`, optional
+`onReorder(orderedValues)`, `utilities`, `label`, and `panelId`. Each item has a
+unique `value`, renderable `label`, and optional `accessibleLabel`, `status`,
+`metadata`, `tooltip`, sibling `menu`, and `wrap(element)` for a context menu.
+
+Supply a router link through each item's `render` prop, with intent preloading
+disabled. That link owns navigation, including Enter, Space and modified clicks.
+Button-only items instead call `onValueChange(value)`. Arrow keys and Home/End move
+focus without changing the selected route. Delete and middle-click close a tab;
+the built-in close flow focuses the right neighbor, then the left, then the first
+utility when no tabs remain. Direct application menu/shortcut closes must handle
+their own replacement focus. Set supplied menu triggers to ghost buttons with
+`tabIndex={isActive ? 0 : -1}` so inactive menus do not add a Tab stop per session.
+
+The route outlet supplies its single panel; use `workspaceTabId(value)` as the
+panel's `aria-labelledby` and give the panel the matching `panelId`. No hidden
+panels or session views are created. A semantic tablist uses `aria-owns` to own
+only the tab links, while the physical Base UI list retains the sibling close
+and menu buttons outside that accessibility ownership. The component's native
+Chromium accessibility tree and Axe checks verify this structure.
+
+Tabs retain 144–224px widths within a horizontal scroller and a 48px row. Selection
+and keyboard focus reveal the relevant tab; status changes do not scroll it.
+The strip uses the theme-derived `surface.navigation` role: a quiet panel blend
+in light palettes and a recessed canvas in dark palettes. Selected tabs use the
+canvas with a fine border and a 6px radius. Equal-width slots reserve room for
+status, title, and close, while inactive close controls appear on hover or focus.
+The application keeps secondary actions in the context menu and open-session
+picker instead of adding an ellipsis button to every tab. Keep border width,
+style, and color explicit so the StyleX compiler preserves the declarations.
+Pointer sorting starts after 6px and preserves the controlled selection. Touch
+dragging is disabled; expose explicit move actions in the menu. Sorting uses
+native Web Animations (including reduced-motion handling), with explicit pointer
+collision refresh instead of dnd-kit's CSS-injecting floating feedback. All authored
+visuals remain compiled StyleX. Applications own their alternative mobile sheet.
 
 ## Themes
 
@@ -126,6 +168,7 @@ npm run test -w @whip/ui
 npm run storybook -w @whip/ui
 npm run build:storybook -w @whip/ui
 npm run test:browser -w @whip/ui
+npm run test:tabs -w @whip/ui
 npm run test:csp -w @whip/ui
 npm run test:packed -w @whip/ui
 npm run test:visual -w @whip/ui
@@ -152,6 +195,13 @@ coverage. The fixture disables Vite asset inlining to keep fonts under
 consumer and exercises both production and Vite development rendering. Build the
 SDK first. Neither component fixture connects to a daemon. Runtime flows and
 retained session views belong to the parent application's acceptance suite.
+
+`test:tabs` builds a separate strict-CSP production fixture. Chromium and Firefox
+exercise link/button keyboard activation, native modified links, close/focus,
+context menu movement, pointer sorting/cancellation, overflow, 200% zoom, RTL and
+touch-drag exclusion. All 65 themes receive Axe checks for contrast and ARIA
+ownership. This is automated browser coverage, not a physical-device or screen
+reader usability claim. Reports are written to `ui-test-results/workspace-tabs-report.json`.
 
 ### Visual comparisons
 

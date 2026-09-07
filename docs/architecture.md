@@ -184,3 +184,14 @@ Read [rlm-runtime.md](rlm-runtime.md) for the programming model and
 
 See [protocol-v2.md](protocol-v2.md) for the wire contract, generation workflow,
 content grants, and opt-in local/trusted-network setup.
+
+### Session tab ownership
+
+The web window owns up to 32 root-tab identities per connected runtime, while only
+one conversation is mounted and at most four SDK views are retained. TanStack
+Router owns selection and child/inspector search state; window sessionStorage owns
+only bounded layout metadata. The narrow protocol 3.1 `sessions.summaries` query
+supplies advisory descendant activity and human-input counts without opening roots.
+Uploads and reading bookmarks belong to AppRuntime so navigation can release a
+view without losing unsent work or the reader's place. Closing a tab has no daemon
+execution meaning. See [web-app.md](web-app.md#session-tabs) for limits and behavior.

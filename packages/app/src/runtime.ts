@@ -17,6 +17,9 @@ import {
 } from '@whip/sdk/state';
 import type { CommandOperation } from '@whip/protocol';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
+import { SessionTabs } from './session-tabs';
+import { CompositionStore } from './compositions';
+import { ReadingPositions } from './reading-positions';
 
 interface ViewLease {
   view: SessionView;
@@ -66,6 +69,9 @@ interface RuntimeSnapshot {
 
 /** Owns UI observation lifetimes; accepted execution continues after disposal. */
 export class AppRuntime {
+  readonly tabs: SessionTabs;
+  readonly compositions = new CompositionStore();
+  readonly readingPositions = new ReadingPositions();
   readonly queries = new QueryClient({
     defaultOptions: {
       queries: {
@@ -83,6 +89,7 @@ export class AppRuntime {
   private readonly listeners = new Set<() => void>();
   private readonly views = new Map<string, ViewLease>();
   private readonly drafts = new Map<string, string>();
+  private readonly draftIdentities = new Set<string>();
   private readonly pending = new Map<string, PendingCommand>();
   private draftTimer?: ReturnType<typeof setTimeout>;
   private readonly dirtyDrafts = new Set<string>();
@@ -132,7 +139,20 @@ export class AppRuntime {
         attentionAnnouncements: preferences?.attentionAnnouncements !== false,
       },
     };
-    try { this.savedDrafts(); } catch (error) { this.report(error); }
+    this.tabs = new SessionTabs(platform.windowStorage, message => this.report(message));
+    let previousTabs = this.tabs.getSnapshot();
+    this.tabs.subscribe(() => {
+      const next = this.tabs.getSnapshot();
+      for (const workspace of previousTabs.workspaces) {
+        const retained = next.workspaces.find(item => item.runtimeId === workspace.runtimeId);
+        const roots = new Set([...(retained?.tabs ?? []).map(item => item.rootId), ...(retained?.closed ?? []).map(item => item.tab.rootId)]);
+        for (const rootId of [...workspace.tabs.map(item => item.rootId), ...workspace.closed.map(item => item.tab.rootId)]) {
+          if (!roots.has(rootId)) this.readingPositions.forgetRoot(workspace.runtimeId, rootId);
+        }
+      }
+      previousTabs = next;
+    });
+    try { for (const key of this.savedDrafts().keys()) this.draftIdentities.add(key); } catch (error) { this.report(error); }
   }
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => {
@@ -199,6 +219,10 @@ export class AppRuntime {
     }
     return this.drafts.get(key) ?? '';
   }
+  hasSessionDraft(runtimeId: string, rootId: string) {
+    const prefix = `${runtimeId}:${rootId}:`;
+    return this.compositions.hasAttachments(runtimeId, rootId) || [...this.draftIdentities].some(key => key.startsWith(prefix));
+  }
   private validateDrafts(drafts: Map<string, string>) {
     if (drafts.size > 32)
       throw new Error('There are 32 unsent drafts. Send or clear a draft before creating another.');
@@ -237,9 +261,12 @@ export class AppRuntime {
       this.validateDrafts(next);
     }
     if (text) this.drafts.set(key, text); else this.drafts.delete(key);
+    const hadDraft = this.draftIdentities.has(key);
+    if (text) this.draftIdentities.add(key); else this.draftIdentities.delete(key);
     this.dirtyDrafts.add(key);
     clearTimeout(this.draftTimer);
     this.draftTimer = setTimeout(() => this.flushDrafts(), 150);
+    if (hadDraft !== !!text) this.update({});
   }
   flushDrafts() {
     clearTimeout(this.draftTimer);
@@ -279,8 +306,11 @@ export class AppRuntime {
       this.platform.storage.removeItem(key);
       const recipient = key.slice(draftStoragePrefix.length);
       this.drafts.delete(recipient);
+      this.draftIdentities.delete(recipient);
       this.dirtyDrafts.delete(recipient);
     }
+    this.compositions.clearAll();
+    this.update({});
   }
   private recoveryStorage(): RecoveryStorage {
     const key = 'whip.web.recovery.v1';
@@ -384,7 +414,8 @@ export class AppRuntime {
       this.platform.storage.setItem('whip.web.hosts.v1', JSON.stringify(hosts));
       this.update({ hosts });
     } catch (error) {
-      if (!this.closed && epoch === this.epoch) this.report(error);
+      // Connection failures already belong to the SDK's recoverable state.
+      if (!this.closed && epoch === this.epoch && this.state.client?.getSnapshot().error !== error) this.report(error);
       throw error;
     }
   }
@@ -403,10 +434,12 @@ export class AppRuntime {
         );
       lease = { view: createSessionView(client.session(rootId)), users: 0 };
       this.views.set(rootId, lease);
-      void lease.view.start().catch((error) => {
-        if (this.state.client === client && !this.closed) this.report(error);
-      });
+      // Snapshot and history failures belong to the view's scoped error state.
+      void lease.view.start().catch(() => {});
     }
+    // Reusing a root moves it behind older inactive views in eviction order.
+    this.views.delete(rootId);
+    this.views.set(rootId, lease);
     clearTimeout(lease.timer);
     lease.users++;
     const retained = lease;
@@ -590,6 +623,7 @@ export class AppRuntime {
     return start('initial');
   }
   private detach() {
+    this.compositions.invalidateRuntime(this.state.client?.getSnapshot().info?.runtime_id);
     this.waits.abort();
     this.waits = new AbortController();
     this.pending.clear();
@@ -606,6 +640,9 @@ export class AppRuntime {
     this.closed = true;
     ++this.epoch;
     this.detach();
+    this.tabs.dispose();
+    this.compositions.dispose();
+    this.readingPositions.clear();
     this.listeners.clear();
   }
 }

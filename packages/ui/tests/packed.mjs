@@ -26,11 +26,12 @@ try {
   await writeFile(resolve(consumer, 'main.tsx'), `import {createRoot} from 'react-dom/client';
 import {createWhipApplication} from '@whip/app';
 import {ThemeProvider, UIProvider, Button, CodeBlock} from '@whip/ui';
+import {WorkspaceTabs,workspaceTabId} from '@whip/ui/workspace-tabs';
 import '@whip/ui/reset.css';
 import '@whip/ui/fonts.css';
 const values = new Map();
 const application = createWhipApplication({storage:{keys:()=>[...values.keys()],getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)},defaultEndpoint:'http://127.0.0.1:1',openExternal(){},async copy(){},download(){}});
-createRoot(document.getElementById('root')).render(new URLSearchParams(location.search).has('app') ? <application.Application/> : <ThemeProvider initialTheme="dark"><UIProvider><main><h1>Packed UI consumer</h1><Button>Package button</Button><CodeBlock language="starlark" code="return True"/></main></UIProvider></ThemeProvider>);
+createRoot(document.getElementById('root')).render(new URLSearchParams(location.search).has('app') ? <application.Application/> : <ThemeProvider initialTheme="dark"><UIProvider><main><h1>Packed UI consumer</h1><WorkspaceTabs value="packed" items={[{value:'packed',label:'Packed tab',render:<a href="#packed-panel"/>}]} onClose={()=>{}} panelId="packed-panel"/><section id="packed-panel" role="tabpanel" aria-labelledby={workspaceTabId('packed')}><Button>Package button</Button><CodeBlock language="starlark" code="return True"/></section></main></UIProvider></ThemeProvider>);
 window.addEventListener('pagehide',()=>application.dispose());
 `);
   // The official StyleX plugin discovers source packages from the consumer cwd.
@@ -55,6 +56,7 @@ window.addEventListener('pagehide',()=>application.dispose());
           if (target === 'ui') {
             const button = page.getByRole('button', {name: 'Package button'});
             await button.waitFor(); await page.locator('figure[data-highlighted="true"]').waitFor();
+            await page.getByRole('tab', {name:'Packed tab'}).waitFor();
             const styled = await button.evaluate(el => {const style = getComputedStyle(el); return style.borderRadius !== '0px' && style.display === 'inline-flex';});
             if (!styled) throw new Error(`${mode}: packed UI styles were not compiled`);
           } else {

@@ -78,6 +78,9 @@ in
 - [x] All 65 TUI themes, automatic appearance, custom-theme resolution and themed
   read-only code, with deterministic generation and component contrast checks.
 - [x] Packaged browser assets and explicit `whip web` attachment/launch command.
+- [x] Session tabs with window-local restoration, preserved drafts/reading position,
+  bounded background activity, and responsive themed navigation. See the
+  [session-tabs implementation and acceptance](../.ai-docs/plans/session-tabs/README.md).
 - [ ] Complete the web application's release acceptance: full workflow/recovery
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.

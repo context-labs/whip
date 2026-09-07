@@ -45,6 +45,7 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:root.collection` | Web | Conversation pagination and inspector collections through the shared SDK view; bounded references remain explicit. |
 | `rpc:root.snapshot` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:sessions.list` | Web | Session sidebar/search and paged host attention; inactive roots are not opened. |
+| `rpc:sessions.summaries` | Web | One bounded query supplies title, project, descendant activity and human-attention counts for open session tabs without opening roots. |
 | `rpc:sessions.revision` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:upload.begin` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
 | `rpc:upload.chunk` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |

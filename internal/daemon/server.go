@@ -248,7 +248,7 @@ func (s *Server) serveTransport(raw messageTransport) {
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments"}
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries"}
 	negotiated := []string{}
 	for _, feature := range initialize.Capabilities {
 		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {
@@ -355,6 +355,13 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 	}
 
 	switch request.Method {
+	case "sessions.summaries":
+		var params protocol.SessionSummariesParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, err.Error())
+		}
+		result, err := s.sessionSummaries(connection.ctx, params)
+		return result, rpcFromError(err)
 	case "sessions.list":
 		var params protocol.SessionCatalogParams
 		if err := decodeProviderParams(request.Params, &params); err != nil {

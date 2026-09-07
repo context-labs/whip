@@ -56,6 +56,18 @@ func SchemaFor(t reflect.Type) (*jsonschema.Schema, error) {
 		return nil, err
 	}
 	applyWireTags(schema, t)
+	if t == reflect.TypeFor[SessionSummariesParams]() {
+		// A Unicode pattern keeps standalone validators browser-native; Ajv's
+		// min/maxLength keywords otherwise emit a CommonJS UCS-2 helper import.
+		schema.Properties["root_ids"] = &jsonschema.Schema{
+			Type: "array", MaxItems: new(session.MaxSessionSummaries), UniqueItems: true,
+			Items: &jsonschema.Schema{Type: "string", Pattern: `^[\s\S]{1,256}$`},
+		}
+	}
+	if t == reflect.TypeFor[SessionSummariesResult]() {
+		items := schema.Properties["items"]
+		items.Type, items.Types, items.MaxItems = "array", nil, new(session.MaxSessionSummaries)
+	}
 	if t == reflect.TypeFor[ProtocolEvent]() {
 		schema.Properties["payload"] = &jsonschema.Schema{Type: "object"}
 	}

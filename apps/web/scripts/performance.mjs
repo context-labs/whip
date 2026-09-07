@@ -296,17 +296,50 @@ try {
     'Four real history prepends preserve scroll anchors; virtualized selection survives an 8,000px scroll',
   );
 
-  // Browser history restores the same retained root view. Its Timeline must reset
-  // child scroll/focus/disclosure state even when row sequence numbers overlap.
+  // Each recipient restores its own retained reading anchor after unmounting.
+  const captureAnchor = () =>
+    viewport.evaluate((element) => {
+      const row = [...element.querySelectorAll('[data-message-id]')].find(
+        (item) =>
+          item.getBoundingClientRect().bottom >
+          element.getBoundingClientRect().top,
+      );
+      return {
+        id: row.dataset.messageId,
+        offset:
+          row.getBoundingClientRect().top - element.getBoundingClientRect().top,
+      };
+    });
+  const assertAnchor = async (anchor) => {
+    await eventually(() =>
+      viewport.evaluate((element, saved) => {
+        const row = [...element.querySelectorAll('[data-message-id]')].find(
+          (item) => item.dataset.messageId === saved.id,
+        );
+        return (
+          !!row &&
+          Math.abs(
+            row.getBoundingClientRect().top -
+              element.getBoundingClientRect().top -
+              saved.offset,
+          ) <= 2
+        );
+      }, anchor),
+    );
+  };
+  await frame();
+  const rootAnchor = await captureAnchor();
   await page.getByRole('button', { name: 'Details', exact: true }).click();
   await page.getByRole('link', { name: 'perf-child-000', exact: true }).click();
   await ready();
   await frame();
+  await viewport.evaluate((element) => {
+    element.scrollTop = 300;
+  });
+  await frame();
+  const childAnchor = await captureAnchor();
   const switches = [];
   for (let index = 0; index < 20; index++) {
-    await viewport.evaluate((element) => {
-      element.scrollTop = 0;
-    });
     const start = performance.now();
     await page
       .getByRole('link', { name: 'Root conversation', exact: true })
@@ -316,16 +349,8 @@ try {
         .querySelector('[aria-label="Conversation"]')
         ?.textContent.includes('Root message'),
     );
-    await frame();
+    await assertAnchor(rootAnchor);
     switches.push(performance.now() - start);
-    const endGap = await viewport.evaluate(
-      (element) =>
-        element.scrollHeight - element.scrollTop - element.clientHeight,
-    );
-    assert.ok(
-      endGap < 64,
-      `Cached recipient inherited old scroll state (${endGap}px from latest)`,
-    );
     assert.equal(await viewport.getByText(/perf-child-000 message/).count(), 0);
     if (index < 19) {
       await page.goBack();
@@ -337,11 +362,13 @@ try {
           .querySelector('[aria-label="Conversation"]')
           ?.textContent.includes('perf-child-000 message'),
       );
+      await assertAnchor(childAnchor);
+      assert.equal(await viewport.getByText(/Root message/).count(), 0);
     }
   }
   metrics.cachedRootSwitchMilliseconds = summarize(switches);
   metrics.checks.push(
-    '20 cached child-to-root switches reset recipient scroll state and never mix transcript content',
+    '20 cached child-to-root switches restore independent reading anchors and never mix transcript content',
   );
 
   // Near the aggregate draft ceiling, with a near-per-draft-ceiling active value.

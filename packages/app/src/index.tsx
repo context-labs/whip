@@ -6,10 +6,12 @@ import { RuntimeContext } from './context';
 import { AppRuntime } from './runtime';
 import type { AppPlatform } from './platform';
 import { routeTree } from './routeTree.gen';
+import { bindSessionTabs } from './session-tab-routing';
 
 export function createWhipApplication(platform: AppPlatform, history?: RouterHistory) {
   const runtime = new AppRuntime(platform);
   const router = createRouter({ routeTree, context: { runtime }, history, defaultPreload: 'intent', defaultPreloadStaleTime: 0 });
+  const unbindTabs = bindSessionTabs(runtime, router);
   function Application() {
     return <RuntimeContext.Provider value={runtime}>
       <ThemeProvider storage={platform.storage} onNotice={message => runtime.report(message)}>
@@ -17,7 +19,7 @@ export function createWhipApplication(platform: AppPlatform, history?: RouterHis
       </ThemeProvider>
     </RuntimeContext.Provider>;
   }
-  return { Application, runtime, router, dispose: () => runtime.dispose() };
+  return { Application, runtime, router, dispose: () => { unbindTabs(); runtime.dispose(); } };
 }
 
 declare module '@tanstack/react-router' {

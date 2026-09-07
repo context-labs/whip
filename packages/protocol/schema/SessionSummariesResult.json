@@ -1,0 +1,71 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string"
+          },
+          "missing": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          },
+          "running_agents": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "queued_agents": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "pending_permissions": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "pending_questions": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "root_id",
+          "missing",
+          "title",
+          "cwd",
+          "running_agents",
+          "queued_agents",
+          "pending_permissions",
+          "pending_questions",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 32
+    }
+  },
+  "$id": "https://whip.dev/protocol/v3/SessionSummariesResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SessionSummariesResult",
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}

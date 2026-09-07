@@ -1,6 +1,6 @@
 {
   "major": 3,
-  "minor": 0,
+  "minor": 1,
   "operations": [
     {
       "name": "command.status",
@@ -309,6 +309,14 @@
       "permission": "host-runtime",
       "params_type": "EmptyParams",
       "result_type": "CatalogRevision"
+    },
+    {
+      "name": "sessions.summaries",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "SessionSummariesParams",
+      "result_type": "SessionSummariesResult"
     },
     {
       "name": "upload.begin",

@@ -10,7 +10,7 @@ import (
 )
 
 const Major = 3
-const Minor = 0
+const Minor = 1
 
 type ErrorData struct {
 	Kind string `json:"kind"`

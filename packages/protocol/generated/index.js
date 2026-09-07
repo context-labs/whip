@@ -3,7 +3,7 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 3,
-  "minor": 0,
+  "minor": 1,
   "operations": [
     {
       "name": "command.status",
@@ -312,6 +312,14 @@ export const manifest = {
       "permission": "host-runtime",
       "params_type": "EmptyParams",
       "result_type": "CatalogRevision"
+    },
+    {
+      "name": "sessions.summaries",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "SessionSummariesParams",
+      "result_type": "SessionSummariesResult"
     },
     {
       "name": "upload.begin",

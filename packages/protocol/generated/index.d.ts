@@ -1901,6 +1901,31 @@ export interface SessionPreviewResult {
   assistant: string;
 }
 
+export interface SessionSummariesParams {
+  /**
+   * @maxItems 32
+   */
+  root_ids: string[];
+}
+
+export interface SessionSummariesResult {
+  /**
+   * @maxItems 32
+   */
+  items: {
+    root_id: string;
+    missing: boolean;
+    title: string;
+    cwd: string;
+    workspace_id?: string;
+    running_agents: string;
+    queued_agents: string;
+    pending_permissions: string;
+    pending_questions: string;
+    truncated: boolean;
+  }[];
+}
+
 export interface SessionUpdateEvent {
   title?: string;
   model?: string;
@@ -2170,6 +2195,8 @@ export interface ContractTypes {
   SessionCatalogParams: SessionCatalogParams;
   SessionListResult: SessionListResult;
   SessionPreviewResult: SessionPreviewResult;
+  SessionSummariesParams: SessionSummariesParams;
+  SessionSummariesResult: SessionSummariesResult;
   SessionUpdateEvent: SessionUpdateEvent;
   ShellParams: ShellParams;
   SnapshotParams: SnapshotParams;
@@ -2304,6 +2331,7 @@ export interface RpcMethods {
   "root.snapshot": { params: SnapshotParams; result: RootSnapshot; execution: "query"; permission: "root-association"; sensitive: false };
   "sessions.list": { params: SessionCatalogParams; result: SessionCatalogPage; execution: "query"; permission: "host-runtime"; sensitive: false };
   "sessions.revision": { params: EmptyParams; result: CatalogRevision; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "sessions.summaries": { params: SessionSummariesParams; result: SessionSummariesResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "upload.begin": { params: UploadBeginParams; result: Accepted; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
   "upload.chunk": { params: UploadChunkParams; result: Accepted; execution: "ephemeral"; permission: "connection-upload"; sensitive: false };
   "upload.finish": { params: UploadFinishParams; result: ContentHandle; execution: "ephemeral"; permission: "content-grant"; sensitive: false };

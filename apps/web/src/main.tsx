@@ -32,6 +32,15 @@ const storage = createFallbackStorage(() => {
 initializeTheme({ storage });
 const platform: AppPlatform = {
   storage,
+  windowStorage: createFallbackStorage(() => {
+    const browserStorage = window.sessionStorage;
+    return {
+      keys: () => Array.from({ length: browserStorage.length }, (_, index) => browserStorage.key(index)).filter((key): key is string => key !== null),
+      getItem: (key: string) => browserStorage.getItem(key),
+      setItem: (key: string, value: string) => browserStorage.setItem(key, value),
+      removeItem: (key: string) => browserStorage.removeItem(key),
+    };
+  }, () => { storageUnavailable = true; reportStorage?.(); }),
   defaultEndpoint: location.origin,
   openExternal(url) {
     const target = new URL(url);
@@ -52,7 +61,16 @@ const platform: AppPlatform = {
 const application = createWhipApplication(platform);
 reportStorage = () => application.runtime.report('Browser storage is unavailable. Preferences, drafts, and command recovery identities will be kept only until this page is closed or reloaded.');
 createRoot(document.getElementById('root')!).render(<StrictMode><application.Application /></StrictMode>);
-void application.runtime.connect().catch(error => application.runtime.report(error));
+// The runtime reports setup errors; the SDK exposes current connection errors.
+void application.runtime.connect().catch(() => {});
 if (storageUnavailable) reportStorage();
+// Files are window-memory drafts; install the browser's leave warning only
+// while there is something a reload cannot restore.
+const warnBeforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+const updateLeaveWarning = () => {
+  window.removeEventListener('beforeunload', warnBeforeUnload);
+  if (application.runtime.compositions.hasAttachments()) window.addEventListener('beforeunload', warnBeforeUnload);
+};
+const unsubscribeCompositions = application.runtime.compositions.subscribe(updateLeaveWarning);
 window.addEventListener('pagehide', event => { application.runtime.flushDrafts(); if (!event.persisted) application.dispose(); });
-if (import.meta.hot) import.meta.hot.dispose(() => application.dispose());
+if (import.meta.hot) import.meta.hot.dispose(() => { unsubscribeCompositions(); window.removeEventListener('beforeunload', warnBeforeUnload); application.dispose(); });

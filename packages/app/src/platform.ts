@@ -8,6 +8,8 @@ export interface AppStorage {
 }
 export interface AppPlatform {
   storage: AppStorage;
+  /** Independent per-window layout storage; omitted shells retain tabs in memory. */
+  windowStorage?: AppStorage;
   defaultEndpoint: string;
   openExternal(url: string): void;
   copy(text: string): Promise<void>;

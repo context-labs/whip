@@ -2,6 +2,19 @@ package protocol
 
 import "github.com/context-labs/whip/internal/session"
 
+// SessionSummariesParams requests a small explicit working set. An empty set is
+// valid; root IDs must otherwise be distinct and at most 256 UTF-8 bytes each.
+type SessionSummariesParams struct {
+	RootIDs []string `json:"root_ids"`
+}
+
+// SessionSummariesResult preserves every requested identity in input order.
+// Counts are advisory, rather than an atomic snapshot of the recursive runtime.
+// The encoded result is bounded to 64 KiB; presentation truncation is explicit.
+type SessionSummariesResult struct {
+	Items []session.SessionNavigationSummary `json:"items"`
+}
+
 // HostDirectoryParams browses directories on the execution machine. Empty path
 // starts at its home directory; no session or browser filesystem grant is needed.
 type HostDirectoryParams struct {

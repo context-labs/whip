@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useRouter } from '@tanstack/react-router';
 import type { WhipClient } from '@whip/sdk';
 import { useSessionView, useWhipConnection } from '@whip/sdk/react';
 import type { SessionView } from '@whip/sdk/state';
@@ -15,7 +15,7 @@ import {
 } from '@whip/ui';
 import { GitBranch, MoreHorizontal, PanelRight, Square } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
-import { useAppState, useRuntime } from './context';
+import { useAppState, useRuntime, useSessionTabs } from './context';
 import { layout } from './styles';
 import {
   Timeline,
@@ -40,7 +40,10 @@ export function ConversationRoute({
   agentId?: string;
   panel?: InspectorSection;
 }) {
+  const runtime = useRuntime();
+  useSessionTabs();
   const { client } = useAppState();
+  if (!runtime.tabs.canOpen(runtimeId, rootId)) return <div {...stylex.props(layout.empty)}><h1 {...stylex.props(layout.emptyTitle)}>Your session tabs are full</h1><p>Close an open tab to view this session. Its work stays on the host.</p></div>;
   if (!client)
     return (
       <div {...stylex.props(layout.empty)}>
@@ -74,7 +77,7 @@ function AttachedConversation({
   const connection = useWhipConnection(client);
   const matched = connection.info?.runtime_id === runtimeId;
   const [view, setView] = useState<SessionView>();
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!matched) return;
     const lease = runtime.acquireView(rootId);
     setView(lease.view);
@@ -127,6 +130,9 @@ function Conversation({
   const session = view.session;
   const connection = useWhipConnection(session.client);
   const root = state.root;
+  useEffect(() => {
+    if (root?.meta.title) runtime.tabs.titles(expectedRuntimeId, new Map([[session.rootId, root.meta.title]]));
+  }, [runtime, expectedRuntimeId, session.rootId, root?.meta.title]);
   const [rename, setRename] = useState(false);
   const [title, setTitle] = useState('');
   const [confirm, setConfirm] = useState<'delete' | 'clear'>();
@@ -149,6 +155,15 @@ function Conversation({
     return () => bodyRequest.current?.abort();
   }, [agentId]);
   const navigate = useNavigate();
+  const router = useRouter();
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const canCreateTab = () => {
+    if (runtime.tabs.workspace(expectedRuntimeId).tabs.length < 32) return true;
+    runtime.report('There are 32 open session tabs. Close a tab before creating another.');
+    return false;
+  };
+  const stillHere = (location: typeof router.state.location) => mounted.current && router.state.location === location && runtime.getSnapshot().client === session.client;
   const setPanel = (next?: InspectorSection) => void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search: previous => ({ ...previous, panel: next }), replace: true });
   const currentRuntime = connection.info?.runtime_id;
   const wrongRuntime = !!currentRuntime && currentRuntime !== expectedRuntimeId;
@@ -171,18 +186,20 @@ function Conversation({
   const activeTurn = root?.active_turns[agentId];
   useEffect(() => {
     if (agentId === session.rootId || wrongRuntime) return;
-    void view.openAgent(agentId).catch((error) => runtime.report(error));
+    // The recipient history exposes failures without leaking into another tab.
+    void view.openAgent(agentId).catch(() => {});
     return () => view.closeAgent(agentId);
   }, [view, agentId, session.rootId, runtime, wrongRuntime]);
   async function fork() {
-    if (!root) return;
+    if (!root || !canCreateTab()) return;
+    const location = router.state.location;
     try {
       const outcome = await runtime.run(
         session.fork({ expected_revision: root.history_revision }),
         'Fork session',
       );
       const id = outcome.result?.root_id;
-      if (id)
+      if (id && stillHere(location))
         await navigate({
           to: '/h/$runtimeId/s/$rootId',
           params: { runtimeId: expectedRuntimeId, rootId: id },
@@ -330,6 +347,9 @@ function Conversation({
         <Timeline
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
           rows={rows}
+          bookmarkKey={`${expectedRuntimeId}:${session.rootId}:${agentId}`}
+          historyRevision={history?.revision}
+          historyReady={!!history && !history.loading}
           hasMore={history?.hasMore ?? false}
           loadOlder={() => view.loadOlder(agentId)}
           readBody={(row) => void readBody(row)}
@@ -476,6 +496,7 @@ function Conversation({
             variant="danger"
             disabled={!connected}
             onClick={async () => {
+              const location = router.state.location;
               try {
                 const action = confirm;
                 await runtime.run(
@@ -485,7 +506,7 @@ function Conversation({
                   action === 'delete' ? 'Delete session' : 'Clear history',
                 );
                 setConfirm(undefined);
-                if (action === 'delete') await navigate({ to: '/' });
+                if (action === 'delete' && stillHere(location)) await navigate({ to: '/' });
               } catch {}
             }}
           >
@@ -514,6 +535,8 @@ function Conversation({
             disabled={!connected || !historyAction}
             onClick={async () => {
               if (!historyAction) return;
+              if (historyAction.action === 'fork' && !canCreateTab()) return;
+              const location = router.state.location;
               try {
                 if (historyAction.action === 'rewind')
                   await runtime.run(
@@ -531,7 +554,7 @@ function Conversation({
                     }),
                     'Fork history',
                   );
-                  if (outcome.result)
+                  if (outcome.result && stillHere(location))
                     await navigate({
                       to: '/h/$runtimeId/s/$rootId',
                       params: {

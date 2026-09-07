@@ -268,3 +268,19 @@ The corresponding ownership regressions are in `packages/app/test/runtime.test.t
 packed-consumer checks live under `packages/ui/tests`; the production fake-daemon
 browser workflow suite lives at `apps/web/scripts/browser.mjs`. Manual device and
 screen-reader gates are tracked separately in the accepted web plan.
+
+Session tabs are navigation metadata, not view leases. `SessionTabs` publishes an
+immutable bounded window record; the router remains the sole active-root authority.
+Tab mutations cannot submit commands. Late create/fork completions check the
+originating route and client before selecting their result. Root and child load
+errors stay in their own view. A single visible-window TanStack Query batches
+`sessions.summaries` for all open IDs; lifecycle wakeups coalesce at 250 ms and
+steady polling runs every two seconds. Background labels never acquire root views.
+
+`CompositionStore` owns transient upload controllers and scoped attachment refs
+independently of mounted composers. Its serial queue bounds source copies; unmount
+is not cancellation. Removing a file, replacing the host or disposing the runtime
+aborts the owned transfer. Submission tokens prevent late acceptance from clearing
+newer drafts. `ReadingPositions` retains only bounded row/revision/offset/follow
+hints; TanStack Virtual remains the single scrolling authority. Expired closed-tab
+metadata releases associated reading hints, and view eviction never deletes drafts.

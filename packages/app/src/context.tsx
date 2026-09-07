@@ -11,3 +11,7 @@ export function useAppState() {
   const runtime = useRuntime();
   return useSyncExternalStore(runtime.subscribe, runtime.getSnapshot, runtime.getSnapshot);
 }
+export function useSessionTabs() {
+  const { tabs } = useRuntime();
+  return useSyncExternalStore(tabs.subscribe, tabs.getSnapshot, tabs.getSnapshot);
+}

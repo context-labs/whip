@@ -49,6 +49,9 @@ export function applyTheme(input: ThemeDefinition, documentRoot: HTMLElement = d
   for (const role of syntaxRoles) setToken(syntax[role], theme.syntax[role]);
   for (const role of markdownRoles) setToken(markdown[role], theme.markdown[role]);
   setToken(surface.secondaryText, readableColor(theme.colors.muted, [theme.colors.background, theme.colors.panel, theme.colors.element, theme.colors.hover]));
+  setToken(surface.navigation, theme.dark
+    ? `color-mix(in srgb, ${theme.colors.background} 75%, black)`
+    : `color-mix(in srgb, ${theme.colors.background} 50%, ${theme.colors.panel})`);
   documentRoot.style.colorScheme = theme.dark ? 'dark' : 'light';
   documentRoot.style.backgroundColor = theme.colors.background;
   documentRoot.style.color = theme.colors.foreground;

@@ -38,5 +38,7 @@ export const scale = stylex.defineConsts({
 export const surface = stylex.defineVars({
   secondaryText: `color-mix(in srgb, ${colors.foreground} 76%, ${colors.background})`,
   quietBorder: `color-mix(in srgb, ${colors.border} 55%, ${colors.background})`,
+  // applyTheme chooses the recessed surface for the palette's declared mode.
+  navigation: `color-mix(in srgb, ${colors.background} 50%, ${colors.panel})`,
   overlay: 'rgb(0 0 0 / 0.38)',
 });

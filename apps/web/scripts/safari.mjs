@@ -20,11 +20,15 @@ try {
   const created = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
   assert.equal(created.status, 'succeeded');
   const rootId = created.result.root_id;
+  const other = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
+  assert.equal(other.status, 'succeeded');
+  const otherId = other.result.root_id;
+  await client.session(otherId).rename('Safari second tab').result();
   await client.session(rootId).rename('Safari application smoke').result();
   const directory = join(fixture.directory, 'public');
   await cp(source, directory, { recursive: true });
   await writeFile(join(directory, 'index.html'), html.replace(script, '<script type="module" src="/safari-application-smoke.js"></script>'));
-  const config = { entry, endpoint: fixture.info.endpoint, frontend: fixture.info.frontend, route: `/h/${fixture.info.runtime_id}/s/${rootId}`, rootId };
+  const config = { entry, endpoint: fixture.info.endpoint, frontend: fixture.info.frontend, route: `/h/${fixture.info.runtime_id}/s/${rootId}`, rootId, otherId, runtimeId: fixture.info.runtime_id };
   await writeFile(join(directory, 'safari-application-smoke.js'), `
 const config = ${JSON.stringify(config)};
 const failures = [];
@@ -45,6 +49,7 @@ const inputValue = (element, value) => {
 async function smoke() {
   const reloaded = localStorage.getItem('whip.safari.smoke.phase') === 'reload';
   localStorage.setItem('whip.web.endpoint', JSON.stringify(config.endpoint));
+  if (!reloaded) sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify({ version: 1, workspaces: [{ runtimeId: config.runtimeId, tabs: [config.rootId, config.otherId].map(rootId => ({ rootId, titleHint: '', location: {} })), closed: [] }] }));
   if (!reloaded) localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'nord' }));
   history.replaceState(null, '', config.route);
   await import(config.entry);
@@ -58,6 +63,18 @@ async function smoke() {
     await until(() => input.value === '', 'committed acceptance');
     await until(() => [...document.querySelectorAll('[data-message-id]')].filter(element => element.textContent.includes('Safari production app round trip')).length >= 2, 'daemon response in conversation');
     inputValue(input, 'Safari draft survives reload');
+    document.getElementById('whip-workspace-tab-' + config.otherId).click();
+    await until(() => location.pathname.endsWith(config.otherId), 'second session tab');
+    await until(() => document.querySelector('textarea[data-whip-composer]')?.value === '', 'independent second draft');
+    inputValue(document.querySelector('textarea[data-whip-composer]'), 'Independent Safari tab draft');
+    document.getElementById('whip-workspace-tab-' + config.rootId).click();
+    await until(() => document.querySelector('textarea[data-whip-composer]')?.value === 'Safari draft survives reload', 'tab draft restoration');
+    document.querySelector('[data-workspace-tab="' + config.rootId + '"] button[aria-label^="Close "]').click();
+    await until(() => !document.getElementById('whip-workspace-tab-' + config.rootId), 'closed tab');
+    button('Application menu').click();
+    (await until(() => [...document.querySelectorAll('[role="menuitem"]')].find(element => element.textContent === 'Reopen closed tab'), 'reopen menu')).click();
+    await until(() => document.querySelector('textarea[data-whip-composer]')?.value === 'Safari draft survives reload', 'reopen restores draft');
+    document.querySelector('a[href="/settings"]').click();
     const picker = await until(() => button('nord'), 'theme picker'); picker.click();
     const search = await until(() => document.querySelector('input[role="combobox"]'), 'theme search');
     search.focus(); search.click();
@@ -67,16 +84,19 @@ async function smoke() {
     option.click();
     await until(() => JSON.parse(localStorage.getItem('whip.appearance.theme.v1')).id === 'dark', 'committed theme');
     button('Done').click();
+    document.getElementById('whip-workspace-tab-' + config.rootId).click();
+    await until(() => document.querySelector('textarea[data-whip-composer]')?.value === 'Safari draft survives reload', 'return from settings');
     await until(() => Object.keys(localStorage).some(key => key.startsWith('whip.web.draft.v1:') && localStorage.getItem(key) === 'Safari draft survives reload'), 'persisted draft');
     localStorage.setItem('whip.safari.smoke.phase', 'reload');
     check(failures.length === 0, JSON.stringify(failures));
     location.assign(config.frontend + '/?safari-smoke=reload');
     return;
   }
+  check(document.querySelectorAll('[role="tab"]').length === 2, 'Reload lost the window tab layout');
   check(input.value === 'Safari draft survives reload', 'Reload lost the application draft');
   check(document.documentElement.dataset.theme === 'dark', 'Reload lost the chosen theme');
   check(failures.length === 0, JSON.stringify(failures));
-  const result = { passed: true, browser: 'safari', user_agent: navigator.userAgent, production_bundle: true, real_daemon: true, checks: ['attached root route', 'native form submission and authoritative response', 'theme selection while draft retained', 'full-page reload restores draft and theme', 'strict CSP without inline execution'] };
+  const result = { passed: true, browser: 'safari', user_agent: navigator.userAgent, production_bundle: true, real_daemon: true, checks: ['attached root route', 'independent tab drafts, close/reopen, and metadata restoration', 'native form submission and authoritative response', 'theme selection while draft retained', 'full-page reload restores draft and theme', 'strict CSP without inline execution'] };
   await fetch('/result/safari', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(result) });
   document.title = 'WHIP Safari application smoke passed';
 }

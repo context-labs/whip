@@ -522,6 +522,18 @@
     }
   },
   {
+    "type": "SessionSummariesParams",
+    "value": {
+      "root_ids": []
+    }
+  },
+  {
+    "type": "SessionSummariesResult",
+    "value": {
+      "items": []
+    }
+  },
+  {
     "type": "UploadBeginParams",
     "value": {
       "upload_id": "",

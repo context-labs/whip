@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useRouter } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useWhipConnection } from '@whip/sdk/react';
 import { Button, Combobox, Input } from '@whip/ui';
@@ -34,6 +34,9 @@ function NewSession({ client }: { client: WhipClient }) {
   const runtime = useRuntime();
   const connection = useWhipConnection(client);
   const navigate = useNavigate();
+  const router = useRouter();
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [cwd, setCwd] = useState('');
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState('');
@@ -57,6 +60,12 @@ function NewSession({ client }: { client: WhipClient }) {
       style={{ width: 'min(100%, 420px)', textAlign: 'left' }}
       onSubmit={async (event) => {
         event.preventDefault();
+        const runtimeId = connection.info?.runtime_id;
+        if (!runtimeId || !runtime.tabs.canOpen(runtimeId)) {
+          runtime.report('There are 32 open session tabs. Close a tab before creating another session.');
+          return;
+        }
+        const startingLocation = router.state.location;
         setBusy(true);
         try {
           const selection: [string, string] = model
@@ -72,10 +81,11 @@ function NewSession({ client }: { client: WhipClient }) {
           );
           if (!outcome.result)
             throw new Error('Session creation returned no session');
+          if (!mounted.current || router.state.location !== startingLocation || runtime.getSnapshot().client !== client) return;
           await navigate({
             to: '/h/$runtimeId/s/$rootId',
             params: {
-              runtimeId: connection.info!.runtime_id,
+              runtimeId,
               rootId: outcome.result.root_id,
             },
             search: {},

@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
-import type { Session, InputAttachment } from '@whip/sdk';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import type { Session } from '@whip/sdk';
 import { Button, Field, IconButton, Select, Textarea } from '@whip/ui';
 import { ArrowUp, Paperclip, X } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -64,27 +70,24 @@ export function Composer({
   const key = `${runtimeId}:${session.rootId}:${agentId}`;
   const [draft, setDraft] = useState(() => runtime.draft(key));
   const draftRef = useRef(draft);
-  const [sending, setSending] = useState(false);
-  const submission = useRef(0);
+  const { sending, attachments } = useSyncExternalStore(
+    runtime.compositions.subscribe,
+    () => runtime.compositions.get(key),
+  );
+  const mountedKey = useRef<string | undefined>(undefined);
   const [completion, setCompletion] = useState(false);
   const selection = useRef({ start: 0, end: 0 });
   const [delivery, setDelivery] = useState('queued');
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
-  const [attachments, setAttachments] = useState<
-    {
-      id: string;
-      name: string;
-      size: number;
-      value?: InputAttachment;
-      error?: string;
-    }[]
-  >([]);
-  const transfer = useRef(new AbortController());
-  useEffect(() => {
-    transfer.current = new AbortController();
-    return () => transfer.current.abort();
-  }, []);
+  useLayoutEffect(() => {
+    mountedKey.current = key;
+    const saved = runtime.compositions.selection(key);
+    if (saved) input.current?.setSelectionRange(saved.start, saved.end);
+    return () => {
+      mountedKey.current = undefined;
+    };
+  }, [runtime, key]);
   const unresolved = app.commands.find(
     (command) => command.draftKey === key && command.delivery,
   );
@@ -92,7 +95,7 @@ export function Composer({
     const text = runtime.draft(key);
     draftRef.current = text;
     setDraft(text);
-  }, [runtime, key]);
+  }, [runtime, key, sending, app]);
   const change = (text: string) => {
     try {
       runtime.setDraft(key, text);
@@ -109,57 +112,16 @@ export function Composer({
       attachments.some((item) => !item.value && !item.error)
     )
       return;
-    const used = attachments.reduce((sum, item) => sum + item.size, 0);
-    if (
-      attachments.length + selected.length > 16 ||
-      used + selected.reduce((sum, file) => sum + file.size, 0) >
-        20 * 1024 * 1024
-    ) {
-      runtime.report('Attach at most 16 files totaling 20 MiB.');
-      return;
-    }
-    const pending = selected.map((file) => ({
-      id: crypto.randomUUID(),
-      name: file.name,
-      size: file.size,
-    }));
-    setAttachments((previous) => [...previous, ...pending]);
-    for (const [index, file] of selected.entries()) {
-      const id = pending[index]!.id;
-      try {
-        const kind = file.type.startsWith('image/') ? 'image' : 'text';
-        if (kind === 'text' && file.size > 256 * 1024)
-          throw new Error('Text attachments are limited to 256 KiB.');
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        if (kind === 'text')
-          new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-        const content = await session.client.upload(bytes, {
-          rootId: session.rootId,
-          agentId,
-          mediaType: kind === 'image' ? file.type : 'text/plain',
-          signal: transfer.current.signal,
-        });
-        setAttachments((previous) =>
-          previous.map((item) =>
-            item.id === id
-              ? { ...item, value: content.asAttachment(kind, file.name) }
-              : item,
-          ),
-        );
-      } catch (error) {
-        if (!transfer.current.signal.aborted)
-          setAttachments((previous) =>
-            previous.map((item) =>
-              item.id === id
-                ? {
-                    ...item,
-                    error:
-                      error instanceof Error ? error.message : String(error),
-                  }
-                : item,
-            ),
-          );
-      }
+    try {
+      await runtime.compositions.add(
+        key,
+        session,
+        runtimeId,
+        agentId,
+        selected,
+      );
+    } catch (error) {
+      runtime.report(error);
     }
   }
   async function submit() {
@@ -172,8 +134,14 @@ export function Composer({
       attachments.some((item) => !item.value)
     )
       return;
-    const generation = ++submission.current;
-    setSending(true);
+    let token: symbol | undefined;
+    try {
+      token = runtime.compositions.beginSubmission(key);
+    } catch (error) {
+      runtime.report(error);
+      return;
+    }
+    if (!token) return;
     try {
       const payload = {
         text,
@@ -181,7 +149,7 @@ export function Composer({
           ? { attachments: attachments.map((item) => item.value!) }
           : {}),
       };
-      const sentIds = new Set(attachments.map((item) => item.id));
+      const sentIds = attachments.map((item) => item.id);
       const command =
         agentId !== session.rootId
           ? session.agents.submit(agentId, payload, delivery)
@@ -192,19 +160,27 @@ export function Composer({
         command,
         agentId === session.rootId ? 'Send message' : 'Message child',
         () => {
-          if (draftRef.current === text) change('');
-          setAttachments((previous) =>
-            previous.filter((item) => !sentIds.has(item.id)),
-          );
-          if (generation === submission.current) setSending(false);
-          input.current?.focus();
+          try {
+            if (runtime.draft(key) === text) {
+              runtime.setDraft(key, '');
+              if (mountedKey.current === key) {
+                draftRef.current = '';
+                setDraft('');
+              }
+            }
+          } catch (error) {
+            runtime.report(error);
+          }
+          runtime.compositions.clear(key, sentIds);
+          runtime.compositions.finishSubmission(key, token!);
+          if (mountedKey.current === key) input.current?.focus();
         },
         key,
       );
     } catch {
       /* Preserve drafts when acceptance is uncertain. Do not resubmit automatically. */
     } finally {
-      if (generation === submission.current) setSending(false);
+      runtime.compositions.finishSubmission(key, token);
     }
   }
   return (
@@ -266,11 +242,7 @@ export function Composer({
             </span>
             <IconButton
               label={`Remove ${item.name}`}
-              onClick={() =>
-                setAttachments((previous) =>
-                  previous.filter((value) => value.id !== item.id),
-                )
-              }
+              onClick={() => runtime.compositions.remove(key, item.id)}
             >
               <X size={13} />
             </IconButton>
@@ -296,6 +268,12 @@ export function Composer({
             xstyle={styles.input}
             value={draft}
             onChange={(event) => change(event.target.value)}
+            onSelect={(event) =>
+              runtime.compositions.rememberSelection(key, {
+                start: event.currentTarget.selectionStart,
+                end: event.currentTarget.selectionEnd,
+              })
+            }
             placeholder="Describe what you want to do…"
             maxLength={256 * 1024}
             onKeyDown={(event) => {
@@ -382,8 +360,8 @@ export function Composer({
       </div>
       {attachments.length > 0 && (
         <p {...stylex.props(styles.hint)}>
-          Attachments remain in this open view. Removing one or leaving the view
-          will not submit it; reselect files after reopening.
+          Attachments stay in this window when you switch or close session tabs.
+          Reloading or leaving the browser requires selecting the files again.
         </p>
       )}
       {completion && (

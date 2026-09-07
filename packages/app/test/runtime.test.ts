@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DeliveryUncertainError, RpcError, type CommandHandle, type RecoveryStorage } from '@whip/sdk';
+import { DeliveryUncertainError, RpcError, type CommandHandle, type ConnectionSnapshot, type RecoveryStorage } from '@whip/sdk';
 import { AppRuntime } from '../src/runtime';
 import { createFallbackStorage, type AppStorage } from '../src/platform';
 
 const mocks = vi.hoisted(() => {
-  const client = { connect: vi.fn(async () => {}), whenConnected: vi.fn(async () => {}), close: vi.fn(), subscribe: vi.fn(() => vi.fn()), getSnapshot: vi.fn(() => ({ state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection' } })), session: vi.fn((rootId: string) => ({ rootId })) };
+  const client = { connect: vi.fn(async () => {}), whenConnected: vi.fn(async () => {}), close: vi.fn(), subscribe: vi.fn((_listener: () => void) => vi.fn()), getSnapshot: vi.fn((): Pick<ConnectionSnapshot, 'state' | 'error'> & { info?: { runtime_id: string; connection_id: string } } => ({ state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection' } })), session: vi.fn((rootId: string) => ({ rootId })) };
   return { client, options: [] as { recoveryStorage: RecoveryStorage }[], createView: vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) })), list: { start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) } };
 });
 vi.mock('@whip/sdk', async importOriginal => ({ ...await importOriginal<typeof import('@whip/sdk')>(), createWhipClient: (options: { recoveryStorage: RecoveryStorage }) => { mocks.options.push(options); return mocks.client; } }));
@@ -38,6 +38,14 @@ describe('application observation ownership', () => {
     expect(() => app.acquireView('e')).toThrow('Four session views');
     for (const lease of leases) expect(lease.view.dispose).not.toHaveBeenCalled();
     app.dispose();
+  });
+  it('evicts the least recently used inactive view instead of the first-created view', async () => {
+    const app = runtime(); await app.connect();
+    const leases = ['a', 'b', 'c', 'd'].map(id => app.acquireView(id));
+    leases.forEach(lease => lease.release());
+    app.acquireView('a').release(); app.acquireView('e').release();
+    expect(leases[0]!.view.dispose).not.toHaveBeenCalled();
+    expect(leases[1]!.view.dispose).toHaveBeenCalledTimes(1); app.dispose();
   });
   it('separates drafts by runtime, root, and recipient without persisting prompt bodies', () => {
     const app = runtime();
@@ -74,6 +82,19 @@ describe('application observation ownership', () => {
     await expect(app.connect('http://localhost:9000')).rejects.toThrow('Storage denied');
     expect(app.getSnapshot().error).toBe('Storage denied');
     expect(mocks.client.close).not.toHaveBeenCalled();
+    app.dispose();
+  });
+  it('keeps recoverable connection failures out of persistent application errors', async () => {
+    const error = new Error('WebSocket connection failed');
+    const snapshot = vi.spyOn(mocks.client, 'getSnapshot').mockReturnValue({ state: 'reconnecting', error });
+    mocks.client.connect.mockRejectedValueOnce(error);
+    const app = runtime();
+    await expect(app.connect()).rejects.toBe(error);
+    expect(app.getSnapshot().error).toBeUndefined();
+    app.report('Drafts could not be saved');
+    snapshot.mockReturnValue({ state: 'connected', info: { runtime_id: 'runtime', connection_id: 'recovered' } });
+    for (const [listener] of mocks.client.subscribe.mock.calls) listener();
+    expect(app.getSnapshot().error).toBe('Drafts could not be saved');
     app.dispose();
   });
 });

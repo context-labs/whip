@@ -67,6 +67,8 @@ export class Sessions {
     return this.client.submit('session.create', { kind: 'agent', model: '', provider: '', ...params }, options);
   }
   list(params: Partial<SessionCatalogParams> = {}, options: CallOptions = {}) { return this.client.call('sessions.list', { limit: 128, max_bytes: 512 << 10, ...params }, options); }
+  /** Advisory metadata for up to 32 roots, without opening their views. Check missing before using counts. */
+  summaries(rootIds: readonly string[], options: CallOptions = {}) { return this.client.call('sessions.summaries', { root_ids: [...rootIds] }, options); }
   open(rootId: string, options: CallOptions = {}) { return this.client.query('session.open', { id: rootId }, options); }
   delete(rootId: string, options: Omit<CommandOptions, 'rootId'> = {}) { return this.client.submit('session.delete', { root_id: rootId }, options); }
 }

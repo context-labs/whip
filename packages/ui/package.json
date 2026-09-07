@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./tokens": "./src/tokens.stylex.ts",
     "./themes": "./src/themes.tsx",
+    "./workspace-tabs": "./src/workspace-tabs.tsx",
     "./reset.css": "./src/reset.css",
     "./fonts.css": "./src/fonts.css",
     "./tokens.stylex": "./src/tokens.stylex.ts",
@@ -23,6 +24,7 @@
     "build:storybook": "storybook build",
     "test": "node --test tests/*.test.ts",
     "test:browser": "node tests/browser.mjs",
+    "test:tabs": "node tests/workspace-tabs.mjs",
     "test:csp": "node tests/csp.mjs",
     "test:packed": "node tests/packed.mjs",
     "test:visual": "node tests/visual.mjs",
@@ -31,10 +33,12 @@
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
-    "@stylexjs/stylex": "0.19.0",
-    "lucide-react": "1.41.0",
+    "@dnd-kit/dom": "0.5.0",
+    "@dnd-kit/react": "0.5.0",
     "@fontsource-variable/inter": "5.3.0",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@stylexjs/stylex": "0.19.0",
+    "lucide-react": "1.41.0",
     "refractor": "5.0.0"
   },
   "peerDependencies": {

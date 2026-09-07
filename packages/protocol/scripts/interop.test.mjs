@@ -3,6 +3,19 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { validate, assertValid, manifest } from '../generated/index.js';
 
+test('bounded navigation summaries validate without coercing counters or requiring a known root', () => {
+  assertValid('SessionSummariesParams', { root_ids: [] });
+  assertValid('SessionSummariesParams', { root_ids: ['root', 'missing'] });
+  for (const root_ids of [null, [''], ['root', 'root'], ['a'.repeat(257)], Array.from({ length: 33 }, (_, index) => String(index))]) {
+    assert.equal(validate('SessionSummariesParams', { root_ids }), false);
+  }
+  const item = { root_id: 'root', missing: false, title: '', cwd: '', running_agents: '9007199254740993', queued_agents: '0', pending_permissions: '1', pending_questions: '2', truncated: false };
+  assertValid('SessionSummariesResult', { items: [item] });
+  assertValid('SessionSummariesResult', { items: [{ ...item, root_id: 'missing', missing: true, running_agents: '0', pending_permissions: '0', pending_questions: '0' }] });
+  assert.equal(validate('SessionSummariesResult', { items: null }), false);
+  assert.equal(validate('SessionSummariesResult', { items: [{ ...item, running_agents: 9007199254740992 }] }), false);
+});
+
 test('Go-produced fixtures validate without numeric coercion', async () => {
   const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
   for (const fixture of fixtures) assertValid(fixture.type, fixture.value);
