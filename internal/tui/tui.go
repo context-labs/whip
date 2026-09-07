@@ -1224,7 +1224,7 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 			provName = mdl.Providers[0]
 		}
 	}
-	client, err := clientForProvider(prov, provName, cfg.MaxRetries)
+	client, err := ClientForProvider(prov, provName, cfg.MaxRetries)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -3733,7 +3733,7 @@ func (m *model) applyCompactModel() {
 		}
 		return
 	}
-	client, err := clientForProvider(prov, compactProv, m.cfg.MaxRetries)
+	client, err := ClientForProvider(prov, compactProv, m.cfg.MaxRetries)
 	if err == nil {
 		m.agent.CompactClient = client
 		m.agent.CompactModel = apiID
@@ -3742,7 +3742,9 @@ func (m *model) applyCompactModel() {
 	}
 }
 
-func clientForProvider(prov config.Provider, name string, maxRetries int) (llm.Client, error) {
+// ClientForProvider builds the llm client for one configured provider; shared
+// with `whip run` so headless and TUI routing can't drift.
+func ClientForProvider(prov config.Provider, name string, maxRetries int) (llm.Client, error) {
 	switch prov.API {
 	case "", "openai-completions":
 		key, err := prov.ResolveKey()
@@ -3759,8 +3761,8 @@ func clientForProvider(prov config.Provider, name string, maxRetries int) (llm.C
 		if prov.Auth != "codex" {
 			return nil, fmt.Errorf("codex provider %q requires auth:\"codex\"", name)
 		}
-		if strings.TrimRight(prov.BaseURL, "/") != "https://chatgpt.com/backend-api" {
-			return nil, fmt.Errorf("codex provider %q must use https://chatgpt.com/backend-api", name)
+		if strings.TrimRight(prov.BaseURL, "/") != config.CodexBaseURL {
+			return nil, fmt.Errorf("codex provider %q must use %s", name, config.CodexBaseURL)
 		}
 		source := &codexauth.Source{}
 		if err := source.Available(); err != nil {

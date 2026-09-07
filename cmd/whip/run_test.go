@@ -16,6 +16,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tui"
 )
 
 // runFixture writes a config pointing the default model at an SSE test
@@ -316,7 +317,7 @@ func TestRunClientForCodex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client, err := runClientForProvider(config.Provider{
+	client, err := tui.ClientForProvider(config.Provider{
 		BaseURL: config.CodexBaseURL,
 		API:     "openai-codex-responses",
 		Auth:    "codex",
