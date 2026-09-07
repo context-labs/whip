@@ -96,13 +96,13 @@ func shortDuration(d time.Duration) string {
 	d = d.Round(time.Minute)
 	days := int(d.Hours()) / 24
 	h := int(d.Hours()) % 24
-	min := int(d.Minutes()) % 60
+	mins := int(d.Minutes()) % 60
 	switch {
 	case days > 0:
 		return fmt.Sprintf("%dd%dh", days, h)
 	case h > 0:
-		return fmt.Sprintf("%dh%02dm", h, min)
+		return fmt.Sprintf("%dh%02dm", h, mins)
 	default:
-		return fmt.Sprintf("%dm", min)
+		return fmt.Sprintf("%dm", mins)
 	}
 }

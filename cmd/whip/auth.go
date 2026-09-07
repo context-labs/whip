@@ -57,7 +57,7 @@ func authCLI(args []string) error {
 }
 
 func authOpenRouterCLI(args []string) error {
-	if len(args) == 1 && args[0] == "logout" {
+	if isLogout(args) {
 		return logoutProvider("openrouter")
 	}
 	fs := flag.NewFlagSet("auth openrouter", flag.ContinueOnError)
@@ -97,6 +97,10 @@ func authOpenRouterCLI(args []string) error {
 	fmt.Println("openrouter provider configured.")
 	fmt.Println("  run `whip`, then /model and pick from the full OpenRouter catalog — e.g. /model openai/gpt-5 openrouter")
 	return nil
+}
+
+func isLogout(args []string) bool {
+	return len(args) == 1 && args[0] == "logout"
 }
 
 // logoutProvider forgets a provider's config entry, routes, and cached catalog.

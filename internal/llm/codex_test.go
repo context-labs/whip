@@ -652,7 +652,7 @@ func TestCodexCloneOwnsCacheKey(t *testing.T) {
 
 func TestCodexRateLimits(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/wham/usage" || r.Header.Get("Authorization") != "Bearer access" || r.Header.Get("ChatGPT-Account-ID") != "account" {
+		if r.URL.Path != "/wham/usage" || r.Header.Get("Authorization") != "Bearer access" || r.Header.Get("Chatgpt-Account-Id") != "account" {
 			http.Error(w, "bad request "+r.URL.Path, http.StatusBadRequest)
 			return
 		}

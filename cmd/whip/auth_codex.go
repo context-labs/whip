@@ -15,7 +15,7 @@ import (
 
 // authCodexCLI implements `whip auth codex`.
 func authCodexCLI(args []string) error {
-	if len(args) == 1 && args[0] == "logout" {
+	if isLogout(args) {
 		if err := logoutProvider(config.CodexProviderName); err != nil {
 			return err
 		}
