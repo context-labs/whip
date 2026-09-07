@@ -81,6 +81,8 @@ test('provider secrets, configuration updates, and terminal input never enter re
       default_effort: '', compact_model: '', compact_provider: '', compact_percent: 70, goal_max_rounds: 1, max_retries: 1,
     });
     else if (request.method === 'config.update') connection.error(request, 'conflict');
+    else if (request.method === 'provider.validate') connection.reply(request, {models: []});
+    else if (request.method === 'provider.key.rotate') connection.reply(request, {provider: 'inference', configured: true, key_source: 'machine', warnings: []});
     else if (request.method === 'operation.invoke') connection.reply(request, { result: { text: 'ok' } });
   } });
   const client = new WhipClient({ endpoint: fixture.factory, clientId: 'script', reconnect: false,
@@ -88,6 +90,10 @@ test('provider secrets, configuration updates, and terminal input never enter re
   t.after(() => client.close());
   await client.connect();
   await client.providers.setKey({ provider: 'openrouter', key: 'secret-provider-key', environment: false, revision: '3' });
+  await client.providers.validate({name: 'openrouter', base_url: 'https://provider.example/v1', key: 'secret-validation-key'});
+  assert.deepEqual(fixture.current.requests.at(-1)!.params, {name: 'openrouter', base_url: 'https://provider.example/v1', key: 'secret-validation-key'});
+  await client.providers.rotateKey('inference');
+  assert.deepEqual(fixture.current.requests.at(-1)!.params, {provider: 'inference'});
   await assert.rejects(client.configuration.update({ revision: 'stale', default_model: 'model' }), { kind: 'conflict' });
   await client.session('root').terminalInput('terminal', new TextEncoder().encode('terminal-secret'));
   assert.deepEqual(records, []);

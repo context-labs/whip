@@ -399,7 +399,7 @@ export class SessionView {
       };
       this.set({ ...this.current, history: { ...this.current.history, [agentId]: history } }, true);
     } catch (error) {
-      if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
+      if (epoch !== this.epoch || this.lifetime.signal.aborted || !this.opened.has(agentId)) return;
       const history = { ...this.current.history };
       if (errorKind(error) === 'resynchronization_required') {
         delete history[agentId];

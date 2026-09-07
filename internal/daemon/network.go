@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/context-labs/whip/internal/webassets"
 	"github.com/gobwas/ws"
 )
 
@@ -54,6 +56,17 @@ func newNetworkHandler(
 		}
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v3/web", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(struct {
+			Available     bool   `json:"available"`
+			ProtocolMajor int    `json:"protocol_major"`
+			WebSocketPath string `json:"websocket_path"`
+			ContentPath   string `json:"content_path"`
+		}{Available: webassets.Available(), ProtocolMajor: ProtocolMajor, WebSocketPath: "/api/v3/ws", ContentPath: "/api/v3/content/"})
+	})
+	mux.Handle("/", webassets.Handler())
 	mux.HandleFunc("GET /api/v3/ws", func(w http.ResponseWriter, r *http.Request) {
 		if !reserve() {
 			http.Error(w, "connection limit reached", http.StatusServiceUnavailable)
@@ -61,10 +74,14 @@ func newNetworkHandler(
 		}
 		defer release()
 		conn, buffered, _, err := (ws.HTTPUpgrader{Timeout: 5 * time.Second}).Upgrade(r, w)
+		// gobwas hijacks before validating the request. Rejections return a socket
+		// too; net/http no longer owns it, so both paths must close it.
+		if conn != nil {
+			defer func() { _ = conn.Close() }()
+		}
 		if err != nil {
 			return
 		}
-		defer func() { _ = conn.Close() }()
 		accept(newWebsocketMessageTransport(conn, buffered.Reader))
 	})
 	if content != nil {
@@ -85,7 +102,12 @@ func newNetworkHandler(
 			return
 		}
 		origin := r.Header.Get("Origin")
-		if origin != "" && !slices.Contains(options.AllowedOrigins, origin) {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		sameOrigin := scheme + "://" + r.Host
+		if origin != "" && origin != sameOrigin && !slices.Contains(options.AllowedOrigins, origin) {
 			http.Error(w, "origin is not allowed", http.StatusForbidden)
 			return
 		}

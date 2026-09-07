@@ -6,7 +6,7 @@ export { Session, Sessions } from './session.js';
 export { Subscription } from './subscription.js';
 export type { SubscriptionOptions } from './subscription.js';
 export { ContentReference } from './content.js';
-export type { ContentScope, ReadContentOptions, UploadOptions } from './content.js';
+export type { ContentScope, ReadContentOptions, UploadOptions, InputAttachment } from './content.js';
 export { webSocket } from './transport.js';
 export type { Transport, TransportFactory, TransportHandlers } from './transport.js';
 export { WhipError, RpcError, DeliveryUncertainError } from './errors.js';

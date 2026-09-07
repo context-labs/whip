@@ -220,6 +220,22 @@ test('history pages cannot mix pre-rewind and post-rewind revisions', async () =
   await view.dispose();
 });
 
+test('a rejected history request cannot resurrect a closed child view', async () => {
+  const host = new Host();
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  await view.start();
+  let reject!: (error: Error) => void;
+  host.history = () => new Promise((_resolve, fail) => { reject = fail; });
+  const pending = view.openAgent('child');
+  view.closeAgent('child');
+  reject(new Error('late child failure'));
+  await pending;
+  await pause();
+  assert.equal(view.getSnapshot().history.child, undefined);
+  assert.equal(view.getSnapshot().error, undefined);
+  await view.dispose();
+});
+
 test('backward pagination retains requested pages and revision-bound cursors', async () => {
   const host = new Host();
   host.root.messages = [4, 5].map(seq => ({ role: 'user', content: String(seq) }));

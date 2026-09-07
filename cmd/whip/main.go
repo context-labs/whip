@@ -65,6 +65,15 @@ func main() {
 		return
 	}
 
+	// `whip web` opens the application served by the existing network-enabled daemon.
+	if flag.NArg() > 0 && flag.Arg(0) == "web" {
+		if err := webCLI(flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "whip:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// `whip mcp ...` — server management and the MCP server mode.
 	if flag.NArg() > 0 && flag.Arg(0) == "mcp" {
 		if err := mcpCLI(flag.Args()[1:], version); err != nil {

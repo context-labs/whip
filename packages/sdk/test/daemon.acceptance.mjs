@@ -35,6 +35,70 @@ async function createRoot(client) {
 }
 
 for (const transport of ['unix', 'websocket']) {
+  test(`${transport}: uploaded attachments resolve on the host without embedding bodies in requests`, async () => {
+    const client = await connect(transport);
+    const rootId = await createRoot(client);
+    assert.ok(client.requireConnected().capabilities.includes('input_attachments'));
+    const body = 'Explicit model input; @unexpanded.txt and $not-a-skill stay literal.';
+    const reference = await client.upload(new TextEncoder().encode(body), { rootId, mediaType: 'text/plain' });
+    const attachment = reference.asAttachment('text', 'context.txt');
+    assert.ok(!JSON.stringify(attachment).includes(body));
+    const outcome = await client.session(rootId).submit({ text: 'Inspect this context', attachments: [attachment] }).result(deadline());
+    assert.equal(outcome.status, 'succeeded');
+    const resolved = JSON.parse(outcome.result.text);
+    assert.equal(resolved.text, 'Inspect this context');
+    assert.equal(resolved.parts[0].type, 'text');
+    assert.equal(resolved.parts[0].text, `Attachment "context.txt":\n${body}`);
+    const page = await client.session(rootId).history.page();
+    assert.ok(Array.isArray(page.messages[0].message.content));
+    assert.equal(page.messages[0].message.content[1].text, resolved.parts[0].text);
+
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1cAAAAASUVORK5CYII=', 'base64');
+    const image = await client.upload(png, { rootId, mediaType: 'image/png' });
+    const imageResult = await client.session(rootId).submit({ text: 'Inspect the image', attachments: [image.asAttachment('image', 'pixel.png')] }).result(deadline());
+    assert.equal(imageResult.status, 'succeeded', JSON.stringify(imageResult));
+    const imageSnapshot = await client.session(rootId).snapshot();
+    const imageMessage = imageSnapshot.messages.find(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image_url'));
+    assert.equal(imageMessage.content[1].w, 1);
+    assert.equal(imageMessage.content[1].image_url.url, `data:image/png;base64,${png.toString('base64')}`);
+    const view = createSessionView(client.session(rootId));
+    const stopView = view.subscribe(() => {});
+    try {
+      await view.start();
+      await eventually(() => view.getSnapshot().history[rootId]?.messages.some(entry => Array.isArray(entry.message?.content) && entry.message.content.some(part => part.type === 'image_url')));
+      assert.equal(view.getSnapshot().status, 'live');
+      assert.equal(client.getSnapshot().state, 'connected');
+    } finally {
+      stopView();
+      await view.dispose();
+    }
+    const other = await createRoot(client);
+    await assert.rejects(client.session(other).submit({ text: 'wrong root', attachments: [attachment] }).accepted(deadline()), error => error.kind === 'permission_denied');
+    await assert.rejects(client.session(rootId).submit({ text: 'altered size', attachments: [{ ...attachment, content: { ...attachment.content, size: '1' } }] }).accepted(deadline()), error => error.kind === 'invalid_arguments');
+    client.close();
+  });
+
+  test(`${transport}: built host helpers expose directories, themes, attention, and mailbox inspection`, async () => {
+    const client = await connect(transport);
+    const folders = await client.host.directories({ path: fixture.directory });
+    assert.ok(folders.entries.some(entry => entry.name === 'public'));
+    const themes = await client.host.themes.list();
+    assert.ok(themes.themes.some(theme => theme.id === 'opencode'));
+    assert.equal((await client.host.themes.resolve('dark')).dark, true);
+    const imported = await client.host.themes.resolveJSON(JSON.stringify({ name: 'test-import', dark: false, palette: { primary: '#123456' } }));
+    assert.equal(imported.colors.primary, '#123456');
+    await assert.rejects(client.host.themes.resolve('../config.json'));
+    const rootId = await createRoot(client);
+    const mailbox = await client.session(rootId).mailbox.list();
+    assert.deepEqual(mailbox.items, []);
+    await assert.rejects(client.session(rootId).mailbox.read('missing'));
+    const sessions = await client.sessions.list({ search: fixture.directory });
+    assert.ok(sessions.items.some(item => item.id === rootId && /^[a-f0-9]{64}$/.test(item.workspace_id)));
+    const attention = await client.host.attention();
+    assert.ok(Array.isArray(attention.items));
+    client.close();
+  });
+
   test(`${transport}: commands, deduplication, history, and structured errors`, async () => {
     const client = await connect(transport);
     const rootId = await createRoot(client);
@@ -199,6 +263,8 @@ for (const transport of ['unix', 'websocket']) {
         const command = client.session(rootId).submit({ text: 'permission:' + crypto.randomUUID() });
         await command.accepted(deadline());
         const permission = await eventually(() => views[0].getSnapshot().root.permissions?.find(item => item.status === 'pending'));
+        const attention = await observer.host.attention();
+        assert.ok(attention.items.some(item => item.root_id === rootId && item.pending_permissions === '1'));
         await eventually(() => views[1].getSnapshot().root.permissions?.some(item => item.id === permission.id && item.status === 'pending'));
         await assert.rejects(observer.permissions.decide({ root_id: otherRoot, permission_id: permission.id, allow }));
         const decision = { root_id: rootId, permission_id: permission.id, allow, command_id: crypto.randomUUID(), reason: 'Reviewed <tag> & café' };
@@ -252,11 +318,15 @@ for (const transport of ['unix', 'websocket']) {
       assert.equal((await command.result(deadline())).status, 'succeeded');
       await eventually(() => view.getSnapshot().history[rootId]?.messages.length === 2);
       const revision = view.getSnapshot().history[rootId].revision;
-      assert.equal((await writer.submit('history.clear', {}, { rootId }).result(deadline())).status, 'succeeded');
+      assert.equal((await writer.session(rootId).history.clear(revision).result(deadline())).status, 'succeeded');
       await eventually(() => view.getSnapshot().history[rootId]?.revision !== revision && view.getSnapshot().history[rootId]?.messages.length === 0);
       await assert.rejects(observer.call('history.page', { root_id: rootId, agent_id: rootId, through_seq: -1, revision, limit: 128, max_bytes: 524_288 }), error => error.kind === 'resynchronization_required');
       for (let round = 0; round < 4; round++) await writer.session(rootId).submit({ text: 'bounded ' + round }).result(deadline());
       await eventually(() => view.getSnapshot().history[rootId]?.messages.length === 4);
+      const staleClear = await writer.session(rootId).history.clear(revision).result(deadline());
+      assert.equal(staleClear.status, 'failed');
+      assert.match(staleClear.failure.message, /history revision changed/);
+      assert.equal((await writer.session(rootId).history.page()).messages.length, 8);
       assert.ok(view.getSnapshot().retainedBytes <= 16_384);
       assert.ok(view.getSnapshot().history[rootId].messages.length <= 4);
     } finally {
@@ -328,6 +398,11 @@ test('actual process crash preserves outcomes and never repeats uncertain effect
   const command = client.submit('submit', { text: `hold:${key}` }, { rootId, commandId });
   const accepted = await command.accepted(deadline());
   await eventually(async () => (await fixture.effects()).includes(`hold:${key}`));
+  const uploaded = await client.upload(new TextEncoder().encode('queued context survives restart'), { rootId, mediaType: 'text/plain' });
+  const queuedId = crypto.randomUUID();
+  const queuedInput = { text: 'queued attachment', attachments: [uploaded.asAttachment('text')] };
+  const queued = client.session(rootId).submit(queuedInput, { commandId: queuedId });
+  assert.equal((await queued.accepted(deadline())).status, 'queued');
   const observer = await connect('websocket');
   const view = createSessionView(observer.session(rootId));
   await view.start();
@@ -346,6 +421,9 @@ test('actual process crash preserves outcomes and never repeats uncertain effect
     assert.ok(status.failure);
     const duplicate = await recovery.submit('submit', { text: `hold:${key}` }, { rootId, commandId }).result(deadline());
     assert.equal(duplicate.status, 'interrupted');
+    const resumed = await recovery.session(rootId).submit(queuedInput, { commandId: queuedId }).result(deadline());
+    assert.equal(resumed.status, 'succeeded');
+    assert.equal(JSON.parse(resumed.result.text).parts[0].text, 'queued context survives restart');
     recovery.close();
   }
   try {
@@ -357,6 +435,7 @@ test('actual process crash preserves outcomes and never repeats uncertain effect
     reconnectRecoveryMs = performance.now() - recoveryStarted;
   } finally { await view.dispose(); observer.close(); }
   assert.equal((await fixture.effects()).filter(value => value === `hold:${key}`).length, 1);
+  assert.equal((await fixture.effects()).filter(value => value.startsWith('{"text":"queued attachment"')).length, 1);
   client.close();
 });
 

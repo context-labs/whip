@@ -7,6 +7,9 @@
     "root_id": {
       "type": "string"
     },
+    "agent_id": {
+      "type": "string"
+    },
     "expected_digest": {
       "type": "string"
     },

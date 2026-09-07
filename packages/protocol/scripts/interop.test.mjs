@@ -75,3 +75,12 @@ test('permission decisions are typed requests without signing credentials', () =
   assert.equal(validate('PermissionDecisionParams', { decision: { ...request.decision, allow: 'true' } }), false);
   assertValid('PermissionDecisionResult', { operation_id: 'operation', lease_id: 'lease' });
 });
+
+test('collection variants preserve typed properties and exactly one item', () => {
+  const page = { root_id: 'root', collection: 'budgets', revision: '1', event_cursor: '1', has_more: false,
+    items: [{ budget: { agent_id: 'root', state: { kind: 'tokens', limit: '9007199254740993', used: '0', reserved: '0', remaining: '9007199254740993' } } }] };
+  assertValid('RootCollectionPage', page);
+  assert.equal(validate('RootCollectionPage', { ...page, items: [{}] }), false);
+  assert.equal(validate('RootCollectionPage', { ...page, items: [{ ...page.items[0], agent: null }] }), false);
+  assert.equal(validate('RootCollectionPage', { ...page, items: [{ budget: { ...page.items[0].budget, agent_id: 1 } }] }), false);
+});

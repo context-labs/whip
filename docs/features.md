@@ -162,6 +162,35 @@ root prompt (`evals/rlm`).
   strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed
   package installation. See [SDK usage](../packages/sdk/README.md).
 
+## React web application
+
+The private web application is implemented as a thin consumer of the same SDK.
+The release gate remains open for the manual device/accessibility checks recorded
+in the [web plan](../.ai-docs/plans/web-app/README.md); this table maps implemented
+behavior to its owning code and repeatable validation.
+
+| Behavior | Implementation | Validation |
+| --- | --- | --- |
+| Attach to an existing host, discover its directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
+| Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
+| Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
+| Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |
+| Host-owned provider login/configuration and local recovery/appearance settings | `packages/app/src/settings.tsx`, SDK services, daemon provider/configuration services | App runtime tests, existing provider/configuration acceptance, browser workflows |
+| Accessible controls, all TUI themes, custom-theme resolution, auto appearance and portaled overlays | `packages/ui`, `internal/theme`, `cmd/themegen`, `internal/daemon/host.go` | Theme parity/drift tests, 65-theme Axe fixtures, ten component interaction scenarios, Chromium/Firefox/actual Safari CSP smoke |
+| Packaged same-origin web assets and explicit `whip web` launch | `internal/webassets`, `cmd/whip/web.go`, `scripts/pack-web.mjs` | `internal/webassets/assets_test.go`, `cmd/whip/web_test.go`, `scripts/pack-web.test.mjs`, isolated packed-source consumer builds |
+
+React 19 and TanStack Router/Query/Form/Virtual compose the product. Base UI owns
+accessible component interactions; StyleX extracts authored CSS. Source UI/app
+packages expose explicit public entry points and are tested as real installed
+archives in both production and Vite development builds. No editor, code-review
+surface, standalone terminal, account, pairing or signer UI is included. Tool
+requests that require terminal input direct the user to the TUI.
+
+Closing a page detaches the client. It neither cancels accepted work nor sends
+unsent drafts. A command outcome is separate from completion of descendant agents,
+mailboxes or schedules. See [web-app.md](web-app.md) for exact startup commands,
+trusted-network setup and current browser evidence.
+
 ## Terminal UI behavior
 
 - Streaming text, reasoning, tool, plan, permission, usage, and terminal
@@ -291,7 +320,7 @@ The whole view is painted with the theme's background and text colour, so a
 light theme reads on a dark terminal and the terminal's own colours follow
 the theme while whip runs (they are restored on exit). Besides whip's `light`
 and `dark`, the switcher lists opencode's theme catalog, converted from its
-assets with `internal/tui/theme/themes/convert_opencode.py`: aura, ayu,
+assets with `internal/theme/themes/convert_opencode.py`: aura, ayu,
 carbonfox, catppuccin (latte/frappe/macchiato), cobalt2, cursor, dracula,
 everforest, flexoki, github, gruvbox, kanagawa, lucent-orng, material, matrix,
 mercury, monokai, nightowl, nord, one-dark, opencode, orng, osaka-jade,
@@ -328,3 +357,12 @@ lines. Optional `syntax` (`keyword`, `string`, `number`, `comment`, `function`,
 the terminal's real background so they read as raised layers on any terminal.
 `chroma` is optional: without it the code colors are generated from the
 palette; with it, that registered chroma style is used instead.
+
+
+The renderer-independent specification, catalog and ANSI/Chroma resolver live in
+`internal/theme`; the TUI retains terminal-specific rendering and background
+handling in `internal/tui/theme`. The browser generates all 65 named palettes with
+`cmd/themegen`, follows `prefers-color-scheme` for `auto`, and stores selection on
+the viewing device. Its accessible surface/text derivation leaves source palettes
+unchanged and retains full Chroma code styling. Host custom discovery and pasted
+JSON import share the Go resolver; the browser never compiles arbitrary CSS.

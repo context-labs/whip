@@ -1,0 +1,663 @@
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Badge, Button, Combobox, CodeBlock, Field, Input, Select, Textarea } from '@whip/ui';
+import * as stylex from '@stylexjs/stylex';
+import { useRuntime } from '../context';
+import { layout } from '../styles';
+import {
+  Action,
+  CollectionMore,
+  Empty,
+  QueryFeedback,
+  Section,
+  mergeBy,
+  useCollection,
+  useDetailQuery,
+  type InspectorProps,
+} from './shared';
+
+export function Goals({ view, root, connected }: InspectorProps) {
+  const runtime = useRuntime();
+  const [goal, setGoal] = useState(root.meta.goal);
+  const [schedule, setSchedule] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const collection = useCollection(view, 'schedules');
+  const schedules = mergeBy(
+    root.schedules ?? [],
+    collection.page?.items?.flatMap((item) => (item.schedule ? [item.schedule] : [])) ?? [],
+    (item) => String(item.id),
+  );
+  return (
+    <>
+      <Section
+        title="Session goal"
+        description="The daemon owns goal continuation. Completing one command does not mean every descendant or schedule has finished."
+      >
+        <Field label="Goal">
+          <Textarea value={goal} onChange={(event) => setGoal(event.target.value)} />
+        </Field>
+        <div {...stylex.props(layout.row, layout.wrap)}>
+          <Action
+            disabled={!connected}
+            run={() => runtime.run(view.session.command('goal.set', { text: goal }), 'Save goal')}
+          >
+            Save goal
+          </Action>
+          <Action
+            disabled={!connected || !goal.trim()}
+            run={() => runtime.run(view.session.command('goal.run', { text: goal }), 'Run goal')}
+          >
+            Run goal
+          </Action>
+          <Action
+            disabled={!connected}
+            run={async () => {
+              const outcome = await runtime.run(
+                view.session.command('goal.from-context', {}),
+                'Draft goal from context',
+              );
+              setGoal(outcome.result?.goal || '');
+            }}
+          >
+            Draft from context
+          </Action>
+          <Action
+            disabled={!connected || !root.meta.goal}
+            run={async () => {
+              await runtime.run(view.session.command('goal.set', { text: '' }), 'Clear goal');
+              setGoal('');
+            }}
+          >
+            Clear goal
+          </Action>
+        </div>
+      </Section>
+      <Section
+        title="Schedules"
+        description="Schedules run on the execution host, including after you disconnect."
+      >
+        {!schedules.length && <Empty>No schedules.</Empty>}
+        {schedules.map((item) => (
+          <article key={item.id} {...stylex.props(layout.column, layout.notice)}>
+            <strong>{item.schedule}</strong>
+            <p>{item.prompt}</p>
+            <span {...stylex.props(layout.muted)}>Last fire: {item.last_fire || 'Never'}</span>
+            <Action
+              disabled={!connected}
+              run={() =>
+                runtime.run(
+                  view.session.command('schedule.delete', { schedule_id: item.id }),
+                  'Delete schedule',
+                )
+              }
+            >
+              Delete schedule
+            </Action>
+          </article>
+        ))}
+        <CollectionMore
+          collection={collection}
+          omitted={root.omitted?.schedules}
+          connected={connected}
+        />
+        <Field label="When" description="A WHIP schedule expression, such as every 30m.">
+          <Input value={schedule} onChange={(event) => setSchedule(event.target.value)} />
+        </Field>
+        <Field label="Scheduled prompt">
+          <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+        </Field>
+        <Action
+          disabled={!connected || !schedule.trim() || !prompt.trim()}
+          run={async () => {
+            await runtime.run(
+              view.session.command('schedule.create', { schedule, prompt }),
+              'Create schedule',
+            );
+            setSchedule('');
+            setPrompt('');
+          }}
+        >
+          Create schedule
+        </Action>
+      </Section>
+    </>
+  );
+}
+export function validCounter(value: string) {
+  return /^(0|[1-9][0-9]*)$/.test(value) && BigInt(value) <= 9223372036854775807n;
+}
+export function Limits({ view, root, connected, agentId }: InspectorProps) {
+  const runtime = useRuntime();
+  const budgets = useCollection(view, 'budgets');
+  const capabilities = useCollection(view, 'capabilities');
+  const values = mergeBy(
+    root.budgets ?? [],
+    budgets.page?.items?.flatMap((item) => (item.budget ? [item.budget] : [])) ?? [],
+    (item) => `${item.agent_id}:${item.state.kind}`,
+  );
+  const grants = mergeBy(
+    root.capabilities ?? [],
+    capabilities.page?.items?.flatMap((item) => (item.capability ? [item.capability] : [])) ?? [],
+    (item) => item.id,
+  );
+  const [id, setId] = useState(agentId);
+  const [kind, setKind] = useState('tokens');
+  const [limit, setLimit] = useState('');
+  const agents = root.agents ?? [];
+  const canCap = agents.find((agent) => agent.id === id)?.allowed_controls?.includes('budget.cap');
+  return (
+    <>
+      <Section
+        title="Usage"
+        description="Budget usage includes reservations and may include descendants. Do not sum ancestor and child limits as independent totals."
+      >
+        <p>
+          {root.meta.usage_in.toLocaleString()} input · {root.meta.usage_out.toLocaleString()}{' '}
+          output · {root.meta.usage_cached.toLocaleString()} cached tokens
+        </p>
+        {values.map((item) => (
+          <div
+            key={`${item.agent_id}:${item.state.kind}`}
+            {...stylex.props(layout.column, layout.notice)}
+          >
+            <strong>{item.state.kind}</strong>
+            <span {...stylex.props(layout.muted)}>
+              {agents.find((agent) => agent.id === item.agent_id)?.name || item.agent_id}
+            </span>
+            <span>
+              {item.state.used} used · {item.state.reserved} reserved
+            </span>
+            <span>
+              {item.state.remaining} remaining of {item.state.limit}
+            </span>
+          </div>
+        ))}
+        <CollectionMore
+          collection={budgets}
+          omitted={root.omitted?.budgets}
+          connected={connected}
+        />
+        <Field label="Budget agent">
+          <Select
+            label="Budget agent"
+            value={id}
+            onValueChange={setId}
+            options={agents.map((agent) => ({
+              value: agent.id,
+              label: agent.name || 'Root agent',
+            }))}
+          />
+        </Field>
+        <Field
+          label="Budget kind"
+          description="Use a kind reported by this host. Cost uses micro-units; elapsed time uses milliseconds."
+        >
+          <Select
+            label="Budget kind"
+            value={kind}
+            onValueChange={setKind}
+            options={[...new Set(['tokens', ...values.map((value) => value.state.kind)])].map(
+              (value) => ({ value, label: value }),
+            )}
+          />
+        </Field>
+        <Field label="Limit" description="An exact nonnegative 64-bit integer.">
+          <Input
+            value={limit}
+            inputMode="numeric"
+            onChange={(event) => setLimit(event.target.value)}
+          />
+        </Field>
+        <Action
+          disabled={!connected || !canCap || !validCounter(limit)}
+          run={() =>
+            runtime.run(view.session.command('budget.cap', { id, kind, limit }), 'Set budget cap')
+          }
+        >
+          Set cap
+        </Action>
+      </Section>
+      <Section
+        title="Delegated capabilities"
+        description="Revoking a grant changes the authority available to agents. The daemon revalidates it on execution."
+      >
+        {!grants.length && <Empty>No delegated grants in this page.</Empty>}
+        {grants.map((grant) => (
+          <article key={grant.id} {...stylex.props(layout.column, layout.notice)}>
+            <div {...stylex.props(layout.row)}>
+              <strong>{grant.agent_id}</strong>
+              <Badge>{grant.status}</Badge>
+            </div>
+            <span>{grant.operations?.join(', ')}</span>
+            <span {...stylex.props(layout.muted)}>{grant.scopes?.join(', ')}</span>
+            {grant.mcp?.map((scope, index) => (
+              <CodeBlock
+                key={index}
+                code={JSON.stringify(scope, null, 2)}
+                label="MCP authority"
+                maxBytes={8192}
+              />
+            ))}
+            <Action
+              disabled={
+                !connected ||
+                grant.status !== 'active' ||
+                !agents
+                  .find((agent) => agent.id === grant.agent_id)
+                  ?.allowed_controls?.includes('capability.revoke')
+              }
+              run={() =>
+                runtime.run(
+                  view.session.command('capability.revoke', { id: grant.id }),
+                  'Revoke capability',
+                )
+              }
+            >
+              Revoke grant
+            </Action>
+          </article>
+        ))}
+        <CollectionMore
+          collection={capabilities}
+          omitted={root.omitted?.capabilities}
+          connected={connected}
+        />
+      </Section>
+    </>
+  );
+}
+export function ContextSettings(props: InspectorProps) {
+  const [section, setSection] = useState('context');
+  return (
+    <>
+      <Select
+        label="Context settings section"
+        value={section}
+        onValueChange={setSection}
+        options={[
+          { value: 'context', label: 'Applied context' },
+          { value: 'model', label: 'Model & runtime' },
+          { value: 'compaction', label: 'Compaction' },
+        ]}
+      />
+      {section === 'context' && <Context {...props} />}
+      {section === 'model' && <ModelSettings {...props} />}
+      {section === 'compaction' && <Compaction {...props} />}
+    </>
+  );
+}
+function Context(props: InspectorProps) {
+  const query = useDetailQuery(props, 'context.audit', {});
+  const workspace = useDetailQuery(props, 'workspace.inspect', {});
+  const runtime = useRuntime();
+  const [path, setPath] = useState(props.root.meta.cwd);
+  return (
+    <>
+      <Section
+        title="Applied context"
+        description="Environment context is assembled on the execution host. This is the daemon’s summary, not an invented list of files admitted to the model."
+      >
+        <QueryFeedback view={props.view} query={query} />
+        {query.data?.result?.rows?.map((row, index) => (
+          <div key={index} {...stylex.props(layout.column, layout.notice)}>
+            <strong>{row.label}</strong>
+            <span>{row.bytes ?? 0} bytes</span>
+            {row.note && <p>{row.note}</p>}
+          </div>
+        ))}
+      </Section>
+      <Section
+        title="Workspace"
+        description="This path is on the execution host. Changing it changes the agent’s working directory."
+      >
+        <QueryFeedback view={props.view} query={workspace} />
+        <p>
+          {workspace.data?.result?.path ||
+            query.data?.result?.working_directory ||
+            props.root.meta.cwd}
+        </p>
+        <Field label="Host working directory">
+          <Input value={path} onChange={(event) => setPath(event.target.value)} />
+        </Field>
+        <Action
+          disabled={
+            !props.connected || !path.trim() || !!Object.keys(props.root.active_turns ?? {}).length
+          }
+          run={() =>
+            runtime.run(props.view.session.command('workspace.set', { path }), 'Change workspace')
+          }
+        >
+          Change workspace
+        </Action>
+      </Section>
+      <Section
+        title="Automatic session titles"
+        description="Enable the daemon to name this session from its first exchange. This operation enables titles; the current protocol does not expose disabling or reading back this policy."
+      >
+        <Action
+          disabled={!props.connected}
+          run={() =>
+            runtime.run(
+              props.view.session.command('session.autotitle', {}),
+              'Enable automatic titles',
+            )
+          }
+        >
+          Enable automatic titles
+        </Action>
+      </Section>
+    </>
+  );
+}
+function ModelSettings({ view, root, connected }: InspectorProps) {
+  const runtime = useRuntime();
+  const [model, setModel] = useState(root.meta.model);
+  const [provider, setProvider] = useState(root.meta.provider);
+  const [effort, setEffort] = useState(root.meta.effort || 'off');
+  const [system, setSystem] = useState('');
+  const [turns, setTurns] = useState('');
+  const idle = !Object.keys(root.active_turns ?? {}).length;
+  const catalog = useQuery({
+    queryKey: ['inspector-models', view.session.client.getSnapshot().info?.runtime_id],
+    queryFn: ({ signal }) => view.session.client.providers.catalogs({ signal }),
+    enabled: connected,
+    gcTime: 0,
+  });
+  return (
+    <>
+      <Section
+        title="Model & reasoning"
+        description="Changes apply to this root session while it is idle. Provider credentials stay on the execution host."
+      >
+        {!idle && <Empty>Wait for active turns to finish before changing the runtime.</Empty>}
+        <Field label="Model" description="Choose a catalog model or enter an exact model ID.">
+          <Combobox
+            label="Model"
+            value={model}
+            onValueChange={setModel}
+            onInputValueChange={setModel}
+            options={Object.keys(catalog.data?.result?.models ?? {})
+              .slice(0, 1000)
+              .map((name) => ({ value: name, label: name }))}
+          />
+        </Field>
+        <Field label="Provider">
+          <Input value={provider} onChange={(event) => setProvider(event.target.value)} />
+        </Field>
+        <Action
+          disabled={!connected || !idle || !model.trim()}
+          run={() => runtime.run(view.session.setModel(model, provider), 'Change model')}
+        >
+          Apply model
+        </Action>
+        <Field label="Reasoning effort">
+          <Select
+            label="Reasoning effort"
+            value={effort}
+            onValueChange={setEffort}
+            options={['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({
+              value,
+              label: value,
+            }))}
+          />
+        </Field>
+        <Action
+          disabled={!connected || !idle}
+          run={() => runtime.run(view.session.setEffort(effort), 'Set reasoning effort')}
+        >
+          Apply effort
+        </Action>
+        <Action
+          disabled={!connected || !idle}
+          run={() =>
+            runtime.run(view.session.command('session.reload', {}), 'Reload session runtime')
+          }
+        >
+          Reload runtime from host settings
+        </Action>
+      </Section>
+      <Section
+        title="Run configuration"
+        description="Advanced values are applied explicitly. Current overrides are not exposed by the protocol."
+      >
+        <Field label="System instruction override">
+          <Textarea value={system} onChange={(event) => setSystem(event.target.value)} />
+        </Field>
+        <Field label="Maximum turns">
+          <Input
+            type="number"
+            min={1}
+            step={1}
+            value={turns}
+            onChange={(event) => setTurns(event.target.value)}
+          />
+        </Field>
+        <Action
+          disabled={
+            !connected ||
+            !idle ||
+            (!system && !turns) ||
+            (!!turns && (!Number.isSafeInteger(Number(turns)) || Number(turns) < 1))
+          }
+          run={() =>
+            runtime.run(
+              view.session.configure({
+                ...(system ? { system } : {}),
+                ...(turns ? { max_turns: Number(turns) } : {}),
+              }),
+              'Apply run configuration',
+            )
+          }
+        >
+          Apply overrides
+        </Action>
+      </Section>
+    </>
+  );
+}
+export function Compaction(props: InspectorProps) {
+  const runtime = useRuntime();
+  const query = useDetailQuery(props, 'history.compact.log', {});
+  const configuration = useQuery({
+    queryKey: [
+      'inspector-compaction-config',
+      props.view.session.client.getSnapshot().info?.runtime_id,
+    ],
+    queryFn: ({ signal }) => props.view.session.client.configuration.get({ signal }),
+    enabled: props.connected,
+    gcTime: 0,
+  });
+  const [draft, setDraft] = useState<{ revision: string; model: string; provider: string }>();
+  const model = draft?.model ?? configuration.data?.compact_model ?? '';
+  const provider = draft?.provider ?? configuration.data?.compact_provider ?? '';
+  const edit = (field: 'model' | 'provider', value: string) => {
+    if (!configuration.data) return;
+    setDraft({
+      ...(draft ?? { revision: configuration.data.revision, model, provider }),
+      [field]: value,
+    });
+  };
+  const [offset, setOffset] = useState(0);
+  const idle = !Object.keys(props.root.active_turns ?? {}).length;
+  const records = query.data?.result ?? [];
+  return (
+    <>
+      <Section
+        title="Compaction"
+        description="Compaction reduces model context while retaining raw transcript history. It does not undo files."
+      >
+        <Action
+          disabled={!props.connected || !idle}
+          run={() => runtime.run(props.view.session.history.compact(), 'Compact context')}
+        >
+          Compact now
+        </Action>
+        <Field
+          label="Compaction model"
+          description="Blank restores WHIP’s built-in compaction model. This updates shared host defaults and reloads this idle session."
+        >
+          <Input
+            value={model}
+            disabled={!configuration.data}
+            onChange={(event) => edit('model', event.target.value)}
+          />
+        </Field>
+        <Field label="Compaction provider">
+          <Input
+            value={provider}
+            disabled={!configuration.data}
+            onChange={(event) => edit('provider', event.target.value)}
+          />
+        </Field>
+        <Action
+          disabled={!props.connected || !idle || !configuration.data}
+          run={async () => {
+            await props.view.session.client.configuration.update({
+              revision: draft?.revision ?? configuration.data!.revision,
+              compact_model: model,
+              compact_provider: model ? provider : '',
+            });
+            await runtime.run(
+              props.view.session.command('session.reload', {}),
+              'Reload compaction settings',
+            );
+            setDraft(undefined);
+            await configuration.refetch();
+          }}
+        >
+          Apply compaction defaults
+        </Action>
+        {configuration.error && <p role="alert">{configuration.error.message}</p>}
+        {draft && configuration.data && draft.revision !== configuration.data.revision && (
+          <p role="status">
+            Host configuration changed while you were editing. Refresh these fields before applying
+            them.
+          </p>
+        )}
+        <Button
+          variant="ghost"
+          disabled={!props.connected}
+          onClick={() => {
+            setDraft(undefined);
+            void configuration.refetch();
+          }}
+        >
+          Refresh compaction defaults
+        </Button>
+      </Section>
+      <Section title="Compaction history">
+        <QueryFeedback query={query} view={props.view} />
+        {records.slice(offset, offset + 16).map((record) => (
+          <article key={record.seq} {...stylex.props(layout.column, layout.notice)}>
+            <strong>
+              Compaction {record.seq} · cutoff {record.cutoff}
+            </strong>
+            <CodeBlock code={record.summary} label="Summary" maxBytes={32 << 10} />
+          </article>
+        ))}
+        {records.length > offset + 16 && (
+          <Button variant="ghost" onClick={() => setOffset((value) => value + 16)}>
+            Next records
+          </Button>
+        )}
+        {offset > 0 && (
+          <Button variant="ghost" onClick={() => setOffset((value) => Math.max(0, value - 16))}>
+            Previous records
+          </Button>
+        )}
+        {!records.length && !query.isLoading && <Empty>No compactions in this session.</Empty>}
+        <Action
+          disabled={!props.connected || !idle || !records.length}
+          run={() =>
+            runtime.run(
+              props.view.session.command('history.compact.retry', {}),
+              'Undo most recent compaction',
+            )
+          }
+        >
+          Undo latest compaction
+        </Action>
+      </Section>
+    </>
+  );
+}
+export function Permissions(props: InspectorProps) {
+  const runtime = useRuntime();
+  const query = useDetailQuery(props, 'permission.rules', {});
+  const idle = !Object.keys(props.root.active_turns ?? {}).length;
+  const [policy, setPolicy] = useState('client');
+  return (
+    <>
+      <Section
+        title="Permission policy"
+        description="Every connected client may answer pending requests. Saved rules and delegated authority still apply. The daemon does not currently report the active consent mode."
+      >
+        <Field label="Use this policy">
+          <Select
+            label="Permission policy"
+            value={policy}
+            onValueChange={setPolicy}
+            options={[
+              { value: 'client', label: 'Ask connected clients' },
+              { value: 'host', label: 'Use the host’s consent policy' },
+            ]}
+          />
+        </Field>
+        <Action
+          disabled={!props.connected || !idle}
+          run={() =>
+            runtime.run(
+              props.view.session.command('permission.mode', {
+                external_permissions: policy === 'client',
+              }),
+              'Change permission policy',
+            )
+          }
+        >
+          Apply policy
+        </Action>
+        <Action
+          disabled={!props.connected || !idle}
+          run={() =>
+            runtime.run(
+              props.view.session.command('tool.configure', { deny_permissions: true }),
+              'Deny interactive tool permissions',
+            )
+          }
+        >
+          Deny interactive tool permissions
+        </Action>
+      </Section>
+      <Section title="Saved session rules">
+        <QueryFeedback view={props.view} query={query} />
+        {query.data?.result?.rules?.map((rule) => (
+          <div key={rule.id} {...stylex.props(layout.column, layout.notice)}>
+            <strong>{rule.operation}</strong>
+            <code>{rule.rule}</code>
+            <span {...stylex.props(layout.muted)}>
+              {rule.principal_id} · {rule.created_at}
+            </span>
+            <Action
+              disabled={!props.connected}
+              run={() =>
+                runtime.run(
+                  props.view.session.command('permission.forget', { id: rule.id }),
+                  'Forget permission rule',
+                )
+              }
+            >
+              Forget rule
+            </Action>
+          </div>
+        ))}
+        {query.data?.result?.rules?.length === 0 && <Empty>No saved session rules.</Empty>}
+      </Section>
+      <Section title="Global host rules">
+        {query.data?.result?.global?.map((rule, index) => (
+          <code key={index}>{rule}</code>
+        ))}
+        {query.data?.result?.global?.length === 0 && <Empty>No global rules.</Empty>}
+      </Section>
+    </>
+  );
+}

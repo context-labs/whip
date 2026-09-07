@@ -6,7 +6,7 @@ import {
 } from '@whip/protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
-import { Permissions, Providers, Configuration } from './services.js';
+import { Host, Permissions, Providers, Configuration } from './services.js';
 import { Session, Sessions } from './session.js';
 import { Subscription, type SubscriptionOptions } from './subscription.js';
 import { WhipError, RpcError, abortError, asError } from './errors.js';
@@ -50,6 +50,7 @@ export class WhipClient {
   readonly providers: Providers;
   readonly configuration: Configuration;
   readonly permissions: Permissions;
+  readonly host: Host;
   readonly events = {
     subscribe: async (rootId: string, cursor: string, options: SubscriptionOptions = {}): Promise<Subscription> => {
       this.requireConnected();
@@ -102,6 +103,7 @@ export class WhipClient {
     this.providers = new Providers(this);
     this.configuration = new Configuration(this);
     this.permissions = new Permissions(this);
+    this.host = new Host(this);
   }
   getSnapshot = (): ConnectionSnapshot => this.snapshot;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
@@ -139,7 +141,7 @@ export class WhipClient {
       this.connection = connection;
       const info = await this.dispatch('initialize', {
         protocol_major: manifest.major, client_id: this.clientId, client_kind: this.clientKind,
-        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion'],
+        build_id: this.options.buildId ?? '@whip/sdk', capabilities: ['commands', 'events', 'snapshots', 'uploads', 'history_pages', 'collections', 'host_configuration', 'workspace_completion', 'host_views', 'themes', 'mailbox_inspection', 'input_attachments'],
       }, { signal: controller.signal }, true);
       if (epoch !== this.epoch || this.closed || controller.signal.aborted) throw abortError(controller.signal);
       if (info.protocol_major !== manifest.major) throw new WhipError('unsupported_protocol', 'Daemon protocol major is incompatible');

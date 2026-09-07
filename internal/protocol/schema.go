@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -30,7 +31,21 @@ func SchemaFor(t reflect.Type) (*jsonschema.Schema, error) {
 		return nil, err
 	}
 	applyWireTags(valueSchema, reflect.TypeFor[session.RuntimeValueWire]())
+	messageSchema, err := jsonschema.For[llm.Message](nil)
+	if err != nil {
+		return nil, err
+	}
+	partSchema, err := jsonschema.For[llm.ContentPart](nil)
+	if err != nil {
+		return nil, err
+	}
+	// Message.MarshalJSON emits an array when Parts is populated. Reflection
+	// only sees the text field because the model-facing Parts field is json:"-".
+	messageSchema.Properties["content"] = &jsonschema.Schema{AnyOf: []*jsonschema.Schema{
+		{Type: "string"}, {Type: "array", Items: partSchema},
+	}}
 	schema, err := jsonschema.ForType(t, &jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
+		reflect.TypeFor[llm.Message]():             messageSchema,
 		reflect.TypeFor[json.RawMessage]():         {},
 		reflect.TypeFor[session.RuntimeValue]():    valueSchema,
 		reflect.TypeFor[CursorMap]():               {Type: "object", AdditionalProperties: &jsonschema.Schema{Type: "string", Pattern: `^-?(0|[1-9][0-9]*)$`, Format: "int64"}},
@@ -127,6 +142,12 @@ func ValidateRuntime(name string, raw json.RawMessage) error {
 			return fmt.Errorf("%s requires a nonnegative expected_revision", name)
 		}
 	}
+	if name == "history.clear" {
+		var params ClearHistoryParams
+		if err := json.Unmarshal(raw, &params); err != nil || (params.ExpectedRevision != nil && *params.ExpectedRevision < 0) {
+			return errors.New("history.clear expected_revision must be nonnegative")
+		}
+	}
 	return nil
 }
 func RuntimeLookup(name string) (Operation, bool) { return LookupRuntime(name) }
@@ -145,11 +166,8 @@ func applyWireTags(schema *jsonschema.Schema, t reflect.Type) {
 	}
 	switch t.Kind() {
 	case reflect.Struct:
-		if t == reflect.TypeFor[session.CollectionEntry]() {
-			schema.OneOf = []*jsonschema.Schema{}
-			for _, name := range []string{"agent", "inbox", "blackboard", "budget", "capability", "schedule", "permission", "body"} {
-				schema.OneOf = append(schema.OneOf, &jsonschema.Schema{Required: []string{name}})
-			}
+		if t == reflect.TypeFor[InputAttachment]() {
+			schema.Properties["kind"].Enum = []any{"image", "text"}
 		}
 		for _, field := range reflect.VisibleFields(t) {
 			if !field.IsExported() {
@@ -186,6 +204,19 @@ func applyWireTags(schema *jsonschema.Schema, t reflect.Type) {
 				continue
 			}
 			applyWireTags(child, field.Type)
+		}
+		if t == reflect.TypeFor[session.CollectionEntry]() {
+			// Keep typed properties in their own intersection branch. The TS
+			// generator otherwise loses them beside required-only oneOf branches.
+			properties := *schema
+			var variants []*jsonschema.Schema
+			for _, name := range []string{"agent", "inbox", "blackboard", "budget", "capability", "schedule", "permission", "body"} {
+				variants = append(variants, &jsonschema.Schema{
+					Type: "object", Properties: map[string]*jsonschema.Schema{name: schema.Properties[name].CloneSchemas()},
+					Required: []string{name}, AdditionalProperties: schema.AdditionalProperties.CloneSchemas(),
+				})
+			}
+			*schema = jsonschema.Schema{AllOf: []*jsonschema.Schema{&properties, {OneOf: variants}}}
 		}
 	case reflect.Map:
 		applyWireTags(schema.AdditionalProperties, t.Elem())

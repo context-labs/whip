@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "cursor": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "root_id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "offset": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "root_id",
+        "agent_id",
+        "status",
+        "revision",
+        "offset"
+      ],
+      "additionalProperties": false
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "max_bytes": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v3/MailboxPageParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MailboxPageParams",
+  "required": [
+    "root_id",
+    "agent_id",
+    "limit",
+    "max_bytes"
+  ],
+  "additionalProperties": false
+}

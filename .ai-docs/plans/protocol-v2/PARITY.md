@@ -92,6 +92,12 @@ use `operation.invoke` or their named RPC and never enter the command journal.
 | `events.subscribe` | subscription | `SubscribeParams` → `SubscribeResult` | Cross-transport views/reconnect; collection, history, root client and snapshot tests |
 | `events.unsubscribe` | subscription | `UnsubscribeParams` → `Empty` | Cross-transport views/reconnect; collection, history, root client and snapshot tests |
 | `history.page` | query | `HistoryPageParams` → `BoundedTranscriptPage` | Cross-transport views/reconnect; collection, history, root client and snapshot tests |
+| `host.directories.list` | query | `HostDirectoryParams` → `HostDirectoryResult` | Host-side bounded directory/filter/cancellation and built SDK tests across Unix/WebSocket |
+| `host.attention` | query | `HostAttentionParams` → `HostAttentionResult` | Unopened-root activity/permission counts, live questions, keyset pages, byte bounds, built SDK permission tests |
+| `host.themes.list` | query | `EmptyParams` → `CatalogResult` | Shared theme catalog/custom-file errors and built SDK tests across Unix/WebSocket |
+| `host.themes.resolve` | query | `HostThemeResolveParams` → `Resolved` | Named/imported resolution, path rejection, shared theme semantics and built SDK tests |
+| `mailbox.list` | query | `MailboxPageParams` → `MailboxPage` | Read-only recipient pages, revision invalidation, fresh unopened roots, bounded metadata and transport tests |
+| `mailbox.read` | query | `MailboxReadParams` → `MailboxInspection` | Inline text/content grants, exact decimal revisions, root/recipient association, delivery remains unchanged |
 | `initialize` | query | `InitializeParams` → `InitializeResult` | Cross-transport initialize; autostart, lifecycle and protocol edge tests |
 | `operation.invoke` | ephemeral | `QueryParams` → `QueryResult` | Runtime registry RPC fixtures; admission, cancellation, deduplication and restart tests |
 | `permission.decide` | ephemeral | `PermissionDecisionParams` → `PermissionDecisionResult` | Cross-transport trusted-client decisions; permission and MCP authority tests |

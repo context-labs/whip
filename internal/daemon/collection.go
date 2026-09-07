@@ -19,7 +19,7 @@ func (c *Client) RootCollection(ctx context.Context, params protocol.RootCollect
 }
 
 func (s *Server) sessionCatalog(ctx context.Context, params protocol.SessionCatalogParams) (session.SessionCatalogPage, error) {
-	return s.daemon.store.SessionCatalog(ctx, session.CatalogPageOptions{Cursor: params.Cursor, Limit: params.Limit, MaxBytes: params.MaxBytes})
+	return s.daemon.store.SessionCatalog(ctx, session.CatalogPageOptions{Cursor: params.Cursor, Limit: params.Limit, MaxBytes: params.MaxBytes, Search: params.Search})
 }
 func (c *Client) SessionCatalog(ctx context.Context, params protocol.SessionCatalogParams) (session.SessionCatalogPage, error) {
 	var page session.SessionCatalogPage

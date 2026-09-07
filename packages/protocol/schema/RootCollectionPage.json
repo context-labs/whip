@@ -23,561 +23,1111 @@
         "array"
       ],
       "items": {
-        "type": "object",
-        "properties": {
-          "agent": {
-            "type": [
-              "null",
-              "object"
-            ],
+        "allOf": [
+          {
+            "type": "object",
             "properties": {
-              "id": {
-                "type": "string"
-              },
-              "root_id": {
-                "type": "string"
-              },
-              "parent_id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "model": {
-                "type": "string"
-              },
-              "provider": {
-                "type": "string"
-              },
-              "effort": {
-                "type": "string"
-              },
-              "cwd": {
-                "type": "string"
-              },
-              "report": {
-                "type": "string"
-              },
-              "status": {
-                "type": "string"
-              },
-              "pending_mail": {
-                "type": "integer"
-              },
-              "lifecycle_phase": {
-                "type": "string"
-              },
-              "blocking_reason": {
-                "type": "string"
-              },
-              "terminal_cause": {
-                "type": "string"
-              },
-              "allowed_controls": {
+              "agent": {
                 "type": [
                   "null",
-                  "array"
+                  "object"
                 ],
-                "items": {
-                  "type": "string"
-                }
-              }
-            },
-            "required": [
-              "id",
-              "root_id",
-              "parent_id",
-              "name",
-              "model",
-              "provider",
-              "effort",
-              "cwd",
-              "report",
-              "status",
-              "pending_mail",
-              "lifecycle_phase",
-              "blocking_reason",
-              "terminal_cause",
-              "allowed_controls"
-            ],
-            "additionalProperties": false
-          },
-          "inbox": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "root_id": {
-                "type": "string"
-              },
-              "agent_id": {
-                "type": "string"
-              },
-              "seq": {
-                "type": "string",
-                "pattern": "^-?(0|[1-9][0-9]*)$",
-                "format": "int64"
-              },
-              "kind": {
-                "type": "string"
-              },
-              "status": {
-                "type": "string"
-              },
-              "payload": {
-                "type": "object",
                 "properties": {
-                  "inline": true,
-                  "text": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "root_id": {
+                    "type": "string"
+                  },
+                  "parent_id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "effort": {
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "type": "string"
+                  },
+                  "report": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "pending_mail": {
+                    "type": "integer"
+                  },
+                  "lifecycle_phase": {
+                    "type": "string"
+                  },
+                  "blocking_reason": {
+                    "type": "string"
+                  },
+                  "terminal_cause": {
+                    "type": "string"
+                  },
+                  "allowed_controls": {
                     "type": [
                       "null",
-                      "string"
-                    ]
-                  },
-                  "binary": {
-                    "type": [
-                      "string",
-                      "null"
+                      "array"
                     ],
-                    "contentEncoding": "base64"
-                  },
-                  "reference_id": {
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "root_id",
+                  "parent_id",
+                  "name",
+                  "model",
+                  "provider",
+                  "effort",
+                  "cwd",
+                  "report",
+                  "status",
+                  "pending_mail",
+                  "lifecycle_phase",
+                  "blocking_reason",
+                  "terminal_cause",
+                  "allowed_controls"
+                ],
+                "additionalProperties": false
+              },
+              "inbox": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "root_id": {
                     "type": "string"
                   },
-                  "digest": {
+                  "agent_id": {
                     "type": "string"
                   },
-                  "size": {
+                  "seq": {
                     "type": "string",
                     "pattern": "^-?(0|[1-9][0-9]*)$",
                     "format": "int64"
                   },
-                  "media_type": {
-                    "type": "string"
-                  },
-                  "source": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "reference_id",
-                  "digest",
-                  "size",
-                  "media_type",
-                  "source"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "root_id",
-              "agent_id",
-              "seq",
-              "kind",
-              "status",
-              "payload"
-            ],
-            "additionalProperties": false
-          },
-          "blackboard": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "key": {
-                "type": "string"
-              },
-              "version": {
-                "type": "string",
-                "pattern": "^-?(0|[1-9][0-9]*)$",
-                "format": "int64"
-              },
-              "author_agent_id": {
-                "type": "string"
-              },
-              "payload": {
-                "type": "object",
-                "properties": {
-                  "inline": true,
-                  "text": {
-                    "type": [
-                      "null",
-                      "string"
-                    ]
-                  },
-                  "binary": {
-                    "type": [
-                      "string",
-                      "null"
-                    ],
-                    "contentEncoding": "base64"
-                  },
-                  "reference_id": {
-                    "type": "string"
-                  },
-                  "digest": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "string",
-                    "pattern": "^-?(0|[1-9][0-9]*)$",
-                    "format": "int64"
-                  },
-                  "media_type": {
-                    "type": "string"
-                  },
-                  "source": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "reference_id",
-                  "digest",
-                  "size",
-                  "media_type",
-                  "source"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "key",
-              "version",
-              "author_agent_id",
-              "payload"
-            ],
-            "additionalProperties": false
-          },
-          "budget": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "agent_id": {
-                "type": "string"
-              },
-              "state": {
-                "type": "object",
-                "properties": {
                   "kind": {
                     "type": "string"
                   },
-                  "limit": {
-                    "type": "string",
-                    "pattern": "^-?(0|[1-9][0-9]*)$",
-                    "format": "int64"
+                  "status": {
+                    "type": "string"
                   },
-                  "used": {
-                    "type": "string",
-                    "pattern": "^-?(0|[1-9][0-9]*)$",
-                    "format": "int64"
-                  },
-                  "reserved": {
-                    "type": "string",
-                    "pattern": "^-?(0|[1-9][0-9]*)$",
-                    "format": "int64"
-                  },
-                  "remaining": {
-                    "type": "string",
-                    "pattern": "^-?(0|[1-9][0-9]*)$",
-                    "format": "int64"
+                  "payload": {
+                    "type": "object",
+                    "properties": {
+                      "inline": true,
+                      "text": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "binary": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "contentEncoding": "base64"
+                      },
+                      "reference_id": {
+                        "type": "string"
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "media_type": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference_id",
+                      "digest",
+                      "size",
+                      "media_type",
+                      "source"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
+                  "root_id",
+                  "agent_id",
+                  "seq",
                   "kind",
-                  "limit",
-                  "used",
-                  "reserved",
-                  "remaining"
+                  "status",
+                  "payload"
+                ],
+                "additionalProperties": false
+              },
+              "blackboard": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)$",
+                    "format": "int64"
+                  },
+                  "author_agent_id": {
+                    "type": "string"
+                  },
+                  "payload": {
+                    "type": "object",
+                    "properties": {
+                      "inline": true,
+                      "text": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "binary": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "contentEncoding": "base64"
+                      },
+                      "reference_id": {
+                        "type": "string"
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "media_type": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference_id",
+                      "digest",
+                      "size",
+                      "media_type",
+                      "source"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "key",
+                  "version",
+                  "author_agent_id",
+                  "payload"
+                ],
+                "additionalProperties": false
+              },
+              "budget": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "limit": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "used": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "reserved": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "remaining": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "limit",
+                      "used",
+                      "reserved",
+                      "remaining"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "agent_id",
+                  "state"
+                ],
+                "additionalProperties": false
+              },
+              "capability": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "root_id": {
+                    "type": "string"
+                  },
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "issuer_agent_id": {
+                    "type": "string"
+                  },
+                  "operations": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "scopes": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "mcp": {
+                    "type": [
+                      "null",
+                      "array"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "server": {
+                          "type": "string"
+                        },
+                        "tool": {
+                          "type": "string"
+                        },
+                        "definition": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "server",
+                        "tool",
+                        "definition"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "mcp_all": {
+                    "type": "boolean"
+                  },
+                  "generation": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)$",
+                    "format": "int64"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "expires_at": {
+                    "type": "string"
+                  },
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "root_id",
+                  "agent_id",
+                  "issuer_agent_id",
+                  "operations",
+                  "scopes",
+                  "mcp",
+                  "mcp_all",
+                  "generation",
+                  "status",
+                  "expires_at",
+                  "created_at",
+                  "updated_at"
+                ],
+                "additionalProperties": false
+              },
+              "schedule": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "integer"
+                  },
+                  "schedule": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "anchor": {
+                    "type": "string"
+                  },
+                  "last_fire": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "schedule",
+                  "prompt",
+                  "anchor",
+                  "last_fire"
+                ],
+                "additionalProperties": false
+              },
+              "permission": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "agent_id": {
+                    "type": "string"
+                  },
+                  "operation_id": {
+                    "type": "string"
+                  },
+                  "operation": {
+                    "type": "string"
+                  },
+                  "canonical_path": {
+                    "type": "string"
+                  },
+                  "request_digest": {
+                    "type": "string"
+                  },
+                  "capability_id": {
+                    "type": "string"
+                  },
+                  "capability_generation": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)$",
+                    "format": "int64"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "rule": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "agent_id",
+                  "operation_id",
+                  "operation",
+                  "canonical_path",
+                  "request_digest",
+                  "capability_id",
+                  "capability_generation",
+                  "status",
+                  "command",
+                  "rule"
+                ],
+                "additionalProperties": false
+              },
+              "body": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "inline": true,
+                  "text": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "binary": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "contentEncoding": "base64"
+                  },
+                  "reference_id": {
+                    "type": "string"
+                  },
+                  "digest": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)$",
+                    "format": "int64"
+                  },
+                  "media_type": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reference_id",
+                  "digest",
+                  "size",
+                  "media_type",
+                  "source"
                 ],
                 "additionalProperties": false
               }
             },
-            "required": [
-              "agent_id",
-              "state"
-            ],
             "additionalProperties": false
           },
-          "capability": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "root_id": {
-                "type": "string"
-              },
-              "agent_id": {
-                "type": "string"
-              },
-              "issuer_agent_id": {
-                "type": "string"
-              },
-              "operations": {
-                "type": [
-                  "null",
-                  "array"
-                ],
-                "items": {
-                  "type": "string"
-                }
-              },
-              "scopes": {
-                "type": [
-                  "null",
-                  "array"
-                ],
-                "items": {
-                  "type": "string"
-                }
-              },
-              "mcp": {
-                "type": [
-                  "null",
-                  "array"
-                ],
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "server": {
-                      "type": "string"
+          {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "root_id": {
+                        "type": "string"
+                      },
+                      "parent_id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "provider": {
+                        "type": "string"
+                      },
+                      "effort": {
+                        "type": "string"
+                      },
+                      "cwd": {
+                        "type": "string"
+                      },
+                      "report": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "pending_mail": {
+                        "type": "integer"
+                      },
+                      "lifecycle_phase": {
+                        "type": "string"
+                      },
+                      "blocking_reason": {
+                        "type": "string"
+                      },
+                      "terminal_cause": {
+                        "type": "string"
+                      },
+                      "allowed_controls": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "string"
+                        }
+                      }
                     },
-                    "tool": {
-                      "type": "string"
-                    },
-                    "definition": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "server",
-                    "tool",
-                    "definition"
-                  ],
-                  "additionalProperties": false
-                }
-              },
-              "mcp_all": {
-                "type": "boolean"
-              },
-              "generation": {
-                "type": "string",
-                "pattern": "^-?(0|[1-9][0-9]*)$",
-                "format": "int64"
-              },
-              "status": {
-                "type": "string"
-              },
-              "expires_at": {
-                "type": "string"
-              },
-              "created_at": {
-                "type": "string"
-              },
-              "updated_at": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "root_id",
-              "agent_id",
-              "issuer_agent_id",
-              "operations",
-              "scopes",
-              "mcp",
-              "mcp_all",
-              "generation",
-              "status",
-              "expires_at",
-              "created_at",
-              "updated_at"
-            ],
-            "additionalProperties": false
-          },
-          "schedule": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "id": {
-                "type": "integer"
-              },
-              "schedule": {
-                "type": "string"
-              },
-              "prompt": {
-                "type": "string"
-              },
-              "anchor": {
-                "type": "string"
-              },
-              "last_fire": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "schedule",
-              "prompt",
-              "anchor",
-              "last_fire"
-            ],
-            "additionalProperties": false
-          },
-          "permission": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "agent_id": {
-                "type": "string"
-              },
-              "operation_id": {
-                "type": "string"
-              },
-              "operation": {
-                "type": "string"
-              },
-              "canonical_path": {
-                "type": "string"
-              },
-              "request_digest": {
-                "type": "string"
-              },
-              "capability_id": {
-                "type": "string"
-              },
-              "capability_generation": {
-                "type": "string",
-                "pattern": "^-?(0|[1-9][0-9]*)$",
-                "format": "int64"
-              },
-              "status": {
-                "type": "string"
-              },
-              "command": {
-                "type": "string"
-              },
-              "rule": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "agent_id",
-              "operation_id",
-              "operation",
-              "canonical_path",
-              "request_digest",
-              "capability_id",
-              "capability_generation",
-              "status",
-              "command",
-              "rule"
-            ],
-            "additionalProperties": false
-          },
-          "body": {
-            "type": [
-              "null",
-              "object"
-            ],
-            "properties": {
-              "inline": true,
-              "text": {
-                "type": [
-                  "null",
-                  "string"
-                ]
-              },
-              "binary": {
-                "type": [
-                  "string",
-                  "null"
+                    "required": [
+                      "id",
+                      "root_id",
+                      "parent_id",
+                      "name",
+                      "model",
+                      "provider",
+                      "effort",
+                      "cwd",
+                      "report",
+                      "status",
+                      "pending_mail",
+                      "lifecycle_phase",
+                      "blocking_reason",
+                      "terminal_cause",
+                      "allowed_controls"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "agent"
                 ],
-                "contentEncoding": "base64"
+                "additionalProperties": false
               },
-              "reference_id": {
-                "type": "string"
+              {
+                "type": "object",
+                "properties": {
+                  "inbox": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "root_id": {
+                        "type": "string"
+                      },
+                      "agent_id": {
+                        "type": "string"
+                      },
+                      "seq": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "inline": true,
+                          "text": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "binary": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "contentEncoding": "base64"
+                          },
+                          "reference_id": {
+                            "type": "string"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)$",
+                            "format": "int64"
+                          },
+                          "media_type": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "reference_id",
+                          "digest",
+                          "size",
+                          "media_type",
+                          "source"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "root_id",
+                      "agent_id",
+                      "seq",
+                      "kind",
+                      "status",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "inbox"
+                ],
+                "additionalProperties": false
               },
-              "digest": {
-                "type": "string"
+              {
+                "type": "object",
+                "properties": {
+                  "blackboard": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "author_agent_id": {
+                        "type": "string"
+                      },
+                      "payload": {
+                        "type": "object",
+                        "properties": {
+                          "inline": true,
+                          "text": {
+                            "type": [
+                              "null",
+                              "string"
+                            ]
+                          },
+                          "binary": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "contentEncoding": "base64"
+                          },
+                          "reference_id": {
+                            "type": "string"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)$",
+                            "format": "int64"
+                          },
+                          "media_type": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "reference_id",
+                          "digest",
+                          "size",
+                          "media_type",
+                          "source"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "version",
+                      "author_agent_id",
+                      "payload"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "blackboard"
+                ],
+                "additionalProperties": false
               },
-              "size": {
-                "type": "string",
-                "pattern": "^-?(0|[1-9][0-9]*)$",
-                "format": "int64"
+              {
+                "type": "object",
+                "properties": {
+                  "budget": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "agent_id": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "limit": {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)$",
+                            "format": "int64"
+                          },
+                          "used": {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)$",
+                            "format": "int64"
+                          },
+                          "reserved": {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)$",
+                            "format": "int64"
+                          },
+                          "remaining": {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)$",
+                            "format": "int64"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "limit",
+                          "used",
+                          "reserved",
+                          "remaining"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "agent_id",
+                      "state"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "budget"
+                ],
+                "additionalProperties": false
               },
-              "media_type": {
-                "type": "string"
+              {
+                "type": "object",
+                "properties": {
+                  "capability": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "root_id": {
+                        "type": "string"
+                      },
+                      "agent_id": {
+                        "type": "string"
+                      },
+                      "issuer_agent_id": {
+                        "type": "string"
+                      },
+                      "operations": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "scopes": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "mcp": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "server": {
+                              "type": "string"
+                            },
+                            "tool": {
+                              "type": "string"
+                            },
+                            "definition": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "server",
+                            "tool",
+                            "definition"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "mcp_all": {
+                        "type": "boolean"
+                      },
+                      "generation": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "expires_at": {
+                        "type": "string"
+                      },
+                      "created_at": {
+                        "type": "string"
+                      },
+                      "updated_at": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "root_id",
+                      "agent_id",
+                      "issuer_agent_id",
+                      "operations",
+                      "scopes",
+                      "mcp",
+                      "mcp_all",
+                      "generation",
+                      "status",
+                      "expires_at",
+                      "created_at",
+                      "updated_at"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "capability"
+                ],
+                "additionalProperties": false
               },
-              "source": {
-                "type": "string"
+              {
+                "type": "object",
+                "properties": {
+                  "schedule": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "integer"
+                      },
+                      "schedule": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "anchor": {
+                        "type": "string"
+                      },
+                      "last_fire": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "schedule",
+                      "prompt",
+                      "anchor",
+                      "last_fire"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "schedule"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "permission": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "agent_id": {
+                        "type": "string"
+                      },
+                      "operation_id": {
+                        "type": "string"
+                      },
+                      "operation": {
+                        "type": "string"
+                      },
+                      "canonical_path": {
+                        "type": "string"
+                      },
+                      "request_digest": {
+                        "type": "string"
+                      },
+                      "capability_id": {
+                        "type": "string"
+                      },
+                      "capability_generation": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "command": {
+                        "type": "string"
+                      },
+                      "rule": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "agent_id",
+                      "operation_id",
+                      "operation",
+                      "canonical_path",
+                      "request_digest",
+                      "capability_id",
+                      "capability_generation",
+                      "status",
+                      "command",
+                      "rule"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "permission"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "inline": true,
+                      "text": {
+                        "type": [
+                          "null",
+                          "string"
+                        ]
+                      },
+                      "binary": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "contentEncoding": "base64"
+                      },
+                      "reference_id": {
+                        "type": "string"
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)$",
+                        "format": "int64"
+                      },
+                      "media_type": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "reference_id",
+                      "digest",
+                      "size",
+                      "media_type",
+                      "source"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "body"
+                ],
+                "additionalProperties": false
               }
-            },
-            "required": [
-              "reference_id",
-              "digest",
-              "size",
-              "media_type",
-              "source"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "additionalProperties": false,
-        "oneOf": [
-          {
-            "required": [
-              "agent"
-            ]
-          },
-          {
-            "required": [
-              "inbox"
-            ]
-          },
-          {
-            "required": [
-              "blackboard"
-            ]
-          },
-          {
-            "required": [
-              "budget"
-            ]
-          },
-          {
-            "required": [
-              "capability"
-            ]
-          },
-          {
-            "required": [
-              "schedule"
-            ]
-          },
-          {
-            "required": [
-              "permission"
-            ]
-          },
-          {
-            "required": [
-              "body"
             ]
           }
         ]

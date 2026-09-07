@@ -248,6 +248,9 @@ func (session *AgentSession) pullSteers(ctx context.Context, turnID string) ([]l
 	var delivered []int64
 	for _, item := range items {
 		text, parts, err := session.root.decodeInboxInput(ctx, item)
+		if err == nil {
+			err = session.validateImageInput(parts)
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()

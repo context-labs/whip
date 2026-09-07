@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "parent": {
+      "type": "string"
+    },
+    "entries": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "next_after": {
+      "type": "string"
+    },
+    "has_more": {
+      "type": "boolean"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v3/HostDirectoryResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostDirectoryResult",
+  "required": [
+    "path",
+    "parent",
+    "entries",
+    "has_more",
+    "truncated"
+  ],
+  "additionalProperties": false
+}

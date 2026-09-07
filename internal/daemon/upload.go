@@ -116,7 +116,11 @@ func (m *uploadManager) finish(ctx context.Context, clientID, uploadID string) (
 	if err != nil {
 		return ContentHandle{}, err
 	}
-	value, err := m.store.StoreContent(ctx, session.ContentGrant{RootID: state.begin.RootID, Scope: session.ContentGrantRoot}, session.RuntimePayload{
+	grant := session.ContentGrant{RootID: state.begin.RootID, Scope: session.ContentGrantRoot}
+	if state.begin.AgentID != "" && state.begin.AgentID != state.begin.RootID {
+		grant.Scope, grant.AgentID = session.ContentGrantAgent, state.begin.AgentID
+	}
+	value, err := m.store.StoreContent(ctx, grant, session.RuntimePayload{
 		Data: data, MediaType: state.begin.MediaType, Source: state.begin.Source,
 	})
 	if err != nil {

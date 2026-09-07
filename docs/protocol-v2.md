@@ -139,6 +139,20 @@ Large message bodies use content references. Human inspection of child history
 does not admit it to an agent's model context. Pending questions and permissions
 are included in reconnect state; answering resolves the shared pending item.
 
+`history.rewind` and `session.fork` require `expected_revision`. `history.clear`
+also accepts this decimal-string precondition; applications should send their
+displayed history revision so a delayed clear cannot erase a different history.
+The root checks it before changing history or releasing workspace snapshots.
+Omitting it retains the explicit unconditional-clear behavior used by existing
+Go callers.
+
+Transcript `message.content` is a string for plain text or an array of typed
+content parts for multimodal input. Text parts carry `text`; image parts carry
+`image_url.url` and optional dimensions `w`/`h`. These are the existing persisted
+message forms, not a second presentation history. Snapshot and history byte
+limits still apply; oversized messages are omitted explicitly or returned as
+scoped content references. Clients must handle both content forms.
+
 ## Content transfers
 
 Upload a body with `POST /api/v3/content/upload?root_id=ROOT`. Supply the body
@@ -147,12 +161,37 @@ optional Content-Type. The response is a content handle. The upload must fit
 the existing input limit (64 MiB); interrupted or mismatched transfers remove
 temporary state. Browsers supply Content-Length automatically.
 
+Pass optional `agent_id=CHILD` when uploading for a specific child. Unix clients
+use the same `agent_id` on `upload.begin`. Child uploads create an exact recipient
+grant; parent, sibling, and unrelated-root reads do not inherit it. Omitting the
+agent, or selecting the root agent, retains the existing root grant. Uploads do
+not submit work or admit content into any agent's model context.
+
 Download with `GET /api/v3/content/REFERENCE?root_id=ROOT&agent_id=AGENT`.
 The reference/root/agent association must satisfy the existing content grant.
 The agent may be omitted for a root grant. Reads are bounded and recheck the
 grant between chunks. Content is served as an attachment with an inert media
 type so uploaded HTML cannot execute on the daemon's origin. No tickets are
 issued. Transfers have a separate limit of 16 concurrent HTTP requests.
+
+The `input_attachments` capability accepts optional `attachments` on `submit`,
+`steer`, and `agent.submit`: each entry contains `kind` (`text` or `image`), an
+unchanged `content` handle, and an optional display `name`. Requests and their
+durable input journals retain references, not copied attachment bodies. Admission
+validates identity, metadata, and the root/recipient grant. The turn worker reads
+bounded chunks, rechecks grants and metadata, and verifies the full SHA-256 digest
+before constructing model input. Matching command retries observe their original
+state even if the content grant has since been revoked.
+
+An input accepts at most 16 attachments totaling 20 MiB; each UTF-8 text excerpt
+is limited to 256 KiB and names to 256 bytes. Images require matching supported
+image media types, valid dimensions (at most 32768 per side and 64 megapixels),
+and a model with vision support. Unsupported or corrupted input fails explicitly.
+Database/I/O failures and cancellation retain the existing execution recovery
+semantics. Uploaded text remains a separate content part; its `@file` and `$skill`
+text is never interpreted as an authored-input expansion. Existing text and
+`parts` inputs remain supported. A daemon restart recovers the persisted input
+references without creating another upload or duplicating a command.
 
 ## Permission decisions
 
@@ -244,6 +283,61 @@ Catalog cursors are invalidated when catalog metadata changes. Summary fields
 are limited to 128 Unicode characters, with `truncated: true` when applicable;
 complete root metadata remains available through root views. Both page APIs
 require `limit` and `max_bytes`.
+
+`sessions.list` accepts a bounded `search` string matched against the complete
+title and working directory. Its cursor also binds that filter. `workspace_id`
+is a digest of the complete stored working directory, independent of its
+shortened display text. Clients namespace it by host runtime ID; they must not
+group workspaces by the shortened `cwd`. Paths beyond the defensive 4096-character
+read bound omit the workspace identity and remain distinguishable by session ID.
+
+### Host bootstrap, attention, and themes
+
+`provider.catalogs` is a genuinely rootless runtime query: no root actor is
+constructed and no model session is required for provider onboarding.
+
+`host.directories.list` browses directories on the execution machine before a
+session exists. Its optional `path` is absolute or begins with `~/`; empty starts
+at the execution host's home. `prefix`, `show_hidden`, and `after` select entries,
+and `limit` is 1–128. Results contain directory names and full paths, the parent,
+`next_after`/`has_more`, and an explicit `truncated` flag when the 20,000-entry
+scan ceiling is reached. It reads no file bodies. Symlinks to directories are
+navigable. Filesystem changes can alter later pages; refresh the directory to
+obtain a new listing.
+
+`host.attention` reads a lightweight live index without opening every root or
+spending root subscriptions. `limit` is 1–128 and `max_bytes` is 4–512 KiB. Items
+contain root identity/title, decimal-string active-agent and pending-permission
+counts, and short live question metadata. Full choices and permission details
+remain in the selected root snapshot. Page using `next_after_id` as `after_id`;
+refresh from the first page to see newly active roots earlier in the ordering.
+This is an advisory live view, not a replay cursor or an atomic root snapshot.
+Questions disappear with their live turn, including restart. If the in-memory
+root inspection cap of 10,000 is reached, `truncated` is explicit.
+
+`host.themes.list` returns the shared shipped catalog and bounded custom themes
+from `WHIP_HOME/themes`, including individual malformed-file errors. Custom
+discovery is capped at 128 directory entries and files at 64 KiB.
+`host.themes.resolve` accepts exactly one `name` or `json` string and returns
+normalized semantic colors, syntax/Markdown roles, and Chroma token styling.
+Names are catalog identities, never arbitrary paths. Resolution is pure;
+neither importing nor selecting a theme writes daemon configuration. Browser
+theme selection and validated startup caches belong to the client.
+
+### Human inspection of inter-agent mail
+
+`mailbox.list` is distinct from the command input `inbox` collection. It accepts
+root and recipient agent IDs, optional status (`all`, `pending`, `delivered`, or
+`done`), a count limit of 1–128 and a 4–512 KiB byte budget. Metadata includes
+sender/recipient, delivery class, excerpt, timestamps, decimal-string message
+revision, and body size/reference. Its cursor binds root, agent, status, offset,
+and collection revision; changes explicitly require starting pagination again.
+
+`mailbox.read` reads one message associated with that root and recipient. Inline
+bodies stay within the existing 8 KiB storage bound and are encoded as text;
+larger bodies retain their existing content reference and root/agent grants.
+Inspection does not acknowledge, deliver, defer, or complete mail, admit it into
+model context, or start agent work.
 
 Runtime query results larger than 512 KiB return a root-scoped content handle
 instead of an oversized envelope. The Go `Query` convenience method resolves

@@ -19,9 +19,10 @@ flowchart TB
         RUN["whip run"]
         ACP["ACP"]
         BRIDGE["whip mcp serve"]
+        WEB["React web application + TypeScript SDK"]
     end
 
-    RPC["owner-only daemon protocol"]
+    RPC["trusted WHIP v3 daemon protocol"]
 
     subgraph daemon["whip _daemon"]
         ROOT["root actor"]
@@ -35,7 +36,7 @@ flowchart TB
     KERNELS["disposable whip _kernel workers"]
     MODELS["model providers"]
 
-    TUI & RUN & ACP & BRIDGE <--> RPC <--> ROOT
+    TUI & RUN & ACP & BRIDGE & WEB <--> RPC <--> ROOT
     ROOT <--> STORE
     ROOT --> TREE
     TREE <--> MODELS
@@ -143,6 +144,40 @@ budgets, and private transcript.
 | `internal/mcp` | external MCP connections and named tool calls |
 | `internal/agent` | provider loop, streaming, compaction, usage accounting |
 | `internal/tui`, `internal/acp` | presentation and protocol adapters only |
+| `packages/sdk` | attach-only transports, commands, subscriptions, bounded reconstructed views and optional React hooks |
+| `packages/ui` | Base UI components, extracted StyleX tokens/styles, shared generated themes, fonts and read-only syntax rendering; no SDK or host state |
+| `packages/app` | React routes and workflows, SDK view leases, host query presentation, application drafts and preferences; no daemon/process ownership |
+| `apps/web` | browser entry, storage/clipboard/download/link adapters, Vite build and browser acceptance |
+| `internal/theme`, `cmd/themegen` | renderer-independent theme resolution and deterministic UI catalog generation |
+| `internal/webassets`, `cmd/whip/web.go` | embedded web asset serving/discovery and explicit browser launch against an existing daemon |
+
+## Browser application ownership
+
+`createWhipApplication(platform)` creates one application runtime, TanStack Query
+client and router. The platform supplies storage, external links, clipboard and
+downloads; a future Electron shell can provide those effects without replacing
+the application or SDK. The browser entry initializes appearance before mounting
+React, connects explicitly, and disposes local resources on page teardown.
+
+The SDK remains authoritative for reconstructing session state from protocol
+snapshots, history and events. TanStack Query handles bounded host reads and
+revisioned settings, not a second conversation cache. The app keeps unsent drafts
+separate from metadata-only command recovery records. Switching recipients,
+routes, hosts or themes cannot move one recipient's late acceptance onto another
+draft. Runtime identity mismatches surface instead of silently adopting a new host.
+
+UI and app are private source packages compiled by the official StyleX plugin.
+The web build owns route splitting and CSS/font assets. Production UI uses no
+runtime style compiler; validated custom themes set only known CSS variables.
+The shared Go resolver owns terminal ANSI/Chroma semantics, and the UI derives
+readable browser foregrounds while retaining the exact source catalog. Theme
+changes preserve route, draft, scroll and highlighted-code identities.
+
+The daemon serves packaged assets and API traffic on its existing optional
+listener. `whip web` discovers and opens that endpoint; it never starts or
+replaces the daemon. Browser clients are trusted to make permission decisions,
+while internal capabilities and content grants remain daemon-enforced. See
+[web-app.md](web-app.md) for launch, development proxy and trusted-network setup.
 
 Read [rlm-runtime.md](rlm-runtime.md) for the programming model and
 [concurrency.md](concurrency.md) for ownership and ordering.

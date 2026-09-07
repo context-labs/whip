@@ -37,6 +37,9 @@ var (
 // terminal only offers completions; the daemon resolves paths and skills
 // against the effective session before anything reaches model context.
 func (session *AgentSession) prepareAuthoredInput(ctx context.Context, input string, parts []llm.ContentPart) (string, []llm.ContentPart, error) {
+	if err := session.validateImageInput(parts); err != nil {
+		return "", nil, err
+	}
 	input, parts, err := session.expandMentionedFiles(ctx, input, parts)
 	if err != nil {
 		return "", nil, err

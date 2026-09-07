@@ -36,7 +36,7 @@ var runtimeOperations = []Operation{
 	action[EmptyParams, ModelResult]("session.reload", Command, "root-idle", false),
 	action[EmptyParams, Empty]("session.autotitle", Command, "root-association", false),
 	action[RunConfigureParams, Empty]("run.configure", Command, "root-idle", false),
-	action[EmptyParams, Empty]("history.clear", Command, "root-idle", false),
+	action[ClearHistoryParams, Empty]("history.clear", Command, "root-idle", false),
 	action[RewindParams, RewindResult]("history.rewind", Command, "root-idle", false),
 	action[EmptyParams, CompactionResult]("history.compact", Command, "root-idle", false),
 	action[EmptyParams, CompactionListResult]("history.compact.log", Query, "root-association", false),

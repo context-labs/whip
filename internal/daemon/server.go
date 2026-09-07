@@ -248,7 +248,7 @@ func (s *Server) serveTransport(raw messageTransport) {
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion"}
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments"}
 	negotiated := []string{}
 	for _, feature := range initialize.Capabilities {
 		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {
@@ -348,6 +348,9 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		return nil, rpcFailure(-32602, err.Error())
 	}
 	if result, failure, handled := s.handleProvider(connection, request); handled {
+		return result, failure
+	}
+	if result, failure, handled := s.handleHost(connection.ctx, request); handled {
 		return result, failure
 	}
 
@@ -593,6 +596,11 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 	if err != nil {
 		return CommandResult{}, err
 	}
+	if existing, err := s.validateCommandAttachments(s.ctx, connection.client.ClientID, params, digest, root); err != nil {
+		return CommandResult{}, err
+	} else if existing != nil {
+		return *existing, nil
+	}
 	if params.Operation != "submit" && params.Operation != "steer" {
 		if !isClientOperation(params.Operation) {
 			return CommandResult{}, fmt.Errorf("unsupported root command %q", params.Operation)
@@ -603,12 +611,12 @@ func (s *Server) command(connection *serverConn, params CommandParams) (CommandR
 		}, params.Operation, params.Payload)
 	}
 	var payload SubmitPayload
-	if err := json.Unmarshal(params.Payload, &payload); err != nil || payload.Text == "" && len(payload.Parts) == 0 {
+	if err := json.Unmarshal(params.Payload, &payload); err != nil || payload.Text == "" && len(payload.Parts) == 0 && len(payload.Attachments) == 0 {
 		return CommandResult{}, errors.New("root command requires non-empty content")
 	}
 	commandKind := params.Operation
 	commandPayload := session.RuntimePayload{Data: []byte(payload.Text), MediaType: "text/plain", Source: params.Operation}
-	if len(payload.Parts) > 0 {
+	if len(payload.Parts) > 0 || len(payload.Attachments) > 0 {
 		commandKind = params.Operation + ".parts"
 		commandPayload = session.RuntimePayload{Data: params.Payload, MediaType: "application/json", Source: commandKind}
 	}

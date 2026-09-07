@@ -109,8 +109,17 @@ type StreamEvent struct {
 }
 
 type SubmitPayload struct {
-	Text  string            `json:"text"`
-	Parts []llm.ContentPart `json:"parts,omitempty"`
+	Text        string            `json:"text"`
+	Parts       []llm.ContentPart `json:"parts,omitempty"`
+	Attachments []InputAttachment `json:"attachments,omitempty"`
+}
+
+// InputAttachment keeps uploaded bodies out of request frames and command
+// payloads. The daemon resolves this exact scoped content identity on its worker.
+type InputAttachment struct {
+	Kind    string        `json:"kind"`
+	Content ContentHandle `json:"content"`
+	Name    string        `json:"name,omitempty"`
 }
 
 type UsageEvent struct {
@@ -227,6 +236,7 @@ type SnapshotParams struct {
 type UploadBeginParams struct {
 	UploadID       string `json:"upload_id"`
 	RootID         string `json:"root_id"`
+	AgentID        string `json:"agent_id,omitempty"`
 	ExpectedDigest string `json:"expected_digest"`
 	Size           int64  `json:"size,string"`
 	MediaType      string `json:"media_type,omitempty"`

@@ -1,0 +1,129 @@
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { WhipClient } from '@whip/sdk';
+import { Button, Dialog, Field, Input } from '@whip/ui';
+import { ChevronUp, Folder } from 'lucide-react';
+import * as stylex from '@stylexjs/stylex';
+import { layout } from './styles';
+
+export function DirectoryPicker({
+  client,
+  value,
+  onSelect,
+  disabled,
+}: {
+  client: WhipClient;
+  value: string;
+  onSelect(path: string): void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [path, setPath] = useState('');
+  const [typed, setTyped] = useState('');
+  const [after, setAfter] = useState<string>();
+  const query = useQuery({
+    queryKey: ['directories', client.getSnapshot().info?.runtime_id, path, after],
+    queryFn: ({ signal }) =>
+      client.host.directories(
+        { path: path || undefined, after, limit: 64 },
+        { signal },
+      ),
+    enabled: open && !disabled,
+  });
+  const navigate = (target: string) => {
+    setPath(target);
+    setTyped(target);
+    setAfter(undefined);
+  };
+  return (
+    <>
+      <Button
+        variant="secondary"
+        disabled={disabled}
+        onClick={() => {
+          navigate(value);
+          setOpen(true);
+        }}
+      >
+        <Folder size={14} /> Browse host
+      </Button>
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Choose a working directory"
+        description="Directories on the execution host."
+        footer={
+          <Button
+            disabled={!query.data || disabled}
+            onClick={() => {
+              if (query.data) {
+                onSelect(query.data.path);
+                setOpen(false);
+              }
+            }}
+          >
+            Use this folder
+          </Button>
+        }
+      >
+        <form
+          {...stylex.props(layout.row)}
+          onSubmit={(event) => {
+            event.preventDefault();
+            navigate(typed);
+          }}
+        >
+          <Field label="Host path">
+            <Input
+              value={typed}
+              onChange={(event) => setTyped(event.target.value)}
+            />
+          </Field>
+          <Button type="submit" variant="secondary">
+            Go
+          </Button>
+        </form>
+        <div {...stylex.props(layout.column)}>
+          <p {...stylex.props(layout.muted)}>{query.data?.path}</p>
+          {query.data?.parent && (
+            <Button
+              variant="ghost"
+              onClick={() => navigate(query.data!.parent!)}
+            >
+              <ChevronUp size={14} /> Parent folder
+            </Button>
+          )}
+          {query.isFetching && <p role="status">Loading directories…</p>}
+          {query.error && <p role="alert">{query.error.message}</p>}
+          {query.data?.entries?.map((entry) => (
+            <Button
+              variant="ghost"
+              key={entry.path}
+              onClick={() => navigate(entry.path)}
+            >
+              <Folder size={14} /> {entry.name}
+            </Button>
+          ))}
+          {query.data?.has_more && (
+            <Button
+              variant="secondary"
+              onClick={() => setAfter(query.data?.next_after)}
+            >
+              Next folders
+            </Button>
+          )}
+          {after && (
+            <Button variant="ghost" onClick={() => setAfter(undefined)}>
+              First folders
+            </Button>
+          )}
+          {query.data?.truncated && (
+            <p>
+              Directory listing is bounded; choose a subfolder or enter a path.
+            </p>
+          )}
+        </div>
+      </Dialog>
+    </>
+  );
+}

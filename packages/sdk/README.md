@@ -89,6 +89,23 @@ session.agents.cancelTurn(agentId, turnId); // explicit child turn target
 Only root submit/steer handles support command-targeted cancellation. Other
 operations must use their existing explicit turn/control operations.
 
+Upload an image or bounded text excerpt explicitly before submitting it:
+
+```ts
+const uploaded = await client.upload(bytes, { rootId, mediaType: 'text/plain' });
+const input = { text: 'Use this context.', attachments: [uploaded.asAttachment('text', 'notes.txt')] };
+await client.session(rootId).submit(input).accepted();
+// A child-only upload uses { rootId, agentId: childId, mediaType: 'text/plain' }.
+// Submit its attachment with session.agents.submit(childId, input, 'queued').
+```
+
+`asAttachment` never reads the content or embeds it in the request. The host
+checks grants, size, digest, and model image support on the execution path.
+An input supports 16 attachments totaling 20 MiB; text excerpts are at most
+256 KiB each. Text excerpts do not expand `@file` or `$skill` references. An
+interrupted upload never attaches itself to future work. Inspecting an existing
+content reference is separate from explicitly submitting it as model input.
+
 ## Reconnect and recovery
 
 Observe `client.getSnapshot()` with `client.subscribe(listener)`. Initialization
@@ -143,6 +160,12 @@ and paginated collections. Stale state remains visible during recovery. Root and
 child presentation remains separate from committed transcript entries. Inspecting
 a child never adds its transcript to another agent's model context.
 
+Pass the displayed revision to `session.history.clear(revision)` just as with
+rewind, so another client's destructive edit causes a conflict instead of an
+unconditional clear. Transcript message `content` is a string or a content-part
+array; text attachments and images use the latter. Large message bodies remain
+explicit scoped references under the normal page and view byte limits.
+
 Presentation rows append text, reasoning and terminal deltas. Tool-call arguments
 and tool output are cumulative values, so updates replace the matching row by
 call ID, including interleaved calls. Snapshots use the same grouping as live
@@ -194,9 +217,35 @@ stay outside recovery storage and logging; the SDK does not log payloads.
 Provider/configuration helpers (`client.providers`, `client.configuration`) call
 host services. Login status/list allow reconnect; restart interrupts incomplete
 flows. Configuration updates require the last read revision and surface conflicts.
+`client.providers.validate({ name, base_url, key })` checks a candidate key without
+saving it; `setKey` already validates before saving. `rotateKey('inference')`
+rotates the execution host's machine key. Both are ephemeral and sent once;
+inspect provider status after an uncertain acknowledgement before retrying.
 `session.terminalInput` is ephemeral and is never automatically retried.
 
 ## React example and validation
+
+Host bootstrap reads do not create sessions:
+
+```ts
+const directories = await client.host.directories({ path: '~/projects' });
+const providers = await client.providers.catalogs();
+const themes = await client.host.themes.list();
+const colors = await client.host.themes.resolve('opencode');
+const attention = await client.host.attention();
+```
+
+Directory and attention results have explicit pagination and truncation. Attention
+is a live index: refresh from its first page for newly active roots. Session
+catalog searches use `client.sessions.list({ search })`; group displayed paths
+using `workspace_id` scoped to the host runtime, never the shortened `cwd` label.
+Custom theme JSON can be validated/resolved with `host.themes.resolveJSON(json)`;
+selected themes remain client preferences.
+
+`session.mailbox.list({ agent_id, status })` and `session.mailbox.read(id, agentId)`
+inspect inter-agent mail without changing delivery state or model context.
+Bodies are bounded text or scoped content references. This is separate from the
+execution command inbox, and message revisions remain decimal strings.
 
 Start a daemon with `WHIP_NETWORK=1` and
 `WHIP_ALLOWED_ORIGINS=http://localhost:3000`, then read its endpoint from

@@ -72,6 +72,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Build and package the browser application
+        run: |
+          # Some binaries are cross-compiled; build-time generators must run
+          # for the runner rather than the eventual Go target.
+          env -u GOOS -u GOARCH npm run build:web
+          node scripts/pack-web.mjs
+          test -s internal/webassets/dist/index.html
+
       - name: Build the whip-computer Swift driver (macOS arm64)
         if: ${{ matrix.driver }}
         run: |
@@ -99,6 +112,17 @@ jobs:
           cd "$RUNNER_TEMP"
           "$bin" --version | grep -F "${{ github.ref_name }}"
           echo "OK: $bin runs and reports ${{ github.ref_name }}"
+
+      - name: Smoke test the embedded web app
+        if: ${{ matrix.smoke != false }}
+        run: |
+          bin="$PWD/dist/release/${{ matrix.asset }}"
+          web_smoke_home=$(mktemp -d)
+          export WHIP_HOME="$web_smoke_home"
+          trap '"$bin" daemon stop || true' EXIT
+          WHIP_NETWORK=1 "$bin" daemon start
+          web_url=$("$bin" web --no-open)
+          curl --fail --silent "$web_url" | grep -q '<html'
 
       - uses: actions/upload-artifact@v7
         with:

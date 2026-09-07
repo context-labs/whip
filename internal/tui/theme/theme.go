@@ -3,6 +3,8 @@ package theme
 import (
 	"image/color"
 
+	shared "github.com/context-labs/whip/internal/theme"
+
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -70,7 +72,7 @@ func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 	}
 	p := spec.Palette
 	t := &Theme{
-		Name: spec.Name, Dark: spec.Dark, Neutral: spec.neutral, Profile: profile, spec: spec,
+		Name: spec.Name, Dark: spec.Dark, Neutral: spec.Neutral(), Profile: profile, spec: spec,
 		Text: col(p.Text), Muted: col(p.Muted), Faint: col(p.Faint),
 		Primary: col(p.Primary), Accent: col(p.Accent),
 		Success: col(p.Success), Warning: col(p.Warning), Error: col(p.Error), Info: col(p.Info),
@@ -126,26 +128,11 @@ func Resolve(spec Spec, bg color.Color, profile colorprofile.Profile) *Theme {
 // because a small delta from white is invisible); with no background RGB the
 // built-in constants apply; under 16 colors or the neutral theme, none.
 func surfaces(spec Spec, bg color.Color, profile colorprofile.Profile) Surfaces {
-	if spec.neutral || profile < colorprofile.ANSI256 {
+	if spec.Neutral() || profile < colorprofile.ANSI256 {
 		return Surfaces{}
 	}
-	if spec.Surfaces != nil {
-		return Surfaces{Base: bg, Panel: col(spec.Surfaces.Panel), Element: col(spec.Surfaces.Element), Hover: col(spec.Surfaces.Hover)}
-	}
-	if bg != nil {
-		dark := isDark(bg)                    // the real background decides, so a light theme pinned on a dark terminal still raises
-		step := func(n float64) color.Color { // lipgloss takes fractions: 4% per step up on dark, 6% down on light
-			if dark {
-				return lipgloss.Lighten(bg, 0.04*n)
-			}
-			return lipgloss.Darken(bg, 0.06*n)
-		}
-		return Surfaces{Base: bg, Panel: step(1), Element: step(2), Hover: step(3)}
-	}
-	if spec.Dark { // raised on the common dark schemes, never sunken holes
-		return Surfaces{Panel: col("#343434"), Element: col("#404040"), Hover: col("#4c4c4c")}
-	}
-	return Surfaces{Panel: col("#ebebeb"), Element: col("#e1e1e1"), Hover: col("#d7d7d7")}
+	s := shared.Surfaces(spec, bg)
+	return Surfaces{Base: s.Base, Panel: s.Panel, Element: s.Element, Hover: s.Hover}
 }
 
 // On is the "paint a token on a layer" primitive components use instead of
@@ -170,10 +157,4 @@ func col(s string) color.Color {
 		return nil
 	}
 	return lipgloss.Color(s)
-}
-
-// isDark is a luma threshold on the terminal background.
-func isDark(c color.Color) bool {
-	r, g, b, _ := c.RGBA()
-	return 0.299*float64(r>>8)+0.587*float64(g>>8)+0.114*float64(b>>8) < 128
 }

@@ -1,0 +1,282 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "root_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "active_agents": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "pending_permissions": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)$",
+            "format": "int64"
+          },
+          "questions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "turn_id": {
+                  "type": "string"
+                },
+                "root_id": {
+                  "type": "string"
+                },
+                "agent_id": {
+                  "type": "string"
+                },
+                "sender_agent_id": {
+                  "type": "string"
+                },
+                "inbox_seq": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "inbox_kind": {
+                  "type": "string"
+                },
+                "delivery": {
+                  "type": "string"
+                },
+                "message_id": {
+                  "type": "string"
+                },
+                "phase": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "terminal_cause": {
+                  "type": "string"
+                },
+                "command_client_id": {
+                  "type": "string"
+                },
+                "command_id": {
+                  "type": "string"
+                },
+                "operation_id": {
+                  "type": "string"
+                },
+                "trace_id": {
+                  "type": "string"
+                },
+                "schedule_id": {
+                  "type": "integer"
+                },
+                "slot": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "acknowledged_inbox": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)$",
+                    "format": "int64"
+                  }
+                },
+                "subscription_id": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "expected_version": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "restored": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "not_restored": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "attempt": {
+                  "type": "string"
+                },
+                "budget_kind": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "limit": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "used": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "reserved": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "capability_id": {
+                  "type": "string"
+                },
+                "generation": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)$",
+                  "format": "int64"
+                },
+                "permission_id": {
+                  "type": "string"
+                },
+                "operation": {
+                  "type": "string"
+                },
+                "canonical_path": {
+                  "type": "string"
+                },
+                "request_digest": {
+                  "type": "string"
+                },
+                "command": {
+                  "type": "string"
+                },
+                "rule": {
+                  "type": "string"
+                },
+                "rule_source": {
+                  "type": "string"
+                },
+                "question_id": {
+                  "type": "string"
+                },
+                "question": {
+                  "type": "string"
+                },
+                "options": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "multiple": {
+                  "type": "boolean"
+                },
+                "answer": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "dismissed": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "root_id",
+          "title",
+          "active_agents",
+          "pending_permissions",
+          "questions",
+          "truncated"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "next_after_id": {
+      "type": "string"
+    },
+    "has_more": {
+      "type": "boolean"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v3/HostAttentionResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostAttentionResult",
+  "required": [
+    "items",
+    "has_more",
+    "truncated"
+  ],
+  "additionalProperties": false
+}

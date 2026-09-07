@@ -32,6 +32,9 @@
           "cwd": {
             "type": "string"
           },
+          "workspace_id": {
+            "type": "string"
+          },
           "pinned": {
             "type": "boolean"
           },
@@ -71,6 +74,9 @@
           "type": "string",
           "pattern": "^-?(0|[1-9][0-9]*)$",
           "format": "int64"
+        },
+        "search": {
+          "type": "string"
         }
       },
       "required": [

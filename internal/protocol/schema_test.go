@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/context-labs/whip/internal/llm"
 )
 
 func TestRegistrySchemasResolveAndHaveUniqueNames(t *testing.T) {
@@ -62,5 +64,63 @@ func TestValidateParametersBeforeAdmission(t *testing.T) {
 				t.Fatalf("valid=%v error=%v", test.valid, err)
 			}
 		})
+	}
+}
+
+func TestAttachmentKindUsesTheGeneratedContract(t *testing.T) {
+	for _, kind := range []string{"image", "text", "file"} {
+		body, err := json.Marshal(SubmitPayload{Text: "", Attachments: []InputAttachment{{Kind: kind, Content: ContentHandle{ReferenceID: "reference", Digest: "digest", Size: 1, MediaType: "text/plain", Source: "upload"}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ValidateRuntime("submit", body); (err == nil) != (kind != "file") {
+			t.Fatalf("attachment kind %s: %v", kind, err)
+		}
+	}
+}
+
+func TestClearHistoryOptionalRevision(t *testing.T) {
+	for _, test := range []struct {
+		raw   string
+		valid bool
+	}{
+		{`{}`, true},
+		{`{"expected_revision":"0"}`, true},
+		{`{"expected_revision":"9007199254740993"}`, true},
+		{`{"expected_revision":"-1"}`, false},
+		{`{"expected_revision":1}`, false},
+	} {
+		if err := ValidateRuntime("history.clear", json.RawMessage(test.raw)); (err == nil) != test.valid {
+			t.Fatalf("%s: valid=%v, err=%v", test.raw, test.valid, err)
+		}
+	}
+}
+
+func TestMultimodalMessageSchemaMatchesMarshalJSON(t *testing.T) {
+	schema, err := SchemaFor(reflect.TypeFor[llm.Message]())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []llm.Message{
+		{Role: "user", Content: "plain text"},
+		{Role: "user", Content: "with attachment", Parts: []llm.ContentPart{
+			{Type: "text", Text: "attachment body"}, llm.ImagePart("png", []byte("bounded schema fixture")),
+		}},
+	} {
+		data, err := json.Marshal(message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var value any
+		if err := json.Unmarshal(data, &value); err != nil {
+			t.Fatal(err)
+		}
+		if err := resolved.Validate(value); err != nil {
+			t.Fatalf("serialized message does not match schema: %s: %v", data, err)
+		}
 	}
 }

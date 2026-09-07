@@ -73,8 +73,22 @@ in
   views, scoped content, permission helpers and minimal React example.
 - [x] Trusted-client approvals: no enrollment, signer or first-run pairing prompt.
   Protocol v3 preserves permission decisions, rules and internal agent authority.
-- [ ] React web application and Electron desktop packaging (next milestone).
+- [x] React web implementation with separate UI/app/web source packages, TanStack
+  application primitives, Base UI controls and extracted StyleX styles.
+- [x] All 65 TUI themes, automatic appearance, custom-theme resolution and themed
+  read-only code, with deterministic generation and component contrast checks.
+- [x] Packaged browser assets and explicit `whip web` attachment/launch command.
+- [ ] Complete the web application's release acceptance: full workflow/recovery
+  matrix, actual mobile devices, VoiceOver/keyboard review and documented
+  performance gates. Implementation does not by itself complete this milestone.
+- [ ] Electron desktop packaging (after the web milestone).
+- [ ] Editing, code review and standalone terminal product surfaces (later work).
 - [ ] Hosted execution, connection authentication and relay infrastructure.
 
 See [protocol-v2.md](protocol-v2.md) and `.ai-docs/plans/protocol-v2/README.md`
 for the approved scope, implementation inventory and validation.
+
+The accepted web scope, source-package boundaries and phase evidence live in
+[the web application plan](../.ai-docs/plans/web-app/README.md). Repeatable browser
+and package checks are documented in [web-app.md](web-app.md); physical-device and
+assistive-technology checks remain explicit manual gates until recorded.

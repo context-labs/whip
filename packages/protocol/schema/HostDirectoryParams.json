@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "after": {
+      "type": "string"
+    },
+    "prefix": {
+      "type": "string"
+    },
+    "show_hidden": {
+      "type": "boolean"
+    },
+    "limit": {
+      "type": "integer"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v3/HostDirectoryParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostDirectoryParams",
+  "required": [
+    "limit"
+  ],
+  "additionalProperties": false
+}

@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/theme"
 )
 
 // Execution determines ownership and whether an operation enters the journal.
@@ -66,6 +67,12 @@ func rpc[P, R any](name string, execution Execution, permission string, sensitiv
 }
 
 var rpcOperations = []Operation{
+	rpc[HostDirectoryParams, HostDirectoryResult]("host.directories.list", Query, "host-runtime", false),
+	rpc[HostAttentionParams, HostAttentionResult]("host.attention", Query, "host-runtime", false),
+	rpc[EmptyParams, theme.CatalogResult]("host.themes.list", Query, "host-runtime", false),
+	rpc[HostThemeResolveParams, theme.Resolved]("host.themes.resolve", Query, "host-runtime", false),
+	rpc[MailboxPageParams, session.MailboxPage]("mailbox.list", Query, "root-agent-association", false),
+	rpc[MailboxReadParams, session.MailboxInspection]("mailbox.read", Query, "root-agent-association", false),
 	rpc[CompletionParams, CompletionResult]("workspace.complete", Query, "root-agent-association", false),
 	rpc[SessionCatalogParams, session.SessionCatalogPage]("sessions.list", Query, "host-runtime", false),
 	rpc[EmptyParams, session.CatalogRevision]("sessions.revision", Query, "host-runtime", false),

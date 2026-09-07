@@ -1,9 +1,10 @@
-import { assertValid, type ContentHandle } from '@whip/protocol';
+import { assertValid, type ContentHandle, type SubmitPayload } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import { WhipError } from './errors.js';
 import { decodeBase64, digestHex, encodeBase64, frozen, uuid } from './util.js';
 
 export interface ContentScope { rootId: string; agentId?: string }
+export type InputAttachment = NonNullable<SubmitPayload['attachments']>[number];
 export interface ReadContentOptions extends CallOptions { maxBytes: number }
 export interface UploadOptions extends ContentScope, CallOptions { mediaType?: string; source?: string }
 
@@ -16,6 +17,10 @@ export class ContentReference {
     if (!scope.rootId || BigInt(handle.size) < 0n || !/^[a-f0-9]{64}$/.test(handle.digest)) throw new TypeError('Invalid content scope, size or digest');
     this.handle = frozen({ ...handle });
     this.scope = frozen({ rootId: scope.rootId, ...(scope.agentId ? { agentId: scope.agentId } : {}) });
+  }
+  /** An input reference, without downloading or embedding the content body. */
+  asAttachment(kind: 'image' | 'text', name?: string): InputAttachment {
+    return frozen({ kind, content: { ...this.handle }, ...(name ? { name } : {}) });
   }
   async readBytes(options: ReadContentOptions): Promise<Uint8Array<ArrayBuffer>> {
     options.signal?.throwIfAborted();
@@ -77,7 +82,7 @@ function httpError(status: number): WhipError {
 export async function upload(client: WhipClient, input: Uint8Array<ArrayBuffer>, options: UploadOptions): Promise<ContentReference> {
   options.signal?.throwIfAborted();
   const info = client.requireConnected();
-  if (!options.rootId || options.agentId && options.agentId !== options.rootId) throw new WhipError('invalid_arguments', 'Uploads are granted to the root; child grants must be issued by the daemon');
+  if (!options.rootId) throw new WhipError('invalid_arguments', 'Upload requires a root scope');
   if (BigInt(input.byteLength) > BigInt(info.limits.upload_bytes)) throw new WhipError('resource_limit', 'Upload exceeds the daemon limit');
   const signal = transferSignal(client, options);
   // Snapshot once: the digest and transmitted bytes must describe the same input.
@@ -88,6 +93,7 @@ export async function upload(client: WhipClient, input: Uint8Array<ArrayBuffer>,
   if (client.transportKind === 'websocket') {
     const url = new URL('/api/v3/content/upload', client.httpEndpoint);
     url.searchParams.set('root_id', options.rootId);
+    if (options.agentId) url.searchParams.set('agent_id', options.agentId);
     const response = await fetch(url, { method: 'POST', signal, headers: { 'Content-Type': options.mediaType ?? 'application/octet-stream', 'X-Content-SHA256': digest }, body: bytes });
     if (!response.ok) throw httpError(response.status);
     // A handle is small, but still bound the response independently of the upload.
@@ -110,7 +116,7 @@ export async function upload(client: WhipClient, input: Uint8Array<ArrayBuffer>,
     const epoch = info.connection_id;
     const check = () => { signal.throwIfAborted(); if (client.requireConnected().connection_id !== epoch) throw new WhipError('disconnected', 'Upload connection changed; begin a new upload explicitly'); };
     check();
-    await client.call('upload.begin', { upload_id: id, root_id: options.rootId, expected_digest: digest, size: String(bytes.byteLength), media_type: options.mediaType, source: options.source }, { signal });
+    await client.call('upload.begin', { upload_id: id, root_id: options.rootId, ...(options.agentId ? { agent_id: options.agentId } : {}), expected_digest: digest, size: String(bytes.byteLength), media_type: options.mediaType, source: options.source }, { signal });
     for (let offset = 0; offset < bytes.length; offset += info.limits.content_chunk_bytes) {
       check();
       await client.call('upload.chunk', { upload_id: id, offset: String(offset), data: encodeBase64(bytes.subarray(offset, offset + info.limits.content_chunk_bytes)) }, { signal });

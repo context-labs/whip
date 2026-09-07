@@ -12,4 +12,12 @@ node_modules/
 packages/sdk/dist/
 packages/sdk/build/
 examples/*/dist/
+apps/*/dist/
+packages/ui/storybook-static/
+test-results/
+playwright-report/
 *.tgz
+
+# Browser release assets copied by scripts/pack-web.mjs before Go builds.
+internal/webassets/dist/*
+!internal/webassets/dist/.gitkeep

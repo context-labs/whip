@@ -23,6 +23,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
+	"github.com/context-labs/whip/internal/webassets"
 )
 
 // TestV2SDKBridge runs only as a subprocess of the SDK acceptance scripts. Its
@@ -51,6 +52,9 @@ func TestV2SDKBridge(t *testing.T) {
 		rootID, err = store.Create(session.SessionKindAgent, directory, "model", "provider")
 		if err != nil {
 			t.Fatal(err)
+		}
+		if os.Getenv("WHIP_WEB_PERF_FIXTURE") == "1" {
+			seedSDKPerformanceHistory(t, store, rootID, directory)
 		}
 	}
 	frontendAddress := "127.0.0.1:0"
@@ -124,6 +128,9 @@ func TestV2SDKBridge(t *testing.T) {
 	done := make(chan struct{})
 	var once sync.Once
 	mux := http.NewServeMux()
+	if os.Getenv("WHIP_WEB_PERF_FIXTURE") == "1" {
+		registerSDKPerformanceProbes(mux, store, rootID)
+	}
 	mux.HandleFunc("POST /done", func(http.ResponseWriter, *http.Request) { once.Do(func() { close(done) }) })
 	mux.HandleFunc("GET /bridge.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -164,7 +171,7 @@ func TestV2SDKBridge(t *testing.T) {
 	assets := http.FileServer(http.Dir(filepath.Join(directory, "public")))
 	mux.Handle("GET /", assets)
 	frontendServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self' "+info.Endpoint+" "+initialized.NetworkEndpoint+"; style-src 'self'; base-uri 'none'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", webassets.ContentSecurityPolicy)
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		mux.ServeHTTP(w, r)
@@ -208,11 +215,34 @@ type sdkFixtureRunner struct {
 	services *tools.Services
 }
 
+func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
+	// Echo the resolved model input so built SDK tests can distinguish an actual
+	// host attachment read from an opaque reference appended to the prompt.
+	data, err := json.Marshal(SubmitPayload{Text: input, Parts: parts})
+	if err != nil {
+		return "", err
+	}
+	output, err := r.Turn(ctx, string(data), true, started, accepted)
+	r.mu.Lock()
+	for index := len(r.history) - 1; index >= 0; index-- {
+		if r.history[index].Role == "user" {
+			r.history[index].Content = input
+			r.history[index].Parts = parts
+			break
+		}
+	}
+	r.mu.Unlock()
+	return output, err
+}
+
 func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
 	return r.fakeRunner.Turn(ctx, input, authored, func() {
 		started()
 		for _, text := range []string{input[:len(input)/2], input[len(input)/2:]} {
 			r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{kind: "stream.text", event: StreamEvent{Text: text}}})
+		}
+		if os.Getenv("WHIP_WEB_PERF_FIXTURE") == "1" && input == "hold:performance-stream" {
+			streamSDKPerformance(ctx, r.root)
 		}
 		if input == "hold:tool-stream" {
 			// Interleave calls so the supervisor cannot coalesce all updates before

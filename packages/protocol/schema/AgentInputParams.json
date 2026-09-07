@@ -9,6 +9,102 @@
     },
     "delivery": {
       "type": "string"
+    },
+    "parts": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "w": {
+            "type": "integer"
+          },
+          "h": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "attachments": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "image",
+              "text"
+            ]
+          },
+          "content": {
+            "type": "object",
+            "properties": {
+              "reference_id": {
+                "type": "string"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "size": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "media_type": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reference_id",
+              "digest",
+              "size"
+            ],
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "content"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "$id": "https://whip.dev/protocol/v3/AgentInputParams",

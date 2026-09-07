@@ -84,7 +84,7 @@ test('even empty Unix content must pass the root/agent/reference grant check', a
   assert.equal(fixture.current.requests[1]!.params.limit, 1);
 });
 
-test('Unix upload snapshots input, verifies result, and does not grant child authority', async t => {
+test('Unix upload snapshots input, verifies result, and preserves explicit recipient scope', async t => {
   const original = text.encode('initial upload');
   const input = original.slice();
   const chunks: Uint8Array[] = [];
@@ -105,8 +105,13 @@ test('Unix upload snapshots input, verifies result, and does not grant child aut
   assert.doesNotThrow(() => controller.abort());
   assert.equal(fixture.current.requests[1]!.params.expected_digest, handle(original).digest);
   const count = fixture.current.requests.length;
-  await assert.rejects(client.upload(input, { rootId: 'root', agentId: 'child' }), { kind: 'invalid_arguments' });
-  assert.equal(fixture.current.requests.length, count);
+  const child = await client.upload(original, { rootId: 'root', agentId: 'child' });
+  assert.equal(fixture.current.requests[count]!.params.agent_id, 'child');
+  assert.deepEqual(child.scope, { rootId: 'root', agentId: 'child' });
+  const attachment = child.asAttachment('text', 'notes.txt');
+  assert.deepEqual(attachment, { kind: 'text', name: 'notes.txt', content: child.handle });
+  assert.ok(Object.isFrozen(attachment));
+  assert.equal('text' in attachment, false);
 });
 
 test('interrupted upload does not finish or automatically restart on reconnection', async t => {

@@ -1,7 +1,24 @@
-import type { ConfigurationUpdate, PermissionDecision, ProviderKeySetup } from '@whip/protocol';
+import type { ConfigurationUpdate, HostAttentionParams, HostDirectoryParams, PermissionDecision, ProviderKeySetup, ProviderValidateParams } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
 import { uuid } from './util.js';
+
+/** Host reads do not construct session actors or change client preferences. */
+export class Host {
+  constructor(private readonly client: WhipClient) {}
+  directories(params: Partial<HostDirectoryParams> = {}, options: CallOptions = {}) {
+    return this.client.call('host.directories.list', { limit: 64, ...params }, options);
+  }
+  /** Advisory paged attention index. Refresh its first page to see newly active roots. */
+  attention(params: Partial<HostAttentionParams> = {}, options: CallOptions = {}) {
+    return this.client.call('host.attention', { limit: 64, max_bytes: 256 << 10, ...params }, options);
+  }
+  readonly themes = {
+    list: (options: CallOptions = {}) => this.client.call('host.themes.list', {}, options),
+    resolve: (name: string, options: CallOptions = {}) => this.client.call('host.themes.resolve', { name }, options),
+    resolveJSON: (json: string, options: CallOptions = {}) => this.client.call('host.themes.resolve', { json }, options),
+  };
+}
 
 export class Permissions {
   constructor(private readonly client: WhipClient) {}
@@ -24,6 +41,8 @@ export class Providers {
   catalogs(options: CallOptions = {}) { return this.client.query('provider.catalogs', {}, options); }
   status(name: string, options: CallOptions = {}) { return this.client.call('provider.status', { provider: name }, options); }
   setKey(params: ProviderKeySetup, options: CallOptions = {}) { return this.client.call('provider.key.set', params, options); }
+  validate(params: ProviderValidateParams, options: CallOptions = {}) { return this.client.call('provider.validate', params, options); }
+  rotateKey(name: string, options: CallOptions = {}) { return this.client.call('provider.key.rotate', { provider: name }, options); }
   logout(name: string, options: CallOptions = {}) { return this.client.call('provider.logout', { provider: name }, options); }
   readonly login = {
     begin: (options: CallOptions = {}) => this.client.call('provider.login.begin', {}, options),

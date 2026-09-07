@@ -7,7 +7,8 @@
   },
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*",
+    "apps/*"
   ],
   "scripts": {
     "generate": "npm run generate -w @whip/protocol",
@@ -17,16 +18,36 @@
     "acceptance": "npm run build && node packages/sdk/scripts/acceptance.mjs",
     "test:browser": "npm run build && node packages/sdk/scripts/browser-smoke.mjs",
     "test:package": "npm run build && node packages/sdk/scripts/package-smoke.mjs",
-    "test:example": "npm run build && node examples/client/smoke.mjs"
+    "test:example": "npm run build && node examples/client/smoke.mjs",
+    "dev:web": "npm run dev -w @whip/web",
+    "build:web": "npm run build -w @whip/sdk && npm run build -w @whip/web",
+    "check:web": "tsc -p packages/app/tsconfig.json --noEmit && npm run build:web",
+    "test:web": "vitest run --config apps/web/vitest.config.ts",
+    "storybook": "npm run storybook -w @whip/ui",
+    "build:storybook": "npm run build:storybook -w @whip/ui",
+    "pack:web": "npm run build:web && node scripts/pack-web.mjs",
+    "generate:themes": "go run ./cmd/themegen",
+    "check:themes": "go run ./cmd/themegen -check"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
+    "@storybook/addon-a11y": "10.6.0",
+    "@storybook/react-vite": "10.6.0",
+    "@stylexjs/unplugin": "0.19.0",
+    "@tanstack/router-plugin": "1.168.35",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
     "@types/node": "24.13.3",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.1",
     "esbuild": "0.28.2",
+    "jsdom": "29.1.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "typescript": "5.9.3"
+    "storybook": "10.6.0",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vitest": "5.0.0"
   }
 }

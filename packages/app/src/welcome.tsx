@@ -1,0 +1,139 @@
+import { useState } from 'react';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { useWhipConnection } from '@whip/sdk/react';
+import { Button, Combobox, Input } from '@whip/ui';
+import { ArrowRight, FolderOpen, Sparkles } from 'lucide-react';
+import * as stylex from '@stylexjs/stylex';
+import { useAppState, useRuntime } from './context';
+import { layout } from './styles';
+import type { WhipClient } from '@whip/sdk';
+import { DirectoryPicker } from './directory-picker';
+
+export function Welcome() {
+  const { client } = useAppState();
+  return (
+    <div {...stylex.props(layout.empty)}>
+      <Sparkles size={28} strokeWidth={1.3} />
+      <h1 {...stylex.props(layout.emptyTitle)}>
+        What would you like to work on?
+      </h1>
+      <p {...stylex.props(layout.emptyText)}>
+        Start a conversation. Give your agents a direction, follow their
+        progress, and step in when they need you.
+      </p>
+      {client ? (
+        <NewSession client={client} />
+      ) : (
+        <p>Connect to your execution host to begin.</p>
+      )}
+    </div>
+  );
+}
+function NewSession({ client }: { client: WhipClient }) {
+  const runtime = useRuntime();
+  const connection = useWhipConnection(client);
+  const navigate = useNavigate();
+  const [cwd, setCwd] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [model, setModel] = useState('');
+  const previous = runtime.lastSession();
+  const enabled = connection.state === 'connected';
+  const catalogs = useQuery({
+    queryKey: ['provider-catalogs', connection.info?.runtime_id],
+    queryFn: ({ signal }) => client.providers.catalogs({ signal }),
+    enabled,
+  });
+  const models = Object.entries(catalogs.data?.result?.models ?? {}).flatMap(
+    ([name, info]) =>
+      (info.providers ?? []).map((provider) => ({
+        value: JSON.stringify([name, provider]),
+        label: `${name} · ${provider}`,
+      })),
+  );
+  return (
+    <form
+      {...stylex.props(layout.column)}
+      style={{ width: 'min(100%, 420px)', textAlign: 'left' }}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        try {
+          const selection: [string, string] = model
+            ? JSON.parse(model)
+            : ['', ''];
+          const outcome = await runtime.run(
+            client.sessions.create({
+              cwd,
+              model: selection[0],
+              provider: selection[1],
+            }),
+            'Create session',
+          );
+          if (!outcome.result)
+            throw new Error('Session creation returned no session');
+          await navigate({
+            to: '/h/$runtimeId/s/$rootId',
+            params: {
+              runtimeId: connection.info!.runtime_id,
+              rootId: outcome.result.root_id,
+            },
+            search: {},
+          });
+        } catch (error) {
+          runtime.report(error);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {previous && previous.runtimeId === connection.info?.runtime_id && (
+        <Link to="/h/$runtimeId/s/$rootId" params={previous} search={{}}>
+          Continue your previous session
+        </Link>
+      )}
+      <label
+        htmlFor="workspace-path"
+        {...stylex.props(layout.row, layout.muted)}
+      >
+        <FolderOpen size={14} /> Working directory on the host
+      </label>
+      <Input
+        id="workspace-path"
+        value={cwd}
+        onChange={(event) => setCwd(event.target.value)}
+        placeholder="/path/to/your/project"
+        required
+      />
+      <DirectoryPicker
+        client={client}
+        value={cwd}
+        onSelect={setCwd}
+        disabled={!enabled}
+      />
+      {!!models.length && (
+        <Combobox
+          label="Model for new session"
+          value={model}
+          onValueChange={setModel}
+          options={[{ value: '', label: 'Use host default model' }, ...models]}
+        />
+      )}
+      <Button
+        variant="primary"
+        type="submit"
+        loading={busy}
+        disabled={!enabled || !cwd.trim()}
+      >
+        Start a session <ArrowRight size={15} />
+      </Button>
+      <Link
+        to="/settings"
+        search={{ section: 'providers' }}
+        {...stylex.props(layout.muted)}
+      >
+        Connect or configure a model provider
+      </Link>
+    </form>
+  );
+}

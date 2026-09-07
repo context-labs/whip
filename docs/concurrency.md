@@ -215,3 +215,56 @@ There is no client enrollment or shared signing nonce to serialize. An uncertain
 not automatically replayed. Provider secrets and terminal input never enter a
 replay queue. HTTP transfer lifetimes are bound to the connection as well as the
 caller's abort signal.
+
+## React application lifetimes
+
+`packages/app/src/runtime.ts` owns the current SDK client, session-list view,
+TanStack Query client, root-view leases and local command waiters. Host attachment
+increments an application epoch. Late connections, acceptance callbacks and
+terminal outcomes from an older epoch cannot mutate the replacement host. Detach
+aborts local waits, disposes views/listeners and clears query data before closing
+the old client; daemon work keeps its existing supervision.
+
+Components lease one shared SDK `SessionView` per root. Leases release
+idempotently, and a zero-user view expires after 30 seconds; at most four views
+are retained by the application, within the daemon's 16-subscription limit.
+Admission never evicts an actively observed root. Route preloading does not open
+a root subscription. React StrictMode and overlapping components share the lease
+instead of creating independent event reducers. The SDK alone owns replay,
+snapshot replacement, sequence checks and history revision invalidation.
+
+TanStack Query handles explicit host reads with automatic request/mutation retries
+and browser-online heuristics disabled. A new daemon connection invalidates host
+reads; detach clears them. Mutation helpers use SDK command identities and
+acceptance/outcomes. Uncertain delivery holds the matching draft against a new-ID
+resend, and only an authoritative absence enables explicit original-request
+retry. Permission acknowledgement loss is reconciled by refreshing the pending
+ledger before another decision. No reconnect path submits a draft, credential or
+terminal input automatically.
+
+Drafts are keyed by runtime/root/recipient and stored separately from identity-only
+command recovery. The application bounds drafts by count and bytes and batches
+persistence for 150 ms, flushing at teardown. Acceptance clears only the matching
+submission/recipient; a late result cannot unlock a newer submission. Browser
+storage adapters serialize concurrent recovery writes, with visible memory-only
+fallback when persistent storage is unavailable. The browser shell owns cross-tab
+storage coordination; the SDK does not assume localStorage is transactional.
+
+Appearance has no daemon execution lifetime. The document and portal host share
+one theme, and theme changes update a fixed variable allowlist without remounting
+sessions. Code highlighting is lazy and bounded to 16 KiB of text and 4,096 tokens;
+theme switches restyle retained nodes rather than tokenizing again. Transcript
+virtualization keeps focused/selected rows mounted, distinguishes following the
+latest output from reading older rows, and uses history identities for paging.
+One TanStack Virtual instance owns end anchoring and dynamic row measurements at
+every history size; switching rendering modes or also applying manual prepend
+offsets would lose or double-adjust the reading position. The loaded-production
+regression in `apps/web/scripts/performance.mjs` checks four successive prepends,
+selection across an 8,000-pixel scroll, and cached recipient switches against
+10,000 stored messages and 100 retained child agents.
+
+The corresponding ownership regressions are in `packages/app/test/runtime.test.ts`,
+`composer.test.tsx`, `timeline.test.tsx`, and `requests.test.tsx`. Component/CSP and
+packed-consumer checks live under `packages/ui/tests`; the production fake-daemon
+browser workflow suite lives at `apps/web/scripts/browser.mjs`. Manual device and
+screen-reader gates are tracked separately in the accepted web plan.

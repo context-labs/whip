@@ -154,6 +154,104 @@
     }
   },
   {
+    "type": "HostAttentionParams",
+    "value": {
+      "limit": 0,
+      "max_bytes": 0
+    }
+  },
+  {
+    "type": "HostAttentionResult",
+    "value": {
+      "items": [],
+      "has_more": false,
+      "truncated": false
+    }
+  },
+  {
+    "type": "HostDirectoryParams",
+    "value": {
+      "limit": 0
+    }
+  },
+  {
+    "type": "HostDirectoryResult",
+    "value": {
+      "path": "",
+      "parent": "",
+      "entries": [],
+      "has_more": false,
+      "truncated": false
+    }
+  },
+  {
+    "type": "EmptyParams",
+    "value": {}
+  },
+  {
+    "type": "CatalogResult",
+    "value": {
+      "themes": [],
+      "errors": [],
+      "truncated": false
+    }
+  },
+  {
+    "type": "HostThemeResolveParams",
+    "value": {}
+  },
+  {
+    "type": "Resolved",
+    "value": {
+      "id": "",
+      "name": "",
+      "dark": false,
+      "colors": {
+        "background": "",
+        "foreground": "",
+        "muted": "",
+        "faint": "",
+        "primary": "",
+        "on_primary": "",
+        "accent": "",
+        "success": "",
+        "warning": "",
+        "error": "",
+        "info": "",
+        "link": "",
+        "emphasis": "",
+        "border": "",
+        "border_focus": "",
+        "diff_add": "",
+        "diff_del": "",
+        "panel": "",
+        "element": "",
+        "hover": ""
+      },
+      "syntax": {
+        "keyword": "",
+        "string": "",
+        "number": "",
+        "comment": "",
+        "function": "",
+        "type": "",
+        "operator": "",
+        "punctuation": ""
+      },
+      "markdown": {
+        "heading": "",
+        "strong": "",
+        "code": "",
+        "quote": ""
+      },
+      "code": {
+        "foreground": "",
+        "background": "",
+        "tokens": {}
+      }
+    }
+  },
+  {
     "type": "InitializeResult",
     "value": {
       "operations": [],
@@ -177,6 +275,56 @@
       "build_id": "",
       "generation": "0",
       "capabilities": []
+    }
+  },
+  {
+    "type": "MailboxPageParams",
+    "value": {
+      "root_id": "",
+      "agent_id": "",
+      "limit": 0,
+      "max_bytes": 0
+    }
+  },
+  {
+    "type": "MailboxPage",
+    "value": {
+      "revision": "0",
+      "items": [],
+      "has_more": false
+    }
+  },
+  {
+    "type": "MailboxReadParams",
+    "value": {
+      "root_id": "",
+      "agent_id": "",
+      "id": ""
+    }
+  },
+  {
+    "type": "MailboxInspection",
+    "value": {
+      "id": "",
+      "revision": "0",
+      "sender": "",
+      "recipient": "",
+      "kind": "",
+      "delivery": "",
+      "subject": "",
+      "excerpt": "",
+      "body": {
+        "reference_id": "",
+        "digest": "",
+        "size": "0",
+        "media_type": "",
+        "source": ""
+      },
+      "status": "",
+      "available_at": "0001-01-01T00:00:00Z",
+      "created_at": "0001-01-01T00:00:00Z",
+      "delivered_at": "0001-01-01T00:00:00Z",
+      "done_at": "0001-01-01T00:00:00Z"
     }
   },
   {
@@ -366,10 +514,6 @@
       "items": [],
       "has_more": false
     }
-  },
-  {
-    "type": "EmptyParams",
-    "value": {}
   },
   {
     "type": "CatalogRevision",
@@ -596,6 +740,10 @@
     "value": {
       "text": ""
     }
+  },
+  {
+    "type": "ClearHistoryParams",
+    "value": {}
   },
   {
     "type": "CompactionResult",

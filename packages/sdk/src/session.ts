@@ -1,6 +1,6 @@
 import type {
   CommandOperation, RuntimeOperations, QueryOperation, EphemeralOperation,
-  CreateSessionParams, SessionCatalogParams, SubmitPayload, HistoryPageParams,
+  CreateSessionParams, SessionCatalogParams, SubmitPayload, HistoryPageParams, MailboxPageParams,
 } from '@whip/protocol';
 import type { WhipClient, CallOptions } from './client.js';
 import type { CommandOptions } from './command.js';
@@ -34,17 +34,26 @@ export class Session {
     page: (params: Partial<Omit<HistoryPageParams, 'root_id'>> = {}, options: CallOptions = {}) => this.client.call('history.page', {
       root_id: this.rootId, agent_id: this.rootId, through_seq: -1, limit: 128, max_bytes: 512 << 10, recent: true, ...params,
     }, options),
-    clear: () => this.command('history.clear', {}),
+    clear: (expectedRevision?: string) => this.command('history.clear', expectedRevision === undefined ? {} : { expected_revision: expectedRevision }),
     rewind: (cut: number, expectedRevision: string) => this.command('history.rewind', { cut, expected_revision: expectedRevision }),
     compact: () => this.command('history.compact', {}),
   };
   readonly agents = {
     list: (options: CallOptions = {}) => this.query('agents.list', {}, options),
     inspect: (id: string, options: CallOptions = {}) => this.query('agent.transcript', { id }, options),
-    submit: (id: string, text: string, delivery = 'queued') => this.command('agent.submit', { id, text, delivery }),
+    submit: (id: string, input: string | SubmitPayload, delivery = 'queued') => this.command('agent.submit', { id, ...(typeof input === 'string' ? { text: input } : input), delivery }),
     cancelTurn: (id: string, turnId: string) => this.command('agent.turn.cancel', { id, turn_id: turnId }),
     control: (id: string) => this.command('agent.control', { id }),
     delete: (id: string) => this.command('agent.delete', { id }),
+  };
+  /** Human inspection does not acknowledge, deliver, or complete agent mail. */
+  readonly mailbox = {
+    list: (params: Partial<Omit<MailboxPageParams, 'root_id'>> = {}, options: CallOptions = {}) => this.client.call('mailbox.list', {
+      root_id: this.rootId, agent_id: this.rootId, limit: 64, max_bytes: 256 << 10, ...params,
+    }, options),
+    read: (id: string, agentId = this.rootId, options: CallOptions = {}) => this.client.call('mailbox.read', {
+      root_id: this.rootId, agent_id: agentId, id,
+    }, options),
   };
   answerQuestion(id: string, answer: string[], dismissed = false) { return this.command('question.answer', { id, answer, dismissed }); }
   terminalInput(id: string, bytes: Uint8Array, options: CallOptions = {}) {

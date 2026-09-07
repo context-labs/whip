@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"image/color"
 
+	shared "github.com/context-labs/whip/internal/theme"
+
 	"charm.land/glamour/v2/ansi"
 	"charm.land/glamour/v2/styles"
 	"github.com/alecthomas/chroma/v2"
@@ -18,23 +20,9 @@ type Syntax struct{ Keyword, Type, Func, String, Number, Comment, Punct, Op colo
 // Syntax derives the code roles from the semantic palette, unless the spec
 // pins them.
 func (t *Theme) Syntax() Syntax {
-	s := Syntax{
-		Keyword: t.Primary, Type: t.Info, Func: t.Accent, String: t.Success,
-		Number: t.Warning, Comment: t.Faint, Punct: t.Muted, Op: t.Text,
-	}
-	if p := t.spec.Syntax; p != nil {
-		s.Keyword, s.Type, s.Func, s.String = or(p.Keyword, s.Keyword), or(p.Type, s.Type), or(p.Function, s.Func), or(p.String, s.String)
-		s.Number, s.Comment, s.Punct, s.Op = or(p.Number, s.Number), or(p.Comment, s.Comment), or(p.Punctuation, s.Punct), or(p.Operator, s.Op)
-	}
-	return s
-}
-
-// or is the pinned color when the spec names one, else the derived one.
-func or(pinned string, derived color.Color) color.Color {
-	if pinned == "" {
-		return derived
-	}
-	return col(pinned)
+	s := t.spec.SyntaxColors()
+	return Syntax{Keyword: col(s.Keyword), Type: col(s.Type), Func: col(s.Function), String: col(s.String),
+		Number: col(s.Number), Comment: col(s.Comment), Punct: col(s.Punctuation), Op: col(s.Operator)}
 }
 
 // ChromaName is the registered chroma style for this theme: the user's pick
@@ -50,27 +38,7 @@ func (t *Theme) ChromaName() string {
 
 // ChromaEntries is the generated token->style map.
 func (t *Theme) ChromaEntries() chroma.StyleEntries {
-	s := t.Syntax()
-	entries := chroma.StyleEntries{
-		chroma.Text:            hexOf(t.Text),
-		chroma.Keyword:         hexOf(s.Keyword),
-		chroma.KeywordType:     hexOf(s.Type),
-		chroma.NameFunction:    hexOf(s.Func),
-		chroma.NameClass:       hexOf(s.Type) + " bold",
-		chroma.NameBuiltin:     hexOf(s.Func),
-		chroma.LiteralString:   hexOf(s.String),
-		chroma.LiteralNumber:   hexOf(s.Number),
-		chroma.Comment:         hexOf(s.Comment) + " italic",
-		chroma.Punctuation:     hexOf(s.Punct),
-		chroma.Operator:        hexOf(s.Op),
-		chroma.GenericInserted: hexOf(t.Success),
-		chroma.GenericDeleted:  hexOf(t.Error),
-		chroma.Error:           hexOf(t.Error),
-	}
-	if t.Surface.Element != nil {
-		entries[chroma.Background] = "bg:" + hexOf(t.Surface.Element)
-	}
-	return entries
+	return shared.CodeEntries(t.spec, t.Surface.Element)
 }
 
 // ChromaStyle registers (once) and returns the chroma style code blocks and
@@ -93,10 +61,8 @@ func (t *Theme) Markdown() ansi.StyleConfig {
 	if !t.Dark {
 		st = styles.LightStyleConfig
 	}
-	heading, strong, code, quote := p.Accent, p.Warning, p.Success, p.Muted
-	if md := t.spec.Markdown; md != nil {
-		heading, strong, code, quote = orStr(md.Heading, heading), orStr(md.Strong, strong), orStr(md.Code, code), orStr(md.Quote, quote)
-	}
+	md := t.spec.MarkdownColors()
+	heading, strong, code, quote := md.Heading, md.Strong, md.Code, md.Quote
 	st.Document.Color = optStr(p.Text) // "" = terminal default foreground
 	st.Heading.Color = optStr(heading)
 	st.H1.Color, st.H1.BackgroundColor = optStr(heading), nil // no color chip
@@ -125,13 +91,6 @@ func (t *Theme) Markdown() ansi.StyleConfig {
 		st.CodeBlock.Theme = t.ChromaName()
 	}
 	return st
-}
-
-func orStr(pinned, derived string) string {
-	if pinned == "" {
-		return derived
-	}
-	return pinned
 }
 
 func optStr(s string) *string {

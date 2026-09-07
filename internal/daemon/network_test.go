@@ -3,7 +3,9 @@ package daemon
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestNetworkHandlerValidatesHostOriginAndUpgrade(t *testing.T) {
@@ -14,6 +16,7 @@ func TestNetworkHandlerValidatesHostOriginAndUpgrade(t *testing.T) {
 	}
 	server := httptest.NewServer(handler)
 	defer server.Close()
+	server.Client().Timeout = 2 * time.Second
 	for _, test := range []struct {
 		name, host, origin, key string
 		status                  int
@@ -22,6 +25,7 @@ func TestNetworkHandlerValidatesHostOriginAndUpgrade(t *testing.T) {
 		{name: "origin", host: "127.0.0.1:7000", origin: "http://evil.test", status: 403},
 		{name: "origin suffix", host: "127.0.0.1:7000", origin: "http://localhost:3000.evil.test", status: 403},
 		{name: "null origin", host: "127.0.0.1:7000", origin: "null", status: 403},
+		{name: "same origin without configuration", host: "127.0.0.1:7000", origin: "http://127.0.0.1:7000", key: "nil", status: 400},
 		{name: "normal upgrade checks", host: "127.0.0.1:7000", origin: "http://localhost:3000", key: "nil", status: 400},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -66,5 +70,29 @@ func TestNetworkDisabledAndConnectionExhaustion(t *testing.T) {
 	listener, err := (NetworkOptions{}).listen()
 	if err != nil || listener != nil {
 		t.Fatal("disabled network opened listener")
+	}
+}
+
+func TestNetworkWebDiscoveryAndHostGuard(t *testing.T) {
+	handler, err := newNetworkHandler(NetworkOptions{Enabled: true, AllowedHosts: []string{"localhost:8080"}},
+		func(messageTransport) { t.Fatal("unexpected upgrade") }, func() bool { return true }, func() {}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/", "/sessions/root", "/api/v3/web"} {
+		request := httptest.NewRequest(http.MethodGet, "http://evil.test"+path, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != 403 {
+			t.Fatalf("host bypass on %s: %d", path, response.Code)
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://localhost:8080/api/v3/web", nil)
+	request.Header.Set("Origin", "http://localhost:8080")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != 200 || response.Header().Get("Content-Type") != "application/json" ||
+		!strings.Contains(response.Body.String(), `"websocket_path":"/api/v3/ws"`) {
+		t.Fatalf("discovery: %d %s", response.Code, response.Body.String())
 	}
 }

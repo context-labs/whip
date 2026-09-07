@@ -40,7 +40,7 @@ func (s *Session) QueryClient(ctx context.Context, operation string, payload jso
 	if operation == "provider.catalogs" {
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		return s.clientProviderCatalogs(bounded)
+		return clientProviderCatalogs(bounded)
 	}
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (string, error) {
 		// Query cancellation belongs to the connection/request, not to the root.
@@ -61,7 +61,11 @@ func (s *Server) query(ctx context.Context, params protocol.QueryParams) (protoc
 	}
 	var output string
 	var err error
-	if params.Operation == "session.list" {
+	if params.Operation == "provider.catalogs" {
+		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		output, err = clientProviderCatalogs(bounded)
+	} else if params.Operation == "session.list" {
 		var list protocol.ListParams
 		if err := json.Unmarshal(params.Payload, &list); err != nil && len(params.Payload) > 0 {
 			return protocol.QueryResult{}, err

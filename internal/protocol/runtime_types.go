@@ -39,6 +39,9 @@ type RewindParams struct {
 	ExpectedRevision *int64 `json:"expected_revision,string"`
 	Cut              int    `json:"cut"`
 }
+type ClearHistoryParams struct {
+	ExpectedRevision *int64 `json:"expected_revision,omitempty,string"`
+}
 type GoalContextParams struct {
 	Window int `json:"window,omitempty"`
 }

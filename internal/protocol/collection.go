@@ -11,6 +11,7 @@ type RootCollectionParams struct {
 }
 
 type SessionCatalogParams struct {
+	Search   string                 `json:"search,omitempty"`
 	Cursor   *session.CatalogCursor `json:"cursor,omitempty"`
 	Limit    int                    `json:"limit"`
 	MaxBytes int                    `json:"max_bytes"`

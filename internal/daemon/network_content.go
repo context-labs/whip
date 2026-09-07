@@ -23,7 +23,7 @@ func newContentHTTPHandler(uploads *uploadManager) http.Handler {
 		}
 		transferID := "http-" + rand.Text()
 		begin := UploadBeginParams{
-			UploadID: transferID, RootID: r.URL.Query().Get("root_id"), Size: r.ContentLength,
+			UploadID: transferID, RootID: r.URL.Query().Get("root_id"), AgentID: r.URL.Query().Get("agent_id"), Size: r.ContentLength,
 			ExpectedDigest: r.Header.Get("X-Content-SHA256"),
 			MediaType:      r.Header.Get("Content-Type"), Source: "http-upload",
 		}

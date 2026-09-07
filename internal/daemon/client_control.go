@@ -27,42 +27,44 @@ import (
 )
 
 type clientActionPayload struct {
-	ExpectedRevision    *int64          `json:"expected_revision,omitempty,string"`
-	TurnID              string          `json:"turn_id,omitempty"`
-	TargetCommandID     string          `json:"target_command_id,omitempty"`
-	Title               string          `json:"title,omitempty"`
-	Path                string          `json:"path,omitempty"`
-	Effort              string          `json:"effort,omitempty"`
-	Model               string          `json:"model,omitempty"`
-	Provider            string          `json:"provider,omitempty"`
-	Window              int             `json:"window,omitempty"`
-	Kind                string          `json:"kind,omitempty"`
-	Limit               int64           `json:"limit,string,omitempty"`
-	Schedule            string          `json:"schedule,omitempty"`
-	Prompt              string          `json:"prompt,omitempty"`
-	ScheduleID          int             `json:"schedule_id,omitempty"`
-	Name                string          `json:"name,omitempty"`
-	Source              string          `json:"source,omitempty"`
-	Enabled             bool            `json:"enabled,omitempty"`
-	Driver              string          `json:"driver,omitempty"`
-	App                 string          `json:"app,omitempty"`
-	Text                string          `json:"text,omitempty"`
-	Command             string          `json:"command,omitempty"`
-	Cut                 int             `json:"cut,omitempty"`
-	ID                  string          `json:"id,omitempty"`
-	Delivery            string          `json:"delivery,omitempty"`
-	Answer              []string        `json:"answer,omitempty"`
-	Dismissed           bool            `json:"dismissed,omitempty"`
-	Bytes               []byte          `json:"bytes,omitempty"`
-	System              string          `json:"system,omitempty"`
-	MaxTurns            int             `json:"max_turns,omitempty"`
-	Headless            bool            `json:"headless,omitempty"`
-	CacheKey            string          `json:"cache_key,omitempty"`
-	Tool                string          `json:"tool,omitempty"`
-	Arguments           json.RawMessage `json:"arguments,omitempty"`
-	DenyPermissions     bool            `json:"deny_permissions,omitempty"`
-	ExternalPermissions bool            `json:"external_permissions,omitempty"`
-	PersistDefault      bool            `json:"persist_default,omitempty"`
+	ExpectedRevision    *int64                     `json:"expected_revision,omitempty,string"`
+	TurnID              string                     `json:"turn_id,omitempty"`
+	TargetCommandID     string                     `json:"target_command_id,omitempty"`
+	Title               string                     `json:"title,omitempty"`
+	Path                string                     `json:"path,omitempty"`
+	Effort              string                     `json:"effort,omitempty"`
+	Model               string                     `json:"model,omitempty"`
+	Provider            string                     `json:"provider,omitempty"`
+	Window              int                        `json:"window,omitempty"`
+	Kind                string                     `json:"kind,omitempty"`
+	Limit               int64                      `json:"limit,string,omitempty"`
+	Schedule            string                     `json:"schedule,omitempty"`
+	Prompt              string                     `json:"prompt,omitempty"`
+	ScheduleID          int                        `json:"schedule_id,omitempty"`
+	Name                string                     `json:"name,omitempty"`
+	Source              string                     `json:"source,omitempty"`
+	Enabled             bool                       `json:"enabled,omitempty"`
+	Driver              string                     `json:"driver,omitempty"`
+	App                 string                     `json:"app,omitempty"`
+	Text                string                     `json:"text,omitempty"`
+	Parts               []llm.ContentPart          `json:"parts,omitempty"`
+	Attachments         []protocol.InputAttachment `json:"attachments,omitempty"`
+	Command             string                     `json:"command,omitempty"`
+	Cut                 int                        `json:"cut,omitempty"`
+	ID                  string                     `json:"id,omitempty"`
+	Delivery            string                     `json:"delivery,omitempty"`
+	Answer              []string                   `json:"answer,omitempty"`
+	Dismissed           bool                       `json:"dismissed,omitempty"`
+	Bytes               []byte                     `json:"bytes,omitempty"`
+	System              string                     `json:"system,omitempty"`
+	MaxTurns            int                        `json:"max_turns,omitempty"`
+	Headless            bool                       `json:"headless,omitempty"`
+	CacheKey            string                     `json:"cache_key,omitempty"`
+	Tool                string                     `json:"tool,omitempty"`
+	Arguments           json.RawMessage            `json:"arguments,omitempty"`
+	DenyPermissions     bool                       `json:"deny_permissions,omitempty"`
+	ExternalPermissions bool                       `json:"external_permissions,omitempty"`
+	PersistDefault      bool                       `json:"persist_default,omitempty"`
 }
 
 type commandStart struct {
@@ -1042,6 +1044,11 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if s.running != nil || s.clientBusy {
 			return "", errors.New("history cannot change while a turn is running")
 		}
+		if payload.ExpectedRevision != nil {
+			if err := s.store.CheckHistoryRevision(ctx, s.meta.ID, *payload.ExpectedRevision); err != nil {
+				return "", err
+			}
+		}
 		runner, ok := s.runner.(clientHistoryRunner)
 		if !ok {
 			return "", errors.New("session runner does not support history replacement")
@@ -1071,7 +1078,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		history, err := s.store.UserHistory(500)
 		return marshalClientOutput(history, err)
 	case "provider.catalogs":
-		return s.clientProviderCatalogs(ctx)
+		return clientProviderCatalogs(ctx)
 	case "history.compact.log":
 		return marshalClientOutput(s.store.Compactions(s.meta.ID), nil)
 	case "history.compact.retry":
@@ -1101,7 +1108,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 	case "agent.transcript":
 		return s.clientAgentTranscript(ctx, payload.ID)
 	case "agent.submit":
-		return s.clientAgentSubmit(ctx, payload.ID, payload.Text, payload.Delivery)
+		return s.clientAgentSubmitInput(ctx, payload.ID, SubmitPayload{Text: payload.Text, Parts: payload.Parts, Attachments: payload.Attachments}, payload.Delivery)
 	case "agent.turn.cancel":
 		if err := s.checkTurnTarget(ctx, payload.ID, payload.TurnID); err != nil {
 			return "", err
@@ -1566,9 +1573,13 @@ func (s *Session) clientAgentTranscript(ctx context.Context, id string) (string,
 // joins a running turn at its next loop boundary; anything else waits for its
 // own turn.
 func (s *Session) clientAgentSubmit(ctx context.Context, id, text, delivery string) (string, error) {
-	text = strings.TrimSpace(text)
-	if id == "" || text == "" {
-		return "", errors.New("agent submission requires an agent and text")
+	return s.clientAgentSubmitInput(ctx, id, SubmitPayload{Text: text}, delivery)
+}
+
+func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input SubmitPayload, delivery string) (string, error) {
+	input.Text = strings.TrimSpace(input.Text)
+	if id == "" || input.Text == "" && len(input.Parts) == 0 && len(input.Attachments) == 0 {
+		return "", errors.New("agent submission requires an agent and content")
 	}
 	kind := "submit"
 	if delivery == "steer" {
@@ -1584,9 +1595,18 @@ func (s *Session) clientAgentSubmit(ctx context.Context, id, text, delivery stri
 	if agentValue.Status == "stopped" || agentValue.Status == "deleted" || agentValue.Status == "failed" {
 		return "", sessionstore.ErrAgentTerminal
 	}
+	payload := sessionstore.RuntimePayload{Data: []byte(input.Text), MediaType: "text/plain", Source: "human child submission"}
+	if len(input.Parts) > 0 || len(input.Attachments) > 0 {
+		data, err := json.Marshal(input)
+		if err != nil {
+			return "", err
+		}
+		kind += ".parts"
+		payload = sessionstore.RuntimePayload{Data: data, MediaType: "application/json", Source: "human child submission"}
+	}
 	sequence, err := s.store.EnqueueInbox(ctx, sessionstore.InboxEnqueue{
 		RootID: s.meta.ID, AgentID: id, Kind: kind,
-		Payload: sessionstore.RuntimePayload{Data: []byte(text), MediaType: "text/plain", Source: "human child submission"},
+		Payload: payload,
 	})
 	if err != nil {
 		return "", err
@@ -1629,7 +1649,7 @@ func marshalClientOutput(value any, err error) (string, error) {
 	return string(raw), err
 }
 
-func (s *Session) clientProviderCatalogs(ctx context.Context) (string, error) {
+func clientProviderCatalogs(ctx context.Context) (string, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return "", err

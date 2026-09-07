@@ -184,11 +184,35 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Web application and component checks
+        run: |
+          go run ./cmd/themegen -check
+          npm run check:web
+          npm run test:web
+          npm run check -w @whip/ui
+          npm run test -w @whip/ui
+          node --test scripts/pack-web.test.mjs
+          node scripts/pack-web.mjs
+          npm run build:storybook -w @whip/ui
       - run: WHIP_SDK_RACE=1 npm run acceptance
       - run: npm run test:package
       - run: npx playwright install --with-deps chromium firefox
       - run: WHIP_SDK_BROWSERS=chromium,firefox npm run test:browser
+      - run: node packages/ui/tests/browser.mjs
+      - run: node packages/ui/tests/csp.mjs
+      - run: npm run test:packed -w @whip/ui
+      - run: WHIP_WEB_BROWSERS=chromium,firefox node apps/web/scripts/browser.mjs
+      - run: node apps/web/scripts/performance.mjs
       - run: npm run test:example
+      - name: Browser acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-browser-evidence
+          if-no-files-found: ignore
+          path: |
+            /tmp/whip-web-browser-results
+            packages/ui/ui-test-results
 
   # `go` is a required status check in the repo's ruleset, so the name has to
   # survive the split. It is the aggregate gate: green only when lint, tests,

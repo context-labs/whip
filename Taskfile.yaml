@@ -17,14 +17,32 @@ tasks:
       - go run -ldflags "{{.LDFLAGS}}" ./cmd/whip {{.CLI_ARGS}}
 
   build:
-    desc: Build the whip binary into ./whip
+    desc: Build the whip binary with the web app into ./whip (run npm ci first)
+    deps: [web-assets]
     cmds:
       - go build -ldflags "{{.LDFLAGS}}" -o whip ./cmd/whip
 
   install:
-    desc: Install whip to $GOPATH/bin (~/go/bin)
+    desc: Install whip with the web app to $GOPATH/bin (run npm ci first)
+    deps: [web-assets]
     cmds:
       - go install -ldflags "{{.LDFLAGS}}" ./cmd/whip
+
+  web-assets:
+    desc: Build and package the production web app for go:embed
+    cmds:
+      - npm run build:web
+      - node scripts/pack-web.mjs
+
+  web:
+    desc: Check web types, production assets, component tests and theme generation drift
+    cmds:
+      - go run ./cmd/themegen -check
+      - npm run check:web
+      - npm run test:web
+      - npm run check -w @whip/ui
+      - npm run test -w @whip/ui
+      - node --test scripts/pack-web.test.mjs
 
   benchmark:
     desc: "Benchmark startup: binary boot (--version) and configuration/provider resolution (-bench)"
@@ -85,6 +103,7 @@ tasks:
       - go test ./...
       - task: contract
       - task: sdk
+      - task: web
 
   lint:
     desc: "golangci-lint with the repo's .golangci.yml (the CI lint gate)"

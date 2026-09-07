@@ -57,3 +57,17 @@ function inspectEvent(event: RootEvent): string {
   return event.kind;
 }
 void inspectEvent;
+
+// Bounded collections retain their concrete wire types, not unknown records.
+function inspectCollection(page: RpcMethods['root.collection']['result']) {
+  for (const entry of page.items ?? []) {
+    if (entry.agent) { const id: string = entry.agent.id; void id; }
+    if (entry.budget) { const limit: string = entry.budget.state.limit; void limit; }
+    if (entry.blackboard) { const revision: string = entry.blackboard.version; void revision; }
+    if (entry.body) { const ref: string = entry.body.reference_id; void ref; }
+    // @ts-expect-error typed agent IDs are strings
+    const invalid: number | undefined | null = entry.agent?.id;
+    void invalid;
+  }
+}
+void inspectCollection;

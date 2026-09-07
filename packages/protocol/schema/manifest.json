@@ -99,12 +99,60 @@
       "result_type": "BoundedTranscriptPage"
     },
     {
+      "name": "host.attention",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "HostAttentionParams",
+      "result_type": "HostAttentionResult"
+    },
+    {
+      "name": "host.directories.list",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "HostDirectoryParams",
+      "result_type": "HostDirectoryResult"
+    },
+    {
+      "name": "host.themes.list",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "EmptyParams",
+      "result_type": "CatalogResult"
+    },
+    {
+      "name": "host.themes.resolve",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "HostThemeResolveParams",
+      "result_type": "Resolved"
+    },
+    {
       "name": "initialize",
       "surface": "rpc",
       "execution": "query",
       "permission": "none",
       "params_type": "InitializeParams",
       "result_type": "InitializeResult"
+    },
+    {
+      "name": "mailbox.list",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "root-agent-association",
+      "params_type": "MailboxPageParams",
+      "result_type": "MailboxPage"
+    },
+    {
+      "name": "mailbox.read",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "root-agent-association",
+      "params_type": "MailboxReadParams",
+      "result_type": "MailboxInspection"
     },
     {
       "name": "operation.invoke",
@@ -459,7 +507,7 @@
       "surface": "runtime",
       "execution": "command",
       "permission": "root-idle",
-      "params_type": "EmptyParams",
+      "params_type": "ClearHistoryParams",
       "result_type": "Empty"
     },
     {

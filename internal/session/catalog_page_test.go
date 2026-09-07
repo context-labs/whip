@@ -61,3 +61,30 @@ func TestSessionCatalogBoundsAndInvalidation(t *testing.T) {
 		t.Fatalf("revision %v %v", revision, err)
 	}
 }
+
+func TestSessionCatalogSearchAndWorkspaceIdentity(t *testing.T) {
+	store, root := collectionStore(t)
+	firstPath := "/" + strings.Repeat("same-directory-prefix/", 10) + "one"
+	secondPath := "/" + strings.Repeat("same-directory-prefix/", 10) + "two"
+	if _, err := store.db.Exec(`UPDATE sessions SET cwd=?,title='First workspace' WHERE id=?`, firstPath, root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(SessionKindAgent, secondPath, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	page, err := store.SessionCatalog(t.Context(), CatalogPageOptions{Limit: 2, MaxBytes: 4096})
+	if err != nil || len(page.Items) != 2 {
+		t.Fatalf("catalog %+v %v", page, err)
+	}
+	if page.Items[0].CWD != page.Items[1].CWD || page.Items[0].WorkspaceID == page.Items[1].WorkspaceID || page.Items[0].WorkspaceID == "" {
+		t.Fatalf("workspace identity uses truncated path: %+v", page.Items)
+	}
+	page, err = store.SessionCatalog(t.Context(), CatalogPageOptions{Limit: 2, MaxBytes: 4096, Search: "FIRST"})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != root {
+		t.Fatalf("title search %+v %v", page, err)
+	}
+	page, err = store.SessionCatalog(t.Context(), CatalogPageOptions{Limit: 2, MaxBytes: 4096, Search: "two"})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID == root {
+		t.Fatalf("untruncated path search %+v %v", page, err)
+	}
+}

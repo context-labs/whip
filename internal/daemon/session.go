@@ -881,7 +881,7 @@ func (s *Session) decodeInboxInput(ctx context.Context, item sessionstore.InboxI
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return "", nil, fmt.Errorf("%w: invalid content-parts submission", sessionstore.ErrInvalidInput)
 	}
-	return payload.Text, payload.Parts, nil
+	return s.resolveAttachments(ctx, item.AgentID, payload)
 }
 
 func (s *Session) completeTurn(completion workerCompletion) error {

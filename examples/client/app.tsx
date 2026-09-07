@@ -89,7 +89,7 @@ function Conversation({ client, rootId }: { client: WhipClient; rootId: string }
     {(state.status === 'stale' || connection.state !== 'connected') && <p className="notice">Reconnecting. Your draft stays here; accepted work stays on the host.</p>}
     {(state.truncated || state.unavailable) && <p className="notice">Some output is outside this view’s limits. Read its content reference or load history for more.</p>}
     <div className="transcript">{history?.hasMore && <button onClick={() => void view.loadOlder(agentId).catch(error => setError(message(error)))}>Load older messages</button>}
-      {groupMailboxMessages(history?.messages ?? []).map(({ entry, count }) => <article key={entry.seq}>{count > 1 ? <details><summary>Mailbox update · {count} identical deliveries in loaded history</summary><pre>{entry.message!.content}</pre></details> : <><span className="role">{entry.message?.role ?? entry.role}</span>{entry.message ? <pre>{entry.message.content}</pre> : entry.body && <button onClick={async () => { try { const text = await client.content(entry.body!, { rootId, agentId }).readText({ maxBytes: 1 << 20 }); setError(text); } catch (error) { setError(message(error)); } }}>Read stored message</button>}</>}</article>)}
+      {groupMailboxMessages(history?.messages ?? []).map(({ entry, count }) => <article key={entry.seq}>{count > 1 ? <details><summary>Mailbox update · {count} identical deliveries in loaded history</summary><pre>{messageText(entry.message!.content)}</pre></details> : <><span className="role">{entry.message?.role ?? entry.role}</span>{entry.message ? <pre>{messageText(entry.message.content)}</pre> : entry.body && <button onClick={async () => { try { const text = await client.content(entry.body!, { rootId, agentId }).readText({ maxBytes: 1 << 20 }); setError(text); } catch (error) { setError(message(error)); } }}>Read stored message</button>}</>}</article>)}
       {presentation?.map(event => <article key={event.seq}><span className="role">{event.kind}</span><pre>{presentationText(event.payload)}</pre></article>)}
     </div>
     {state.root?.questions?.filter(question => question.question_id).map(question => <Question key={question.question_id} id={question.question_id!} question={question.question ?? ''} options={(question.options ?? []).map(option => option.label)} multiple={question.multiple ?? false} view={view} onError={setError} />)}
@@ -105,7 +105,7 @@ function Conversation({ client, rootId }: { client: WhipClient; rootId: string }
 function groupMailboxMessages(messages: DeepReadonly<HistoryView['messages']>) {
   const groups: { entry: (typeof messages)[number]; count: number }[] = [];
   const isDigest = (entry: (typeof messages)[number]) => entry.message?.role === 'user'
-    && !entry.message.authored && entry.message.content.startsWith('Mailbox digest:');
+    && !entry.message.authored && typeof entry.message.content === 'string' && entry.message.content.startsWith('Mailbox digest:');
   for (const entry of messages) {
     const previous = groups[groups.length - 1];
     if (previous && isDigest(entry) && isDigest(previous.entry) && entry.message!.content === previous.entry.message!.content) previous.count++;
@@ -129,3 +129,7 @@ function Question({ id, question, options, multiple, view, onError }: { id: stri
     <button>Answer</button></form>;
 }
 createRoot(document.getElementById('root')!).render(<App />);
+
+function messageText(content: string | readonly { type: string; text?: string }[]): string {
+  return typeof content === 'string' ? content : content.map(part => part.type === 'text' ? part.text || '' : '[Image attachment]').join('\n');
+}

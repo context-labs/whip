@@ -471,7 +471,29 @@ func TestClearHistoryAtomicallyDropsDerivedStateAndReleasesSnapshots(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := clientCommand(t, root, "tui", "clear", "history.clear", map[string]string{})
+	snapshot, err := store.SnapshotRoot(t.Context(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, before, err := store.Load(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := clientCommand(t, root, "tui", "clear-stale", "history.clear", map[string]string{
+		"expected_revision": strconv.FormatInt(snapshot.HistoryRevision+1, 10),
+	})
+	if stale.Status != "failed" || !strings.Contains(stale.Error, session.ErrHistoryRevision.Error()) {
+		t.Fatalf("stale clear result = %+v", stale)
+	}
+	if _, history, err := store.Load(rootID); err != nil || !reflect.DeepEqual(history, before) {
+		t.Fatalf("stale clear changed history = %+v, %v", history, err)
+	}
+	if len(store.Snapshots(rootID)) != 1 || len(store.Compactions(rootID)) != 1 || runner.drops.Load() != 0 {
+		t.Fatal("stale clear changed workspace snapshots or compactions")
+	}
+	result := clientCommand(t, root, "tui", "clear", "history.clear", map[string]string{
+		"expected_revision": strconv.FormatInt(snapshot.HistoryRevision, 10),
+	})
 	if result.Status != "succeeded" || result.Output != "{}" {
 		t.Fatalf("clear result = %+v", result)
 	}

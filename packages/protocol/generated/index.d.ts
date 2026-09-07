@@ -12,6 +12,30 @@ export interface AgentInputParams {
   id: string;
   text: string;
   delivery?: string;
+  parts?:
+    | null
+    | {
+        type: string;
+        text?: string;
+        image_url?: null | {
+          url: string;
+        };
+        w?: number;
+        h?: number;
+      }[];
+  attachments?:
+    | null
+    | {
+        kind: "image" | "text";
+        content: {
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type?: string;
+          source?: string;
+        };
+        name?: string;
+      }[];
 }
 
 export type AgentListResult =
@@ -74,7 +98,17 @@ export interface AgentTranscriptResult {
           seq: number;
           message?: null | {
             role: string;
-            content: string;
+            content:
+              | string
+              | {
+                  type: string;
+                  text?: string;
+                  image_url?: null | {
+                    url: string;
+                  };
+                  w?: number;
+                  h?: number;
+                }[];
             tool_calls?:
               | null
               | {
@@ -155,7 +189,17 @@ export interface BoundedTranscriptPage {
         seq: number;
         message?: null | {
           role: string;
-          content: string;
+          content:
+            | string
+            | {
+                type: string;
+                text?: string;
+                image_url?: null | {
+                  url: string;
+                };
+                w?: number;
+                h?: number;
+              }[];
           tool_calls?:
             | null
             | {
@@ -245,12 +289,34 @@ export interface CapabilityRecord {
   updated_at: string;
 }
 
+export interface CatalogResult {
+  themes:
+    | null
+    | {
+        id: string;
+        name: string;
+        dark: boolean;
+        source: string;
+      }[];
+  errors:
+    | null
+    | {
+        file: string;
+        message: string;
+      }[];
+  truncated: boolean;
+}
+
 export interface CatalogRevision {
   revision: string;
 }
 
 export interface CheckpointParams {
   reason?: string;
+}
+
+export interface ClearHistoryParams {
+  expected_revision?: string | null;
 }
 
 export interface CommandParams {
@@ -474,6 +540,114 @@ export interface HistoryPageParams {
   recent?: boolean;
 }
 
+export interface HostAttentionParams {
+  after_id?: string;
+  limit: number;
+  max_bytes: number;
+}
+
+export interface HostAttentionResult {
+  items:
+    | null
+    | {
+        root_id: string;
+        title: string;
+        active_agents: string;
+        pending_permissions: string;
+        questions:
+          | null
+          | {
+              turn_id?: string;
+              root_id?: string;
+              agent_id?: string;
+              sender_agent_id?: string;
+              inbox_seq?: string;
+              inbox_kind?: string;
+              delivery?: string;
+              message_id?: string;
+              phase?: string;
+              status?: string;
+              terminal_cause?: string;
+              command_client_id?: string;
+              command_id?: string;
+              operation_id?: string;
+              trace_id?: string;
+              schedule_id?: number;
+              slot?: string;
+              error?: string;
+              acknowledged_inbox?: string[];
+              subscription_id?: string;
+              key?: string;
+              version?: string;
+              expected_version?: string;
+              restored?: null | string[];
+              not_restored?:
+                | null
+                | {
+                    name: string;
+                    reason: string;
+                  }[];
+              attempt?: string;
+              budget_kind?: string;
+              amount?: string;
+              limit?: string;
+              used?: string;
+              reserved?: string;
+              capability_id?: string;
+              generation?: string;
+              permission_id?: string;
+              operation?: string;
+              canonical_path?: string;
+              request_digest?: string;
+              command?: string;
+              rule?: string;
+              rule_source?: string;
+              question_id?: string;
+              question?: string;
+              options?:
+                | null
+                | {
+                    label: string;
+                    description?: string;
+                  }[];
+              multiple?: boolean;
+              answer?: null | string[];
+              dismissed?: boolean;
+            }[];
+        truncated: boolean;
+      }[];
+  next_after_id?: string;
+  has_more: boolean;
+  truncated: boolean;
+}
+
+export interface HostDirectoryParams {
+  path?: string;
+  after?: string;
+  prefix?: string;
+  show_hidden?: boolean;
+  limit: number;
+}
+
+export interface HostDirectoryResult {
+  path: string;
+  parent: string;
+  entries:
+    | null
+    | {
+        name: string;
+        path: string;
+      }[];
+  next_after?: string;
+  has_more: boolean;
+  truncated: boolean;
+}
+
+export interface HostThemeResolveParams {
+  name?: string;
+  json?: string;
+}
+
 export interface IDParams {
   id: string;
 }
@@ -638,6 +812,96 @@ export type MCPListResult =
 
 export interface MCPServerParams {
   name: string;
+}
+
+export interface MailboxInspection {
+  id: string;
+  revision: string;
+  sender: string;
+  recipient: string;
+  kind: string;
+  delivery: string;
+  subject: string;
+  excerpt: string;
+  body: {
+    inline?: unknown;
+    text?: null | string;
+    binary?: string | null;
+    reference_id: string;
+    digest: string;
+    size: string;
+    media_type: string;
+    source: string;
+  };
+  evidence_handle?: string;
+  status: string;
+  available_at: string;
+  created_at: string;
+  delivered_at: string;
+  delivered_turn_id?: string;
+  done_at: string;
+}
+
+export interface MailboxPage {
+  revision: string;
+  items:
+    | null
+    | {
+        id: string;
+        revision: string;
+        sender: string;
+        recipient: string;
+        kind: string;
+        delivery: string;
+        subject: string;
+        excerpt: string;
+        body: {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+        evidence_handle?: string;
+        status: string;
+        available_at: string;
+        created_at: string;
+        delivered_at: string;
+        delivered_turn_id?: string;
+        done_at: string;
+      }[];
+  next_cursor?: null | {
+    root_id: string;
+    agent_id: string;
+    status: string;
+    revision: string;
+    offset: string;
+  };
+  has_more: boolean;
+}
+
+export interface MailboxPageParams {
+  root_id: string;
+  agent_id: string;
+  status?: string;
+  cursor?: null | {
+    root_id: string;
+    agent_id: string;
+    status: string;
+    revision: string;
+    offset: string;
+  };
+  limit: number;
+  max_bytes: number;
+}
+
+export interface MailboxReadParams {
+  root_id: string;
+  agent_id: string;
+  id: string;
 }
 
 export interface ModelParams {
@@ -914,6 +1178,63 @@ export interface ReplayResult {
   expired?: boolean;
 }
 
+export interface Resolved {
+  id: string;
+  name: string;
+  dark: boolean;
+  colors: {
+    background: string;
+    foreground: string;
+    muted: string;
+    faint: string;
+    primary: string;
+    on_primary: string;
+    accent: string;
+    success: string;
+    warning: string;
+    error: string;
+    info: string;
+    link: string;
+    emphasis: string;
+    border: string;
+    border_focus: string;
+    diff_add: string;
+    diff_del: string;
+    panel: string;
+    element: string;
+    hover: string;
+  };
+  syntax: {
+    keyword: string;
+    string: string;
+    number: string;
+    comment: string;
+    function: string;
+    type: string;
+    operator: string;
+    punctuation: string;
+  };
+  markdown: {
+    heading: string;
+    strong: string;
+    code: string;
+    quote: string;
+  };
+  code: {
+    foreground: string;
+    background: string;
+    tokens: {
+      [k: string]: {
+        color: string;
+        background: string;
+        bold: boolean;
+        italic: boolean;
+        underline: boolean;
+      };
+    };
+  };
+}
+
 export interface RestartNotice {
   generation: string;
   cursors: {
@@ -942,9 +1263,245 @@ export interface RootCollectionPage {
   event_cursor: string;
   items:
     | null
-    | {
-        [k: string]: unknown;
-      }[];
+    | ({
+        agent?: null | {
+          id: string;
+          root_id: string;
+          parent_id: string;
+          name: string;
+          model: string;
+          provider: string;
+          effort: string;
+          cwd: string;
+          report: string;
+          status: string;
+          pending_mail: number;
+          lifecycle_phase: string;
+          blocking_reason: string;
+          terminal_cause: string;
+          allowed_controls: null | string[];
+        };
+        inbox?: null | {
+          root_id: string;
+          agent_id: string;
+          seq: string;
+          kind: string;
+          status: string;
+          payload: {
+            inline?: unknown;
+            text?: null | string;
+            binary?: string | null;
+            reference_id: string;
+            digest: string;
+            size: string;
+            media_type: string;
+            source: string;
+          };
+        };
+        blackboard?: null | {
+          key: string;
+          version: string;
+          author_agent_id: string;
+          payload: {
+            inline?: unknown;
+            text?: null | string;
+            binary?: string | null;
+            reference_id: string;
+            digest: string;
+            size: string;
+            media_type: string;
+            source: string;
+          };
+        };
+        budget?: null | {
+          agent_id: string;
+          state: {
+            kind: string;
+            limit: string;
+            used: string;
+            reserved: string;
+            remaining: string;
+          };
+        };
+        capability?: null | {
+          id: string;
+          root_id: string;
+          agent_id: string;
+          issuer_agent_id: string;
+          operations: null | string[];
+          scopes: null | string[];
+          mcp:
+            | null
+            | {
+                server: string;
+                tool: string;
+                definition: string;
+              }[];
+          mcp_all: boolean;
+          generation: string;
+          status: string;
+          expires_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        schedule?: null | {
+          id: number;
+          schedule: string;
+          prompt: string;
+          anchor: string;
+          last_fire: string;
+        };
+        permission?: null | {
+          id: string;
+          agent_id: string;
+          operation_id: string;
+          operation: string;
+          canonical_path: string;
+          request_digest: string;
+          capability_id: string;
+          capability_generation: string;
+          status: string;
+          command: string;
+          rule: string;
+        };
+        body?: null | {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+      } & (
+        | {
+            agent: null | {
+              id: string;
+              root_id: string;
+              parent_id: string;
+              name: string;
+              model: string;
+              provider: string;
+              effort: string;
+              cwd: string;
+              report: string;
+              status: string;
+              pending_mail: number;
+              lifecycle_phase: string;
+              blocking_reason: string;
+              terminal_cause: string;
+              allowed_controls: null | string[];
+            };
+          }
+        | {
+            inbox: null | {
+              root_id: string;
+              agent_id: string;
+              seq: string;
+              kind: string;
+              status: string;
+              payload: {
+                inline?: unknown;
+                text?: null | string;
+                binary?: string | null;
+                reference_id: string;
+                digest: string;
+                size: string;
+                media_type: string;
+                source: string;
+              };
+            };
+          }
+        | {
+            blackboard: null | {
+              key: string;
+              version: string;
+              author_agent_id: string;
+              payload: {
+                inline?: unknown;
+                text?: null | string;
+                binary?: string | null;
+                reference_id: string;
+                digest: string;
+                size: string;
+                media_type: string;
+                source: string;
+              };
+            };
+          }
+        | {
+            budget: null | {
+              agent_id: string;
+              state: {
+                kind: string;
+                limit: string;
+                used: string;
+                reserved: string;
+                remaining: string;
+              };
+            };
+          }
+        | {
+            capability: null | {
+              id: string;
+              root_id: string;
+              agent_id: string;
+              issuer_agent_id: string;
+              operations: null | string[];
+              scopes: null | string[];
+              mcp:
+                | null
+                | {
+                    server: string;
+                    tool: string;
+                    definition: string;
+                  }[];
+              mcp_all: boolean;
+              generation: string;
+              status: string;
+              expires_at: string;
+              created_at: string;
+              updated_at: string;
+            };
+          }
+        | {
+            schedule: null | {
+              id: number;
+              schedule: string;
+              prompt: string;
+              anchor: string;
+              last_fire: string;
+            };
+          }
+        | {
+            permission: null | {
+              id: string;
+              agent_id: string;
+              operation_id: string;
+              operation: string;
+              canonical_path: string;
+              request_digest: string;
+              capability_id: string;
+              capability_generation: string;
+              status: string;
+              command: string;
+              rule: string;
+            };
+          }
+        | {
+            body: null | {
+              inline?: unknown;
+              text?: null | string;
+              binary?: string | null;
+              reference_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              source: string;
+            };
+          }
+      ))[];
   next_cursor?: null | {
     root_id: string;
     collection: string;
@@ -1009,7 +1566,17 @@ export interface RootSnapshot {
     | null
     | {
         role: string;
-        content: string;
+        content:
+          | string
+          | {
+              type: string;
+              text?: string;
+              image_url?: null | {
+                url: string;
+              };
+              w?: number;
+              h?: number;
+            }[];
         tool_calls?:
           | null
           | {
@@ -1283,6 +1850,7 @@ export interface SessionCatalogPage {
         model: string;
         provider: string;
         cwd: string;
+        workspace_id?: string;
         pinned: boolean;
         updated_at: string;
         truncated: boolean;
@@ -1290,14 +1858,17 @@ export interface SessionCatalogPage {
   next_cursor?: null | {
     revision: string;
     offset: string;
+    search?: string;
   };
   has_more: boolean;
 }
 
 export interface SessionCatalogParams {
+  search?: string;
   cursor?: null | {
     revision: string;
     offset: string;
+    search?: string;
   };
   limit: number;
   max_bytes: number;
@@ -1380,6 +1951,19 @@ export interface SubmitPayload {
         w?: number;
         h?: number;
       }[];
+  attachments?:
+    | null
+    | {
+        kind: "image" | "text";
+        content: {
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type?: string;
+          source?: string;
+        };
+        name?: string;
+      }[];
 }
 
 export interface SubscribeParams {
@@ -1453,6 +2037,7 @@ export interface UnsubscribeParams {
 export interface UploadBeginParams {
   upload_id: string;
   root_id: string;
+  agent_id?: string;
   expected_digest: string;
   size: string;
   media_type?: string;
@@ -1485,8 +2070,10 @@ export interface ContractTypes {
   BudgetState: BudgetState;
   CancelParams: CancelParams;
   CapabilityRecord: CapabilityRecord;
+  CatalogResult: CatalogResult;
   CatalogRevision: CatalogRevision;
   CheckpointParams: CheckpointParams;
+  ClearHistoryParams: ClearHistoryParams;
   CommandParams: CommandParams;
   CommandResult: CommandResult;
   CommandStatusParams: CommandStatusParams;
@@ -1515,6 +2102,11 @@ export interface ContractTypes {
   GoalContextParams: GoalContextParams;
   GoalResult: GoalResult;
   HistoryPageParams: HistoryPageParams;
+  HostAttentionParams: HostAttentionParams;
+  HostAttentionResult: HostAttentionResult;
+  HostDirectoryParams: HostDirectoryParams;
+  HostDirectoryResult: HostDirectoryResult;
+  HostThemeResolveParams: HostThemeResolveParams;
   IDParams: IDParams;
   InitializeParams: InitializeParams;
   InitializeResult: InitializeResult;
@@ -1526,6 +2118,10 @@ export interface ContractTypes {
   MCPImportStatusResult: MCPImportStatusResult;
   MCPListResult: MCPListResult;
   MCPServerParams: MCPServerParams;
+  MailboxInspection: MailboxInspection;
+  MailboxPage: MailboxPage;
+  MailboxPageParams: MailboxPageParams;
+  MailboxReadParams: MailboxReadParams;
   ModelParams: ModelParams;
   ModelResult: ModelResult;
   PathParams: PathParams;
@@ -1554,6 +2150,7 @@ export interface ContractTypes {
   RPCError: RPCError;
   ReplayParams: ReplayParams;
   ReplayResult: ReplayResult;
+  Resolved: Resolved;
   RestartNotice: RestartNotice;
   RestartParams: RestartParams;
   RewindParams: RewindParams;
@@ -1681,7 +2278,13 @@ export interface RpcMethods {
   "events.subscribe": { params: SubscribeParams; result: SubscribeResult; execution: "subscription"; permission: "root-association"; sensitive: false };
   "events.unsubscribe": { params: UnsubscribeParams; result: Empty; execution: "subscription"; permission: "connection-subscription"; sensitive: false };
   "history.page": { params: HistoryPageParams; result: BoundedTranscriptPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "host.attention": { params: HostAttentionParams; result: HostAttentionResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.directories.list": { params: HostDirectoryParams; result: HostDirectoryResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.themes.list": { params: EmptyParams; result: CatalogResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.themes.resolve": { params: HostThemeResolveParams; result: Resolved; execution: "query"; permission: "host-runtime"; sensitive: false };
   "initialize": { params: InitializeParams; result: InitializeResult; execution: "query"; permission: "none"; sensitive: false };
+  "mailbox.list": { params: MailboxPageParams; result: MailboxPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
+  "mailbox.read": { params: MailboxReadParams; result: MailboxInspection; execution: "query"; permission: "root-agent-association"; sensitive: false };
   "operation.invoke": { params: QueryParams; result: QueryResult; execution: "ephemeral"; permission: "operation-specific"; sensitive: true };
   "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "trusted-client-decision"; sensitive: false };
   "provider.key.rotate": { params: ProviderNameParams; result: ProviderStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: true };
@@ -1727,7 +2330,7 @@ export interface RuntimeOperations {
   "goal.from-context": { params: GoalContextParams; result: GoalResult; execution: "command"; permission: "root-admission"; sensitive: false };
   "goal.run": { params: TextParams; result: GoalResult; execution: "command"; permission: "root-admission"; sensitive: false };
   "goal.set": { params: TextParams; result: GoalResult; execution: "command"; permission: "root-admission"; sensitive: false };
-  "history.clear": { params: EmptyParams; result: Empty; execution: "command"; permission: "root-idle"; sensitive: false };
+  "history.clear": { params: ClearHistoryParams; result: Empty; execution: "command"; permission: "root-idle"; sensitive: false };
   "history.compact": { params: EmptyParams; result: CompactionResult; execution: "command"; permission: "root-idle"; sensitive: false };
   "history.compact.log": { params: EmptyParams; result: CompactionListResult; execution: "query"; permission: "root-association"; sensitive: false };
   "history.compact.retry": { params: EmptyParams; result: CompactionRetryResult; execution: "command"; permission: "root-idle"; sensitive: false };

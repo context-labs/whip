@@ -1,6 +1,9 @@
 {
   "type": "object",
   "properties": {
+    "search": {
+      "type": "string"
+    },
     "cursor": {
       "type": [
         "null",
@@ -16,6 +19,9 @@
           "type": "string",
           "pattern": "^-?(0|[1-9][0-9]*)$",
           "format": "int64"
+        },
+        "search": {
+          "type": "string"
         }
       },
       "required": [

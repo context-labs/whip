@@ -1,0 +1,227 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "dark": {
+      "type": "boolean"
+    },
+    "colors": {
+      "type": "object",
+      "properties": {
+        "background": {
+          "type": "string"
+        },
+        "foreground": {
+          "type": "string"
+        },
+        "muted": {
+          "type": "string"
+        },
+        "faint": {
+          "type": "string"
+        },
+        "primary": {
+          "type": "string"
+        },
+        "on_primary": {
+          "type": "string"
+        },
+        "accent": {
+          "type": "string"
+        },
+        "success": {
+          "type": "string"
+        },
+        "warning": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "info": {
+          "type": "string"
+        },
+        "link": {
+          "type": "string"
+        },
+        "emphasis": {
+          "type": "string"
+        },
+        "border": {
+          "type": "string"
+        },
+        "border_focus": {
+          "type": "string"
+        },
+        "diff_add": {
+          "type": "string"
+        },
+        "diff_del": {
+          "type": "string"
+        },
+        "panel": {
+          "type": "string"
+        },
+        "element": {
+          "type": "string"
+        },
+        "hover": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "background",
+        "foreground",
+        "muted",
+        "faint",
+        "primary",
+        "on_primary",
+        "accent",
+        "success",
+        "warning",
+        "error",
+        "info",
+        "link",
+        "emphasis",
+        "border",
+        "border_focus",
+        "diff_add",
+        "diff_del",
+        "panel",
+        "element",
+        "hover"
+      ],
+      "additionalProperties": false
+    },
+    "syntax": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string"
+        },
+        "string": {
+          "type": "string"
+        },
+        "number": {
+          "type": "string"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "function": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "operator": {
+          "type": "string"
+        },
+        "punctuation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "keyword",
+        "string",
+        "number",
+        "comment",
+        "function",
+        "type",
+        "operator",
+        "punctuation"
+      ],
+      "additionalProperties": false
+    },
+    "markdown": {
+      "type": "object",
+      "properties": {
+        "heading": {
+          "type": "string"
+        },
+        "strong": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "quote": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "heading",
+        "strong",
+        "code",
+        "quote"
+      ],
+      "additionalProperties": false
+    },
+    "code": {
+      "type": "object",
+      "properties": {
+        "foreground": {
+          "type": "string"
+        },
+        "background": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "color": {
+                "type": "string"
+              },
+              "background": {
+                "type": "string"
+              },
+              "bold": {
+                "type": "boolean"
+              },
+              "italic": {
+                "type": "boolean"
+              },
+              "underline": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "color",
+              "background",
+              "bold",
+              "italic",
+              "underline"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "foreground",
+        "background",
+        "tokens"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v3/Resolved",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Resolved",
+  "required": [
+    "id",
+    "name",
+    "dark",
+    "colors",
+    "syntax",
+    "markdown",
+    "code"
+  ],
+  "additionalProperties": false
+}
