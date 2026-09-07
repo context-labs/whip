@@ -66,7 +66,7 @@ Whip saves the login in `~/.codex/auth.json`. Expiring tokens refresh locally
 and are never printed or added to conversations. Whip fetches the signed-in
 account's `https://chatgpt.com/backend-api/codex/models` catalog and refreshes
 it every 24 hours (or with `/model refresh`), so plan and rollout availability
-come from the backend rather than a hard-coded list. `gpt-5.4 @ codex` remains
+come from the backend rather than a hard-coded list. `gpt-5.5 @ codex` remains
 as a compatible fallback route. OAuth credentials are only sent to
 `https://chatgpt.com/backend-api`.
 

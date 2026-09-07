@@ -424,7 +424,7 @@ model through the ChatGPT Codex Responses SSE endpoint without an API key.
 verification URL and one-time code,
 polls until approval (or ctrl+c), exchanges the server-provided PKCE verifier,
 atomically stores the result in Codex-compatible `~/.codex/auth.json`, and
-then upserts the `codex` provider plus `gpt-5.4` fallback route **and fetches
+then upserts the `codex` provider plus `gpt-5.5` fallback route **and fetches
 the signed-in account's `/codex/models` catalog**. `/auth codex` does the same
 within an active TUI session, so `/model` shows every available subscription
 model immediately. Neither flow changes the user's default model. The backend

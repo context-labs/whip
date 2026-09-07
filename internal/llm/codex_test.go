@@ -59,7 +59,7 @@ func TestCodexStreamRequestAndEvents(t *testing.T) {
 	client := NewCodex(srv.URL, codexSource(t))
 	client.SetCacheKey("sess-1")
 	msg, usage, err := client.Stream(context.Background(), Request{
-		Model:           "gpt-5.4",
+		Model:           "gpt-5.5",
 		MaxTokens:       128000,
 		ReasoningEffort: "high",
 		Messages: []Message{
@@ -105,7 +105,7 @@ func TestCodexStreamRequestAndEvents(t *testing.T) {
 	if usage.PromptTokens != 12 || usage.CompletionTokens != 7 || usage.Cached() != 5 {
 		t.Fatalf("usage: %+v", usage)
 	}
-	if got["model"] != "gpt-5.4" || got["instructions"] != "system prompt" || got["stream"] != true || got["store"] != false || got["tool_choice"] != "auto" || got["parallel_tool_calls"] != true {
+	if got["model"] != "gpt-5.5" || got["instructions"] != "system prompt" || got["stream"] != true || got["store"] != false || got["tool_choice"] != "auto" || got["parallel_tool_calls"] != true {
 		t.Fatalf("request = %#v", got)
 	}
 	if include, ok := got["include"].([]any); !ok || len(include) != 1 || include[0] != "reasoning.encrypted_content" {
@@ -140,7 +140,7 @@ func TestCodexStreamSkipsMalformedSSEEvent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	msg, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.4"}, nil, nil, nil)
+	msg, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestCodexStreamPropagatesRequestCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		_, _, err := client.Stream(ctx, Request{Model: "gpt-5.4"}, nil, nil, nil)
+		_, _, err := client.Stream(ctx, Request{Model: "gpt-5.5"}, nil, nil, nil)
 		errCh <- err
 	}()
 	<-started
@@ -184,7 +184,7 @@ func TestCodexStreamKeepsInterleavedToolCallsCorrelated(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	msg, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.4"}, nil, nil, nil)
+	msg, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestCodexComplete(t *testing.T) {
 	defer srv.Close()
 
 	text, usage, err := NewCodex(srv.URL, codexSource(t)).Complete(context.Background(), Request{
-		Model:    "gpt-5.4",
+		Model:    "gpt-5.5",
 		Messages: []Message{{Role: "system", Content: "summarize"}, {Role: "user", Content: "history"}},
 	})
 	if err != nil {
@@ -451,7 +451,7 @@ func TestCodexModelsFetchesAccountCatalog(t *testing.T) {
 		fmt.Fprint(w, `{"models":[
   {"slug":"gpt-5.6-sol","supported_in_api":true,"context_window":1050000,"supported_reasoning_levels":[{"effort":"none"},{"effort":"low"},{"effort":"max"}],"input_modalities":["text","image"]},
   {"slug":"gpt-rollout","supported_in_api":false,"context_window":1000},
-  {"slug":"gpt-5.4","supported_in_api":true,"max_context_window":272000,"supported_reasoning_levels":[{"effort":"medium"}]}
+  {"slug":"gpt-5.5","supported_in_api":true,"max_context_window":272000,"supported_reasoning_levels":[{"effort":"medium"}]}
 ]}`)
 	}))
 	defer srv.Close()
@@ -469,7 +469,7 @@ func TestCodexModelsFetchesAccountCatalog(t *testing.T) {
 	if got := models[0]; got.ID != "gpt-5.6-sol" || got.ContextLength != 1050000 || !got.SupportsVision() || strings.Join(got.ReasoningEfforts, ",") != "none,low,max" {
 		t.Fatalf("first model = %+v", got)
 	}
-	if got := models[1]; got.ID != "gpt-5.4" || got.ContextLength != 272000 || !got.SupportsVision() || strings.Join(got.ReasoningEfforts, ",") != "medium" {
+	if got := models[1]; got.ID != "gpt-5.5" || got.ContextLength != 272000 || !got.SupportsVision() || strings.Join(got.ReasoningEfforts, ",") != "medium" {
 		t.Fatalf("second model = %+v", got)
 	}
 }
@@ -518,10 +518,10 @@ func TestCodexModelsFailureModes(t *testing.T) {
 
 func TestCodexStreamAndCompleteRequireLogin(t *testing.T) {
 	client := NewCodex("https://codex.test", nil)
-	if _, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.4"}, nil, nil, nil); !errors.Is(err, codexauth.ErrLoginRequired) {
+	if _, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil); !errors.Is(err, codexauth.ErrLoginRequired) {
 		t.Fatalf("Stream() error = %v, want login required", err)
 	}
-	if _, _, err := client.Complete(context.Background(), Request{Model: "gpt-5.4"}); !errors.Is(err, codexauth.ErrLoginRequired) {
+	if _, _, err := client.Complete(context.Background(), Request{Model: "gpt-5.5"}); !errors.Is(err, codexauth.ErrLoginRequired) {
 		t.Fatalf("Complete() error = %v, want login required", err)
 	}
 }
@@ -577,7 +577,7 @@ func TestCodexStreamErrors(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			_, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.4"}, nil, nil, nil)
+			_, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Stream error = %v, want %q", err, tc.want)
 			}
@@ -609,7 +609,7 @@ func TestCodexCompleteErrors(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			_, _, err := NewCodex(srv.URL, codexSource(t)).Complete(context.Background(), Request{Model: "gpt-5.4"})
+			_, _, err := NewCodex(srv.URL, codexSource(t)).Complete(context.Background(), Request{Model: "gpt-5.5"})
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Complete error = %v, want %q", err, tc.want)
 			}

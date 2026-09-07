@@ -121,12 +121,12 @@ func (m *model) applyCodexLoginResult(result codexLoginResultMsg) {
 		return
 	}
 	if result.catalogErr != nil {
-		m.append(dimStyle.Render("✓ Codex configured — gpt-5.4 @ codex is ready in /model"))
+		m.append(dimStyle.Render("✓ Codex configured — gpt-5.5 @ codex is ready in /model"))
 		m.append(dimStyle.Render("Codex model catalog will retry on /model refresh: " + result.catalogErr.Error()))
 		return
 	}
 	if err := m.saveCodexCatalog(result.models); err != nil {
-		m.append(dimStyle.Render("✓ Codex configured — gpt-5.4 @ codex is ready in /model"))
+		m.append(dimStyle.Render("✓ Codex configured — gpt-5.5 @ codex is ready in /model"))
 		m.append(dimStyle.Render("Codex model catalog could not be cached; /model refresh will retry: " + err.Error()))
 		return
 	}

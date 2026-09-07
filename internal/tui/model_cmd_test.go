@@ -26,14 +26,14 @@ func TestBuildAgentCodexAuthNeedsNoAPIKey(t *testing.T) {
 	}
 	if err := config.SaveCatalogs(map[string]config.Catalog{
 		"codex": {Models: []config.ModelInfoLite{
-			{ID: "gpt-5.4", ContextLength: 272000, MaxCompletionTokens: 128000, InputModalities: []string{"text", "image"}},
+			{ID: "gpt-5.5", ContextLength: 272000, MaxCompletionTokens: 128000, InputModalities: []string{"text", "image"}},
 			{ID: "gpt-5.6-sol", ContextLength: 1050000, ReasoningEfforts: []string{"low", "high"}, InputModalities: []string{"text", "image"}},
 		}},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
-		DefaultModel: "gpt-5.4",
+		DefaultModel: "gpt-5.5",
 		Providers: map[string]config.Provider{
 			"codex": {
 				API:     "openai-codex-responses",
@@ -42,7 +42,7 @@ func TestBuildAgentCodexAuthNeedsNoAPIKey(t *testing.T) {
 			},
 		},
 		Models: map[string]config.Model{
-			"gpt-5.4": {Providers: []string{"codex"}, Context: 272000, MaxOut: 128000},
+			"gpt-5.5": {Providers: []string{"codex"}, Context: 272000, MaxOut: 128000},
 		},
 	}
 	ag, _, _, err := buildAgent(cfg, "", "", "system")
@@ -77,11 +77,11 @@ func TestBuildAgentCodexAuthNeedsNoAPIKey(t *testing.T) {
 func TestBuildAgentCodexAuthGivesLoginHint(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := &config.Config{
-		DefaultModel: "gpt-5.4",
+		DefaultModel: "gpt-5.5",
 		Providers: map[string]config.Provider{
 			"codex": {API: "openai-codex-responses", Auth: "codex", BaseURL: "https://chatgpt.com/backend-api"},
 		},
-		Models: map[string]config.Model{"gpt-5.4": {Providers: []string{"codex"}}},
+		Models: map[string]config.Model{"gpt-5.5": {Providers: []string{"codex"}}},
 	}
 	_, _, _, err := buildAgent(cfg, "", "", "system")
 	if err == nil || !strings.Contains(err.Error(), "whip auth codex") {
@@ -91,11 +91,11 @@ func TestBuildAgentCodexAuthGivesLoginHint(t *testing.T) {
 
 func TestBuildAgentCodexRejectsCustomEndpoint(t *testing.T) {
 	cfg := &config.Config{
-		DefaultModel: "gpt-5.4",
+		DefaultModel: "gpt-5.5",
 		Providers: map[string]config.Provider{
 			"codex": {API: "openai-codex-responses", Auth: "codex", BaseURL: "https://example.com"},
 		},
-		Models: map[string]config.Model{"gpt-5.4": {Providers: []string{"codex"}}},
+		Models: map[string]config.Model{"gpt-5.5": {Providers: []string{"codex"}}},
 	}
 	_, _, _, err := buildAgent(cfg, "", "", "system")
 	if err == nil || !strings.Contains(err.Error(), "must use https://chatgpt.com/backend-api") {

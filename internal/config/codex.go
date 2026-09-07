@@ -9,7 +9,7 @@ import "slices"
 const (
 	CodexProviderName   = "codex"
 	CodexBaseURL        = "https://chatgpt.com/backend-api"
-	CodexDefaultModel   = "gpt-5.4"
+	CodexDefaultModel   = "gpt-5.5"
 	CodexDefaultContext = 272000
 	CodexDefaultMaxOut  = 128000
 )
