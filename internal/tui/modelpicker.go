@@ -229,10 +229,21 @@ func buildModelItems(cfg *config.Config) []modelItem {
 			if prov, ok := cfg.Providers[p]; ok {
 				url = prov.BaseURL
 			}
-			items = append(items, modelItem{model: name, provider: p, url: url})
+			items = append(items, modelItem{model: name, provider: p, url: endpointLabel(url)})
 		}
 	}
 	return appendCatalogRoutes(items, cfg, config.LoadCatalogs())
+}
+
+// endpointLabel is the picker's display form of a provider base URL. The
+// Codex subscription talks to chatgpt.com/backend-api (that is how ChatGPT
+// accounts reach Codex, not api.openai.com), which reads as odd next to API
+// hosts — name what it is instead.
+func endpointLabel(baseURL string) string {
+	if strings.TrimRight(baseURL, "/") == config.CodexBaseURL {
+		return "ChatGPT Codex subscription"
+	}
+	return baseURL
 }
 
 // appendCatalogRoutes adds one route per catalog-advertised model that has no
@@ -256,7 +267,7 @@ func appendCatalogRoutes(items []modelItem, cfg *config.Config, cats map[string]
 			if _, configured := cfg.Models[mi.ID]; configured {
 				continue
 			}
-			extra = append(extra, modelItem{model: mi.ID, provider: p, url: cat.BaseURL, fromCatalog: true})
+			extra = append(extra, modelItem{model: mi.ID, provider: p, url: endpointLabel(cat.BaseURL), fromCatalog: true})
 		}
 	}
 	sort.Slice(extra, func(a, b int) bool {

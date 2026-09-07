@@ -209,3 +209,12 @@ func TestBuildModelItemsGroupsCatalogRoutesByProvider(t *testing.T) {
 		t.Fatalf("order = %v, want %s", got, want)
 	}
 }
+
+func TestEndpointLabelNamesCodexSubscription(t *testing.T) {
+	if got := endpointLabel(config.CodexBaseURL + "/"); got != "ChatGPT Codex subscription" {
+		t.Fatalf("codex label = %q", got)
+	}
+	if got := endpointLabel("https://openrouter.ai/api/v1"); got != "https://openrouter.ai/api/v1" {
+		t.Fatalf("other URLs pass through, got %q", got)
+	}
+}
