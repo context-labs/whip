@@ -2,20 +2,21 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/codexauth"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 )
 
-// /auth <provider> [key] turns a pasted API key into a working provider
-// without leaving the session: the key is validated against the provider's
-// live /models, the provider entry is upserted into ~/.whip/config.json
-// (guarded atomic save), and the model catalog is refreshed so /model lists
-// the new catalog immediately. OpenRouter is the first (and ponytail: only,
-// until a second provider wants one) supported provider.
+// /auth <provider> starts the provider's login flow without leaving the
+// session. OpenRouter validates a pasted API key and pre-fetches its catalog;
+// Codex runs device-code OAuth and fetches its account-scoped catalog. Both
+// save the provider entry before reporting success, so /model can use it at
+// once.
 //
 // The bare form (/auth openrouter) repurposes the input box as a masked
 // one-shot prompt — the same namePrompt machinery as /fork and /rename, with
@@ -23,20 +24,28 @@ import (
 
 func (m *model) authCommand(args []string) {
 	if len(args) == 0 {
-		m.append(dimStyle.Render("usage: /auth <provider> [key] — inference-net (bare = browser login) or openrouter (bare = masked prompt)"))
+		m.append(dimStyle.Render("usage: /auth <provider> [key] — inference-net (bare = browser login), openrouter (bare = masked prompt), or codex (device login)"))
 		return
 	}
 	switch args[0] {
 	case "inference-net", "inference":
 		m.authInferenceNetCommand(args)
-		return
+	case "codex":
+		if len(args) != 1 {
+			m.append(errStyle.Render("usage: /auth codex"))
+			return
+		}
+		m.authCodex()
 	case "openrouter":
+		m.authOpenRouterCommand(args[1:])
 	default:
-		m.append(errStyle.Render("unknown provider " + args[0] + " (supported: inference-net, openrouter)"))
-		return
+		m.append(errStyle.Render("unknown provider " + args[0] + " (supported: inference-net, openrouter, codex)"))
 	}
-	if len(args) > 1 {
-		m.authOpenRouter(config.TrimKey(strings.Join(args[1:], "")), false)
+}
+
+func (m *model) authOpenRouterCommand(args []string) {
+	if len(args) > 0 {
+		m.authOpenRouter(config.TrimKey(strings.Join(args, "")), false)
 		return
 	}
 	m.openNamePrompt("🔑 openrouter key (masked, enter to save, esc cancels):", "", func(key string) {
@@ -48,6 +57,101 @@ func (m *model) authCommand(args []string) {
 		m.authOpenRouter(key, false)
 	})
 	m.namePrompt.mask = true
+}
+
+// codexLoginResultMsg carries device-code login and account-catalog results
+// back to the UI goroutine. Credentials are committed before the catalog is
+// fetched, so a transient catalog error never strands a successful login.
+type codexLoginResultMsg struct {
+	models     []llm.ModelInfo
+	catalogErr error
+	err        error
+}
+
+func (m *model) authCodex() {
+	if m.busy {
+		m.append(errStyle.Render("/auth codex needs an idle session; wait for the current turn first"))
+		return
+	}
+	if m.prog == nil {
+		return // tests drive applyCodexLoginResult directly
+	}
+
+	m.append(dimStyle.Render("starting Codex device login…"))
+	ctx, cancel := context.WithCancel(context.Background())
+	m.busy = true
+	m.cancel = cancel
+	m.turnStart = time.Now()
+	p := m.prog
+	go func() {
+		source := &codexauth.Source{}
+		err := source.DeviceLogin(ctx, func(code codexauth.DeviceCode) {
+			p.Send(noticeMsg(fmt.Sprintf(
+				"Codex sign-in: open %s and enter code %s. Press esc to cancel.",
+				code.VerificationURL,
+				code.UserCode,
+			)))
+		})
+		result := codexLoginResultMsg{err: err}
+		if err == nil {
+			catalogCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			result.models, result.catalogErr = llm.NewCodex(config.CodexBaseURL, source).Models(catalogCtx)
+			cancel()
+		}
+		p.Send(result)
+	}()
+}
+
+func (m *model) applyCodexLoginResult(result codexLoginResultMsg) {
+	m.busy = false
+	m.cancel = nil
+	m.interrupt1 = false
+	m.turnStart = time.Time{}
+	if errors.Is(result.err, context.Canceled) {
+		m.append(dimStyle.Render("Codex login cancelled"))
+		return
+	}
+	if result.err != nil {
+		m.append(errStyle.Render("Codex login failed: " + result.err.Error()))
+		return
+	}
+	m.cfg.UpsertCodex()
+	if err := m.cfg.Save(); err != nil {
+		m.append(errStyle.Render("config save failed: " + err.Error()))
+		return
+	}
+	if result.catalogErr != nil {
+		m.append(dimStyle.Render("✓ Codex configured — gpt-5.4 @ codex is ready in /model"))
+		m.append(dimStyle.Render("Codex model catalog will retry on /model refresh: " + result.catalogErr.Error()))
+		return
+	}
+	if err := m.saveCodexCatalog(result.models); err != nil {
+		m.append(dimStyle.Render("✓ Codex configured — gpt-5.4 @ codex is ready in /model"))
+		m.append(dimStyle.Render("Codex model catalog could not be cached; /model refresh will retry: " + err.Error()))
+		return
+	}
+	m.append(dimStyle.Render(fmt.Sprintf("✓ Codex configured — %d account models are ready in /model", len(result.models))))
+}
+
+// saveCodexCatalog makes freshly authenticated subscription models available
+// before the next background refresh. The caller has already persisted the
+// provider route, so catalog-cache failure is recoverable.
+func (m *model) saveCodexCatalog(infos []llm.ModelInfo) error {
+	cats := config.LoadCatalogs()
+	cats[config.CodexProviderName] = config.Catalog{
+		FetchedAt: time.Now(),
+		BaseURL:   config.CodexBaseURL,
+		Models:    catalogLites(infos),
+	}
+	if err := config.SaveCatalogs(cats); err != nil {
+		return err
+	}
+	if m.agent != nil {
+		m.updateCatalogs(cats)
+	} else {
+		m.catalogs = cats
+	}
+	return nil
 }
 
 // authResultMsg carries a finished key validation back to the UI goroutine.

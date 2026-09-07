@@ -54,6 +54,22 @@ whip auth openrouter   # masked key prompt — or /auth openrouter in-session
 To update to the latest release later, run `whip update` — it re-runs the
 install script above.
 
+## Codex subscription
+
+Whip can use an existing ChatGPT/Codex subscription instead of an API key.
+Run `whip auth codex` and follow the displayed URL and one-time code. On
+approval, Whip saves the login and adds
+the account's available Codex models to `/model` immediately. The same flow is
+available from an active session with `/auth codex`.
+
+Whip saves the login in `~/.codex/auth.json`. Expiring tokens refresh locally
+and are never printed or added to conversations. Whip fetches the signed-in
+account's `https://chatgpt.com/backend-api/codex/models` catalog and refreshes
+it every 24 hours (or with `/model refresh`), so plan and rollout availability
+come from the backend rather than a hard-coded list. `gpt-5.4 @ codex` remains
+as a compatible fallback route. OAuth credentials are only sent to
+`https://chatgpt.com/backend-api`.
+
 ## First things to try
 
 ```

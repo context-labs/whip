@@ -23,7 +23,7 @@ type registryEntry struct {
 // their hint/keybind in palette.go as constants, so a keybind or description
 // still has exactly one home even when it's not a slash command.
 var registry = []registryEntry{
-	{Name: "/auth", Hint: "<provider> [key] — connect a provider (bare = guided login)", Category: "Agent"},
+	{Name: "/auth", Hint: "<provider> [key] — connect a provider (bare = guided login); codex = device login", Category: "Agent"},
 	{Name: "/cd", Hint: "[dir] — change working directory (bare prints it)", Category: "Session"},
 	{Name: "/clear", Hint: "— reset conversation", Category: "Session"},
 	{Name: "/compact", Hint: "[model]|off|retry|log — compact the conversation now", Category: "Session"},

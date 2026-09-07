@@ -19,7 +19,7 @@ func subagentPrompt() string {
 // SubModel is a resolved subagent route: which client/model a subagent runs
 // on. The zero value means "unset" (fall through to the next default).
 type SubModel struct {
-	Client       *llm.Client
+	Client       llm.Client
 	Model        string // model id sent to the API
 	ContextLimit int    // provider-advertised context window (0 = unknown)
 	MaxTokens    int    // output cap (0 = inherit the parent's)
@@ -46,8 +46,7 @@ func (a *Agent) newSub(o SubModel) *Agent {
 	// Turn writes Client.OnRetry per call, so a shared struct races when two
 	// agents stream concurrently. Shallow copy is safe — the embedded
 	// *http.Client is concurrency-safe and stays shared.
-	c := *o.Client
-	o.Client = &c
+	o.Client = o.Client.Clone()
 	sub := New(o.Client, o.Model, o.MaxTokens, subagentPrompt())
 	// A per-task effort override wins; otherwise inherit the parent's effort.
 	if effort != "" {

@@ -69,9 +69,27 @@ func (a *Agent) SetOnTodos(fn func(items []Todo)) {
 	a.todosMu.Unlock()
 }
 
+// retryReporter is an optional provider capability. The core provider
+// contract stays limited to model discovery and completions; OpenAI exposes
+// this additional hook because it retries transient failures locally.
+type retryReporter interface {
+	SetOnRetry(func(llm.RetryEvent))
+}
+
+// reportRetries installs ev.OnRetry on the client for one call when the
+// provider supports it; the returned func clears it again.
+func (a *Agent) reportRetries(ev Events) func() {
+	client, ok := a.Client.(retryReporter)
+	if !ok {
+		return func() {}
+	}
+	client.SetOnRetry(ev.OnRetry)
+	return func() { client.SetOnRetry(nil) }
+}
+
 // Agent holds one conversation.
 type Agent struct {
-	Client    *llm.Client
+	Client    llm.Client
 	Model     string // model id sent to the API
 	ModelName string // config model name (may differ from Model via id mapping)
 	Provider  string // config provider name
@@ -90,7 +108,7 @@ type Agent struct {
 	ContextLimit int
 	// CompactClient and CompactModel run the compaction summary; nil/"" uses
 	// the conversation's own client and model.
-	CompactClient *llm.Client
+	CompactClient llm.Client
 	CompactModel  string
 	// CompactThreshold is the fraction of ContextLimit at which Turn compacts
 	// proactively; 0 uses defaultCompactThreshold.
@@ -154,6 +172,7 @@ type Agent struct {
 	onTodos func(items []Todo)
 
 	sessionID atomic.Pointer[string] // scopes the per-session memory file + keys the prompt cache (SetSessionID)
+	cacheKey  string                 // prompt-cache key handed to the client (SetCacheKey); subagents scope under it
 
 	// toolsMu guards mcpTools: the MCP manager's OnChange can fire (server
 	// settled) while a Turn is streaming, and Turn reads the tool set per
@@ -390,7 +409,7 @@ func copyUsageMap(m map[string]llm.Usage) map[string]llm.Usage {
 	return out
 }
 
-func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
+func New(client llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
 	a := &Agent{
 		Client:    client,
 		Model:     model,
@@ -547,18 +566,19 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				llm.Message{Role: "system", Content: block})
 		}
 		// Surface transient-request retries through the event hook so the UI
-		// shows "retrying" instead of looking hung. Set/restored per call: the
-		// client may outlive this turn's Events.
-		a.Client.OnRetry = ev.OnRetry
+		// shows "retrying" instead of looking hung. The provider may outlive
+		// this turn, so clear an optional reporter immediately after the call.
+		clearRetry := a.reportRetries(ev)
 		msg, usage, err := a.Client.Stream(ctx, llm.Request{
 			Model:           a.Model,
 			Messages:        msgs,
 			Tools:           tools.Defs(a.AllTools()),
+			MaxTokens:       a.MaxTokens,
 			ReasoningEffort: a.Effort,
 			Temperature:     a.Temperature,
 			TopP:            a.TopP,
 		}, ev.OnText, ev.OnThink, ev.OnToolCall)
-		a.Client.OnRetry = nil
+		clearRetry()
 		a.AddUsage(usage)
 		a.notePrompt(usage)
 		if ev.OnUsage != nil {
@@ -1011,7 +1031,7 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 	if dedicated {
 		// a dedicated compaction route: name the host so the transcript can
 		// tell a cheap summarizer apart from the conversation's own model
-		if u, perr := url.Parse(cli.BaseURL); perr == nil && u.Host != "" {
+		if u, perr := url.Parse(cli.Endpoint()); perr == nil && u.Host != "" {
 			label = mdl + " @ " + u.Host
 		}
 	}
@@ -1172,7 +1192,7 @@ func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
 	msgs := append(append([]llm.Message(nil), a.Messages...),
 		llm.Message{Role: "system", Content: "You have reached the tool-call limit. Do NOT request any more tools. Give your final answer now using only what you have already gathered."})
-	a.Client.OnRetry = ev.OnRetry
+	clearRetry := a.reportRetries(ev)
 	msg, usage, err := a.Client.Stream(ctx, llm.Request{
 		Model:           a.Model,
 		Messages:        msgs,
@@ -1181,7 +1201,7 @@ func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
 		Temperature:     a.Temperature,
 		TopP:            a.TopP,
 	}, ev.OnText, ev.OnThink, ev.OnToolCall)
-	a.Client.OnRetry = nil
+	clearRetry()
 	a.AddUsage(usage)
 	a.notePrompt(usage)
 	if ev.OnUsage != nil {

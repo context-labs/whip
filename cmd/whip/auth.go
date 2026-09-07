@@ -17,10 +17,11 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 )
 
-// authCLI implements `whip auth …`: turn a provider API key into a ready
-// provider entry + pre-fetched model catalog, so `/model` just works.
+// authCLI implements `whip auth …`: turn provider credentials into a ready
+// provider route, so `/model` works immediately after sign-in.
 //
 //	whip auth openrouter [--env] [<key>]
+//	whip auth codex
 //
 // The key comes from (first hit): the positional arg, OPENROUTER_API_KEY in
 // the environment, or a masked prompt. It is validated against the live
@@ -33,15 +34,17 @@ import (
 // interactive terminal we offer to append the export to the shell rc file.
 func authCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: whip auth <provider> [<args>]\n  providers: inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>]")
+		return errors.New("usage: whip auth <provider> [<args>]\n  providers: inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>], codex")
 	}
 	switch args[0] {
 	case "inference-net", "inference":
 		return authInferenceNetCLI(args[1:])
 	case "openrouter":
 		return authOpenRouterCLI(args[1:])
+	case "codex":
+		return authCodexCLI(args[1:])
 	default:
-		return fmt.Errorf("unknown provider %q (supported: inference-net, openrouter)", args[0])
+		return fmt.Errorf("unknown provider %q (supported: inference-net, openrouter, codex)", args[0])
 	}
 }
 
@@ -104,13 +107,16 @@ func authOpenRouter(baseURL, key string, envMode bool) error {
 
 	// Pre-fetch the catalog so the very next /model picker lists everything
 	// (otherwise it waits for the TUI's 24h-TTL background refresh).
-	saveOpenRouterCatalog(baseURL, infos)
+	if err := saveCatalog("openrouter", baseURL, infos); err != nil {
+		fmt.Fprintln(os.Stderr, "whip: catalog prefetch failed (the TUI will retry on its TTL):", err)
+	}
 	return nil
 }
 
-// saveOpenRouterCatalog writes the freshly fetched model list into the
-// catalog cache. Best-effort: the TUI's TTL refresh recovers a failure.
-func saveOpenRouterCatalog(baseURL string, infos []llm.ModelInfo) {
+// saveCatalog records a freshly fetched provider catalog. Model capability
+// data stays out of config routes so an account's live catalog can evolve
+// without rewriting users' overrides.
+func saveCatalog(provider, baseURL string, infos []llm.ModelInfo) error {
 	cats := config.LoadCatalogs()
 	lites := make([]config.ModelInfoLite, len(infos))
 	for i, mi := range infos {
@@ -125,10 +131,8 @@ func saveOpenRouterCatalog(baseURL string, infos []llm.ModelInfo) {
 			lites[i].InPrice, lites[i].OutPrice, lites[i].CacheReadPrice = mi.Pricing.Rates()
 		}
 	}
-	cats["openrouter"] = config.Catalog{FetchedAt: time.Now(), BaseURL: baseURL, Models: lites}
-	if err := config.SaveCatalogs(cats); err != nil {
-		fmt.Fprintln(os.Stderr, "whip: catalog prefetch failed (the TUI will retry on its TTL):", err)
-	}
+	cats[provider] = config.Catalog{FetchedAt: time.Now(), BaseURL: baseURL, Models: lites}
+	return config.SaveCatalogs(cats)
 }
 
 // promptKey reads a key with echo disabled when stdin is a terminal,

@@ -163,7 +163,7 @@ func main() {
 		return
 	}
 
-	// `whip auth ...` — provider key onboarding (openrouter).
+	// `whip auth ...` — provider onboarding (OpenRouter keys or Codex OAuth).
 	if flag.NArg() > 0 && flag.Arg(0) == "auth" {
 		if err := authCLI(flag.Args()[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, "whip:", err)
