@@ -15,8 +15,15 @@ import (
 
 // authCodexCLI implements `whip auth codex`.
 func authCodexCLI(args []string) error {
+	if len(args) == 1 && args[0] == "logout" {
+		if err := logoutProvider(config.CodexProviderName); err != nil {
+			return err
+		}
+		fmt.Println("  ~/.codex/auth.json is shared with the Codex CLI and was left in place; run `codex logout` to revoke it.")
+		return nil
+	}
 	if len(args) != 0 {
-		return errors.New("usage: whip auth codex")
+		return errors.New("usage: whip auth codex [logout]")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

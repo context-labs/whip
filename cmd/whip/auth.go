@@ -32,11 +32,19 @@ import (
 // ~/.whip/config.json (0600). --env instead records apiKeyEnv:
 // OPENROUTER_API_KEY and the key must be exported in the shell; with an
 // interactive terminal we offer to append the export to the shell rc file.
+const authUsage = `usage: whip auth <provider> [<args>]
+  inference-net  login [--key <apikey> | --env] | status | logout | key rotate
+  openrouter     [--env] [<key>] | logout
+  codex          [logout]        (ChatGPT subscription device login)`
+
 func authCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: whip auth <provider> [<args>]\n  providers: inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>], codex")
+		return errors.New(authUsage)
 	}
 	switch args[0] {
+	case "-h", "--help", "help":
+		fmt.Println(authUsage)
+		return nil
 	case "inference-net", "inference":
 		return authInferenceNetCLI(args[1:])
 	case "openrouter":
@@ -49,9 +57,15 @@ func authCLI(args []string) error {
 }
 
 func authOpenRouterCLI(args []string) error {
+	if len(args) == 1 && args[0] == "logout" {
+		return logoutProvider("openrouter")
+	}
 	fs := flag.NewFlagSet("auth openrouter", flag.ContinueOnError)
 	envMode := fs.Bool("env", false, "store the key as apiKeyEnv: "+config.OpenRouterEnvVar+" instead of a literal in config.json")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 
@@ -82,6 +96,24 @@ func authOpenRouterCLI(args []string) error {
 	}
 	fmt.Println("openrouter provider configured.")
 	fmt.Println("  run `whip`, then /model and pick from the full OpenRouter catalog — e.g. /model openai/gpt-5 openrouter")
+	return nil
+}
+
+// logoutProvider forgets a provider's config entry, routes, and cached catalog.
+func logoutProvider(name string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if _, ok := cfg.Providers[name]; !ok {
+		fmt.Printf("%s is not configured.\n", name)
+		return nil
+	}
+	cfg.RemoveProvider(name)
+	if err := cfg.Save(); err != nil {
+		return err
+	}
+	fmt.Printf("✓ %s removed from ~/.whip/config.json.\n", name)
 	return nil
 }
 

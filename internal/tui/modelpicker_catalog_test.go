@@ -185,3 +185,27 @@ func TestStaleCatalogs(t *testing.T) {
 		t.Errorf("fresh catalog is not stale: %v", got)
 	}
 }
+
+// Catalog routes group by provider so a small catalog isn't scattered
+// through a large one.
+func TestBuildModelItemsGroupsCatalogRoutesByProvider(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	cfg := &config.Config{
+		Providers: map[string]config.Provider{"openrouter": {}, "codex": {}},
+		Models:    map[string]config.Model{},
+	}
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"openrouter": {FetchedAt: time.Now(), Models: []config.ModelInfoLite{{ID: "a"}, {ID: "z"}}},
+		"codex":      {FetchedAt: time.Now(), Models: []config.ModelInfoLite{{ID: "m"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, it := range buildModelItems(cfg) {
+		got = append(got, it.model+"@"+it.provider)
+	}
+	want := "m@codex a@openrouter z@openrouter"
+	if strings.Join(got, " ") != want {
+		t.Fatalf("order = %v, want %s", got, want)
+	}
+}

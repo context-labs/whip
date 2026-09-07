@@ -79,7 +79,7 @@ func TestAuthCodexShowsDeviceInstructions(t *testing.T) {
 }
 
 func TestAuthCodexCLIUsage(t *testing.T) {
-	if err := authCodexCLI([]string{"unexpected"}); err == nil || err.Error() != "usage: whip auth codex" {
+	if err := authCodexCLI([]string{"unexpected"}); err == nil || err.Error() != "usage: whip auth codex [logout]" {
 		t.Fatalf("error = %v", err)
 	}
 }

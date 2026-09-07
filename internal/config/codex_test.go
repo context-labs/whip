@@ -83,3 +83,37 @@ func TestUpsertCodexInitializesEmptyConfig(t *testing.T) {
 		t.Fatalf("model = %+v", model)
 	}
 }
+
+func TestRemoveProviderDropsRoutesPinsAndCatalog(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	if err := SaveCatalogs(map[string]Catalog{"codex": {Models: []ModelInfoLite{{ID: "gpt-5.5"}}}, "openrouter": {}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{
+		DefaultProvider: "codex",
+		CompactProvider: "codex",
+		TaskProvider:    "openrouter",
+		Providers:       map[string]Provider{"codex": {}, "openrouter": {}},
+		Models: map[string]Model{
+			"gpt-5.5": {Providers: []string{"codex"}},
+			"shared":  {Providers: []string{"codex", "openrouter"}},
+		},
+	}
+	cfg.RemoveProvider("codex")
+	if _, ok := cfg.Providers["codex"]; ok {
+		t.Fatal("provider entry should be gone")
+	}
+	if _, ok := cfg.Models["gpt-5.5"]; ok {
+		t.Fatal("route with no remaining provider should be dropped")
+	}
+	if got := cfg.Models["shared"].Providers; len(got) != 1 || got[0] != "openrouter" {
+		t.Fatalf("shared route providers = %v", got)
+	}
+	if cfg.DefaultProvider != "" || cfg.CompactProvider != "" || cfg.TaskProvider != "openrouter" {
+		t.Fatalf("pins: default=%q compact=%q task=%q", cfg.DefaultProvider, cfg.CompactProvider, cfg.TaskProvider)
+	}
+	cats := LoadCatalogs()
+	if _, ok := cats["codex"]; ok || len(cats) != 1 {
+		t.Fatalf("catalogs after remove = %v", cats)
+	}
+}

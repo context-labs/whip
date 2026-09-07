@@ -236,8 +236,10 @@ func buildModelItems(cfg *config.Config) []modelItem {
 }
 
 // appendCatalogRoutes adds one route per catalog-advertised model that has no
-// cfg.Models entry, sorted by model name. Configured models win: a catalog id
-// already in cfg.Models adds nothing.
+// cfg.Models entry, grouped by provider then sorted by model name — so a small
+// catalog (a Codex subscription's 8 models) isn't scattered through a large
+// one (OpenRouter's ~400). Configured models win: a catalog id already in
+// cfg.Models adds nothing.
 func appendCatalogRoutes(items []modelItem, cfg *config.Config, cats map[string]config.Catalog) []modelItem {
 	provs := make([]string, 0, len(cfg.Providers))
 	for name := range cfg.Providers {
@@ -258,10 +260,10 @@ func appendCatalogRoutes(items []modelItem, cfg *config.Config, cats map[string]
 		}
 	}
 	sort.Slice(extra, func(a, b int) bool {
-		if extra[a].model != extra[b].model {
-			return extra[a].model < extra[b].model
+		if extra[a].provider != extra[b].provider {
+			return extra[a].provider < extra[b].provider
 		}
-		return extra[a].provider < extra[b].provider
+		return extra[a].model < extra[b].model
 	})
 	return append(items, extra...)
 }
