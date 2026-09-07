@@ -53,7 +53,7 @@ jobs:
           whip --version || true
       - name: Load loupe secrets from Infisical
         continue-on-error: true
-        uses: Infisical/secrets-action@v1.0.15
+        uses: Infisical/secrets-action@v1.0.17
         with:
           method: "oidc"
           identity-id: ${{ env.INFISICAL_IDENTITY_ID }}
