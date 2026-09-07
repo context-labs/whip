@@ -635,3 +635,16 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
 }
+
+func TestCodexCloneOwnsCacheKey(t *testing.T) {
+	parent := NewCodex("https://chatgpt.com/backend-api/", nil)
+	parent.SetCacheKey("parent")
+	child := parent.Clone()
+	child.SetCacheKey("parent/child")
+	if parent.CacheKey != "parent" || child.(*Codex).CacheKey != "parent/child" {
+		t.Fatalf("clone shares cache key: parent=%q child=%q", parent.CacheKey, child.(*Codex).CacheKey)
+	}
+	if child.Endpoint() != "https://chatgpt.com/backend-api" {
+		t.Fatalf("endpoint = %q", child.Endpoint())
+	}
+}
