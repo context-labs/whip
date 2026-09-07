@@ -2,6 +2,7 @@
   "harness": "whip",
   "model": "kimi-k3",
   "timezone": "PST",
+  "maxTurns": 5,
   "whip": {
     "provider": {
       "name": "inference-net",
@@ -22,7 +23,7 @@
     {
       "name": "go-review",
       "promptFile": "reviewers/go-review.md",
-      "reasoning": "medium",
+      "reasoning": "low",
       "profile": "chill",
       "exclude": [
         ".agents/skills/**",
