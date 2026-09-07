@@ -116,7 +116,11 @@ need no individual config entry: select one from `/model`, or use
 The Codex backend is the source of truth for subscription availability. That
 means a model appears only when the account is entitled to it, and changes in
 plan or rollout state arrive on the next 24-hour refresh (or `/model refresh`).
-Whip keeps `gpt-5.5 @ codex` as a fallback route so a temporary catalog fetch
+Subagents on the subscription default to `gpt-5.6-luna @ codex-subscription`
+(`config.CodexDefaultTaskModel`) unless `taskModel` is pinned; any configured or
+catalog model works as the pin.
+
+Whip keeps `gpt-5.5 @ codex-subscription` as a fallback route so a temporary catalog fetch
 failure never makes a completed login unusable.
 
 Codex subscription requests intentionally omit `max_output_tokens`: despite

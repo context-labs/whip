@@ -32,3 +32,39 @@ func (c *Config) RemoveProvider(name string) {
 	}
 	logf("config.provider", "removed provider %s", name)
 }
+
+// renameProvider moves a provider entry (only when its API matches, so an
+// unrelated user-named provider is left alone) and rewrites every route, pin,
+// and cached catalog that referenced the old key.
+func (c *Config) renameProvider(from, to, api string) {
+	p, ok := c.Providers[from]
+	if !ok || p.API != api {
+		return
+	}
+	if _, taken := c.Providers[to]; taken {
+		c.RemoveProvider(from)
+		return
+	}
+	delete(c.Providers, from)
+	c.Providers[to] = p
+	for id, m := range c.Models {
+		for i, prov := range m.Providers {
+			if prov == from {
+				m.Providers[i] = to
+			}
+		}
+		c.Models[id] = m
+	}
+	for _, pin := range []*string{&c.DefaultProvider, &c.CompactProvider, &c.TaskProvider} {
+		if *pin == from {
+			*pin = to
+		}
+	}
+	cats := LoadCatalogs()
+	if cat, ok := cats[from]; ok {
+		delete(cats, from)
+		cats[to] = cat
+		_ = SaveCatalogs(cats)
+	}
+	logf("config.provider", "renamed provider %s -> %s", from, to)
+}

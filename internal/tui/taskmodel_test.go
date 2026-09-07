@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +25,7 @@ func taskCfg(url string) *config.Config {
 
 // The built-in default task model resolves when the config routes it.
 func TestTaskDefaultForResolvesDefault(t *testing.T) {
-	o, err := TaskDefaultFor(taskCfg("http://x"))
+	o, err := TaskDefaultFor(taskCfg("http://x"), "")
 	if err != nil || o.Client == nil || o.Model != config.DefaultTaskModel {
 		t.Fatalf("default should resolve: %+v, %v", o, err)
 	}
@@ -36,12 +38,12 @@ func TestTaskDefaultForResolvesDefault(t *testing.T) {
 func TestTaskDefaultForFallbacks(t *testing.T) {
 	cfg := taskCfg("http://x")
 	delete(cfg.Models, config.DefaultTaskModel)
-	o, err := TaskDefaultFor(cfg)
+	o, err := TaskDefaultFor(cfg, "")
 	if err != nil || o.Client != nil {
 		t.Fatalf("missing default must silently fall back, got %+v, %v", o, err)
 	}
 	cfg.TaskModel = "nope"
-	if _, err := TaskDefaultFor(cfg); err == nil {
+	if _, err := TaskDefaultFor(cfg, ""); err == nil {
 		t.Fatal("an explicit taskModel that fails to resolve should error")
 	}
 }
@@ -62,7 +64,7 @@ func TestTaskDefaultForCatalogSuffix(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer config.SaveCatalogs(map[string]config.Catalog{})
-	o, err := TaskDefaultFor(cfg)
+	o, err := TaskDefaultFor(cfg, "")
 	if err != nil || o.Client == nil || o.Model != "deepseek/"+config.DefaultTaskModel {
 		t.Fatalf("suffix scan should resolve the prefixed catalog id: %+v, %v", o, err)
 	}
@@ -265,4 +267,47 @@ func TestDownArrowFocusesDockBelowInput(t *testing.T) {
 	if m.tasksFocus {
 		t.Fatal("↓ with a draft in the input must not steal focus")
 	}
+}
+
+// On the Codex subscription, subagents default to the catalog's cheap model
+// through the same subscription; a pinned taskModel still wins.
+func TestTaskDefaultForCodexSubscription(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("HOME", codexHome(t))
+	cfg := &config.Config{DefaultModel: "gpt-5.5", Providers: map[string]config.Provider{}, Models: map[string]config.Model{}}
+	cfg.UpsertCodex()
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		config.CodexProviderName: {FetchedAt: time.Now(), BaseURL: config.CodexBaseURL, Models: []config.ModelInfoLite{
+			{ID: config.CodexDefaultTaskModel, ContextLength: 272000},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	o, err := TaskDefaultFor(cfg, config.CodexProviderName)
+	if err != nil || o.Client == nil || o.Model != config.CodexDefaultTaskModel {
+		t.Fatalf("codex conversations should default subagents to %s: %+v, %v", config.CodexDefaultTaskModel, o, err)
+	}
+	// Not on codex: the built-in default chain applies (nothing routes it → silent fallback).
+	if o, err := TaskDefaultFor(cfg, "other"); err != nil || o.Client != nil {
+		t.Fatalf("non-codex conversation should not pick the codex task model: %+v, %v", o, err)
+	}
+	// A pinned catalog model on the subscription resolves through the codex client.
+	cfg.TaskModel = config.CodexDefaultTaskModel
+	if o, err := TaskDefaultFor(cfg, ""); err != nil || o.Client == nil {
+		t.Fatalf("pinned codex catalog model should resolve: %+v, %v", o, err)
+	}
+}
+
+// codexHome writes a fake ~/.codex/auth.json so the codex client is Available.
+func codexHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	dir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{"tokens":{"access_token":"a","refresh_token":"r","account_id":"acct"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home
 }

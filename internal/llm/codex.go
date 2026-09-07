@@ -641,3 +641,75 @@ func (c *callCollector) addAll(items []responseItem) {
 		c.add(item, true)
 	}
 }
+
+// RateLimits is a ChatGPT subscription's Codex rate-limit snapshot.
+type RateLimits struct {
+	Plan    string
+	Windows []RateLimitWindow
+	// LimitReached is set when the account can't currently send requests.
+	LimitReached bool
+}
+
+// RateLimitWindow is one rolling rate-limit window (Codex exposes up to two:
+// a short one and a weekly one).
+type RateLimitWindow struct {
+	UsedPercent int
+	Window      time.Duration
+	ResetIn     time.Duration
+}
+
+type codexUsageWindow struct {
+	UsedPercent        int `json:"used_percent"`
+	LimitWindowSeconds int `json:"limit_window_seconds"`
+	ResetAfterSeconds  int `json:"reset_after_seconds"`
+}
+
+func (w *codexUsageWindow) window() RateLimitWindow {
+	return RateLimitWindow{
+		UsedPercent: w.UsedPercent,
+		Window:      time.Duration(w.LimitWindowSeconds) * time.Second,
+		ResetIn:     time.Duration(w.ResetAfterSeconds) * time.Second,
+	}
+}
+
+// RateLimits fetches the subscription's current rate-limit windows.
+func (c *Codex) RateLimits(ctx context.Context) (RateLimits, error) {
+	if c.Source == nil {
+		return RateLimits{}, codexauth.ErrLoginRequired
+	}
+	creds, err := c.Source.Credentials(ctx)
+	if err != nil {
+		return RateLimits{}, err
+	}
+	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/wham/usage", nil)
+	if err != nil {
+		return RateLimits{}, err
+	}
+	setCodexHeaders(hr, creds)
+	resp, err := c.httpClient().Do(hr)
+	if err != nil {
+		return RateLimits{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return RateLimits{}, httpError(resp)
+	}
+	var body struct {
+		PlanType  string `json:"plan_type"`
+		RateLimit struct {
+			LimitReached bool              `json:"limit_reached"`
+			Primary      *codexUsageWindow `json:"primary_window"`
+			Secondary    *codexUsageWindow `json:"secondary_window"`
+		} `json:"rate_limit"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
+		return RateLimits{}, err
+	}
+	u := RateLimits{Plan: body.PlanType, LimitReached: body.RateLimit.LimitReached}
+	for _, w := range []*codexUsageWindow{body.RateLimit.Primary, body.RateLimit.Secondary} {
+		if w != nil {
+			u.Windows = append(u.Windows, w.window())
+		}
+	}
+	return u, nil
+}

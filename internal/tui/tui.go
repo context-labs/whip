@@ -2735,6 +2735,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyInferenceNetKey(msg)
 		return m, nil
 
+	case codexUsageMsg:
+		m.applyCodexUsage(msg)
+		return m, nil
+
 	case noticeMsg:
 		m.append(dimStyle.Render(string(msg)))
 		return m, nil
@@ -4558,6 +4562,9 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		return m.lspCommand(fields)
 	case "/cd":
 		m.cdCommand(strings.TrimSpace(strings.TrimPrefix(text, "/cd")))
+		return m, nil
+	case "/usage":
+		m.usageCommand()
 		return m, nil
 	case "/pwd":
 		m.append(dimStyle.Render(cwd()))

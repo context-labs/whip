@@ -417,6 +417,7 @@ func Load() (*Config, error) {
 // pointing at it) are migrated transparently. No file write happens here;
 // the next Save persists the rename.
 func (c *Config) normalize() {
+	c.renameProvider(legacyCodexProviderName, CodexProviderName, "openai-codex-responses")
 	p, ok := c.Providers["inference"]
 	if !ok {
 		return
@@ -548,7 +549,7 @@ type UnknownModelError struct {
 }
 
 func (e *UnknownModelError) Error() string {
-	return fmt.Sprintf("unknown model %q (models: %s)", e.Model, e.known)
+	return fmt.Sprintf("unknown model %q (configured: %s; catalog models are listed by /model)", e.Model, e.known)
 }
 
 // resolveFromCatalog synthesizes a Model for an id advertised in a provider's

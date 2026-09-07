@@ -117,3 +117,40 @@ func TestRemoveProviderDropsRoutesPinsAndCatalog(t *testing.T) {
 		t.Fatalf("catalogs after remove = %v", cats)
 	}
 }
+
+func TestNormalizeRenamesLegacyCodexProvider(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	if err := SaveCatalogs(map[string]Catalog{"codex": {Models: []ModelInfoLite{{ID: "gpt-5.5"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &Config{
+		DefaultProvider: "codex",
+		Providers: map[string]Provider{
+			"codex":  {BaseURL: CodexBaseURL, API: "openai-codex-responses", Auth: "codex"},
+			"custom": {API: "openai-completions"},
+		},
+		Models: map[string]Model{"gpt-5.5": {Providers: []string{"codex"}}},
+	}
+	cfg.normalize()
+	if _, ok := cfg.Providers["codex"]; ok {
+		t.Fatal("legacy codex key should be renamed")
+	}
+	if p := cfg.Providers[CodexProviderName]; p.Auth != "codex" {
+		t.Fatalf("renamed provider = %+v", p)
+	}
+	if got := cfg.Models["gpt-5.5"].Providers; len(got) != 1 || got[0] != CodexProviderName {
+		t.Fatalf("route providers = %v", got)
+	}
+	if cfg.DefaultProvider != CodexProviderName {
+		t.Fatalf("default provider = %q", cfg.DefaultProvider)
+	}
+	if cats := LoadCatalogs(); cats[CodexProviderName].Models == nil || len(cats) != 1 {
+		t.Fatalf("catalog should move with the provider: %v", cats)
+	}
+	// An unrelated provider that happens to be named "codex" is left alone.
+	other := &Config{Providers: map[string]Provider{"codex": {API: "openai-completions"}}}
+	other.normalize()
+	if _, ok := other.Providers["codex"]; !ok {
+		t.Fatal("non-codex-API provider named codex must not be renamed")
+	}
+}

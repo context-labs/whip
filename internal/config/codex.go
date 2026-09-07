@@ -7,11 +7,17 @@ import "slices"
 // route after login, so these limits keep the provider usable if that fetch is
 // temporarily unavailable.
 const (
-	CodexProviderName   = "codex"
-	CodexBaseURL        = "https://chatgpt.com/backend-api"
-	CodexDefaultModel   = "gpt-5.5"
-	CodexDefaultContext = 272000
-	CodexDefaultMaxOut  = 128000
+	// legacyCodexProviderName is the pre-release key; normalize() renames it.
+	legacyCodexProviderName = "codex"
+	CodexProviderName       = "codex-subscription"
+	// CodexDefaultTaskModel is the subagent route when the conversation runs on
+	// the subscription and no taskModel is pinned: the cheapest catalog model
+	// still suited to tool-using work.
+	CodexDefaultTaskModel = "gpt-5.6-luna"
+	CodexBaseURL          = "https://chatgpt.com/backend-api"
+	CodexDefaultModel     = "gpt-5.5"
+	CodexDefaultContext   = 272000
+	CodexDefaultMaxOut    = 128000
 )
 
 // UpsertCodex registers the fixed Codex subscription provider and makes its

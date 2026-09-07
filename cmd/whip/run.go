@@ -225,7 +225,7 @@ func runCLI(args []string) error {
 	ag.ResolveModel = func(model, provider string) (agent.SubModel, error) {
 		return tui.SubModelFor(cfg, model, provider)
 	}
-	if o, terr := tui.TaskDefaultFor(cfg); terr == nil {
+	if o, terr := tui.TaskDefaultFor(cfg, provName); terr == nil {
 		ag.TaskDefault = o
 	} else {
 		note("task model: %v — subagents use the run's model", terr)

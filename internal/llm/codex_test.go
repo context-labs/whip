@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/codexauth"
 )
@@ -646,5 +647,34 @@ func TestCodexCloneOwnsCacheKey(t *testing.T) {
 	}
 	if child.Endpoint() != "https://chatgpt.com/backend-api" {
 		t.Fatalf("endpoint = %q", child.Endpoint())
+	}
+}
+
+func TestCodexRateLimits(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wham/usage" || r.Header.Get("Authorization") != "Bearer access" || r.Header.Get("ChatGPT-Account-ID") != "account" {
+			http.Error(w, "bad request "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		fmt.Fprint(w, `{"plan_type":"plus","rate_limit":{"limit_reached":false,"primary_window":{"used_percent":28,"limit_window_seconds":18000,"reset_after_seconds":7800},"secondary_window":null}}`)
+	}))
+	defer srv.Close()
+	got, err := NewCodex(srv.URL, codexSource(t)).RateLimits(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Plan != "plus" || got.LimitReached || len(got.Windows) != 1 {
+		t.Fatalf("limits = %+v", got)
+	}
+	if w := got.Windows[0]; w.UsedPercent != 28 || w.Window != 5*time.Hour || w.ResetIn != 130*time.Minute {
+		t.Fatalf("window = %+v", w)
+	}
+	if _, err := NewCodex(srv.URL, nil).RateLimits(context.Background()); !errors.Is(err, codexauth.ErrLoginRequired) {
+		t.Fatalf("nil source err = %v", err)
+	}
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "nope", http.StatusForbidden) }))
+	defer bad.Close()
+	if _, err := NewCodex(bad.URL, codexSource(t)).RateLimits(context.Background()); err == nil {
+		t.Fatal("expected HTTP error")
 	}
 }

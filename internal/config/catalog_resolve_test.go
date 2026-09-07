@@ -169,7 +169,7 @@ func TestResolveUnknownModelErrorTyping(t *testing.T) {
 	if unknown.Model != "nope" {
 		t.Errorf("error should carry the missed name, got %q", unknown.Model)
 	}
-	want := `unknown model "nope" (models: glm-5.2-fast)`
+	want := `unknown model "nope" (configured: glm-5.2-fast; catalog models are listed by /model)`
 	if err.Error() != want {
 		t.Errorf("message changed: got %q want %q", err.Error(), want)
 	}

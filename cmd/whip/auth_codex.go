@@ -57,12 +57,12 @@ func authCodexAt(ctx context.Context, source *codexauth.Source, out io.Writer, b
 	}
 	infos, catalogErr := client.Models(ctx)
 	if catalogErr != nil {
-		fmt.Fprintln(out, "Codex login saved to ~/.codex/auth.json. gpt-5.5 @ codex is ready in /model.")
+		fmt.Fprintln(out, "Codex login saved to ~/.codex/auth.json. gpt-5.5 @ codex-subscription is ready in /model.")
 		fmt.Fprintln(out, "Codex model catalog could not be fetched yet; run /model refresh after starting Whip:", catalogErr)
 		return nil
 	}
 	if err := saveCatalog(config.CodexProviderName, baseURL, infos); err != nil {
-		fmt.Fprintln(out, "Codex login saved to ~/.codex/auth.json. gpt-5.5 @ codex is ready in /model.")
+		fmt.Fprintln(out, "Codex login saved to ~/.codex/auth.json. gpt-5.5 @ codex-subscription is ready in /model.")
 		fmt.Fprintln(out, "Codex model catalog could not be cached; /model refresh will retry:", err)
 		return nil
 	}
