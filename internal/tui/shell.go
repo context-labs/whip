@@ -80,6 +80,12 @@ func shellExec(cmdLine string) string {
 	// turn, and esc stays bound to turn interruption. The 120s cap bounds it.
 	res := bashrun.Run(context.Background(), bashrun.Options{Command: cmdLine})
 	out := tools.TruncateTail(res.Output)
+	if tools.IsBinary([]byte(res.Output)) {
+		// Same gate as the bash tool: a `!` escape whose output is binary
+		// (cat image.png, a corrupt log) injects junk into the conversation
+		// otherwise. The placeholder keeps the exit-status/timeout suffixes.
+		out = tools.BinaryPlaceholder("", len(res.Output))
+	}
 	if res.TimedOut {
 		out += "\n(command timed out)"
 	} else if res.Exit != "" {

@@ -287,7 +287,7 @@ func TestApplyCompactionKeepsPriorSummary(t *testing.T) {
 	if err := st.Save(id, 1, msgs, "m", "p"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.RecordCompaction(id, 3, "second gen"); err != nil {
+	if err := st.RecordCompaction(id, 3, "second gen", "", llm.Usage{}); err != nil {
 		t.Fatal(err)
 	}
 	_, got, err := st.Load(id)

@@ -113,7 +113,7 @@ func (m *model) doctorReport() string {
 		rows = append(rows, ctxRow{"conversation history", hist * 4, "estimated"})
 	}
 	// Session spend so far (real usage, if any request has happened).
-	if u := m.agent.Usage(); u.PromptTokens > 0 {
+	if u := m.agent.TotalUsage(); u.PromptTokens > 0 {
 		rows = append(rows, ctxRow{"session spend so far", 0, fmt.Sprintf("%s in / %s out (actual)", tok(u.PromptTokens), tok(u.CompletionTokens))})
 	}
 

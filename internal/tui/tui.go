@@ -3,6 +3,7 @@ package tui
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -115,9 +116,10 @@ type (
 	orphanSteerMsg string                    // a steer orphaned at turn teardown — submit as a machine turn
 	mcpStatusMsg   struct{}                  // an MCP server changed state — redraw
 	thinkMsg       string                    // streamed reasoning tokens
-	imageMsg       struct {                  // ctrl+v clipboard image result
-		path string // clipboard image saved to disk
-		err  error
+	imageMsg       struct {                  // ctrl+v / paste clipboard image result
+		path    string // clipboard image saved to disk
+		display string // original display name for the chip ("" for anonymous clipboard)
+		err     error
 	}
 )
 
@@ -182,6 +184,8 @@ type model struct {
 
 	hist     []string         // submitted inputs, for up/down recall
 	pasteBuf string           // held paste text for the [Pasted ~N lines] placeholder (config collapsePaste)
+	images   []pastedImage    // pasted images this session, indexed by their [Image N] chip number
+	imageSeq int              // session counter feeding pastedImage.n (1-based)
 	histIdx  int              // len(hist) == not navigating
 	draft    string           // in-progress input saved while navigating history
 	lastUp   time.Time        // last ↑ keypress; repeat detection for history rollover
@@ -246,12 +250,17 @@ type model struct {
 
 	perms      permRules   // saved allow-always rules
 	permDialog *permDialog // open permission modal; the turn is paused on it
+	askDialog  *askDialog  // open question modal; the turn is paused on it
 
-	tasksFocus bool      // the tasks dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
-	taskSel    int       // selected row in the dock (index into newest-first tasks)
-	dockSkip   int       // non-task rows at the dock's top (focused hint) — click math skips them
-	taskVP     *taskView // open per-task detail view; nil when on the main thread
-	dockRows   int       // rendered dock height; layout() maintains it for click math
+	tasksFocus   bool      // the tasks dock owns ↑/↓/enter (never esc); typing or ↑ past the top returns to the input
+	taskSel      int       // selected row in the dock (index into newest-first tasks)
+	taskExpanded bool      // selected dock row renders its recent activity inline (space/click toggles)
+	dockSkip     int       // non-task rows at the dock's top (focused hint) — click math skips them
+	dockOffsets  []int     // screen-row offset of each VISIBLE task row within the strip (expanded rows shift rows below)
+	dockLo       int       // index (into newest-first tasks) of the first visible dock row: dockOffsets[i] is task dockLo+i
+	dockTaskRows int       // strip rows occupied by task rows (incl. expansion); rows at/after this are the "+N more" counter
+	taskVP       *taskView // open per-task detail view; nil when on the main thread
+	dockRows     int       // rendered dock height; layout() maintains it for click math
 
 	rew    *rewindState  // open rewind picker (double-esc while idle)
 	esc1   bool          // first idle esc pressed; second opens the rewind picker
@@ -461,6 +470,7 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// computer-use: the per-app consent prompt — installed once, here, where
 	// the model exists (buildAgent is package-level and has no m).
 	tools.ComputerApprover = m.computerConsent
+	m.installAskHook() // the question tool always needs a user; nil Ask = tool errors
 	// Permission prompts are opt-in (--cautious); without it tools run free.
 	if cautious {
 		m.installPermGate()
@@ -504,6 +514,10 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	if cfg.UIMode == opencodeMode {
 		m.applyUIMode(opencodeMode) // set the mode BEFORE startupReport so it renders opencode-clean
 	}
+	// Must precede both startupReport (which warns if it's still off) and the
+	// pane's CSI > 4;1 m request in enableKeyboardEnhancement (tmux checks the
+	// option at the moment the pane asks).
+	tmuxEnableExtendedKeys()
 	m.startupReport()
 
 	// Inline rendering (no alt-screen): the transcript lives in the normal
@@ -530,13 +544,23 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	// ABSOLUTE screen coordinates — map a few rows off (drag-select landing
 	// two lines above the pointer).
 	fmt.Fprint(os.Stdout, "\x1b[9999;1H")
-	if m.mouseOn {
-		enableClickWheelMouse(os.Stdout)
-		if cfg.UIMode == opencodeMode {
-			// all-motion tracking (?1003, a superset of ?1002) so passive mouse
-			// moves drive opencode's hover highlight on message cards
-			fmt.Fprint(os.Stdout, "\x1b[?1003h")
+	if cfg.UIMode == opencodeMode {
+		// Opencode mode owns the whole screen: mouse and kitty keyboard
+		// enables are (re)applied from Init() AFTER the alt screen is up —
+		// entering ?1049 clears the terminal's mouse-tracking modes and hands
+		// the kitty keyboard stack to the alt screen's fresh, empty stack, so
+		// anything written here before p.Run() would never take effect.
+	} else {
+		if m.mouseOn {
+			// Inline mode: enable mouse reporting now (no alt screen will
+			// reset it).
+			enableClickWheelMouse(os.Stdout)
 		}
+		// Inline mode only: push the kitty keyboard-enhancement flags so
+		// shift+enter arrives as a distinguishable CSI instead of a plain CR
+		// (see enableKeyboardEnhancement). No ?1049h happens, so the push
+		// survives and the matching pop on exit restores the prior flags.
+		enableKeyboardEnhancement(os.Stdout)
 	}
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}
@@ -563,8 +587,21 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 	tuiRunning = false
 	// The UI has exited (quit, /quit, or a signal). We enabled click/wheel mouse
 	// reporting directly on the TTY (bubbletea doesn't manage it), so release it.
-	if m.mouseOn {
+	if m.mouseOn && cfg.UIMode != opencodeMode {
 		disableClickWheelMouse(os.Stdout)
+	}
+	// Inline mode: pop the keyboard-enhancement flags pushed at startup before
+	// p.Run() (no ?1049h happened, so they're on the main screen's stack and
+	// this pop returns them). Opencode mode needs NO pop: the kitty keyboard
+	// stack is PER-SCREEN (kitty/foot/WezTerm/Ghostty each keep a separate
+	// stack for the normal and alt screens), so the push landed on the alt
+	// screen's fresh stack — and bubbletea's Program.Run() leaves the alt
+	// screen before returning (restoreTerminalState → renderer.exitAltScreen
+	// sends ?1049l, which switches to the main screen's stack), discarding it.
+	// A post-Run pop here would hit the MAIN screen's stack and pop an entry
+	// that isn't ours.
+	if cfg.UIMode != opencodeMode {
+		disableKeyboardEnhancement(os.Stdout)
 	}
 	// Shut MCP servers down first (graceful: stdin close → SIGTERM → SIGKILL)
 	// so a clean stdio server never becomes a KillAll target.
@@ -597,6 +634,19 @@ func (m *model) startupReport() {
 		// an unknown background means the panels render with no fill — zero
 		// contrast — so say why and how to fix it instead of failing silently
 		m.append(dimStyle.Render("◐ terminal background unknown — panels have no contrast; run /theme light (or dark) once to fix (mosh blocks background detection)"))
+	}
+	if inMoshEnv() {
+		// mosh's terminal emulator doesn't implement the kitty keyboard
+		// protocol or forward modified-key CSI sequences, so no setting whip
+		// or tmux toggles can deliver shift+enter — it arrives as plain CR
+		// (enter). Say so up front instead of failing silently; ctrl+j and
+		// alt+enter still insert newlines.
+		m.append(dimStyle.Render("◐ shift+enter unavailable over mosh — mosh collapses it to enter (no keyboard-protocol support); use ctrl+j or alt+enter for a newline"))
+	} else if inTmuxEnv() && !tmuxExtKeysCheck() {
+		// enableKeyboardEnhancement already tried `tmux set -s extended-keys
+		// on`; if it's still off (no tmux binary on PATH, socket denied) the
+		// user has to do it once themselves.
+		m.append(dimStyle.Render("◐ shift+enter needs tmux extended-keys on — whip couldn't set it; add `set -s extended-keys on` to ~/.tmux.conf (meanwhile ctrl+j / alt+enter insert newlines)"))
 	}
 	sk, problems := skills.ScanDetailed(skills.DefaultDirs()...)
 	var b strings.Builder
@@ -679,6 +729,98 @@ func enableClickWheelMouse(w *os.File) {
 // set, plus ?1000 defensively (an older whip or a downgrade may have left it).
 func disableClickWheelMouse(w *os.File) {
 	fmt.Fprint(w, "\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l")
+}
+
+// Keyboard enhancement: without it, shift+enter is indistinguishable from
+// enter (both send CR) — which is exactly Ruslan's "shift+enter still not
+// working". whip pushes the kitty progressive-enhancement DISAMBIGUATE flag
+// (0x1) so terminals that support it (kitty, foot, Ghostty, WezTerm, tmux
+// with extended-keys on, xterm with modifyOtherKeys) report shift+enter as
+// \x1b[13;2u / \x1b[27;2;13~, and bubbletea surfaces it as an unknown CSI the
+// matcher in isShiftEnterSeq recognizes. Terminals without support ignore the
+// push silently.
+//
+// ONLY 0x1, never 0x1|0x2: flag 0x2 (report event types) makes some
+// terminals report ctrl+letter as CSI-u (CSI 97;5u) instead of the plain
+// control byte — bubbletea v1.3.10 can't decode that, so ctrl+a/ctrl+e
+// die. Disambiguate alone leaves ctrl+letter untouched while reporting
+// shift+enter distinctly.
+//
+// The kitty keyboard stack is PER-SCREEN (kitty/foot/WezTerm/Ghostty each
+// keep a separate stack for the normal and alt screens; entering ?1049h hands
+// the terminal to the alt screen's fresh stack). So the push must happen on
+// the SAME screen where whip runs. Inline mode (no alt screen) pushes before
+// p.Run() and pops after, as the comment below; opencode mode pushes from
+// Init() once the alt screen is up and does NOT pop — the alt screen's stack
+// is discarded by the ?1049l that bubbletea's Program.Run() emits before it
+// returns. Inside tmux the escape must reach the OUTER terminal, so it's
+// wrapped in DCS passthrough the same way the OSC 11 theme query is.
+//
+// Inside tmux the kitty push alone is NOT enough (verified on tmux 3.6 by
+// feeding a nested client raw bytes): tmux only forwards a modified key to a
+// pane when (a) the server option extended-keys is on AND (b) the pane itself
+// asked for xterm modifyOtherKeys via CSI > 4;1 m. tmux ignores the kitty
+// push for (b), so whip sends the modifyOtherKeys request to the pane — plain,
+// not passthrough — after Run flipped (a) at runtime. Mode 1, never 2: mode 2
+// re-encodes ctrl+letter as CSI 27;5;97~ (kills ctrl+a/e); mode 1 leaves
+// every other key byte-identical and only shift+enter becomes CSI 27;2;13~.
+// The client's terminal-features `extkeys` is irrelevant for this path.
+func enableKeyboardEnhancement(w *os.File) {
+	fmt.Fprint(w, tmuxPassthrough("\x1b[>1u"))
+	if inTmuxEnv() {
+		fmt.Fprint(w, "\x1b[>4;1m") // Run flipped extended-keys on before startupReport
+	}
+}
+
+// disableKeyboardEnhancement pops the flags enableKeyboardEnhancement pushed.
+func disableKeyboardEnhancement(w *os.File) {
+	fmt.Fprint(w, tmuxPassthrough("\x1b[<u"))
+	if inTmuxEnv() {
+		fmt.Fprint(w, "\x1b[>4;0m")
+	}
+}
+
+// tmuxEnableExtendedKeys flips tmux's server option extended-keys to on when
+// it is off. It's a runtime option (never touches ~/.tmux.conf) and only
+// affects panes that request modifyOtherKeys — so it's inert for every other
+// pane. It is deliberately NOT restored on exit: two whips racing would have
+// the first exit switch it off under the second. Format stays tmux's default
+// xterm; the csi-u format is what broke drag-to-copy earlier.
+func tmuxEnableExtendedKeys() {
+	if tmuxExtendedKeysReady() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = exec.CommandContext(ctx, "tmux", "set", "-s", "extended-keys", "on").Run()
+}
+
+// tmuxPassthrough wraps an escape sequence in DCS passthrough when running
+// inside tmux (where the pane's own escape would be interpreted by tmux, not
+// forwarded to the outer terminal). Outside tmux the sequence is returned
+// unchanged.
+func tmuxPassthrough(seq string) string {
+	if !inTmuxEnv() {
+		return seq
+	}
+	return "\x1bPtmux;" + strings.ReplaceAll(seq, "\x1b", "\x1b\x1b") + "\x1b\\"
+}
+
+// tmuxExtendedKeysReady reports whether tmux's server option extended-keys is
+// on — the one setting tmux needs (with the pane's CSI > 4;1 m request) to
+// forward shift+enter. tmuxEnableExtendedKeys sets it; this is the check.
+func tmuxExtendedKeysReady() bool {
+	if !inTmuxEnv() {
+		return true // not tmux: the kitty push path applies
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{extended-keys}").Output()
+	if err != nil {
+		return true // can't tell: don't nag
+	}
+	v := strings.TrimSpace(string(out))
+	return v == "on" || v == "always"
 }
 
 // (No applyTmuxMouseFix: inside tmux the drag IS forwarded to whip — tmux's
@@ -861,6 +1003,7 @@ func (m *model) resume(id string) error {
 		}
 		m.agent.SetUsage(u)
 	}
+	m.agent.SetSubUsage(meta.SubUsage)
 	if slices.Contains(m.effortsFor(), effort) {
 		m.agent.Effort = effort
 	}
@@ -978,8 +1121,10 @@ func (m *model) persist() {
 	_ = m.store.SetGoal(m.sessionID, m.goal)
 	_ = m.store.SetEffort(m.sessionID, m.agent.Effort)
 	_ = m.store.SetTodos(m.sessionID, m.agent.TodosJSON())
-	if u := m.agent.Usage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
-		_ = m.store.SetUsage(m.sessionID, u.PromptTokens, u.Cached(), u.CompletionTokens)
+	// Own requests in usage_*, subagent spend (by model) in sub_usage: the
+	// two columns sum to the session's whole bill without double counting.
+	if u, subs := m.agent.Usage(), m.agent.SubUsage(); u.PromptTokens > 0 || u.CompletionTokens > 0 || len(subs) > 0 {
+		_ = m.store.SetUsage(m.sessionID, u.PromptTokens, u.Cached(), u.CompletionTokens, subs)
 	}
 	if len(m.agent.Messages) <= m.saved {
 		return
@@ -1164,7 +1309,10 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 		tools.ScreenshotSink = func(jpegs [][]byte) {
 			parts := make([]llm.ContentPart, 0, len(jpegs))
 			for _, j := range jpegs {
-				parts = append(parts, llm.ImagePart("jpg", j))
+				// a HiDPI full-display capture exceeds both the dim and byte
+				// caps; bound it like every other image entering history
+				ext, data := llm.NormalizeImage("jpg", j)
+				parts = append(parts, llm.ImagePart(ext, data))
 			}
 			ag.SteerImages("browser_exec screenshots attached:", parts)
 		}
@@ -1347,9 +1495,28 @@ func (m *model) appendAssistantBlock(s string) {
 	m.appendRaw(blockAssistant, s)
 }
 
+// wantFollow reports whether an append should keep the transcript pinned to
+// the bottom: only when the user is already following (at the bottom). A user
+// scrolled up to read reasoning must not be yanked to the bottom by streamed
+// content landing — follow is re-engaged by scrolling back down (m.follow =
+// m.vp.AtBottom() in the scroll handlers), never by new content arriving.
+// Every append path (raw blocks, assistant merges, tool results, thinking
+// flushes) goes through this so the no-yank guarantee is uniform.
+func (m *model) wantFollow() bool {
+	return m.follow || m.vp.AtBottom()
+}
+
+// keepFollow re-arms follow iff the user was already following; a no-op when
+// scrolled up. Call after appending, before refreshVP.
+func (m *model) keepFollow() {
+	if m.wantFollow() {
+		m.follow = true
+	}
+}
+
 func (m *model) appendRaw(kind blockKind, text string) {
+	m.keepFollow()
 	m.blocks = append(m.blocks, block{kind: kind, text: text})
-	m.follow = true
 	m.refreshVP()
 }
 
@@ -1455,8 +1622,20 @@ func (m *model) viewportView() string {
 	return strings.Join(lines[:last+1], "\n")
 }
 
+// terminalInitMsg is sent once from Init (opencode mode) to re-apply terminal
+// features AFTER bubbletea has entered the alt screen — writing the enables
+// before p.Run() is clobbered: entering ?1049 clears the terminal's mouse
+// modes and hands the kitty keyboard stack to the alt screen's fresh stack.
+type terminalInitMsg struct{}
+
 func (m *model) Init() tea.Cmd {
 	cmds := []tea.Cmd{textarea.Blink}
+	if m.uiMode == opencodeMode {
+		// Opencode mode owns the whole screen, so once the alt screen is up we
+		// re-apply keyboard enhancement (opencode always wants shift+enter) and
+		// mouse reporting (only when the mouse is on) from the handler.
+		cmds = append(cmds, func() tea.Msg { return terminalInitMsg{} })
+	}
 	if inTmuxEnv() {
 		// live theme tracking: tmux knows the outer terminal's light/dark
 		// (#{client_theme}, via the 996/2031 protocol) — poll it so an OS
@@ -1575,6 +1754,84 @@ func inTmuxEnv() bool {
 	return os.Getenv("TMUX") != "" ||
 		strings.HasPrefix(os.Getenv("TERM"), "screen") ||
 		strings.HasPrefix(os.Getenv("TERM"), "tmux")
+}
+
+// procHasAncestor reports whether walking pid's parent chain via /proc finds
+// a process named want (matched on /proc/PID/comm). Linux-only; returns false
+// on any read error.
+func procHasAncestor(pid int, want string) bool {
+	for i := 0; i < 64 && pid > 1; i++ {
+		comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", pid))
+		if err != nil {
+			return false
+		}
+		if strings.TrimSpace(string(comm)) == want {
+			return true
+		}
+		stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+		if err != nil {
+			return false
+		}
+		// ppid is field 4 of /proc/PID/stat; the (comm) field before it may
+		// contain spaces/parens, so split after the LAST ')'. Fields after it
+		// are: state ppid ... — ppid is fields[1] of the remainder.
+		idx := bytes.LastIndexByte(stat, ')')
+		if idx < 0 {
+			return false
+		}
+		fields := strings.Fields(string(stat[idx+1:]))
+		if len(fields) < 2 {
+			return false
+		}
+		ppid, err := strconv.Atoi(fields[1])
+		if err != nil || ppid == pid || ppid <= 1 {
+			return false
+		}
+		pid = ppid
+	}
+	return false
+}
+
+// moshDetect is the test seam for inMoshEnv — tests run under whatever
+// environment the developer's machine has (including mosh), so the startup
+// report can't depend on the real answer. Reassigned in tests.
+var moshDetect = detectMosh
+
+// tmuxExtKeysCheck is the test seam for tmuxExtendedKeysReady — tests run
+// inside tmux on dev machines, so the shift+enter warning can't depend on the
+// real server config. Reassigned in tests.
+var tmuxExtKeysCheck = tmuxExtendedKeysReady
+
+// inMoshEnv reports whether whip runs under mosh, via the test seam.
+func inMoshEnv() bool { return moshDetect() }
+
+// detectMosh is the real mosh check behind inMoshEnv. Mosh runs its own
+// terminal emulator that re-renders input/output between the user's terminal
+// and the shell; it does NOT implement the kitty keyboard protocol or forward
+// modified-key CSI sequences, so shift+enter arrives as plain CR no matter
+// what whip or tmux request. Detected so whip can say so instead of failing
+// silently.
+//
+// Mosh leaks no env marker into the inner shell (MOSH_KEY stays on the
+// mosh-server process), so detection walks /proc ancestor chains. Two chains
+// are checked: whip's own (covers ssh+mosh without tmux, or mosh directly
+// under a non-daemonized tmux) and, under a daemonized tmux server (whose
+// ppid is 1, hiding mosh on the client side), the tmux CLIENT's chain.
+func detectMosh() bool {
+	if procHasAncestor(os.Getpid(), "mosh-server") {
+		return true
+	}
+	if inTmuxEnv() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "tmux", "display-message", "-p", "#{client_pid}").Output()
+		if err == nil {
+			if cpid, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && cpid > 1 {
+				return procHasAncestor(cpid, "mosh-server")
+			}
+		}
+	}
+	return false
 }
 
 func detectColorScheme() string {
@@ -1763,17 +2020,19 @@ func (m *model) layout() {
 	if m.busy && m.uiMode != opencodeMode {
 		chrome += 2 // blank line above the spinner + the spinner line itself (opencode mode: status bar spinner instead)
 	}
-	if m.current != "" {
-		chrome += lipgloss.Height(m.currentView()) + 1 // + its blank separator
-	}
-	if m.curThink != "" {
-		chrome += lipgloss.Height(m.thinkView()) + 1
-	}
+	// The in-flight response/reasoning renders below the viewport and are
+	// unbounded — a long chunk would budget every terminal row into chrome,
+	// collapse the transcript to 1 row, and push its top into scrollback (the
+	// "cut off at the top, reasoning above it" bug). Their height is budgeted
+	// below at m.streamCap(), AFTER fixed chrome is known.
 	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
 		chrome += 2 // the live "+ Thinking…" line + its blank separator (must match viewBody)
 	}
 	if m.iactive != nil {
 		chrome += lipgloss.Height(m.interactiveView()) + 1
+	}
+	if m.askDialog != nil {
+		chrome += lipgloss.Height(m.askView()) + 1
 	}
 	if m.permDialog != nil {
 		chrome += lipgloss.Height(m.permView()) + 1 // viewBody emits "\n"+permView(); unbudgeted it clips the alt-screen frame and shifts mouse rows
@@ -1809,6 +2068,15 @@ func (m *model) layout() {
 		}
 		chrome += m.dockRows // the blank above the input is already in the base
 	}
+	// Now budget the in-flight streaming area at its cap: fixed chrome + the
+	// capped live rows + the transcript floor must equal the terminal height,
+	// so the frame fits and the transcript keeps a scrollable window. A 0 cap
+	// drops the live area (and its separator) entirely.
+	if m.current != "" || m.curThink != "" {
+		if liveCap := m.streamCap(chrome); liveCap > 0 {
+			chrome += liveCap + 1 // + the blank separator above it
+		}
+	}
 	// Floor the viewport width too: a degenerate m.width (1–4 cols) would set
 	// the viewport to 1 col and re-slice the transcript into a one-char strip,
 	// regardless of the render floor in refreshVP.
@@ -1817,6 +2085,22 @@ func (m *model) layout() {
 		m.vp.Width, m.vp.Height = w, h
 		m.refreshVP()
 	}
+}
+
+// streamCap returns how many rows the in-flight streaming area (response
+// and/or live reasoning) may occupy: what fixed chrome leaves after reserving
+// up to minTranscriptRows for the transcript. The transcript floor wins over
+// the live area — a squeezed terminal trims the live view to its tail (where
+// new tokens land) instead of pushing the transcript off-screen. The floor
+// itself scales down on terminals too short to afford it, and 0 means the
+// live area is dropped entirely (base chrome alone already fills the frame).
+func (m *model) streamCap(fixedChrome int) int {
+	avail := m.height - fixedChrome - 1 // the blank separator above the live area
+	if avail < 2 {
+		return 0
+	}
+	floor := min(minTranscriptRows, avail-1)
+	return avail - floor
 }
 
 // dockTop returns the screen row of the first TASK row in the dock: the dock
@@ -1842,6 +2126,23 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case terminalInitMsg:
+		// The screen switch (?1049h from Init or a runtime /ui toggle, ?1049l
+		// from a toggle back) has landed by now, so these stick: the kitty
+		// keyboard-enhancement push goes on the CURRENT screen's stack
+		// (per-screen), and the mouse enables survive because they're written
+		// after the switch cleared them.
+		enableKeyboardEnhancement(os.Stdout)
+		if m.mouseOn {
+			if m.uiMode == opencodeMode {
+				// all-motion tracking (?1003, a superset of ?1002) so passive
+				// mouse moves drive opencode's hover highlight on message cards
+				fmt.Fprint(os.Stdout, "\x1b[?1003h")
+			}
+			enableClickWheelMouse(os.Stdout)
+		}
+		return m, nil
+
 	case initialPromptMsg:
 		if m.initialPrompt == "" || m.busy {
 			return m, nil
@@ -1972,6 +2273,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.permDialog = &permDialog{req: msg.req, reply: msg.reply}
 		return m, nil
 
+	case askRequest:
+		m.askDialog = &askDialog{req: msg.req, reply: msg.reply, picked: map[int]bool{}}
+		return m, nil
+
+	case askClose:
+		if m.askDialog != nil && m.askDialog.reply == msg.reply {
+			m.askDialog = nil
+		}
+		return m, nil
+
 	case selScrollTick:
 		// drag parked past the viewport edge: keep scrolling + extending the
 		// selection until the drag ends or the viewport hits its limit
@@ -2022,11 +2333,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.picker == nil && m.mpicker == nil && m.palette == nil {
-			// dock rows sit just above the input box: click selects/opens,
-			// wheel scrolls the selection through the strip
-			if top, n := m.dockTop(), len(m.dockTasks()); n > 0 && msg.Y >= top && msg.Y < top+n {
+			// dock rows sit just above the input box: click selects/expands,
+			// wheel scrolls the selection through the strip. An expanded row
+			// shifts the rows below it, so hit-testing goes through dockOffsets
+			// (recorded by tasksDock during render), not a flat 1-row-per-task.
+			if top, n := m.dockTop(), len(m.dockTasks()); n > 0 && msg.Y >= top && msg.Y < top+m.dockRows-m.dockSkip {
 				if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 					m.tasksFocus = true
+					m.taskExpanded = false
 					if msg.Button == tea.MouseButtonWheelUp {
 						m.taskSel = max(m.taskSel-1, 0)
 					} else {
@@ -2035,17 +2349,28 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-					sel := m.taskSel
-					if m.tasksFocus {
-						sel = msg.Y - top
+					if m.tasksFocus && len(m.dockOffsets) > 0 {
+						row := msg.Y - top
+						if row >= m.dockTaskRows {
+							// the trailing "… +N more" counter is not a task:
+							// don't let a click on it select the last visible row
+							return m, nil
+						}
+						// find the last visible task row whose offset is at/above
+						// the click; offsets are window-relative, so add the
+						// window base to get the absolute task index
+						sel := m.taskSel
+						for i, off := range m.dockOffsets {
+							if off <= row {
+								sel = m.dockLo + i
+							}
+						}
+						m.taskSel = min(sel, n-1)
+						m.taskExpanded = !m.taskExpanded
+						return m, nil
 					}
 					m.tasksFocus = true
-					m.taskSel = min(sel, n-1)
-					// re-fetch: the list can change between the hitbox check
-					// above and this open (settled tasks age out)
-					if tasks := m.dockTasks(); len(tasks) > 0 {
-						m.openTask(tasks[min(m.taskSel, len(tasks)-1)].ID)
-					}
+					m.taskExpanded = false
 					return m, nil
 				}
 			}
@@ -2227,7 +2552,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.blocks = append(m.blocks, result)
 		}
-		m.follow = true
+		m.keepFollow()
 		m.refreshVP()
 		return m, nil
 
@@ -2357,7 +2682,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.store != nil && m.sessionID != "" {
 				// the agent's cutoff is in compacted coordinates; store the raw
 				// seq so Load never double-folds a summary
-				if err := m.store.RecordCompaction(m.sessionID, m.rawCutoff(msg.cutoff), msg.summary); err != nil {
+				if err := m.store.RecordCompaction(m.sessionID, m.rawCutoff(msg.cutoff), msg.summary, msg.info.Model, msg.info.Usage); err != nil {
 					config.LogEvent("session.compact", "record failed: "+err.Error())
 				} else {
 					recorded = true
@@ -2587,7 +2912,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.path == "":
 			m.append(dimStyle.Render("(no image on clipboard)"))
 		default:
-			m.input.InsertString("@" + msg.path + " ")
+			// Register the image under the next session number and drop a
+			// compact [Image N] chip into the input instead of the raw path.
+			m.imageSeq++
+			img := pastedImage{n: m.imageSeq, path: msg.path, display: msg.display}
+			m.images = append(m.images, img)
+			m.input.InsertString(img.chipText() + " ")
 			m.refreshMenu()
 		}
 		return m, nil
@@ -2604,6 +2934,28 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(scheduleTick(), m.fireDueSchedules())
 	}
 
+	// bubbletea delivers unrecognized escape sequences (shift+enter's CSI,
+	// etc.) as an UNEXPORTED unknownCSISequenceMsg — a []byte, NOT a tea.KeyMsg
+	// — so it never matches `case tea.KeyMsg` and would fall through to
+	// m.input.Update, which ignores non-key msgs: shift+enter was silently
+	// eaten (the isShiftEnterSeq branch in key() was dead code — it only ever
+	// saw synthetic KeyMsgs in tests). Catch it here by its rendered form and
+	// route shift+enter to the newline inserter.
+	if s, ok := msg.(interface{ String() string }); ok {
+		if isShiftEnterString(s.String()) {
+			return m.insertNewline()
+		}
+		// The kitty disambiguate flag whip pushes makes the terminal report
+		// EVERY modified ASCII key as CSI u (ctrl+a → CSI 97;5u, esc → CSI
+		// 27u), which bubbletea v1 can't decode — so outside tmux ctrl+a/e/c
+		// were all eaten. Decode those back into the KeyMsg bubbletea would
+		// have produced for the legacy byte. (tmux normalizes them itself.)
+		if k, ok := csiUKey(s.String()); ok {
+			m.sel = nil
+			return m.key(k)
+		}
+	}
+
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
@@ -2615,6 +2967,10 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// a single esc to the child (many prompts use esc to cancel).
 	if m.iactive != nil {
 		return m.iactiveKey(msg)
+	}
+	if m.askDialog != nil {
+		m.askKey(msg)
+		return m, nil
 	}
 	if m.permDialog != nil {
 		m.permKey(msg)
@@ -2644,28 +3000,17 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		(msg.Type == tea.KeyEnter && msg.Alt) ||
 		(msg.Type == tea.KeyRunes && msg.Alt && string(msg.Runes) == "\r") ||
 		isShiftEnterSeq(msg) {
-		// bubbles gates InsertNewline on MaxHeight, treating the visual cap as
-		// a content limit — after a paste reaches MaxHeight lines every ctrl+j
-		// would be silently swallowed. Lift the cap for this one call so the
-		// newline always lands (and the textarea's own repositionView scrolls
-		// the new line into view), then reapply the visual cap via SetHeight,
-		// which clamps rendering only, never content.
-		maxHeight := m.input.MaxHeight
-		m.input.MaxHeight = 0
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
-		m.input.MaxHeight = maxHeight
-		m.input.SetHeight(maxHeight)
-		// bubbles' InsertNewline scrolls the internal viewport to follow the
-		// cursor while the box is still 1 line high (YOffset=1); the deferred
-		// growInput rebuild inherits that stale offset and the first line
-		// scrolls out of view. SetValue resets the scroll (Reset inside), and
-		// CursorEnd keeps the caret at the end of the input.
-		v := m.input.Value()
-		m.input.SetValue(v)
-		m.input.CursorEnd()
-		m.refreshMenu()
-		return m, cmd
+		return m.insertNewline()
+	}
+	// bubbles v1.0.0 textarea.wordLeft spins forever when everything before
+	// the cursor on the current line is blank: characterLeft(insideLine) can't
+	// move at col 0 and the loop has no other exit. macOS option+left sends
+	// alt+b, and shift+enter makes blank lines common — that combination froze
+	// whip at 100% CPU. Hop to the end of the previous line ourselves instead.
+	if k := msg.String(); k == "alt+b" || k == "alt+left" {
+		if m.wordLeftFromBlank() {
+			return m, nil
+		}
 	}
 	// an open task detail view owns the keyboard until esc backs out of it
 	if m.taskVP != nil {
@@ -2695,6 +3040,23 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// spraying the textarea; the real text is held in pasteBuf and swapped in
 	// at submit. Off by default — a paste you can't see is a paste you can't
 	// trust.
+	if msg.Paste {
+		if path, ok := pastedImagePath(string(msg.Runes)); ok {
+			// A macOS screenshot preview pastes a temporary file path. Copy it
+			// off the UI thread before the preview cleans the file up.
+			return m, func() tea.Msg { return pasteImageFileCmd(path) }
+		}
+	}
+	// A Finder drag arrives as a single large KeyRunes burst (the whole path
+	// typed at once), not a bracketed paste — the terminal doesn't set
+	// msg.Paste for it. Detect a multi-rune message that resolves to a single
+	// image path and route it through the same copy-off-source flow so the
+	// chip replaces the raw path in the input.
+	if !msg.Paste && msg.Type == tea.KeyRunes && len(msg.Runes) > 1 {
+		if path, ok := pastedImagePath(string(msg.Runes)); ok {
+			return m, func() tea.Msg { return pasteImageFileCmd(path) }
+		}
+	}
 	if msg.Paste && m.cfg != nil && m.cfg.CollapsePaste != nil && *m.cfg.CollapsePaste {
 		if n := strings.Count(string(msg.Runes), "\n"); n >= 2 {
 			m.pasteBuf = string(msg.Runes)
@@ -2713,6 +3075,7 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.tasksFocus = !m.tasksFocus
+		m.taskExpanded = false
 		m.clampTaskSel()
 		return m, nil
 	case tea.KeyCtrlC:
@@ -2814,7 +3177,10 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, pasteImageCmd
 
 	case tea.KeyCtrlE:
-		// expand/collapse the most recent tool result block
+		// expand/collapse the most recent tool result block. With no tool
+		// block to toggle, fall through to the textarea — bubbles binds
+		// ctrl+e to cursor-to-line-end and users expect readline behavior
+		// while typing (Ruslan).
 		for i := len(m.blocks) - 1; i >= 0; i-- {
 			if m.blocks[i].kind == blockTool {
 				m.blocks[i].toggle()
@@ -2822,7 +3188,11 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		return m, nil
+		m.tasksFocus = false
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.refreshMenu()
+		return m, cmd
 
 	case tea.KeyCtrlO:
 		// toggle rendering of reasoning/thinking tokens
@@ -2853,6 +3223,7 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.tasksFocus {
 			m.taskSel = min(m.taskSel+1, len(m.dockTasks())-1)
+			m.taskExpanded = false // the expansion belongs to the row it was opened on
 			return m, nil
 		}
 		// while busy with a queue and an empty input, ↓ moves the queue
@@ -2890,6 +3261,19 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.KeySpace:
+		if m.tasksFocus && m.menu == nil {
+			// expand/collapse the selected task inline: its recent activity
+			// (journal tail) or report renders under the row
+			m.taskExpanded = !m.taskExpanded
+			return m, nil
+		}
+		// not in the dock: space is a typed character — fall through
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.refreshMenu()
+		return m, cmd
+
 	case tea.KeyUp, tea.KeyCtrlP:
 		if m.menu != nil {
 			m.menu.idx = (m.menu.idx + len(m.menu.cands) - 1) % len(m.menu.cands)
@@ -2898,9 +3282,11 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.tasksFocus {
 			if m.taskSel == 0 { // the dock sits below the input: ↑ off its top row hands focus back
 				m.tasksFocus = false
+				m.taskExpanded = false
 				return m, nil
 			}
 			m.taskSel--
+			m.taskExpanded = false
 			return m, nil
 		}
 		// while busy with a queue and an empty input, ↑ selects queued messages
@@ -3032,7 +3418,20 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.histIdx = len(m.hist)
 				m.input.Reset()
 				m.menu = nil
-				m.agent.Steer(text)
+				// [Image N] chips pasted this session must expand to real
+				// @path mentions (and inline the image on vision models)
+				// before steering — otherwise the chip reaches the model as a
+				// literal bracket string and the image is silently dropped.
+				steerText := m.expandImageChips(text)
+				if m.supportsVision() {
+					if parts, note := imageParts(steerText); len(parts) > 0 {
+						m.agent.SteerImages(steerText+note, parts)
+					} else {
+						m.agent.Steer(steerText)
+					}
+				} else {
+					m.agent.Steer(steerText)
+				}
 				m.append(youStyle.Render("❯ ") + linkifyFilePaths(text, realFileExists) + dimStyle.Render("  (steered)"))
 			case text != "": // codex-style: queue it (multiple allowed)
 				m.queue = append(m.queue, text)
@@ -3090,20 +3489,153 @@ func (m *model) key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // shiftEnterRe matches the common shift+enter encodings bubbletea doesn't map
 // to a named key: CSI u (\x1b[13;2u), modifyOtherKeys (\x1b[27;2;13~), and
-// kitty's shifted CR (\x1b[57441u). KeyMsg.String() renders each byte of
-// unknown sequences quoted and comma-separated (digits as words), so we match
-// the rendered form loosely.
+// kitty's shifted CR (\x1b[57441u). Two rendered forms are matched: the
+// current bubbletea one (?CSI[decimal byte values]?) and the historical one
+// (unknown csi sequence: quoted bytes), so the binding survives either.
 var shiftEnterRe = regexp.MustCompile(
-	`'\[', '1', '3', ';', '2', 'u'` + // CSI 13;2u
-		`|'\[', '2', '7', ';', '2', ';', '1', '3', '~'` + // CSI 27;2;13~
-		`|'\[', 'five', 'seven', 'four', 'four', 'one', 'u'`,
-) // CSI 57441u
+	`\[49 51 59 50 117\]` + // ?CSI for CSI 13;2u
+		`|\[50 55 59 50 59 49 51 126\]` + // ?CSI for CSI 27;2;13~
+		`|\[53 55 52 52 49 117\]` + // ?CSI for CSI 57441u
+		`|'\[', '1', '3', ';', '2', 'u'` + // legacy: CSI 13;2u
+		`|'\[', '2', '7', ';', '2', ';', '1', '3', '~'` + // legacy: CSI 27;2;13~
+		`|'\[', 'five', 'seven', 'four', 'four', 'one', 'u'`, // legacy: CSI 57441u
+)
 
-// isShiftEnterSeq reports whether msg is a shift+enter sequence bubbletea
-// surfaced as an unknown/unmapped key.
+// isShiftEnterSeq reports whether a KeyMsg is a shift+enter sequence.
+// (bubbletea never actually delivers it as a KeyMsg — see isShiftEnterString —
+// but tests and the alt+enter fallthrough path use this form.)
 func isShiftEnterSeq(msg tea.KeyMsg) bool {
-	s := msg.String()
-	return strings.HasPrefix(s, "unknown csi sequence:") && shiftEnterRe.MatchString(s)
+	return isShiftEnterString(msg.String())
+}
+
+// isShiftEnterString matches the RENDERED form of a shift+enter sequence,
+// whether it arrived as a KeyMsg (tests) or as bubbletea's unexported
+// unknownCSISequenceMsg (production). This is the matcher that makes the
+// binding actually fire.
+func isShiftEnterString(s string) bool {
+	return (strings.HasPrefix(s, "?CSI[") || strings.HasPrefix(s, "unknown csi sequence:")) && shiftEnterRe.MatchString(s)
+}
+
+// csiURe matches bubbletea's rendered unknown-CSI form ("?CSI[49 51 59 50
+// 117]?" — decimal byte values after ESC[) so the bytes can be recovered.
+var csiURe = regexp.MustCompile(`^\?CSI\[([0-9 ]+)\]\?$`)
+
+// csiUKey decodes a kitty/CSI-u key report — CSI <code>[:alt]* [; <mods>] u —
+// into the tea.KeyMsg bubbletea would have produced for the legacy encoding.
+// Only what the disambiguate flag can emit for ASCII keys: esc, and printable
+// keys with shift/alt/ctrl. Anything else reports false and stays dropped.
+func csiUKey(rendered string) (tea.KeyMsg, bool) {
+	mm := csiURe.FindStringSubmatch(rendered)
+	if mm == nil {
+		return tea.KeyMsg{}, false
+	}
+	var b []byte
+	for f := range strings.FieldsSeq(mm[1]) {
+		n, err := strconv.ParseUint(f, 10, 8)
+		if err != nil {
+			return tea.KeyMsg{}, false
+		}
+		b = append(b, byte(n))
+	}
+	if len(b) == 0 || b[len(b)-1] != 'u' {
+		return tea.KeyMsg{}, false
+	}
+	codeStr, modStr, _ := strings.Cut(string(b[:len(b)-1]), ";")
+	codeStr, _, _ = strings.Cut(codeStr, ":") // drop kitty alternate-key sub-params
+	code, err := strconv.Atoi(codeStr)
+	if err != nil {
+		return tea.KeyMsg{}, false
+	}
+	mods := 1
+	if modStr != "" {
+		modStr, _, _ = strings.Cut(modStr, ":") // drop event-type sub-param
+		if mods, err = strconv.Atoi(modStr); err != nil {
+			return tea.KeyMsg{}, false
+		}
+	}
+	mods--
+	shift, alt, ctrl := mods&1 != 0, mods&2 != 0, mods&4 != 0
+	switch {
+	case code == 27:
+		return tea.KeyMsg{Type: tea.KeyEsc, Alt: alt}, true
+	case code == 13 && !ctrl:
+		return tea.KeyMsg{Type: tea.KeyEnter, Alt: alt}, true
+	case code == 9 && !ctrl:
+		return tea.KeyMsg{Type: tea.KeyTab, Alt: alt}, true
+	case code == 127 && !ctrl:
+		return tea.KeyMsg{Type: tea.KeyBackspace, Alt: alt}, true
+	case code < 32 || code > 126:
+		return tea.KeyMsg{}, false
+	}
+	r := rune(code)
+	if ctrl {
+		if r >= 'a' && r <= 'z' {
+			r -= 'a' - 'A'
+		}
+		if r < '@' || r > '_' {
+			return tea.KeyMsg{}, false
+		}
+		// ctrl+letter is the C0 byte: bubbletea's KeyCtrlA..Z are 1..26.
+		return tea.KeyMsg{Type: tea.KeyType(r & 0x1f), Alt: alt}, true
+	}
+	if shift && r >= 'a' && r <= 'z' {
+		r -= 'a' - 'A'
+	}
+	if r == ' ' {
+		return tea.KeyMsg{Type: tea.KeySpace, Alt: alt}, true
+	}
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: alt}, true
+}
+
+// wordLeftFromBlank handles alt+b / alt+left when the text before the cursor
+// on the current line is blank (the case that hangs bubbles' wordLeft): moves
+// to the end of the previous line, or to column 0 on the first line, and
+// reports true. Otherwise reports false so the textarea does the real word
+// motion, which is safe once a non-space precedes the cursor.
+func (m *model) wordLeftFromBlank() bool {
+	lines := strings.Split(m.input.Value(), "\n")
+	row := m.input.Line()
+	if row < 0 || row >= len(lines) {
+		return false
+	}
+	li := m.input.LineInfo()
+	col := min(li.StartColumn+li.CharOffset, len([]rune(lines[row])))
+	if strings.TrimSpace(string([]rune(lines[row])[:col])) != "" {
+		return false
+	}
+	if row == 0 {
+		m.input.CursorStart()
+	} else {
+		m.input.CursorUp()
+		m.input.CursorEnd()
+	}
+	return true
+}
+
+// insertNewline splits the input at the cursor, the shared path for ctrl+j /
+// shift+enter / alt+enter. bubbles gates InsertNewline on MaxHeight, treating
+// the visual cap as a content limit — after a paste reaches MaxHeight lines
+// every newline would be silently swallowed. Lift the cap for this one call so
+// the newline always lands (and the textarea's own repositionView scrolls the
+// new line into view), then reapply the visual cap via SetHeight, which clamps
+// rendering only, never content.
+func (m *model) insertNewline() (tea.Model, tea.Cmd) {
+	maxHeight := m.input.MaxHeight
+	m.input.MaxHeight = 0
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m.input.MaxHeight = maxHeight
+	m.input.SetHeight(maxHeight)
+	// bubbles' InsertNewline scrolls the internal viewport to follow the
+	// cursor while the box is still 1 line high (YOffset=1); the deferred
+	// growInput rebuild inherits that stale offset and the first line
+	// scrolls out of view. SetValue resets the scroll (Reset inside), and
+	// CursorEnd keeps the caret at the end of the input.
+	v := m.input.Value()
+	m.input.SetValue(v)
+	m.input.CursorEnd()
+	m.refreshMenu()
+	return m, cmd
 }
 
 // nowFn returns the current time, honoring the test seam when set.
@@ -3124,7 +3656,7 @@ func (m *model) busyStats() string {
 	d := max(m.nowFn().Sub(m.turnStart), 0)
 	elapsed := d.Round(time.Second)
 	stats := fmt.Sprintf(" %d:%02d", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
-	if u := m.agent.Usage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
+	if u := m.agent.TotalUsage(); u.PromptTokens > 0 || u.CompletionTokens > 0 {
 		stats += fmt.Sprintf(" · %s tok", fmtTok(u.PromptTokens+u.CompletionTokens))
 	}
 	if m.agent.ContextLimit > 0 {
@@ -3189,16 +3721,41 @@ func (m *model) contextLimitFor(provName, apiID string) int {
 // sessionCost returns the session's cumulative USD spend at the current
 // model's advertised rates; ok is false when the provider's catalog has no
 // pricing for the model, in which case the status line hides the segment.
+// The figure is the whole bill: own requests at this model's rates plus each
+// subagent's spend at ITS model's rates. Any unpriceable component hides the
+// segment rather than showing a number that is knowingly low.
 func (m *model) sessionCost() (float64, bool) {
-	cat, ok := m.catalogs[m.provName]
+	total, ok := m.usageCost(m.agent.Model, m.provName, m.agent.Usage())
 	if !ok {
 		return 0, false
 	}
-	in, out, cacheRead, ok := cat.Pricing(m.agent.Model)
-	if !ok {
+	for label, u := range m.agent.SubUsage() {
+		model, prov, _ := strings.Cut(label, " @ ")
+		c, ok := m.usageCost(model, prov, u)
+		if !ok {
+			return 0, false
+		}
+		total += c
+	}
+	return total, true
+}
+
+// usageCost prices u at model's rates from the provider's catalog. A sub may
+// carry no provider (or one without a loaded catalog); then any catalog that
+// knows the model prices it.
+func (m *model) usageCost(model, prov string, u llm.Usage) (float64, bool) {
+	if cat, ok := m.catalogs[prov]; ok {
+		if in, out, cacheRead, ok := cat.Pricing(model); ok {
+			return llm.SessionCost(u, in, out, cacheRead), true
+		}
 		return 0, false
 	}
-	return llm.SessionCost(m.agent.Usage(), in, out, cacheRead), true
+	for _, cat := range m.catalogs {
+		if in, out, cacheRead, ok := cat.Pricing(model); ok {
+			return llm.SessionCost(u, in, out, cacheRead), true
+		}
+	}
+	return 0, false
 }
 
 // compactThresholdFor converts the config's compactPct preference into the
@@ -3270,8 +3827,14 @@ func (m *model) wireTasks() {
 		// Attribute it to the sub's own route (t.SubModel): a model-overridden
 		// subagent must not be recorded under the parent's model/provider.
 		if t.Status != agent.TaskRunning && t.SubMessages != nil {
-			if _, err := st.SaveSubagentTranscript(sessionID, t.ID, t.SubMessages, t.SubModel, ""); err != nil {
+			id, err := st.SaveSubagentTranscript(sessionID, t.ID, t.SubMessages, t.SubModel, "")
+			if err != nil {
 				config.LogEvent("session.task", "transcript save failed: "+err.Error())
+			} else if id != "" {
+				// The task row carries the sub's own bill (and its nested subs'),
+				// like any session row; the parent's sub_usage is the rollup.
+				u := t.SubUsage
+				_ = st.SetUsage(id, u.PromptTokens, u.Cached(), u.CompletionTokens, t.SubSubUsage)
 			}
 		}
 	}
@@ -3585,6 +4148,10 @@ func (m *model) prepareTurn(text string) (string, []llm.ContentPart) {
 	}
 	sys += memory.PromptBlock(memory.Installation(), memory.Session(m.sessionID))
 	m.agent.Messages[0].Content = sys
+	// [Image N …] chips pasted this session revert to real @path mentions so
+	// the normal attachment machinery below can read the on-disk copies; the
+	// transcript keeps the chip (it was already appended from the raw input).
+	text = m.expandImageChips(text)
 	expanded := expandMentions(expandSkills(text, sk))
 	if !m.supportsVision() {
 		// text-only model: leave @image tags as pointer notes (from
@@ -3632,7 +4199,7 @@ func (m *model) appendAssistant(s string) {
 	if m.inMsg && len(m.blocks) > 0 && m.blocks[len(m.blocks)-1].kind == blockAssistant {
 		m.blocks[len(m.blocks)-1].text += "\n\n" + s // same message: merge
 		m.blocks[len(m.blocks)-1].stale = true
-		m.follow = true
+		m.keepFollow()
 		m.refreshVP()
 		return
 	}
@@ -3697,7 +4264,7 @@ func (m *model) flushThink() {
 	if m.uiMode == opencodeMode {
 		if !m.thinkStart.IsZero() { // collapse the reasoning segment to one line (expandable to the text)
 			m.blocks = append(m.blocks, block{kind: blockThought, text: m.ocThink, live: fmtShortDur(m.nowFn().Sub(m.thinkStart))})
-			m.follow = true
+			m.keepFollow()
 			m.refreshVP()
 			m.thinkStart = time.Time{}
 			m.ocThink = ""
@@ -3959,6 +4526,11 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		m.future = nil   // no redo across a cleared conversation
 		m.setGoal("")    // clear before detaching so the old session's goal is dropped too
 		m.sessionID = "" // next turn starts a fresh session
+		// Drop the pasted-image registry too: a recalled "[Image 1]" chip from
+		// before the clear must not resolve to a different image once the
+		// session counter restarts.
+		m.images = nil
+		m.imageSeq = 0
 		m.agent.Tasks().SetSessionID("")
 		m.agent.SetSessionID("")
 		m.saved = 1
@@ -4366,6 +4938,88 @@ func (m *model) currentView() string {
 	return wrap(s, m.width) // streamed mid-flight: plain text; markdown renders on flush
 }
 
+// minTranscriptRows is the smallest window the transcript viewport keeps while
+// a response/reasoning streams below it. Without a floor, a long in-flight
+// chunk budgets every terminal row into chrome, collapses the viewport to 1
+// row, and the over-tall frame pushes the transcript's top into scrollback —
+// the "response cut off at the top, reasoning traces above it" bug.
+const minTranscriptRows = 5
+
+// streamTail keeps the last n rows of s (the growing edge of a streaming
+// render); s is returned unchanged when it already fits.
+func streamTail(s string, n int) string {
+	if n < 1 {
+		n = 1
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
+// fixedChrome mirrors layout()'s chrome count MINUS the streaming area, so
+// the capped views render to the exact height layout budgets. Keep in sync
+// with layout: any always-on row it adds must land here too.
+func (m *model) fixedChrome() int {
+	chrome := 6 + m.input.Height()
+	if m.uiMode == opencodeMode {
+		chrome++
+	}
+	if m.iactive != nil {
+		chrome -= m.input.Height()
+	}
+	if m.busy && m.uiMode != opencodeMode {
+		chrome += 2
+	}
+	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
+		chrome += 2
+	}
+	if m.iactive != nil {
+		chrome += lipgloss.Height(m.interactiveView()) + 1
+	}
+	if m.permDialog != nil {
+		chrome += lipgloss.Height(m.permView()) + 1
+	}
+	if m.menu != nil && m.uiMode != opencodeMode {
+		chrome += lipgloss.Height(m.menuView()) + 1
+	}
+	if len(m.queue) > 0 {
+		chrome += len(m.queue) + 1
+	}
+	if m.rew != nil {
+		chrome += lipgloss.Height(m.rewindView()) + 1
+	}
+	if m.quit1 {
+		chrome++
+	}
+	if m.escClr || (m.esc1 && m.rew == nil && m.namePrompt == nil) {
+		chrome++
+	}
+	return chrome + m.dockRows
+}
+
+// currentViewCapped is currentView trimmed to streamCap; layout budgets this
+// exact height so the frame fits the terminal. The tail is kept because
+// that's where new tokens land. A 0 cap means the terminal is too short to
+// show any of it — return "" so the caller drops the area (and its separator).
+func (m *model) currentViewCapped() string {
+	liveCap := m.streamCap(m.fixedChrome())
+	if liveCap == 0 {
+		return ""
+	}
+	return streamTail(m.currentView(), liveCap)
+}
+
+// thinkViewCapped is thinkView trimmed the same way for the live reasoning line.
+func (m *model) thinkViewCapped() string {
+	liveCap := m.streamCap(m.fixedChrome())
+	if liveCap == 0 {
+		return ""
+	}
+	return streamTail(m.thinkView(), liveCap)
+}
+
 // View renders the frame and tracks WHERE it sits on the screen. Mouse events
 // arrive in absolute screen coordinates, so every click/drag mapping needs the
 // view's top row. The inline view starts bottom-anchored (Run moves the cursor
@@ -4444,9 +5098,10 @@ func (m *model) viewBody() string {
 	if !m.follow {
 		left += fmt.Sprintf(" · ↑ %d%%", int(m.vp.ScrollPercent()*100))
 	}
-	// session token usage, provider-reported: in (cached of it) / out, then
-	// the share of the advertised context window the conversation occupies
-	u := m.agent.Usage()
+	// session token usage, provider-reported and including every subagent's
+	// requests: in (cached of it) / out, then the share of the advertised
+	// context window the conversation occupies
+	u := m.agent.TotalUsage()
 	if u.PromptTokens > 0 || u.CompletionTokens > 0 {
 		left += fmt.Sprintf(" · ⣿ %s in", fmtTok(u.PromptTokens))
 		if c := u.Cached(); c > 0 {
@@ -4499,22 +5154,30 @@ func (m *model) viewBody() string {
 		b.WriteString(dimStyle.Render(tips) + "\n\n")
 	}
 	b.WriteString(m.viewportView() + "\n") // selection highlight paints inside
-	if m.curThink != "" {
-		b.WriteString("\n" + m.thinkView() + "\n")
+	// Live streaming area: render only when the capped view is non-empty (a 0
+	// cap on a degenerate short terminal drops the area AND its separator, so
+	// layout's chrome count and this paint stay in sync). curThink and current
+	// are never live simultaneously (thinkMsg flushes current first, textMsg
+	// flushes curThink first), so each can safely claim the whole streamCap.
+	if cv := m.thinkViewCapped(); m.curThink != "" && cv != "" {
+		b.WriteString("\n" + cv + "\n")
 	}
 	if m.uiMode == opencodeMode && m.busy && !m.thinkStart.IsZero() {
 		// reasoning is streaming: opencode shows a transient "Thinking" line
 		// where the collapsed "+ Thought: {dur}" will land on flush
 		b.WriteString("\n   " + lipgloss.NewStyle().Foreground(ocWarnCol()).Render("+ Thinking…") + "\n")
 	}
-	if m.current != "" {
-		b.WriteString("\n" + m.currentView() + "\n")
+	if cv := m.currentViewCapped(); m.current != "" && cv != "" {
+		b.WriteString("\n" + cv + "\n")
 	}
 	if m.iactive != nil {
 		b.WriteString("\n" + m.interactiveView() + "\n")
 	}
 	if m.permDialog != nil {
 		b.WriteString("\n" + m.permView() + "\n")
+	}
+	if m.askDialog != nil {
+		b.WriteString("\n" + m.askView() + "\n")
 	}
 	if m.busy && m.uiMode != opencodeMode { // opencode mode: the status bar carries the spinner + esc hint
 		hint := " thinking… (enter queues · /theme /mouse /effort run now · esc interrupts · ctrl+c ctrl+c interrupts)"
@@ -4549,22 +5212,26 @@ func (m *model) viewBody() string {
 	// View can convert it to an absolute screen row for drag-select hit-testing.
 	m.inputBodyOff = strings.Count(b.String(), "\n")
 	if m.iactive == nil {
+		// The input view is sanitized per line like the transcript: bubbles'
+		// cursor-line rendering splits styled lines into pieces, and an
+		// un-closed piece bleeds its style into everything below (the status
+		// line going the wrong color after a large paste + ctrl+j).
 		if m.namePrompt != nil {
 			b.WriteString(m.namePrompt.label + " ")
 			if m.namePrompt.mask {
 				// Secrets never echo: render the mask instead of the input's
 				// live view (which would show the key in the clear). The "┃ "
 				// prompt matches how the textarea renders its own first line.
-				b.WriteString(m.highlightInput("┃ " + m.namePrompt.maskedValue(m.input.Value())))
+				b.WriteString(m.highlightInput(sanitizeInputView("┃ " + m.namePrompt.maskedValue(m.input.Value()))))
 			} else {
-				b.WriteString(m.highlightInput(m.input.View()))
+				b.WriteString(m.highlightInput(sanitizeInputView(m.input.View())))
 			}
 		} else if m.uiMode == opencodeMode {
 			// highlight BEFORE the box chrome is added, so the reverse-video
 			// ranges land on the same raw lines inputPoint hit-tests
-			b.WriteString(m.opencodePrompt(m.highlightInput(m.input.View()), m.width))
+			b.WriteString(m.opencodePrompt(m.highlightInput(sanitizeInputView(m.input.View())), m.width))
 		} else {
-			b.WriteString(m.highlightInput(m.input.View()))
+			b.WriteString(m.highlightInput(sanitizeInputView(m.input.View())))
 		}
 	}
 	if m.quit1 {
@@ -4624,7 +5291,7 @@ func (m *model) statusView() string {
 	if e := effortLabel(m.agent.Effort); e != "off" {
 		model += " (" + e + ")"
 	}
-	u := m.agent.Usage()
+	u := m.agent.TotalUsage() // whole bill: own requests plus every subagent's
 	spend := fmtUsage(u)
 	if cost, ok := m.sessionCost(); ok {
 		spend += " · " + fmtCost(cost)

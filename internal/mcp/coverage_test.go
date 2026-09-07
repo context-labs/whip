@@ -118,7 +118,10 @@ func TestFromConfigMap(t *testing.T) {
 		"web":  {URL: "https://x", Headers: map[string]string{"A": "b"}},
 	}
 	out := FromConfigMap(in)
-	if got := out["docs"]; len(got.Command) != 2 || got.Env["K"] != "v1" || got.StartupTimeout != 3 {
+	// env references stay references through config load — resolution happens
+	// at spawn time (config.ResolveEnvMap), so a var set between launches
+	// still resolves and resolved secrets never sit in the config file
+	if got := out["docs"]; len(got.Command) != 2 || got.Env["K"] != "$FROMCFG_KEY" || got.StartupTimeout != 3 {
 		t.Errorf("docs = %+v", got)
 	}
 	if !out["web"].Remote() || out["web"].Headers["A"] != "b" {

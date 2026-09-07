@@ -61,6 +61,11 @@ type BackgroundTask struct {
 	// after settle, and a shared slice would let a follow-up mutate an
 	// already-saved snapshot. nil while running and on restored tasks.
 	SubMessages []llm.Message
+	// SubUsage is the sub's own spend and SubSubUsage its nested subs' spend
+	// (by model label), snapshotted with SubMessages so the task's session
+	// row carries its bill.
+	SubUsage    llm.Usage
+	SubSubUsage map[string]llm.Usage
 
 	// SubModel names the route the subagent actually ran on, for transcript
 	// attribution — the sub often runs a DIFFERENT model than the parent
@@ -340,9 +345,15 @@ func (a *Agent) RegisterBackground(description, prompt string, o SubModel) *Back
 	sub := a.newSub(o)
 	// Scope the subagent's prompt-cache key to the task so its shorter,
 	// churning context never disturbs the parent's cached prefix (and two
-	// concurrent subagents don't collide on the session key).
-	if sid := a.SessionIDValue(); sid != "" {
-		sub.Client.CacheKey = sid + "/" + id
+	// concurrent subagents don't collide on the key). Prefer the session id;
+	// fall back to the parent's cache key so subagents still cache on a
+	// -no-session run (where the session id is empty).
+	scope := a.SessionIDValue()
+	if scope == "" && a.Client != nil {
+		scope = a.Client.CacheKey
+	}
+	if scope != "" {
+		sub.Client.CacheKey = scope + "/" + id
 	}
 	t := &BackgroundTask{
 		ID: id, Description: description, Prompt: prompt,
@@ -387,7 +398,12 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 	id, description, prompt := t.ID, t.Description, t.Prompt
 	taskCtx := t.ctx
 	go func() {
-		report, err := t.sub.Turn(taskCtx, prompt, FanIn(a.bg.emitter(id), Events{OnUsage: a.AddUsage}))
+		// No OnUsage fan-in into the parent's own totals: the sub's spend
+		// reaches parent.SubUsage through usageSink (set in newSub), so it is
+		// counted once there, and once more only on the task's own session
+		// row — never in the parent's usage_* columns (that double count once
+		// drove a session's reported spend to ~2× the provider bill).
+		report, err := t.sub.Turn(taskCtx, prompt, a.bg.emitter(id))
 		status := TaskDone
 		text := report
 		switch {
@@ -396,9 +412,14 @@ func (a *Agent) launchBackground(t *BackgroundTask) {
 		case err != nil:
 			status, text = TaskError, err.Error()
 		}
-		// Snapshot the transcript BEFORE settle: settle fires OnRecord (which
-		// persists SubMessages), so it must be populated first.
+		// Snapshot the transcript and bill BEFORE settle: settle fires OnRecord
+		// (which persists them), so they must be populated first. Under the
+		// registry lock: List copies *t under it on every dock redraw, so an
+		// unlocked write here is a live data race.
+		a.bg.mu.Lock()
 		t.SubMessages = t.sub.MessagesSnapshot()
+		t.SubUsage, t.SubSubUsage = t.sub.Usage(), t.sub.SubUsage()
+		a.bg.mu.Unlock()
 		a.bg.settle(id, status, text)
 		// subscribers stop here; late events after settle go nowhere (Subscribe
 		// rejects non-running tasks, and settled state is visible via List/Get)
@@ -421,6 +442,7 @@ func (r *taskRegistry) refreshTranscript(id string, sub *Agent) {
 	t, ok := r.tasks[id]
 	if ok {
 		t.SubMessages = sub.MessagesSnapshot()
+		t.SubUsage, t.SubSubUsage = sub.Usage(), sub.SubUsage()
 	}
 	r.mu.Unlock()
 	if !ok || r.OnRecord == nil {

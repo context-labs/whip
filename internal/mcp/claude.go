@@ -32,8 +32,10 @@ type claudeServer struct {
 }
 
 // ParseClaude normalizes a claude-style .mcp.json document into server
-// configs. "$VAR"/"${VAR}" references in env and header values are expanded
-// from the process environment.
+// configs. "$VAR"/"${VAR}" references in env and header values are kept
+// VERBATIM (references, not resolved values) — they resolve at connect time
+// via config.ResolveSecret, so an import can never bake a missing-at-import
+// var into an empty literal or leak a resolved secret into ~/.whip/config.json.
 func ParseClaude(data []byte) (map[string]ServerConfig, error) {
 	var f claudeFile
 	if err := json.Unmarshal(data, &f); err != nil {
@@ -42,10 +44,10 @@ func ParseClaude(data []byte) (map[string]ServerConfig, error) {
 	out := make(map[string]ServerConfig, len(f.MCPServers))
 	for name, s := range f.MCPServers {
 		c := ServerConfig{
-			Env:     expandEnvMap(s.Env),
+			Env:     s.Env,
 			Cwd:     s.Cwd,
 			URL:     s.URL,
-			Headers: expandEnvMap(s.Headers),
+			Headers: s.Headers,
 			Enabled: s.Enabled,
 		}
 		if s.Command != "" {

@@ -45,7 +45,11 @@ func parallelServer(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if call == 1 {
 			for i, id := range []string{"a", "b", "c"} {
-				args := fmt.Sprintf(`{\"s\":%q}`, id)
+				// arguments must be a JSON object: the streaming client
+				// (internal/llm) discards tool calls whose args aren't valid
+				// JSON before they reach the tool layer, so the raw value has
+				// to be {"s":"a"}, not the backslash-escaped {\"s\":\"a\"}.
+				args := fmt.Sprintf(`{"s":%q}`, id)
 				fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":%d,"id":%q,"type":"function","function":{"name":"slow","arguments":%q}}]}}]}`+"\n\n", i, id, args)
 			}
 			fmt.Fprint(w, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`+"\n\n")
@@ -424,7 +428,7 @@ func TestBackgroundTaskSubscriberSeesToolEvents(t *testing.T) {
 
 	var mu sync.Mutex
 	var seq []string
-	_, _, ok := ag.Tasks().SubscribeWithJournal(task.ID, Events{
+	replay, _, ok := ag.Tasks().SubscribeWithJournal(task.ID, Events{
 		OnText:      func(s string) { mu.Lock(); seq = append(seq, "text:"+s); mu.Unlock() },
 		OnToolStart: func(_, n, _ string) { mu.Lock(); seq = append(seq, "start:"+n); mu.Unlock() },
 		OnToolEnd:   func(_, n, r string) { mu.Lock(); seq = append(seq, "end:"+n+":"+r); mu.Unlock() },
@@ -432,6 +436,21 @@ func TestBackgroundTaskSubscriberSeesToolEvents(t *testing.T) {
 	if !ok {
 		t.Fatal("SubscribeWithJournal on a running task should report live")
 	}
+	// A subscriber sees the stream as journal replay + live events: whatever
+	// fired before the subscription attached is in replay (the sub may have
+	// already run its tool by now on a loaded CI box), the rest arrives live.
+	mu.Lock()
+	for _, e := range replay {
+		switch e.Kind {
+		case 0:
+			seq = append(seq, "text:"+e.S)
+		case 1:
+			seq = append(seq, "start:"+e.S)
+		case 2:
+			seq = append(seq, "end:"+e.S+":"+e.S2)
+		}
+	}
+	mu.Unlock()
 	select {
 	case <-task.Done:
 	case <-time.After(5 * time.Second):
@@ -488,7 +507,11 @@ func TestSubscribeUnknownTask(t *testing.T) {
 
 // Usage from a background subagent's API calls folds into the parent's
 // session totals (the FanIn second leg alongside the event emitter).
-func TestBackgroundTaskUsageRollsIntoParent(t *testing.T) {
+// A background subagent's spend lands in the parent's per-model SUB ledger,
+// never in its own Usage(): the two are disjoint so TotalUsage counts each
+// token once (fanning subs into Usage once made a session's row read ~2× the
+// provider bill).
+func TestBackgroundTaskUsageNotDoubleCounted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\n")
@@ -504,8 +527,47 @@ func TestBackgroundTaskUsageRollsIntoParent(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("task never settled")
 	}
-	if u := ag.Usage(); u.PromptTokens != 50 || u.CompletionTokens != 5 {
-		t.Fatalf("subagent usage should roll into the parent: %+v", u)
+	if u := ag.Usage(); u.PromptTokens != 0 || u.CompletionTokens != 0 {
+		t.Fatalf("background subagent usage must not roll into the parent's own Usage: %+v", u)
+	}
+	if u := ag.SubUsage()["m @ "]; u.PromptTokens != 50 || u.CompletionTokens != 5 {
+		t.Fatalf("background subagent usage should be ledgered under its model: %+v", ag.SubUsage())
+	}
+	if u := ag.TotalUsage(); u.PromptTokens != 50 || u.CompletionTokens != 5 {
+		t.Fatalf("TotalUsage should be own + subs: %+v", u)
+	}
+}
+
+// Sub spend forwards up through every level: a sub's own request and a
+// sub-of-a-sub's request both land in the root's ledger, keyed by the model
+// that made them, and only there.
+func TestSubUsageForwardsThroughNestedSubs(t *testing.T) {
+	root := New(llm.New("http://x", "k"), "root", 100, "sys")
+	sub := root.newSub(SubModel{})
+	sub.Model = "sub-m"
+	subsub := sub.newSub(SubModel{})
+	subsub.Model = "leaf-m"
+
+	sub.AddUsage(llm.Usage{PromptTokens: 10, CompletionTokens: 1})
+	subsub.AddUsage(llm.Usage{PromptTokens: 20, CompletionTokens: 2})
+
+	if u := root.Usage(); u.PromptTokens != 0 {
+		t.Fatalf("root's own usage must stay 0, got %+v", u)
+	}
+	got := root.SubUsage()
+	if got["sub-m @ "].PromptTokens != 10 || got["leaf-m @ "].PromptTokens != 20 {
+		t.Fatalf("root ledger should hold both levels by model: %+v", got)
+	}
+	if u := root.TotalUsage(); u.PromptTokens != 30 || u.CompletionTokens != 3 {
+		t.Fatalf("root total should be 30/3, got %+v", u)
+	}
+	// The middle sub sees only its child, in its own ledger.
+	if u := sub.SubUsage()["leaf-m @ "]; u.PromptTokens != 20 {
+		t.Fatalf("sub ledger should hold the leaf's spend: %+v", sub.SubUsage())
+	}
+	root.ResetUsage()
+	if root.SubUsage() != nil {
+		t.Fatal("ResetUsage should clear the sub ledger too")
 	}
 }
 
