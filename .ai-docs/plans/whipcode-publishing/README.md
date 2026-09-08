@@ -446,3 +446,11 @@ demonstrate a need for one.
 - Revised concurrent-send acceptance passed Chromium and Firefox, plus an
   additional complete Firefox run with GOMAXPROCS=2. No application behavior
   changed for this correction.
+
+- Third hosted run passed Go/security and Chromium again. Firefox reached the
+  next control before model replay/focus restoration settled. The browser test
+  now waits for the rendered model and returned popup focus before clicking
+  reasoning, preserving the existing timeout and assertions.
+
+- The browser-render/focus synchronization passed the full Chromium and Firefox
+  suites locally with GOMAXPROCS=2.

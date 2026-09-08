@@ -194,12 +194,15 @@ try {
       await page.getByRole('option', { name: 'replacement', exact: true }).click();
       await eventually(async () => (await session.snapshot()).meta.model === 'replacement', { description: 'composer model selection reaches the host' });
       await modelSearch.waitFor({ state: 'hidden' });
+      // Host acceptance precedes browser replay, which changes toolbar geometry.
+      // Wait for the displayed model and popup focus return before another click.
+      await eventually(async () => (await modelTrigger.innerText()).includes('replacement'), { description: 'browser renders the selected model' });
+      await eventually(() => modelTrigger.evaluate(element => document.activeElement === element), { description: 'model picker returns focus to its trigger' });
       const effortTrigger = page.getByRole('button', { name: 'Reasoning effort', exact: true });
       await effortTrigger.click();
       await page.getByRole('option', { name: 'Medium', exact: true }).click();
       await eventually(async () => (await session.snapshot()).meta.effort === 'medium');
       await page.screenshot({ path: join(resultsDirectory, `${name}-model-picker.png`) });
-      await eventually(async () => (await modelTrigger.innerText()).includes('replacement'));
       assert.equal(await composer.inputValue(), 'Keep this draft while changing the model');
       assert.equal((await session.snapshot()).messages?.length ?? 0, 0, 'Changing models submitted the message draft');
       await page.reload(); await ready(page);
