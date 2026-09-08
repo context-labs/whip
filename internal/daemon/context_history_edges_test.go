@@ -58,8 +58,9 @@ func TestHistorySearchResumesAcrossFieldsAndMessages(t *testing.T) {
 	store, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	call := llm.ToolCall{ID: "field-call", Type: "function"}
 	call.Function.Name, call.Function.Arguments = "read", `{"needle":"needle"}`
-	raw := []llm.Message{{},
-		{Role: "assistant", Content: strings.Repeat("needle;", 19), Parts: []llm.ContentPart{{Type: "text", Text: "needle"}, {Type: "text", Text: "needle needle"}}, ToolCalls: []llm.ToolCall{call}},
+	raw := []llm.Message{
+		{},
+		{Role: "assistant", Content: strings.Repeat("needle;", 19), Parts: []llm.ContentPart{{Type: "text", Text: "needle"}, {Type: "text", Text: "needle needle"}}, ToolCalls: []llm.ToolCall{call}}, //nolint:dupword // repeated matches exercise continuation within one content field
 		{Role: "tool", Content: "needle", ToolCallID: call.ID, Name: "read"},
 	}
 	if err := store.Save(root.ID(), 1, raw, "model", "provider"); err != nil {

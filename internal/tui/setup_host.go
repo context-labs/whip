@@ -30,6 +30,8 @@ func connectSetupHost(ctx context.Context) (setupHost, error) {
 	if err != nil {
 		return nil, err
 	}
-	return daemon.EnsureClient(ctx, paths, daemon.InitializeParams{ProtocolMajor: daemon.ProtocolMajor, BuildID: Version,
-		ClientKind: "tui", ClientID: fmt.Sprintf("setup-%d", os.Getpid())}, func() error { return daemon.LaunchSelfDaemon(paths) })
+	return daemon.EnsureClient(ctx, paths, daemon.InitializeParams{
+		ProtocolMajor: daemon.ProtocolMajor, BuildID: Version,
+		ClientKind: "tui", ClientID: fmt.Sprintf("setup-%d", os.Getpid()),
+	}, func() error { return daemon.LaunchSelfDaemon(paths) })
 }

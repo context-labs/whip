@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // Provider is an API endpoint that can serve models.
@@ -301,14 +303,14 @@ type MCPServer struct {
 // WHIP_HOME overrides the location — used by tests to keep fixture writes
 // far away from the real config.
 func Dir() (string, error) {
-	if d := os.Getenv("WHIP_HOME"); d != "" {
+	if d := os.Getenv(buildinfo.Env("HOME")); d != "" {
 		return d, os.MkdirAll(d, 0o700) //nolint:gosec // G703: WHIP_HOME is the user's own env override for the config dir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".whip")
+	dir := buildinfo.Home(home)
 	return dir, os.MkdirAll(dir, 0o700)
 }
 

@@ -30,8 +30,10 @@ func TestHostFileCompletionUsesWorkspaceAndRanksFuzzyMatches(t *testing.T) {
 		count  int
 		first  string
 	}{
-		{prefix: "roadmap", count: 2, first: "@docs/roadmap.md"}, {prefix: "rdmp", count: 2, first: "@docs/roadmap.md"},
-		{prefix: "main", count: 1, first: "@cmd/whip/main.go"}, {prefix: "zzz", count: 0},
+		{prefix: "roadmap", count: 2, first: "@docs/roadmap.md"},
+		{prefix: "rdmp", count: 2, first: "@docs/roadmap.md"},
+		{prefix: "main", count: 1, first: "@cmd/whip/main.go"},
+		{prefix: "zzz", count: 0},
 		{prefix: "docs/r", count: 1, first: "@docs/roadmap.md"},
 	} {
 		result, err := completeAt(t.Context(), root, CompletionParams{Kind: "mention", Prefix: test.prefix, Limit: 8})

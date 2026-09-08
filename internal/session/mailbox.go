@@ -322,9 +322,12 @@ func scanMailboxRow(rows interface {
 	var availableAt, createdAt, deliveredAt, doneAt string
 	var inlineSize, referenceSize int64
 	var reference string
-	fields := []any{&message.ID, &message.Revision, &message.SenderAgentID, &message.RecipientAgentID, &message.Kind, &message.Delivery, &message.Subject,
+	fields := make([]any, 0, 18+len(extra))
+	fields = append(fields,
+		&message.ID, &message.Revision, &message.SenderAgentID, &message.RecipientAgentID, &message.Kind, &message.Delivery, &message.Subject,
 		&message.Excerpt, &message.EvidenceReferenceID, &message.Status, &availableAt, &createdAt, &deliveredAt, &message.DeliveredTurnID, &doneAt,
-		&inlineSize, &reference, &referenceSize}
+		&inlineSize, &reference, &referenceSize,
+	)
 	if err := rows.Scan(append(fields, extra...)...); err != nil {
 		return err
 	}

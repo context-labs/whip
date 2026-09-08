@@ -192,7 +192,7 @@ func TestE2EDedicated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open dedicated: %v", err)
 	}
-	defer b.Close()
+	defer closeFixtureBrowser(t, b)
 	if err := b.Navigate(ctx, url); err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +336,7 @@ func TestE2ELiveFallsBackToLaunched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("live fallback must not error: %v", err)
 	}
-	defer b.Close()
+	defer closeFixtureBrowser(t, b)
 	if b.Obtained() != ObtainedLaunched {
 		t.Fatalf("fallback should have launched, got obtained=%v", b.Obtained())
 	}
@@ -446,4 +446,16 @@ func killProfileChrome(ctx context.Context, t *testing.T, prof string) {
 		_ = b.Close() // this one kills — intended at teardown
 	}
 	time.Sleep(500 * time.Millisecond)
+}
+
+// Persistent dedicated browsers outlive Close; fixture launches must stop before
+// testing removes their profiles, including a live-mode fallback launch.
+func closeFixtureBrowser(t *testing.T, b Backend) {
+	t.Helper()
+	_ = b.Close()
+	if browser, ok := b.(*Browser); ok && browser.launcher != nil {
+		if err := stopLauncher(browser.launcher); err != nil {
+			t.Error(err)
+		}
+	}
 }

@@ -106,7 +106,7 @@ func hostDirectories(ctx context.Context, p protocol.HostDirectoryParams) (proto
 		return result, rpcFailure(-32602, "directory path must be absolute or start with ~/")
 	}
 	result.Path, result.Parent = filepath.Clean(path), filepath.Dir(filepath.Clean(path))
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // G304: the host directory picker intentionally lists the user-requested absolute directory
 	if err != nil {
 		return result, err
 	}

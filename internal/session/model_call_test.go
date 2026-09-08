@@ -18,9 +18,11 @@ import (
 )
 
 func modelAttempt(id string, input int64, output int) llm.ModelAttempt {
-	return llm.ModelAttempt{LogicalID: id, Number: 1, Model: "model", Provider: "provider", Purpose: "turn",
+	return llm.ModelAttempt{
+		LogicalID: id, Number: 1, Model: "model", Provider: "provider", Purpose: "turn",
 		InputTokens: input, MaxTokens: output, Timeout: time.Second,
-		Pricing: llm.Pricing{Prompt: "0.000001", Completion: "0.000002", InputCacheRead: "0"}}
+		Pricing: llm.Pricing{Prompt: "0.000001", Completion: "0.000002", InputCacheRead: "0"},
+	}
 }
 
 func TestCheckModelWorkUsesEveryAncestorBudget(t *testing.T) {

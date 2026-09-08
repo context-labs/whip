@@ -100,7 +100,7 @@ func (t *websocketMessageTransport) WriteMessage(message []byte) error {
 func (t *websocketMessageTransport) writeFrame(op ws.OpCode, data []byte) error {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	if err := t.Conn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+	if err := t.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		return err
 	}
 	if t.clientSide {

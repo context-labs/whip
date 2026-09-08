@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+
 	"github.com/context-labs/whip/internal/mcp"
 )
 
@@ -33,6 +34,7 @@ func (p MCPAttachParams) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(wire)
 }
+
 func (p *MCPAttachParams) UnmarshalJSON(raw []byte) error {
 	var wire mcpAttachWire
 	if err := json.Unmarshal(raw, &wire); err != nil {

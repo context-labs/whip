@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/context-labs/whip/internal/llm"
-	sessionstore "github.com/context-labs/whip/internal/session"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +14,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/llm"
+	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
 func TestLifecycleBoundaryReadFailurePreservesClaimForRetry(t *testing.T) {
@@ -57,7 +58,7 @@ func TestLifecycleBoundaryReadFailurePreservesClaimForRetry(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(path, 0700); err != nil {
+	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	node := &AgentSession{id: id, parentID: rootID, root: root}
@@ -81,7 +82,7 @@ func TestLifecycleBoundaryReadFailurePreservesClaimForRetry(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := store.ResolveInboxPayload(t.Context(), queued[1]); err != nil || string(got) != body {
@@ -161,10 +162,10 @@ func TestLifecyclePreflightFailureDoesNotReplayJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 	skillDir := filepath.Join(root.WorkingDirectory(), ".agents", "skills", "oversize")
-	if err := os.MkdirAll(skillDir, 0700); err != nil {
+	if err := os.MkdirAll(skillDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: oversize\ndescription: review\n---\n"+strings.Repeat("a", maxInvokedSkillBytes)), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: oversize\ndescription: review\n---\n"+strings.Repeat("a", maxInvokedSkillBytes)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	receipt, err = root.Submit(t.Context(), "$oversize")
@@ -443,6 +444,7 @@ func (r *lifecycleJournalRunner) turnJournal() turnJournal {
 	r.journals.Add(1)
 	return turnJournal{Messages: r.History()}
 }
+
 func TestLifecycleUnsupportedPartsNeverReuseRunnerJournal(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	id := createRoot(t, store)

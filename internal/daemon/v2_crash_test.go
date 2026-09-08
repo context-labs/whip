@@ -15,8 +15,10 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-const crashFixtureEnv = "WHIP_V2_CRASH_FIXTURE"
-const crashFixtureExit = 73
+const (
+	crashFixtureEnv  = "WHIP_V2_CRASH_FIXTURE"
+	crashFixtureExit = 73
+)
 
 type crashReceipt struct {
 	RootID    string        `json:"root_id"`
@@ -65,7 +67,7 @@ func TestV2CrashProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "receipt.json"), data, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "receipt.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	os.Exit(crashFixtureExit)
@@ -135,7 +137,7 @@ func crashCommand(rootID string) CommandParams {
 }
 
 func appendCrashEffect(home string) error {
-	file, err := os.OpenFile(filepath.Join(home, "effect.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	file, err := os.OpenFile(filepath.Join(home, "effect.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}

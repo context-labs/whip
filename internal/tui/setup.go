@@ -3,12 +3,15 @@ package tui
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
@@ -52,7 +55,6 @@ func runSetupWizard(cfg *config.Config, stdin io.Reader, stderr io.Writer) error
 }
 
 func runSetupWizardOnHost(ctx context.Context, host setupHost, cfg *config.Config, stdin io.Reader, stderr io.Writer) error {
-
 	r, ok := stdin.(*bufio.Reader)
 	if !ok {
 		r = bufio.NewReader(stdin)
@@ -61,7 +63,7 @@ func runSetupWizardOnHost(ctx context.Context, host setupHost, cfg *config.Confi
 
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Welcome to whip! First-run setup (Enter = skip/keep default).")
-	fmt.Fprintln(w, "Every choice is reversible later: /auth, ctrl+p, ~/.whip/config.json.")
+	fmt.Fprintln(w, buildinfo.Text("Every choice is reversible later: /auth, ctrl+p, ~/.whip/config.json."))
 	fmt.Fprintln(w, "")
 
 	setupProvider(ctx, host, r, w)
@@ -77,8 +79,10 @@ func runSetupWizardOnHost(ctx context.Context, host setupHost, cfg *config.Confi
 	if err != nil {
 		return err
 	}
-	if _, err := host.UpdateConfiguration(ctx, daemon.ConfigurationUpdate{Revision: current.Revision,
-		ImportClaude: cfg.MCPImport.Claude.Enabled, ImportCodex: cfg.MCPImport.Codex.Enabled}); err != nil {
+	if _, err := host.UpdateConfiguration(ctx, daemon.ConfigurationUpdate{
+		Revision:     current.Revision,
+		ImportClaude: cfg.MCPImport.Claude.Enabled, ImportCodex: cfg.MCPImport.Codex.Enabled,
+	}); err != nil {
 		return fmt.Errorf("saving host setup choices: %w", err)
 	}
 	if err := cfg.SavePreferences(); err != nil {
@@ -205,7 +209,7 @@ func wizardProviderChoice(r *bufio.Reader, w io.Writer, title string, choices []
 			return choices[i].ID, nil
 		}
 	}
-	return "", fmt.Errorf("invalid provider choice")
+	return "", errors.New("invalid provider choice")
 }
 
 func setupOpenRouter(ctx context.Context, host setupHost, r *bufio.Reader, w io.Writer) {
@@ -259,7 +263,7 @@ func wizardChoose(r *bufio.Reader, w io.Writer, title string, options []string) 
 // unless the user says so. The answers always land in the mcpImport block so
 // the install has an explicit record — and ctrl+p → MCPs flips them later.
 func setupMCPImports(cfg *config.Config, r *bufio.Reader, w io.Writer) {
-	fmt.Fprintln(w, "whip can import MCP servers from other tools' configs.")
+	fmt.Fprintln(w, buildinfo.Text("whip can import MCP servers from other tools' configs."))
 	claude := askYN(r, w, "Import MCP servers from Claude? (~/.claude.json, .mcp.json)", false)
 	codex := askYN(r, w, "Import MCP servers from Codex? (~/.codex/config.toml)", false)
 	cfg.MCPImport = &config.MCPImport{

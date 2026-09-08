@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // Policy gates app access. The zero value (nil map) denies everything —
@@ -105,5 +107,5 @@ func (p *Policy) Summary() string {
 type ApprovalNeeded struct{ App string }
 
 func (e *ApprovalNeeded) Error() string {
-	return fmt.Sprintf("computer-use needs approval to drive %q — approve in the prompt, or add it to computer.allow in ~/.whip/config.json", e.App)
+	return fmt.Sprintf(buildinfo.Text("computer-use needs approval to drive %q — approve in the prompt, or add it to computer.allow in ~/.whip/config.json"), e.App)
 }

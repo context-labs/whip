@@ -7,8 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/context-labs/whip/internal/protocol"
 	"io"
+
+	"github.com/context-labs/whip/internal/protocol"
 
 	"github.com/context-labs/whip/internal/session"
 )
@@ -116,11 +117,6 @@ type RestartParams = protocol.RestartParams
 
 type eventNotification struct {
 	Event ProtocolEvent `json:"event"`
-}
-
-type snapshotRequired struct {
-	RootID string `json:"root_id"`
-	Cursor int64  `json:"cursor"`
 }
 
 func requestDigest(scope, rootID, operation string, payload json.RawMessage) (string, error) {

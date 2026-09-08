@@ -272,6 +272,7 @@ func (r authRedirectTransport) RoundTrip(request *http.Request) (*http.Response,
 	request.URL = &target
 	return r.next.RoundTrip(request)
 }
+
 func redirectAuthRequests(t *testing.T, endpoint, host, prefix string) {
 	t.Helper()
 	parsed, err := url.Parse(endpoint)

@@ -273,7 +273,7 @@ func TestComposePromptMissingOptionalFilesAndExactBoundary(t *testing.T) {
 func TestComposePromptRejectsAggregateRuleOverflow(t *testing.T) {
 	options := promptFixture(t)
 	root := options.WorkingDirectory
-	for i := 0; i < 17; i++ {
+	for range 17 {
 		writePromptFile(t, filepath.Join(options.WorkingDirectory, "AGENTS.md"), strings.Repeat("x", maxProjectInstructionBytes))
 		options.WorkingDirectory = filepath.Join(options.WorkingDirectory, "child")
 	}

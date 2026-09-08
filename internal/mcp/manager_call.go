@@ -85,8 +85,8 @@ func (s *server) descriptorLocked(tool string) (capability.MCPCall, any, error) 
 		return capability.MCPCall{}, nil, errors.New("MCP tool definition cannot be encoded")
 	}
 	return capability.MCPCall{
-		MCPSelector: capability.MCPSelector{Server: s.name, Tool: tool, Definition: fmt.Sprintf("%x", sha256.Sum256(identity))},
-		Generation:  s.generation, Source: s.cfg.Source, Trusted: s.cfg.Trusted,
+		Server: s.name, Tool: tool, Definition: fmt.Sprintf("%x", sha256.Sum256(identity)),
+		Generation: s.generation, Source: s.cfg.Source, Trusted: s.cfg.Trusted,
 	}, found.InputSchema, nil
 }
 

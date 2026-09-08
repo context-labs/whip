@@ -36,6 +36,7 @@ func (v RuntimeValue) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(wire)
 }
+
 func (v *RuntimeValue) UnmarshalJSON(raw []byte) error {
 	var wire RuntimeValueWire
 	if err := json.Unmarshal(raw, &wire); err != nil {

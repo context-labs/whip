@@ -80,11 +80,11 @@ func (s *Store) RootCollectionPage(ctx context.Context, rootID, collection strin
 	if err != nil {
 		return page, err
 	}
+	defer func() { _ = rows.Close() }()
 	keys := []int64{}
 	for rows.Next() {
 		var key int64
 		if err := rows.Scan(&key); err != nil {
-			_ = rows.Close()
 			return page, err
 		}
 		keys = append(keys, key)

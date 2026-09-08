@@ -24,7 +24,7 @@ func (s *Session) QueryClient(ctx context.Context, operation string, payload jso
 		manager, err := routeControlValue(s, ctx, func(context.Context) (*browser.Manager, error) {
 			runner, ok := s.runner.(*AgentSession)
 			if !ok {
-				return nil, nil
+				return nil, nil //nolint:nilnil // non-agent sessions have no optional browser manager
 			}
 			return runner.browserManager(), nil
 		})
@@ -61,11 +61,12 @@ func (s *Server) query(ctx context.Context, params protocol.QueryParams) (protoc
 	}
 	var output string
 	var err error
-	if params.Operation == "provider.catalogs" {
+	switch params.Operation {
+	case "provider.catalogs":
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		output, err = clientProviderCatalogs(bounded)
-	} else if params.Operation == "session.list" {
+	case "session.list":
 		var list protocol.ListParams
 		if err := json.Unmarshal(params.Payload, &list); err != nil && len(params.Payload) > 0 {
 			return protocol.QueryResult{}, err
@@ -78,7 +79,7 @@ func (s *Server) query(ctx context.Context, params protocol.QueryParams) (protoc
 		}
 		metas, readErr := s.daemon.store.RecentContext(ctx, list.Limit)
 		output, err = marshalClientOutput(metas, readErr)
-	} else {
+	default:
 		root, openErr := s.daemon.Open(params.RootID)
 		if openErr != nil {
 			return protocol.QueryResult{}, openErr

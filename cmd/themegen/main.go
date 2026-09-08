@@ -36,21 +36,21 @@ func run(dir string, check bool) error {
 	}
 	sort.Strings(names)
 	if !check {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // Generated public frontend artifacts must be readable by build tools.
 			return err
 		}
 	}
 	for _, name := range names {
 		path := filepath.Join(dir, name)
 		if check {
-			got, err := os.ReadFile(path)
+			got, err := os.ReadFile(path) //nolint:gosec // The output directory is explicitly selected by the local CLI caller.
 			if err != nil {
 				return err
 			}
 			if !bytes.Equal(got, files[name]) {
 				return fmt.Errorf("theme contract drift: %s; run go run ./cmd/themegen", path)
 			}
-		} else if err := os.WriteFile(path, files[name], 0o644); err != nil {
+		} else if err := os.WriteFile(path, files[name], 0o644); err != nil { //nolint:gosec // Generated public frontend artifacts contain no secrets.
 			return err
 		}
 	}

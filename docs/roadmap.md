@@ -50,6 +50,8 @@ direct-tool and RLM agents.
 
 ## Safety and operations
 
+- [ ] Publish isolated `whipcode` branch builds with their own installer and update channel.
+
 - [ ] Harden kernel containment beyond process/resource limits where supported
   by the host OS.
 - [ ] Add operator diagnostics for leaked processes, stuck permission requests,

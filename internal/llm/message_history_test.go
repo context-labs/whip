@@ -20,6 +20,7 @@ func TestMessageHistoryPreservesMultipartOrderAndMetadata(t *testing.T) {
 		{name: "empty_leading_text", body: `{"role":"user","content":[{"type":"text"},{"type":"image_url","image_url":{"url":"data:image/png;base64,YWJj"}},{"type":"text","text":"after image"}]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var message Message
 			if err := json.Unmarshal([]byte(tc.body), &message); err != nil {
 				t.Fatal(err)
@@ -59,6 +60,7 @@ func TestMessageHistoryNeverSerializesRawSequence(t *testing.T) {
 		{name: "multipart", message: Message{Role: "user", Content: "before", Parts: []ContentPart{ImagePart("png", []byte("image")), {Type: "text", Text: "after"}}, RawSequence: 947}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			encoded, err := json.Marshal(tc.message)
 			if err != nil {
 				t.Fatal(err)
@@ -102,6 +104,7 @@ func TestMessageHistoryUnmarshalResetsPreviouslyPopulatedFields(t *testing.T) {
 		{name: "untrusted_raw_sequence", body: `{"role":"assistant","content":"fresh","raw_sequence":123,"RawSequence":456}`, want: Message{Role: "assistant", Content: "fresh"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			message := old
 			if err := json.Unmarshal([]byte(tc.body), &message); err != nil {
 				t.Fatal(err)

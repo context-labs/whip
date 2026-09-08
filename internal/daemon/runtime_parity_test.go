@@ -144,7 +144,7 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 
 func runtimeUnixClient(t *testing.T, value *Daemon) *Client {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "whip-v2-")
+	dir, err := os.MkdirTemp("/tmp", "whip-v2-") //nolint:usetesting // short path is required by the Unix socket path-length limit on macOS
 	if err != nil {
 		t.Fatal(err)
 	}

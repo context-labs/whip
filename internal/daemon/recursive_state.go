@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -60,15 +61,15 @@ func statePageInteger(arguments map[string]any, key string, fallback int64) (int
 func (host *recursiveHost) statePage(ctx context.Context, operation string, arguments map[string]any) (any, error) {
 	limit, err := statePageInteger(arguments, "limit", 20)
 	if err != nil || limit < 1 || limit > 100 {
-		return nil, fmt.Errorf("state page limit must be between 1 and 100")
+		return nil, errors.New("state page limit must be between 1 and 100")
 	}
 	afterKey, validKey := stringArgument(arguments, "after_key")
 	if _, exists := arguments["after_key"]; exists && !validKey {
-		return nil, fmt.Errorf("after_key must be a string")
+		return nil, errors.New("after_key must be a string")
 	}
 	afterVersion, err := statePageInteger(arguments, "after_version", 0)
 	if err != nil || afterVersion < 0 {
-		return nil, fmt.Errorf("after_version must be a non-negative integer")
+		return nil, errors.New("after_version must be a non-negative integer")
 	}
 	key, _ := stringArgument(arguments, "key")
 	node := host.session
@@ -103,7 +104,7 @@ func (host *recursiveHost) statePage(ctx context.Context, operation string, argu
 		}
 		if len(encoded) > 64<<10 {
 			if len(items) == 0 {
-				return nil, fmt.Errorf("state record exceeds page response limit")
+				return nil, errors.New("state record exceeds page response limit")
 			}
 			break
 		}
@@ -127,30 +128,30 @@ func (host *recursiveHost) statePage(ctx context.Context, operation string, argu
 // that do not originate in a Starlark worker.
 func normalizeStateJSON(value any, depth int) (any, error) {
 	if depth > 100 {
-		return nil, fmt.Errorf("state value exceeds maximum depth of 100")
+		return nil, errors.New("state value exceeds maximum depth of 100")
 	}
 	switch value := value.(type) {
 	case nil, bool, int, int64:
 		return value, nil
 	case string:
 		if !utf8.ValidString(value) {
-			return nil, fmt.Errorf("state strings require valid UTF-8")
+			return nil, errors.New("state strings require valid UTF-8")
 		}
 		return value, nil
 	case json.Number:
 		if !json.Valid([]byte(value)) {
-			return nil, fmt.Errorf("invalid state JSON number")
+			return nil, errors.New("invalid state JSON number")
 		}
 		if strings.ContainsAny(string(value), ".eE") {
 			number, err := value.Float64()
 			if err != nil || math.IsInf(number, 0) || math.IsNaN(number) {
-				return nil, fmt.Errorf("state requires finite floats")
+				return nil, errors.New("state requires finite floats")
 			}
 		}
 		return value, nil
 	case float64:
 		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return nil, fmt.Errorf("state requires finite floats")
+			return nil, errors.New("state requires finite floats")
 		}
 		encoded := strconv.FormatFloat(value, 'g', -1, 64)
 		if !strings.ContainsAny(encoded, ".eE") {
@@ -171,7 +172,7 @@ func normalizeStateJSON(value any, depth int) (any, error) {
 		result := make(map[string]any, len(value))
 		for key, item := range value {
 			if !utf8.ValidString(key) {
-				return nil, fmt.Errorf("state dictionaries require valid UTF-8 keys")
+				return nil, errors.New("state dictionaries require valid UTF-8 keys")
 			}
 			converted, err := normalizeStateJSON(item, depth+1)
 			if err != nil {

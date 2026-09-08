@@ -58,7 +58,7 @@ func TestNetworkDisabledAndConnectionExhaustion(t *testing.T) {
 			t.Fatal(err)
 		}
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost/api/v3/ws", nil))
+		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost/api/v3/ws", nil))
 		want := http.StatusNotFound
 		if enabled {
 			want = http.StatusServiceUnavailable
@@ -67,7 +67,7 @@ func TestNetworkDisabledAndConnectionExhaustion(t *testing.T) {
 			t.Fatalf("enabled=%v status=%d", enabled, response.Code)
 		}
 	}
-	listener, err := (NetworkOptions{}).listen()
+	listener, err := (NetworkOptions{}).listen(t.Context())
 	if err != nil || listener != nil {
 		t.Fatal("disabled network opened listener")
 	}
@@ -80,14 +80,14 @@ func TestNetworkWebDiscoveryAndHostGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/", "/sessions/root", "/api/v3/web"} {
-		request := httptest.NewRequest(http.MethodGet, "http://evil.test"+path, nil)
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://evil.test"+path, nil)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != 403 {
 			t.Fatalf("host bypass on %s: %d", path, response.Code)
 		}
 	}
-	request := httptest.NewRequest(http.MethodGet, "http://localhost:8080/api/v3/web", nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost:8080/api/v3/web", nil)
 	request.Header.Set("Origin", "http://localhost:8080")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

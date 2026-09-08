@@ -4,10 +4,13 @@ import "github.com/context-labs/whip/internal/llm"
 
 // Runtime parameters name domain values; command-line syntax is parsed by
 // clients before submitting these objects.
-type EmptyParams struct{}
-type TextParams struct {
-	Text string `json:"text"`
-}
+type (
+	EmptyParams struct{}
+	TextParams  struct {
+		Text string `json:"text"`
+	}
+)
+
 type IDParams struct {
 	ID string `json:"id"`
 }

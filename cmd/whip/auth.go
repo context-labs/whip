@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"golang.org/x/term"
 
 	"github.com/context-labs/whip/internal/config"
@@ -31,7 +33,7 @@ import (
 // execution host must have the variable exported before its daemon starts.
 func authCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: whip auth <provider> [<args>]\n  providers: inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>]")
+		return errors.New(buildinfo.Text("usage: whip auth <provider> [<args>]\n  providers: inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>]"))
 	}
 	switch args[0] {
 	case "inference-net", "inference":
@@ -73,7 +75,7 @@ func authOpenRouterCLI(args []string) error {
 	fmt.Println("ok")
 
 	fmt.Println("openrouter provider configured.")
-	fmt.Println("  run `whip`, then /model and pick from the full OpenRouter catalog — e.g. /model openai/gpt-5 openrouter")
+	fmt.Println(buildinfo.Text("  run `whip`, then /model and pick from the full OpenRouter catalog — e.g. /model openai/gpt-5 openrouter"))
 	return nil
 }
 

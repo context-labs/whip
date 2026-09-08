@@ -98,7 +98,7 @@ func readInvokedSkill(path string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("expected a regular skill file")
 	}
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // G304: path comes from the local skill catalog; invoking that skill explicitly authorizes its bounded read
 	if err != nil {
 		return nil, err
 	}

@@ -32,10 +32,13 @@ type Operation struct {
 	Result     reflect.Type `json:"-"`
 }
 
-type Empty struct{}
-type Accepted struct {
-	Accepted bool `json:"accepted"`
-}
+type (
+	Empty    struct{}
+	Accepted struct {
+		Accepted bool `json:"accepted"`
+	}
+)
+
 type PingResult struct {
 	Generation int64  `json:"generation,string"`
 	BuildID    string `json:"build_id"`
@@ -62,8 +65,10 @@ type HistoryPageParams struct {
 }
 
 func rpc[P, R any](name string, execution Execution, permission string, sensitive bool) Operation {
-	return Operation{Name: name, Surface: "rpc", Execution: execution, Permission: permission, Sensitive: sensitive,
-		Params: reflect.TypeFor[P](), Result: reflect.TypeFor[R]()}
+	return Operation{
+		Name: name, Surface: "rpc", Execution: execution, Permission: permission, Sensitive: sensitive,
+		Params: reflect.TypeFor[P](), Result: reflect.TypeFor[R](),
+	}
 }
 
 var rpcOperations = []Operation{

@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/config"
@@ -17,7 +19,7 @@ import (
 func (m *model) openMe() tea.Cmd {
 	path := config.MePath()
 	if path == "" {
-		m.append(errStyle.Render("/me: cannot locate ~/.whip"))
+		m.append(errStyle.Render(buildinfo.Text("/me: cannot locate ~/.whip")))
 		return nil
 	}
 	editor := os.Getenv("VISUAL")

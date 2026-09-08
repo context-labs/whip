@@ -116,6 +116,7 @@ func (wizardTestHost) ReadConfiguration(ctx context.Context) (daemon.RuntimeConf
 	_, revision, err := config.ReadVersioned()
 	return daemon.RuntimeConfiguration{Revision: revision}, err
 }
+
 func (wizardTestHost) UpdateConfiguration(ctx context.Context, p daemon.ConfigurationUpdate) (daemon.RuntimeConfiguration, error) {
 	_, revision, err := config.UpdateVersioned(p.Revision, func(c *config.Config) error {
 		c.MCPImport = &config.MCPImport{Claude: &config.MCPImportSource{Enabled: p.ImportClaude}, Codex: &config.MCPImportSource{Enabled: p.ImportCodex}}
@@ -123,6 +124,7 @@ func (wizardTestHost) UpdateConfiguration(ctx context.Context, p daemon.Configur
 	})
 	return daemon.RuntimeConfiguration{Revision: revision}, err
 }
+
 func (wizardTestHost) SetProviderKey(ctx context.Context, p daemon.ProviderKeySetup) (daemon.RuntimeConfiguration, error) {
 	_, revision, err := config.UpdateVersioned(p.Revision, func(c *config.Config) error { c.UpsertOpenRouter(p.Key, p.Environment); return nil })
 	return daemon.RuntimeConfiguration{Revision: revision}, err

@@ -39,6 +39,7 @@ type fakeRoot struct {
 	permissions  []session.PermissionSnapshot
 	remember     string
 	external     bool
+	modeError    string
 	lastSubmit   daemon.SubmitPayload
 	lastAnswer   questionAnswer
 	questions    []session.LifecycleEvent // open user.ask prompts a snapshot lists
@@ -139,6 +140,13 @@ func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParam
 	result := daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded"}
 	switch params.Operation {
 	case "permission.mode":
+		c.root.mu.Lock()
+		modeError := c.root.modeError
+		c.root.mu.Unlock()
+		if modeError != "" {
+			result.Status, result.Error = "failed", modeError
+			return result, nil
+		}
 		var payload struct {
 			External bool `json:"external_permissions"`
 		}

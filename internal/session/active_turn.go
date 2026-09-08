@@ -22,7 +22,7 @@ func readSnapshotTurns(ctx context.Context, tx *sql.Tx, snapshot *RootSnapshot) 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var agentID, turnID string
 		if err := rows.Scan(&agentID, &turnID); err != nil {

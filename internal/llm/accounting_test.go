@@ -68,7 +68,8 @@ func TestUsagePresenceAndValidation(t *testing.T) {
 }
 
 func TestPricingActualCost(t *testing.T) {
-	usage := Usage{PromptTokens: 100, CompletionTokens: 20,
+	usage := Usage{
+		PromptTokens: 100, CompletionTokens: 20,
 		PromptTokensDetails: &struct {
 			CachedTokens int `json:"cached_tokens"`
 		}{80},
@@ -92,17 +93,17 @@ func TestPricingActualCost(t *testing.T) {
 		{"free model absent usage", Pricing{Prompt: "0", Completion: "0"}, Usage{}, 0, true},
 		{"free model and cache absent usage", Pricing{Prompt: "0", Completion: "0", InputCacheRead: "0"}, Usage{}, 0, true},
 		{"paid cache absent usage", Pricing{Prompt: "0", Completion: "0", InputCacheRead: "0.000001"}, Usage{}, 0, false},
-		{"provider charge overrides free estimate", Pricing{Prompt: "0", Completion: "0"}, Usage{Cost: floatPointer(0.003)}, 3000, true},
+		{"provider charge overrides free estimate", Pricing{Prompt: "0", Completion: "0"}, Usage{Cost: new(0.003)}, 3000, true},
 
 		{"reported zero", priced, Usage{Reported: true}, 0, true},
 		{"unknown model", Pricing{}, usage, 0, false},
 		{"partial rates", Pricing{Prompt: "0.001"}, usage, 0, false},
 		{"invalid catalog rate", Pricing{Prompt: "NaN", Completion: "1"}, usage, 0, false},
-		{"provider cost overrides catalog", priced, Usage{PromptTokens: 100, Cost: floatPointer(0.005)}, 5000, true},
-		{"provider free overrides catalog", priced, Usage{PromptTokens: 100, Cost: floatPointer(0)}, 0, true},
-		{"provider cost with unknown catalog", Pricing{}, Usage{Cost: floatPointer(0.003)}, 3000, true},
-		{"submicro provider cost rounds up", Pricing{}, Usage{Cost: floatPointer(0.0000001)}, 1, true},
-		{"exact decimal does not overround", Pricing{}, Usage{Cost: floatPointer(0.000007)}, 7, true},
+		{"provider cost overrides catalog", priced, Usage{PromptTokens: 100, Cost: new(0.005)}, 5000, true},
+		{"provider free overrides catalog", priced, Usage{PromptTokens: 100, Cost: new(0.0)}, 0, true},
+		{"provider cost with unknown catalog", Pricing{}, Usage{Cost: new(0.003)}, 3000, true},
+		{"submicro provider cost rounds up", Pricing{}, Usage{Cost: new(0.0000001)}, 1, true},
+		{"exact decimal does not overround", Pricing{}, Usage{Cost: new(0.000007)}, 7, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, known, err := tc.pricing.ActualCost(tc.usage)
@@ -112,8 +113,6 @@ func TestPricingActualCost(t *testing.T) {
 		})
 	}
 }
-
-func floatPointer(value float64) *float64 { return &value }
 
 func TestPricingReservationsAndMalformedRates(t *testing.T) {
 	price := Pricing{Prompt: "0.000001", Completion: "0.000003", InputCacheRead: "0.000002"}
@@ -135,7 +134,6 @@ func TestPricingReservationsAndMalformedRates(t *testing.T) {
 			if got, err := price.ReserveCost(100, 1); err != nil || got != 0 {
 				t.Fatalf("reservation=%d err=%v", got, err)
 			}
-
 		})
 	}
 	for _, cost := range []float64{-1, math.Inf(1), math.NaN(), math.MaxFloat64} {
@@ -274,7 +272,10 @@ func TestModelPermitEnforcesTimeoutAndPreDispatchFailures(t *testing.T) {
 	})
 	t.Run("admission denial never dispatches", func(t *testing.T) {
 		client := New("https://provider.example", "secret")
-		client.HTTP.Transport = accountingRoundTripFunc(func(*http.Request) (*http.Response, error) { t.Fatal("unfunded call dispatched"); return nil, nil })
+		client.HTTP.Transport = accountingRoundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("unfunded call dispatched")
+			return nil, nil //nolint:nilnil // t.Fatal terminates the test before this signature-only return
+		})
 		budget := attemptBudgetFunc(func(context.Context, ModelAttempt) (ModelPermit, error) {
 			return ModelPermit{}, errors.New("budget exhausted")
 		})
@@ -376,7 +377,8 @@ func testCallAccounting(begin func(context.Context, ModelAttempt) (func(ModelAtt
 }
 
 func TestUsageAggregatePreservesSettledAttempts(t *testing.T) {
-	first := Usage{Reported: true, PromptTokens: 5, CompletionTokens: 3, Cost: floatPointer(0.02),
+	first := Usage{
+		Reported: true, PromptTokens: 5, CompletionTokens: 3, Cost: new(0.02),
 		PromptTokensDetails: &struct {
 			CachedTokens int `json:"cached_tokens"`
 		}{2},

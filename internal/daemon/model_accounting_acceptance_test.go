@@ -359,7 +359,7 @@ func TestModelAccountingAcceptanceHelperFailureStopsCurrentCell(t *testing.T) {
 								return
 							}
 							defer db.Close()
-							if _, err := db.Exec(`CREATE TRIGGER helper_settlement_failure BEFORE UPDATE ON model_calls BEGIN SELECT RAISE(ABORT,'injected helper settlement failure'); END`); err != nil {
+							if _, err := db.ExecContext(t.Context(), `CREATE TRIGGER helper_settlement_failure BEFORE UPDATE ON model_calls BEGIN SELECT RAISE(ABORT,'injected helper settlement failure'); END`); err != nil {
 								t.Error(err)
 								return
 							}
@@ -382,7 +382,10 @@ func TestModelAccountingAcceptanceHelperFailureStopsCurrentCell(t *testing.T) {
 							return
 						}
 						defer db.Close()
-						if _, err := db.Exec(`DROP TRIGGER IF EXISTS helper_settlement_failure`); err != nil {
+						// Test contexts are already cancelled when cleanup begins.
+						cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+						defer cancel()
+						if _, err := db.ExecContext(cleanupCtx, `DROP TRIGGER IF EXISTS helper_settlement_failure`); err != nil {
 							t.Error(err)
 						}
 					})
@@ -419,7 +422,7 @@ func TestModelAccountingAcceptanceHelperFailureStopsCurrentCell(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					_, err = db.Exec(`DROP TRIGGER helper_settlement_failure`)
+					_, err = db.ExecContext(t.Context(), `DROP TRIGGER helper_settlement_failure`)
 					_ = db.Close()
 					if err != nil {
 						t.Fatal(err)

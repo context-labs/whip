@@ -688,9 +688,9 @@ func (s *Store) Finish(ctx context.Context, completion capability.Completion) er
 	}
 	if storageErr != nil {
 		completion.Status = capability.StatusFailed
-		prepared = preparedRuntimeValue{RuntimeValue: RuntimeValue{
+		prepared = preparedRuntimeValue{
 			Inline: []byte(`{"output":"","error":"operation result could not be stored"}`),
-		}}
+		}
 	}
 	resultInline, resultReference := runtimeValueColumns(prepared.RuntimeValue)
 	if _, err := tx.ExecContext(ctx, `UPDATE operations SET status=?,result_inline=?,result_ref=?,updated_at=? WHERE id=? AND status='running'`,

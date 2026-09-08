@@ -256,22 +256,28 @@ func TestMCPAuthorityRejectsOtherRootAndSkippedTerminalParent(t *testing.T) {
 func TestMCPAuthorityRejectsBrokenAncestorChains(t *testing.T) {
 	for name, mutate := range map[string]func(*testing.T, *Store, string){
 		"generation": func(t *testing.T, s *Store, rootID string) {
+			t.Helper()
 			mcpTestSQL(t, s, `UPDATE capabilities SET generation=generation+1 WHERE id=?`, "mcp:"+rootID)
 		},
 		"terminal parent": func(t *testing.T, s *Store, _ string) {
+			t.Helper()
 			mcpTestSQL(t, s, `UPDATE agents SET status='stopped' WHERE id='parent'`)
 		},
 		"expired": func(t *testing.T, s *Store, rootID string) {
+			t.Helper()
 			raw, _ := json.Marshal(storedCapabilityScopes{MCPAll: true, ExpiresAt: time.Now().Add(-time.Hour).Format(time.RFC3339Nano)})
 			mcpTestSQL(t, s, `UPDATE capabilities SET scopes=? WHERE id=?`, raw, "mcp:"+rootID)
 		},
 		"missing reference": func(t *testing.T, s *Store, _ string) {
+			t.Helper()
 			mcpTestSQL(t, s, `UPDATE capabilities SET scopes=json_remove(scopes,'$.mcp_issuer_id') WHERE id='mcp:parent'`)
 		},
 		"child wildcard": func(t *testing.T, s *Store, _ string) {
+			t.Helper()
 			mcpTestSQL(t, s, `UPDATE capabilities SET scopes=json_set(scopes,'$.mcp_all',json('true')) WHERE id='mcp:parent'`)
 		},
 		"cycle": func(t *testing.T, s *Store, _ string) {
+			t.Helper()
 			mcpTestSQL(t, s, `UPDATE capabilities SET issuer_agent_id='child',scopes=json_set(scopes,'$.mcp_issuer_id','mcp:child') WHERE id='mcp:parent'`)
 		},
 	} {

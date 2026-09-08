@@ -95,7 +95,7 @@ func TestRouteControlValueOutlivesCancelledWaiter(t *testing.T) {
 			processed := make(chan error, 1)
 			go func() { processed <- root.processWorkerBatch(root.supervisor.take()) }()
 			receiveActorValue(t, started)
-			want := error(context.Canceled)
+			want := context.Canceled
 			if stopActor {
 				want = ErrStopped
 				root.supervisor.stop()

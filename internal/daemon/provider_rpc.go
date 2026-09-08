@@ -10,10 +10,12 @@ import (
 	"github.com/context-labs/whip/internal/protocol"
 )
 
-type ProviderLoginParams = protocol.ProviderLoginParams
-type ProviderLoginTeamParams = protocol.ProviderLoginTeamParams
-type ProviderLoginProjectParams = protocol.ProviderLoginProjectParams
-type ProviderLoginCreateParams = protocol.ProviderLoginCreateParams
+type (
+	ProviderLoginParams        = protocol.ProviderLoginParams
+	ProviderLoginTeamParams    = protocol.ProviderLoginTeamParams
+	ProviderLoginProjectParams = protocol.ProviderLoginProjectParams
+	ProviderLoginCreateParams  = protocol.ProviderLoginCreateParams
+)
 
 func decodeProviderParams(data json.RawMessage, target any) error {
 	if len(data) == 0 {

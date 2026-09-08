@@ -3,14 +3,17 @@ package protocol
 
 import (
 	"encoding/json"
+	"time"
+
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
-	"time"
 )
 
-const Major = 4
-const Minor = 1
+const (
+	Major = 4
+	Minor = 1
+)
 
 type ErrorData struct {
 	Kind string `json:"kind"`
@@ -139,7 +142,7 @@ type PlanEvent struct {
 }
 
 type AgentTranscriptResult struct {
-	Accounting   session.ModelAccounting       `json:"accounting,omitempty"`
+	Accounting   session.ModelAccounting       `json:"accounting,omitempty"` //nolint:modernize // omitzero would remove the always-present accounting object from the wire response
 	Cursor       int64                         `json:"cursor,string"`
 	Agent        session.RuntimeAgent          `json:"agent"`
 	Page         session.BoundedTranscriptPage `json:"page"`

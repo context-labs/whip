@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
@@ -31,14 +33,14 @@ import (
 // source file); remove on an imported name explains that.
 func mcpCLI(args []string, version string) error {
 	if len(args) == 0 {
-		return errors.New("usage: whip mcp <list|add|remove|import|serve|test>")
+		return errors.New(buildinfo.Text("usage: whip mcp <list|add|remove|import|serve|test>"))
 	}
 	if args[0] == "serve" {
 		return mcpServe(version)
 	}
 	if args[0] == "test" {
 		if len(args) < 2 {
-			return errors.New("usage: whip mcp test <name>")
+			return errors.New(buildinfo.Text("usage: whip mcp test <name>"))
 		}
 		return mcpTestCLI(args[1])
 	}
@@ -86,7 +88,7 @@ func mcpCLI(args []string, version string) error {
 
 	case "add":
 		if len(args) < 2 {
-			return errors.New("usage: whip mcp add <name> -- <cmd...> | whip mcp add <name> --url <url>")
+			return errors.New(buildinfo.Text("usage: whip mcp add <name> -- <cmd...> | whip mcp add <name> --url <url>"))
 		}
 		name := args[1]
 		entry := config.MCPServer{}
@@ -97,7 +99,7 @@ func mcpCLI(args []string, version string) error {
 		case len(rest) >= 2 && rest[0] == "--":
 			entry.Command = rest[1:]
 		default:
-			return errors.New("usage: whip mcp add <name> -- <cmd...> | whip mcp add <name> --url <url>")
+			return errors.New(buildinfo.Text("usage: whip mcp add <name> -- <cmd...> | whip mcp add <name> --url <url>"))
 		}
 		sc := mcp.FromConfigMap(map[string]config.MCPServer{name: entry})[name]
 		if msg := sc.Valid(); msg != "" {
@@ -110,12 +112,12 @@ func mcpCLI(args []string, version string) error {
 		if err := cfg.Save(); err != nil {
 			return err
 		}
-		fmt.Printf("added mcp server %q — starts on next whip launch\n", name)
+		fmt.Printf(buildinfo.Text("added mcp server %q — starts on next whip launch\n"), name)
 		return nil
 
 	case "remove":
 		if len(args) < 2 {
-			return errors.New("usage: whip mcp remove <name>")
+			return errors.New(buildinfo.Text("usage: whip mcp remove <name>"))
 		}
 		name := args[1]
 		if _, ok := cfg.MCPServers[name]; !ok {
@@ -126,7 +128,7 @@ func mcpCLI(args []string, version string) error {
 				return fmt.Errorf("%q comes from .mcp.json or ~/.codex/config.toml — edit that file to remove it", name)
 			}
 			if _, blocked := disc.Blocked[name]; blocked {
-				return fmt.Errorf("%q is blocked by the mcpImport config — edit ~/.whip/config.json", name)
+				return fmt.Errorf(buildinfo.Text("%q is blocked by the mcpImport config — edit ~/.whip/config.json"), name)
 			}
 			return fmt.Errorf("no mcp server named %q", name)
 		}
@@ -226,9 +228,9 @@ func mcpTestCLI(name string) error {
 	sc, ok := disc.Merged[name]
 	if !ok {
 		if _, blocked := disc.Blocked[name]; blocked {
-			return fmt.Errorf("server %q is blocked by the mcpImport config — edit ~/.whip/config.json", name)
+			return fmt.Errorf(buildinfo.Text("server %q is blocked by the mcpImport config — edit ~/.whip/config.json"), name)
 		}
-		return fmt.Errorf("no mcp server named %q (try: whip mcp list)", name)
+		return fmt.Errorf(buildinfo.Text("no mcp server named %q (try: whip mcp list)"), name)
 	}
 	fmt.Printf("testing mcp server %q (%s)…\n", name, mcpTarget(sc))
 	res := mcp.Probe(context.Background(), name, sc)
@@ -240,7 +242,7 @@ func mcpTestCLI(name string) error {
 		}
 		return nil
 	case mcp.StatusDisabled:
-		fmt.Println("○ disabled — enable it in ~/.whip/config.json")
+		fmt.Println(buildinfo.Text("○ disabled — enable it in ~/.whip/config.json"))
 		return fmt.Errorf("server %q is disabled", name)
 	default:
 		fmt.Printf("✗ failed after %s: %s\n", res.Elapsed.Round(time.Millisecond), res.Err)
@@ -272,7 +274,7 @@ func mcpImportCLI(args []string) error {
 		if a == "--dry-run" {
 			dryRun = true
 		} else {
-			return errors.New("usage: whip mcp import [--dry-run]")
+			return errors.New(buildinfo.Text("usage: whip mcp import [--dry-run]"))
 		}
 	}
 	cfg, err := config.Load()
@@ -302,7 +304,7 @@ func mcpImportCLI(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("would add %d server(s) to ~/.whip/config.json under \"mcp\":\n%s\n", len(add), body)
+		fmt.Printf(buildinfo.Text("would add %d server(s) to ~/.whip/config.json under \"mcp\":\n%s\n"), len(add), body)
 		return nil
 	}
 	if cfg.MCPServers == nil {
@@ -317,6 +319,6 @@ func mcpImportCLI(args []string) error {
 		return err
 	}
 	sort.Strings(names)
-	fmt.Printf("imported %d mcp server(s) into ~/.whip/config.json: %s\n", len(names), strings.Join(names, ", "))
+	fmt.Printf(buildinfo.Text("imported %d mcp server(s) into ~/.whip/config.json: %s\n"), len(names), strings.Join(names, ", "))
 	return nil
 }

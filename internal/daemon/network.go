@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -22,15 +23,15 @@ type NetworkOptions struct {
 	AllowedHosts   []string `json:"allowed_hosts,omitempty"`
 }
 
-func (o NetworkOptions) listen() (net.Listener, error) {
+func (o NetworkOptions) listen(ctx context.Context) (net.Listener, error) {
 	if !o.Enabled {
-		return nil, nil
+		return nil, nil //nolint:nilnil // a disabled optional network listener is not an error
 	}
 	address := o.Address
 	if address == "" {
 		address = "127.0.0.1:0"
 	}
-	return net.Listen("tcp", address)
+	return (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 }
 
 // newNetworkHandler receives an already reserved connection slot. Returning false

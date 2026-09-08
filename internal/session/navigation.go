@@ -8,9 +8,11 @@ import (
 	"fmt"
 )
 
-const MaxSessionSummaries = 32
-const MaxSessionSummaryIDBytes = 256
-const MaxSessionSummariesBytes = 64 << 10
+const (
+	MaxSessionSummaries      = 32
+	MaxSessionSummaryIDBytes = 256
+	MaxSessionSummariesBytes = 64 << 10
+)
 
 // SessionNavigationSummary is advisory metadata for an explicitly requested
 // root. Missing is authoritative only when the entire lookup succeeds. Queued
@@ -70,7 +72,7 @@ func (s *Store) SessionSummaries(ctx context.Context, rootIDs []string) ([]Sessi
 	if err != nil {
 		return nil, fmt.Errorf("read session summaries: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var item SessionNavigationSummary
 		var pathTruncated bool

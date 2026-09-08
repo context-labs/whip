@@ -1304,7 +1304,6 @@ func (s *Session) clientBrowser(operation, driver string) (string, error) {
 }
 
 func setBrowserDriver(manager *browser.Manager, driver string) (string, error) {
-
 	if driver != browser.DriverRod && driver != browser.DriverChromedp {
 		return "", errors.New("browser driver must be rod or chromedp")
 	}

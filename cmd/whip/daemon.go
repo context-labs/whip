@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/computer"
@@ -334,12 +336,12 @@ func screenshotParts(images [][]byte) []llm.ContentPart {
 // Network settings are inherited by explicit starts, automatic starts, and
 // binary replacement. An ordinary invocation never enables a TCP listener.
 func daemonNetworkEnvironment() (daemon.NetworkOptions, error) {
-	options := daemon.NetworkOptions{Address: strings.TrimSpace(os.Getenv("WHIP_LISTEN"))}
+	options := daemon.NetworkOptions{Address: strings.TrimSpace(os.Getenv(buildinfo.Env("LISTEN")))}
 	options.Enabled = options.Address != ""
-	if value := os.Getenv("WHIP_NETWORK"); value != "" {
+	if value := os.Getenv(buildinfo.Env("NETWORK")); value != "" {
 		enabled, err := strconv.ParseBool(value)
 		if err != nil {
-			return daemon.NetworkOptions{}, fmt.Errorf("WHIP_NETWORK must be a boolean: %w", err)
+			return daemon.NetworkOptions{}, fmt.Errorf("%s must be a boolean: %w", buildinfo.Env("NETWORK"), err)
 		}
 		options.Enabled = enabled
 	}
@@ -352,7 +354,7 @@ func daemonNetworkEnvironment() (daemon.NetworkOptions, error) {
 		}
 		return result
 	}
-	options.AllowedOrigins = parseList(os.Getenv("WHIP_ALLOWED_ORIGINS"))
-	options.AllowedHosts = parseList(os.Getenv("WHIP_ALLOWED_HOSTS"))
+	options.AllowedOrigins = parseList(os.Getenv(buildinfo.Env("ALLOWED_ORIGINS")))
+	options.AllowedHosts = parseList(os.Getenv(buildinfo.Env("ALLOWED_HOSTS")))
 	return options, nil
 }

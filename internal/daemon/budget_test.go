@@ -179,7 +179,7 @@ func TestModelAccountingFailureRetriesSettlementWithoutProviderReplay(t *testing
 		t.Fatal("conflicting settled callback poisoned future admission")
 	}
 	var calls, tokens int
-	if err := db.QueryRow(`SELECT count(*),sum(tokens) FROM model_calls WHERE root_id=?`, rootID).Scan(&calls, &tokens); err != nil {
+	if err := db.QueryRowContext(t.Context(), `SELECT count(*),sum(tokens) FROM model_calls WHERE root_id=?`, rootID).Scan(&calls, &tokens); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 || tokens != 8 {

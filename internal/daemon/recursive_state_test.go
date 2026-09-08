@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -27,7 +28,7 @@ state.private_set(key="huge", value=huge)
 print(state.private_get(key="huge")["value"] == huge)
 `
 	result, err := runtime.rootNode.kernel.Exec(t.Context(), code)
-	if err != nil || !strings.Contains(result.Output, "True True float") || strings.Count(result.Output, "True") != 6 {
+	if err != nil || !strings.Contains(result.Output, "True True float") || strings.Count(result.Output, "True") != 6 { //nolint:dupword // the fixture intentionally prints two consecutive boolean results
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	for _, code := range []string{
@@ -50,7 +51,7 @@ print(state.private_get(key="huge")["value"] == huge)
 func TestStructuredStatePagesAndLargeHandles(t *testing.T) {
 	_, _, runtime := openRecursiveRuntime(t, llm.New("http://127.0.0.1:1", "key"), 1)
 	host := runtime.rootNode.host
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		if _, err := host.Call(t.Context(), "state", "private_set", map[string]any{"key": fmt.Sprintf("k%02d", i), "value": strings.Repeat("x", 3000)}); err != nil {
 			t.Fatal(err)
 		}
@@ -86,10 +87,10 @@ parts = []
 for offset in range(0, r["size"], 8192):
     parts.append(context.read(handle=r["handle"], offset=offset, length=8192)["text"])
 print(len(json.decode("".join(parts))))`)
-	if err != nil || !strings.Contains(result.Output, fmt.Sprint(len(large))) {
+	if err != nil || !strings.Contains(result.Output, strconv.Itoa(len(large))) {
 		t.Fatalf("large result=%+v err=%v", result, err)
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if _, err := host.Call(t.Context(), "state", "blackboard_set", map[string]any{"key": "history", "value": i}); err != nil {
 			t.Fatal(err)
 		}
@@ -106,7 +107,7 @@ print(len(json.decode("".join(parts))))`)
 func TestStructuredStatePageDefaultsAndValidation(t *testing.T) {
 	_, _, runtime := openRecursiveRuntime(t, llm.New("http://127.0.0.1:1", "key"), 1)
 	host := runtime.rootNode.host
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		if _, err := host.Call(t.Context(), "state", "private_set", map[string]any{"key": fmt.Sprintf("k%02d", i), "value": nil}); err != nil {
 			t.Fatal(err)
 		}
@@ -131,7 +132,7 @@ func TestStructuredStateRejectsMalformedValues(t *testing.T) {
 			t.Fatalf("accepted %#v", value)
 		}
 	}
-	for _, data := range []string{"null null", "1 trailing", "\"\xff\""} {
+	for _, data := range []string{"null null", "1 trailing", "\"\xff\""} { //nolint:dupword // two JSON values intentionally test rejection of trailing content
 		if _, err := stateResult(sessionstore.StateValue{Key: "corrupt", Payload: sessionstore.RuntimeValue{Inline: []byte(data)}}, nil); err == nil {
 			t.Fatalf("accepted corrupt state %q", data)
 		}

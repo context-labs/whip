@@ -89,10 +89,12 @@ func (s *Store) ReadTranscriptPage(ctx context.Context, rootID, agentID string, 
 	}
 	// Fetch metadata first, then one candidate body at a time. Oversized bodies
 	// are fetched only when creating their authorized content handle.
+	//nolint:gosec // Source and direction are fixed SQL fragments; all caller values are bound parameters.
 	rows, err := tx.QueryContext(ctx, `SELECT seq,length(CAST(content AS BLOB)) FROM `+source+direction, queryArgs...)
 	if err != nil {
 		return page, err
 	}
+	defer func() { _ = rows.Close() }()
 	type rawEntry struct {
 		seq, size int
 		data      []byte
@@ -101,13 +103,11 @@ func (s *Store) ReadTranscriptPage(ctx context.Context, rootID, agentID string, 
 	for rows.Next() {
 		var entry rawEntry
 		if err := rows.Scan(&entry.seq, &entry.size); err != nil {
-			_ = rows.Close()
 			return page, err
 		}
 		raw = append(raw, entry)
 	}
 	if err := rows.Err(); err != nil {
-		_ = rows.Close()
 		return page, err
 	}
 	if err := rows.Close(); err != nil {

@@ -1,11 +1,10 @@
 package rlm
 
 import (
-	"encoding/json"
-
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"

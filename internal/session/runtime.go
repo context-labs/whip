@@ -1590,19 +1590,17 @@ func settleInterruptedBudgetReservations(ctx context.Context, tx *sql.Tx) error 
 	if err != nil {
 		return err
 	}
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var row budgetRow
 		if err := rows.Scan(&row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete, &row.modelIncomplete); err != nil {
-			_ = rows.Close()
 			return err
 		}
 		if _, valid := budgetRemaining(row); !valid {
-			_ = rows.Close()
 			return capability.ErrDenied
 		}
 	}
 	if err := rows.Err(); err != nil {
-		_ = rows.Close()
 		return err
 	}
 	if err := rows.Close(); err != nil {

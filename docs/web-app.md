@@ -443,3 +443,22 @@ large-history performance passed in Chromium. App tests: 141 passing. UI layout
 checks include Axe, strict CSP and a separate fixture-only content renderer; tab
 chrome passes all 66 themes. Actual Safari split interactions, VoiceOver and
 physical touch remain separate release checks.
+
+
+## Whipcode branch distribution
+
+The branch distribution embeds the same web app, with an independent config
+and daemon under `~/.whipcode` (or `WHIPCODE_HOME`). Start its network listener
+explicitly:
+
+```sh
+WHIPCODE_NETWORK=1 whipcode daemon start
+whipcode web
+```
+
+Use `WHIPCODE_LISTEN`, `WHIPCODE_ALLOWED_ORIGINS`, and `WHIPCODE_ALLOWED_HOSTS`
+for the corresponding trusted-network settings above. The whipcode daemon
+ignores whip's four networking environment variables. When both daemons use
+the default ephemeral loopback listener, they get independent endpoints.
+Use `whipcode daemon status --json` to inspect its endpoint. Existing WHIP web
+branding and protocol/package names are shared across distributions.

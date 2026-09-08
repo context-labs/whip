@@ -66,6 +66,7 @@ func TestScratchNestedAliasesAndUnsupportedContainers(t *testing.T) {
 		t.Fatalf("alias result=%+v", result)
 	}
 }
+
 func TestScratchHelpersFailureRedefinitionAndDependencies(t *testing.T) {
 	w, _ := newUnitWorker("")
 	w.installModules()
@@ -93,6 +94,7 @@ func TestScratchHelpersFailureRedefinitionAndDependencies(t *testing.T) {
 		t.Fatalf("second restore=%+v", result)
 	}
 }
+
 func TestScratchUnsupportedHelperDependencies(t *testing.T) {
 	tests := []struct {
 		name, initial, later string
@@ -131,6 +133,7 @@ func TestScratchUnsupportedHelperDependencies(t *testing.T) {
 		})
 	}
 }
+
 func TestScratchExactScalarTypesAndBits(t *testing.T) {
 	w, _ := newUnitWorker("")
 	w.installModules()
@@ -144,6 +147,7 @@ func TestScratchExactScalarTypesAndBits(t *testing.T) {
 		}
 	}
 }
+
 func TestScratchTraversalBoundsAndCycles(t *testing.T) {
 	w, _ := newUnitWorker("")
 	w.installModules()
@@ -163,6 +167,7 @@ func TestScratchTraversalBoundsAndCycles(t *testing.T) {
 		t.Fatalf("manifest=%+v", manifest)
 	}
 }
+
 func TestScratchCorruptionAndHostEffectDefaults(t *testing.T) {
 	w, _ := newUnitWorker("")
 	w.installModules()
@@ -171,6 +176,18 @@ func TestScratchCorruptionAndHostEffectDefaults(t *testing.T) {
 		{Version: 1, Bindings: []scratchBinding{{Name: "cycle", Value: 0}}, Nodes: []scratchNode{{Kind: "list", Items: []int{0}}}},
 		{Version: 1, Bindings: []scratchBinding{{Name: "files", Value: 0}}, Nodes: []scratchNode{{Kind: "int", Text: "1"}}},
 		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: 99}}},
+		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: -1}}},
+		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: 0}}, Nodes: []scratchNode{{Kind: "int", Text: "one"}}},
+		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: 0}}, Nodes: []scratchNode{{Kind: "float", Text: "NaN"}}},
+		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: 0}}, Nodes: []scratchNode{{Kind: "string", Text: "!"}}},
+		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: 0}}, Nodes: []scratchNode{{Kind: "bytes", Text: "!"}}},
+		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: 0}}, Nodes: []scratchNode{{Kind: "unknown"}}},
+		{Version: 1, Bindings: []scratchBinding{{Name: "duplicate", Value: 0}, {Name: "duplicate", Value: 0}}, Nodes: []scratchNode{{Kind: "none"}}},
+		{Version: 1, Nodes: []scratchNode{{Kind: "none"}}},
+		{Version: 1, Nodes: make([]scratchNode, 65537)},
+		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: 1}}, Nodes: []scratchNode{{Kind: "none"}, {Kind: "int", Text: "1", Items: []int{0}}}},
+		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: 1}}, Nodes: []scratchNode{{Kind: "none"}, {Kind: "dict", Items: []int{0}}}},
+		{Version: 1, Bindings: []scratchBinding{{Name: "invalid", Value: 2}}, Nodes: []scratchNode{{Kind: "string", Text: "a2V5"}, {Kind: "none"}, {Kind: "dict", Items: []int{0, 1, 0, 1}}}},
 		{Version: 2},
 	} {
 		encoded, _ := json.Marshal(snapshot)
@@ -191,6 +208,7 @@ func TestScratchCorruptionAndHostEffectDefaults(t *testing.T) {
 		t.Fatal("restore issued host request")
 	}
 }
+
 func TestScratchSameLineFailedRedefinition(t *testing.T) {
 	w, _ := newUnitWorker("")
 	w.installModules()
@@ -222,6 +240,7 @@ func TestScratchMutualRecursionLambdasAndLiteralDefaults(t *testing.T) {
 		t.Fatalf("result=%+v", result)
 	}
 }
+
 func TestScratchUninitializedGlobalDoesNotFallBack(t *testing.T) {
 	w, _ := newUnitWorker("")
 	w.installModules()

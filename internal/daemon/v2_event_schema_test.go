@@ -3,12 +3,13 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/context-labs/whip/internal/session"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/session"
 
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
@@ -40,6 +41,7 @@ func validateActualEvent(t *testing.T, kind string, raw json.RawMessage) {
 		t.Fatalf("%s actual payload %s: %v", kind, raw, err)
 	}
 }
+
 func TestV2ActualAgentEventsMatchSchemas(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

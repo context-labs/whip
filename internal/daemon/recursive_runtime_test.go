@@ -924,7 +924,7 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err != nil || !(json.Valid([]byte(program)) && strings.Contains(program, `"memo"`)) {
+	if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err != nil || !json.Valid([]byte(program)) || !strings.Contains(program, `"memo"`) {
 		t.Fatalf("child scratch = %q err=%v", program, err)
 	}
 	waitAgentIdle(t, (*firstRef).agents[childID])

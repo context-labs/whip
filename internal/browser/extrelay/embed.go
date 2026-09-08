@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 //go:embed extension
@@ -15,7 +17,7 @@ var extensionFS embed.FS
 // ExtensionDir is where `whip browser install` materializes the unpacked
 // extension (and relay.json) for the user to load.
 func ExtensionDir(home string) string {
-	return filepath.Join(home, ".whip", "browser", "extension")
+	return filepath.Join(buildinfo.Home(home), "browser", "extension")
 }
 
 // RelayStatePath is the file the extension reads for the relay address +

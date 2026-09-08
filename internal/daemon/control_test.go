@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"github.com/context-labs/whip/internal/protocol"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/protocol"
 
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
@@ -205,7 +206,7 @@ func TestDeleteQueueExhaustionDoesNotAdmitRejectedWork(t *testing.T) {
 	}
 	<-entered
 	for i := range cap(control.deletes) {
-		if _, err := control.AcceptDeleteSession(t.Context(), admission(fmt.Sprint(i)), "unused", func(context.Context, string) error { return nil }); err != nil {
+		if _, err := control.AcceptDeleteSession(t.Context(), admission(strconv.Itoa(i)), "unused", func(context.Context, string) error { return nil }); err != nil {
 			t.Fatal(err)
 		}
 	}

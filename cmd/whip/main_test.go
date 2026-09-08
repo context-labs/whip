@@ -150,7 +150,7 @@ func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
 			writePromptRequestFile(t, filepath.Join(workingDirectory, "AGENTS.md"), "AGENTS_REQUEST_MARKER")
 			writePromptRequestFile(t, filepath.Join(workingDirectory, ".agents", "skills", "fixture", "SKILL.md"), "---\nname: fixture\ndescription: CATALOG_REQUEST_MARKER\n---\n")
 			submit := promptSubmitter(t, kind, workingDirectory)
-			for turn := 0; turn < 2; turn++ {
+			for turn := range 2 {
 				standingMarker := "STANDING_BEFORE_EDIT"
 				if turn == 1 {
 					standingMarker = "STANDING_AFTER_EDIT"

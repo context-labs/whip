@@ -24,7 +24,7 @@ func newContentHTTPHandler(uploads *uploadManager) http.Handler {
 		transferID := "http-" + rand.Text()
 		begin := UploadBeginParams{
 			UploadID: transferID, RootID: r.URL.Query().Get("root_id"), AgentID: r.URL.Query().Get("agent_id"), Size: r.ContentLength,
-			ExpectedDigest: r.Header.Get("X-Content-SHA256"),
+			ExpectedDigest: r.Header.Get("X-Content-Sha256"),
 			MediaType:      r.Header.Get("Content-Type"), Source: "http-upload",
 		}
 		if err := uploads.begin(transferID, begin); err != nil {
@@ -86,7 +86,7 @@ func newContentHTTPHandler(uploads *uploadManager) http.Handler {
 			if len(data) == 0 {
 				return
 			}
-			count, err := w.Write(data)
+			count, err := w.Write(data) //nolint:gosec // G705: forced octet-stream attachment plus nosniff prevents uploaded bytes from executing as HTML
 			if err != nil || count != len(data) {
 				return
 			}

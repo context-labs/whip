@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/context-labs/whip/internal/skills"
 )
 
@@ -26,7 +28,7 @@ import (
 // user-level skill would silently shadow nothing and confuse everyone.
 func skillsCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: whip skills <list|import>")
+		return errors.New(buildinfo.Text("usage: whip skills <list|import>"))
 	}
 	switch args[0] {
 	case "list":
@@ -64,7 +66,7 @@ func skillsImportCLI(args []string) error {
 		if a == "--dry-run" {
 			dryRun = true
 		} else {
-			return errors.New("usage: whip skills import [--dry-run]")
+			return errors.New(buildinfo.Text("usage: whip skills import [--dry-run]"))
 		}
 	}
 
@@ -156,7 +158,7 @@ func skillsImportCLI(args []string) error {
 		fmt.Printf("✓ %-24s → %s\n", c.name, dst)
 		imported = append(imported, c.name)
 	}
-	fmt.Printf("imported %d skill(s) into %s — available on next whip launch\n", len(imported), dest)
+	fmt.Printf(buildinfo.Text("imported %d skill(s) into %s — available on next whip launch\n"), len(imported), dest)
 	if len(failed) > 0 {
 		return fmt.Errorf("%d skill(s) failed to copy: %s", len(failed), strings.Join(failed, ", "))
 	}

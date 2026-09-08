@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 )
@@ -43,7 +45,7 @@ func authInferenceNetCLI(args []string) error {
 		if len(args) > 0 && args[0] == "rotate" {
 			return inferenceNetKeyRotateCLI()
 		}
-		return errors.New("usage: whip auth inference-net key rotate")
+		return errors.New(buildinfo.Text("usage: whip auth inference-net key rotate"))
 	default:
 		return fmt.Errorf("unknown inference-net subcommand %q (login | status | logout | key rotate)", sub)
 	}
@@ -246,7 +248,7 @@ func providerAccountCLI(operation string) error {
 	if status.Email != "" {
 		fmt.Println("  Account     " + status.Email)
 	} else {
-		fmt.Println("  Account     not signed in (whip auth inference-net login)")
+		fmt.Println(buildinfo.Text("  Account     not signed in (whip auth inference-net login)"))
 	}
 	if status.ProjectID != "" {
 		fmt.Println("  Project     " + status.ProjectName + " (" + status.ProjectID + ")")
@@ -256,7 +258,7 @@ func providerAccountCLI(operation string) error {
 	}
 	fmt.Println("  Provider    " + status.KeySource)
 	for _, warning := range status.Warnings {
-		fmt.Fprintln(os.Stderr, "whip:", warning)
+		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), warning)
 	}
 	return nil
 }

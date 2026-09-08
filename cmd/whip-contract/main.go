@@ -114,7 +114,7 @@ func generate(dir string, check bool) error {
 		return err
 	}
 	if !check {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // Generated public frontend artifacts must be readable by build tools.
 			return err
 		}
 	}
@@ -126,11 +126,11 @@ func generate(dir string, check bool) error {
 	for _, name := range names {
 		path := filepath.Join(dir, name)
 		if check {
-			existing, err := os.ReadFile(path)
+			existing, err := os.ReadFile(path) //nolint:gosec // The output directory is explicitly selected by the local CLI caller.
 			if err != nil || string(existing) != string(files[name]) {
 				return fmt.Errorf("generated contract drift: %s", path)
 			}
-		} else if err := os.WriteFile(path, files[name], 0o644); err != nil {
+		} else if err := os.WriteFile(path, files[name], 0o644); err != nil { //nolint:gosec // Generated public frontend artifacts contain no secrets.
 			return err
 		}
 	}

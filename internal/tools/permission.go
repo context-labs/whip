@@ -42,8 +42,10 @@ type permissionResolution struct {
 	revision uint64
 }
 
-type permissionInvocationKey struct{}
-type permissionInvocation struct{ id string }
+type (
+	permissionInvocationKey struct{}
+	permissionInvocation    struct{ id string }
+)
 
 type (
 	servicesKey   struct{}

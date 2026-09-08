@@ -26,7 +26,7 @@ func collectionStore(t *testing.T) (*Store, string) {
 
 func TestRootCollectionPageBoundsAndRevision(t *testing.T) {
 	store, root := collectionStore(t)
-	for index := 0; index < 140; index++ {
+	for index := range 140 {
 		if _, err := store.AddSchedule(root, "@every 1h", fmt.Sprintf("prompt %d", index), time.Now()); err != nil {
 			t.Fatal(err)
 		}

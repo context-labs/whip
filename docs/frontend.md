@@ -653,6 +653,12 @@ prebundling of Base UI/TanStack's CommonJS store shims. App/UI source must be
 compiled even when installed from package archives. Do not rely only on workspace
 symlinks to prove package correctness. Generated routes are not edited by hand.
 
+Both `whip` and the `whipcode` branch distribution embed this same application.
+`whipcode` owns `~/.whipcode` and uses `WHIPCODE_NETWORK`, `WHIPCODE_LISTEN`,
+`WHIPCODE_ALLOWED_ORIGINS`, and `WHIPCODE_ALLOWED_HOSTS` for its daemon. Build
+with `task build:whipcode`; launch with `whipcode web`. Package names and wire
+identifiers stay shared. See [branch installation](../README.md#whipcode-branch-builds).
+
 Release builds pack Vite assets for the Go daemon; there is no production Vite
 server. Same-origin attachment is the default. The shell attaches to an existing
 daemon and does not start, restart, or reconfigure it. See

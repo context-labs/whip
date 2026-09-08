@@ -17,8 +17,10 @@ import (
 	"github.com/context-labs/whip/internal/skills"
 )
 
-type CompletionParams = protocol.CompletionParams
-type CompletionResult = protocol.CompletionResult
+type (
+	CompletionParams = protocol.CompletionParams
+	CompletionResult = protocol.CompletionResult
+)
 
 var completionIndex struct {
 	sync.Mutex
@@ -132,7 +134,7 @@ func completePaths(ctx context.Context, root string, p CompletionParams, mention
 		prefix += string(filepath.Separator)
 	}
 	directory, base := filepath.Split(prefix)
-	file, err := os.Open(directory)
+	file, err := os.Open(directory) //nolint:gosec // G304: completion intentionally lists user-selected directories without reading file contents
 	if errors.Is(err, os.ErrNotExist) {
 		return result, nil
 	}
@@ -214,7 +216,7 @@ func completionFileList(ctx context.Context, root string) ([]string, bool, error
 		}
 		directory := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		file, err := os.Open(directory)
+		file, err := os.Open(directory) //nolint:gosec // G304: completion intentionally lists user-selected directories without reading file contents
 		if err != nil {
 			continue
 		}

@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
@@ -21,19 +25,51 @@ const installURL = "https://raw.githubusercontent.com/context-labs/whip/main/ins
 // updateCLI implements `whip update`: re-run the install script to get the
 // latest release.
 func updateCLI() error {
-	fmt.Printf("whip %s — updating to the latest release via\n  curl -fsSL %s | sh\n\n", version, installURL)
-	cmd := exec.CommandContext(context.Background(), "sh", "-c", "curl -fsSL "+installURL+" | sh")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	url := installURL
+	if buildinfo.Name == "whipcode" {
+		url = "https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh"
+	}
+	fmt.Printf("%s %s — updating via %s\n\n", buildinfo.Name, buildinfo.Version(version), url)
+	if err := runInstaller(url); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
-	update.Acknowledge() // the pending startup notice is now satisfied
+	update.Acknowledge()
 	if err := restartDaemonAfterUpdate(); err != nil {
-		fmt.Fprintln(os.Stderr, "whip: updated, but daemon restart was not confirmed:", err)
+		fmt.Fprintln(os.Stderr, buildinfo.Name+": updated, but daemon restart was not confirmed:", err)
 	}
-	fmt.Println("\nwhip updated — the local daemon will reconnect on the new version.")
+	fmt.Printf("\n%s updated — the local daemon will reconnect on the new version.\n", buildinfo.Name)
 	return nil
+}
+
+// Download first: a failing curl piped into sh otherwise looks like success.
+func runInstaller(url string) error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	self, err = filepath.EvalSymlinks(self)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", `script=$(mktemp) || exit 1
+trap 'rm -f "$script"' EXIT
+curl -fSL --connect-timeout 10 --max-time 60 "$1" -o "$script" || exit 1
+sh "$script"`, buildinfo.Name+"-update", url)
+	// os/exec uses the last duplicate environment entry. Remove any old value
+	// explicitly so the selected executable's directory always wins.
+	key := buildinfo.Env("BIN_DIR") + "="
+	env := []string{}
+	for _, value := range os.Environ() {
+		if !strings.HasPrefix(value, key) {
+			env = append(env, value)
+		}
+	}
+	cmd.Env = append(env, key+filepath.Dir(self))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 var restartDaemonAfterUpdate = func() error {

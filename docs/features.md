@@ -424,3 +424,27 @@ usage; finite caps account for that uncertainty conservatively. Catalog-derived
 costs are estimates, not provider invoices. Protocol 4 carries nullable limits;
 the fresh runtime schema is version 8. Older stores are rejected without being
 modified; this change includes no session migration or automatic data deletion.
+
+
+## Whipcode distribution
+
+The `whip-rlm` branch publishes a separate `whipcode` executable through copied
+CI, security, and release workflows. Both distributions use one Go runtime and
+the same embedded web application. A compiled `internal/buildinfo` identity
+selects CLI instructions, `.whipcode` home paths, `WHIPCODE_HOME`, and isolated
+network controls. Application-owned config, auth, sessions, locks, notices,
+skills, browser profiles/extension state, and macOS helper extraction follow
+that home; renaming a binary does not switch its identity.
+
+`install-whipcode.sh` verifies complete, versioned prerelease assets and SHA-256
+checksums before atomic replacement. `whipcode update` stays in its channel,
+replaces the invoked installation, and requests only its daemon's restart.
+Stable `whip` release discovery remains unchanged. See [installation](../README.md#whipcode-branch-builds).
+
+Code: `internal/buildinfo`, `internal/config`, `internal/update/whipcode.go`,
+`cmd/whip/update.go`, `install-whipcode.sh`, `scripts/publish-whipcode.sh`, and
+`.github/workflows/{ci,security,release}-whipcode.yml`.
+Tests: `TestDistribution*` in the affected Go packages, `TestFetchWhipcodePages`,
+`TestWhipcodeVersionComparison`, `scripts/test-install-whipcode.py`, and
+`scripts/test-distributions.py` (both compiled binaries, independent sockets,
+restart, and self-update).

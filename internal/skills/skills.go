@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // Skill is one discovered skill.
@@ -49,7 +51,7 @@ func DirsFor(workingDirectory string) []string {
 		dirs = append(dirs, filepath.Join(workingDirectory, ".agents", "skills"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(home, ".whip", "skills"))
+		dirs = append(dirs, filepath.Join(buildinfo.Home(home), "skills"))
 		dirs = append(dirs, filepath.Join(home, ".agents", "skills"))
 	}
 	return dirs

@@ -54,7 +54,7 @@ func loadPromptDirectory(dir string, entriesRead *int) ([]Skill, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("skill directory %s: expected a directory", dir)
 	}
-	f, err := os.Open(dir)
+	f, err := os.Open(dir) //nolint:gosec // Skill discovery intentionally reads the directories selected by the local caller.
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -107,7 +107,7 @@ func loadPromptMetadata(path string) (Skill, error) {
 	if !info.Mode().IsRegular() {
 		return Skill{}, fmt.Errorf("skill %s: expected a regular file", path)
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // The path names SKILL.md in a directory discovered from the configured skill roots.
 	if err != nil {
 		return Skill{}, fmt.Errorf("skill %s: %w", path, err)
 	}

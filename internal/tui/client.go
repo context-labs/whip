@@ -41,7 +41,6 @@ type (
 	Action           = daemon.RootAction
 	ClientUpdate     = daemon.RootUpdate
 	daemonConnection = daemon.RootConnection
-	clientConnector  = daemon.RootConnector
 	ClientOptions    = daemon.RootClientOptions
 	Client           = daemon.RootClient
 )

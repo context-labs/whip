@@ -44,13 +44,26 @@ func TestAllShippedThemesMatchTerminal(t *testing.T) {
 				web      string
 				terminal color.Color
 			}{
-				{w.Colors.Foreground, tui.Text}, {w.Colors.Background, tui.Bg}, {w.Colors.Primary, tui.Primary},
-				{w.Colors.Accent, tui.Accent}, {w.Colors.Muted, tui.Muted}, {w.Colors.Faint, tui.Faint},
-				{w.Colors.OnPrimary, tui.OnPrimary}, {w.Colors.Success, tui.Success}, {w.Colors.Warning, tui.Warning},
-				{w.Colors.Error, tui.Error}, {w.Colors.Info, tui.Info}, {w.Colors.Link, tui.Link},
-				{w.Colors.Emphasis, tui.Emphasis}, {w.Colors.Border, tui.Border}, {w.Colors.BorderFocus, tui.BorderFocus},
-				{w.Colors.DiffAdd, tui.DiffAdd}, {w.Colors.DiffDel, tui.DiffDel},
-				{w.Colors.Panel, tui.Surface.Panel}, {w.Colors.Element, tui.Surface.Element}, {w.Colors.Hover, tui.Surface.Hover},
+				{w.Colors.Foreground, tui.Text},
+				{w.Colors.Background, tui.Bg},
+				{w.Colors.Primary, tui.Primary},
+				{w.Colors.Accent, tui.Accent},
+				{w.Colors.Muted, tui.Muted},
+				{w.Colors.Faint, tui.Faint},
+				{w.Colors.OnPrimary, tui.OnPrimary},
+				{w.Colors.Success, tui.Success},
+				{w.Colors.Warning, tui.Warning},
+				{w.Colors.Error, tui.Error},
+				{w.Colors.Info, tui.Info},
+				{w.Colors.Link, tui.Link},
+				{w.Colors.Emphasis, tui.Emphasis},
+				{w.Colors.Border, tui.Border},
+				{w.Colors.BorderFocus, tui.BorderFocus},
+				{w.Colors.DiffAdd, tui.DiffAdd},
+				{w.Colors.DiffDel, tui.DiffDel},
+				{w.Colors.Panel, tui.Surface.Panel},
+				{w.Colors.Element, tui.Surface.Element},
+				{w.Colors.Hover, tui.Surface.Hover},
 			}
 			for _, pair := range pairs {
 				if pair.web != theme.Hex(pair.terminal) {
@@ -76,9 +89,13 @@ func TestAllShippedThemesMatchTerminal(t *testing.T) {
 
 func TestCustomResolution(t *testing.T) {
 	t.Run("display label and optional browser surfaces", func(t *testing.T) {
-		spec := theme.Spec{Name: "ink", DisplayName: "Readable Ink", Dark: true,
-			Web: &theme.WebSpec{Navigation: "16", QuietBorder: "#ABCDEF",
-				CodeBackground: "17", InlineCodeBackground: "#FEDCBA"}}
+		spec := theme.Spec{
+			Name: "ink", DisplayName: "Readable Ink", Dark: true,
+			Web: &theme.WebSpec{
+				Navigation: "16", QuietBorder: "#ABCDEF",
+				CodeBackground: "17", InlineCodeBackground: "#FEDCBA",
+			},
+		}
 		got, err := theme.ResolveSpec(spec)
 		if err != nil {
 			t.Fatal(err)

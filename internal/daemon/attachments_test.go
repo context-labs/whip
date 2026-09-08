@@ -164,9 +164,9 @@ func TestAttachmentChildUploadAndInboxAcrossTransports(t *testing.T) {
 				}
 			} else {
 				handler := newContentHTTPHandler(newUploadManager(f.store, t.TempDir()))
-				request := httptest.NewRequest(http.MethodPost, "/api/v3/content/upload?root_id="+f.rootID+"&agent_id=child", bytes.NewReader(data))
+				request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v3/content/upload?root_id="+f.rootID+"&agent_id=child", bytes.NewReader(data))
 				request.Header.Set("Content-Type", "text/plain")
-				request.Header.Set("X-Content-SHA256", hex.EncodeToString(digest[:]))
+				request.Header.Set("X-Content-Sha256", hex.EncodeToString(digest[:]))
 				response := httptest.NewRecorder()
 				handler.ServeHTTP(response, request)
 				if response.Code != http.StatusCreated {
@@ -196,7 +196,7 @@ func TestAttachmentChildUploadAndInboxAcrossTransports(t *testing.T) {
 				if err != nil || len(items) != 1 || !strings.HasSuffix(items[0].Kind, ".parts") {
 					t.Fatalf("child input not queued: %+v %v", items, err)
 				}
-				if strings.Contains(string(items[0].Payload.Inline), string(data)) || len(items[0].Payload.Inline) > 1024 {
+				if bytes.Contains(items[0].Payload.Inline, data) || len(items[0].Payload.Inline) > 1024 {
 					t.Fatal("durable inbox embeds attachment body")
 				}
 				text, parts, err := root.decodeInboxInput(t.Context(), items[0])
@@ -215,7 +215,7 @@ type attachmentRunner struct {
 
 func (r *attachmentRunner) TurnParts(ctx context.Context, text string, parts []llm.ContentPart, started func(), accepted func(string)) (string, error) {
 	r.inputs <- SubmitPayload{Text: text, Parts: parts}
-	return r.fakeRunner.Turn(ctx, text, true, started, accepted)
+	return r.Turn(ctx, text, true, started, accepted)
 }
 
 func TestAttachmentCommandsAcrossTransports(t *testing.T) {

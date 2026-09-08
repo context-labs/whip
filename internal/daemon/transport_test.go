@@ -86,9 +86,7 @@ func TestWebsocketTransportSerializesControlAndData(t *testing.T) {
 		done <- nil
 	}()
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for _, frame := range []ws.Frame{
 			ws.NewFrame(ws.OpText, false, []byte("hel")),
 			ws.NewPingFrame([]byte("probe")),
@@ -98,7 +96,7 @@ func TestWebsocketTransportSerializesControlAndData(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 	reader := wsutil.NewClientSideReader(peer)
 	pongs := 0
 	for range 33 {

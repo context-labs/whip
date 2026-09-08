@@ -14,7 +14,7 @@ func TestSessionCatalogBoundsAndInvalidation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.db.Exec(`UPDATE sessions SET title=? WHERE id=?`, strings.Repeat("界", 2048), root); err != nil {
+	if _, err := store.db.ExecContext(t.Context(), `UPDATE sessions SET title=? WHERE id=?`, strings.Repeat("界", 2048), root); err != nil {
 		t.Fatal(err)
 	}
 	opts := CatalogPageOptions{Limit: 5, MaxBytes: 4096}
@@ -49,7 +49,7 @@ func TestSessionCatalogBoundsAndInvalidation(t *testing.T) {
 	if len(seen) != 19 {
 		t.Fatalf("got %d sessions", len(seen))
 	}
-	if _, err := store.db.Exec(`UPDATE sessions SET title='changed' WHERE id=?`, root); err != nil {
+	if _, err := store.db.ExecContext(t.Context(), `UPDATE sessions SET title='changed' WHERE id=?`, root); err != nil {
 		t.Fatal(err)
 	}
 	_, err := store.SessionCatalog(t.Context(), CatalogPageOptions{Cursor: first.NextCursor, Limit: 5, MaxBytes: 4096})
@@ -66,7 +66,7 @@ func TestSessionCatalogSearchAndWorkspaceIdentity(t *testing.T) {
 	store, root := collectionStore(t)
 	firstPath := "/" + strings.Repeat("same-directory-prefix/", 10) + "one"
 	secondPath := "/" + strings.Repeat("same-directory-prefix/", 10) + "two"
-	if _, err := store.db.Exec(`UPDATE sessions SET cwd=?,title='First workspace' WHERE id=?`, firstPath, root); err != nil {
+	if _, err := store.db.ExecContext(t.Context(), `UPDATE sessions SET cwd=?,title='First workspace' WHERE id=?`, firstPath, root); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Create(SessionKindAgent, secondPath, "model", "provider"); err != nil {

@@ -89,9 +89,10 @@ func TestReportModeRestoresIdentityAndCompletionBehavior(t *testing.T) {
 					identity = identity[start:]
 				}
 				fragment := "160-byte preview"
-				if expected == "inline" {
+				switch expected {
+				case "inline":
 					fragment = "up to 4 KiB of your last text"
-				} else if expected == "message" {
+				case "message":
 					fragment = "no completion notice when you succeed"
 				}
 				if !strings.Contains(identity, fragment) {

@@ -2,6 +2,7 @@ package rlm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -19,16 +20,16 @@ func stateToGo(value starlark.Value) (any, error) {
 
 func stateJSONValue(value starlark.Value, active map[starlark.Value]bool, depth int) (any, error) {
 	if depth > 100 {
-		return nil, fmt.Errorf("state value exceeds maximum depth of 100")
+		return nil, errors.New("state value exceeds maximum depth of 100")
 	}
 	switch value := value.(type) {
 	case starlark.NoneType:
-		return nil, nil
+		return nil, nil //nolint:nilnil // Starlark None is a valid JSON null, represented by a nil interface.
 	case starlark.Bool:
 		return bool(value), nil
 	case starlark.String:
 		if !utf8.ValidString(string(value)) {
-			return nil, fmt.Errorf("state strings require valid UTF-8")
+			return nil, errors.New("state strings require valid UTF-8")
 		}
 		return string(value), nil
 	case starlark.Int:
@@ -36,7 +37,7 @@ func stateJSONValue(value starlark.Value, active map[starlark.Value]bool, depth 
 	case starlark.Float:
 		number := float64(value)
 		if math.IsNaN(number) || math.IsInf(number, 0) {
-			return nil, fmt.Errorf("state requires finite floats")
+			return nil, errors.New("state requires finite floats")
 		}
 		encoded := strconv.FormatFloat(number, 'g', -1, 64)
 		if !strings.ContainsAny(encoded, ".eE") {
@@ -45,7 +46,7 @@ func stateJSONValue(value starlark.Value, active map[starlark.Value]bool, depth 
 		return json.Number(encoded), nil
 	case *starlark.List:
 		if active[value] {
-			return nil, fmt.Errorf("state values cannot contain cycles")
+			return nil, errors.New("state values cannot contain cycles")
 		}
 		active[value] = true
 		defer delete(active, value)
@@ -60,7 +61,7 @@ func stateJSONValue(value starlark.Value, active map[starlark.Value]bool, depth 
 		return items, nil
 	case *starlark.Dict:
 		if active[value] {
-			return nil, fmt.Errorf("state values cannot contain cycles")
+			return nil, errors.New("state values cannot contain cycles")
 		}
 		active[value] = true
 		defer delete(active, value)
@@ -68,7 +69,7 @@ func stateJSONValue(value starlark.Value, active map[starlark.Value]bool, depth 
 		for _, pair := range value.Items() {
 			key, ok := pair[0].(starlark.String)
 			if !ok || !utf8.ValidString(string(key)) {
-				return nil, fmt.Errorf("state dictionaries require valid UTF-8 string keys")
+				return nil, errors.New("state dictionaries require valid UTF-8 string keys")
 			}
 			item, err := stateJSONValue(pair[1], active, depth+1)
 			if err != nil {

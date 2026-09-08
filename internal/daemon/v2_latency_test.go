@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -46,7 +47,7 @@ func TestV2ConcurrentAdmissionAndEventLatency(t *testing.T) {
 				}
 				admission := time.Since(start)
 				if receipt.IngressSeq <= 0 {
-					failures <- fmt.Errorf("missing durable admission")
+					failures <- errors.New("missing durable admission")
 					return
 				}
 				for {
@@ -57,7 +58,7 @@ func TestV2ConcurrentAdmissionAndEventLatency(t *testing.T) {
 							goto next
 						}
 						if event.Kind == "turn.failed" {
-							failures <- fmt.Errorf("measurement turn failed")
+							failures <- errors.New("measurement turn failed")
 							return
 						}
 					case <-ctx.Done():

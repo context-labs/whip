@@ -1,9 +1,10 @@
 package tui
 
 import (
+	"testing"
+
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/protocol"
-	"testing"
 )
 
 func TestHostCompletionRejectsStaleInputAndRoot(t *testing.T) {

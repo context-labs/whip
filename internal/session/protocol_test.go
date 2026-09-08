@@ -50,7 +50,7 @@ func TestFormerApprovalTableDoesNotRequireDatabaseReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Existing schema-7 databases can retain the unused approval table.
-	if _, err := store.db.Exec(`CREATE TABLE client_identities (
+	if _, err := store.db.ExecContext(t.Context(), `CREATE TABLE client_identities (
 		client_id TEXT PRIMARY KEY, kind TEXT NOT NULL, public_key BLOB NOT NULL,
 		paired_by TEXT NOT NULL, created_at TEXT NOT NULL
 	)`); err != nil {

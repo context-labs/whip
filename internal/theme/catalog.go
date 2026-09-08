@@ -137,7 +137,7 @@ func loadCustom(dir string) ([]Spec, []CatalogError, bool, error) {
 	if err != nil {
 		return specs, issues, false, fmt.Errorf("open themes directory: %w", err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	directory, err := root.Open(".")
 	if err != nil {
 		return specs, issues, false, err
@@ -166,7 +166,7 @@ func loadCustom(dir string) ([]Spec, []CatalogError, bool, error) {
 			issues = append(issues, CatalogError{File: file, Message: message})
 		}
 		if !entry.Type().IsRegular() {
-			addError(fmt.Errorf("theme must be a regular JSON file"))
+			addError(errors.New("theme must be a regular JSON file"))
 			continue
 		}
 		data, err := readThemeFile(root, file)
@@ -202,7 +202,7 @@ func readThemeFile(root *os.Root, name string) ([]byte, error) {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("theme must be a regular JSON file")
+		return nil, errors.New("theme must be a regular JSON file")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, MaxJSONBytes+1))
 	if err != nil {

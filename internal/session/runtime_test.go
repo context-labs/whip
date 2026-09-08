@@ -356,9 +356,10 @@ func TestRootTurnLifecycleIdentifiesExactTurn(t *testing.T) {
 				_, err = store.InterruptRoot(t.Context(), rootID, "daemon stopped")
 			} else {
 				commit := RootTurnCommit{RootID: rootID, AgentID: agentID, TurnID: turnID, Status: status, Model: "model", Provider: "provider"}
-				if status == "failed" {
+				switch status {
+				case "failed":
 					commit.Error = "provider unavailable"
-				} else if status == "cancelled" {
+				case "cancelled":
 					commit.Error = context.Canceled.Error()
 				}
 				err = store.CommitRootTurn(t.Context(), commit)

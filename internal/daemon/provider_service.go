@@ -117,10 +117,12 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 			codex = *c.MCPImport.Codex.Enabled
 		}
 	}
-	return RuntimeConfiguration{ImportClaude: claude, ImportCodex: codex, Revision: revision, DefaultModel: c.DefaultModel,
+	return RuntimeConfiguration{
+		ImportClaude: claude, ImportCodex: codex, Revision: revision, DefaultModel: c.DefaultModel,
 		DefaultProvider: c.DefaultProvider, DefaultEffort: c.DefaultEffort,
 		CompactModel: c.CompactModel, CompactProvider: c.CompactProvider, CompactPercent: c.CompactPct,
-		GoalMaxRounds: c.GoalMaxRounds, MaxRetries: c.MaxRetries}
+		GoalMaxRounds: c.GoalMaxRounds, MaxRetries: c.MaxRetries,
+	}
 }
 
 func (s *ProviderService) ReadConfiguration() (RuntimeConfiguration, error) {
@@ -371,9 +373,7 @@ func (s *ProviderService) SelectLoginTeam(id, teamID string) (ProviderLoginStatu
 	}
 	flow.team, flow.status.TeamID, flow.status.State = flow.teams[index], teamID, "loading_projects"
 	token, team := flow.token, flow.team
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		projects, err := s.projects(flow.ctx, token, team)
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -389,7 +389,7 @@ func (s *ProviderService) SelectLoginTeam(id, teamID string) (ProviderLoginStatu
 			flow.status.Projects = append(flow.status.Projects, ProviderChoice{ID: project.ID, Name: project.Name})
 		}
 		flow.status.State = "choose_project"
-	}()
+	})
 	return loginSnapshot(flow), nil
 }
 
@@ -422,9 +422,7 @@ func (s *ProviderService) completeLogin(id, projectID, name string) (ProviderLog
 	}
 	flow.status.State = "provisioning"
 	token, team, email := flow.token, flow.team, flow.status.Email
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		var err error
 		if name != "" {
 			project, err = s.create(flow.ctx, token, team, name)
@@ -449,6 +447,6 @@ func (s *ProviderService) completeLogin(id, projectID, name string) (ProviderLog
 		}
 		flow.status.ProjectID, flow.status.State, flow.token = project.ID, "succeeded", ""
 		flow.cancel()
-	}()
+	})
 	return loginSnapshot(flow), nil
 }

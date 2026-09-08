@@ -201,7 +201,6 @@ func TestInstructionsPerServerAndMissing(t *testing.T) {
 			t.Fatalf("instructions %s = %q, %q, %v", name, text, generation, err)
 		}
 	}
-
 }
 
 // TestCallUnavailableVariants: the sess==nil branches speak in the user's

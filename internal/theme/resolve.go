@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"reflect"
@@ -87,13 +88,13 @@ func ParseColor(s string) color.Color {
 	}
 	if strings.HasPrefix(s, "#") {
 		n, _ := strconv.ParseUint(s[1:], 16, 32)
-		return color.RGBA{R: uint8(n >> 16), G: uint8(n >> 8), B: uint8(n), A: 255}
+		return color.RGBA{R: uint8((n >> 16) & 0xff), G: uint8((n >> 8) & 0xff), B: uint8(n & 0xff), A: 255}
 	}
 	n, _ := strconv.Atoi(s)
 	if n < 16 {
-		return ansi.BasicColor(n)
+		return ansi.BasicColor(n) //nolint:gosec // Callers validate ANSI indexes as 0..255; this branch selects 0..15.
 	}
-	return ansi.IndexedColor(n)
+	return ansi.IndexedColor(n) //nolint:gosec // Callers validate ANSI indexes as 0..255.
 }
 
 // Hex converts a color into an explicit browser color; nil remains empty.
@@ -129,7 +130,7 @@ func Surfaces(spec Spec, bg color.Color) SurfaceColors {
 				}
 				return uint8(float64(v>>8) * (1 - .06*n))
 			}
-			return color.RGBA{R: channel(r), G: channel(g), B: channel(b), A: uint8(a >> 8)}
+			return color.RGBA{R: channel(r), G: channel(g), B: channel(b), A: uint8((a >> 8) & 0xff)}
 		}
 		return SurfaceColors{Base: bg, Panel: step(1), Element: step(2), Hover: step(3)}
 	}
@@ -143,8 +144,10 @@ func Surfaces(spec Spec, bg color.Color) SurfaceColors {
 // override. The terminal's ChromaStyle applies that override separately.
 func (s Spec) SyntaxColors() SyntaxSpec {
 	p := s.Palette
-	out := SyntaxSpec{Keyword: p.Primary, Type: p.Info, Function: p.Accent, String: p.Success,
-		Number: p.Warning, Comment: p.Faint, Punctuation: p.Muted, Operator: p.Text}
+	out := SyntaxSpec{
+		Keyword: p.Primary, Type: p.Info, Function: p.Accent, String: p.Success,
+		Number: p.Warning, Comment: p.Faint, Punctuation: p.Muted, Operator: p.Text,
+	}
 	if s.Syntax != nil {
 		fillOverrides(&out, *s.Syntax)
 	}
@@ -172,8 +175,8 @@ func fillOverrides[T any](dest *T, source T) {
 
 func normalizeColors[T any](value *T) {
 	v := reflect.ValueOf(value).Elem()
-	for i := range v.NumField() {
-		v.Field(i).SetString(Hex(ParseColor(v.Field(i).String())))
+	for _, field := range v.Fields() {
+		field.SetString(Hex(ParseColor(field.String())))
 	}
 }
 
@@ -209,7 +212,7 @@ func CodeEntries(spec Spec, background color.Color) chroma.StyleEntries {
 // Chroma registry. Neutral is terminal-specific; browsers use light/dark for auto.
 func ResolveSpec(spec Spec) (Resolved, error) {
 	if spec.Neutral() {
-		return Resolved{}, fmt.Errorf("neutral is a terminal-only fallback")
+		return Resolved{}, errors.New("neutral is a terminal-only fallback")
 	}
 	if err := spec.Validate(); err != nil {
 		return Resolved{}, err
@@ -217,10 +220,12 @@ func ResolveSpec(spec Spec) (Resolved, error) {
 	p := spec.Palette
 	normalizeColors(&p)
 	surfaces := Surfaces(spec, ParseColor(p.Bg))
-	colors := Colors{Background: p.Bg, Foreground: p.Text, Muted: p.Muted, Faint: p.Faint, Primary: p.Primary,
+	colors := Colors{
+		Background: p.Bg, Foreground: p.Text, Muted: p.Muted, Faint: p.Faint, Primary: p.Primary,
 		OnPrimary: p.OnPrimary, Accent: p.Accent, Success: p.Success, Warning: p.Warning, Error: p.Error, Info: p.Info,
 		Link: p.Link, Emphasis: p.Emphasis, Border: p.Border, BorderFocus: p.BorderFocus, DiffAdd: p.DiffAdd, DiffDel: p.DiffDel,
-		Panel: orString(Hex(surfaces.Panel), p.Bg), Element: orString(Hex(surfaces.Element), p.Bg), Hover: orString(Hex(surfaces.Hover), p.Bg)}
+		Panel: orString(Hex(surfaces.Panel), p.Bg), Element: orString(Hex(surfaces.Element), p.Bg), Hover: orString(Hex(surfaces.Hover), p.Bg),
+	}
 	syntax, md := spec.SyntaxColors(), spec.MarkdownColors()
 	normalizeColors(&syntax)
 	normalizeColors(&md)
@@ -246,8 +251,10 @@ func ResolveSpec(spec Spec) (Resolved, error) {
 	}
 	for _, tt := range tokenTypes {
 		entry := style.Get(tt)
-		item := TokenStyle{Color: code.Foreground, Background: code.Background, Bold: entry.Bold == chroma.Yes,
-			Italic: entry.Italic == chroma.Yes, Underline: entry.Underline == chroma.Yes}
+		item := TokenStyle{
+			Color: code.Foreground, Background: code.Background, Bold: entry.Bold == chroma.Yes,
+			Italic: entry.Italic == chroma.Yes, Underline: entry.Underline == chroma.Yes,
+		}
 		if entry.Colour.IsSet() {
 			item.Color = entry.Colour.String()
 		}
@@ -258,19 +265,25 @@ func ResolveSpec(spec Spec) (Resolved, error) {
 	}
 	// Explicit Chroma wins over a syntax block, exactly as in the terminal renderer.
 	if spec.Chroma != "" {
-		syntax = SyntaxSpec{Keyword: code.Tokens[chroma.Keyword.String()].Color, Type: code.Tokens[chroma.KeywordType.String()].Color,
+		syntax = SyntaxSpec{
+			Keyword: code.Tokens[chroma.Keyword.String()].Color, Type: code.Tokens[chroma.KeywordType.String()].Color,
 			Function: code.Tokens[chroma.NameFunction.String()].Color, String: code.Tokens[chroma.LiteralString.String()].Color,
 			Number: code.Tokens[chroma.LiteralNumber.String()].Color, Comment: code.Tokens[chroma.Comment.String()].Color,
-			Punctuation: code.Tokens[chroma.Punctuation.String()].Color, Operator: code.Tokens[chroma.Operator.String()].Color}
+			Punctuation: code.Tokens[chroma.Punctuation.String()].Color, Operator: code.Tokens[chroma.Operator.String()].Color,
+		}
 	}
 	var web *WebColors
 	if spec.Web != nil {
-		web = &WebColors{Navigation: spec.Web.Navigation, QuietBorder: spec.Web.QuietBorder,
-			CodeBackground: spec.Web.CodeBackground, InlineCodeBackground: spec.Web.InlineCodeBackground}
+		web = &WebColors{
+			Navigation: spec.Web.Navigation, QuietBorder: spec.Web.QuietBorder,
+			CodeBackground: spec.Web.CodeBackground, InlineCodeBackground: spec.Web.InlineCodeBackground,
+		}
 		normalizeColors(web)
 	}
-	return Resolved{ID: spec.Name, Name: spec.Label(), Dark: spec.Dark,
-		Colors: colors, Syntax: syntax, Markdown: md, Code: code, Web: web}, nil
+	return Resolved{
+		ID: spec.Name, Name: spec.Label(), Dark: spec.Dark,
+		Colors: colors, Syntax: syntax, Markdown: md, Code: code, Web: web,
+	}, nil
 }
 
 func orString(value, fallback string) string {

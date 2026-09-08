@@ -14,6 +14,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	acpsdk "github.com/coder/acp-go-sdk"
 
 	"github.com/context-labs/whip/internal/acp"
@@ -26,11 +28,11 @@ import (
 
 func acpCLI(args []string) error {
 	fs := flag.NewFlagSet("acp", flag.ContinueOnError)
-	modelFlag := fs.String("m", "", "model name from ~/.whip/config.json (default: defaultModel)")
+	modelFlag := fs.String("m", "", buildinfo.Text("model name from ~/.whip/config.json (default: defaultModel)"))
 	providerFlag := fs.String("p", "", "provider to route the model through (default: model's first provider)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: whip acp [-m model] [-p provider]")
-		fmt.Fprintln(os.Stderr, "serve whip as an ACP agent over stdio (for editors like Zed)")
+		fmt.Fprintln(os.Stderr, buildinfo.Text("usage: whip acp [-m model] [-p provider]"))
+		fmt.Fprintln(os.Stderr, buildinfo.Text("serve whip as an ACP agent over stdio (for editors like Zed)"))
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -60,7 +62,7 @@ func acpCLI(args []string) error {
 		return err
 	}
 	if key == "" {
-		return fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)", providerName)
+		return fmt.Errorf(buildinfo.Text("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)"), providerName)
 	}
 	backend := &acpDaemonBackend{
 		clientID: "acp-" + rand.Text(), model: modelName, provider: providerName,

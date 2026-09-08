@@ -48,7 +48,7 @@ type RootSnapshot struct {
 	Inbox              []InboxItem                `json:"inbox"`
 	Blackboard         []StateValue               `json:"blackboard"`
 	Budgets            []SnapshotBudget           `json:"budgets"`
-	Accounting         ModelAccounting            `json:"accounting,omitempty"`
+	Accounting         ModelAccounting            `json:"accounting,omitempty"` //nolint:modernize // Preserve the existing wire contract, which always includes the accounting object.
 	Capabilities       []CapabilityRecord         `json:"capabilities"`
 	Schedules          []Schedule                 `json:"schedules"`
 	Permissions        []PermissionSnapshot       `json:"permissions"`

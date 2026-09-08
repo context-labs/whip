@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"time"
 
@@ -97,10 +98,8 @@ func (s *Store) CheckModelWork(ctx context.Context, rootID, agentID string) erro
 	if err != nil {
 		return err
 	}
-	for _, row := range rows {
-		if modelBudgetExhausted(row) {
-			return capability.ErrDenied
-		}
+	if slices.ContainsFunc(rows, modelBudgetExhausted) {
+		return capability.ErrDenied
 	}
 	return tx.Commit()
 }

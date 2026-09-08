@@ -550,8 +550,8 @@ func (node *AgentSession) run() {
 	}
 	node.finishLiveTurn()
 	node.postCompletionNotice(status, output, turnErr)
-	switch {
-	case status == "succeeded":
+	switch status {
+	case "succeeded":
 		node.mu.Lock()
 		node.failures = 0
 		node.mu.Unlock()
@@ -559,12 +559,12 @@ func (node *AgentSession) run() {
 			node.wake()
 		}
 		node.runtime.wakeQueuedAgents("")
-	case status == "failed":
+	case "failed":
 		// FinishAgentTurn returned this turn's claimed items to the queue.
 		// Re-wake after a backoff so a persistent provider error cannot
 		// hot-loop; a cancelled turn is user intent and is not re-woken.
 		node.scheduleRetryWake()
-	case status == "cancelled":
+	case "cancelled":
 		// A busy node drops nudges. Resume explicit follow-ups and other
 		// children waiting on capacity, without retrying this turn's mail.
 		node.runtime.wakeQueuedAgents(node.id)

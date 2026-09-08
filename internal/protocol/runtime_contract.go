@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/session"
@@ -115,11 +116,13 @@ type PermissionRulesResult struct {
 	Rules  []session.PermissionRule `json:"rules"`
 	Global []string                 `json:"global"`
 }
-type SessionListResult []session.Meta
-type UserHistoryResult []string
-type CompactionListResult []session.Compaction
-type AgentListResult []session.RuntimeAgent
-type ScheduleListResult []session.Schedule
-type ToolSchemaResult []llm.Tool
-type MCPListResult []MCPStatusResult
-type LSPListResult []LSPStatusResult
+type (
+	SessionListResult    []session.Meta
+	UserHistoryResult    []string
+	CompactionListResult []session.Compaction
+	AgentListResult      []session.RuntimeAgent
+	ScheduleListResult   []session.Schedule
+	ToolSchemaResult     []llm.Tool
+	MCPListResult        []MCPStatusResult
+	LSPListResult        []LSPStatusResult
+)

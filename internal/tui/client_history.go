@@ -59,8 +59,10 @@ func (m *model) setHistoryPage(id string, page session.BoundedTranscriptPage) {
 	if previous != nil {
 		epoch = previous.epoch + 1
 	}
-	m.historyPages[id] = &clientHistoryPage{rootID: m.sessionID, agentID: id, revision: page.HistoryRevision,
-		before: page.NextSeq, through: page.ThroughSeq, hasMore: page.HasMore, epoch: epoch}
+	m.historyPages[id] = &clientHistoryPage{
+		rootID: m.sessionID, agentID: id, revision: page.HistoryRevision,
+		before: page.NextSeq, through: page.ThroughSeq, hasMore: page.HasMore, epoch: epoch,
+	}
 }
 
 func (m *model) snapshotHistory(snapshot session.RootSnapshot) []llm.Message {
@@ -80,8 +82,10 @@ func (m *model) snapshotHistory(snapshot session.RootSnapshot) []llm.Message {
 	first := snapshot.FirstMessageSeq
 	preserve := previous != nil && previous.revision == snapshot.HistoryRevision && first > 0 &&
 		slices.ContainsFunc(m.clientView.messages, func(message llm.Message) bool { return message.RawSequence == first })
-	state := &clientHistoryPage{rootID: snapshot.RootID, agentID: snapshot.RootID, revision: snapshot.HistoryRevision,
-		before: first, hasMore: snapshot.Omitted["messages"], through: -1, epoch: 1}
+	state := &clientHistoryPage{
+		rootID: snapshot.RootID, agentID: snapshot.RootID, revision: snapshot.HistoryRevision,
+		before: first, hasMore: snapshot.Omitted["messages"], through: -1, epoch: 1,
+	}
 	if previous != nil {
 		state.epoch = previous.epoch + 1
 	}
@@ -116,8 +120,10 @@ func (m *model) requestOlderHistory() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		revision := request.revision
-		page, err := client.HistoryPage(ctx, daemon.HistoryPageParams{RootID: request.rootID, AgentID: request.agentID,
-			BeforeSeq: request.before, ThroughSeq: request.through, Revision: &revision, Limit: 64, MaxBytes: 256 << 10, Recent: true})
+		page, err := client.HistoryPage(ctx, daemon.HistoryPageParams{
+			RootID: request.rootID, AgentID: request.agentID,
+			BeforeSeq: request.before, ThroughSeq: request.through, Revision: &revision, Limit: 64, MaxBytes: 256 << 10, Recent: true,
+		})
 		return clientHistoryMsg{request: request, page: page, err: err}
 	}
 }

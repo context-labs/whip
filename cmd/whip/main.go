@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/tui"
 	"github.com/context-labs/whip/internal/update"
@@ -26,19 +28,19 @@ func cwd() string {
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "_kernel" {
 		if err := kernelCLI(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whip kernel:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip kernel:"), err)
 			os.Exit(1)
 		}
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "_daemon" {
 		if err := daemonCLI(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whip daemon:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip daemon:"), err)
 			os.Exit(1)
 		}
 		return
 	}
-	modelFlag := flag.String("m", "", "model name from ~/.whip/config.json (default: defaultModel)")
+	modelFlag := flag.String("m", "", buildinfo.Text("model name from ~/.whip/config.json (default: defaultModel)"))
 	providerFlag := flag.String("p", "", "provider to route the model through (default: model's first provider)")
 	versionFlag := flag.Bool("version", false, "print version")
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
@@ -47,19 +49,19 @@ func main() {
 	yoloFlag := flag.Bool("yolo", false, "approve every permission prompt automatically in this TUI's sessions")
 	flag.Parse()
 	if *cautiousFlag && *yoloFlag {
-		fmt.Fprintln(os.Stderr, "whip: --cautious and --yolo are mutually exclusive")
+		fmt.Fprintln(os.Stderr, buildinfo.Text("whip: --cautious and --yolo are mutually exclusive"))
 		os.Exit(2)
 	}
 
 	if *versionFlag {
-		fmt.Println("whip", version)
+		fmt.Println(buildinfo.Name, buildinfo.Version(version))
 		return
 	}
 
 	// `whip daemon ...` — inspect and manage the local runtime daemon.
 	if flag.NArg() > 0 && flag.Arg(0) == "daemon" {
 		if err := daemonManageCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		return
@@ -68,7 +70,7 @@ func main() {
 	// `whip web` opens the application served by the existing network-enabled daemon.
 	if flag.NArg() > 0 && flag.Arg(0) == "web" {
 		if err := webCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		return
@@ -77,7 +79,7 @@ func main() {
 	// `whip mcp ...` — server management and the MCP server mode.
 	if flag.NArg() > 0 && flag.Arg(0) == "mcp" {
 		if err := mcpCLI(flag.Args()[1:], version); err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		return
@@ -87,7 +89,7 @@ func main() {
 	// harnesses' dirs, deduped against what whip already loads).
 	if flag.NArg() > 0 && flag.Arg(0) == "skills" {
 		if err := skillsCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		return
@@ -98,7 +100,7 @@ func main() {
 	// `whip acp` — ACP agent over stdio for editors (Zed et al.).
 	if flag.NArg() > 0 && flag.Arg(0) == "acp" {
 		if err := acpCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whip acp:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip acp:"), err)
 			os.Exit(1)
 		}
 		return
@@ -106,7 +108,7 @@ func main() {
 
 	if flag.NArg() > 0 && flag.Arg(0) == "run" {
 		if err := runCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		return
@@ -116,7 +118,7 @@ func main() {
 	// `whip sessions` — list stored sessions (the scriptable companion to run).
 	if flag.NArg() > 0 && flag.Arg(0) == "sessions" {
 		if err := sessionsCLI(); err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		return
@@ -124,7 +126,7 @@ func main() {
 
 	if flag.NArg() > 0 && flag.Arg(0) == "browser" {
 		if err := browserCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		return
@@ -133,7 +135,7 @@ func main() {
 	// `whip update` — re-run the install script to get the latest release.
 	if flag.NArg() > 0 && flag.Arg(0) == "update" {
 		if err := updateCLI(); err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		return
@@ -142,7 +144,7 @@ func main() {
 	// `whip auth ...` — provider key onboarding (openrouter).
 	if flag.NArg() > 0 && flag.Arg(0) == "auth" {
 		if err := authCLI(flag.Args()[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		return
@@ -161,14 +163,14 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "whip:", err)
+		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 		os.Exit(1)
 	}
 
 	if *benchFlag {
 		prov, _, _, err := cfg.Resolve(*modelFlag, *providerFlag)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "whip:", err)
+			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
 		_ = prov.Key()
@@ -182,10 +184,10 @@ func main() {
 	tui.Version = version // /report names the build in the bug-report bundle
 	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, firstRun, initialPrompt)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "whip:", err)
+		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 		os.Exit(1)
 	}
 	if sessionID != "" {
-		fmt.Printf("session %s — resume with: whip --resume %s\n", sessionID, sessionID)
+		fmt.Printf(buildinfo.Text("session %s — resume with: whip --resume %s\n"), sessionID, sessionID)
 	}
 }

@@ -39,7 +39,7 @@ func TestWebAssetsAndClientRoutes(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest(test.method, "http://localhost"+test.path, nil))
+			handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), test.method, "http://localhost"+test.path, nil))
 			if response.Code != test.status {
 				t.Fatalf("status %d: %s", response.Code, response.Body.String())
 			}
@@ -67,10 +67,12 @@ func TestWebAssetsAndClientRoutes(t *testing.T) {
 }
 
 func TestMissingWebAssetsAreActionable(t *testing.T) {
-	handler := newHandler(fstest.MapFS{"assets/plain.js": {Data: []byte("plain script")},
-		".gitkeep": {}})
+	handler := newHandler(fstest.MapFS{
+		"assets/plain.js": {Data: []byte("plain script")},
+		".gitkeep":        {},
+	})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost/", nil))
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://localhost/", nil))
 	if response.Code != 503 || !strings.Contains(response.Body.String(), "npm ci") || !strings.Contains(response.Body.String(), "task build") {
 		t.Fatalf("missing build response: %d %s", response.Code, response.Body.String())
 	}

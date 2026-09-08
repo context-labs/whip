@@ -194,9 +194,9 @@ func inputRootSnapshot(t *testing.T, store *Store, rootID string) map[string]str
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer func() { _ = rows.Close() }()
 		columns, err := rows.Columns()
 		if err != nil {
-			_ = rows.Close()
 			t.Fatal(err)
 		}
 		var all [][]any
@@ -207,7 +207,6 @@ func inputRootSnapshot(t *testing.T, store *Store, rootID string) map[string]str
 				pointers[i] = &values[i]
 			}
 			if err := rows.Scan(pointers...); err != nil {
-				_ = rows.Close()
 				t.Fatal(err)
 			}
 			all = append(all, values)

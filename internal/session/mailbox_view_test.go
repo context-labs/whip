@@ -14,7 +14,7 @@ func TestMailboxInspectionBeforeRootHasOpened(t *testing.T) {
 		t.Fatalf("new root mailbox %+v %v", page, err)
 	}
 	var count int
-	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agents`).Scan(&count); err != nil || count != 0 {
+	if err := store.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM agents`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("inspection created authority: count=%d %v", count, err)
 	}
 }
@@ -88,7 +88,7 @@ func TestMailboxInspectionReferenceAndDecimalRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.Exec(`UPDATE agent_messages SET revision=9007199254740993 WHERE id=?`, message.ID); err != nil {
+	if _, err := store.db.ExecContext(t.Context(), `UPDATE agent_messages SET revision=9007199254740993 WHERE id=?`, message.ID); err != nil {
 		t.Fatal(err)
 	}
 	read, err := store.InspectMailboxMessage(t.Context(), rootID, "child", message.ID)

@@ -24,6 +24,7 @@ func TestBrowserCLIDispatch(t *testing.T) {
 // chrome://extensions can never launch anything on the test machine.
 func TestBrowserInstall(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("WHIP_HOME", "")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir()) // xdg-open/open not found: Start fails silently
 
@@ -68,6 +69,7 @@ func TestBrowserInstall(t *testing.T) {
 func TestBrowserInstallHomeErrors(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
+	t.Setenv("WHIP_HOME", "")
 	t.Setenv("HOME", "")
 	if err := browserCLI([]string{"install"}); err == nil {
 		t.Error("install without a home directory should error")
@@ -77,6 +79,7 @@ func TestBrowserInstallHomeErrors(t *testing.T) {
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("WHIP_HOME", "")
 	t.Setenv("HOME", file)
 	err := browserCLI([]string{"install"})
 	if err == nil || !strings.Contains(err.Error(), "write extension") {
@@ -88,6 +91,7 @@ func TestBrowserInstallHomeErrors(t *testing.T) {
 // install fails loudly rather than leaving an extension with no token.
 func TestBrowserInstallRelayStateError(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("WHIP_HOME", "")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir())
 

@@ -1,13 +1,16 @@
 package protocol
 
 import (
-	"github.com/context-labs/whip/internal/session"
 	"reflect"
+
+	"github.com/context-labs/whip/internal/session"
 )
 
 func action[P, R any](name string, execution Execution, permission string, sensitive bool) Operation {
-	return Operation{Name: name, Surface: "runtime", Execution: execution, Permission: permission, Sensitive: sensitive,
-		Params: reflect.TypeFor[P](), Result: reflect.TypeFor[R]()}
+	return Operation{
+		Name: name, Surface: "runtime", Execution: execution, Permission: permission, Sensitive: sensitive,
+		Params: reflect.TypeFor[P](), Result: reflect.TypeFor[R](),
+	}
 }
 
 var runtimeOperations = []Operation{

@@ -57,7 +57,7 @@ func (s *Store) SessionCatalog(ctx context.Context, opts CatalogPageOptions) (Se
 	if err != nil {
 		return p, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = tx.QueryRowContext(ctx, `SELECT catalog_revision FROM runtime_schema WHERE id=1`).Scan(&p.Revision); err != nil {
 		return p, err
 	}
@@ -74,11 +74,11 @@ func (s *Store) SessionCatalog(ctx context.Context, opts CatalogPageOptions) (Se
 	if err != nil {
 		return p, err
 	}
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var item SessionSummary
 		var pathTruncated bool
 		if err = rows.Scan(&item.ID, &item.Kind, &item.Title, &item.Model, &item.Provider, &item.CWD, &item.Pinned, &item.UpdatedAt, &item.Truncated, &pathTruncated); err != nil {
-			rows.Close()
 			return p, err
 		}
 		if !pathTruncated {
@@ -95,7 +95,6 @@ func (s *Store) SessionCatalog(ctx context.Context, opts CatalogPageOptions) (Se
 		p.NextCursor = &CatalogCursor{Revision: p.Revision, Offset: offset + int64(len(p.Items)), Search: opts.Search}
 		raw, err := json.Marshal(p)
 		if err != nil {
-			rows.Close()
 			return p, err
 		}
 		if len(raw) > opts.MaxBytes {
@@ -104,8 +103,7 @@ func (s *Store) SessionCatalog(ctx context.Context, opts CatalogPageOptions) (Se
 			break
 		}
 	}
-	err = rows.Err()
-	rows.Close()
+	err = errors.Join(rows.Err(), rows.Close())
 	if err != nil {
 		return p, err
 	}

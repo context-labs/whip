@@ -11,6 +11,8 @@ import (
 	"os"
 	"sync"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/context-labs/whip/internal/browser/extrelay"
 	"github.com/go-rod/rod"
 )
@@ -54,7 +56,7 @@ func openExtension(ctx context.Context) (*Browser, error) {
 		return nil, fmt.Errorf("start extension relay: %w", err)
 	}
 	if err := r.WaitAttached(ctx); err != nil {
-		return nil, fmt.Errorf("extension relay waiting for a pinned tab: %w\n(run `whip browser install`, load the extension, then click its icon on the tab to drive)", err)
+		return nil, fmt.Errorf(buildinfo.Text("extension relay waiting for a pinned tab: %w\n(run `whip browser install`, load the extension, then click its icon on the tab to drive)"), err)
 	}
 	b := &Browser{mode: ModeExtension, obtained: ObtainedLive}
 	b.browser = rod.New().ControlURL(r.CDPURL())

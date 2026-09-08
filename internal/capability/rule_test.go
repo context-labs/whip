@@ -92,8 +92,8 @@ func TestPermissionRule(t *testing.T) {
 
 func TestMCPPermissionRuleBindsRawNamesAndStableDefinition(t *testing.T) {
 	call := MCPCall{
-		MCPSelector: MCPSelector{Server: "raw-server", Tool: "raw.tool", Definition: "opaque-definition"},
-		Generation:  "ephemeral-generation", Source: "attached client", Arguments: json.RawMessage(`{"text":"concrete content"}`),
+		Server: "raw-server", Tool: "raw.tool", Definition: "opaque-definition",
+		Generation: "ephemeral-generation", Source: "attached client", Arguments: json.RawMessage(`{"text":"concrete content"}`),
 	}
 	ruleFor := func(call MCPCall) (string, string) {
 		t.Helper()
@@ -123,9 +123,9 @@ func TestMCPPermissionRuleBindsRawNamesAndStableDefinition(t *testing.T) {
 		{Server: call.Server, Tool: "raw_tool", Definition: call.Definition},
 		{Server: call.Server, Tool: call.Tool, Definition: "new-definition"},
 	} {
-		copy := call
-		copy.MCPSelector = changed
-		if _, current := ruleFor(copy); current == original {
+		changedCall := call
+		changedCall.MCPSelector = changed
+		if _, current := ruleFor(changedCall); current == original {
 			t.Errorf("different selector reused permission rule: %+v", changed)
 		}
 	}

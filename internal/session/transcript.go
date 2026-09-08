@@ -96,6 +96,7 @@ func (s *Store) ReadTranscript(ctx context.Context, rootID, agentID string, afte
 		}
 	}
 	queryArgs := append(append([]any(nil), args...), afterSeq, throughSeq, limit)
+	//nolint:gosec // transcriptSource returns one of two fixed SQL fragments; all caller values are bound parameters.
 	rows, err := tx.QueryContext(ctx, `SELECT seq,content FROM `+source+` AND seq>? AND seq<=? ORDER BY seq LIMIT ?`, queryArgs...)
 	if err != nil {
 		return TranscriptPage{}, err

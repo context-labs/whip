@@ -3,7 +3,9 @@ package rlm
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"sort"
@@ -46,10 +48,11 @@ type scratchEncoder struct {
 func newScratchEncoder() *scratchEncoder {
 	return &scratchEncoder{identities: map[starlark.Value]int{}, path: map[starlark.Value]bool{}}
 }
+
 func (e *scratchEncoder) encode(value starlark.Value, depth int) (int, error) {
 	e.steps++
 	if depth > 128 || e.steps > 65536 {
-		return 0, fmt.Errorf("scratch traversal limit exceeded")
+		return 0, errors.New("scratch traversal limit exceeded")
 	}
 	mutable := false
 	switch value.(type) {
@@ -58,7 +61,7 @@ func (e *scratchEncoder) encode(value starlark.Value, depth int) (int, error) {
 	}
 	if mutable {
 		if e.path[value] {
-			return 0, fmt.Errorf("self-referential value")
+			return 0, errors.New("self-referential value")
 		}
 		if id, ok := e.identities[value]; ok {
 			return id, nil
@@ -79,19 +82,19 @@ func (e *scratchEncoder) encode(value starlark.Value, depth int) (int, error) {
 		node.Text = value.String()
 	case starlark.Float:
 		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-			return 0, fmt.Errorf("non-finite float")
+			return 0, errors.New("non-finite float")
 		}
 		node.Kind = "float"
 		node.Text = strconv.FormatFloat(float64(value), 'g', -1, 64)
 	case starlark.String:
 		if len(value) > snapshotVariableBytes {
-			return 0, fmt.Errorf("exceeds per-variable cap")
+			return 0, errors.New("exceeds per-variable cap")
 		}
 		node.Kind = "string"
 		node.Text = base64.StdEncoding.EncodeToString([]byte(value))
 	case starlark.Bytes:
 		if len(value) > snapshotVariableBytes {
-			return 0, fmt.Errorf("exceeds per-variable cap")
+			return 0, errors.New("exceeds per-variable cap")
 		}
 		node.Kind = "bytes"
 		node.Text = base64.StdEncoding.EncodeToString([]byte(value))
@@ -101,7 +104,7 @@ func (e *scratchEncoder) encode(value starlark.Value, depth int) (int, error) {
 	case *starlark.List:
 		node.Kind = "list"
 		if value.Len() > 65536 {
-			return 0, fmt.Errorf("scratch traversal limit exceeded")
+			return 0, errors.New("scratch traversal limit exceeded")
 		}
 		for i := range value.Len() {
 			children = append(children, value.Index(i))
@@ -109,7 +112,7 @@ func (e *scratchEncoder) encode(value starlark.Value, depth int) (int, error) {
 	case *starlark.Dict:
 		node.Kind = "dict"
 		if value.Len() > 32768 {
-			return 0, fmt.Errorf("scratch traversal limit exceeded")
+			return 0, errors.New("scratch traversal limit exceeded")
 		}
 		for _, pair := range value.Items() {
 			children = append(children, pair...)
@@ -119,7 +122,7 @@ func (e *scratchEncoder) encode(value starlark.Value, depth int) (int, error) {
 	}
 	e.bytes += len(node.Text) + 16
 	if e.bytes > snapshotVariableBytes {
-		return 0, fmt.Errorf("exceeds per-variable cap")
+		return 0, errors.New("exceeds per-variable cap")
 	}
 	id := len(e.nodes)
 	e.nodes = append(e.nodes, node)
@@ -170,6 +173,7 @@ func sameScratchBindingDepth(a, b starlark.Value, depth int) bool {
 	equal, err := starlark.Equal(a, b)
 	return err == nil && equal
 }
+
 func propagateHelperFailures(helpers map[string]scratchHelper, bad map[string]string, data func(string) bool) {
 	names := make([]string, 0, len(helpers))
 	for name := range helpers {
@@ -264,7 +268,7 @@ func (w *worker) buildSnapshot() (string, SnapshotManifest) {
 		if err == nil {
 			encoded, _ := json.Marshal(probe.nodes)
 			if len(encoded) > snapshotVariableBytes {
-				err = fmt.Errorf("exceeds per-variable cap")
+				err = errors.New("exceeds per-variable cap")
 			}
 		}
 		if err != nil {
@@ -273,9 +277,7 @@ func (w *worker) buildSnapshot() (string, SnapshotManifest) {
 		}
 		count := len(encoder.nodes)
 		oldIDs := make(map[starlark.Value]int, len(encoder.identities))
-		for key, id := range encoder.identities {
-			oldIDs[key] = id
-		}
+		maps.Copy(oldIDs, encoder.identities)
 		encoder.bytes = 0
 		encoder.steps = 0
 		id, err := encoder.encode(value, 0)
@@ -344,7 +346,7 @@ func (w *worker) buildSnapshot() (string, SnapshotManifest) {
 
 func decodeScratch(snapshot scratchSnapshot) (starlark.StringDict, error) {
 	if len(snapshot.Nodes) > 65536 {
-		return nil, fmt.Errorf("too many scratch nodes")
+		return nil, errors.New("too many scratch nodes")
 	}
 	values := make([]starlark.Value, len(snapshot.Nodes))
 	visiting := make([]bool, len(values))
@@ -353,13 +355,13 @@ func decodeScratch(snapshot scratchSnapshot) (starlark.StringDict, error) {
 	decode = func(id, depth int) (starlark.Value, error) {
 		steps++
 		if depth > 128 || steps > 131072 {
-			return nil, fmt.Errorf("scratch traversal limit exceeded")
+			return nil, errors.New("scratch traversal limit exceeded")
 		}
 		if id < 0 || id >= len(values) {
-			return nil, fmt.Errorf("invalid scratch reference")
+			return nil, errors.New("invalid scratch reference")
 		}
 		if visiting[id] {
-			return nil, fmt.Errorf("cyclic scratch snapshot")
+			return nil, errors.New("cyclic scratch snapshot")
 		}
 		if values[id] != nil {
 			return values[id], nil
@@ -377,7 +379,7 @@ func decodeScratch(snapshot scratchSnapshot) (starlark.StringDict, error) {
 			children = append(children, child)
 		}
 		if len(node.Items) > 0 && node.Kind != "list" && node.Kind != "tuple" && node.Kind != "dict" {
-			return nil, fmt.Errorf("unexpected scratch children")
+			return nil, errors.New("unexpected scratch children")
 		}
 		switch node.Kind {
 		case "none":
@@ -391,13 +393,13 @@ func decodeScratch(snapshot scratchSnapshot) (starlark.StringDict, error) {
 		case "int":
 			i, ok := new(big.Int).SetString(node.Text, 10)
 			if !ok {
-				return nil, fmt.Errorf("invalid scratch integer")
+				return nil, errors.New("invalid scratch integer")
 			}
 			value = starlark.MakeBigInt(i)
 		case "float":
 			f, err := strconv.ParseFloat(node.Text, 64)
 			if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
-				return nil, fmt.Errorf("invalid scratch float")
+				return nil, errors.New("invalid scratch float")
 			}
 			value = starlark.Float(f)
 		case "string":
@@ -418,7 +420,7 @@ func decodeScratch(snapshot scratchSnapshot) (starlark.StringDict, error) {
 			value = starlark.Tuple(children)
 		case "dict":
 			if len(children)%2 != 0 {
-				return nil, fmt.Errorf("invalid scratch dictionary")
+				return nil, errors.New("invalid scratch dictionary")
 			}
 			dict := starlark.NewDict(len(children) / 2)
 			for i := 0; i < len(children); i += 2 {
@@ -427,7 +429,7 @@ func decodeScratch(snapshot scratchSnapshot) (starlark.StringDict, error) {
 				}
 			}
 			if dict.Len() != len(children)/2 {
-				return nil, fmt.Errorf("duplicate scratch dictionary key")
+				return nil, errors.New("duplicate scratch dictionary key")
 			}
 			value = dict
 		default:
@@ -439,10 +441,10 @@ func decodeScratch(snapshot scratchSnapshot) (starlark.StringDict, error) {
 	result := starlark.StringDict{}
 	for _, binding := range snapshot.Bindings {
 		if !validScratchName(binding.Name) {
-			return nil, fmt.Errorf("invalid scratch binding name")
+			return nil, errors.New("invalid scratch binding name")
 		}
 		if _, exists := result[binding.Name]; exists {
-			return nil, fmt.Errorf("duplicate scratch binding")
+			return nil, errors.New("duplicate scratch binding")
 		}
 		value, err := decode(binding.Value, 0)
 		if err != nil {
@@ -452,7 +454,7 @@ func decodeScratch(snapshot scratchSnapshot) (starlark.StringDict, error) {
 	}
 	for _, value := range values {
 		if value == nil {
-			return nil, fmt.Errorf("unreferenced scratch node")
+			return nil, errors.New("unreferenced scratch node")
 		}
 	}
 	return result, nil

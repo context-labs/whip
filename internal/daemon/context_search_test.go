@@ -32,6 +32,7 @@ func TestLiteralSearchChunkBoundaries(t *testing.T) {
 				continue
 			}
 			t.Run(fmt.Sprintf("query%d/offset%d", len(query), displacement), func(t *testing.T) {
+				t.Parallel()
 				start := session.MaxContentRead + displacement
 				data := []byte(strings.Repeat("a", start) + query + strings.Repeat("b", 200))
 				result, err := searchLiteral(t.Context(), searchBytes(data), int64(len(data)), query, 0, maxSearchScan, maxSearchMatches)
@@ -88,6 +89,7 @@ func TestLiteralSearchResultLimitAndContinuation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			data := []byte(tc.data)
 			result, err := searchLiteral(t.Context(), searchBytes(data), int64(len(data)), "find", 0, maxSearchScan, maxSearchMatches)
 			if err != nil {
@@ -159,6 +161,7 @@ func TestLiteralSearchUTF8SnippetSpans(t *testing.T) {
 		{name: "invalid_source", data: "\xffneedle\xff"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			data := []byte(tc.data)
 			result, err := searchLiteral(t.Context(), searchBytes(data), int64(len(data)), "needle", 0, maxSearchScan, maxSearchMatches)
 			if err != nil || len(result.Matches) != 1 {
@@ -175,7 +178,7 @@ func TestLiteralSearchUTF8SnippetSpans(t *testing.T) {
 	}
 }
 
-func TestLiteralSearchContinuationMatchesWholeSource(t *testing.T) {
+func TestLiteralSearchContinuationMatchesWholeSource(t *testing.T) { //nolint:tparallel // subtests share a deterministic random stream
 	t.Parallel()
 	random := rand.New(rand.NewPCG(8, 37))
 	for caseID := range 200 {
@@ -228,7 +231,7 @@ func TestLiteralSearchPreservesCaseAndNonOverlappingMatches(t *testing.T) {
 	}
 }
 
-func TestLiteralSearchEmptyAndInvalidRanges(t *testing.T) {
+func TestLiteralSearchEmptyAndInvalidRanges(t *testing.T) { //nolint:tparallel // subtests share the reader-call sentinel
 	t.Parallel()
 	called := false
 	read := func(context.Context, int64, int) ([]byte, error) {
@@ -273,6 +276,7 @@ func TestLiteralSearchCancellationAndReadErrors(t *testing.T) {
 		{name: "premature_eof", read: func(context.Context, int64, int) ([]byte, error) { return nil, nil }, want: io.ErrUnexpectedEOF},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := searchLiteral(t.Context(), tc.read, 100, "needle", 0, maxSearchScan, maxSearchMatches)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("error = %v, want %v", err, tc.want)
@@ -280,6 +284,7 @@ func TestLiteralSearchCancellationAndReadErrors(t *testing.T) {
 		})
 	}
 	t.Run("cancelled_before_read", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		read := func(context.Context, int64, int) ([]byte, error) {
@@ -291,6 +296,7 @@ func TestLiteralSearchCancellationAndReadErrors(t *testing.T) {
 		}
 	})
 	t.Run("cancelled_during_read", func(t *testing.T) {
+		t.Parallel()
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		read := func(context.Context, int64, int) ([]byte, error) {
@@ -302,6 +308,7 @@ func TestLiteralSearchCancellationAndReadErrors(t *testing.T) {
 		}
 	})
 	t.Run("error_after_progress", func(t *testing.T) {
+		t.Parallel()
 		reads := 0
 		read := func(context.Context, int64, int) ([]byte, error) {
 			reads++
@@ -315,6 +322,7 @@ func TestLiteralSearchCancellationAndReadErrors(t *testing.T) {
 		}
 	})
 	t.Run("reader_exceeds_limit", func(t *testing.T) {
+		t.Parallel()
 		read := func(_ context.Context, _ int64, length int) ([]byte, error) {
 			return make([]byte, length+1), nil
 		}
@@ -323,6 +331,7 @@ func TestLiteralSearchCancellationAndReadErrors(t *testing.T) {
 		}
 	})
 	t.Run("short_reads", func(t *testing.T) {
+		t.Parallel()
 		data := []byte("before-long-needle-after")
 		read := func(ctx context.Context, offset int64, length int) ([]byte, error) {
 			return searchBytes(data)(ctx, offset, min(length, 3))

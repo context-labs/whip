@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
 

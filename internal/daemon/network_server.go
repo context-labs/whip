@@ -7,7 +7,7 @@ import (
 )
 
 func (s *Server) startNetwork() error {
-	listener, err := s.options.Network.listen()
+	listener, err := s.options.Network.listen(s.ctx)
 	if err != nil || listener == nil {
 		return err
 	}

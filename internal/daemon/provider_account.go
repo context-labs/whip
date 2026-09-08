@@ -12,9 +12,11 @@ import (
 	"github.com/context-labs/whip/internal/protocol"
 )
 
-type ProviderLoginList = protocol.ProviderLoginList
-type ProviderNameParams = protocol.ProviderNameParams
-type ProviderStatus = protocol.ProviderStatus
+type (
+	ProviderLoginList  = protocol.ProviderLoginList
+	ProviderNameParams = protocol.ProviderNameParams
+	ProviderStatus     = protocol.ProviderStatus
+)
 
 // ListLogins recovers flow identities after a lost begin acknowledgement.
 // The same bounded retained flow set backs status queries.

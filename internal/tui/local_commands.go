@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -30,7 +32,7 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 			problems = append(problems, err.Error())
 		}
 		if !knownThemeName(fields[1]) {
-			problems = append(problems, "usage: /theme "+strings.Join(themeNames(), "|")+" (user themes: ~/.whip/themes/<name>.json)")
+			problems = append(problems, "usage: /theme "+strings.Join(themeNames(), "|")+buildinfo.Text(" (user themes: ~/.whip/themes/<name>.json)"))
 		}
 		if len(problems) > 0 {
 			return m, m.toastError(strings.Join(problems, " · "))

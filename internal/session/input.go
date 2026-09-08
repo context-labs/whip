@@ -129,6 +129,7 @@ func (s *Store) ClaimSteers(ctx context.Context, rootID, agentID, turnID string)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = rows.Close() }()
 	items, scanErr := scanInboxRows(rows, rootID, agentID)
 	if err := errors.Join(scanErr, rows.Close()); err != nil {
 		return nil, err

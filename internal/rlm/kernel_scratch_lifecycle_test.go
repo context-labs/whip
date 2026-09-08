@@ -30,6 +30,7 @@ func (s *failingScratch) Load(ctx context.Context) (string, SnapshotManifest, er
 	}
 	return s.memoryScratch.Load(ctx)
 }
+
 func (s *failingScratch) Save(ctx context.Context, snapshot string, manifest SnapshotManifest) error {
 	s.failures.Lock()
 	err := s.saveErr
@@ -39,6 +40,7 @@ func (s *failingScratch) Save(ctx context.Context, snapshot string, manifest Sna
 	}
 	return s.memoryScratch.Save(ctx, snapshot, manifest)
 }
+
 func lifecycleKernel(t *testing.T, store ScratchStore) *Kernel {
 	t.Helper()
 	executable, err := os.Executable()
@@ -52,6 +54,7 @@ func lifecycleKernel(t *testing.T, store ScratchStore) *Kernel {
 	t.Cleanup(kernel.Close)
 	return kernel
 }
+
 func TestScratchLoadFailureStopsWorkerAndRetries(t *testing.T) {
 	store := &failingScratch{}
 	kernel := lifecycleKernel(t, store)
@@ -76,6 +79,7 @@ func TestScratchLoadFailureStopsWorkerAndRetries(t *testing.T) {
 		t.Fatalf("retry = %+v, %v", result, err)
 	}
 }
+
 func TestScratchSaveFailureKeepsCellAndPreviousCheckpoint(t *testing.T) {
 	store := &failingScratch{}
 	kernel := lifecycleKernel(t, store)
@@ -104,6 +108,7 @@ func TestScratchSaveFailureKeepsCellAndPreviousCheckpoint(t *testing.T) {
 		t.Fatalf("saved retry = %+v, %v", result, err)
 	}
 }
+
 func TestScratchCorruptionNeverOverwritesCheckpoint(t *testing.T) {
 	store := &memoryScratch{program: "not a structured snapshot"}
 	kernel := lifecycleKernel(t, store)
@@ -119,6 +124,7 @@ func TestScratchCorruptionNeverOverwritesCheckpoint(t *testing.T) {
 		}
 	}
 }
+
 func TestScratchManifestChangesAreCheckpointed(t *testing.T) {
 	store := &memoryScratch{}
 	kernel := lifecycleKernel(t, store)
@@ -138,6 +144,7 @@ func TestScratchManifestChangesAreCheckpointed(t *testing.T) {
 		t.Fatalf("unchanged report repeated %+v %v", result, err)
 	}
 }
+
 func TestScratchWarningSurvivesToolOutputTruncation(t *testing.T) {
 	store := &failingScratch{saveErr: errors.New("offline")}
 	kernel := lifecycleKernel(t, store)
@@ -171,7 +178,8 @@ func TestScratchFailedCellKeepsStructuredToolResult(t *testing.T) {
 
 func TestScratchToolResultBoundsEncodedFieldsWithoutBreakingJSON(t *testing.T) {
 	for _, text := range []string{strings.Repeat("x", 100000), strings.Repeat("\x00", 100000), strings.Repeat("👋", 50000)} {
-		value := Result{Value: []any{text}, Output: text, Steps: 42,
+		value := Result{
+			Value: []any{text}, Output: text, Steps: 42,
 			Scratch:  &ScratchReport{Warning: strings.Repeat("\x00", 1024)},
 			Restored: &RestoreReport{Restored: []string{"saved"}},
 		}

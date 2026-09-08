@@ -332,9 +332,11 @@ func jsonName(f reflect.StructField) string {
 }
 
 func allowedKeys() []string {
-	keys := []string{"name", "displayName", "dark", "surfaces{panel,element,hover}",
+	keys := []string{
+		"name", "displayName", "dark", "surfaces{panel,element,hover}",
 		"syntax{keyword,string,number,comment,function,type,operator,punctuation}",
-		"markdown{heading,strong,code,quote}", "chroma", "web{navigation,quietBorder,codeBackground,inlineCodeBackground}"}
+		"markdown{heading,strong,code,quote}", "chroma", "web{navigation,quietBorder,codeBackground,inlineCodeBackground}",
+	}
 	t := reflect.TypeFor[PaletteSpec]()
 	for field := range t.Fields() {
 		keys = append(keys, "palette."+jsonName(field))

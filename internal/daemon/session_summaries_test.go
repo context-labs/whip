@@ -54,8 +54,10 @@ func TestSessionSummariesAcrossTransports(t *testing.T) {
 				t.Fatalf("transport summaries differ: %+v %+v", first, result)
 			}
 			for _, invalid := range []protocol.SessionSummariesParams{
-				{RootIDs: []string{f.rootID, f.rootID}}, {RootIDs: []string{""}},
-				{RootIDs: make([]string, 33)}, {RootIDs: []string{strings.Repeat("界", 128)}},
+				{RootIDs: []string{f.rootID, f.rootID}},
+				{RootIDs: []string{""}},
+				{RootIDs: make([]string, 33)},
+				{RootIDs: []string{strings.Repeat("界", 128)}},
 			} {
 				err := client.Call(t.Context(), "sessions.summaries", invalid, &result)
 				failure, ok := errors.AsType[*RPCError](err)

@@ -545,7 +545,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				s.sess = sess
 				s.gen++
 				s.generation = rand.Text()
-				s.connectionCtx, s.connectionStop = context.WithCancel(m.runCtx)
+				s.connectionCtx, s.connectionStop = context.WithCancel(m.runCtx) //nolint:fatcontext // This is created once before returning, and derives from the manager lifetime rather than the loop context.
 				s.setStateLocked(StatusReady, "")
 				s.autoTries = 0
 				gen := s.gen

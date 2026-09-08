@@ -14,6 +14,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // helperBinary is empty until `task driver` builds the Swift driver and
@@ -29,7 +31,7 @@ func helperDest() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".whip", "bin", "whip-computer"), nil
+	return filepath.Join(buildinfo.Home(home), "bin", "whip-computer"), nil
 }
 
 // ensureHelperBinary extracts the embedded helper to ~/.whip/bin (once —

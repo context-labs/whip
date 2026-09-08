@@ -73,6 +73,7 @@ func (r ProviderCatalogsResult) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(wire)
 }
+
 func (r *ProviderCatalogsResult) UnmarshalJSON(data []byte) error {
 	var wire providerCatalogsWire
 	if err := json.Unmarshal(data, &wire); err != nil {

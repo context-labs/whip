@@ -3,6 +3,8 @@ package tui
 import (
 	"sort"
 	"strings"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // registryEntry is the single source of truth for one slash command or
@@ -52,7 +54,7 @@ var registry = []registryEntry{
 	{Name: "/resume", Hint: "[id] — resume a previous session", Category: "Session"},
 	{Name: "/rewind", Hint: "[message-index] — rewind conversation and workspace state", Category: "Session"},
 	{Name: "/schedule", Hint: "@every 10m|@at <time> <prompt> — schedule a wakeup; list | cancel", Category: "Session"},
-	{Name: "/theme", Hint: "[light|dark|auto|<name>] — color theme (user themes: ~/.whip/themes/<name>.json)", Category: "Display"},
+	{Name: "/theme", Hint: buildinfo.Text("[light|dark|auto|<name>] — color theme (user themes: ~/.whip/themes/<name>.json)"), Category: "Display"},
 	{Name: "/repl", Hint: "— toggle the REPL panel for the open agent", Keybind: "ctrl+x r", Category: "Display"},
 	{Name: "!cmd", Hint: "— run a shell command; output joins the conversation", Category: "App"},
 }

@@ -45,13 +45,7 @@ type MailboxPage struct {
 }
 
 func inspectMailbox(message MailboxMessage) MailboxInspection {
-	return MailboxInspection{
-		ID: message.ID, Revision: message.Revision, SenderAgentID: message.SenderAgentID,
-		RecipientAgentID: message.RecipientAgentID, Kind: message.Kind, Delivery: message.Delivery,
-		Subject: message.Subject, Excerpt: message.Excerpt, Body: message.Body, EvidenceReferenceID: message.EvidenceReferenceID,
-		Status: message.Status, AvailableAt: message.AvailableAt, CreatedAt: message.CreatedAt,
-		DeliveredAt: message.DeliveredAt, DeliveredTurnID: message.DeliveredTurnID, DoneAt: message.DoneAt,
-	}
+	return MailboxInspection(message)
 }
 
 func (s *Store) InspectMailboxPage(ctx context.Context, rootID, agentID, status string, cursor *MailboxCursor, limit, maxBytes int) (MailboxPage, error) {
@@ -90,6 +84,7 @@ func (s *Store) InspectMailboxPage(ctx context.Context, rootID, agentID, status 
 	if err != nil {
 		return page, err
 	}
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		if len(page.Items) == limit {
 			page.HasMore = true
@@ -98,7 +93,6 @@ func (s *Store) InspectMailboxPage(ctx context.Context, rootID, agentID, status 
 		var message MailboxMessage
 		var digest, mediaType, source string
 		if err := scanMailboxRow(rows, &message, &digest, &mediaType, &source); err != nil {
-			_ = rows.Close()
 			return page, err
 		}
 		message.Body.Digest, message.Body.MediaType, message.Body.Source = digest, mediaType, source
@@ -106,7 +100,6 @@ func (s *Store) InspectMailboxPage(ctx context.Context, rootID, agentID, status 
 		page.NextCursor = &MailboxCursor{RootID: rootID, AgentID: agentID, Status: status, Revision: page.Revision, Offset: offset + int64(len(page.Items))}
 		raw, err := json.Marshal(page)
 		if err != nil {
-			_ = rows.Close()
 			return page, err
 		}
 		if len(raw) > maxBytes {

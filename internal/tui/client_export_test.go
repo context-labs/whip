@@ -46,10 +46,12 @@ func (h *exportTestHost) HistoryPage(_ context.Context, p daemon.HistoryPagePara
 	}
 	return page, nil
 }
+
 func (h *exportTestHost) ReadContent(_ context.Context, p protocol.ContentReadParams) (protocol.ContentReadResult, error) {
 	end := min(len(h.data), int(p.Offset)+p.Limit)
 	return protocol.ContentReadResult{Data: h.data[p.Offset:end], Content: protocol.ContentHandle{ReferenceID: h.body.ReferenceID, Digest: h.body.Digest, Size: h.body.Size}}, nil
 }
+
 func TestFullExportPagesAndResolvesLargeChildBody(t *testing.T) {
 	data, _ := json.Marshal(llm.Message{Role: "assistant", Content: strings.Repeat("complete", 20000)})
 	digest := sha256.Sum256(data)
@@ -70,6 +72,7 @@ func TestFullExportPagesAndResolvesLargeChildBody(t *testing.T) {
 		t.Fatal("export permissions")
 	}
 }
+
 func TestFullExportRevisionFailurePreservesExistingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "transcript.md")
 	if err := os.WriteFile(path, []byte("previous"), 0o600); err != nil {
@@ -87,6 +90,7 @@ func TestFullExportRevisionFailurePreservesExistingFile(t *testing.T) {
 		t.Fatal("temporary export leaked")
 	}
 }
+
 func TestOversizedStreamIsExplicitlyMarked(t *testing.T) {
 	m := &model{width: 80, height: 24}
 	handled, _ := m.applyClientStream("stream.text", []byte(`{"truncated":true,"content":{"reference_id":"ref"}}`))

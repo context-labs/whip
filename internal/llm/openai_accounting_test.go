@@ -82,8 +82,8 @@ func TestUsageFieldsFailIndependentlyAcrossTransports(t *testing.T) {
 		reported      bool
 		cost          *float64
 	}{
-		{name: "malformed tokens", payload: `{"prompt_tokens":"bad","completion_tokens":1,"cost":0.02}`, cost: floatPointer(0.02)},
-		{name: "invalid token relationship", payload: `{"prompt_tokens":1,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":3},"cost":0}`, cost: floatPointer(0)},
+		{name: "malformed tokens", payload: `{"prompt_tokens":"bad","completion_tokens":1,"cost":0.02}`, cost: new(0.02)},
+		{name: "invalid token relationship", payload: `{"prompt_tokens":1,"completion_tokens":2,"prompt_tokens_details":{"cached_tokens":3},"cost":0}`, cost: new(0.0)},
 		{name: "malformed cost", payload: `{"prompt_tokens":2,"completion_tokens":1,"cost":"bad"}`, reported: true},
 		{name: "negative cost", payload: `{"prompt_tokens":2,"completion_tokens":1,"cost":-1}`, reported: true},
 	} {

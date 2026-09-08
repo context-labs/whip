@@ -3,8 +3,9 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/context-labs/whip/internal/protocol"
 	"strings"
+
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 func renderRuntimeControl(operation, output string) (string, bool, error) {

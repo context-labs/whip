@@ -1,0 +1,277 @@
+name: ci whipcode
+# Counterpart: ci.yml. Keep shared validation changes synchronized.
+
+# PR health gate: format, vet, lint, tests, build, dependency hygiene.
+# Mirrors `task check` (the pre-commit hook) plus the release workflow's
+# Swift driver build, so a PR can't break the next tag's release.
+#
+# The work is split across jobs that run on separate runners, so wall-clock is
+# the slowest job rather than the sum of every step. `go` is a required status
+# check (repo ruleset), so it stays — as the gate that fails unless every
+# parallel job succeeded. Add a new job to `go`'s `needs` when you add one,
+# or its failures won't block a merge.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # setup-go's own cache keys on go.sum alone, so once it exists it never
+      # refreshes — every run recompiles from whatever was cached the first
+      # time. Key on the sources too, with a prefix restore-key, so each run
+      # starts from the nearest previous compile and saves an updated cache.
+      - name: Go build cache (lint)
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: gobuild-lint-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: gobuild-lint-${{ runner.os }}-
+
+      - name: gofmt -s (matches task check)
+        run: |
+          unformatted=$(gofmt -s -l .)
+          if [ -n "$unformatted" ]; then
+            echo "needs gofmt -s:"; echo "$unformatted"; exit 1
+          fi
+
+      # Kept alongside golangci-lint's govet: the two run overlapping but not
+      # identical analyzer sets, and here it costs no extra wall-clock.
+      - name: go vet
+        run: go vet ./...
+
+      # Custom analyzer: catches a synchronous tea.Program.Send reachable from
+      # the TUI event loop (the frozen-ctrl+p deadlock). No off-the-shelf
+      # linter covers it; it lives in ./cmd/whipvet.
+      - name: whipvet (TUI deadlock analyzer)
+        run: go run ./cmd/whipvet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          # Pinned: "latest" is a moving target and older releases can't parse
+          # Go 1.27 export data. Bump deliberately alongside the Go toolchain.
+          # The enabled linters live in .golangci.yml (repo source of truth).
+          version: v2.13.1
+
+      - name: go mod tidy is a no-op
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || { echo "run \`go mod tidy\` and commit"; exit 1; }
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # internal/browser e2e tests need a Chromium sandbox and internal/tui
+      # tests need a tty — neither exists on hosted runners. Same portable
+      # set the release gate runs; the full suite stays local (task test).
+      # -race catches data races; -shuffle=on randomizes test order to catch
+      # inter-test dependencies a contributor might introduce. Coverage is
+      # recorded so the gate below can fail the PR if it drops.
+      # See the note in the lint job: the -race + -coverpkg objects are the
+      # expensive part of this job and setup-go's go.sum-keyed cache never
+      # refreshes to hold them.
+      - name: Go build cache (race + coverage objects)
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: gobuild-test-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: gobuild-test-${{ runner.os }}-
+
+      - name: go test (portable set, with coverage)
+        run: |
+          mapfile -t packages < <(go list ./... | grep -v -e /internal/browser -e /internal/tui)
+          go test -race -shuffle=on \
+            -coverprofile=cover.out -coverpkg="$(IFS=,; echo "${packages[*]}")" "${packages[@]}"
+
+      # Self-contained coverage floor — no external service or token, so it
+      # works without a service credential. The gate fails if total statement
+      # coverage drops below the floor. Ratchet the floor up
+      # over time as coverage improves (don't lower it).
+      - name: coverage floor (90%)
+        run: |
+          total=$(go tool cover -func=cover.out | awk '/^total:/ {gsub("%","",$3); print $3}')
+          echo "total coverage: ${total}%"
+          awk -v t="$total" -v floor=90 'BEGIN { if (t+0 < floor) { printf "coverage %.1f%% is below the %d%% floor\n", t, floor; exit 1 } }'
+
+  # Each GOOS/GOARCH compiles its own copy of the standard library and shares
+  # no build cache with the others, and `go build` already saturates a
+  # runner's cores on one target — so the four get a runner each rather than
+  # taking turns. `needs: [build]` waits for every leg.
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [linux/amd64, linux/arm64, darwin/amd64, darwin/arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Per-target: each GOOS/GOARCH has its own standard-library objects, so
+      # they get their own cache rather than evicting each other.
+      - name: Go build cache (${{ matrix.target }})
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build
+          key: gobuild-${{ matrix.target }}-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
+          restore-keys: gobuild-${{ matrix.target }}-${{ runner.os }}-
+
+      - name: Cross-compile check (${{ matrix.target }})
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          GOOS=${TARGET%/*} GOARCH=${TARGET#*/} CGO_ENABLED=0 \
+            go build -trimpath -o /dev/null ./cmd/whip
+
+  # Release-only behavior needs an actual Unix runtime, not a cross-compile.
+  # Run the same deterministic daemon/kernel acceptance on Linux and macOS so
+  # socket ownership, process-group termination, cell deadlines, and worker
+  # memory enforcement are proven on both shipped operating systems.
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Daemon lifecycle and socket ownership
+        run: go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState)$'
+      - name: RLM worker containment
+        run: go test -race ./internal/rlm -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup)$'
+
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Web application and component checks
+        run: |
+          go run ./cmd/themegen -check
+          npm run check:web
+          npm run test:web
+          npm run check -w @whip/ui
+          npm run test -w @whip/ui
+          node --test scripts/pack-web.test.mjs
+          node scripts/pack-web.mjs
+          npm run build:storybook -w @whip/ui
+      - run: WHIP_SDK_RACE=1 npm run acceptance
+      - run: npm run test:package
+      - run: npx playwright install --with-deps chromium firefox
+      - run: WHIP_SDK_BROWSERS=chromium,firefox npm run test:browser
+      - run: node packages/ui/tests/browser.mjs
+      - run: node packages/ui/tests/csp.mjs
+      - run: npm run test:packed -w @whip/ui
+      - run: WHIP_WEB_BROWSERS=chromium,firefox node apps/web/scripts/browser.mjs
+      - run: node apps/web/scripts/performance.mjs
+      - run: npm run test:example
+      - name: Browser acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: whipcode-web-browser-evidence
+          if-no-files-found: ignore
+          path: |
+            /tmp/whip-web-browser-results
+            packages/ui/ui-test-results
+
+  # `go` is a required status check in the repo's ruleset, so the name has to
+  # survive the split. It is the aggregate gate: green only when lint, tests,
+  # builds, both runtime platforms, SDK, and the Swift driver all pass. if: always()
+  # makes a failed dependency report as a failure here rather than a skip.
+  go:
+    needs: [lint, test, build, runtime, driver, sdk, distribution]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: require every gate to have passed
+        run: |
+          echo "lint=${{ needs.lint.result }}"
+          echo "test=${{ needs.test.result }}"
+          echo "build=${{ needs.build.result }}"
+          echo "runtime=${{ needs.runtime.result }}"
+          echo "driver=${{ needs.driver.result }}"
+          echo "sdk=${{ needs.sdk.result }}"
+          [ "${{ needs.lint.result }}" = success ] || exit 1
+          [ "${{ needs.test.result }}" = success ] || exit 1
+          [ "${{ needs.build.result }}" = success ] || exit 1
+          [ "${{ needs.runtime.result }}" = success ] || exit 1
+          [ "${{ needs.driver.result }}" = success ] || exit 1
+          [ "${{ needs.sdk.result }}" = success ] || exit 1
+          [ "${{ needs.distribution.result }}" = success ] || exit 1
+
+  # The release pipeline builds the computer-use Swift driver on macOS and
+  # go:embeds it — build it here too so a driver-breaking change fails the
+  # PR, not the next release.
+  driver:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the whip-computer Swift driver
+        run: |
+          swift build -c release --package-path driver
+          test -s driver/.build/release/whip-computer
+
+      - name: Full build with the helper embedded
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: |
+          cp driver/.build/release/whip-computer internal/computer/bin/whip-computer
+          go build -trimpath -o /dev/null ./cmd/whip
+
+  distribution:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Installer and release selection acceptance
+        run: |
+          python3 scripts/test-install-whipcode.py
+          python3 scripts/test-publish-whipcode.py
+      - name: Compiled distribution and two-daemon isolation
+        run: python3 scripts/test-distributions.py
+      - name: Distribution-owned paths on both builds
+        run: |
+          go test ./cmd/whip ./internal/buildinfo ./internal/config ./internal/browser ./internal/browser/extrelay ./internal/computer ./internal/skills ./internal/capability -run '^TestDistribution'
+          go test -ldflags '-X github.com/context-labs/whip/internal/buildinfo.Name=whipcode' ./cmd/whip ./internal/buildinfo ./internal/config ./internal/browser ./internal/browser/extrelay ./internal/computer ./internal/skills ./internal/capability -run '^TestDistribution'

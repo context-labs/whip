@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
@@ -847,7 +849,7 @@ func (b *Browser) UploadFiles(ctx context.Context, selector string, paths []stri
 // parallel sessions never collide on SingletonLock.
 func dedicatedProfileDir(home, sessionName string) string {
 	if sessionName == "" || sessionName == "default" {
-		return filepath.Join(home, ".whip", "browser", "dedicated-profile")
+		return filepath.Join(buildinfo.Home(home), "browser", "dedicated-profile")
 	}
-	return filepath.Join(home, ".whip", "browser", "dedicated-profile-"+sessionName)
+	return filepath.Join(buildinfo.Home(home), "browser", "dedicated-profile-"+sessionName)
 }

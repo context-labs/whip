@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/session"
@@ -52,7 +54,7 @@ type daemonStatus struct {
 
 func daemonManageCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: whip daemon <status|start|stop|restart|logs>")
+		return errors.New(buildinfo.Text("usage: whip daemon <status|start|stop|restart|logs>"))
 	}
 	switch args[0] {
 	case "status":
@@ -66,7 +68,7 @@ func daemonManageCLI(args []string) error {
 	case "logs":
 		return daemonLogsCLI(args[1:])
 	default:
-		return fmt.Errorf("unknown whip daemon subcommand %q (want: status, start, stop, restart, or logs)", args[0])
+		return fmt.Errorf(buildinfo.Text("unknown whip daemon subcommand %q (want: status, start, stop, restart, or logs)"), args[0])
 	}
 }
 
@@ -79,13 +81,13 @@ func daemonRuntimePaths() (daemon.RuntimePaths, error) {
 }
 
 func daemonStatusCLI(args []string) error {
-	flags := flag.NewFlagSet("whip daemon status", flag.ContinueOnError)
+	flags := flag.NewFlagSet(buildinfo.Text("whip daemon status"), flag.ContinueOnError)
 	jsonOutput := flags.Bool("json", false, "print machine-readable status")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return errors.New("usage: whip daemon status [--json]")
+		return errors.New(buildinfo.Text("usage: whip daemon status [--json]"))
 	}
 	paths, err := daemonRuntimePaths()
 	if err != nil {
@@ -109,7 +111,7 @@ func daemonStatusCLI(args []string) error {
 
 func daemonStartCLI(args []string) error {
 	if len(args) != 0 {
-		return errors.New("usage: whip daemon start (set WHIP_NETWORK=1 for ephemeral loopback, WHIP_LISTEN for a trusted bind, WHIP_ALLOWED_ORIGINS and WHIP_ALLOWED_HOSTS for exact allowlists)")
+		return errors.New(buildinfo.Text("usage: whip daemon start (set WHIP_NETWORK=1 for ephemeral loopback, WHIP_LISTEN for a trusted bind, WHIP_ALLOWED_ORIGINS and WHIP_ALLOWED_HOSTS for exact allowlists)"))
 	}
 	paths, err := daemonRuntimePaths()
 	if err != nil {
@@ -122,7 +124,7 @@ func daemonStartCLI(args []string) error {
 	if status.State == "running" {
 		fmt.Printf("daemon already running (pid %s, build %s)\n", printablePID(status.PID), status.DaemonBuild)
 		if !status.BuildMatch {
-			fmt.Printf("warning: current CLI build is %s; run `whip daemon restart` to replace the daemon\n", version)
+			fmt.Printf(buildinfo.Text("warning: current CLI build is %s; run `whip daemon restart` to replace the daemon\n"), version)
 		}
 		return nil
 	}
@@ -176,27 +178,27 @@ func daemonRestartCLI(args []string) error {
 }
 
 func daemonLifecycleFlags(name string, args []string) (time.Duration, bool, error) {
-	flags := flag.NewFlagSet("whip daemon "+name, flag.ContinueOnError)
+	flags := flag.NewFlagSet(buildinfo.Text("whip daemon ")+name, flag.ContinueOnError)
 	timeout := flags.Duration("timeout", daemonManageTimeout, "time to wait for a clean lifecycle transition")
 	force := flags.Bool("force", false, "terminate the recorded daemon process if graceful shutdown fails")
 	if err := flags.Parse(args); err != nil {
 		return 0, false, err
 	}
 	if flags.NArg() != 0 || *timeout <= 0 {
-		return 0, false, fmt.Errorf("usage: whip daemon %s [--timeout 10s] [--force]", name)
+		return 0, false, fmt.Errorf(buildinfo.Text("usage: whip daemon %s [--timeout 10s] [--force]"), name)
 	}
 	return *timeout, *force, nil
 }
 
 func daemonLogsCLI(args []string) error {
-	flags := flag.NewFlagSet("whip daemon logs", flag.ContinueOnError)
+	flags := flag.NewFlagSet(buildinfo.Text("whip daemon logs"), flag.ContinueOnError)
 	follow := flags.Bool("f", false, "follow appended log output")
 	lines := flags.Int("n", 200, "number of lines to print")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *lines <= 0 {
-		return errors.New("usage: whip daemon logs [-f] [-n 200]")
+		return errors.New(buildinfo.Text("usage: whip daemon logs [-f] [-n 200]"))
 	}
 	paths, err := daemonRuntimePaths()
 	if err != nil {

@@ -56,6 +56,16 @@ func TestDaemonManagementLifecycle(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &status); err != nil || status.State != "running" || status.PID != os.Getpid() || !status.BuildMatch {
 		t.Fatalf("running status = %q, %+v, %v", output, status, err)
 	}
+	output = captureDaemonOutput(t, func() error { return daemonStatusCLI(nil) })
+	for _, want := range []string{"state:         running", "build match:   true", "uptime:", "socket:", "database:"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("human status omits %q: %s", want, output)
+		}
+	}
+	output = captureDaemonOutput(t, func() error { return daemonStartCLI(nil) })
+	if !strings.Contains(output, "already running") || len(daemonRuns) != 1 {
+		t.Fatalf("repeated start launched a second daemon: %q, %d", output, len(daemonRuns))
+	}
 
 	output = captureDaemonOutput(t, func() error { return daemonRestartCLI([]string{"--timeout", "5s"}) })
 	if !strings.Contains(output, "daemon restarted") || len(daemonRuns) != 2 {

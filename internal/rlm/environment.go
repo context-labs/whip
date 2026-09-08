@@ -9,6 +9,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -229,8 +230,8 @@ func directoryContains(parent, child string) bool {
 
 func promptSkillDirs(chain []string) ([]string, error) {
 	var dirs []string
-	for i := len(chain) - 1; i >= 0; i-- {
-		dirs = append(dirs, filepath.Join(chain[i], ".agents", "skills"))
+	for _, c := range slices.Backward(chain) {
+		dirs = append(dirs, filepath.Join(c, ".agents", "skills"))
 	}
 	configDirectory, err := config.Dir()
 	if err != nil {
@@ -269,7 +270,7 @@ func readProjectInstructions(path, boundary string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("project instructions %s: %w", path, err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	relative, err := filepath.Rel(boundary, path)
 	if err != nil {
 		return "", fmt.Errorf("project instructions %s: %w", path, err)

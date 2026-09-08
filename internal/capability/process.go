@@ -18,6 +18,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 var (
@@ -368,10 +370,10 @@ func allowedBaseEnvironment(name string) bool {
 	switch name {
 	case "HOME", "PATH", "SHELL", "USER", "LOGNAME",
 		"TMPDIR", "TMP", "TEMP", "LANG", "LANGUAGE",
-		"TERM", "COLORTERM", "NO_COLOR", "WHIP_HOME":
+		"TERM", "COLORTERM", "NO_COLOR":
 		return true
 	}
-	return strings.HasPrefix(name, "LC_")
+	return name == buildinfo.Env("HOME") || strings.HasPrefix(name, "LC_")
 }
 
 func (m *ProcessManager) environment(overrides map[string]string) ([]string, error) {

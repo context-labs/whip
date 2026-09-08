@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
+
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
@@ -299,7 +301,7 @@ func (m *model) startupReport() {
 	var warned bool
 	line := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
 	if m.updateLatest != "" {
-		line("update available: %s (run: whip update)", m.updateLatest)
+		line(buildinfo.Text("update available: %s (run: whip update)"), m.updateLatest)
 		warned = true
 	}
 	if b.Len() == 0 {
@@ -1420,7 +1422,7 @@ func (m *model) viewBody() string {
 
 // inputPlaceholder is the idle input hint; syncInputPlaceholder re-uses it
 // when the busy state clears so the two sites never drift.
-const inputPlaceholder = "Ask whip anything… (/ commands, tab completes)"
+var inputPlaceholder = buildinfo.Text("Ask whip anything… (/ commands, tab completes)")
 
 // syncInputPlaceholder reflects the busy state into the input's placeholder:
 // while a turn runs, typed text steers it at the next loop boundary. Called from View so it tracks

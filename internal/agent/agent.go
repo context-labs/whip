@@ -658,8 +658,10 @@ func (a *Agent) preserveModelResponse(ev Events, msg llm.Message, usage llm.Usag
 	}
 	a.appendTurnMessages(ev, msg)
 	for _, tc := range msg.ToolCalls {
-		a.appendTurnMessages(ev, llm.Message{Role: "tool", ToolCallID: tc.ID, Name: tc.Function.Name,
-			Content: "Not executed: model accounting stopped this turn."})
+		a.appendTurnMessages(ev, llm.Message{
+			Role: "tool", ToolCallID: tc.ID, Name: tc.Function.Name,
+			Content: "Not executed: model accounting stopped this turn.",
+		})
 	}
 }
 

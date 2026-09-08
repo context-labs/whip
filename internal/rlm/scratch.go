@@ -3,6 +3,7 @@ package rlm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -249,14 +250,14 @@ func (w *worker) applySnapshot(program string) RestoreReport {
 		return RestoreReport{Failed: []SkippedName{{Name: "<snapshot>", Reason: err.Error()}}}
 	}
 	if len(program) > snapshotTotalBytes {
-		return fail(fmt.Errorf("scratch snapshot exceeds size limit"))
+		return fail(errors.New("scratch snapshot exceeds size limit"))
 	}
 	var snapshot scratchSnapshot
 	if err := json.Unmarshal([]byte(program), &snapshot); err != nil {
 		return fail(fmt.Errorf("invalid scratch snapshot: %w", err))
 	}
 	if snapshot.Version != 1 {
-		return fail(fmt.Errorf("unsupported scratch snapshot version"))
+		return fail(errors.New("unsupported scratch snapshot version"))
 	}
 	data, err := decodeScratch(snapshot)
 	if err != nil {
@@ -264,17 +265,17 @@ func (w *worker) applySnapshot(program string) RestoreReport {
 	}
 	for name := range data {
 		if _, module := w.modules[name]; module {
-			return fail(fmt.Errorf("data shadows host module"))
+			return fail(errors.New("data shadows host module"))
 		}
 	}
 	helpers := map[string]scratchHelper{}
 	bad := map[string]string{}
 	for _, helper := range snapshot.Helpers {
 		if !validScratchName(helper.Name) {
-			return fail(fmt.Errorf("invalid helper binding name"))
+			return fail(errors.New("invalid helper binding name"))
 		}
 		if _, module := w.modules[helper.Name]; module {
-			return fail(fmt.Errorf("helper shadows host module"))
+			return fail(errors.New("helper shadows host module"))
 		}
 		if _, exists := data[helper.Name]; exists {
 			return fail(fmt.Errorf("duplicate scratch binding %q", helper.Name))

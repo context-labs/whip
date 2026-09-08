@@ -43,7 +43,8 @@ func TestHistorySearchUsesRawFieldsAndFrozenPages(t *testing.T) {
 	}
 	call := llm.ToolCall{ID: "call", Type: "function"}
 	call.Function.Name, call.Function.Arguments = "read", "{\"query\":\"needle\"}"
-	raw := []llm.Message{{},
+	raw := []llm.Message{
+		{},
 		{Role: "user", Content: strings.Repeat("x", 65534) + "needle\nΩ", Authored: true},
 		{Role: "assistant", ToolCalls: []llm.ToolCall{call}},
 		{Role: "tool", ToolCallID: "call", Content: "needle result"},
@@ -107,7 +108,7 @@ func TestHistoryLargeMessageReadAndSearchContinuation(t *testing.T) {
 	}
 	args := map[string]any{"seq": 1, "field": "content", "length": 8192}
 	var reconstructed strings.Builder
-	for n := 0; n < 10; n++ {
+	for range 10 {
 		result := historyCall(t, host, "history", args)
 		text := result["text"].(string)
 		if !utf8.ValidString(text) || len(text) > 8192 {
@@ -124,7 +125,7 @@ func TestHistoryLargeMessageReadAndSearchContinuation(t *testing.T) {
 	}
 	args = map[string]any{"query": "needle"}
 	seen := map[int64]bool{}
-	for n := 0; n < 10; n++ {
+	for range 10 {
 		result := historyCall(t, host, "search", args)
 		for _, match := range result["matches"].([]map[string]any) {
 			start := match["span"].(map[string]any)["start"].(int64)
@@ -163,7 +164,7 @@ func TestHistoryLargeMessageReadAndSearchContinuation(t *testing.T) {
 func TestHistoryErrorsAndMessageLimitAreExplicit(t *testing.T) {
 	store, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.invalid", ""), 1)
 	raw := []llm.Message{{}}
-	for n := 0; n < 130; n++ {
+	for range 130 {
 		raw = append(raw, llm.Message{Role: "user", Content: "no match"})
 	}
 	raw[130].Content = "find here"

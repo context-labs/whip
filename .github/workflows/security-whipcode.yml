@@ -1,0 +1,53 @@
+name: security whipcode
+# Counterpart: security.yml. Keep shared validation changes synchronized.
+
+# Same dependency and CodeQL gates as stable whip, called by branch publishing.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # Known-vulnerability scan. govulncheck only reports CVEs in code paths the
+  # project actually reaches, so it's low-noise. Fails the PR if a reachable
+  # vuln is found. Runs against the module's real dependency graph.
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      # govulncheck needs a toolchain >= the module's go directive; setup-go
+      # already selected it. GOTOOLCHAIN=local pins to that exact toolchain.
+      - name: govulncheck
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  # NOTE on gosec: it already runs as a linter inside golangci-lint (see the
+  # `go` job in ci.yml), where the repo's deliberate `//nolint:gosec // reason`
+  # suppressions are honored. A standalone gosec binary here would re-flag
+  # those same triaged findings (it reads #nosec, not //nolint) and duplicate
+  # the signal, so we don't run it twice. CodeQL below is the independent SAST
+  # pass and surfaces in the Security tab.
+
+  # Analyze this trusted branch commit; only this job may upload security results.
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: go
+          queries: security-and-quality
+      - uses: github/codeql-action/autobuild@v4
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:go/whipcode"

@@ -21,11 +21,12 @@ func TestAttentionIncludesUnopenedRootsAndPagesByIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.Exec(`UPDATE agents SET status='running' WHERE root_id=?`, rootID); err != nil {
+	if _, err := store.db.ExecContext(t.Context(), `UPDATE agents SET status='running' WHERE root_id=?`, rootID); err != nil {
 		t.Fatal(err)
 	}
 	dispatcher := capability.NewDispatcher(store, store.Workspaces(), nil)
-	if err := dispatcher.Register(capability.Registration{Operation: "write", Mutation: capability.MutationPath, Permission: true,
+	if err := dispatcher.Register(capability.Registration{
+		Operation: "write", Mutation: capability.MutationPath, Permission: true,
 		Path:    func(json.RawMessage) (string, error) { return "pending.txt", nil },
 		Handler: func(_ context.Context, _ capability.Call) (string, error) { return "unused", nil },
 	}); err != nil {
@@ -35,9 +36,11 @@ func TestAttentionIncludesUnopenedRootsAndPagesByIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = dispatcher.Dispatch(t.Context(), capability.Request{RootID: otherID, AgentID: other.AgentID, CapabilityID: other.Files.ID,
+	_, err = dispatcher.Dispatch(t.Context(), capability.Request{
+		RootID: otherID, AgentID: other.AgentID, CapabilityID: other.Files.ID,
 		CapabilityGeneration: other.Files.Generation, OperationID: "attention-permission", Operation: "write", Arguments: json.RawMessage(`{}`),
-		TraceID: "test", WorkingDirectory: filepath.Clean(cwd)})
+		TraceID: "test", WorkingDirectory: filepath.Clean(cwd),
+	})
 	if _, ok := errors.AsType[*capability.PermissionPendingError](err); !ok {
 		t.Fatalf("permission was not pending: %v", err)
 	}

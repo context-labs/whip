@@ -56,7 +56,7 @@ func sameAttachmentContent(expected protocol.ContentHandle, actual session.Conte
 
 func (s *Server) validateCommandAttachments(ctx context.Context, clientID string, params CommandParams, digest string, root *Session) (*CommandResult, error) {
 	if params.Operation != "submit" && params.Operation != "steer" && params.Operation != "agent.submit" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // no cached result and no attachment validation needed for this operation
 	}
 	var payload struct {
 		ID          string                     `json:"id"`
@@ -66,7 +66,7 @@ func (s *Server) validateCommandAttachments(ctx context.Context, clientID string
 		return nil, err
 	}
 	if len(payload.Attachments) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // no cached result and no attachments to validate
 	}
 	// A matching retry observes accepted work even if its grant was subsequently
 	// revoked. Revalidating a historical command would misreport its delivery.

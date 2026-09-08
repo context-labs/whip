@@ -1,0 +1,147 @@
+name: release whipcode
+
+# Counterpart: release.yml publishes stable whip from v* tags.
+on:
+  push:
+    branches: [whip-rlm]
+
+concurrency:
+  group: whipcode-publishing
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    if: github.repository == 'context-labs/whip' && github.ref == 'refs/heads/whip-rlm'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: echo "tag=whipcode-v0.0.$RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: metadata
+    uses: ./.github/workflows/ci-whipcode.yml
+
+  security:
+    needs: metadata
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/security-whipcode.yml
+
+  build:
+    needs: [metadata, ci, security]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            asset: whipcode-linux-x64
+            driver: false
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            asset: whipcode-linux-arm64
+            driver: false
+          - os: macos-15
+            goos: darwin
+            goarch: arm64
+            asset: whipcode-darwin-arm64
+            driver: true
+          - os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+            asset: whipcode-darwin-x64
+            driver: false
+    runs-on: ${{ matrix.os }}
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: '0'
+      RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+      ASSET: ${{ matrix.asset }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Build and package the browser application
+        run: |
+          env -u GOOS -u GOARCH npm run build:web
+          node scripts/pack-web.mjs
+          test -s internal/webassets/dist/index.html
+      - name: Build the embedded Swift driver
+        if: matrix.driver
+        run: |
+          swift build -c release --package-path driver
+          cp driver/.build/release/whip-computer internal/computer/bin/whip-computer
+          codesign --sign - --force internal/computer/bin/whip-computer
+          test -s internal/computer/bin/whip-computer
+      - name: Build distribution
+        run: |
+          mkdir -p dist/release
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=$RELEASE_TAG -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode" \
+            -o "dist/release/$ASSET" ./cmd/whip
+      - name: Smoke test the released binary and embedded web app
+        run: |
+          bin="$RUNNER_TEMP/$ASSET"
+          cp "dist/release/$ASSET" "$bin"
+          chmod +x "$bin"
+          cd "$RUNNER_TEMP"
+          test "$("$bin" --version)" = "whipcode ${RELEASE_TAG#whipcode-}"
+          export WHIPCODE_HOME="$RUNNER_TEMP/whipcode-smoke"
+          export WHIP_HOME="$RUNNER_TEMP/whip-untouched"
+          trap '"$bin" daemon stop || true' EXIT
+          WHIPCODE_NETWORK=1 "$bin" daemon start
+          web_url=$("$bin" web --no-open)
+          curl --fail --silent "$web_url" -o index.html
+          grep -q '<html' index.html
+          asset=$(python3 -c 'import re; print(re.search(r"src=\"([^\"]+\.js)\"",open("index.html").read())[1])')
+          curl --fail --silent "${web_url%/}$asset" -o app.js
+          test -s app.js
+          test -f "$WHIPCODE_HOME/config.json"
+          test ! -e "$WHIP_HOME"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: whipcode-bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/release/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    needs: [metadata, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: whipcode-bin-*
+          path: artifacts
+          merge-multiple: true
+      - name: Publish complete branch prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: context-labs/whip
+          SOURCE_SHA: ${{ github.sha }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+        run: bash scripts/publish-whipcode.sh

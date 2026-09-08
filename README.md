@@ -67,6 +67,44 @@ whip daemon logs [-f] [-n 200]
 binary. Normal stop and restart checkpoint durable state first; `--force` is
 only a fallback for an unresponsive daemon.
 
+## Whipcode branch builds
+
+Install the latest validated `whip-rlm` build alongside whip:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh | sh
+```
+
+The installer supports Linux and macOS on x64 and arm64. It requires `curl`,
+Python 3, and `sha256sum` or `shasum`; downloads are verified against the release
+checksums. Run `whipcode` to complete its independent setup.
+
+Whipcode uses `~/.whipcode/config.json` and keeps its sessions, credentials,
+browser profiles, and daemon under `~/.whipcode`. Set `WHIPCODE_HOME` to choose
+another home. It does not read `WHIP_HOME` or copy your whip configuration.
+Project/shared skills and explicitly configured external credentials remain
+available through the existing integration mechanisms.
+
+```sh
+whipcode --version
+whipcode update
+WHIPCODE_NETWORK=1 whipcode daemon start
+whipcode web
+```
+
+`whipcode update` installs into the invoked executable's directory and restarts
+only its daemon. To choose a destination or pin/roll back to an exact build:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh \
+  | WHIPCODE_BIN_DIR="$HOME/.local/bin" WHIPCODE_VERSION=whipcode-v0.0.1 sh
+```
+
+Successful pushes to `whip-rlm` publish `whipcode-v0.0.N` GitHub prereleases after
+CI and security checks. Stable whip continues to use `v*` releases. Source builds
+use `npm ci && task build:whipcode`; `task install:whipcode` installs into GOBIN
+or GOPATH/bin. These local builds report `dev` unless `WHIPCODE_VERSION` is set.
+
 ## Documentation
 
 - [Manual](docs/README.md)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -51,9 +52,7 @@ func (s *Session) attachMCP(attached map[string]mcp.ServerConfig) error {
 	// Client-supplied origin and source are descriptive. Only definitions
 	// loaded by this daemon from native WHIP configuration can confer trust.
 	servers := mcp.AttachedConfigs(attached)
-	for name, server := range mcp.FromConfigMap(cfg.MCPServers) {
-		servers[name] = server
-	}
+	maps.Copy(servers, mcp.FromConfigMap(cfg.MCPServers))
 	manager := mcp.NewManager(servers)
 	configureMCP(s, Components{MCP: manager})
 	previous := s.swapMCP(manager)

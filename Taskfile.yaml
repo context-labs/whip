@@ -22,6 +22,24 @@ tasks:
     cmds:
       - go build -ldflags "{{.LDFLAGS}}" -o whip ./cmd/whip
 
+  build:whipcode:
+    desc: Build whipcode with the web app into ./whipcode (run npm ci first)
+    deps: [web-assets]
+    vars:
+      WHIPCODE_VERSION: '{{default "dev" .WHIPCODE_VERSION}}'
+    cmds:
+      - go build -ldflags "-X main.version={{.WHIPCODE_VERSION}} -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode" -o whipcode ./cmd/whip
+
+  install:whipcode:
+    desc: Install whipcode with the web app to GOBIN or GOPATH/bin
+    deps: [build:whipcode]
+    cmds:
+      - |
+        dest=$(go env GOBIN)
+        if [ -z "$dest" ]; then dest="$(go env GOPATH)/bin"; fi
+        mkdir -p "$dest"
+        install -m 755 whipcode "$dest/whipcode"
+
   install:
     desc: Install whip with the web app to $GOPATH/bin (run npm ci first)
     deps: [web-assets]

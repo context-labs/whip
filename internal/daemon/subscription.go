@@ -4,8 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"github.com/context-labs/whip/internal/protocol"
 	"time"
+
+	"github.com/context-labs/whip/internal/protocol"
 
 	"github.com/context-labs/whip/internal/session"
 )

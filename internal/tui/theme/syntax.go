@@ -21,8 +21,10 @@ type Syntax struct{ Keyword, Type, Func, String, Number, Comment, Punct, Op colo
 // pins them.
 func (t *Theme) Syntax() Syntax {
 	s := t.spec.SyntaxColors()
-	return Syntax{Keyword: col(s.Keyword), Type: col(s.Type), Func: col(s.Function), String: col(s.String),
-		Number: col(s.Number), Comment: col(s.Comment), Punct: col(s.Punctuation), Op: col(s.Operator)}
+	return Syntax{
+		Keyword: col(s.Keyword), Type: col(s.Type), Func: col(s.Function), String: col(s.String),
+		Number: col(s.Number), Comment: col(s.Comment), Punct: col(s.Punctuation), Op: col(s.Operator),
+	}
 }
 
 // ChromaName is the registered chroma style for this theme: the user's pick

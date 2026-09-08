@@ -283,9 +283,11 @@ func (r *sdkFixtureRunner) ReplaceHistory(history []llm.Message) {
 func (r *sdkFixtureRunner) SetExternalPermissions(enabled bool) {
 	r.services.SetExternalPermissions(enabled)
 }
+
 func (r *sdkFixtureRunner) ExternalPermissionsEnabled() bool {
 	return r.services.ExternalPermissionsEnabled()
 }
+
 func (r *sdkFixtureRunner) ResolvePermission(id string, decision capability.Decision) error {
 	return r.services.ResolvePermission(id, decision)
 }

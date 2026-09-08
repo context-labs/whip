@@ -1,8 +1,9 @@
 package tui
 
 import (
-	"github.com/context-labs/whip/internal/config"
 	"testing"
+
+	"github.com/context-labs/whip/internal/config"
 )
 
 func TestHostRouteDoesNotRequireLocallyConfiguredProvider(t *testing.T) {
