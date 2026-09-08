@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
@@ -161,6 +164,31 @@ func TestStatusLineTruncatesCWDNotSpend(t *testing.T) {
 	}
 	if !strings.Contains(v, "inference") {
 		t.Errorf("provider must survive cwd truncation, got %q", v)
+	}
+}
+
+// TestStatusLineCWDTruncationDisplayWidth pins the display-width-correct math:
+// the "…" ellipsis is 3 bytes but 1 column, so a byte-budget leaks cols and the
+// final right-trim clips the spend's tail. With a long path (the worktree case)
+// the cwd must shrink to its tail so the spend — including its "tok" suffix and
+// any "last" segment — survives, and the rendered line must never exceed width.
+func TestStatusLineCWDTruncationDisplayWidth(t *testing.T) {
+	m := statusModel()
+	m.modelName = "m"
+	m.provName = "p"
+	m.agent.AddUsage(llm.Usage{PromptTokens: 20000, CompletionTokens: 900})
+	m.Update(usageMsg(llm.Usage{PromptTokens: 10000, CompletionTokens: 300}))
+	m.width = 80 // matches newGrowModel; tight once the worktree path is long
+
+	v := m.statusView()
+	if !strings.Contains(v, "last 10.0k/300 tok") {
+		t.Errorf("last-response spend (with tok suffix) must survive: %q", v)
+	}
+	if !strings.Contains(v, "20.0k/900 tok") {
+		t.Errorf("session spend must survive: %q", v)
+	}
+	if w := lipgloss.Width(ansi.Strip(v)); w > m.width {
+		t.Errorf("status line width %d exceeds terminal width %d: %q", w, m.width, v)
 	}
 }
 
