@@ -2,7 +2,7 @@
 
 Branch: `whip-rlm`
 
-Status: local implementation and validation complete; first public release verification pending.
+Status: complete. `whipcode v0.0.4` is published and the anonymous installer and public self-update are verified.
 
 Research date: 2026-09-07. Local HEAD and the remote `whip-rlm` head were
 `dd7aaa3a7f9b8c00bd4ec095b978def1c9231805` when checked. There are unrelated
@@ -295,8 +295,8 @@ read and follow `docs/frontend.md` for any app-layer edits.
 - [x] Copy and configure CI/security/release workflows and exact-SHA gates.
 - [x] Update documentation and pass the local acceptance matrix below.
 - [x] Review the implementation for correctness and unnecessary abstraction.
-- [ ] When implementation is authorized, push the completed changes to
-  `whip-rlm` and observe the first branch release through install verification.
+- [x] Push the completed changes to `whip-rlm` and verify the first published
+  branch release through the anonymous installer and public self-update.
 
 Likely touched sources, beyond the new workflow/installer/buildinfo files:
 `internal/config/config.go`, `cmd/whip/{main,update,daemon,daemon_manage,browser}.go`,
@@ -454,3 +454,27 @@ demonstrate a need for one.
 
 - The browser-render/focus synchronization passed the full Chromium and Firefox
   suites locally with GOMAXPROCS=2.
+
+## Published verification
+
+- [Release whipcode-v0.0.4](https://github.com/context-labs/whip/releases/tag/whipcode-v0.0.4),
+  source commit `5164e0415519336e310dea50d637c3fcba69cbe9`.
+- [Successful complete workflow](https://github.com/context-labs/whip/actions/runs/34187852317):
+  all CI/security gates and all four native binary/embedded-web smoke tests passed.
+  Hosted Linux coverage passed the unchanged 90% floor at 90.1%.
+- The published tag resolves to that exact commit. The release is a published
+  prerelease with four nonempty binaries, `SHA256SUMS`, and the installer.
+  Stable `/releases/latest` remained `v0.5.14`.
+- Ran the public curl installer without GitHub credentials into a temporary
+  directory with spaces. SHA-256 verification passed and `--version` reported
+  `whipcode v0.0.4`. The real daemon created `~/.whipcode/config.json` and its
+  database, and served the embedded HTML plus 2,656,987 bytes of JavaScript.
+- Public `whipcode update` downloaded and verified the released binary, replaced
+  the same installation, and advanced the daemon generation. In-place exec
+  preserves its PID; generation is the correct restart assertion. The sibling
+  `whip` executable and foreign home remained untouched. Fixture daemon stopped
+  and temporary state was removed after verification.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh | sh
+```

@@ -98,7 +98,7 @@ replace the example tag below with a published whipcode tag:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh \
-  | WHIPCODE_BIN_DIR="$HOME/.local/bin" WHIPCODE_VERSION=whipcode-v0.0.1 sh
+  | WHIPCODE_BIN_DIR="$HOME/.local/bin" WHIPCODE_VERSION=whipcode-v0.0.4 sh
 ```
 
 Successful pushes to `whip-rlm` publish `whipcode-v0.0.N` GitHub prereleases after
