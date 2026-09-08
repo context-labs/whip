@@ -15,6 +15,11 @@ const log = (scope, phase) => console.log(`[${new Date().toISOString()}] ${scope
 log('fixture', 'compiling and starting isolated daemon');
 const fixture = await startFixture();
 log('fixture', `ready at ${fixture.directory}`);
+await writeFile(join(fixture.directory, 'home', 'models.json'), JSON.stringify({
+  provider: { fetchedAt: new Date().toISOString(), models: [
+    { id: 'model' }, { id: 'replacement', reasoningEfforts: ['low', 'medium', 'high'] },
+  ] },
+}));
 const results = {};
 const axeSource = await readFile(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 const milliseconds = samples => {
@@ -182,37 +187,33 @@ try {
       await eventually(async () => (await composer.boundingBox()).height > emptyHeight + 100);
       await composer.fill('Keep this draft while changing the model');
       await eventually(async () => (await composer.boundingBox()).height === emptyHeight);
-      const modelTrigger = page.getByRole('button', { name: 'Model and reasoning', exact: true });
+      const modelTrigger = page.getByRole('button', { name: 'Model', exact: true });
       await modelTrigger.click();
-      const modelPicker = page.getByRole('dialog', { name: 'Model & reasoning', exact: true });
-      await modelPicker.getByRole('combobox', { name: 'Model', exact: true }).fill('replacement');
-      await modelPicker.getByLabel('Provider', { exact: true }).fill('provider');
-      await modelPicker.getByRole('button', { name: 'Apply model', exact: true }).click();
+      const modelSearch = page.getByRole('textbox', { name: 'Search models', exact: true });
+      await modelSearch.fill('replacement');
+      await page.getByRole('option', { name: 'replacement', exact: true }).click();
       await eventually(async () => (await session.snapshot()).meta.model === 'replacement', { description: 'composer model selection reaches the host' });
-      await modelPicker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click();
-      await page.getByRole('option', { name: 'medium', exact: true }).click();
-      await modelPicker.getByRole('button', { name: 'Apply effort', exact: true }).click();
+      await modelSearch.waitFor({ state: 'hidden' });
+      const effortTrigger = page.getByRole('button', { name: 'Reasoning effort', exact: true });
+      await effortTrigger.click();
+      await page.getByRole('option', { name: 'Medium', exact: true }).click();
       await eventually(async () => (await session.snapshot()).meta.effort === 'medium');
       await page.screenshot({ path: join(resultsDirectory, `${name}-model-picker.png`) });
-      await page.keyboard.press('Escape');
-      await modelPicker.waitFor({ state: 'hidden' });
       await eventually(async () => (await modelTrigger.innerText()).includes('replacement'));
       assert.equal(await composer.inputValue(), 'Keep this draft while changing the model');
       assert.equal((await session.snapshot()).messages?.length ?? 0, 0, 'Changing models submitted the message draft');
       await page.reload(); await ready(page);
       assert.ok((await modelTrigger.innerText()).includes('replacement'));
       assert.equal(await composer.inputValue(), 'Keep this draft while changing the model');
-      checks.push('composer grows and shrinks, model/effort apply explicitly, and draft/model survive reload');
+      checks.push('composer grows and shrinks, model/effort selections apply, and draft/model survive reload');
 
       progress('stream grouping, theme switch and reload');
       await send(page, 'hold:tool-stream');
       await eventually(async () => (await page.locator('[data-message-id^="live-tool:"]').count()) === 2, { description: 'two cumulative tool rows' });
       assert.equal(await page.locator('[data-message-id^="live:"]').count(), 1, 'Text deltas must append to one live row');
       const tools = page.locator('[data-message-id^="live-tool:"]');
-      await modelTrigger.click();
-      assert.equal(await modelPicker.getByRole('button', { name: 'Apply model', exact: true }).isEnabled(), false);
-      assert.equal(await modelPicker.getByRole('button', { name: 'Apply effort', exact: true }).isEnabled(), false);
-      await modelTrigger.click(); await modelPicker.waitFor({ state: 'hidden' });
+      assert.equal(await modelTrigger.isEnabled(), false);
+      assert.equal(await effortTrigger.isEnabled(), false);
       for (let index = 0; index < 2; index++) {
         await tools.nth(index).locator('summary').click();
         const text = await tools.nth(index).innerText();
@@ -429,15 +430,15 @@ try {
       progress('phone stops turn from another client');
       // Daemon completion precedes the browser's replay. Retire the previous
       // turn's control before admitting new work so this clicks the new target.
-      await phone.getByRole('button', { name: 'Stop this turn', exact: true }).waitFor({ state: 'hidden' });
+      await phone.getByRole('button', { name: 'Pause this turn', exact: true }).waitFor({ state: 'hidden' });
       const remoteTurn = session.submit({ text: `hold:phone-stop-${name}` });
       stoppingCommand = remoteTurn;
       await remoteTurn.accepted({ signal: AbortSignal.timeout(15_000) });
       const expectedTurn = await eventually(async () => (await session.snapshot()).active_turns[rootId], { description: 'new remote turn is active before phone cancellation' });
-      await phone.getByRole('button', { name: 'Stop this turn', exact: true }).click();
+      await phone.getByRole('button', { name: 'Pause this turn', exact: true }).click();
       await eventually(() => phoneObserved.requests.some(item => item.method === 'command.submit' && item.params.operation === 'cancel' && item.params.payload.turn_id === expectedTurn), { description: 'phone submits cancellation for the new exact turn' });
       assert.equal((await remoteTurn.result({ signal: AbortSignal.timeout(15_000) })).status, 'cancelled');
-      await phone.getByRole('button', { name: 'Stop this turn', exact: true }).waitFor({ state: 'hidden' });
+      await phone.getByRole('button', { name: 'Pause this turn', exact: true }).waitFor({ state: 'hidden' });
       checks.push('touch viewport submits, denies permission, and stops a turn begun by another client');
       progress('phone accessibility');
       await accessible(phone, 'phone conversation');
@@ -450,7 +451,7 @@ try {
     } catch (error) {
       log(name, `FAILED during ${phase}: ${error.stack ?? error}`);
       const pendingCommand = stoppingCommand ? await stoppingCommand.status({ signal: AbortSignal.timeout(3_000) }).catch(error => ({ lookupError: String(error) })) : undefined;
-      const stopControls = await activePage.evaluate(() => [...document.querySelectorAll('button')].filter(button => button.textContent.includes('Stop this turn')).map(button => ({ text: button.textContent, disabled: button.disabled, visible: !!button.getClientRects().length }))).catch(error => ({ readError: String(error) }));
+      const stopControls = await activePage.evaluate(() => [...document.querySelectorAll('button')].filter(button => button.getAttribute('aria-label') === 'Pause this turn').map(button => ({ text: button.textContent, disabled: button.disabled, visible: !!button.getClientRects().length }))).catch(error => ({ readError: String(error) }));
       results[name] = { passed: false, phase, checks, pendingCommand, stopControls, error: String(error), cause: error.cause ? String(error.cause) : undefined, stack: error.stack, browserErrors: observations.flatMap(item => item.errors), rpcErrors: observations.flatMap(item => item.rpcErrors), recentRequests: observations.flatMap(item => item.requests.slice(-20)).map(item => ({ method: item.method, operation: item.params?.operation, commandId: item.params?.command_id, turnId: item.params?.payload?.turn_id, text: item.params?.payload?.text })) };
       await activePage.screenshot({ path: join(resultsDirectory, `${name}-failure.png`), fullPage: true, timeout: 5_000 }).catch(() => {});
       await writeFile(join(resultsDirectory, `${name}-failure.txt`), await activePage.locator('body').innerText({ timeout: 5_000 }).catch(() => 'Page unavailable'));

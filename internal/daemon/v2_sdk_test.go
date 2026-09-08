@@ -34,6 +34,9 @@ func TestV2SDKBridge(t *testing.T) {
 	if directory == "" {
 		t.Skip("started by packages/sdk/scripts/fixture.mjs")
 	}
+	// Keep config/catalog state beside the fixture database across restarts;
+	// package TestMain otherwise selects a new disposable home for each process.
+	t.Setenv("WHIP_HOME", filepath.Join(directory, "home"))
 	paths, err := Paths(filepath.Join(directory, "home"))
 	if err != nil {
 		t.Fatal(err)

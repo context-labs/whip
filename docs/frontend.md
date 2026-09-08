@@ -385,10 +385,11 @@ revision checks; display conflicts instead of overwriting newer settings.
 The composer is a compact, theme-derived surface with an automatically growing
 textarea (40–220 px), accessible recipient label, attachment/context actions,
 model/effort trigger, permission-mode toggle, and Send. It omits a visible
-heading and shortcut hints. `model-selection.tsx` shares the inspector's
-explicit model and reasoning actions with a composer popover. Catalog reads
-mount only while the picker is open and share the host-scoped provider-catalog
-query. Root changes require an idle session; child composers display their own
+heading and shortcut hints. `model-selection.tsx` provides separate model and
+reasoning popovers that apply the selected option immediately; the inspector
+retains explicit Apply actions and exact model/provider entry. The controls
+share the host-scoped provider-catalog query while connected. Root changes
+require an idle session, including options in an already-open popover; child composers display their own
 model without changing the root. `permission-mode.tsx` toggles the root
 session's consent mode (`permission.mode` with `external_permissions`) from a
 composer popover. The mode is runner state, not durable: the daemon reports it

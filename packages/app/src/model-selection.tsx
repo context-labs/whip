@@ -69,6 +69,7 @@ export function EffortPicker({ view, root, connected }: ModelProps) {
     </Button>}>
     {open && <div {...stylex.props(styles.menu)} role="listbox" aria-label="Reasoning effort" aria-activedescendant={current}>
       {levels.map(level => <button key={level} id={level} role="option" aria-selected={level === current}
+        disabled={!connected || !idle}
         {...stylex.props(styles.menuItem, level === current && styles.optionActive)}
         onClick={() => {
           setOpen(false);
@@ -122,7 +123,7 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
     runtime.run(view.session.setModel(name, provider), 'Change model').catch(error => runtime.report(error));
   };
   return <Popover open={open} onOpenChange={setOpen} xstyle={styles.popupWide}
-    trigger={<Button variant="ghost" aria-label="Model" disabled={!connected}
+    trigger={<Button variant="ghost" aria-label="Model" disabled={!connected || !idle}
       title={`${root.meta.model || 'Model unavailable'}${root.meta.provider ? ` · ${root.meta.provider}` : ''}`}
       xstyle={styles.trigger}>
       <Sparkles size={14} {...stylex.props(styles.chevron)} />
@@ -141,6 +142,7 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
           {catalog.isLoading && <p role="status" {...stylex.props(styles.listMeta)}>Loading models…</p>}
           {!catalog.isLoading && !filtered.length && <p {...stylex.props(styles.listMeta)}>No matching models</p>}
           {ordered.slice(0, 200).map(name => <button key={name} id={name} role="option" aria-selected={name === root.meta.model}
+            disabled={!connected || !idle}
             {...stylex.props(styles.option, name === highlighted && styles.optionActive)}
             onMouseEnter={event => {
               setHighlighted(name);

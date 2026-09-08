@@ -418,3 +418,21 @@ demonstrate a need for one.
 
 - Final portable `go test -race -shuffle=on` completed successfully at **90.2%**
   total statement coverage, preserving the inherited 90% floor and exclusions.
+
+- First hosted run passed lint, security, all cross-builds, both runtime and
+  distribution platforms, and the Swift driver. Its portable race suite exposed
+  a five-second fixture wait on the three-megabyte shell-output test. The fixture
+  now allows instrumentation overhead and kills the job if its wait expires;
+  all output, timeout, and process-lifecycle assertions remain in place.
+
+- The same hosted run exposed stale browser selectors for the branch’s separate
+  model/effort controls and renamed pause action. Browser acceptance now follows
+  those controls, seeds a fixture catalog, and retains draft, host persistence,
+  busy-state, and exact-turn cancellation assertions. The model picker now
+  disables changes while a turn is active, matching the existing root policy.
+  SDK fixture config/catalog files share its persistent temporary home.
+
+- Repaired browser acceptance passed all Chromium and Firefox checks, including
+  mobile cancellation and daemon restart recovery. Web types and 166 unit tests,
+  28 race-enabled SDK acceptance tests, and the web performance suite passed.
+  The shell-job suite passed five instrumented repetitions with GOMAXPROCS=2.

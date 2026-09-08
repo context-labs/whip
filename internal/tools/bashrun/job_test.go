@@ -13,7 +13,10 @@ func waitJob(t *testing.T, job *Job) {
 	t.Helper()
 	select {
 	case <-job.Done():
-	case <-time.After(5 * time.Second):
+	// The bounded-output case copies megabytes under race and whole-program
+	// coverage instrumentation; shared CI runners need more than five seconds.
+	case <-time.After(30 * time.Second):
+		_ = job.Kill()
 		t.Fatal("job did not finish")
 	}
 }
