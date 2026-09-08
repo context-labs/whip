@@ -349,6 +349,7 @@ func (m *model) modelPickerView() string {
 	var rows []string
 	rows = append(rows, "  "+botStyle.Render("/")+p.filter.query+dimStyle.Render("▏"))
 	lastModel := ""
+	selRow := 0 // actual row of the selection (headings shift it past idx+1)
 	for i, it := range view {
 		heading := " " + it.model
 		if it.fromCatalog {
@@ -367,6 +368,7 @@ func (m *model) modelPickerView() string {
 			line = dimStyle.Render(line)
 		}
 		if i == p.idx {
+			selRow = len(rows)
 			rows = append(rows, botStyle.Render("   → "+line)+cur)
 		} else {
 			rows = append(rows, "     "+line+cur)
@@ -386,11 +388,14 @@ func (m *model) modelPickerView() string {
 	for len(rows) < avail {
 		rows = append(rows, "")
 	}
-	if len(rows) > avail { // small terminals: keep the selection visible
-		// selection row = query line (1) + headings so far; approximate with idx+1
-		sel := p.idx + 1
-		start := max(min(sel-2, len(rows)-avail), 0)
-		rows = rows[start : start+avail]
+	if len(rows) > avail { // keep the query line, the selection, and the footer visible
+		footer := 1
+		if len(p.staleHints) > 0 {
+			footer = 2
+		}
+		body := rows[1 : len(rows)-footer]
+		lo, hi := ocWindow(len(body), selRow-1, max(avail-1-footer, 1))
+		rows = append(append([]string{rows[0]}, body[lo:hi]...), rows[len(rows)-footer:]...)
 	}
 	return strings.Join(rows, "\n")
 }

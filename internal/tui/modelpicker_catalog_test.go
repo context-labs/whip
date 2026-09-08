@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -216,5 +217,36 @@ func TestEndpointLabelNamesCodexSubscription(t *testing.T) {
 	}
 	if got := endpointLabel("https://openrouter.ai/api/v1"); got != "https://openrouter.ai/api/v1" {
 		t.Fatalf("other URLs pass through, got %q", got)
+	}
+}
+
+// Scrolling deep into a long list keeps the selected route on screen: the
+// window tracks the real selection row (headings shift it), and the query
+// line and footer stay visible.
+func TestModelPickerKeepsSelectionVisibleWhenScrolling(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	cfg := &config.Config{Providers: map[string]config.Provider{"p": {}}, Models: map[string]config.Model{}}
+	var many []config.ModelInfoLite
+	for i := range 300 {
+		many = append(many, config.ModelInfoLite{ID: fmt.Sprintf("vendor/model-%03d", i)})
+	}
+	if err := config.SaveCatalogs(map[string]config.Catalog{"p": {FetchedAt: time.Now(), Models: many}}); err != nil {
+		t.Fatal(err)
+	}
+	m := &model{cfg: cfg, height: 30, width: 100}
+	m.openModelPicker(false)
+	for range 150 {
+		m.mpicker.idx++
+	}
+	view := m.modelPickerView()
+	lines := strings.Split(view, "\n")
+	if len(lines) > 29 {
+		t.Fatalf("picker should fit the terminal, got %d lines", len(lines))
+	}
+	if !strings.Contains(view, "→") || !strings.Contains(view, "vendor/model-150") {
+		t.Fatalf("selection must stay visible after scrolling:\n%s", view)
+	}
+	if !strings.Contains(lines[0], "/") || !strings.Contains(view, "type to filter") {
+		t.Fatalf("query line and footer must stay visible:\n%s", view)
 	}
 }
