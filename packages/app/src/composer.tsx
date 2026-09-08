@@ -47,7 +47,7 @@ const styles = stylex.create({
     backgroundColor: { default: 'transparent', ':hover': 'transparent' },
     outline: { default: 'none', ':focus-visible': 'none' },
   },
-  toolbar: { display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 },
+  toolbar: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, minWidth: 0 },
   delivery: { alignSelf: 'flex-start', maxWidth: '100%' },
   send: { borderRadius: '50%', width: { default: 32, [scale.touch]: 44 }, paddingInline: 0 },
   hint: {

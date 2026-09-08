@@ -652,10 +652,30 @@ export interface HostAttentionResult {
                 | {
                     label: string;
                     description?: string;
+                    recommended?: boolean;
                   }[];
               multiple?: boolean;
+              questions?:
+                | null
+                | {
+                    question: string;
+                    options?:
+                      | null
+                      | {
+                          label: string;
+                          description?: string;
+                          recommended?: boolean;
+                        }[];
+                    multiple?: boolean;
+                  }[];
               answer?: null | string[];
               dismissed?: boolean;
+              answers?:
+                | null
+                | {
+                    answer?: null | string[];
+                    dismissed?: boolean;
+                  }[];
             }[];
         truncated: boolean;
       }[];
@@ -812,10 +832,30 @@ export interface LifecycleEvent {
     | {
         label: string;
         description?: string;
+        recommended?: boolean;
       }[];
   multiple?: boolean;
+  questions?:
+    | null
+    | {
+        question: string;
+        options?:
+          | null
+          | {
+              label: string;
+              description?: string;
+              recommended?: boolean;
+            }[];
+        multiple?: boolean;
+      }[];
   answer?: null | string[];
   dismissed?: boolean;
+  answers?:
+    | null
+    | {
+        answer?: null | string[];
+        dismissed?: boolean;
+      }[];
 }
 
 export interface ListParams {
@@ -1210,6 +1250,12 @@ export interface QuestionAnswerParams {
   id: string;
   answer: null | string[];
   dismissed: boolean;
+  answers?:
+    | null
+    | {
+        answer?: null | string[];
+        dismissed?: boolean;
+      }[];
 }
 
 export interface RPCError {
@@ -1893,10 +1939,30 @@ export interface RootSnapshot {
           | {
               label: string;
               description?: string;
+              recommended?: boolean;
             }[];
         multiple?: boolean;
+        questions?:
+          | null
+          | {
+              question: string;
+              options?:
+                | null
+                | {
+                    label: string;
+                    description?: string;
+                    recommended?: boolean;
+                  }[];
+              multiple?: boolean;
+            }[];
         answer?: null | string[];
         dismissed?: boolean;
+        answers?:
+          | null
+          | {
+              answer?: null | string[];
+              dismissed?: boolean;
+            }[];
       }[];
   permission_mode?: string;
 }

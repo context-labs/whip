@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -31,14 +32,17 @@ func TestQuestionSnapshotCursorMatchesPendingState(t *testing.T) {
 	for range 12 {
 		asked := make(chan error, 1)
 		go func() {
-			_, _, err := root.AskUser(ctx, rootID, "Continue?", []session.QuestionOption{{Label: "yes"}}, false)
+			_, err := root.AskUser(ctx, rootID, []session.QuestionSet{{Question: "Continue?", Options: []session.QuestionOption{{Label: "yes"}}}})
 			asked <- err
 		}()
 		question, seq := waitQuestionEvent(t, store, rootID, "question.pending", cursor)
 		cursor = seq
 		// Take snapshots while an answer commits on another goroutine.
 		answer := make(chan error, 1)
-		go func() { _, err := root.answerQuestion(ctx, question.QuestionID, []string{"yes"}, false); answer <- err }()
+		go func() {
+			_, err := root.answerQuestion(ctx, question.QuestionID, protocol.QuestionAnswerParams{ID: question.QuestionID, Answer: []string{"yes"}})
+			answer <- err
+		}()
 		for range 4 {
 			snapshot, err := root.SnapshotView(ctx)
 			if err != nil {

@@ -18,6 +18,7 @@ export const styles = stylex.create({
   selected: { backgroundColor: { default: colors.hover, ':hover': colors.hover }, color: colors.foreground },
   sessionLink: { display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, height: '100%', gap: 8, paddingInline: 10, color: 'inherit', textDecoration: 'none', borderRadius: 6, lineHeight: '18px' },
   indicator: { display: 'flex', alignItems: 'center', width: 12, flexShrink: 0 },
+  attention: { color: colors.warning },
   title: { display: 'block' },
   sessionMenu: { opacity: { default: 0, [stylex.when.ancestor(':hover', sessionMarker)]: 1, [stylex.when.ancestor(':focus-within', sessionMarker)]: 1, ':is([aria-expanded="true"])': 1, [scale.touch]: 1 } },
   caret: { display: 'flex', flexShrink: 0, opacity: { default: 0, [stylex.when.ancestor(':hover', directoryMarker)]: 1, [stylex.when.ancestor(':focus-within', directoryMarker)]: 1, [scale.touch]: 1 } },

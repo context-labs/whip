@@ -256,7 +256,8 @@ func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool
 		if os.Getenv("WHIP_WEB_PERF_FIXTURE") == "1" && input == "hold:performance-stream" {
 			streamSDKPerformance(ctx, r.root)
 		}
-		if input == "hold:tool-stream" {
+		refreshFixture := strings.HasPrefix(input, "hold:tool-stream-refresh-")
+		if input == "hold:tool-stream" || refreshFixture {
 			// Interleave calls so the supervisor cannot coalesce all updates before
 			// they reach the SDK. These payloads are cumulative, not deltas.
 			for _, args := range []string{`{"code":"print(`, `{"code":"print(1)"}`} {
@@ -270,6 +271,18 @@ func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool
 				for _, id := range []string{"tool-a", "tool-b"} {
 					r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
 						kind: "stream.tool.output", event: StreamEvent{ID: id, Text: output},
+					}})
+				}
+			}
+			if refreshFixture {
+				r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+					kind: "stream.tool.completed", event: StreamEvent{ID: "tool-a", Result: "completed before snapshot"},
+				}})
+				// Push the earlier text and completed tool beyond the snapshot's
+				// 128-event window while the same turn remains active.
+				for range 160 {
+					r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+						kind: "stream.usage", event: StreamEvent{},
 					}})
 				}
 			}

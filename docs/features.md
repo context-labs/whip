@@ -236,9 +236,14 @@ trusted-network setup and current browser evidence.
   keeps every cell seen during the TUI session, even after snapshots drop
   idle children.
 - `user.ask` from the root agent opens a floating dialog over the dimmed
-  session: the question, the numbered options with their descriptions, and
-  key hints. ↑↓ (j/k) move, 1–6 jump, space toggles when several answers are
-  allowed, enter answers, esc dismisses. The dialog stays up until the daemon
+  session: the question, the numbered options with their descriptions (a ★
+  marks the agent's recommended option), and key hints. ↑↓ (j/k) move,
+  1–6 jump, space toggles when several answers are allowed, enter answers,
+  esc dismisses. A batched ask (`user.ask(questions=[...])`) pages: the title
+  reads "Question 2/4", enter answers and advances, tab/→ next,
+  shift+tab/← back, s skips the page, / types a written response, and the
+  last page's enter submits the batch; the transcript line notes
+  "answered 3/4". The dialog stays up until the daemon
   records the answer (it may come from another client), then a dim transcript
   line notes what was chosen.
 - The frame has a one-row margin above the columns and a two-row footer band

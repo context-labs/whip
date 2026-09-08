@@ -5,12 +5,14 @@ import { useWhipConnection, useSessionListView } from '@whip/sdk/react';
 import type { WhipClient } from '@whip/sdk';
 import type { DeepReadonly, SessionListView } from '@whip/sdk/state';
 import type { SessionCatalogPage } from '@whip/protocol';
-import { Button, IconButton, Menu, ContextMenu } from '@whip/ui';
-import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Button, IconButton, Menu, ContextMenu, Spinner } from '@whip/ui';
+import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquareWarning } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { styles, sessionMarker, directoryMarker } from './session-sidebar.stylex';
 import { layout } from './styles';
 import { useAppState, useRuntime, useSessionTabs } from './context';
+import { sessionBusy, sessionNeedsInput } from './session-status';
 import { sidebarRows, setDirectoryCollapsed, type SidebarState } from './sidebar-state';
 import { sessionDestination } from './session-tab-routing';
 import { sessionSearch } from './session-tabs';
@@ -109,6 +111,44 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, colla
   }, [rows, touch]);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => scroll.current, estimateSize: rowHeight, overscan: 5, getItemKey: index => rows[index]!.key });
   const visibleRows = virtual.getVirtualItems();
+  const ids = useMemo(() => visibleRows.flatMap(item => {
+    const row = rows[item.index];
+    return row?.kind === 'session' ? [row.session.id] : [];
+  }).sort(), [visibleRows, rows]);
+  const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
+  useEffect(() => { const change = () => setVisible(document.visibilityState !== 'hidden'); document.addEventListener('visibilitychange', change); return () => document.removeEventListener('visibilitychange', change); }, []);
+  const supported = connection.info?.negotiated_capabilities?.includes('session_summaries') ?? false;
+  const summaries = useQuery({
+    queryKey: ['session-sidebar-summaries', runtimeId, ids],
+    queryFn: async ({ signal }) => {
+      const items = [];
+      for (let offset = 0; offset < ids.length; offset += 32) {
+        const page = await client.sessions.summaries(ids.slice(offset, offset + 32), { signal });
+        items.push(...page.items);
+      }
+      return { items };
+    },
+    enabled: visible && connection.state === 'connected' && supported && ids.length > 0,
+    refetchInterval: visible && connection.state === 'connected' ? 2000 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+    gcTime: 0,
+  });
+  const activity = new Map(summaries.data?.items.map(item => [item.root_id, item]));
+  const activityStale = !supported || connection.state !== 'connected' || !!summaries.error;
+  useEffect(() => {
+    if (!visible || connection.state !== 'connected' || !supported || !ids.length) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const off = client.onEvent(event => {
+      if (!ids.includes(event.root_id) || !/^(?:turn\.|agent\.(?:turn\.|admitted|prompt\.queued|subtree\.)|root\.|permission\.|question\.)/.test(event.kind) || timer) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        void runtime.queries.invalidateQueries({ queryKey: ['session-sidebar-summaries', runtimeId] });
+      }, 250);
+    });
+    return () => { off(); clearTimeout(timer); };
+  }, [client, connection.state, ids, runtime, runtimeId, supported, visible]);
   // Virtual rows can move beneath a stationary pointer during scroll or refresh.
   useLayoutEffect(() => {
     setHoveredDirectory(scroll.current?.querySelector<HTMLElement>('[data-sidebar-cwd]:hover')?.dataset.sidebarCwd);
@@ -172,7 +212,10 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, colla
                 try { runtime.tabs.open(runtimeId, session.id, session.title); onNavigate(); }
                 catch (error) { event.preventDefault(); runtime.report(error); }
               }} {...stylex.props(styles.sessionLink)}>
-              <span {...stylex.props(styles.indicator)}>{session.pinned ? <Pin size={12} aria-label="Pinned" /> : <Circle size={5} aria-hidden="true" />}</span>
+              <span {...stylex.props(styles.indicator)}>{session.pinned ? <Pin size={12} aria-label="Pinned" />
+                : sessionNeedsInput(activity.get(session.id), activityStale) ? <MessageSquareWarning size={12} {...stylex.props(styles.attention)} aria-label="Needs your input" />
+                : sessionBusy(activity.get(session.id), activityStale) ? <Spinner size={10} label="Session is busy" />
+                : <Circle size={5} aria-hidden="true" />}</span>
               <span {...stylex.props(layout.grow)}><span {...stylex.props(styles.title, layout.ellipsis)}>{session.title || 'Untitled session'}</span>
               </span>
             </Link>

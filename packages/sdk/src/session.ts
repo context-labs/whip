@@ -58,6 +58,13 @@ export class Session {
     }, options),
   };
   answerQuestion(id: string, answer: string[], dismissed = false) { return this.command('question.answer', { id, answer, dismissed }); }
+  /** Answer a batched user.ask: one entry per question, null for skipped. */
+  answerQuestions(id: string, answers: ({ answer: string[]; dismissed?: boolean } | null)[]) {
+    return this.command('question.answer', {
+      id, answer: [], dismissed: false,
+      answers: answers.map((entry) => ({ answer: entry?.answer ?? [], dismissed: entry?.dismissed ?? !entry?.answer?.length })),
+    });
+  }
   terminalInput(id: string, bytes: Uint8Array, options: CallOptions = {}) {
     return this.invoke('terminal.input', { id, bytes: encodeBase64(bytes) }, options);
   }

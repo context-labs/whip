@@ -93,6 +93,8 @@ export class SessionView {
   private started = false;
   private runtimeID?: string;
   private lastConnectionID?: string;
+  private streamConnectionID?: string;
+  private presentationGaps = new Set<string>();
   private incompatibleRuntime = false;
   private unknownSeen = false;
   private pendingBytes = 0;
@@ -138,7 +140,7 @@ export class SessionView {
     await stream?.dispose();
   }
 
-  /** Refresh keeps the last state visible until a consistent replacement is ready. */
+  /** Refresh reconciles metadata without erasing observed activity in the same turn. */
   async refresh(): Promise<void> {
     if (!this.started || this.lifetime.signal.aborted || this.incompatibleRuntime) return;
     if (this.session.client.getSnapshot().state !== 'connected') return;
@@ -241,31 +243,70 @@ export class SessionView {
   private async synchronize(): Promise<void> {
     const epoch = ++this.epoch;
     const oldStream = this.stream;
+    const continuous = !!oldStream && this.current.status === 'live'
+      && this.streamConnectionID === this.session.client.getSnapshot().info?.connection_id;
     this.stream = undefined;
-    this.set({ ...this.current, status: this.current.root ? 'stale' : 'loading' }, true);
+    this.set({ ...this.current, status: continuous ? 'live' : this.current.root ? 'stale' : 'loading' }, true);
+    // Capture after publishing so reconciliation cannot restore evicted rows.
+    const previous = continuous ? this.current.root : undefined;
     try {
       await oldStream?.dispose();
       const snapshot = await this.session.client.call('root.snapshot', { root_id: this.session.rootId }, { signal: this.lifetime.signal });
       if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
+      if (snapshot.root_id !== this.session.rootId) throw new Error('Snapshot belongs to a different root');
+      if (previous && BigInt(snapshot.cursor) < BigInt(previous.cursor)) {
+        throw new WhipError('resynchronization_required', 'Snapshot cursor moved backwards');
+      }
+      const gaps = new Set<string>();
+      const omitted = { ...snapshot.omitted };
+      const partial = !!(snapshot.omitted?.presentation || snapshot.omitted?.presentation_prefix);
+      const reconcile = (agentId: string, events?: Presentation[] | null): Presentation[] => {
+        const sameTurn = previous?.history_revision === snapshot.history_revision
+          && !!snapshot.active_turns[agentId] && previous.active_turns[agentId] === snapshot.active_turns[agentId];
+        if (sameTurn) {
+          for (const key of ['presentation', 'presentation_prefix']) {
+            if (previous.omitted?.[key]) omitted[key] = true;
+          }
+        }
+        let rows = sameTurn ? (agentId === snapshot.root_id ? previous.presentation : previous.agent_presentations?.[agentId]) ?? [] : [];
+        let cursor = sameTurn ? BigInt(previous.cursor) : 0n;
+        let gap = sameTurn && this.presentationGaps.has(agentId);
+        for (const event of events ?? []) {
+          const seq = BigInt(event.seq);
+          // Filter raw events before grouping: a grouped row keeps its FIRST seq.
+          if (seq <= cursor) continue;
+          gap ||= partial && seq !== cursor + 1n;
+          const next = appendPresentation(rows, event, !gap);
+          if (next.at(-1) !== rows.at(-1)) gap = false;
+          rows = next;
+          cursor = seq;
+        }
+        // Missing suffixes also separate the next live delta from retained text.
+        if (rows.length && (gap || (partial && cursor < BigInt(snapshot.cursor)))) gaps.add(agentId);
+        return rows;
+      };
       const root = {
         ...snapshot,
-        presentation: (snapshot.presentation ?? []).reduce(appendPresentation, [] as Presentation[]),
-        agent_presentations: Object.fromEntries(Object.entries(snapshot.agent_presentations ?? {})
-          .map(([id, events]) => [id, (events ?? []).reduce(appendPresentation, [] as Presentation[])])),
+        omitted,
+        presentation: reconcile(snapshot.root_id, snapshot.presentation),
+        agent_presentations: Object.fromEntries([...new Set([
+          ...Object.keys(previous?.agent_presentations ?? {}), ...Object.keys(snapshot.agent_presentations ?? {}),
+        ])].map(id => [id, reconcile(id, snapshot.agent_presentations?.[id])])),
       };
-      if (root.root_id !== this.session.rootId) throw new Error('Snapshot belongs to a different root');
       const stream = await this.session.client.events.subscribe(root.root_id, root.cursor, { signal: this.lifetime.signal });
       if (epoch !== this.epoch || this.lifetime.signal.aborted) { await stream.dispose(); return; }
       this.runtimeID ??= this.session.client.getSnapshot().info?.runtime_id;
       this.stream = stream;
+      this.streamConnectionID = this.session.client.getSnapshot().info?.connection_id;
+      this.presentationGaps = gaps;
       const revisionChanged = this.current.root?.history_revision !== root.history_revision;
       const history = revisionChanged ? {} : { ...this.current.history };
       const recent = (root.messages ?? []).map((message, index) => ({
         seq: root.message_seqs?.[index] ?? (root.first_message_seq ?? 1) + index, message,
       }));
       const first = recent[0]?.seq ?? 1;
-      const previous = history[root.root_id];
-      const merged = mergeMessages(previous?.messages ?? [], recent).slice(-this.maxMessages);
+      const previousHistory = history[root.root_id];
+      const merged = mergeMessages(previousHistory?.messages ?? [], recent).slice(-this.maxMessages);
       history[root.root_id] = {
         revision: root.history_revision, throughSeq: recent.at(-1)?.seq ?? 0,
         nextSeq: merged[0]?.seq ?? first, hasMore: (merged[0]?.seq ?? first) > 1 || !!root.omitted?.messages,
@@ -323,10 +364,12 @@ export class SessionView {
       }
     } else if (event.kind.startsWith('stream.')) {
       const item: Presentation = { seq: event.seq, kind: event.kind, payload: event.payload };
-      const agentId = typeof payload?.agent_id === 'string' ? payload.agent_id : '';
-      if (agentId && agentId !== root.root_id) {
-        root.agent_presentations = { ...root.agent_presentations, [agentId]: appendPresentation(root.agent_presentations?.[agentId] ?? [], item) };
-      } else root.presentation = appendPresentation(root.presentation ?? [], item);
+      const agentId = typeof payload?.agent_id === 'string' && payload.agent_id ? payload.agent_id : root.root_id;
+      const rows = (agentId === root.root_id ? root.presentation : root.agent_presentations?.[agentId]) ?? [];
+      const next = appendPresentation(rows, item, !this.presentationGaps.has(agentId));
+      if (next.at(-1) !== rows.at(-1)) this.presentationGaps.delete(agentId);
+      if (agentId !== root.root_id) root.agent_presentations = { ...root.agent_presentations, [agentId]: next };
+      else root.presentation = next;
     } else if (event.kind.startsWith('session.') && event.kind.endsWith('.updated')) {
       root.meta = {
         ...root.meta,
@@ -344,6 +387,7 @@ export class SessionView {
         const agentId = lifecycle.agent_id || root.root_id;
         root.active_turns = { ...root.active_turns };
         if (event.kind.endsWith('.started') && lifecycle.turn_id) {
+          this.presentationGaps.delete(agentId);
           root.active_turns[agentId] = lifecycle.turn_id;
           if (agentId === root.root_id) root.presentation = [];
           else root.agent_presentations = { ...root.agent_presentations, [agentId]: [] };
@@ -448,7 +492,7 @@ function mergeMessages(left: Message[], right: Message[]): Message[] {
   return [...new Map([...left, ...right].map(message => [message.seq, message])).values()].sort((a, b) => a.seq - b.seq);
 }
 
-function appendPresentation(previous: Presentation[], item: Presentation): Presentation[] {
+function appendPresentation(previous: Presentation[], item: Presentation, continuous = true): Presentation[] {
   if (item.kind === 'stream.accounting') return previous;
   const payload = (item.payload ?? {}) as StreamEvent;
   const cumulative = ['stream.tool.call', 'stream.tool.output'].includes(item.kind);
@@ -462,7 +506,7 @@ function appendPresentation(previous: Presentation[], item: Presentation): Prese
     let next: Presentation | undefined;
     // Tool arguments/output are full values so far, even when calls interleave.
     if (cumulative && payload.id) next = { ...item, seq: last.seq };
-    else if (['stream.text', 'stream.reasoning', 'stream.terminal.output'].includes(item.kind)
+    else if (continuous && ['stream.text', 'stream.reasoning', 'stream.terminal.output'].includes(item.kind)
       && typeof payload.text === 'string' && typeof lastPayload.text === 'string') {
       next = { ...last, payload: { ...payload, text: lastPayload.text + payload.text } };
     }

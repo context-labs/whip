@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -203,12 +204,12 @@ func startTestServer(path string, paths RuntimePaths, buildID string, generation
 	}
 	served := make(chan error, 1)
 	go func() { served <- server.ListenAndServe(paths) }()
-	for range 100 {
-		if _, err := os.Lstat(paths.Socket); err == nil {
+	dialer := net.Dialer{Timeout: 100 * time.Millisecond}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		// bind creates the socket before listen makes it connectable.
+		if conn, err := dialer.DialContext(context.Background(), "unix", paths.Socket); err == nil {
+			_ = conn.Close()
 			return runningServer{server: server, served: served}, nil
-		} else if !errors.Is(err, os.ErrNotExist) {
-			_ = server.Close()
-			return runningServer{}, err
 		}
 		time.Sleep(time.Millisecond)
 	}

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useWhipConnection } from '@whip/sdk/react';
 import type { WhipClient } from '@whip/sdk';
-import type { SessionSummariesResult } from '@whip/protocol';
+import { sessionBusy, sessionNeedsInput, summaryDescription, type SessionNavigationSummary } from './session-status';
 import { Button, ContextMenu, IconButton, Input, Menu, Sheet, type MenuItem } from '@whip/ui';
 import { WorkspaceTabs, workspaceTabId } from '@whip/ui/workspace-tabs';
 import { WorkspaceLayout, workspacePanelId, type WorkspaceDrop } from '@whip/ui/workspace-layout';
@@ -18,19 +18,10 @@ import { sessionDestination } from './session-tab-routing';
 import { layout } from './styles';
 
 export interface SessionTabActions { next(offset: -1 | 1): void; close(): void; reopen(): void; showPicker(): void }
-type SessionNavigationSummary = SessionSummariesResult['items'][number];
-export function summaryDescription(item?: SessionNavigationSummary, stale = false) {
-  if (!item || stale) return 'Activity unavailable';
-  if (item.missing) return 'Session unavailable';
-  const needs = BigInt(item.pending_permissions) + BigInt(item.pending_questions);
-  if (needs > 0n) return `${needs} ${needs === 1n ? 'request needs' : 'requests need'} your input`;
-  if (BigInt(item.running_agents) || BigInt(item.queued_agents)) return `${item.running_agents} running · ${item.queued_agents} queued agents`;
-  return 'No currently observed activity';
-}
 function Status({ item, stale }: { item?: SessionNavigationSummary; stale: boolean }) {
   if (!item || stale || item.missing) return <CircleHelp size={13} aria-hidden="true" />;
-  if (BigInt(item.pending_permissions) + BigInt(item.pending_questions) > 0n) return <MessageSquareWarning size={14} {...stylex.props(styles.attention)} aria-hidden="true" />;
-  if (BigInt(item.running_agents) || BigInt(item.queued_agents)) return <Circle size={7} fill="currentColor" {...stylex.props(styles.running)} aria-hidden="true" />;
+  if (sessionNeedsInput(item, stale)) return <MessageSquareWarning size={14} {...stylex.props(styles.attention)} aria-hidden="true" />;
+  if (sessionBusy(item, stale)) return <Circle size={7} fill="currentColor" {...stylex.props(styles.running)} aria-hidden="true" />;
   return <MessageSquare size={13} aria-hidden="true" />;
 }
 

@@ -178,6 +178,177 @@ for (const agentId of ['root', 'child']) {
   });
 }
 
+for (const agentId of ['root', 'child']) {
+  test(`${agentId}: lifecycle refresh preserves observed rows and merges only newer raw snapshot events`, async t => {
+    const host = new Host();
+    host.root.cursor = '9007199254740993';
+    host.root.active_turns = { [agentId]: 'turn' };
+    const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+    t.after(() => view.dispose());
+    await view.start();
+    const rows = () => (agentId === 'root' ? view.getSnapshot().root?.presentation : view.getSnapshot().root?.agent_presentations?.[agentId]) ?? [];
+    let cursor = BigInt(host.root.cursor);
+    const event = (kind: string, payload: StreamEvent) => ({ seq: String(++cursor), kind, payload: { ...payload, agent_id: agentId } });
+    const observed = [
+      event('stream.text', { text: 'Earlier answer' }),
+      event('stream.tool.call', { id: 'done', args: 'complete arguments' }),
+      event('stream.tool.completed', { id: 'done', result: 'completed result' }),
+      event('stream.tool.call', { id: 'working', args: 'old arguments' }),
+      event('stream.tool.output', { id: 'working', text: 'old output' }),
+      event('stream.text', { text: 'A' }),
+    ];
+    for (const item of observed) host.streams[0]!.push(item.seq, item.kind, item.payload);
+    await until(() => view.getSnapshot().root?.cursor === String(cursor));
+    const before = rows();
+    const lifecycle = event('model.call.settled', {});
+    host.streams[0]!.push(lifecycle.seq, lifecycle.kind, lifecycle.payload);
+    const newer = [
+      event('stream.text', { text: 'B' }),
+      event('stream.tool.call', { id: 'working', args: 'new arguments' }),
+      event('stream.tool.output', { id: 'working', text: 'new output' }),
+    ];
+    host.root.cursor = String(cursor);
+    host.root.meta.title = 'Refreshed metadata';
+    host.root.questions = [{ question_id: 'pending' }];
+    host.root.omitted = { presentation_prefix: true };
+    const suffix = [...observed.slice(-1), ...newer];
+    if (agentId === 'root') host.root.presentation = suffix;
+    else host.root.agent_presentations = { [agentId]: suffix };
+    const afterSnapshot = event('stream.reasoning', { text: 'After snapshot' });
+    host.beforeAck = stream => {
+      assert.equal(view.getSnapshot().status, 'live', 'ordinary metadata refresh must not disable focused controls');
+      host.streams[0]!.push(afterSnapshot.seq, afterSnapshot.kind, { text: 'obsolete subscription' });
+      stream.push(afterSnapshot.seq, afterSnapshot.kind, afterSnapshot.payload);
+    };
+    await until(() => view.getSnapshot().root?.cursor === afterSnapshot.seq);
+    assert.equal(host.streams[0]!.closed, true);
+    assert.deepEqual(rows().map(row => row.seq), [...before.map(row => row.seq), afterSnapshot.seq]);
+    assert.deepEqual(rows().map(row => {
+      const payload = row.payload as StreamEvent;
+      return payload.args ?? payload.result ?? payload.text;
+    }), ['Earlier answer', 'complete arguments', 'completed result', 'new arguments', 'new output', 'AB', 'After snapshot']);
+    assert.equal((before[5]!.payload as StreamEvent).text, 'A', 'published rows stay immutable');
+    assert.equal(view.getSnapshot().root?.meta.title, 'Refreshed metadata');
+    assert.equal(view.getSnapshot().root?.questions?.[0]?.question_id, 'pending');
+    assert.equal(view.getSnapshot().truncated, true);
+    assert.equal(view.getSnapshot().root?.omitted?.presentation_prefix, true);
+    // The repeated snapshot overlaps everything; its grouped text starts before
+    // the observed cursor, and its older cumulative values must not regress rows.
+    host.beforeAck = undefined;
+    host.root.cursor = afterSnapshot.seq;
+    const once = rows();
+    host.root.omitted = {};
+    await view.refresh();
+    assert.deepEqual(rows(), once);
+    assert.equal(view.getSnapshot().root?.omitted?.presentation_prefix, true, 'retained partial presentation keeps its omission flag');
+    host.root.presentation = [];
+    host.root.agent_presentations = {};
+    await view.refresh();
+    assert.deepEqual(rows(), once, 'even an entirely omitted agent presentation preserves observed rows');
+  });
+
+  for (const kind of ['stream.text', 'stream.reasoning', 'stream.terminal.output']) {
+    test(`${agentId}: partial refresh separates ${kind} across missing snapshot and live deltas`, async t => {
+      const host = new Host();
+      host.root.active_turns = { [agentId]: 'turn' };
+      const payload = (text: string) => ({ text, agent_id: agentId });
+      const initial = [{ seq: '10', kind, payload: payload('A') }];
+      if (agentId === 'root') host.root.presentation = initial;
+      else host.root.agent_presentations = { [agentId]: initial };
+      const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+      t.after(() => view.dispose());
+      await view.start();
+      // 11 and 14 were omitted. Only 12 and 13 are proven contiguous.
+      host.root.cursor = '14';
+      host.root.omitted = { presentation: true };
+      const suffix = [
+        { seq: '12', kind, payload: payload('C') }, { seq: '13', kind, payload: payload('D') },
+      ];
+      if (agentId === 'root') host.root.presentation = suffix;
+      else host.root.agent_presentations = { [agentId]: suffix };
+      await view.refresh();
+      await view.refresh(); // A repeat must not lose the unresolved suffix boundary.
+      host.streams.at(-1)!.push('15', kind, payload('F'));
+      host.streams.at(-1)!.push('16', kind, payload('G'));
+      await until(() => view.getSnapshot().root?.cursor === '16');
+      const rows = agentId === 'root' ? view.getSnapshot().root?.presentation : view.getSnapshot().root?.agent_presentations?.[agentId];
+      assert.deepEqual(rows?.map(row => (row.payload as StreamEvent).text), ['A', 'CD', 'FG']);
+      assert.deepEqual(rows?.map(row => row.seq), ['10', '12', '15']);
+    });
+  }
+}
+
+for (const change of ['root ended', 'child ended', 'turn changed', 'revision changed']) {
+  test(`snapshot replacement is scoped correctly when ${change}`, async t => {
+    const host = new Host();
+    host.root.active_turns = { root: 'root-turn', child: 'child-turn' };
+    host.root.presentation = [{ seq: '9', kind: 'stream.text', payload: { text: 'root live' } }];
+    host.root.agent_presentations = { child: [{ seq: '10', kind: 'stream.text', payload: { text: 'child live', agent_id: 'child' } }] };
+    const view = createSessionView(host.session());
+    t.after(() => view.dispose());
+    await view.start();
+    host.root.cursor = '11';
+    host.root.presentation = [];
+    host.root.agent_presentations = {};
+    if (change === 'root ended') {
+      delete host.root.active_turns.root;
+      host.root.messages = [{ role: 'assistant', content: 'root live' }];
+      host.streams[0]!.push('11', 'turn.succeeded', { turn_id: 'root-turn' });
+    } else if (change === 'child ended') delete host.root.active_turns.child;
+    else if (change === 'turn changed') host.root.active_turns.root = 'replacement-turn';
+    else host.root.history_revision = '2';
+    await view.refresh();
+    assert.equal(view.getSnapshot().root?.presentation?.length, change === 'child ended' ? 1 : 0);
+    assert.equal(view.getSnapshot().root?.agent_presentations?.child?.length ?? 0,
+      change === 'root ended' || change === 'turn changed' ? 1 : 0);
+    if (change === 'root ended') assert.equal(view.getSnapshot().history.root?.messages[0]?.message?.content, 'root live');
+  });
+}
+
+for (const recovery of ['gap', 'subscription failure', 'reconnect', 'connection replaced']) {
+  test(`${recovery} replaces presentation even when the active turn is unchanged`, async t => {
+    const host = new Host();
+    host.root.active_turns = { root: 'turn' };
+    host.root.presentation = [{ seq: '10', kind: 'stream.text', payload: { text: 'before recovery' } }];
+    const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+    t.after(() => view.dispose());
+    await view.start();
+    host.root.cursor = '20';
+    host.root.presentation = [{ seq: '20', kind: 'stream.text', payload: { text: 'recovered suffix' } }];
+    if (recovery === 'gap') {
+      host.streams[0]!.push('12', 'stream.text', { text: 'gap' });
+      await until(() => view.getSnapshot().status === 'stale');
+      await view.refresh();
+    } else if (recovery === 'subscription failure') {
+      host.streams[0]!.fail();
+      await until(() => view.getSnapshot().status === 'stale');
+      await view.refresh();
+    } else {
+      if (recovery === 'reconnect') host.notify('reconnecting');
+      host.notify('connected');
+    }
+    await until(() => view.getSnapshot().root?.cursor === '20');
+    assert.deepEqual(view.getSnapshot().root?.presentation?.map(row => (row.payload as StreamEvent).text), ['recovered suffix']);
+  });
+}
+
+test('retaining observed presentation during refresh still enforces the view byte budget', async t => {
+  const host = new Host();
+  host.root.active_turns = { root: 'turn' };
+  host.root.presentation = [{ seq: '10', kind: 'stream.text', payload: { text: 'a'.repeat(600) } }];
+  const view = createSessionView(host.session(), { maxBytes: 2048 });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.equal(view.getSnapshot().root?.presentation?.length, 1);
+  host.root.cursor = '11';
+  host.root.presentation = [{ seq: '11', kind: 'stream.text', payload: { text: 'b'.repeat(1600) } }];
+  await view.refresh();
+  assert.ok(view.getSnapshot().retainedBytes <= 2048);
+  assert.equal(view.getSnapshot().truncated, true);
+  assert.equal(view.getSnapshot().unavailable, true);
+  assert.equal(view.getSnapshot().root?.presentation?.length, 0);
+});
+
 test('duplicates are ignored, gaps stop the stream, and replaced subscriptions cannot change a new view', async () => {
   const host = new Host();
   const view = createSessionView(host.session(), { notificationIntervalMs: 1 });

@@ -67,7 +67,7 @@ Available Starlark modules:
 - schedules.create(schedule="...", prompt="..."), schedules.list(), schedules.cancel(id=N)
 - permissions.request(), permissions.status(id="..."); a kernel never approves
 - json.encode(value), json.decode(text), json.indent(text); math.sqrt/floor/ceil/pow/log/exp and friends; time.now(), time.parse_time("RFC3339"), time.from_timestamp(seconds), duration arithmetic. These are local Starlark library modules: positional arguments, no host calls, no host-request budget. Decode complete JSON, not incomplete handle-read chunks.
-- user.ask(question="...", options=[{"label": "...", "description": "..."}, ...], multiple=False): 2 to 6 options with unique labels; returns {"answer": [labels], "dismissed": bool}; root agent only
+- user.ask(question="...", options=[{"label": "...", "description": "...", "recommended": bool}, ...], multiple=False): 2 to 6 options with unique labels, at most one recommended; returns {"answer": [labels], "dismissed": bool}. Batch form: user.ask(questions=[{"question": "...", "options": [...], "multiple": bool}, ...]) asks up to 8 at once; the user pages through with Next/Back/Skip and the call returns {"answers": [{"answer": [labels], "dismissed": bool}, ...], "dismissed": bool}. Any question may be answered with free text instead of option labels. Root agent only
 
 Rules:
 - Host module operations accept keyword arguments only; local library helpers accept positional arguments.

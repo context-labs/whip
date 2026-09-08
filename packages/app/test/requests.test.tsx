@@ -77,3 +77,34 @@ for (const kind of ['permission', 'question'] as const) {
     });
   }
 }
+
+it('single-choice text and option answers replace each other', async () => {
+  const {answerQuestion} = fixture(false);
+  fireEvent.click(screen.getByRole('radio', {name: /Inspect/}));
+  fireEvent.change(screen.getByLabelText('Write your own response'), {target: {value: 'My approach'}});
+  expect(screen.getByRole('radio', {name: /Inspect/}).getAttribute('aria-checked')).toBe('false');
+  fireEvent.click(screen.getByRole('radio', {name: /Implement/}));
+  expect((screen.getByLabelText('Write your own response') as HTMLInputElement).value).toBe('');
+  fireEvent.click(screen.getByRole('button', {name: 'Send', exact: true}));
+  await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith('question', ['Implement'], false));
+});
+
+it('batched questions preserve earlier answers and submit a skipped last page exactly once', async () => {
+  const answerQuestions = vi.fn(() => ({}));
+  const session = {rootId: 'root', answerQuestions} as unknown as Session;
+  const runtime = {run: vi.fn(async () => {}), report: vi.fn()} as unknown as AppRuntime;
+  const root = {questions: [{question_id: 'batch', questions: [
+    {question: 'Approach?', options: [{label: 'Inspect', recommended: true}, {label: 'Implement'}]},
+    {question: 'Storage?', options: [{label: 'SQLite'}, {label: 'Postgres'}]},
+  ]}]} as RootSnapshot;
+  render(<RuntimeContext.Provider value={runtime}><UIProvider><PendingRequests root={root} session={session} disabled={false} refresh={async () => {}}/></UIProvider></RuntimeContext.Provider>);
+  expect(screen.getByRole('radio', {name: /Inspect/}).getAttribute('aria-checked')).toBe('false');
+  fireEvent.click(screen.getByRole('radio', {name: /Inspect/}));
+  fireEvent.click(screen.getByRole('button', {name: 'Next', exact: true}));
+  fireEvent.click(screen.getByRole('radio', {name: /SQLite/}));
+  fireEvent.click(screen.getByRole('button', {name: 'Back', exact: true}));
+  expect(screen.getByRole('radio', {name: /Inspect/}).getAttribute('aria-checked')).toBe('true');
+  fireEvent.click(screen.getByRole('button', {name: 'Next', exact: true}));
+  fireEvent.click(screen.getByRole('button', {name: 'Skip', exact: true}));
+  await waitFor(() => expect(answerQuestions).toHaveBeenCalledExactlyOnceWith('batch', [{answer: ['Inspect']}, null]));
+});

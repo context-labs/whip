@@ -33,6 +33,9 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     for (const path of paths) await mkdir(path, { recursive: true });
     const roots = [];
     for (let i = 0; i < 140; i++) {
+      // Catalog recency has one-second precision. Keep directory groups in
+      // separate seconds so random session IDs cannot reorder the fixture.
+      if (i === 130 || i === 135) await new Promise(resolve => setTimeout(resolve, 1100));
       const result = await client.sessions.create({ cwd: paths[i < 130 ? 0 : i < 135 ? 1 : 2], model: 'model', provider: 'provider' }).result();
       assert.equal(result.status, 'succeeded'); roots.push(result.result.root_id);
       await client.session(roots[i]).rename(`Session ${String(i).padStart(3, '0')}${i === 139 ? ' — a long session title to verify clipping without expanding the navigation' : ''}`).result();
@@ -42,6 +45,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal((await sidebar().boundingBox()).width, 320);
     assert.equal(await page.locator(`[data-sidebar-session="${roots[139]}"]`).evaluate(node => node.getBoundingClientRect().height), 28);
     assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, 1);
+    await eventually(() => frames.some(frame => frame.method === 'sessions.summaries' && frame.params.root_ids.length > 1), { description: 'visible sidebar activity is requested' });
+    const summaryRequests = frames.filter(frame => frame.method === 'sessions.summaries');
+    assert.ok(summaryRequests.every(frame => frame.params.root_ids.length <= 32), 'Summary requests exceed the daemon limit');
+    assert.ok(new Set(summaryRequests.flatMap(frame => frame.params.root_ids)).size < 128, 'Sidebar polled the entire catalog instead of rendered rows');
     assert.equal(await sidebar().getByRole('link', { name: 'Settings', exact: true }).count(), 1);
     assert.ok((await group(paths[0]).innerText()).includes('main · repo'));
     console.log(`${name}: completed workflow ${checks.length + 1}`);
@@ -201,9 +208,9 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
         assert.equal(await input.evaluate(node => node === document.activeElement), true);
         await page.keyboard.press('Escape');
       }
-      assert.equal(ids.length, 65);
+      assert.equal(ids.length, 66);
       console.log(`${name}: completed workflow ${checks.length + 1}`);
-    checks.push('all 65 themes render sidebar selection, controls, focus and geometry');
+    checks.push('all 66 themes render sidebar selection, controls, focus and geometry');
     }
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'Open navigation', exact: true }).click();

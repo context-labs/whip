@@ -268,7 +268,10 @@ close/reopen and window restoration preserve the mode. An explicit chat URL
 opens chat. Each duplicate view has an independent mode and selected agent.
 
 `SessionContent` owns connection feedback, agent leases, pending questions and
-permissions, cancellation, and inspectors for both modes. Switching changes
+permissions, cancellation, and inspectors for both modes. A batched
+`user.ask(questions=[...])` renders as a wizard card above the composer (same
+width): one question per page, Back/Skip/Next with Send on the last page,
+free text always allowed, and the agent's `recommended` option badged. Switching changes
 only the reader/composer branch, without starting another root subscription.
 Drafts and attachments remain recipient-scoped; REPL displays no composer.
 
@@ -321,6 +324,10 @@ For new Query reads:
 - Bound pages and bytes as well as cache lifetime. Do not persist the cache or
   create an independent interval in every component reading the same resource.
 
+The sidebar queries summaries only for rendered rows (including overscan), in
+batches of at most 32 roots. Those reads pause while the document is hidden and
+never hydrate session views.
+
 Tab summaries deliberately use one batched `sessions.summaries` query for open
 IDs, every two visible connected seconds, with coalesced lifecycle invalidation.
 They require `session_summaries` negotiation and do not open roots. Ordinary
@@ -333,6 +340,20 @@ checks, resynchronization, and history revisions. It processes every event in
 order and batches notifications (normally 16 ms); it does not drop intermediate
 deltas. While recovering, retain the last view as stale. Components must not add
 their own reconnect loop or replace stale state with a misleading empty screen.
+
+An ordinary snapshot refresh updates metadata while preserving already-observed
+presentation for each agent still running the same turn, on the same connection
+and history revision. A healthy refresh keeps the view live so controls retain
+focus; a failed refresh or interrupted subscription becomes stale. Snapshots
+contain a bounded event suffix, so absence from
+that suffix cannot erase observed text or tool completion. Reconciliation filters
+raw events by the previous root cursor before grouping them; cumulative tool
+values replace earlier values and row identities remain stable. Partial snapshots
+do not join text across unverified gaps, including the boundary back to live
+delivery. Omission flags and the session view's memory budget still apply.
+Initial attachment, reconnect, subscription failure/gaps, history revision changes,
+and an agent's ended or replaced turn use snapshot replacement. This retains
+received activity; it does not recover events absent from the bounded snapshot.
 
 ## Mutations, acceptance, and permissions
 
@@ -385,7 +406,8 @@ revision checks; display conflicts instead of overwriting newer settings.
 The composer is a compact, theme-derived surface with an automatically growing
 textarea (40–220 px), accessible recipient label, attachment/context actions,
 model/effort trigger, permission-mode toggle, and Send. It omits a visible
-heading and shortcut hints. `model-selection.tsx` provides separate model and
+heading and shortcut hints. Toolbar controls wrap in narrow panes so Send/Pause
+stays reachable. `model-selection.tsx` provides separate model and
 reasoning popovers that apply the selected option immediately; the inspector
 retains explicit Apply actions and exact model/provider entry. The controls
 share the host-scoped provider-catalog query while connected. Root changes
@@ -491,6 +513,11 @@ background-tab actions. Its catalog/query observers only mount while open.
 Desktop row menus appear on hover/focus (and remain visible
 while open); touch keeps them visible. Trailing directory carets appear while
 that directory or its visible children are hovered, or its heading is focused.
+The leading indicator shows live activity from a bounded
+`sessions.summaries` query (same predicate helpers as the tab strip,
+`session-status.ts`): a spinner while agents run or queue, a warning icon
+when permissions or questions await input; pinned sessions keep the pin and
+unsupported/stale summaries fall back to the plain dot.
 Directory headings have no hover fill; session hover uses `colors.element` and
 selection uses `colors.hover` for the reference design’s stronger selected fill.
 Session links retain native modified clicks and saved
@@ -731,6 +758,7 @@ For production application browser tests, build and pack first:
 ```sh
 npm run pack:web
 node apps/web/scripts/browser.mjs
+node apps/web/scripts/snapshot-refresh.mjs
 node apps/web/scripts/session-tabs.mjs
 node apps/web/scripts/workspace-layout.mjs
 node apps/web/scripts/sidebar.mjs

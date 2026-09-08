@@ -318,3 +318,27 @@ func TestPasteIsSwallowedWhileADialogIsOpen(t *testing.T) {
 		t.Fatalf("paste with no dialog = %q", m.input.Value())
 	}
 }
+
+func TestQuestionBatchReplacesSingleChoiceWithTextAndSkipsUntouchedPages(t *testing.T) {
+	m, _ := liveQueueModel(t)
+	event := questionPending(false)
+	for range 3 {
+		event.Questions = append(event.Questions, session.QuestionSet{Question: event.Question, Options: event.Options})
+	}
+	openQuestion(t, m, event)
+	m.thinKey(keyMsg(tea.KeyEnter)) // select the first option, then revisit it
+	m.thinKey(keyMsg(tea.KeyLeft))
+	m.thinKey(keyRunes("/"))
+	m.thinKey(keyRunes("custom response"))
+	m.thinKey(keyMsg(tea.KeyEnter)) // finish editing
+	m.thinKey(keyMsg(tea.KeyEnter)) // keep the written answer
+	m.thinKey(keyMsg(tea.KeyTab))   // leave the second page untouched
+	_, command := m.thinKey(keyRunes("s"))
+	sent := sentAnswer(t, command)
+	if len(sent.Answers) != 3 || strings.Join(sent.Answers[0].Answer, ",") != "custom response" || sent.Answers[0].Dismissed {
+		t.Fatalf("written answer = %+v", sent)
+	}
+	if !sent.Answers[1].Dismissed || !sent.Answers[2].Dismissed {
+		t.Fatalf("untouched and skipped pages = %+v", sent.Answers)
+	}
+}

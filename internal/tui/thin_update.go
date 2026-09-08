@@ -235,7 +235,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			_ = json.Unmarshal(msg.action.Payload, &sent) // our own payload; an undecodable id matches no dialog
 			switch {
 			case succeeded:
-				m.settleQuestion(sent.ID, questionOutcome(sent.Answer, sent.Dismissed)) // or question.answered does, whichever lands first
+				m.settleQuestion(sent.ID, questionOutcome(session.LifecycleEvent{Answer: sent.Answer, Dismissed: sent.Dismissed, Answers: questionResults(sent.Answers)})) // or question.answered does, whichever lands first
 				return m, nil
 			case m.question == nil || m.question.QuestionID != sent.ID:
 				// a late reply for a question that closed meanwhile: the dialog now open is another question's

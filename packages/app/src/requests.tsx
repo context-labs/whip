@@ -237,6 +237,22 @@ const questionStyles = stylex.create({
     fontSize: 12,
     lineHeight: 1.4,
   },
+  optionLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recommended: {
+    paddingBlock: 1,
+    paddingInline: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: surface.quietBorder,
+    color: surface.secondaryText,
+    fontSize: 11,
+    lineHeight: 1.5,
+  },
   footer: { display: 'flex', alignItems: 'center', gap: 14 },
   custom: {
     display: 'flex',
@@ -259,6 +275,14 @@ const questionStyles = stylex.create({
   action: { borderRadius: 999 },
 });
 
+type QuestionDraft = { selected: string[]; text: string; skipped: boolean };
+
+type QuestionItem = {
+  question: string;
+  options?: DeepReadonly<{ label: string; description?: string; recommended?: boolean }[]> | null;
+  multiple?: boolean;
+};
+
 function QuestionRequest({
   question,
   session,
@@ -269,21 +293,53 @@ function QuestionRequest({
   disabled: boolean;
 }) {
   const runtime = useRuntime();
-  const [selected, setSelected] = useState<string[]>([]);
-  const [text, setText] = useState('');
+  const questions: readonly QuestionItem[] =
+    question.questions?.length
+      ? question.questions
+      : [{ question: question.question ?? '', options: question.options, multiple: question.multiple }];
+  const [index, setIndex] = useState(0);
+  const [drafts, setDrafts] = useState<QuestionDraft[]>(() =>
+    questions.map(() => ({ selected: [], text: '', skipped: false })),
+  );
   const [pending, setPending] = useState(false);
-  async function answer(dismissed = false) {
+  const current = questions[Math.min(index, questions.length - 1)];
+  const draft = drafts[Math.min(index, questions.length - 1)];
+  const last = index >= questions.length - 1;
+
+  function patchDraft(patch: Partial<QuestionDraft>) {
+    setDrafts((previous) =>
+      previous.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    );
+  }
+  function toggle(label: string) {
+    patchDraft({
+      selected: current.multiple
+        ? draft.selected.includes(label)
+          ? draft.selected.filter((value) => value !== label)
+          : [...draft.selected, label]
+        : [label],
+      text: current.multiple ? draft.text : '',
+      skipped: false,
+    });
+  }
+  function draftAnswer(item: QuestionDraft): string[] {
+    return [...item.selected, ...(item.text.trim() ? [item.text.trim()] : [])];
+  }
+  async function submit(nextDrafts = drafts) {
     if (!question.question_id) return;
     const restoreFocus = captureAnswerFocus();
     setPending(true);
     try {
       await runtime.run(
-        session.answerQuestion(
-          question.question_id,
-          [...selected, ...(text.trim() ? [text.trim()] : [])],
-          dismissed,
-        ),
-        dismissed ? 'Dismiss question' : 'Answer question',
+        questions.length > 1
+          ? session.answerQuestions(
+              question.question_id,
+              nextDrafts.map((item) =>
+                item.skipped ? null : { answer: draftAnswer(item) },
+              ),
+            )
+          : session.answerQuestion(question.question_id, draftAnswer(nextDrafts[0]), nextDrafts[0].skipped),
+        'Answer question',
       );
       restoreFocus();
     } catch {
@@ -291,47 +347,62 @@ function QuestionRequest({
       setPending(false);
     }
   }
-  function toggle(label: string) {
-    setSelected((previous) =>
-      question.multiple
-        ? previous.includes(label)
-          ? previous.filter((value) => value !== label)
-          : [...previous, label]
-        : [label],
-    );
+  async function dismissAll() {
+    if (!question.question_id) return;
+    const restoreFocus = captureAnswerFocus();
+    setPending(true);
+    try {
+      await runtime.run(
+        questions.length > 1
+          ? session.answerQuestions(
+              question.question_id,
+              questions.map(() => ({ answer: [], dismissed: true })),
+            )
+          : session.answerQuestion(question.question_id, [], true),
+        'Dismiss question',
+      );
+      restoreFocus();
+    } catch {
+    } finally {
+      setPending(false);
+    }
   }
-  const canSend = !disabled && !pending && (!!selected.length || !!text.trim());
+
+  const hasInput = !!draft.selected.length || !!draft.text.trim();
+  const canAdvance = !disabled && !pending && (hasInput || draft.skipped);
   return (
     <div {...stylex.props(questionStyles.region)}>
       <div {...stylex.props(questionStyles.card)}>
         <div {...stylex.props(questionStyles.header)}>
           <CircleHelp size={14} />
-          <span {...stylex.props(questionStyles.headerLabel)}>Question</span>
+          <span {...stylex.props(questionStyles.headerLabel)}>
+            {questions.length > 1 ? `Question ${index + 1} of ${questions.length}` : 'Question'}
+          </span>
           <span {...stylex.props(layout.grow)} />
           <IconButton
             label="Dismiss question"
             variant="ghost"
             disabled={disabled || pending}
-            onClick={() => void answer(true)}
+            onClick={() => void dismissAll()}
           >
             <X size={14} />
           </IconButton>
         </div>
-        <div {...stylex.props(questionStyles.question)}>{question.question}</div>
-        {!!question.options?.length && (
+        <div {...stylex.props(questionStyles.question)}>{current.question}</div>
+        {!!current.options?.length && (
           <div
-            role={question.multiple ? 'group' : 'radiogroup'}
-            aria-label={question.question || 'Answer choices'}
+            role={current.multiple ? 'group' : 'radiogroup'}
+            aria-label={current.question || 'Answer choices'}
             {...stylex.props(questionStyles.options)}
           >
-            {question.options.map((option, index) => {
-              const active = selected.includes(option.label);
-              const descriptionId = option.description ? `${question.question_id}-option-${index}-description` : undefined;
+            {current.options.map((option, optionIndex) => {
+              const active = draft.selected.includes(option.label);
+              const descriptionId = option.description ? `${question.question_id}-option-${optionIndex}-description` : undefined;
               return (
                 <button
                   key={option.label}
                   type="button"
-                  role={question.multiple ? 'checkbox' : 'radio'}
+                  role={current.multiple ? 'checkbox' : 'radio'}
                   aria-checked={active}
                   aria-describedby={descriptionId}
                   disabled={disabled || pending}
@@ -344,10 +415,15 @@ function QuestionRequest({
                       active && questionStyles.numberSelected,
                     )}
                   >
-                    {index + 1}
+                    {optionIndex + 1}
                   </span>
                   <span {...stylex.props(questionStyles.optionText)}>
-                    <span>{option.label}</span>
+                    <span {...stylex.props(questionStyles.optionLabel)}>
+                      {option.label}
+                      {option.recommended && (
+                        <span {...stylex.props(questionStyles.recommended)}>Recommended</span>
+                      )}
+                    </span>
                     {option.description && (
                       <span id={descriptionId} {...stylex.props(questionStyles.optionDescription)}>
                         {option.description}
@@ -360,19 +436,32 @@ function QuestionRequest({
           </div>
         )}
         <div {...stylex.props(questionStyles.footer)}>
+          {index > 0 ? (
+            <Button
+              variant="ghost"
+              xstyle={questionStyles.action}
+              disabled={disabled || pending}
+              onClick={() => setIndex(index - 1)}
+            >
+              Back
+            </Button>
+          ) : (
+            <span />
+          )}
           <label {...stylex.props(questionStyles.custom)}>
             <PenLine size={14} />
             <Input
               aria-label="Write your own response"
               xstyle={questionStyles.customInput}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
+              value={draft.text}
+              onChange={(event) => patchDraft({ text: event.target.value, selected: current.multiple ? draft.selected : [], skipped: false })}
               placeholder="Or write your own response"
               disabled={disabled || pending}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && canSend) {
+                if (event.key === 'Enter' && canAdvance) {
                   event.preventDefault();
-                  void answer();
+                  if (last) void submit();
+                  else setIndex(index + 1);
                 }
               }}
             />
@@ -381,18 +470,29 @@ function QuestionRequest({
             variant="ghost"
             xstyle={questionStyles.action}
             disabled={disabled || pending}
-            onClick={() => void answer(true)}
+            onClick={() => {
+              if (questions.length === 1) void dismissAll();
+              else {
+                const skipped = { selected: [], text: '', skipped: true };
+                patchDraft(skipped);
+                if (last) void submit(drafts.map((item, i) => i === index ? skipped : item));
+                else setIndex(index + 1);
+              }
+            }}
           >
             Skip
           </Button>
           <Button
             variant="primary"
             xstyle={questionStyles.action}
-            disabled={!canSend}
+            disabled={!canAdvance}
             loading={pending}
-            onClick={() => void answer()}
+            onClick={() => {
+              if (last) void submit();
+              else setIndex(index + 1);
+            }}
           >
-            Send
+            {last ? 'Send' : 'Next'}
           </Button>
         </div>
       </div>

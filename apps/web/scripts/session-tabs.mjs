@@ -138,10 +138,23 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     for (let i = 0; i < 8; i++) { const start = performance.now(); await tab(roots[i]).click(); await ready(); cold.push(performance.now() - start); }
     assert.ok(maximumSubscriptions <= 4, `Retained ${maximumSubscriptions} root subscriptions`);
     assert.ok((await page.getByRole('region', { name: 'Conversation', exact: true }).count()) <= 1);
+    // Let the final navigation reveal its sidebar row before measuring idle polls.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const sidebarIds = await page.locator('[data-sidebar-session]').evaluateAll(rows => rows.map(row => row.dataset.sidebarSession).sort());
+    const expectedPolls = [JSON.stringify([...roots].sort())];
+    for (let offset = 0; offset < sidebarIds.length; offset += 32) expectedPolls.push(JSON.stringify(sidebarIds.slice(offset, offset + 32)));
     const from = performance.now(); await page.waitForTimeout(6100);
-    const pollCount = frames.filter(frame => frame.method === 'sessions.summaries' && frame.sentAt > from).length;
-    assert.ok(pollCount >= 2 && pollCount <= 4, `Expected one shared 2s poll, observed ${pollCount}`);
-    checks.push('32 tabs retain <=4 root subscriptions and one shared background poll');
+    const polls = new Map();
+    for (const frame of frames.filter(frame => frame.method === 'sessions.summaries' && frame.sentAt > from)) {
+      assert.ok(frame.params.root_ids.length <= 32, 'Summary request exceeded the root limit');
+      const key = JSON.stringify([...frame.params.root_ids].sort());
+      polls.set(key, (polls.get(key) ?? 0) + 1);
+    }
+    // Open tabs have one poll; sidebar rows may need multiple 32-root batches.
+    assert.deepEqual([...polls.keys()].sort(), [...new Set(expectedPolls)].sort(), 'Expected only open-tab and rendered-sidebar summary batches');
+    for (const count of polls.values()) assert.ok(count >= 2 && count <= 4, `Expected a 2s poll per scope, observed ${count}`);
+    const pollCount = [...polls.values()].reduce((total, count) => total + count, 0);
+    checks.push('32 tabs retain <=4 root subscriptions and bounded tab/sidebar summary polls');
 
     await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); });
     const hiddenFrom = performance.now(); await page.waitForTimeout(4200);

@@ -738,6 +738,7 @@ try {
         error: String(error),
         metrics,
         errors,
+        commitDOM: await page.evaluate(() => window.__performanceCommitDOM),
         html: await page
           .locator('body')
           .innerText()

@@ -202,6 +202,7 @@ jobs:
       - run: node packages/ui/tests/csp.mjs
       - run: npm run test:packed -w @whip/ui
       - run: WHIP_WEB_BROWSERS=chromium,firefox node apps/web/scripts/browser.mjs
+      - run: node apps/web/scripts/snapshot-refresh.mjs
       - run: node apps/web/scripts/performance.mjs
       - run: npm run test:example
       - name: Browser acceptance evidence
@@ -212,6 +213,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             /tmp/whip-web-browser-results
+            /tmp/whip-web-snapshot-refresh
             packages/ui/ui-test-results
 
   # `go` is a required status check in the repo's ruleset, so the name has to

@@ -83,12 +83,9 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
     await page.getByRole('link', { name: 'perf-child-000', exact: true }).click();
     await panel(duplicate).getByLabel('Message this agent', { exact: true }).waitFor();
-    const childModel = panel(duplicate).getByRole('button', { name: 'Model and reasoning', exact: true });
-    await childModel.click();
-    const childModelDetails = page.getByRole('dialog', { name: 'Agent model', exact: true });
-    await childModelDetails.waitFor();
-    assert.equal(await childModelDetails.getByRole('button', { name: 'Apply model', exact: true }).count(), 0, 'Child composer offered to change the root model');
-    await childModel.click(); await childModelDetails.waitFor({ state: 'hidden' });
+    await panel(duplicate).getByTitle('Child-agent models are set when the agent is created').waitFor();
+    assert.equal(await panel(duplicate).getByRole('button', { name: 'Model', exact: true }).count(), 0, 'Child composer offered to change the root model');
+    assert.equal(await panel(duplicate).getByRole('button', { name: 'Reasoning effort', exact: true }).count(), 0, 'Child composer offered to change root reasoning');
     assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).count(), 1);
     assert.equal(await panel(root).getByText(/perf-child-000 message/).count(), 0);
     await panel(duplicate).getByRole('link', { name: 'Root conversation', exact: true }).click();
@@ -190,7 +187,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(frames.filter(f => f.method === 'command.submit').length, 0, 'Layout interaction sent durable commands');
     const working = client.session(fresh.result.root_id).submit({ text: 'hold:tool-stream' });
     await working.accepted();
-    await panel(fresh.result.root_id).getByRole('button', { name: 'Stop this turn', exact: true }).waitFor();
+    await panel(fresh.result.root_id).getByRole('button', { name: 'Pause this turn', exact: true }).waitFor();
     // Minimum-size panes must keep controls reachable even when extra notices
     // and the active-turn delivery selector leave no space for a transcript.
     await page.getByRole('separator', { name: 'Resize panes horizontally', exact: true }).last().focus();
@@ -199,10 +196,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.keyboard.press('Home');
     const smallPanel = panel(fresh.result.root_id);
     await smallPanel.evaluate(el => { el.scrollTop = el.scrollHeight; });
-    const sendBounds = await smallPanel.getByRole('button', { name: 'Send message', exact: true }).boundingBox();
+    const controlBounds = await smallPanel.getByRole('button', { name: 'Pause this turn', exact: true }).boundingBox();
     const paneBounds = await smallPanel.boundingBox();
-    assert.ok(sendBounds.x >= paneBounds.x && sendBounds.x + sendBounds.width <= paneBounds.x + paneBounds.width + 1, 'Narrow pane clips composer controls');
-    assert.ok(sendBounds.y >= paneBounds.y && sendBounds.y + sendBounds.height <= paneBounds.y + paneBounds.height + 1, 'Short pane makes composer unreachable');
+    assert.ok(controlBounds.x >= paneBounds.x && controlBounds.x + controlBounds.width <= paneBounds.x + paneBounds.width + 1, 'Narrow pane clips composer controls');
+    assert.ok(controlBounds.y >= paneBounds.y && controlBounds.y + controlBounds.height <= paneBounds.y + paneBounds.height + 1, 'Short pane makes composer unreachable');
     await page.screenshot({ path: join(directory, `${name}-minimum-pane.png`) });
     await fixture.release('tool-stream'); await working.result();
     checks.push('minimum-size active panes retain reachable composer controls');
