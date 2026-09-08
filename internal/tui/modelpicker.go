@@ -133,7 +133,8 @@ func (f *modelFilter) applyModelList(list []string) {
 		if inner, ok := strings.CutPrefix(name, "default ("); ok {
 			name = strings.TrimSuffix(inner, ")")
 		}
-		return bestTier(name, "", q)
+		name, provider := splitRouteKey(name)
+		return bestTier(name, provider, q)
 	})
 }
 
@@ -193,22 +194,19 @@ func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string)
 	return models[0], true, nil
 }
 
-// modelNamesFor lists every selectable model name: cfg.Models sorted
-// alphabetically, then catalog-advertised ids without a config entry (marked
-// "(new)"), sorted by name. The catalog fallback in Resolve makes the extra
-// ids usable without a config entry, so pickers list them alongside.
-func modelNamesFor(cfg *config.Config) []string {
-	names := make([]string, 0, len(cfg.Models))
-	for _, it := range buildModelItems(cfg) {
-		name := it.model
-		if it.fromCatalog {
-			name += dimNew
-		}
-		if len(names) == 0 || names[len(names)-1] != name {
-			names = append(names, name)
-		}
+// routeKey is a palette list row for one model@provider route ("(new)" marks
+// catalog routes); splitRouteKey inverts it.
+func routeKey(it modelItem) string {
+	k := it.model + "@" + it.provider
+	if it.fromCatalog {
+		k += dimNew
 	}
-	return names
+	return k
+}
+
+func splitRouteKey(row string) (model, provider string) {
+	model, provider, _ = strings.Cut(strings.TrimSuffix(row, dimNew), "@")
+	return model, provider
 }
 
 // buildModelItems flattens the config into selectable routes, models sorted
@@ -229,15 +227,28 @@ func buildModelItems(cfg *config.Config) []modelItem {
 			if prov, ok := cfg.Providers[p]; ok {
 				url = prov.BaseURL
 			}
-			items = append(items, modelItem{model: name, provider: p, url: url})
+			items = append(items, modelItem{model: name, provider: p, url: endpointLabel(url)})
 		}
 	}
 	return appendCatalogRoutes(items, cfg, config.LoadCatalogs())
 }
 
+// endpointLabel is the picker's display form of a provider base URL. The
+// Codex subscription talks to chatgpt.com/backend-api (that is how ChatGPT
+// accounts reach Codex, not api.openai.com), which reads as odd next to API
+// hosts — name what it is instead.
+func endpointLabel(baseURL string) string {
+	if strings.TrimRight(baseURL, "/") == config.CodexBaseURL {
+		return "ChatGPT Codex subscription"
+	}
+	return baseURL
+}
+
 // appendCatalogRoutes adds one route per catalog-advertised model that has no
-// cfg.Models entry, sorted by model name. Configured models win: a catalog id
-// already in cfg.Models adds nothing.
+// cfg.Models entry, grouped by provider then sorted by model name — so a small
+// catalog (a Codex subscription's 8 models) isn't scattered through a large
+// one (OpenRouter's ~400). Configured models win: a catalog id already in
+// cfg.Models adds nothing.
 func appendCatalogRoutes(items []modelItem, cfg *config.Config, cats map[string]config.Catalog) []modelItem {
 	provs := make([]string, 0, len(cfg.Providers))
 	for name := range cfg.Providers {
@@ -254,14 +265,14 @@ func appendCatalogRoutes(items []modelItem, cfg *config.Config, cats map[string]
 			if _, configured := cfg.Models[mi.ID]; configured {
 				continue
 			}
-			extra = append(extra, modelItem{model: mi.ID, provider: p, url: cat.BaseURL, fromCatalog: true})
+			extra = append(extra, modelItem{model: mi.ID, provider: p, url: endpointLabel(cat.BaseURL), fromCatalog: true})
 		}
 	}
 	sort.Slice(extra, func(a, b int) bool {
-		if extra[a].model != extra[b].model {
-			return extra[a].model < extra[b].model
+		if extra[a].provider != extra[b].provider {
+			return extra[a].provider < extra[b].provider
 		}
-		return extra[a].provider < extra[b].provider
+		return extra[a].model < extra[b].model
 	})
 	return append(items, extra...)
 }
@@ -338,6 +349,7 @@ func (m *model) modelPickerView() string {
 	var rows []string
 	rows = append(rows, "  "+botStyle.Render("/")+p.filter.query+dimStyle.Render("▏"))
 	lastModel := ""
+	selRow := 0 // actual row of the selection (headings shift it past idx+1)
 	for i, it := range view {
 		heading := " " + it.model
 		if it.fromCatalog {
@@ -356,6 +368,7 @@ func (m *model) modelPickerView() string {
 			line = dimStyle.Render(line)
 		}
 		if i == p.idx {
+			selRow = len(rows)
 			rows = append(rows, botStyle.Render("   → "+line)+cur)
 		} else {
 			rows = append(rows, "     "+line+cur)
@@ -375,11 +388,14 @@ func (m *model) modelPickerView() string {
 	for len(rows) < avail {
 		rows = append(rows, "")
 	}
-	if len(rows) > avail { // small terminals: keep the selection visible
-		// selection row = query line (1) + headings so far; approximate with idx+1
-		sel := p.idx + 1
-		start := max(min(sel-2, len(rows)-avail), 0)
-		rows = rows[start : start+avail]
+	if len(rows) > avail { // keep the query line, the selection, and the footer visible
+		footer := 1
+		if len(p.staleHints) > 0 {
+			footer = 2
+		}
+		body := rows[1 : len(rows)-footer]
+		lo, hi := ocWindow(len(body), selRow-1, max(avail-1-footer, 1))
+		rows = append(append([]string{rows[0]}, body[lo:hi]...), rows[len(rows)-footer:]...)
 	}
 	return strings.Join(rows, "\n")
 }

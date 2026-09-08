@@ -24,7 +24,6 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tui"
 )
@@ -113,13 +112,10 @@ func runCLI(args []string) error {
 			provName = mdl.Providers[0]
 		}
 	}
-	key := prov.Key()
-	if key == "" {
-		return fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)", provName)
+	client, err := tui.ClientForProvider(prov, provName, cfg.MaxRetries)
+	if err != nil {
+		return err
 	}
-
-	client := llm.New(prov.BaseURL, key)
-	client.MaxRetries = cfg.MaxRetries
 
 	// System prompt: -system-file wins over -system (a file is the deliberate
 	// choice; a stray -system alongside it is almost certainly stale).
@@ -135,7 +131,11 @@ func runCLI(args []string) error {
 		sys = string(data)
 	}
 
-	ag := agent.New(client, apiID, mdl.MaxTokens, sys, agent.WithExperimental(cfg.Experimental))
+	maxOut := mdl.MaxOut
+	if maxOut == 0 {
+		maxOut = mdl.ContextWindow()
+	}
+	ag := agent.New(client, apiID, maxOut, sys, agent.WithExperimental(cfg.Experimental))
 	ag.ModelName, ag.Provider = modelName, provName
 	// Headless runs have no one to answer a consent prompt: computer_exec
 	// stays disabled (no interactive approver is ever installed).
@@ -179,7 +179,7 @@ func runCLI(args []string) error {
 	// message prefix across turns (and across runs when the caller passes a
 	// stable key). -no-session left this empty, so headless runs never cached
 	// their own turns — a per-run fallback fixes that; subagents scope under it.
-	ag.Client.CacheKey = resolveCacheKey(*cacheKeyFlag, sessionID)
+	ag.SetCacheKey(resolveCacheKey(*cacheKeyFlag, sessionID))
 
 	// ctrl+c cancels the turn; -timeout caps the whole run.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -225,7 +225,7 @@ func runCLI(args []string) error {
 	ag.ResolveModel = func(model, provider string) (agent.SubModel, error) {
 		return tui.SubModelFor(cfg, model, provider)
 	}
-	if o, terr := tui.TaskDefaultFor(cfg); terr == nil {
+	if o, terr := tui.TaskDefaultFor(cfg, provName); terr == nil {
 		ag.TaskDefault = o
 	} else {
 		note("task model: %v — subagents use the run's model", terr)

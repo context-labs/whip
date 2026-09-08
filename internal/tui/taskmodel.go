@@ -11,7 +11,6 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/llm"
 )
 
 // SubModelFor resolves a model name (config entry or catalog id) into a
@@ -21,25 +20,26 @@ func SubModelFor(cfg *config.Config, model, provider string) (agent.SubModel, er
 	if err != nil {
 		return agent.SubModel{}, err
 	}
-	key, err := prov.ResolveKey()
+	cli, err := ClientForProvider(prov, resolvedProvider(cfg, model, provider), cfg.MaxRetries)
 	if err != nil {
 		return agent.SubModel{}, err
 	}
-	if key == "" {
-		return agent.SubModel{}, fmt.Errorf("no API key for the provider serving %q", model)
-	}
-	cli := llm.New(prov.BaseURL, key)
-	cli.MaxRetries = cfg.MaxRetries
 	return agent.SubModel{Client: cli, Model: apiID, ContextLimit: mdl.ContextWindow(), MaxTokens: mdl.MaxOut}, nil
 }
 
 // TaskDefaultFor resolves the default subagent route: cfg.taskModel when set
-// (its failure is an error worth surfacing), else config.DefaultTaskModel,
-// else a catalog id ending in "/<default>" (gateway catalogs like openrouter
-// prefix ids with the vendor). A missing default is not an error — the zero
-// SubModel falls back to the conversation's own model.
-func TaskDefaultFor(cfg *config.Config) (agent.SubModel, error) {
+// (its failure is an error worth surfacing), else — when the conversation
+// runs on the Codex subscription — config.CodexDefaultTaskModel there, else
+// config.DefaultTaskModel, else a catalog id ending in "/<default>" (gateway
+// catalogs like openrouter prefix ids with the vendor). A missing default is
+// not an error — the zero SubModel falls back to the conversation's own model.
+func TaskDefaultFor(cfg *config.Config, provider string) (agent.SubModel, error) {
 	tm, explicit := cfg.TaskModel, cfg.TaskModel != ""
+	if !explicit && cfg.Providers[provider].API == "openai-codex-responses" {
+		if o, err := SubModelFor(cfg, config.CodexDefaultTaskModel, provider); err == nil {
+			return o, nil
+		}
+	}
 	if !explicit {
 		tm = config.DefaultTaskModel
 	}
@@ -81,7 +81,7 @@ func (m *model) applyTaskModel() {
 	m.agent.ResolveModel = func(model, provider string) (agent.SubModel, error) {
 		return SubModelFor(snap, model, provider)
 	}
-	o, err := TaskDefaultFor(snap)
+	o, err := TaskDefaultFor(snap, m.provName)
 	if err != nil {
 		m.agent.TaskDefault = agent.SubModel{}
 		m.append(errStyle.Render("task model: " + err.Error() + " — subagents use the current model"))

@@ -15,7 +15,8 @@ import (
 type Provider struct {
 	Name      string `json:"name,omitempty"`
 	BaseURL   string `json:"baseUrl"`
-	API       string `json:"api"`              // "openai-completions" is the only supported value for now
+	API       string `json:"api"`              // "openai-completions" or "openai-codex-responses"
+	Auth      string `json:"auth,omitempty"`   // "codex" uses Whip's local Codex OAuth credentials
 	APIKey    string `json:"apiKey,omitempty"` // literal key or a secret reference ("$VAR"/"${VAR}"/"!cmd"); apiKeyEnv is another option
 	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
 }
@@ -189,7 +190,10 @@ type Config struct {
 	// agent.WithExperimental) — no per-feature config block.
 	Experimental []string            `json:"experimental,omitempty"`
 	Providers    map[string]Provider `json:"providers"`
-	Models       map[string]Model    `json:"models"`
+	// allowEmptySave lets Save write a config with no providers/models — only
+	// RemoveProvider sets it, when the last provider is deliberately removed.
+	allowEmptySave bool
+	Models         map[string]Model `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: whip always wins per name.
@@ -421,6 +425,7 @@ func Load() (*Config, error) {
 // pointing at it) are migrated transparently. No file write happens here;
 // the next Save persists the rename.
 func (c *Config) normalize() {
+	c.renameProvider(legacyCodexProviderName, CodexProviderName, "openai-codex-responses")
 	p, ok := c.Providers["inference"]
 	if !ok {
 		return
@@ -455,7 +460,7 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-	if len(c.Providers) == 0 && len(c.Models) == 0 {
+	if len(c.Providers) == 0 && len(c.Models) == 0 && !c.allowEmptySave {
 		if existing, err := os.ReadFile(p); err == nil {
 			var cur Config
 			if parseJSONC(existing, &cur) == nil && (len(cur.Providers) > 0 || len(cur.Models) > 0) {
@@ -491,6 +496,13 @@ func (c *Config) Save() error {
 		logf("config.save", "rename failed: %v", err)
 		return err
 	}
+	if c.allowEmptySave {
+		// Load treats an empty config as corruption and restores the backup;
+		// the user removed their last provider on purpose, so drop it and let
+		// the next start regenerate the shipped defaults.
+		_ = os.Remove(p + ".bak")
+		c.allowEmptySave = false
+	}
 	return nil
 }
 
@@ -518,7 +530,9 @@ func (c *Config) Resolve(model, provider string) (Provider, Model, string, error
 	m, ok := c.Models[model]
 	if !ok {
 		// Catalog fallback: a provider-advertised model needs no config entry;
-		// config entries stay authoritative overrides when present.
+		// config entries stay authoritative overrides when present. The scan
+		// runs before DefaultProvider applies so a catalog-only id served by
+		// another provider still resolves.
 		var err error
 		m, provider, err = c.resolveFromCatalog(model, provider)
 		if err != nil {
@@ -552,7 +566,7 @@ type UnknownModelError struct {
 }
 
 func (e *UnknownModelError) Error() string {
-	return fmt.Sprintf("unknown model %q (models: %s)", e.Model, e.known)
+	return fmt.Sprintf("unknown model %q (configured: %s; catalog models are listed by /model)", e.Model, e.known)
 }
 
 // resolveFromCatalog synthesizes a Model for an id advertised in a provider's
@@ -580,6 +594,15 @@ func (c *Config) resolveFromCatalog(model, provider string) (Model, string, erro
 	}
 	if len(hits) == 0 {
 		return Model{}, "", &UnknownModelError{Model: model, known: keys(c.Models)}
+	}
+	if len(hits) > 1 {
+		// DefaultProvider breaks the tie when it advertises the id too.
+		for _, h := range hits {
+			if h.prov == c.DefaultProvider {
+				hits = []hit{h}
+				break
+			}
+		}
 	}
 	if len(hits) > 1 {
 		names := make([]string, len(hits))

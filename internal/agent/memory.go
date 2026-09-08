@@ -19,8 +19,15 @@ import (
 // tool reads it on a worker goroutine.
 func (a *Agent) SetSessionID(id string) {
 	a.sessionID.Store(&id)
+	a.SetCacheKey(id)
+}
+
+// SetCacheKey sets the provider prompt-cache key for this agent's client and
+// remembers it so subagents can scope their own keys under it.
+func (a *Agent) SetCacheKey(key string) {
+	a.cacheKey = key
 	if a.Client != nil {
-		a.Client.CacheKey = id
+		a.Client.SetCacheKey(key)
 	}
 }
 

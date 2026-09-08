@@ -27,6 +27,7 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/browser"
+	"github.com/context-labs/whip/internal/codexauth"
 	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
@@ -160,9 +161,12 @@ type model struct {
 	height    int
 	termWidth int // full terminal width (opencode mode places the sidebar in the reserved columns)
 
-	busy    bool
-	current string // in-flight partial assistant line
-	inMsg   bool   // "● " prefix already printed for this assistant segment
+	busy bool
+	// loginOwnsBusy: an in-flight /auth codex claimed busy/cancel; its result
+	// may only release them while this is still set (a turn clears it).
+	loginOwnsBusy bool
+	current       string // in-flight partial assistant line
+	inMsg         bool   // "● " prefix already printed for this assistant segment
 	// lastResp is the token usage of the most recent API response (updated
 	// per streamed request via usageMsg); the status line shows it after the
 	// session spend as "last in(cached)/out tok".
@@ -839,16 +843,29 @@ func refreshCatalogs(cfg *config.Config, force bool) map[string]config.Catalog {
 		if c, ok := cats[name]; ok && !force && !c.Stale() && c.BaseURL == prov.BaseURL {
 			continue
 		}
-		key, keyErr := prov.ResolveKey()
-		if keyErr != nil {
-			config.LogEvent("catalog.fetch", name+" skipped: "+keyErr.Error())
-			continue
-		}
-		if key == "" {
-			continue
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		infos, err := llm.New(prov.BaseURL, key).Models(ctx)
+		var infos []llm.ModelInfo
+		var err error
+		if prov.API == "openai-codex-responses" {
+			if strings.TrimRight(prov.BaseURL, "/") != config.CodexBaseURL {
+				cancel()
+				config.LogEvent("catalog.fetch", name+" skipped: Codex credentials are only sent to "+config.CodexBaseURL)
+				continue
+			}
+			infos, err = llm.NewCodex(prov.BaseURL, &codexauth.Source{}).Models(ctx)
+		} else {
+			key, keyErr := prov.ResolveKey()
+			if keyErr != nil {
+				cancel()
+				config.LogEvent("catalog.fetch", name+" skipped: "+keyErr.Error())
+				continue
+			}
+			if key == "" {
+				cancel()
+				continue
+			}
+			infos, err = llm.New(prov.BaseURL, key).Models(ctx)
+		}
 		cancel()
 		if err != nil {
 			config.LogEvent("catalog.fetch", name+" failed: "+err.Error())
@@ -1240,12 +1257,9 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 			provName = mdl.Providers[0]
 		}
 	}
-	key, keyErr := prov.ResolveKey()
-	if keyErr != nil {
-		return nil, "", "", keyErr
-	}
-	if key == "" {
-		return nil, "", "", fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)", provName)
+	client, err := ClientForProvider(prov, provName, cfg.MaxRetries)
+	if err != nil {
+		return nil, "", "", err
 	}
 	// Two distinct limits:
 	//   - ContextLimit: the input window (provider's context_length, else the
@@ -1266,8 +1280,6 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 	if maxOut <= 0 {
 		maxOut = ctxLimit // generous default; provider clamps if it's too high
 	}
-	client := llm.New(prov.BaseURL, key)
-	client.MaxRetries = cfg.MaxRetries
 	ag := agent.New(client, apiID, maxOut, sysPrompt, agent.WithExperimental(cfg.Experimental))
 	ag.ModelName, ag.Provider = modelName, provName
 	ag.ContextLimit = ctxLimit
@@ -2734,6 +2746,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyAuthResult(msg)
 		return m, nil
 
+	case codexLoginResultMsg:
+		m.applyCodexLoginResult(msg)
 	case inferenceNetLoginMsg:
 		m.applyInferenceNetLogin(msg)
 		return m, nil
@@ -2752,6 +2766,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case inferenceNetKeyMsg:
 		m.applyInferenceNetKey(msg)
+		return m, nil
+
+	case codexUsageMsg:
+		m.applyCodexUsage(msg)
 		return m, nil
 
 	case noticeMsg:
@@ -3677,6 +3695,9 @@ func (m *model) contextLimitFor(provName, apiID string) int {
 // subagent's spend at ITS model's rates. Any unpriceable component hides the
 // segment rather than showing a number that is knowingly low.
 func (m *model) sessionCost() (float64, bool) {
+	if m.cfg != nil && m.cfg.Providers[m.provName].API == "openai-codex-responses" {
+		return 0, false
+	}
 	total, ok := m.usageCost(m.agent.Model, m.provName, m.agent.Usage())
 	if !ok {
 		return 0, false
@@ -3732,24 +3753,63 @@ func (m *model) applyCompactModel() {
 	if cm == "" {
 		cm = config.DefaultCompactModel
 	}
-	prov, _, apiID, err := m.cfg.Resolve(cm, m.compactProv)
+
+	// A compaction model without an explicit provider follows its model route,
+	// not the session's DefaultProvider. In particular, the built-in DeepSeek
+	// summary model is available through inference.net, not a Codex subscription.
+	compactProv := m.compactProv
+	if compactProv == "" {
+		if mdl, ok := m.cfg.Models[cm]; ok && len(mdl.Providers) > 0 {
+			compactProv = mdl.Providers[0]
+		}
+	}
+	prov, _, apiID, err := m.cfg.Resolve(cm, compactProv)
 	if err != nil {
 		if m.compactModel != "" { // a picked model failing is worth a note; a missing default isn't
 			m.append(errStyle.Render("compaction model: " + err.Error() + " — using current model"))
 		}
 		return
 	}
-	key, keyErr := prov.ResolveKey()
-	if keyErr == nil && key != "" {
-		m.agent.CompactClient = llm.New(prov.BaseURL, key)
-		m.agent.CompactClient.MaxRetries = m.cfg.MaxRetries
+	client, err := ClientForProvider(prov, compactProv, m.cfg.MaxRetries)
+	if err == nil {
+		m.agent.CompactClient = client
 		m.agent.CompactModel = apiID
 	} else if m.compactModel != "" {
-		if keyErr != nil {
-			m.append(errStyle.Render("compaction model: " + keyErr.Error() + " — using current model"))
-		} else {
-			m.append(errStyle.Render("compaction model: no API key — using current model"))
+		m.append(errStyle.Render("compaction model: " + err.Error() + " — using current model"))
+	}
+}
+
+// ClientForProvider builds the llm client for one configured provider; shared
+// with `whip run` so headless and TUI routing can't drift.
+func ClientForProvider(prov config.Provider, name string, maxRetries int) (llm.Client, error) {
+	switch prov.API {
+	case "", "openai-completions":
+		key, err := prov.ResolveKey()
+		if err != nil {
+			return nil, err
 		}
+		if key == "" {
+			return nil, fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)", name)
+		}
+		client := llm.New(prov.BaseURL, key)
+		client.MaxRetries = maxRetries
+		return client, nil
+	case "openai-codex-responses":
+		if prov.Auth != "codex" {
+			return nil, fmt.Errorf("codex provider %q requires auth:\"codex\"", name)
+		}
+		if strings.TrimRight(prov.BaseURL, "/") != config.CodexBaseURL {
+			return nil, fmt.Errorf("codex provider %q must use %s", name, config.CodexBaseURL)
+		}
+		source := &codexauth.Source{}
+		if err := source.Available(); err != nil {
+			return nil, err
+		}
+		client := llm.NewCodex(prov.BaseURL, source)
+		client.MaxRetries = maxRetries
+		return client, nil
+	default:
+		return nil, fmt.Errorf("unsupported API %q for provider %q", prov.API, name)
 	}
 }
 
@@ -4280,6 +4340,7 @@ func (m *model) submitGoal(text string) (tea.Model, tea.Cmd) {
 
 func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 	m.busy = true
+	m.loginOwnsBusy = false // any in-flight /auth codex no longer owns the busy slot
 	m.turnStart = m.nowFn()
 	prepared, parts := m.prepareTurn(text)
 	userMsgIdx := len(m.agent.Messages) // where Turn will append this message
@@ -4537,6 +4598,9 @@ func (m *model) command(text string) (tea.Model, tea.Cmd) {
 		return m.lspCommand(fields)
 	case "/cd":
 		m.cdCommand(strings.TrimSpace(strings.TrimPrefix(text, "/cd")))
+		return m, nil
+	case "/usage":
+		m.usageCommand()
 		return m, nil
 	case "/pwd":
 		m.append(dimStyle.Render(cwd()))

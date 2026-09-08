@@ -1,0 +1,1074 @@
+package llm
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/context-labs/whip/internal/codexauth"
+)
+
+func TestCodexStreamRequestAndEvents(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/codex/responses" {
+			http.Error(w, "wrong route", http.StatusNotFound)
+			return
+		}
+		for header, expected := range map[string]string{
+			"Authorization":      "Bearer access",
+			"ChatGPT-Account-ID": "account",
+			"Originator":         "whip",
+			"OpenAI-Beta":        "responses=experimental",
+			"Accept":             "text/event-stream",
+			"Content-Type":       "application/json",
+		} {
+			if value := r.Header.Get(header); value != expected {
+				http.Error(w, header+" = "+value, http.StatusBadRequest)
+				return
+			}
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"plan\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\",\"id\":\"rs-1\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"id\":\"rs-1\",\"encrypted_content\":\"encrypted\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"message\",\"id\":\"msg-1\",\"phase\":\"commentary\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc-1\",\"call_id\":\"call-1\",\"name\":\"bash\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call-1\",\"delta\":\"{\\\"command\\\":\\\"p\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.done\",\"call_id\":\"call-1\",\"arguments\":\"{\\\"command\\\":\\\"pwd\\\"}\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":12,\"output_tokens\":7,\"input_tokens_details\":{\"cached_tokens\":5}}}}\n\n")
+	}))
+	defer srv.Close()
+
+	tool := NewTool("bash", "run a command", `{"type":"object"}`)
+	var text, think strings.Builder
+	var toolCalls []string
+	client := NewCodex(srv.URL, codexSource(t))
+	client.SetCacheKey("sess-1")
+	msg, usage, err := client.Stream(context.Background(), Request{
+		Model:           "gpt-5.5",
+		MaxTokens:       128000,
+		ReasoningEffort: "high",
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "inspect the repository"},
+			{Role: "assistant", ToolCalls: []ToolCall{{ID: "old-call", ItemID: "fc-old", Type: "function", Function: struct {
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			}{Name: "read", Arguments: `{"path":"README.md"}`}}}},
+			{Role: "tool", ToolCallID: "old-call", Name: "read", Content: "file contents"},
+		},
+		Tools: []Tool{tool},
+	}, func(delta string) { text.WriteString(delta) }, func(delta string) { think.WriteString(delta) },
+		func(id, name, args string) { toolCalls = append(toolCalls, id+"|"+name+"|"+args) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	// streaming snapshots: after the first args delta, then the final args
+	if len(toolCalls) != 2 || toolCalls[0] != `call-1|bash|{"command":"p` || toolCalls[1] != `call-1|bash|{"command":"pwd"}` {
+		t.Fatalf("onToolCall snapshots = %q", toolCalls)
+	}
+	if got["prompt_cache_key"] != "sess-1" {
+		t.Fatalf("prompt_cache_key = %#v", got["prompt_cache_key"])
+	}
+	if msg.Content != "done" || text.String() != "done" || think.String() != "plan" {
+		t.Fatalf("message streams: msg=%+v text=%q think=%q", msg, text.String(), think.String())
+	}
+	if msg.ResponseID != "msg-1" {
+		t.Fatalf("response message ID = %q", msg.ResponseID)
+	}
+	if msg.ResponsePhase != "commentary" {
+		t.Fatalf("response message phase = %q", msg.ResponsePhase)
+	}
+	if len(msg.CodexReasoning) != 1 || !strings.Contains(string(msg.CodexReasoning[0]), `"encrypted_content":"encrypted"`) {
+		t.Fatalf("Codex reasoning = %s", msg.CodexReasoning)
+	}
+	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].ID != "call-1" || msg.ToolCalls[0].Function.Name != "bash" || msg.ToolCalls[0].Function.Arguments != `{"command":"pwd"}` {
+		t.Fatalf("tool calls: %+v", msg.ToolCalls)
+	}
+	if msg.ToolCalls[0].ItemID != "fc-1" {
+		t.Fatalf("tool call item ID = %q", msg.ToolCalls[0].ItemID)
+	}
+	if usage.PromptTokens != 12 || usage.CompletionTokens != 7 || usage.Cached() != 5 {
+		t.Fatalf("usage: %+v", usage)
+	}
+	if got["model"] != "gpt-5.5" || got["instructions"] != "system prompt" || got["stream"] != true || got["store"] != false || got["tool_choice"] != "auto" || got["parallel_tool_calls"] != true {
+		t.Fatalf("request = %#v", got)
+	}
+	if include, ok := got["include"].([]any); !ok || len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+		t.Fatalf("include = %#v", got["include"])
+	}
+	if _, ok := got["max_output_tokens"]; ok {
+		t.Fatalf("Codex subscription request must omit max_output_tokens: %#v", got)
+	}
+	reasoning, ok := got["reasoning"].(map[string]any)
+	if !ok || reasoning["effort"] != "high" {
+		t.Fatalf("reasoning = %#v", got["reasoning"])
+	}
+	input, ok := got["input"].([]any)
+	if !ok || len(input) != 3 {
+		t.Fatalf("input = %#v", got["input"])
+	}
+	if input[1].(map[string]any)["type"] != "function_call" || input[2].(map[string]any)["type"] != "function_call_output" {
+		t.Fatalf("tool history input = %#v", input)
+	}
+	tools, ok := got["tools"].([]any)
+	if !ok || len(tools) != 1 || tools[0].(map[string]any)["name"] != "bash" {
+		t.Fatalf("tools = %#v", got["tools"])
+	}
+}
+
+func TestCodexStreamSkipsMalformedSSEEvent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {not JSON}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"still works\"}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	msg, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Content != "still works" {
+		t.Fatalf("stream content = %q, want a valid event after malformed SSE to be retained", msg.Content)
+	}
+}
+
+func TestCodexStreamPropagatesRequestCancellation(t *testing.T) {
+	started := make(chan struct{})
+	client := NewCodex("https://codex.test", codexSource(t))
+	client.HTTP = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		close(started)
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, _, err := client.Stream(ctx, Request{Model: "gpt-5.5"}, nil, nil, nil)
+		errCh <- err
+	}()
+	<-started
+	cancel()
+
+	if err := <-errCh; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Stream() error = %v, want context cancellation", err)
+	}
+}
+
+func TestCodexStreamKeepsInterleavedToolCallsCorrelated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc-read\",\"call_id\":\"call-read\",\"name\":\"read\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc-search\",\"call_id\":\"call-search\",\"name\":\"search\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call-read\",\"delta\":\"{\\\"path\\\":\\\"REA\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call-search\",\"delta\":\"{\\\"query\\\":\\\"code\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.done\",\"call_id\":\"call-search\",\"arguments\":\"{\\\"query\\\":\\\"codex\\\"}\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.done\",\"call_id\":\"call-read\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	msg, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.ToolCalls) != 2 {
+		t.Fatalf("tool calls = %+v, want two calls", msg.ToolCalls)
+	}
+	for index, want := range []struct {
+		id, itemID, name, arguments string
+	}{
+		{id: "call-read", itemID: "fc-read", name: "read", arguments: `{"path":"README.md"}`},
+		{id: "call-search", itemID: "fc-search", name: "search", arguments: `{"query":"codex"}`},
+	} {
+		call := msg.ToolCalls[index]
+		if call.ID != want.id || call.ItemID != want.itemID || call.Function.Name != want.name || call.Function.Arguments != want.arguments {
+			t.Fatalf("tool call = %+v, want id=%q item=%q name=%q arguments=%q", call, want.id, want.itemID, want.name, want.arguments)
+		}
+	}
+}
+
+func TestCodexComplete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(body), `"stream":true`) {
+			http.Error(w, "complete streamed", http.StatusBadRequest)
+			return
+		}
+		if strings.Contains(string(body), `"max_output_tokens"`) {
+			http.Error(w, "max_output_tokens is not accepted by Codex subscriptions", http.StatusBadRequest)
+			return
+		}
+		fmt.Fprint(w, `{"output":[{"type":"message","content":[{"type":"output_text","text":"summary"}]}],"usage":{"input_tokens":9,"output_tokens":2}}`)
+	}))
+	defer srv.Close()
+
+	text, usage, err := NewCodex(srv.URL, codexSource(t)).Complete(context.Background(), Request{
+		Model:    "gpt-5.5",
+		Messages: []Message{{Role: "system", Content: "summarize"}, {Role: "user", Content: "history"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "summary" || usage.PromptTokens != 9 || usage.CompletionTokens != 2 {
+		t.Fatalf("complete = %q, %+v", text, usage)
+	}
+}
+
+// Codex's Responses endpoint distinguishes a previous assistant output from a
+// new input message. In particular, output_text belongs to a completed message
+// item with an ID; sending it as a bare assistant message is rejected by the
+// subscription backend as an unknown content parameter.
+func TestCodexRequestUsesOutputMessageForAssistantHistory(t *testing.T) {
+	call := ToolCall{ID: "call-1", ItemID: "fc-1", Type: "function"}
+	call.Function.Name = "read"
+	call.Function.Arguments = `{"path":"README.md"}`
+	body := codexRequest(Request{
+		Model: "gpt-5.6-terra",
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "inspect the repository"},
+			{Role: "assistant", Content: "I will inspect it.", ResponseID: "msg-1", ResponsePhase: "commentary", CodexReasoning: []json.RawMessage{json.RawMessage(`{"type":"reasoning","id":"rs-1","encrypted_content":"encrypted"}`)}, ToolCalls: []ToolCall{call}},
+			{Role: "tool", ToolCallID: "call-1", Content: "README contents"},
+		},
+	}, true)
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	input := got["input"].([]any)
+	if len(input) != 5 {
+		t.Fatalf("input = %#v", input)
+	}
+	user := input[0].(map[string]any)
+	if user["role"] != "user" {
+		t.Fatalf("user input = %#v", user)
+	}
+	if _, ok := user["type"]; ok {
+		t.Fatalf("user input must not carry a type discriminator: %#v", user)
+	}
+	reasoning := input[1].(map[string]any)
+	if reasoning["type"] != "reasoning" || reasoning["id"] != "rs-1" || reasoning["encrypted_content"] != "encrypted" {
+		t.Fatalf("reasoning history = %#v", reasoning)
+	}
+	assistant := input[2].(map[string]any)
+	if assistant["type"] != "message" || assistant["role"] != "assistant" {
+		t.Fatalf("assistant history = %#v", assistant)
+	}
+	if assistant["id"] != "msg-1" || assistant["status"] != "completed" {
+		t.Fatalf("assistant output identity = %#v", assistant)
+	}
+	if assistant["phase"] != "commentary" {
+		t.Fatalf("assistant output phase = %#v", assistant)
+	}
+	content, ok := assistant["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("assistant content = %#v", assistant["content"])
+	}
+	text := content[0].(map[string]any)
+	if text["type"] != "output_text" || text["text"] != "I will inspect it." {
+		t.Fatalf("assistant text = %#v", text)
+	}
+	if annotations, ok := text["annotations"].([]any); !ok || len(annotations) != 0 {
+		t.Fatalf("assistant annotations = %#v", text["annotations"])
+	}
+	callItem := input[3].(map[string]any)
+	if callItem["type"] != "function_call" || callItem["id"] != "fc-1" || callItem["call_id"] != "call-1" {
+		t.Fatalf("assistant tool call = %#v", callItem)
+	}
+	if _, ok := callItem["content"]; ok {
+		t.Fatalf("function call must not carry content: %#v", callItem)
+	}
+}
+
+func TestCodexMessageID(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		msg  Message
+		want string
+	}{
+		{name: "provider ID", msg: Message{ResponseID: "msg-provider"}, want: "msg-provider"},
+		{name: "older session", want: "msg_3"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := codexMessageID(tt.msg, 3); got != tt.want {
+				t.Fatalf("codexMessageID = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCodexRequestFlattensLegacyToolHistory(t *testing.T) {
+	legacy := ToolCall{ID: "call-old", Type: "function"}
+	legacy.Function.Name = "read"
+	legacy.Function.Arguments = `{"path":"README.md"}`
+	body := codexRequest(Request{
+		Model: "gpt-5.6-terra",
+		Messages: []Message{
+			{Role: "user", Content: "inspect the repository"},
+			{Role: "assistant", ToolCalls: []ToolCall{legacy}},
+			{Role: "tool", ToolCallID: "call-old", Content: "README contents"},
+			{Role: "user", Content: "continue"},
+		},
+	}, true)
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	input := got["input"].([]any)
+	if len(input) != 3 {
+		t.Fatalf("input = %#v", input)
+	}
+	for _, item := range input {
+		message := item.(map[string]any)
+		if _, ok := message["type"]; ok {
+			t.Fatalf("legacy history must not emit native Responses items: %#v", message)
+		}
+	}
+	legacyContext := input[1].(map[string]any)["content"].([]any)[0].(map[string]any)["text"]
+	if legacyContext != "[Earlier tool activity]\n\n[Tool call]\nread({\"path\":\"README.md\"})\n\n[Tool result]\nREADME contents" {
+		t.Fatalf("legacy context = %q", legacyContext)
+	}
+}
+
+func TestCodexRequestReplaysMalformedLegacyToolArguments(t *testing.T) {
+	legacy := ToolCall{ID: "call-old", Type: "function"}
+	legacy.Function.Name = "bash"
+	legacy.Function.Arguments = `{"command":`
+	body := codexRequest(Request{
+		Model: "gpt-5.6-terra",
+		Messages: []Message{
+			{Role: "assistant", ToolCalls: []ToolCall{legacy}},
+			{Role: "tool", ToolCallID: "call-old", Content: "tool rejected invalid arguments"},
+		},
+	}, true)
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	input := got["input"].([]any)
+	if len(input) != 1 {
+		t.Fatalf("input = %#v", input)
+	}
+	context := input[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"]
+	if context != "[Earlier tool activity]\n\n[Tool call]\nbash({\"command\":)\n\n[Tool result]\ntool rejected invalid arguments" {
+		t.Fatalf("legacy context = %q", context)
+	}
+}
+
+func TestCodexRequestCorrelatesMultipleToolResults(t *testing.T) {
+	read := ToolCall{ID: "call-read", ItemID: "fc-read", Type: "function"}
+	read.Function.Name = "read"
+	read.Function.Arguments = `{"path":"README.md"}`
+	search := ToolCall{ID: "call-search", ItemID: "fc-search", Type: "function"}
+	search.Function.Name = "search"
+	search.Function.Arguments = `{"query":"codex"}`
+	body := codexRequest(Request{
+		Model: "gpt-5.6-terra",
+		Messages: []Message{
+			{Role: "assistant", ToolCalls: []ToolCall{read, search}},
+			{Role: "tool", ToolCallID: "call-read", Content: "README"},
+			{Role: "tool", ToolCallID: "call-search", Content: "matches"},
+		},
+	}, true)
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	input := got["input"].([]any)
+	if len(input) != 4 {
+		t.Fatalf("input = %#v", input)
+	}
+	for index, want := range []struct {
+		typeName string
+		callID   string
+		itemID   string
+		output   string
+	}{
+		{typeName: "function_call", callID: "call-read", itemID: "fc-read"},
+		{typeName: "function_call", callID: "call-search", itemID: "fc-search"},
+		{typeName: "function_call_output", callID: "call-read", output: "README"},
+		{typeName: "function_call_output", callID: "call-search", output: "matches"},
+	} {
+		item := input[index].(map[string]any)
+		if item["type"] != want.typeName || item["call_id"] != want.callID || (want.itemID != "" && item["id"] != want.itemID) || (want.output != "" && item["output"] != want.output) {
+			t.Fatalf("input[%d] = %#v, want type=%q call_id=%q item_id=%q output=%q", index, item, want.typeName, want.callID, want.itemID, want.output)
+		}
+	}
+}
+
+func TestCodexModelsFetchesAccountCatalog(t *testing.T) {
+	var gotHeaders http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/codex/models" {
+			http.Error(w, "wrong route", http.StatusNotFound)
+			return
+		}
+		if got := r.URL.Query().Get("client_version"); got != codexModelsClientVersion {
+			http.Error(w, "missing client_version", http.StatusBadRequest)
+			return
+		}
+		gotHeaders = r.Header.Clone()
+		fmt.Fprint(w, `{"models":[
+  {"slug":"gpt-5.6-sol","supported_in_api":true,"context_window":1050000,"supported_reasoning_levels":[{"effort":"none"},{"effort":"low"},{"effort":"max"}],"input_modalities":["text","image"]},
+  {"slug":"gpt-rollout","supported_in_api":false,"context_window":1000},
+  {"slug":"gpt-5.5","supported_in_api":true,"max_context_window":272000,"supported_reasoning_levels":[{"effort":"medium"}]}
+]}`)
+	}))
+	defer srv.Close()
+
+	models, err := NewCodex(srv.URL, codexSource(t)).Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotHeaders.Get("Authorization") != "Bearer access" || gotHeaders.Get("Chatgpt-Account-Id") != "account" || gotHeaders.Get("Originator") != "whip" {
+		t.Fatalf("catalog auth headers = %#v", gotHeaders)
+	}
+	if len(models) != 2 {
+		t.Fatalf("models = %+v, want two supported entries", models)
+	}
+	if got := models[0]; got.ID != "gpt-5.6-sol" || got.ContextLength != 1050000 || !got.SupportsVision() || strings.Join(got.ReasoningEfforts, ",") != "none,low,max" {
+		t.Fatalf("first model = %+v", got)
+	}
+	if got := models[1]; got.ID != "gpt-5.5" || got.ContextLength != 272000 || !got.SupportsVision() || strings.Join(got.ReasoningEfforts, ",") != "medium" {
+		t.Fatalf("second model = %+v", got)
+	}
+}
+
+func TestCodexModelsReturnsHTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not entitled", http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	_, err := NewCodex(srv.URL, codexSource(t)).Models(context.Background())
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || httpErr.Status != "403 Forbidden" || !strings.Contains(httpErr.Body, "not entitled") {
+		t.Fatalf("error = %#v, want typed 403", err)
+	}
+}
+
+func TestCodexModelsFailureModes(t *testing.T) {
+	if _, err := NewCodex("https://codex.test", nil).Models(context.Background()); !errors.Is(err, codexauth.ErrLoginRequired) {
+		t.Fatalf("nil source error = %v, want login required", err)
+	}
+
+	client := NewCodex("https://codex.test", codexSource(t))
+	client.HTTP = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("network down")
+	})}
+	if _, err := client.Models(context.Background()); err == nil || !strings.Contains(err.Error(), "network down") {
+		t.Fatalf("transport error = %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"models":[{"slug":"","supported_in_api":true},{"slug":"rollout","supported_in_api":false}]}`))
+	}))
+	defer srv.Close()
+	models, err := NewCodex(srv.URL, codexSource(t)).Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 0 {
+		t.Fatalf("unsupported catalog entries = %+v, want none", models)
+	}
+	if efforts := (codexModel{SupportedReasoningLevels: []codexReasoningLevel{{}, {Effort: "high"}}}).ReasoningEfforts(); len(efforts) != 1 || efforts[0] != "high" {
+		t.Fatalf("reasoning efforts = %v", efforts)
+	}
+}
+
+func TestCodexStreamAndCompleteRequireLogin(t *testing.T) {
+	client := NewCodex("https://codex.test", nil)
+	if _, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil); !errors.Is(err, codexauth.ErrLoginRequired) {
+		t.Fatalf("Stream() error = %v, want login required", err)
+	}
+	if _, _, err := client.Complete(context.Background(), Request{Model: "gpt-5.5"}); !errors.Is(err, codexauth.ErrLoginRequired) {
+		t.Fatalf("Complete() error = %v, want login required", err)
+	}
+}
+
+func TestCodexModelsRejectsMalformedCatalog(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"models":`))
+	}))
+	defer srv.Close()
+
+	if _, err := NewCodex(srv.URL, codexSource(t)).Models(context.Background()); err == nil {
+		t.Fatal("malformed catalog was accepted")
+	}
+}
+
+func TestCallCollectorHandlesPartialAndCompletedCalls(t *testing.T) {
+	collector := callCollector{}
+	collector.delta("", `{"ignored":true}`)
+	collector.delta("call-1", `{"path":"REA`)
+	collector.addAll([]responseItem{
+		{Type: "message", ID: "msg-1"},
+		{Type: "function_call", CallID: "call-1", ID: "fc-1", Name: "read", Arguments: `{"path":"README.md"}`},
+		{Name: "unnamed"},
+	})
+
+	if len(collector.calls) != 2 {
+		t.Fatalf("calls = %+v, want two calls", collector.calls)
+	}
+	if got := collector.calls[0]; got.ID != "call-1" || got.ItemID != "fc-1" || got.Function.Name != "read" || got.Function.Arguments != `{"path":"README.md"}` {
+		t.Fatalf("completed call = %+v", got)
+	}
+	if got := collector.calls[1]; got.ID != "output-0" || got.Function.Name != "unnamed" {
+		t.Fatalf("unnamed call = %+v", got)
+	}
+}
+
+func TestCodexStreamErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body       string
+		want       string
+		wantStatus string
+	}{
+		{name: "HTTP error", status: http.StatusForbidden, body: "not entitled", want: "403 Forbidden", wantStatus: "403 Forbidden"},
+		{name: "API error", status: http.StatusOK, body: "data: {\"type\":\"error\",\"error\":{\"message\":\"quota reached\"}}\n\n", want: "quota reached"},
+		{name: "failed response", status: http.StatusOK, body: "data: {\"type\":\"response.failed\"}\n\n", want: "codex response failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			_, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Stream error = %v, want %q", err, tc.want)
+			}
+			if tc.wantStatus != "" {
+				var httpErr *HTTPError
+				if !errors.As(err, &httpErr) || httpErr.Status != tc.wantStatus || !strings.Contains(httpErr.Body, tc.body) {
+					t.Fatalf("Stream error = %#v, want typed HTTP error %q containing %q", err, tc.wantStatus, tc.body)
+				}
+			}
+		})
+	}
+}
+
+func TestCodexCompleteErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{name: "HTTP error", status: http.StatusForbidden, body: "forbidden", want: "403 Forbidden"},
+		{name: "unauthorized and refresh fails", status: http.StatusUnauthorized, body: "sign in", want: "whip auth codex"},
+		{name: "invalid JSON", status: http.StatusOK, body: "not json", want: "invalid character"},
+		{name: "no text", status: http.StatusOK, body: `{"output":[{"type":"message","content":[{"type":"refusal","text":"no"}]}]}`, want: "no text"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			src := codexSource(t)
+			down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusBadGateway) }))
+			defer down.Close()
+			src.TokenURL, src.HTTP = down.URL, down.Client() // a 401's forced refresh must not reach the network
+			_, _, err := NewCodex(srv.URL, src).Complete(context.Background(), Request{Model: "gpt-5.5"})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Complete error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func codexSource(t *testing.T) *codexauth.Source {
+	t.Helper()
+	home := t.TempDir()
+	path := filepath.Join(home, ".codex", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"tokens":{"access_token":"access","refresh_token":"refresh","account_id":"account"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return &codexauth.Source{HomeDir: home}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestCodexCloneOwnsCacheKey(t *testing.T) {
+	parent := NewCodex("https://chatgpt.com/backend-api/", nil)
+	parent.SetCacheKey("parent")
+	child := parent.Clone()
+	child.SetCacheKey("parent/child")
+	if parent.CacheKey != "parent" || child.(*Codex).CacheKey != "parent/child" {
+		t.Fatalf("clone shares cache key: parent=%q child=%q", parent.CacheKey, child.(*Codex).CacheKey)
+	}
+	if child.Endpoint() != "https://chatgpt.com/backend-api" {
+		t.Fatalf("endpoint = %q", child.Endpoint())
+	}
+}
+
+func TestCodexRateLimits(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/wham/usage" || r.Header.Get("Authorization") != "Bearer access" || r.Header.Get("Chatgpt-Account-Id") != "account" {
+			http.Error(w, "bad request "+r.URL.Path, http.StatusBadRequest)
+			return
+		}
+		fmt.Fprint(w, `{"plan_type":"plus","rate_limit":{"limit_reached":false,"primary_window":{"used_percent":28,"limit_window_seconds":18000,"reset_after_seconds":7800},"secondary_window":null}}`)
+	}))
+	defer srv.Close()
+	got, err := NewCodex(srv.URL, codexSource(t)).RateLimits(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Plan != "plus" || got.LimitReached || len(got.Windows) != 1 {
+		t.Fatalf("limits = %+v", got)
+	}
+	if w := got.Windows[0]; w.UsedPercent != 28 || w.Window != 5*time.Hour || w.ResetIn != 130*time.Minute {
+		t.Fatalf("window = %+v", w)
+	}
+	if _, err := NewCodex(srv.URL, nil).RateLimits(context.Background()); !errors.Is(err, codexauth.ErrLoginRequired) {
+		t.Fatalf("nil source err = %v", err)
+	}
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "nope", http.StatusForbidden) }))
+	defer bad.Close()
+	if _, err := NewCodex(bad.URL, codexSource(t)).RateLimits(context.Background()); err == nil {
+		t.Fatal("expected HTTP error")
+	}
+}
+
+// Transient failures retry with backoff and report through OnRetry, like the
+// OpenAI client; a mid-stream provider error and post-output failures don't.
+func TestCodexStreamRetriesTransientFailures(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			http.Error(w, "busy", http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 3
+	var events []RetryEvent
+	client.SetOnRetry(func(ev RetryEvent) { events = append(events, ev) })
+	sleepFn := sleep
+	sleep = func(context.Context, time.Duration) error { return nil }
+	defer func() { sleep = sleepFn }()
+	msg, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err != nil || msg.Content != "ok" {
+		t.Fatalf("msg=%+v err=%v", msg, err)
+	}
+	if calls != 3 || len(events) != 2 || events[1].Attempt != 2 || events[1].Max != 3 {
+		t.Fatalf("calls=%d events=%+v", calls, events)
+	}
+
+	// A 400 is not retried.
+	calls = 0
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, "nope", http.StatusBadRequest)
+	}))
+	defer bad.Close()
+	client = NewCodex(bad.URL, codexSource(t))
+	client.MaxRetries = 3
+	if _, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil); err == nil || calls != 1 {
+		t.Fatalf("4xx should fail once: calls=%d err=%v", calls, err)
+	}
+
+	// A mid-stream provider error after output is surfaced, not retried.
+	calls = 0
+	mid := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.failed\",\"error\":{\"message\":\"model fault\"}}\n\n")
+	}))
+	defer mid.Close()
+	client = NewCodex(mid.URL, codexSource(t))
+	client.MaxRetries = 3
+	_, _, err = client.Stream(context.Background(), Request{Model: "gpt-5.5"}, func(string) {}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "model fault") || calls != 1 {
+		t.Fatalf("mid-stream failure: calls=%d err=%v", calls, err)
+	}
+}
+
+func TestCodexCompleteRetriesServerErrors(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			http.Error(w, "upstream", http.StatusBadGateway)
+			return
+		}
+		fmt.Fprint(w, `{"output":[{"type":"message","content":[{"type":"output_text","text":"summary"}]}],"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 2
+	sleepFn := sleep
+	sleep = func(context.Context, time.Duration) error { return nil }
+	defer func() { sleep = sleepFn }()
+	text, _, err := client.Complete(context.Background(), Request{Model: "gpt-5.5"})
+	if err != nil || text != "summary" || calls != 2 {
+		t.Fatalf("text=%q calls=%d err=%v", text, calls, err)
+	}
+}
+
+// A stream that ends before a tool call's arguments close drops that call
+// rather than persisting malformed JSON; complete siblings survive.
+func TestCodexStreamDropsTruncatedToolCall(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc-1\",\"call_id\":\"call-1\",\"name\":\"read\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.done\",\"call_id\":\"call-1\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc-2\",\"call_id\":\"call-2\",\"name\":\"bash\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call-2\",\"delta\":\"{\\\"command\\\":\\\"rm -\"}\n\n")
+		// connection closes here: no arguments.done, no response.completed
+	}))
+	defer srv.Close()
+	msg, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].ID != "call-1" {
+		t.Fatalf("only the complete call should survive: %+v", msg.ToolCalls)
+	}
+	if !strings.Contains(msg.Content, `"bash" discarded`) {
+		t.Fatalf("discard should be noted in content: %q", msg.Content)
+	}
+}
+
+func TestCodexStreamReadsFlatErrorEvent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"slow down\"}\n\n")
+	}))
+	defer srv.Close()
+	_, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "slow down") {
+		t.Fatalf("flat error event should surface its message, got %v", err)
+	}
+}
+
+// ---- Codex-specific retry semantics ---------------------------------------
+
+// codexRefreshingSource is a Source whose token endpoint is a fake that hands
+// out a fresh access token; the auth file starts with a token the API will
+// reject.
+func codexRefreshingSource(t *testing.T, refreshes *int) *codexauth.Source {
+	t.Helper()
+	src := codexSource(t)
+	tok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*refreshes++
+		fmt.Fprint(w, `{"access_token":"fresh","refresh_token":"refresh2","expires_in":3600}`)
+	}))
+	t.Cleanup(tok.Close)
+	src.TokenURL = tok.URL
+	src.HTTP = tok.Client()
+	return src
+}
+
+// A 401 on a token we hold triggers exactly one forced refresh and a resend
+// with the new token; the retry budget isn't spent on it.
+func TestCodexRefreshesOnUnauthorized(t *testing.T) {
+	noSleep(t)
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		seen = append(seen, auth)
+		if auth != "Bearer fresh" {
+			http.Error(w, `{"error":{"message":"token expired"}}`, http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	refreshes := 0
+	client := NewCodex(srv.URL, codexRefreshingSource(t, &refreshes))
+	client.MaxRetries = 1 // no transport retries: the 401 path must not need them
+	msg, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err != nil || msg.Content != "ok" {
+		t.Fatalf("msg=%+v err=%v", msg, err)
+	}
+	if refreshes != 1 || len(seen) != 2 || seen[0] != "Bearer access" || seen[1] != "Bearer fresh" {
+		t.Fatalf("refreshes=%d auth headers=%v", refreshes, seen)
+	}
+	// Complete takes the same path.
+	seen = nil
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		if len(seen) == 1 {
+			http.Error(w, "expired", http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, `{"output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}],"usage":{}}`)
+	}))
+	defer srv2.Close()
+	client = NewCodex(srv2.URL, codexRefreshingSource(t, &refreshes))
+	client.MaxRetries = 1
+	if text, _, err := client.Complete(context.Background(), Request{Model: "gpt-5.5"}); err != nil || text != "done" {
+		t.Fatalf("text=%q err=%v", text, err)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("Complete should resend once after refresh, got %v", seen)
+	}
+}
+
+// A second 401 after a successful refresh is a real login problem: it
+// surfaces without further retries, and a failed refresh is reported as such.
+func TestCodexUnauthorizedTwiceIsPermanent(t *testing.T) {
+	noSleep(t)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, "nope", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	refreshes := 0
+	client := NewCodex(srv.URL, codexRefreshingSource(t, &refreshes))
+	client.MaxRetries = 5
+	_, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "401") || calls != 2 || refreshes != 1 {
+		t.Fatalf("err=%v calls=%d refreshes=%d", err, calls, refreshes)
+	}
+
+	// Refresh endpoint down: the login error surfaces, no resend, no retries.
+	calls = 0
+	src := codexSource(t)
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusBadGateway) }))
+	defer down.Close()
+	src.TokenURL, src.HTTP = down.URL, down.Client()
+	client = NewCodex(srv.URL, src)
+	client.MaxRetries = 5
+	_, _, err = client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "whip auth codex") || calls != 1 {
+		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+}
+
+// An exhausted subscription window is a UsageLimitError: permanent, carrying
+// the reset time, and never retried against the backend.
+func TestCodexUsageLimitIsPermanentWithReset(t *testing.T) {
+	noSleep(t)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"error":{"type":"usage_limit_reached","message":"You've hit your usage limit.","plan_type":"plus","resets_in_seconds":5400}}`)
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 5
+	var retries int
+	client.SetOnRetry(func(RetryEvent) { retries++ })
+	_, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	ul, ok := errors.AsType[*UsageLimitError](err)
+	if !ok || ul.Kind != "usage_limit_reached" || ul.Plan != "plus" || ul.ResetIn != 90*time.Minute {
+		t.Fatalf("err=%v (%T)", err, err)
+	}
+	for _, want := range []string{"limit reached", "plan: plus", "resets in 1h30m", "/usage"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("message %q lacks %q", err.Error(), want)
+		}
+	}
+	if calls != 1 || retries != 0 {
+		t.Fatalf("usage limit must not be retried: calls=%d retries=%d", calls, retries)
+	}
+	if _, _, err := client.Complete(context.Background(), Request{Model: "gpt-5.5"}); !errors.As(err, &ul) {
+		t.Fatalf("Complete should classify the same way: %v", err)
+	}
+	// usage_not_included (model outside the plan) is the same class.
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"error":{"type":"usage_not_included","message":"not in plan"}}`)
+	}))
+	defer srv2.Close()
+	_, _, err = NewCodex(srv2.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if ul, ok := errors.AsType[*UsageLimitError](err); !ok || ul.Kind != "usage_not_included" || ul.ResetIn != 0 {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// A plain 429 (no usage-limit body) is ordinary rate limiting: retried,
+// honouring Retry-After.
+func TestCodexPlainRateLimitRetriesWithRetryAfter(t *testing.T) {
+	var slept []time.Duration
+	orig := sleep
+	sleep = func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
+	defer func() { sleep = orig }()
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "9")
+			http.Error(w, `{"error":{"type":"rate_limit_exceeded","message":"slow down"}}`, http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 3
+	if msg, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil); err != nil || msg.Content != "ok" {
+		t.Fatalf("msg=%+v err=%v", msg, err)
+	}
+	if calls != 2 || len(slept) != 1 || slept[0] != 9*time.Second {
+		t.Fatalf("calls=%d slept=%v", calls, slept)
+	}
+}
+
+// Mid-stream failures: server_error retries (before any output); other codes
+// and the flat/nested/response-level shapes all surface without retry.
+func TestCodexMidStreamFailureClassification(t *testing.T) {
+	noSleep(t)
+	stream := func(events ...string) *httptest.Server {
+		calls := 0
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			w.Header().Set("Content-Type", "text/event-stream")
+			if calls == 1 {
+				for _, e := range events {
+					fmt.Fprint(w, "data: "+e+"\n\n")
+				}
+				return
+			}
+			fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"recovered\"}\n\ndata: [DONE]\n\n")
+		}))
+	}
+	run := func(srv *httptest.Server) (Message, error) {
+		defer srv.Close()
+		client := NewCodex(srv.URL, codexSource(t))
+		client.MaxRetries = 3
+		msg, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, func(string) {}, nil, nil)
+		return msg, err
+	}
+	// response.failed with server_error → retried → recovered on attempt 2
+	if msg, err := run(stream(`{"type":"response.failed","response":{"error":{"code":"server_error","message":"internal"}}}`)); err != nil || msg.Content != "recovered" {
+		t.Fatalf("server_error should retry: msg=%+v err=%v", msg, err)
+	}
+	// flat error event with server_error → retried too
+	if msg, err := run(stream(`{"type":"error","code":"server_error","message":"oops"}`)); err != nil || msg.Content != "recovered" {
+		t.Fatalf("flat server_error should retry: msg=%+v err=%v", msg, err)
+	}
+	// server_error AFTER output was shown → surfaces (no replay)
+	if _, err := run(stream(`{"type":"response.output_text.delta","delta":"partial"}`, `{"type":"response.failed","response":{"error":{"code":"server_error","message":"late"}}}`)); err == nil || !strings.Contains(err.Error(), "late") {
+		t.Fatalf("post-output server_error must surface: %v", err)
+	}
+	// non-server codes are permanent
+	for _, ev := range []string{
+		`{"type":"response.failed","response":{"error":{"code":"invalid_prompt","message":"bad prompt"}}}`,
+		`{"type":"error","error":{"code":"context_length_exceeded","message":"too long"}}`,
+		`{"type":"error","message":"no code at all"}`,
+	} {
+		if _, err := run(stream(ev)); err == nil || strings.Contains(err.Error(), "recovered") {
+			t.Fatalf("%s should be permanent, got %v", ev, err)
+		}
+	}
+}
+
+// Every Codex error path goes through the shared policy: OnRetry reports
+// attempt/max exactly like the OpenAI client.
+func TestCodexRetryEventsMatchOpenAIShape(t *testing.T) {
+	noSleep(t)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 3
+	var evs []RetryEvent
+	client.SetOnRetry(func(ev RetryEvent) { evs = append(evs, ev) })
+	if _, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil); err == nil {
+		t.Fatal("expected failure after budget")
+	}
+	if calls != 3 || len(evs) != 2 || evs[0].Attempt != 1 || evs[0].Max != 3 || evs[1].Attempt != 2 || evs[0].Delay <= 0 {
+		t.Fatalf("calls=%d evs=%+v", calls, evs)
+	}
+}
+
+// A stream that showed only a pending tool-call row before a server_error
+// must not retry (the UI would get ghost duplicate rows), and a failed
+// stream never hands back the failed attempt's usage.
+func TestCodexNoRetryAfterToolCallShownAndNoUsageOnError(t *testing.T) {
+	noSleep(t)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc-1\",\"call_id\":\"call-1\",\"name\":\"bash\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call-1\",\"delta\":\"{\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":50,\"output_tokens\":5}}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"server_error\",\"message\":\"late\"}}}\n\n")
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 3
+	var toolRows int
+	_, usage, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, func(string, string, string) { toolRows++ })
+	if err == nil || calls != 1 {
+		t.Fatalf("a shown tool-call row must block the retry: calls=%d err=%v", calls, err)
+	}
+	if usage != (Usage{}) {
+		t.Fatalf("failed stream must not return usage, got %+v", usage)
+	}
+	if toolRows == 0 {
+		t.Fatal("test fixture should have surfaced a tool-call row")
+	}
+}

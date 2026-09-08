@@ -349,11 +349,11 @@ func (a *Agent) RegisterBackground(description, prompt string, o SubModel) *Back
 	// fall back to the parent's cache key so subagents still cache on a
 	// -no-session run (where the session id is empty).
 	scope := a.SessionIDValue()
-	if scope == "" && a.Client != nil {
-		scope = a.Client.CacheKey
+	if scope == "" {
+		scope = a.cacheKey
 	}
 	if scope != "" {
-		sub.Client.CacheKey = scope + "/" + id
+		sub.SetCacheKey(scope + "/" + id)
 	}
 	t := &BackgroundTask{
 		ID: id, Description: description, Prompt: prompt,

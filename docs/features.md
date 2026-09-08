@@ -438,14 +438,16 @@ unrelated experimental name.
 ## Models & providers
 
 `internal/config/config.go`, `internal/config/catalog.go` — models route to
-providers; the provider's `GET /models` is the source of truth for
-capabilities. Two distinct limits, both honored:
+providers; OpenAI-compatible providers use `GET /models` as the source of
+truth for capabilities. Two distinct limits, both honored:
 
 - **Context window (input)** — `Model.Context` (legacy `maxTokens` still
   parses via `ContextWindow()`), overridden by the provider's
   `context_length`. Drives the header's `% ctx` and proactive compaction.
 - **Output cap** — `Model.MaxOut`, else the provider's `max_completion_tokens`,
-  else the context window. Sent as the request's `max_tokens`.
+  else the context window. Sent as the request's `max_tokens` for
+  OpenAI-compatible chat-completions providers; Codex subscriptions omit the
+  rejected `max_output_tokens` field and let the backend enforce its cap.
 
 The catalog (`~/.whip/models.json`) caches each provider's model list with a
 24h TTL and refreshes in the background. When the provider advertises
@@ -473,7 +475,7 @@ would replay rendered text, so the error surfaces instead. Mid-stream
 provider `error` chunks and 4xxs (including context-limit, which the
 compaction path must see immediately) are never retried. Each retry posts a
 `⚠ request failed (…) — retrying in Ns (attempt N/M)` line via the
-`Client.OnRetry` hook. Tests: `llm/retry_test.go`.
+`OpenAI.OnRetry` hook. Tests: `llm/retry_test.go`.
 
 `internal/tui/setup.go` — the first-run setup wizard. When `whip` starts with
 no `~/.whip/config.json` AND no `~/.whip/setup.done` marker
@@ -510,9 +512,69 @@ prompt. All writes go through the guarded `Config.Save`. Tests:
 Enter-through opt-out, opt-in, thinking-off persistence, OpenRouter good/bad
 key via the injected validator).
 
-`cmd/whip/auth.go`, `internal/config/openrouter.go`,
-`internal/tui/auth_cmd.go` — one-command provider onboarding, first (and
-currently only) for OpenRouter. `whip auth openrouter [--env] [<key>]` takes
+### Codex subscription provider
+
+`"api": "openai-codex-responses", "auth": "codex"` routes a configured
+model through the ChatGPT Codex Responses SSE endpoint without an API key.
+`whip auth codex` implements Codex's device-code sign-in: it shows the
+verification URL and one-time code,
+polls until approval (or ctrl+c), exchanges the server-provided PKCE verifier,
+atomically stores the result in Codex-compatible `~/.codex/auth.json`, and
+then upserts the `codex-subscription` provider plus `gpt-5.5` fallback route **and fetches
+the signed-in account's `/codex/models` catalog**. `/auth codex` does the same
+within an active TUI session, so `/model` shows every available subscription
+model immediately. Neither flow changes the user's default model. The backend
+catalog is authoritative for plan and rollout availability and refreshes on
+the normal 24-hour TTL or `/model refresh`. `internal/codexauth/auth.go`
+derives missing account and expiry
+data from JWT claims, refreshes within five minutes of expiry, and preserves
+unrelated auth-file fields. Tokens are never logged or sent to the conversation.
+
+`internal/llm/codex.go` maps messages, tool calls, tool results, text/thinking
+deltas, usage, and the account-scoped `/codex/models` response to Whip's
+existing provider contract. Codex subscription requests omit
+`max_output_tokens`, which that endpoint rejects; its backend owns the output
+limit. Catalog context, vision, and supported reasoning efforts flow through
+the same picker and resolver as OpenRouter. OAuth credentials are accepted
+only for `https://chatgpt.com/backend-api`.
+
+Retries are one policy for every provider (`internal/llm/retry.go`,
+`retryPolicy`): transient failures (transport errors, 429, 5xx) back off
+exponentially, honour `Retry-After` (a header past 60s marks the error
+permanent — that's a quota, not congestion), report each retry through
+`SetOnRetry`, and stop once output has been shown so nothing replays. Codex adds
+three provider-specific rules on top: a 401 forces one token refresh
+(`codexauth.Source.ForceRefresh`) and resends before any retry budget is spent
+(the Codex CLI shares the auth file and may rotate tokens under us); a 429
+whose body says `usage_limit_reached`/`usage_not_included` becomes a permanent
+`llm.UsageLimitError` carrying the plan and reset time instead of a pointless
+backoff loop; and a mid-stream `server_error` event is retried while other
+failure codes surface. A stream that dies mid tool-call drops that call rather
+than persisting malformed arguments. `codex_live_test.go` (gated by
+`WHIP_LIVE_CODEX=1`) exercises all of this against the real backend through a
+fault-injecting proxy. Tests: `codexauth/auth_test.go`, `llm/retry_test.go`,
+`cmd/whip/auth_codex_test.go`, `llm/codex_test.go`, and `tui/model_cmd_test.go`
+(`TestBuildAgentCodexAuth*`).
+
+`/usage` (`internal/tui/usage_cmd.go`) fetches the subscription's rate-limit
+windows from the backend's usage endpoint with the stored credentials and
+prints one line per window (used %, reset countdown). It applies only to
+subscription providers — API-key providers bill per token — and says so when
+no Codex provider is configured. Pickers label the Codex endpoint "ChatGPT
+Codex subscription" instead of its raw `chatgpt.com/backend-api` URL. On the
+subscription, unpinned subagents default to `gpt-5.6-luna`
+(`config.CodexDefaultTaskModel`); any configured or catalog model can be pinned
+instead via ctrl+p › Subagent model.
+
+`whip auth <provider> logout` (`openrouter` or `codex`) removes the provider
+entry, every model route through it, any default/compact/task pin naming it,
+and its cached catalog (`config.RemoveProvider`). Removing the last provider
+persists as an intentionally empty config. Codex logout leaves
+`~/.codex/auth.json` in place because the Codex CLI shares it; `codex logout`
+revokes it. `whip auth --help` prints the provider/subcommand summary.
+
+`cmd/whip/auth.go`, `internal/config/openrouter.go`, `internal/config/codex.go`,
+`internal/tui/auth_cmd.go` — one-command provider onboarding. `whip auth openrouter [--env] [<key>]` takes
 the key from arg / `OPENROUTER_API_KEY` / a masked prompt, **validates it
 against the live API before writing anything** (a rejected key leaves no
 trace), upserts the `openrouter` provider into config (literal `apiKey` by
@@ -524,12 +586,17 @@ model usable with zero per-model config via catalog resolution. In-session,
 prompt (the `namePrompt` machinery with a `mask` flag — the key never
 echoes, and the inline-key form is kept out of ↑-recallable input history);
 a session already routed through openrouter is hot-rebuilt with the new key
-so re-authing fixes a 401 without a `/model` round-trip. Tests:
+so re-authing fixes a 401 without a `/model` round-trip. `whip auth codex` and
+`/auth codex` use the subscription device flow above and pre-fetch the
+account-scoped Codex catalog, so its models use the same zero-config picker
+path. Tests:
 `config/openrouter_test.go` (upsert modes, idempotence, `TrimKey`),
 `cmd/whip/auth_test.go` (httptest fake OpenRouter — good key wires provider
 + catalog + makes catalog models resolvable, bad key writes nothing,
-re-auth keeps other providers/models), `tui/auth_cmd_test.go` (usage,
-masked prompt open/cancel, good/bad result, live-session rekey).
+re-auth keeps other providers/models), `config/codex_test.go` (fallback route,
+preservation, idempotence), `cmd/whip/auth_codex_test.go` (auth configures Codex
+and caches its catalog), and `tui/auth_cmd_test.go` (usage, masked prompt
+open/cancel, good/bad result, live-session rekey, Codex account catalog picker).
 
 `cmd/whip/auth_inferencenet.go`, `internal/inferencenet/`,
 `internal/config/inferencenet.go`, `internal/tui/auth_inferencenet_cmd.go` —

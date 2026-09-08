@@ -255,3 +255,45 @@ func TestAuthOpenRouterUnwritableConfig(t *testing.T) {
 		t.Error("an unwritable config dir should surface as an error")
 	}
 }
+
+func TestAuthCLIHelp(t *testing.T) {
+	for _, arg := range []string{"-h", "--help", "help"} {
+		if err := authCLI([]string{arg}); err != nil {
+			t.Errorf("whip auth %s: %v", arg, err)
+		}
+	}
+	if err := authCLI([]string{"openrouter", "--help"}); err != nil {
+		t.Errorf("whip auth openrouter --help: %v", err)
+	}
+}
+
+func TestAuthLogoutRemovesProvider(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.UpsertOpenRouter("sk-or-test", false)
+	cfg.UpsertCodex()
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"openrouter", "logout"}, {"codex", "logout"}, {"codex", "logout"}} {
+		if err := authCLI(args); err != nil {
+			t.Fatalf("whip auth %v: %v", args, err)
+		}
+	}
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.Providers["openrouter"]; ok {
+		t.Fatal("openrouter should be removed")
+	}
+	if _, ok := cfg.Providers[config.CodexProviderName]; ok {
+		t.Fatal("codex should be removed")
+	}
+	if _, ok := cfg.Models[config.CodexDefaultModel]; ok {
+		t.Fatal("codex default route should be removed with its provider")
+	}
+}

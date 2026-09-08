@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -42,7 +43,17 @@ func TestStreamStripsAuthoredFlag(t *testing.T) {
 	defer srv.Close()
 
 	sent := time.Now()
-	msgs := []Message{{Role: "user", Content: "typed by me", Authored: true, SentAt: &sent}}
+	msgs := []Message{
+		{Role: "user", Content: "typed by me", Authored: true, SentAt: &sent},
+		{
+			Role:           "assistant",
+			Content:        "a Codex response",
+			ResponseID:     "msg-codex",
+			ResponsePhase:  "commentary",
+			CodexReasoning: []json.RawMessage{json.RawMessage(`{"type":"reasoning","id":"rs-codex","encrypted_content":"encrypted"}`)},
+			ToolCalls:      []ToolCall{{ID: "call-codex", ItemID: "fc-codex"}},
+		},
+	}
 	if _, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m", Messages: msgs}, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +62,9 @@ func TestStreamStripsAuthoredFlag(t *testing.T) {
 	}
 	if strings.Contains(string(body), "sent_at") {
 		t.Fatalf("SentAt timestamp leaked to provider: %s", body)
+	}
+	if strings.Contains(string(body), "response_id") || strings.Contains(string(body), "response_phase") || strings.Contains(string(body), "codex_reasoning") || strings.Contains(string(body), "item_id") {
+		t.Fatalf("Codex item metadata leaked to provider: %s", body)
 	}
 }
 
@@ -517,5 +531,53 @@ func TestMessageUnmarshalPlainString(t *testing.T) {
 	// malformed content shape must error, not vanish silently
 	if err := json.Unmarshal([]byte(`{"role":"user","content":42}`), &m); err == nil {
 		t.Fatal("numeric content should error")
+	}
+}
+
+// stripInternal must not mutate the caller's history: ToolCalls share a
+// backing array with the live conversation, so zeroing bookkeeping in place
+// would erase DurationMs/ExitCode before the session is persisted.
+func TestStripInternalLeavesCallerToolCallsIntact(t *testing.T) {
+	tc := ToolCall{ID: "c1", Type: "function", ItemID: "fc-1", DurationMs: 1234, ExitCode: 2}
+	tc.Function.Name = "bash"
+	history := []Message{{Role: "assistant", ToolCalls: []ToolCall{tc}}}
+	out := stripInternal(history, false)
+	if got := out[0].ToolCalls[0]; got.DurationMs != 0 || got.ExitCode != 0 || got.ItemID != "" {
+		t.Fatalf("wire copy should be stripped: %+v", got)
+	}
+	if got := history[0].ToolCalls[0]; got.DurationMs != 1234 || got.ExitCode != 2 || got.ItemID != "fc-1" {
+		t.Fatalf("caller's history was mutated: %+v", got)
+	}
+}
+
+// The OpenAI client also treats a shown tool-call row as visible output: a
+// transport failure after it surfaces instead of replaying the row.
+func TestStreamDoesNotRetryAfterToolCallRow(t *testing.T) {
+	noSleep(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\"}}]}}]}\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// connection drops without [DONE]/finish: normally retryable
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				_ = conn.Close()
+			}
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "k")
+	c.MaxRetries = 3
+	rows := 0
+	_, _, _ = c.Stream(context.Background(), Request{Model: "m"}, nil, nil, func(string, string, string) { rows++ })
+	if rows == 0 {
+		t.Fatal("fixture should surface a tool-call row")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("a shown tool-call row must block the retry, got %d attempts", calls.Load())
 	}
 }
