@@ -36,7 +36,7 @@ jobs:
       - name: Download and verify the exact published archive
         run: node apps/desktop/scripts/download-acceptance.mjs
       - name: Launch the notarized app on the minimum supported macOS
-        run: node apps/desktop/scripts/startup.mjs 'downloaded/Whip Beta.app' --notarized --samples 3 --first-samples 1 --output acceptance/minimum-os-startup.json
+        run: node apps/desktop/scripts/startup.mjs 'downloaded/Whip Beta.app' --notarized --samples 30 --first-samples 1 --output acceptance/minimum-os-startup.json
       - name: Require the expected OS, version, and successful cleanup
         run: |
           node --input-type=module <<'NODE'
@@ -52,6 +52,20 @@ jobs:
           assert(evidence.cleanup.every(value => value.state === 'stopped'));
           console.log(`Verified ${process.env.RELEASE_VERSION} on macOS ${os} arm64`);
           NODE
+      - name: Grant the disposable CI helper permission to click the owned update dialog
+        run: |
+          xcrun swiftc apps/desktop/scripts/click-button.swift -o "$RUNNER_TEMP/whip-click-button"
+          codesign --force --sign - "$RUNNER_TEMP/whip-click-button"
+          sudo python3 - "$RUNNER_TEMP/whip-click-button" <<'PYTHON'
+          import os,sqlite3,sys,time
+          assert os.environ.get('SUDO_USER') == 'runner'
+          database='/Library/Application Support/com.apple.TCC/TCC.db'
+          connection=sqlite3.connect(database)
+          connection.execute('INSERT OR REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier_type,indirect_object_identifier,flags,last_modified) VALUES (?,?,?,?,?,?,?,?,?,?)', ('kTCCServiceAccessibility',sys.argv[1],1,2,4,1,0,'UNUSED',0,int(time.time())))
+          connection.commit()
+          PYTHON
+      - name: Exercise an actual signed Squirrel update and canonical backend handoff
+        run: node apps/desktop/scripts/squirrel-acceptance.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
