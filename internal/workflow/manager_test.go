@@ -177,6 +177,66 @@ func TestManagerStopCancelsRun(t *testing.T) {
 	close(release)
 }
 
+// TestManagerScriptError covers the RunError settle branch and the promise-
+// rejection path: a script whose body throws makes the run settle as RunError
+// with the error message surfaced in the snapshot. Covers execute's err != nil
+// branch (manager.go ~232) and Run's script-throw path (runtime.go ~312/284).
+func TestManagerScriptError(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	m := NewManager(echoRunner(nil), "")
+	r, err := m.Start(metaHeader+"throw new Error('boom')", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, m, r.ID)
+	snap, ok := m.Snapshot(r.ID)
+	if !ok {
+		t.Fatalf("Snapshot missing for %s", r.ID)
+	}
+	if snap.Status != RunError {
+		t.Fatalf("Status = %q, want error", snap.Status)
+	}
+	// The thrown JS Error object exports as a map; the exact string form is
+	// goja-version-dependent, so just assert the run surfaced an error at all.
+	if snap.Error == "" {
+		t.Fatal("snapshot Error is empty, want the thrown error surfaced")
+	}
+}
+
+// TestManagerPhasedRun covers the manager's OnAgentStart/OnPhase/OnAgentEnd
+// callbacks (execute) and the contains/phasesOf helpers they call — these
+// run only through Manager.Start, not Run directly. A phased script makes
+// the snapshot accumulate phases and agents.
+func TestManagerPhasedRun(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	m := NewManager(echoRunner(nil), "")
+	script := `export const meta = {
+  name: 'phased', description: 'd',
+  phases: [{ title: 'survey' }, { title: 'build' }],
+}
+phase('survey')
+const a = await agent('look')
+phase('build')
+const b = await agent('make')
+return [a, b].join('|')`
+	r, err := m.Start(script, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, m, r.ID)
+	snap, ok := m.Snapshot(r.ID)
+	if !ok {
+		t.Fatalf("Snapshot missing for %s", r.ID)
+	}
+	if len(snap.Agents) != 2 {
+		t.Fatalf("Snapshot has %d agents, want 2", len(snap.Agents))
+	}
+	// contains/phasesOf deduped the phases into the snapshot.
+	if len(snap.Phases) != 2 || snap.Phases[0] != "survey" || snap.Phases[1] != "build" {
+		t.Fatalf("Snapshot phases = %v, want [survey build]", snap.Phases)
+	}
+}
+
 // TestManagerListReturnsSnapshots pins C1: List returns RunSummary values
 // (copied under run.mu), not bare *ManagedRun pointers. A status read off a
 // returned entry must reflect the settled state without holding the internal

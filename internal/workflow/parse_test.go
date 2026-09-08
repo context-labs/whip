@@ -93,6 +93,32 @@ return 1`
 	}
 }
 
+// TestParseBraceMatchingThroughComments covers the // and /* */ branches of
+// matchBrace: comments inside the meta literal (but OUTSIDE strings) must
+// not be mistaken for a closing brace or string boundary.
+func TestParseBraceMatchingThroughComments(t *testing.T) {
+	// Line comment inside the meta braces but outside a string: the `}` in the
+	// comment must be skipped, and the real closing brace is the one after 'd'.
+	lineComment := "export const meta = {\n  name: 'a', // c } c\n  description: 'd'\n}\nreturn 1"
+	meta, body, err := Parse(lineComment)
+	if err != nil {
+		t.Fatalf("line-comment: %v", err)
+	}
+	if meta.Name != "a" || strings.TrimSpace(body) != "return 1" {
+		t.Fatalf("line-comment parse: name=%q body=%q", meta.Name, body)
+	}
+	// Block comment inside the meta braces: the `}` in the block comment must
+	// be skipped.
+	blockComment := "export const meta = {\n  name: 'a', /* c } c */ description: 'd'\n}\nreturn 1"
+	meta, body, err = Parse(blockComment)
+	if err != nil {
+		t.Fatalf("block-comment: %v", err)
+	}
+	if meta.Name != "a" || strings.TrimSpace(body) != "return 1" {
+		t.Fatalf("block-comment parse: name=%q body=%q", meta.Name, body)
+	}
+}
+
 func TestParseValidatesPhases(t *testing.T) {
 	_, _, err := Parse(`export const meta = { name: 'n', description: 'd', phases: [{ detail: 'no title' }] }`)
 	if err == nil || !strings.Contains(err.Error(), "title") {

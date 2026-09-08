@@ -424,6 +424,56 @@ return 'parent got: ' + c
 	}
 }
 
+// TestNestedWorkflowForwardsOnLog covers the childEvents.OnLog forwarding
+// branch of nestedWorkflowFunc: the child's log() surfaces in the parent's
+// OnLog so nested runs are visible. Otherwise-uncovered (2 stmts).
+func TestNestedWorkflowForwardsOnLog(t *testing.T) {
+	var logs []string
+	var logMu sync.Mutex
+	runner := echoRunner(nil)
+	child := metaHeader + `log('child hi'); return await agent('c')`
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	childPath := PersistScript("child", "child-log-run", child)
+	parent := metaHeader + fmt.Sprintf(`const c = await workflow({ scriptPath: %q }); return c`, childPath)
+	if _, err := Run(context.Background(), parent, Options{
+		Run: runner, RunID: "parent-log-run",
+		Events: Events{OnLog: func(msg string) { logMu.Lock(); logs = append(logs, msg); logMu.Unlock() }},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	logMu.Lock()
+	got := append([]string(nil), logs...)
+	logMu.Unlock()
+	if len(got) != 1 || got[0] != "child hi" {
+		t.Fatalf("child log not forwarded: %v, want [child hi]", got)
+	}
+}
+
+// TestAgentTimeoutMs covers the timeoutMs option branch of runAgent: an
+// agent() with a timeout whose runner outlasts it returns a deadline error
+// (resolving to null in the script). Otherwise-uncovered (3 stmts).
+func TestAgentTimeoutMs(t *testing.T) {
+	runner := func(ctx context.Context, _ AgentRequest) (any, Usage, error) {
+		select {
+		case <-ctx.Done():
+			return nil, Usage{}, ctx.Err()
+		case <-time.After(time.Second):
+			return "late", Usage{}, nil
+		}
+	}
+	// 10ms timeout; the runner waits a second, so it must hit the deadline.
+	res, err := Run(context.Background(), metaHeader+`return await agent('slow', { timeoutMs: 10 })`, Options{Run: runner})
+	if err != nil {
+		t.Fatalf("timeout run errored: %v", err)
+	}
+	// A timed-out agent resolves to null (not a throw), so the script's
+	// `return null` is the result.
+	if res.Value != nil {
+		t.Fatalf("timed-out agent should resolve to null, got %v", res.Value)
+	}
+}
+
 func TestNestedWorkflowDepthLimit(t *testing.T) {
 	// A workflow() call inside a nested workflow must throw.
 	grandchild := metaHeader + `
@@ -501,5 +551,64 @@ return await parallel([0,1,2,3,4,5,6,7].map(i => () => agent('a' + i)))
 	}
 	if m := maxSeen.Load(); m > 2 {
 		t.Fatalf("concurrency cap violated: saw %d in flight", m)
+	}
+}
+
+// TestPhaseAndLogCallbacks covers setPhase (phase() transitions), joinArgs
+// (log() with multiple args), and the per-phase override branch of
+// phaseModel/phaseEffort (agent() with a phase whose meta entry pins a
+// model/effort). These are otherwise uncovered, which dragged the total
+// below the 90% coverage floor.
+func TestPhaseAndLogCallbacks(t *testing.T) {
+	var logs []string
+	var logMu sync.Mutex
+	seenModels := map[string]bool{}
+	runner := func(_ context.Context, req AgentRequest) (any, Usage, error) {
+		logMu.Lock()
+		seenModels[req.Model+"/"+req.Effort] = true
+		logMu.Unlock()
+		return fmt.Sprintf("ok:%s:%s", req.Phase, req.Model), Usage{}, nil
+	}
+	script := `export const meta = {
+  name: 'phased', description: 'd',
+  phases: [
+    { title: 'survey', model: 'survey-model', effort: 'low' },
+    { title: 'build',  model: 'build-model',  effort: 'high' },
+  ],
+}
+phase('survey')
+console.log('starting', 'survey')
+const a = await agent('look around')        // inherits current survey phase → survey-model/low
+phase('build')
+const b = await agent('make it')            // inherits current build phase → build-model/high
+return [a, b].join('|')`
+	res, err := Run(context.Background(), script, Options{
+		Run: runner,
+		Events: Events{
+			OnLog: func(msg string) { logMu.Lock(); logs = append(logs, msg); logMu.Unlock() },
+		},
+	})
+	if err != nil {
+		t.Fatalf("run errored: %v", err)
+	}
+	// log() joined its two args with a space (joinArgs).
+	logMu.Lock()
+	gotLogs := append([]string(nil), logs...)
+	logMu.Unlock()
+	if len(gotLogs) != 1 || gotLogs[0] != "starting survey" {
+		t.Fatalf("logs = %v, want [starting survey]", gotLogs)
+	}
+	// The survey-phase agent inherited the phase's model/effort override
+	// (phaseModel/phaseEffort per-phase branch). The build-phase agent did
+	// too, and the {phase:'survey'} opt forced the survey override on b.
+	logMu.Lock()
+	gotModels := seenModels
+	logMu.Unlock()
+	if !gotModels["survey-model/low"] || !gotModels["build-model/high"] {
+		t.Fatalf("per-phase model/effort not applied: %+v", gotModels)
+	}
+	// Both agents got their resolved phase in the request.
+	if res.Value != "ok:survey:survey-model|ok:build:build-model" {
+		t.Fatalf("value = %v", res.Value)
 	}
 }
