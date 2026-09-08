@@ -1,0 +1,13 @@
+{
+  "evidence": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/canonical-whipcode/evidence/continuity.json",
+  "daemonPID": 37999,
+  "newWorkers": [
+    38326
+  ],
+  "workerTurnsVerified": 3,
+  "recoveredAcceptedTurn": true,
+  "cleanup": {
+    "daemonStopped": true,
+    "fixtureRemoved": true
+  }
+}

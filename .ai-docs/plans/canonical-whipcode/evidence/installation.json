@@ -1,0 +1,92 @@
+{
+  "recordedAt": "2026-09-08T18:30:51.970702+00:00",
+  "sourceRevision": "efeb8242951a75040b0ba5f81f78ce859b16d7de",
+  "sourceBuildDirtyReason": "Implementation was committed; untracked execution evidence remained during the build.",
+  "cli": "/usr/local/bin/whipcode",
+  "binarySHA256": "d9a1167152620fa1347e27037e77f01309ae1c87e93c7eb4272999d9b199953c",
+  "desktop": "/Applications/Whip.app",
+  "desktopVersion": "0.1.2",
+  "stateHome": "/Users/samheutmaker/.whipcode",
+  "defaultProvider": "inference-net",
+  "defaultModel": "kimi-k3-fast",
+  "credentialSource": "existing INFERENCE_API_KEY environment reference; no copied credential",
+  "mcpImports": {
+    "claude": false,
+    "codex": false
+  },
+  "shellProfile": "/Users/samheutmaker/.zprofile",
+  "loopbackEndpoint": "http://127.0.0.1:8080",
+  "daemon": {
+    "state": "running",
+    "network_endpoint": "http://127.0.0.1:8080",
+    "pid": 88942,
+    "generation": 2,
+    "daemon_build": "local-efeb8242951a",
+    "client_build": "local-efeb8242951a",
+    "build_match": true,
+    "started_at": "2026-09-08T18:25:10.26906Z",
+    "uptime_seconds": 341,
+    "socket": "/Users/samheutmaker/.whipcode/runtime-v2/daemon.sock",
+    "database": "/Users/samheutmaker/.whipcode/runtime-v2/sessions.db",
+    "log": "/Users/samheutmaker/.whipcode/runtime-v2/daemon.log"
+  },
+  "processes": [
+    {
+      "pid": 88933,
+      "parent": 1,
+      "executable": "/Applications/Whip.app/Contents/MacOS/Whip"
+    },
+    {
+      "pid": 88934,
+      "parent": 88933,
+      "executable": "/Applications/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+    },
+    {
+      "pid": 88935,
+      "parent": 88933,
+      "executable": "/Applications/Whip.app/Contents/Frameworks/Whip Helper.app/Contents/MacOS/Whip Helper"
+    },
+    {
+      "pid": 88936,
+      "parent": 88933,
+      "executable": "/Applications/Whip.app/Contents/Frameworks/Whip Helper (Renderer).app/Contents/MacOS/Whip Helper (Renderer)"
+    },
+    {
+      "pid": 88942,
+      "parent": 1,
+      "executable": "/usr/local/bin/whipcode"
+    },
+    {
+      "pid": 89382,
+      "parent": 88942,
+      "executable": "/usr/local/bin/whipcode"
+    },
+    {
+      "pid": 89421,
+      "parent": 88942,
+      "executable": "/usr/local/bin/whipcode"
+    },
+    {
+      "pid": 89423,
+      "parent": 88942,
+      "executable": "/usr/local/bin/whipcode"
+    }
+  ],
+  "legacyPathsAbsent": [
+    "/Users/samheutmaker/.whip",
+    "/Users/samheutmaker/.whip-web-v4",
+    "/Users/samheutmaker/.whip-v2-test.0k8SYz",
+    "/usr/local/bin/whip",
+    "/Users/samheutmaker/Library/Application Support/Whip/runtimes"
+  ],
+  "privateModes": {
+    "/Users/samheutmaker/.whipcode": "0o700",
+    "/Users/samheutmaker/.whipcode/config.json": "0o600",
+    "/Users/samheutmaker/Library/Application Support/Whip/native-local-runtime.json": "0o600"
+  },
+  "remotePhoneAndTailscaleUntouched": true,
+  "noReleasePublished": true,
+  "noAlwaysOnLaunchAgentAdded": true,
+  "oldLocalBrowserTabsClosed": 5,
+  "browserOpenedAtCanonicalEndpoint": true
+}

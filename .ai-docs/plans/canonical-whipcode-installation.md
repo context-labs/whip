@@ -1,6 +1,9 @@
 # Canonical whipcode installation on this Mac
 
-Research date: September 8, 2026. Status: proposed; cleanup has not run.
+Research and execution date: September 8, 2026. Status: completed on this Mac.
+The approved plan below preserves the original inventory and rationale. See the
+[execution record](canonical-whipcode/README.md) for installed versions, cleanup
+results, validation and operating instructions.
 
 The user wants all historical local Whip state discarded and one canonical
 whipcode installation. They selected a build from the freshly merged checkout,
