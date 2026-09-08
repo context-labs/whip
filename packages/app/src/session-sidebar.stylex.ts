@@ -5,6 +5,10 @@ export const sessionMarker = stylex.defineMarker();
 export const directoryMarker = stylex.defineMarker();
 
 export const styles = stylex.create({
+  hosts: { display: 'flex', flexDirection: 'column', gap: 8 },
+  host: { display: 'flex', flexDirection: 'column' },
+  collapsedHost: { flex: '0 0 auto', minHeight: 0 },
+  hostHeading: { flexShrink: 0, color: colors.foreground },
   brandRow: { minHeight: 40, display: 'flex', alignItems: 'center', flexShrink: 0 },
   destinations: { display: 'flex', flexDirection: 'column', flexShrink: 0, marginBottom: 12 },
   destination: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, minHeight: { default: 28, [scale.touch]: 44 }, paddingBlock: 0, paddingInline: 8, borderWidth: 0, borderRadius: 6, font: 'inherit', fontSize: 13, lineHeight: '18px', textAlign: 'left', textDecoration: 'none', cursor: 'pointer', color: surface.secondaryText, backgroundColor: { default: 'transparent', ':hover': colors.hover } },

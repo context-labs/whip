@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { executionRows, type DeepReadonly, type ExecutionCell, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
-import { Badge, Button, CodeBlock, CopyButton, Select } from '@whip/ui';
-import { Code2, RotateCcw } from 'lucide-react';
+import { Badge, Button, CodeBlock, CopyButton, Select, Tooltip } from '@whip/ui';
+import { Code2, Info, RotateCcw } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from './context';
 import { ReadingList } from './reading-list';
 import { CollectionMore, ContentRead, mergeBy, useCollection } from './details/shared';
 import { styles } from './repl-view.stylex';
+
+const historyHelp = 'Saved cells include code, output, results and recorded restart information. Details of individual host calls may be unavailable for older cells.';
 
 export function ReplView({ view, state, agentId, runtimeId, viewId, connected, onAgentChange }: {
   view: SessionView;
@@ -41,13 +43,16 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, o
   const missing = !!history?.error || (!root && state.status === 'error');
   return <div {...stylex.props(styles.root)} data-session-view="repl">
     <div {...stylex.props(styles.toolbar)}>
-      <span {...stylex.props(styles.title)}><Code2 size={16} /> REPL</span>
+      <span {...stylex.props(styles.title)}><Code2 size={16} /> REPL
+        <Tooltip label={historyHelp}>
+          <Button variant="ghost" size="sm" aria-label="About REPL history" aria-description={historyHelp}><Info size={14} /></Button>
+        </Tooltip>
+      </span>
       <Select label="REPL agent" value={agentId} onValueChange={onAgentChange} options={options} xstyle={styles.agent} />
       <span {...stylex.props(styles.count)}>{cells.length} loaded {cells.length === 1 ? 'cell' : 'cells'}</span>
       {(collection.page?.has_more || root?.omitted?.agents || collection.error) && <CollectionMore collection={collection} omitted={root?.omitted?.agents} connected={connected} />}
     </div>
     {!connected && <p role="status" {...stylex.props(styles.notice)}>Execution updates are paused. Showing the last available evidence.</p>}
-    <p {...stylex.props(styles.notice)}>Earlier host-call traces and restart details may be unavailable.</p>
     {state.executions?.truncated && <p role="status" {...stylex.props(styles.notice)}>Some observed execution details were omitted to keep this view within its memory limit.</p>}
     <ReadingList rows={rows} label="REPL executions" earlierLabel="Load older executions"
       hasMore={history?.hasMore ?? false} canLoadOlder={connected} loadingHistory={history?.loading}

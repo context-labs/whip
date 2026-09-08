@@ -184,7 +184,7 @@ export class SessionView {
     if (!this.opened.has(agentId)) return this.openAgent(agentId);
     const history = this.current.history[agentId];
     if (history && !history.hasMore) return;
-    await this.readHistory(agentId, !!history);
+    await this.readHistory(agentId, !!history?.messages.length);
   }
 
   async loadCollection(name: string, options: { more?: boolean } = {}): Promise<void> {
@@ -306,11 +306,18 @@ export class SessionView {
       }));
       const first = recent[0]?.seq ?? 1;
       const previousHistory = history[root.root_id];
-      const merged = mergeMessages(previousHistory?.messages ?? [], recent).slice(-this.maxMessages);
+      const all = mergeMessages(previousHistory?.messages ?? [], recent);
+      const merged = all.slice(-this.maxMessages);
+      const nextSeq = merged[0]?.seq ?? first;
+      // Snapshot omission describes its suffix, not the merged history. Preserve
+      // a known beginning only while that same boundary remains in the cache.
+      const hasMore = merged.length
+        ? nextSeq > 1 && (previousHistory?.nextSeq !== nextSeq || previousHistory.hasMore)
+        : !!root.omitted?.messages;
       history[root.root_id] = {
-        revision: root.history_revision, throughSeq: recent.at(-1)?.seq ?? 0,
-        nextSeq: merged[0]?.seq ?? first, hasMore: (merged[0]?.seq ?? first) > 1 || !!root.omitted?.messages,
-        loading: false, messages: merged, truncated: !!root.omitted?.messages,
+        revision: root.history_revision, throughSeq: recent.at(-1)?.seq ?? previousHistory?.throughSeq ?? 0,
+        nextSeq, hasMore,
+        loading: false, messages: merged, truncated: all.length > merged.length || !!root.omitted?.messages,
       };
       this.set({
         status: 'live', root, history, collections: {}, retainedBytes: 0,
@@ -451,9 +458,14 @@ export class SessionView {
       // Explicit backward paging preserves the page just requested. Advancing the
       // cursor while retaining only newer entries would make old history unreachable.
       const messages = older ? all.slice(0, this.maxMessages) : all.slice(-this.maxMessages);
+      const nextSeq = messages[0]?.seq ?? page.next_seq;
+      // A recent suffix cannot reset an older retained boundary; trimming the
+      // incoming page's beginning, however, makes those messages pageable again.
+      const hasMore = sameRevision && prior.nextSeq === nextSeq && nextSeq < page.next_seq
+        ? prior.hasMore : nextSeq > page.next_seq || page.has_more;
       const history: HistoryView = {
         revision: page.history_revision, throughSeq: page.through_seq,
-        nextSeq: messages[0]?.seq ?? page.next_seq, hasMore: page.has_more,
+        nextSeq, hasMore,
         loading: false, messages, truncated: all.length > messages.length || messages.some(item => !!item.body),
       };
       const histories = { ...this.current.history, [agentId]: history };
@@ -520,7 +532,8 @@ function bound(state: SessionViewSnapshot, maxBytes: number, maxMessages: number
   let next = { ...state, history: { ...state.history }, collections: { ...state.collections } };
   for (const [id, history] of Object.entries(next.history)) {
     if (history.messages.length > maxMessages) {
-      next.history[id] = { ...history, messages: history.messages.slice(-maxMessages), truncated: true };
+      const messages = history.messages.slice(-maxMessages);
+      next.history[id] = { ...history, messages, nextSeq: messages[0]!.seq, hasMore: true, truncated: true };
       next.truncated = true;
     }
   }

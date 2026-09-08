@@ -39,6 +39,18 @@ type HostDirectoryResult struct {
 	Truncated bool                 `json:"truncated"`
 }
 
+// HostDirectoryPickParams opens the OS-native folder chooser on the execution
+// machine. Start is an optional absolute directory to preselect; empty starts
+// wherever the platform dialog defaults. Not every platform supports a chooser.
+type HostDirectoryPickParams struct {
+	Start string `json:"start,omitempty"`
+}
+
+type HostDirectoryPickResult struct {
+	Path      string `json:"path,omitempty"`
+	Cancelled bool   `json:"cancelled"`
+}
+
 type HostAttentionParams struct {
 	AfterID  string `json:"after_id,omitempty"`
 	Limit    int    `json:"limit"`

@@ -96,9 +96,11 @@ afterEach(() => {
 function fixture() {
   const readingPositions = new ReadingPositions();
   const loadOlder = vi.fn(async () => {});
+  const paging = { hasMore: true, canLoadOlder: true, loadingHistory: false };
+  const report = vi.fn();
   const runtime = {
     readingPositions,
-    report: vi.fn(),
+    report,
     platform: { copy: vi.fn() },
   } as unknown as AppRuntime;
   const app = (
@@ -116,7 +118,7 @@ function fixture() {
             bookmarkKey={key}
             historyRevision={revision}
             historyReady={ready}
-            hasMore
+            {...paging}
             loadOlder={loadOlder}
             readBody={() => {}}
           />
@@ -124,7 +126,7 @@ function fixture() {
       </RuntimeContext.Provider>
     </StrictMode>
   );
-  return { readingPositions, loadOlder, app };
+  return { readingPositions, loadOlder, paging, report, app };
 }
 it('waits for ready history and restores a saved anchor under StrictMode without following the tail', () => {
   const f = fixture();
@@ -220,4 +222,62 @@ it('preserves a bookmark while the reader has no rows and restores when evidence
   act(() => vi.advanceTimersByTime(160));
   expect(screen.getByRole('region', { name: 'Conversation' }).scrollTop).toBe(215);
   expect(f.loadOlder).not.toHaveBeenCalled();
+});
+
+it('loads on a near-top scroll, shares a pending read, and permits another after completion', async () => {
+  const f = fixture();
+  let resolve!: () => void;
+  f.loadOlder.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  render(f.app());
+  const root = screen.getByRole('region', { name: 'Conversation' });
+  expect(f.loadOlder).not.toHaveBeenCalled();
+  root.scrollTop = 300;
+  fireEvent.scroll(root);
+  expect(f.loadOlder).not.toHaveBeenCalled();
+  root.scrollTop = 200;
+  fireEvent.scroll(root);
+  fireEvent.scroll(root);
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: /Load earlier messages$/ }).hasAttribute('disabled')).toBe(true);
+  await act(async () => { resolve(); });
+  expect(f.loadOlder).toHaveBeenCalledTimes(1);
+  fireEvent.scroll(root);
+  expect(f.loadOlder).toHaveBeenCalledTimes(2);
+  await act(async () => {});
+});
+
+it.each(['hasMore', 'canLoadOlder', 'loadingHistory', 'historyReady', 'restoring'] as const)(
+  'does not page while %s prevents reading', condition => {
+    const f = fixture();
+    if (condition === 'hasMore' || condition === 'canLoadOlder') f.paging[condition] = false;
+    if (condition === 'loadingHistory') f.paging.loadingHistory = true;
+    if (condition === 'restoring') f.readingPositions.set('host:root:root', {
+      messageId: 'row-1', seq: 1, revision: '1', offset: 25, follow: false,
+    });
+    render(f.app(undefined, undefined, condition !== 'historyReady'));
+    const root = screen.getByRole('region', { name: 'Conversation' });
+    root.scrollTop = 200;
+    fireEvent.scroll(root);
+    expect(f.loadOlder).not.toHaveBeenCalled();
+    if (condition !== 'restoring') {
+      const button = screen.queryByRole('button', { name: 'Load earlier messages' });
+      if (button) fireEvent.click(button);
+      expect(f.loadOlder).not.toHaveBeenCalled();
+    }
+  },
+);
+
+it('keeps an explicit fallback for a page with no visible rows and permits retry after failure', async () => {
+  const f = fixture();
+  const error = new Error('History unavailable');
+  f.loadOlder.mockRejectedValueOnce(error);
+  render(f.app(undefined, undefined, true, []));
+  const older = screen.getByRole('button', { name: 'Load earlier messages' });
+  expect(f.loadOlder).not.toHaveBeenCalled();
+  await act(async () => { fireEvent.click(older); });
+  expect(f.report).toHaveBeenCalledWith(error);
+  expect(older.hasAttribute('disabled')).toBe(false);
+  await act(async () => { fireEvent.click(older); });
+  expect(f.loadOlder).toHaveBeenCalledTimes(2);
+  expect(older.hasAttribute('disabled')).toBe(false);
 });

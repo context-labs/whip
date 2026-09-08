@@ -29,7 +29,7 @@ export async function eventually(check, { timeout = 15_000, interval = 25, descr
 // Every daemon launched here owns an isolated home and is attach-only from the
 // SDK's perspective. Keeping the binary lets restart tests bypass the Go runner
 // and kill the actual daemon process, including all outstanding execution.
-export async function startFixture() {
+export async function startFixture({ allowedOrigins = [] } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'whip-sdk-'));
   const binary = join(directory, 'daemon.test');
   await mkdir(join(directory, 'public'));
@@ -42,7 +42,8 @@ export async function startFixture() {
     const generation = (info?.generation ?? 0) + 1;
     child = spawn(binary, ['-test.run=^TestV2SDKBridge$', '-test.timeout=5m', '-test.v'], {
       cwd: repository,
-      env: { ...process.env, WHIP_HOME: join(directory, 'home'), WHIP_SDK_FIXTURE_DIR: directory },
+      env: { ...process.env, WHIP_HOME: join(directory, 'home'), WHIP_SDK_FIXTURE_DIR: directory,
+        WHIP_SDK_FIXTURE_ALLOWED_ORIGINS: JSON.stringify(allowedOrigins) },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     child.stdout.on('data', data => { output += data; });
@@ -84,11 +85,11 @@ export async function startFixture() {
     get info() { return info; },
     directory,
     get output() { return output; },
-    async crashAndRestart() {
+    async crashAndRestart({ beforeRestart } = {}) {
       child.kill('SIGKILL');
       const [, signal] = await exit;
       if (signal !== 'SIGKILL') throw new Error(`Fixture did not crash: ${output}`);
-      await start();
+      try { await beforeRestart?.(); } finally { await start(); }
       return info;
     },
     async release(key) {

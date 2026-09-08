@@ -30,7 +30,7 @@ func seedSDKREPLHistory(t *testing.T, store *session.Store, rootID, cwd string) 
 	if err := store.Save(rootID, 0, sdkREPLMessages(t, "Root", 180), "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"repl-child", "repl-empty"} {
+	for _, id := range []string{"repl-child", "repl-empty", "repl-paged", "repl-sparse"} {
 		_, err := store.AdmitAgent(t.Context(), session.AgentAdmission{
 			RootID: rootID, ParentAgentID: rootID, ChildAgentID: id,
 			Name: id, Model: "model", Provider: "provider", CWD: cwd,
@@ -47,6 +47,15 @@ func seedSDKREPLHistory(t *testing.T, store *session.Store, rootID, cwd string) 
 		messages := []llm.Message{{Role: "assistant", Content: "No Starlark has run in this agent yet."}}
 		if id == "repl-child" {
 			messages = sdkREPLMessages(t, "Child", 4)
+		}
+		if id == "repl-paged" {
+			messages = sdkREPLMessages(t, "Paged", 80)
+		}
+		if id == "repl-sparse" {
+			messages = sdkREPLMessages(t, "Sparse", 4)
+			for range 128 {
+				messages = append(messages, llm.Message{Role: "assistant", Content: "No execution in this message."})
+			}
 		}
 		if err := store.FinishAgentTurn(t.Context(), rootID, id, session.AgentTurnCommit{
 			TurnID: turnID, Status: "succeeded", AcknowledgedInbox: []int64{started.Items[0].Seq}, Messages: messages,
@@ -104,6 +113,8 @@ func registerSDKREPLProbes(mux *http.ServeMux, store *session.Store, rootID stri
 	mux.HandleFunc("POST /control/repl/{step}", func(w http.ResponseWriter, r *http.Request) {
 		events := []sdkREPLProbe{}
 		switch r.PathValue("step") {
+		case "refresh":
+			events = append(events, sdkREPLProbe{kind: "blackboard.set", payload: session.LifecycleEvent{AgentID: rootID}})
 		case "start":
 			events = append(events, sdkREPLProbe{kind: "stream.tool.call", payload: StreamEvent{
 				ID: "browser-live", Name: "rlm_exec", Args: `{"code":"print(\"live`,
@@ -190,19 +201,19 @@ func TestSDKREPLProbesRecordFixedEventsAndBoundRequests(t *testing.T) {
 	if status := request("invalid"); status != http.StatusBadRequest {
 		t.Fatalf("unknown step status = %d", status)
 	}
-	for _, step := range []string{"start", "progress", "complete", "child"} {
+	for _, step := range []string{"start", "progress", "complete", "child", "refresh"} {
 		if status := request(step); status != http.StatusNoContent {
 			t.Fatalf("%s status = %d", step, status)
 		}
 	}
 	events, _, err := store.ReplayEvents(t.Context(), rootID, 0, 128)
-	if err != nil || len(events) != 10 {
+	if err != nil || len(events) != 11 {
 		t.Fatalf("REPL probe events = %d, %v", len(events), err)
 	}
 	if events[5].Kind != "stream.tool.completed" || events[6].Kind != "scratch.restored" {
 		t.Fatalf("unexpected completion/restart: %+v", events[5:7])
 	}
-	for range 28 {
+	for range 27 {
 		if status := request("start"); status != http.StatusNoContent {
 			t.Fatalf("bounded start status = %d", status)
 		}

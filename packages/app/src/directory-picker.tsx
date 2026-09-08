@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
 import { Button, Dialog, Field, Input } from '@whip/ui';
-import { ChevronUp, Folder } from 'lucide-react';
+import { ChevronUp, Folder, FolderOpen } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
 
@@ -11,13 +11,18 @@ export function DirectoryPicker({
   value,
   onSelect,
   disabled,
+  native = true,
 }: {
   client: WhipClient;
   value: string;
   onSelect(path: string): void;
   disabled: boolean;
+  native?: boolean;
 }) {
+  const request = useRef<symbol | undefined>(undefined);
+  useLayoutEffect(() => { setPicking(false); return () => { request.current = undefined; }; }, [client]);
   const [open, setOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [path, setPath] = useState('');
   const [typed, setTyped] = useState('');
   const [after, setAfter] = useState<string>();
@@ -35,8 +40,30 @@ export function DirectoryPicker({
     setTyped(target);
     setAfter(undefined);
   };
+  const pickNative = async () => {
+    const id = Symbol();
+    request.current = id;
+    setPicking(true);
+    try {
+      const result = await client.host.pickDirectory({ start: value || undefined });
+      if (request.current !== id) return;
+      if (result.path) {
+        onSelect(result.path);
+      }
+    } catch {
+      if (request.current !== id) return;
+      // Host has no desktop picker (headless, unsupported platform); use the web browser dialog.
+      navigate(value);
+      setOpen(true);
+    } finally {
+      if (request.current === id) { request.current = undefined; setPicking(false); }
+    }
+  };
   return (
     <>
+      {native && <Button variant="primary" disabled={disabled || picking} onClick={pickNative}>
+        <FolderOpen size={14} /> {picking ? 'Choosing folder…' : 'Choose folder…'}
+      </Button>}
       <Button
         variant="secondary"
         disabled={disabled}
@@ -70,6 +97,7 @@ export function DirectoryPicker({
           {...stylex.props(layout.row)}
           onSubmit={(event) => {
             event.preventDefault();
+            event.stopPropagation();
             navigate(typed);
           }}
         >

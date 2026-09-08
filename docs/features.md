@@ -171,8 +171,11 @@ behavior to its owning code and repeatable validation.
 
 | Behavior | Implementation | Validation |
 | --- | --- | --- |
-| Attach to an existing host, discover its directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
-| Window-local session tabs, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
+| Attach to existing hosts, discover each directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
+| Choose a Local working directory in the OS-native folder dialog (osascript/zenity/kdialog/PowerShell), falling back to the web directory browser; Remote uses its daemon directory browser | `host.directory.pick` in `internal/{protocol,daemon}/host.go`, `packages/sdk/src/services.ts`, `packages/app/src/directory-picker.tsx` | `TestDirectoryPickCommand`/`TestHostDirectoryPickValidation` in `internal/daemon/host_test.go` |
+| Multiple daemon connections, Local-owned saved profiles, verified identities, isolated disconnects and guided Local/Remote session creation | `packages/app/src/{hosts,runtime}.ts`, `{host-dialog,welcome,settings}.tsx`, `internal/config/remote_hosts.go`, daemon configuration service | `packages/app/test/hosts.test.ts`, `runtime.test.ts`, `sidebar-creation.test.tsx`; `internal/config/remote_hosts_test.go`; `TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts` |
+| Search and advisory attention across hosts, source labels/filter, independent bounded pagination and partial failures without root hydration | `packages/app/src/{session-search-dialog,attention}.tsx` | `packages/app/test/multi-host-discovery.test.tsx` |
+| Window-local session tabs across hosts, v3 layout and retained v1/v2 recovery, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
 | Nested split views, draggable tabs between panes, duplicate chats with independent agents/scroll, shared drafts, and responsive layout restoration | `packages/app/src/{session-tabs,session-tab-strip,session-tab-routing,workspace-views,runtime,conversation,composer}.ts*`, `packages/ui/src/workspace-layout.tsx` | App model/routing/runtime/workspace/composer tests; `apps/web/scripts/workspace-layout.mjs`; UI layout Chromium/Firefox, Axe and strict-CSP fixture |
 | Read-only session REPL, in-place Open REPL/Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
@@ -395,10 +398,11 @@ source colors, rendered surfaces, selection, reload and switching away.
 The saved-session sidebar follows the compact Claude/Paper hierarchy while using
 WHIP's themes. It groups the loaded SDK catalog by exact directory, keeps
 worktrees distinct, preserves pin/recency order, and offers New session, Search
-sessions and Settings. Directory + opens the existing form with a host-scoped
-prefill; it does not create work until submitted. Search opens a centered dialog
-with recent sessions, debounced host search, bounded paging and arrow/Enter
-navigation (`session-search-dialog.tsx`; `apps/web/scripts/session-search.mjs`).
+sessions and Settings. Hosts have separate headings and connection status within
+one sidebar. Directory + preselects its source host and folder in the Local/Remote
+creation form; it does not create work until submitted. Search opens a centered
+dialog with host labels/filter, recent sessions, debounced host search, independent
+bounded paging, partial errors and arrow/Enter navigation (`session-search-dialog.tsx`; `apps/web/scripts/session-search.mjs`).
 Native session links and
 background-tab menus preserve remembered child/inspector locations.
 
@@ -413,6 +417,50 @@ Code: `packages/app/src/session-sidebar.tsx`, `sidebar-state.ts`,
 Tests: `sidebar-state.test.ts`, `sidebar-layout.test.tsx`,
 `sidebar-creation.test.tsx`, `session-tab-routing.test.ts`, and the isolated
 production-browser workflow `apps/web/scripts/sidebar.mjs`.
+
+
+## Multiple execution hosts in the web workspace
+
+Local owns a `remote_hosts` registry in its existing distribution-specific
+configuration file. Saved IDs, names, URLs, verified runtime IDs and startup
+connection preferences are shared across browsers through revision-checked config
+updates. Browser-only addresses remain explicitly importable. Separate SDK clients
+connect directly to existing LAN/Tailscale daemons, verify identity, and reject
+runtime aliases or unaccepted replacements. Losing one host preserves the others;
+losing Local blocks profile edits while attached remote sessions remain usable.
+
+One v3 window layout carries runtime identity on every tab and allows mixed-host
+panes. The existing four-pane, 32-tab and four-root-view budgets apply to the whole
+window. Migration adopts the last-used legacy host layout and keeps original
+v1/v2 data, with remaining layouts available under **Restore previous host tabs**.
+If a complete layout cannot fit, open individual previous tabs, including closed
+entries, without consuming the original layout.
+Runtime/root/recipient and runtime/client/command identities prevent collisions
+in drafts, views, content and command observations.
+
+New sessions explicitly choose Local or Remote, host, folder and that host's
+model/default. Settings identify the target execution host; saved-host edits
+always target Local and viewing preferences stay local to the browser. Search
+and attention show source hosts, filters, separate bounded pages and partial
+failures. Responses open their owning sessions; neither index hydrates roots.
+Listener setup and exact browser Origin allowlists remain explicit trusted-network
+configuration; automatic stable-Origin handling is deferred.
+The desktop origin `whip-app://bundle` can be explicitly allowed through
+`WHIP_ALLOWED_ORIGINS` (`WHIPCODE_ALLOWED_ORIGINS` for the whipcode distribution).
+Other custom origins, wildcards, suffixes, ports and paths remain rejected.
+`internal/daemon/network_test.go:TestNetworkDesktopOriginIsExplicitAndExact`
+checks validation, explicit opt-in and CORS response headers.
+
+Code: `internal/config/remote_hosts.go`, `internal/daemon/provider_service.go`,
+`packages/app/src/{hosts,runtime,session-tabs,workspace-views}.ts`,
+`{host-dialog,welcome,settings,session-search-dialog,attention}.tsx`.
+Tests: `internal/config/remote_hosts_test.go`, the remote-host configuration test
+in `internal/daemon/provider_client_behavior_test.go`, and
+`packages/app/test/{hosts,runtime,session-tabs,session-tab-routing,workspace-views}.test.ts`,
+`sidebar-creation.test.tsx`, `multi-host-discovery.test.tsx`.
+See [architecture](frontend.md#runtime-construction-and-lifetimes) and
+[operation](web-app.md#multiple-execution-hosts). Validation evidence is tracked in
+the [phased plan](../.ai-docs/plans/web-multiple-hosts/README.md).
 
 
 ## Model usage budgets

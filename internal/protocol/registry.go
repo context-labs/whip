@@ -73,6 +73,7 @@ func rpc[P, R any](name string, execution Execution, permission string, sensitiv
 
 var rpcOperations = []Operation{
 	rpc[HostDirectoryParams, HostDirectoryResult]("host.directories.list", Query, "host-runtime", false),
+	rpc[HostDirectoryPickParams, HostDirectoryPickResult]("host.directory.pick", Query, "host-runtime", false),
 	rpc[HostAttentionParams, HostAttentionResult]("host.attention", Query, "host-runtime", false),
 	rpc[EmptyParams, theme.CatalogResult]("host.themes.list", Query, "host-runtime", false),
 	rpc[HostThemeResolveParams, theme.Resolved]("host.themes.resolve", Query, "host-runtime", false),

@@ -63,35 +63,35 @@ export class SubmittedInputs {
     this.publish(next);
     return input.id;
   }
-  accept(id: string, inboxSeq?: string) {
+  accept(id: string, inboxSeq?: string, runtimeId?: string) {
     this.publish(
       this.snapshot.map((item) =>
-        item.id === id && (!item.accepted || item.inboxSeq !== inboxSeq)
+        item.id === id && (!runtimeId || item.runtimeId === runtimeId) && (!item.accepted || item.inboxSeq !== inboxSeq)
           ? Object.freeze({ ...item, accepted: true, inboxSeq })
           : item,
       ),
     );
   }
-  acknowledge(receipt: CommandOutcome) {
-    const input = this.snapshot.find((item) => item.id === receipt.command_id);
+  acknowledge(receipt: CommandOutcome, runtimeId: string) {
+    const input = this.snapshot.find((item) => item.id === receipt.command_id && item.runtimeId === runtimeId);
     if (!input) return;
     if (input.agentId === input.rootId)
-      this.accept(input.id, receipt.ingress_seq);
+      this.accept(input.id, receipt.ingress_seq, runtimeId);
     else if (receipt.result && 'inbox_seq' in receipt.result)
-      this.accept(input.id, receipt.result.inbox_seq);
+      this.accept(input.id, receipt.result.inbox_seq, runtimeId);
   }
-  confirm(ids: readonly string[]) {
+  confirm(ids: readonly string[], runtimeId?: string) {
     const confirmed = new Set(ids);
     this.publish(
       this.snapshot.map((item) =>
-        confirmed.has(item.id) && !item.confirmed
+        confirmed.has(item.id) && (!runtimeId || item.runtimeId === runtimeId) && !item.confirmed
           ? Object.freeze({ ...item, confirmed: true })
           : item,
       ),
     );
   }
-  remove(id: string) {
-    this.publish(this.snapshot.filter((item) => item.id !== id));
+  remove(id: string, runtimeId?: string) {
+    this.publish(this.snapshot.filter((item) => item.id !== id || !!runtimeId && item.runtimeId !== runtimeId));
   }
   clear() {
     this.publish([]);

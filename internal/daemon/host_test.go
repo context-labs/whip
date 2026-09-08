@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -15,6 +17,49 @@ import (
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/theme"
 )
+
+func TestDirectoryPickCommand(t *testing.T) {
+	name, args, cancelled := directoryPickCommand("darwin", "")
+	if name != "osascript" || len(args) != 2 || args[0] != "-e" || !strings.Contains(args[1], `choose folder with prompt "Choose a working directory"`) {
+		t.Fatalf("darwin command %s %q", name, args)
+	}
+	if strings.Contains(args[1], "default location") {
+		t.Fatalf("empty start must not set a default location: %q", args[1])
+	}
+	if !cancelled(`0:1: execution error: User canceled. (-128)`) || cancelled("") {
+		t.Fatal("osascript cancel detection")
+	}
+	_, args, _ = directoryPickCommand("darwin", `/tmp/start "quoted"`)
+	if !strings.Contains(args[1], `default location (POSIX file "/tmp/start \"quoted\"")`) {
+		t.Fatalf("start must be quoted and escaped for AppleScript: %q", args[1])
+	}
+	name, args, cancelled = directoryPickCommand("windows", "")
+	if name != "powershell" || !cancelled("") || cancelled("C:\\Users\\x") {
+		t.Fatalf("windows command %s %q", name, args)
+	}
+	// Linux prefers zenity, falls back to kdialog, and reports neither; both
+	// treat any non-zero exit as cancellation (their only failure mode).
+	name, _, cancelled = directoryPickCommand("linux", "")
+	if runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("zenity"); err != nil {
+			if _, err := exec.LookPath("kdialog"); err != nil && name != "" {
+				t.Fatalf("linux picker without zenity/kdialog: %s", name)
+			}
+		}
+	}
+	if cancelled != nil && !cancelled("anything") {
+		t.Fatal("linux cancel detection")
+	}
+}
+
+func TestHostDirectoryPickValidation(t *testing.T) {
+	if _, err := hostDirectoryPick(t.Context(), protocol.HostDirectoryPickParams{Start: "relative/dir"}); err == nil {
+		t.Fatal("relative start accepted")
+	}
+	if _, err := hostDirectoryPick(t.Context(), protocol.HostDirectoryPickParams{Start: "/" + strings.Repeat("a", 4096)}); err == nil {
+		t.Fatal("oversized start accepted")
+	}
+}
 
 func TestHostServicesAcrossTransports(t *testing.T) {
 	home := t.TempDir()

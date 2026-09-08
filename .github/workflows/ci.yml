@@ -167,6 +167,8 @@ jobs:
           cache: true
       - name: Daemon lifecycle and socket ownership
         run: go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState)$'
+      - name: Compact agent receipts and grant retrieval
+        run: go test -race -tags=integration ./internal/daemon -run '^TestRecursiveAgent(ReceiptsWithLargeMCPGrants|GrantInspectionAccess)$'
       - name: RLM worker containment
         run: go test -race ./internal/rlm -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup)$'
 

@@ -233,25 +233,34 @@ caller's abort signal.
 The [frontend guide](frontend.md) explains why these ownership boundaries exist
 and how app features should use them. This section records their lifecycle rules.
 
-`packages/app/src/runtime.ts` owns the current SDK client, session-list view,
-TanStack Query client, root-view leases and local command waiters. Host attachment
-increments an application epoch. Late connections, acceptance callbacks and
-terminal outcomes from an older epoch cannot mutate the replacement host. Detach
-aborts local waits, disposes views/listeners and clears query data before closing
-the old client; daemon work keeps its existing supervision.
+`packages/app/src/runtime.ts` owns one Query client, root-view leases and local
+command observations for the window. `hosts.ts` owns an independent SDK client,
+list view, abort controller and connection identity per daemon. Local supplies
+the revision-checked `remote_hosts` configuration registry; each remote connects
+directly from the browser and verifies its expected runtime ID before use.
+There is no application-wide host-replacement epoch. A source client and runtime
+scope accompany each command, view and read. Late connection/configuration replies
+must still match their connection and configuration version. Explicit detach
+aborts that host's waits, disposes its views/listeners, clears its queries and
+closes its client. Other hosts remain attached; accepted daemon work keeps its
+existing supervision. Local's absence blocks profile edits, not remote execution.
+An observer's `AbortError` still rejects its local wait, but shared application
+error reporting omits that expected cancellation from global banners. Timeouts
+and command failures remain visible.
 
-Components lease one shared SDK `SessionView` per root. Leases release
-idempotently, and a zero-user view expires after 30 seconds; at most four views
-are retained by the application, within the daemon's 16-subscription limit.
-Admission never evicts an actively observed root. Route preloading does not open
-a root subscription. React StrictMode and overlapping components share the lease
-instead of creating independent event reducers. The SDK alone owns replay,
-snapshot replacement, sequence checks and history revision invalidation.
+Components lease one shared SDK `SessionView` per `(runtimeId, rootId)` pair.
+Leases release idempotently, and a zero-user view expires after 30 seconds; at
+most four views are retained across the whole window, within each daemon's
+16-subscription limit. Admission never evicts an actively observed root. Route
+preloading does not open a root subscription. React StrictMode and duplicate
+views of the same host/root share the lease instead of creating independent event
+reducers. The SDK alone owns replay, snapshot replacement, sequence checks and
+history revision invalidation.
 
 TanStack Query handles explicit host reads with automatic request/mutation retries
 and browser-online heuristics disabled. A new daemon connection invalidates host
-reads; detach clears them. Mutation helpers use SDK command identities and
-acceptance/outcomes. Uncertain delivery holds the matching draft against a new-ID
+reads scoped to that runtime; detach clears only those keys. Mutation helpers
+use runtime/client/command identities and acceptance/outcomes. Uncertain delivery holds the matching draft against a new-ID
 resend, and only an authoritative absence enables explicit original-request
 retry. Permission acknowledgement loss is reconciled by refreshing the pending
 ledger before another decision. No reconnect path submits a draft, credential or
@@ -285,17 +294,32 @@ browser workflow suite lives at `apps/web/scripts/browser.mjs`. Manual device an
 screen-reader gates are tracked separately in the accepted web plan.
 
 Session tabs are navigation metadata, not view leases. `SessionTabs` publishes an
-immutable bounded window record; the router remains the sole active-root authority.
+immutable bounded v3 window record spanning hosts; every view descriptor stores
+its runtime ID, and the router remains the sole focused-root authority. Original
+v1/v2 layouts remain available for explicit recovery when the shared pane/tab
+budget has room. Migration validates combined metadata before consuming a layout;
+individual previous tabs remain recoverable when the whole layout cannot fit.
 Tab mutations cannot submit commands. Late create/fork completions check the
 originating route and client before selecting their result. Root and child load
-errors stay in their own view. A single visible-window TanStack Query batches
-`sessions.summaries` for all open IDs; lifecycle wakeups coalesce at 250 ms and
-steady polling runs every two seconds. Background labels never acquire root views.
+errors stay in their own view. The workspace releases obsolete root leases before
+admitting replacements and preserves healthy host leases when a different host
+detaches. One visible-window TanStack Query per host batches `sessions.summaries`
+for that host's open IDs; lifecycle wakeups coalesce at 250 ms and steady polling
+runs every two seconds. Background labels never acquire root views.
+
+Search observes each host's existing catalog only while its dialog is open;
+filtered reads retain one bounded page per host with independent cursors. Closing
+removes observers and aborts pending search reads. Highlighting is keyed by runtime
+and root, so host completion order cannot retarget a keyboard action. Attention
+polls one bounded advisory page per connected host without root hydration, with
+per-host errors and navigation. Both use the shared Query client and clear old
+pages rather than accumulating result history.
 
 `CompositionStore` owns transient upload controllers and scoped attachment refs
 independently of mounted composers. Its serial queue bounds source copies; unmount
-is not cancellation. Removing a file, replacing the host or disposing the runtime
-aborts the owned transfer. Submission tokens prevent late acceptance from clearing
+is not cancellation. Removing a file, explicitly detaching its host or disposing
+the runtime aborts the owned transfer. Focusing a tab on another host leaves
+other transfers and attachments alone. Submission tokens prevent late acceptance from clearing
 newer drafts. `ReadingPositions` retains only bounded row/revision/offset/follow
 hints; TanStack Virtual remains the single scrolling authority. Expired closed-tab
 metadata releases associated reading hints, and view eviction never deletes drafts.

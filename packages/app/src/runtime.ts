@@ -1,6 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
 import {
-  createWhipClient,
   DeliveryUncertainError,
   RpcError,
   type WhipClient,
@@ -10,9 +9,7 @@ import {
   type CommandOutcome,
 } from '@whip/sdk';
 import {
-  createSessionListView,
   createSessionView,
-  type SessionListView,
   type SessionView,
 } from '@whip/sdk/state';
 import type { CommandOperation } from '@whip/protocol';
@@ -21,14 +18,19 @@ import { SessionTabs } from './session-tabs';
 import { CompositionStore } from './compositions';
 import { ReadingPositions } from './reading-positions';
 import { SubmittedInputs } from './input-presentation';
+import { HostConnections, type HostConnection } from './hosts';
 
 interface ViewLease {
+  client: WhipClient;
+  runtimeId: string;
   view: SessionView;
   users: number;
   timer?: ReturnType<typeof setTimeout>;
 }
 export interface CommandNotice {
   id: string;
+  commandId: string;
+  runtimeId: string;
   label: string;
   status: string;
   error?: string;
@@ -36,6 +38,7 @@ export interface CommandNotice {
   delivery?: 'uncertain' | 'absent';
 }
 interface PendingCommand {
+  client: WhipClient;
   check(): Promise<unknown>;
   retry(): Promise<unknown>;
 }
@@ -60,16 +63,18 @@ const defaultPreferences: DevicePreferences = {
 };
 interface RuntimeSnapshot {
   preferences: DevicePreferences;
-  hosts: readonly string[];
-  client?: WhipClient;
-  list?: SessionListView;
-  endpoint: string;
+  hosts: readonly HostConnection[];
+  home?: HostConnection;
+  legacyHosts: readonly string[];
+  profilesReady: boolean;
+  profileError?: string;
   error?: string;
   commands: readonly CommandNotice[];
 }
 
 /** Owns UI observation lifetimes; accepted execution continues after disposal. */
 export class AppRuntime {
+  readonly connections: HostConnections;
   readonly tabs: SessionTabs;
   readonly compositions = new CompositionStore();
   readonly readingPositions = new ReadingPositions();
@@ -97,17 +102,9 @@ export class AppRuntime {
   private readonly pending = new Map<string, PendingCommand>();
   private draftTimer?: ReturnType<typeof setTimeout>;
   private readonly dirtyDrafts = new Set<string>();
-  private unsubscribe?: () => void;
-  private waits = new AbortController();
-  private epoch = 0;
   private closed = false;
 
   constructor(readonly platform: AppPlatform) {
-    const saved = readPreference<unknown>(
-      platform.storage,
-      'whip.web.endpoint',
-      platform.defaultEndpoint,
-    );
     const preferences = readPreference<Partial<DevicePreferences> | null>(
       platform.storage,
       'whip.web.preferences.v1',
@@ -119,15 +116,15 @@ export class AppRuntime {
       [],
     );
     this.state = {
-      endpoint: typeof saved === 'string' ? saved : platform.defaultEndpoint,
+      hosts: [],
+      profilesReady: false,
       commands: [],
-      hosts: Array.isArray(hosts)
+      legacyHosts: Array.isArray(hosts)
         ? hosts
             .filter(
               (host): host is string =>
                 typeof host === 'string' && host.length <= 2048,
             )
-            .slice(0, 16)
         : [],
       preferences: {
         commandShortcut: commandShortcuts.includes(
@@ -143,20 +140,33 @@ export class AppRuntime {
         attentionAnnouncements: preferences?.attentionAnnouncements !== false,
       },
     };
-    this.tabs = new SessionTabs(platform.windowStorage, message => this.report(message));
+    this.tabs = new SessionTabs(platform.windowStorage, message => this.report(message), this.lastSession()?.runtimeId);
     let previousTabs = this.tabs.getSnapshot();
     this.tabs.subscribe(() => {
       const next = this.tabs.getSnapshot();
-      for (const workspace of previousTabs.workspaces) {
-        const retained = next.workspaces.find(item => item.runtimeId === workspace.runtimeId);
-        const views = new Set([...(retained?.tabs ?? []).map(item => item.id), ...(retained?.closed ?? []).map(item => item.tab.id)]);
-        for (const viewId of [...workspace.tabs.map(item => item.id), ...workspace.closed.map(item => item.tab.id)]) {
-          if (!views.has(viewId)) this.readingPositions.forgetView(workspace.runtimeId, viewId);
-        }
+      const before = previousTabs.workspace, after = next.workspace;
+      const views = new Set([...after.tabs, ...after.closed.map(item => item.tab)].map(tab => tab.id));
+      for (const tab of [...before.tabs, ...before.closed.map(item => item.tab)]) {
+        if (!views.has(tab.id)) this.readingPositions.forgetView(tab.runtimeId, tab.id);
       }
       previousTabs = next;
     });
     try { for (const key of this.savedDrafts().keys()) this.draftIdentities.add(key); } catch (error) { this.report(error); }
+    this.connections = new HostConnections(platform, this.recoveryStorage(), {
+      connected: runtimeId => { void this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId }); },
+      detached: (client, runtimeId) => {
+        if (runtimeId) this.compositions.invalidateRuntime(runtimeId);
+        for (const [id, pending] of this.pending) if (pending.client === client) this.pending.delete(id);
+        for (const [id, lease] of this.views) if (lease.client === client) this.dropView(id, lease);
+        if (runtimeId) this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId });
+      },
+    });
+    const updateHosts = () => {
+      const { hosts, profilesReady, profileError } = this.connections.getSnapshot();
+      this.update({ hosts, home: hosts.find(host => host.local), profilesReady, profileError });
+    };
+    this.connections.subscribe(updateHosts);
+    updateHosts();
   }
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => {
@@ -177,10 +187,10 @@ export class AppRuntime {
     );
     this.update({ preferences });
   }
-  forgetHost(endpoint: string) {
-    const hosts = this.state.hosts.filter((host) => host !== endpoint);
+  forgetLegacyHost(endpoint: string) {
+    const hosts = this.state.legacyHosts.filter((host) => host !== endpoint);
     this.platform.storage.setItem('whip.web.hosts.v1', JSON.stringify(hosts));
-    this.update({ hosts });
+    this.update({ legacyHosts: hosts });
   }
   rememberSession(runtimeId: string, rootId: string) {
     this.platform.storage.setItem(
@@ -208,6 +218,8 @@ export class AppRuntime {
     this.update({ error: undefined });
   }
   report(error: unknown) {
+    // Disposing a view or detaching a host cancels its local observers.
+    if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') return;
     this.update({ error: errorMessage(error) });
   }
   draft(key: string) {
@@ -370,71 +382,18 @@ export class AppRuntime {
         ),
     };
   }
-  async connect(endpoint = this.state.endpoint): Promise<void> {
-    let epoch = this.epoch;
-    try {
-      if (this.closed) throw new Error('Application has been disposed');
-      const url = new URL(endpoint);
-      if (
-        !['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol) ||
-        url.username ||
-        url.password
-      )
-        throw new Error(
-          'Enter an HTTP or WebSocket daemon endpoint without credentials',
-        );
-      let clientId = this.platform.storage.getItem('whip.web.client.v1');
-      if (!clientId) {
-        if (!globalThis.crypto?.randomUUID)
-          throw new Error(
-            'This browser needs HTTPS (or localhost) to connect to WHIP. Open the host’s HTTPS address.',
-          );
-        clientId = crypto.randomUUID();
-        this.platform.storage.setItem('whip.web.client.v1', clientId);
-      }
-      this.platform.storage.setItem(
-        'whip.web.endpoint',
-        JSON.stringify(endpoint),
-      );
-      const client = createWhipClient({
-        endpoint,
-        clientId,
-        clientKind: 'human',
-        recoveryStorage: this.recoveryStorage(),
-      });
-      const list = createSessionListView(client);
-      epoch = ++this.epoch;
-      this.detach();
-      let previousConnection: string | undefined;
-      this.unsubscribe = client.subscribe(() => {
-        const info = client.getSnapshot().info;
-        if (info?.connection_id && info.connection_id !== previousConnection) {
-          previousConnection = info.connection_id;
-          void this.queries.invalidateQueries();
-        }
-      });
-      this.update({ client, list, endpoint, error: undefined, commands: [] });
-      await list.start();
-      if (epoch !== this.epoch)
-        throw new Error('Host changed while connecting');
-      await client.connect();
-      if (epoch !== this.epoch) throw new Error('Host changed while connecting');
-      const hosts = [
-        endpoint,
-        ...this.state.hosts.filter((host) => host !== endpoint),
-      ].slice(0, 16);
-      this.platform.storage.setItem('whip.web.hosts.v1', JSON.stringify(hosts));
-      this.update({ hosts });
-    } catch (error) {
-      // Connection failures already belong to the SDK's recoverable state.
-      if (!this.closed && epoch === this.epoch && this.state.client?.getSnapshot().error !== error) this.report(error);
+  async connect(): Promise<void> {
+    try { await this.connections.connect(); }
+    catch (error) {
+      if (!this.closed && this.connections.home().error !== errorMessage(error)) this.report(error);
       throw error;
     }
   }
-  acquireView(rootId: string): { view: SessionView; release(): void } {
-    const client = this.state.client;
+  acquireView(runtimeId: string, rootId: string): { view: SessionView; release(): void } {
+    const client = this.connections.host(runtimeId)?.client;
     if (!client) throw new Error('Connect to a host first');
-    let lease = this.views.get(rootId);
+    const key = JSON.stringify([runtimeId, rootId]);
+    let lease = this.views.get(key);
     if (!lease) {
       for (const [id, candidate] of this.views) {
         if (this.views.size < 4) break;
@@ -444,14 +403,14 @@ export class AppRuntime {
         throw new Error(
           'Four session views are already open. Close a view before opening another.',
         );
-      lease = { view: createSessionView(client.session(rootId)), users: 0 };
-      this.views.set(rootId, lease);
+      lease = { client, runtimeId, view: createSessionView(client.session(rootId)), users: 0 };
+      this.views.set(key, lease);
       // Snapshot and history failures belong to the view's scoped error state.
       void lease.view.start().catch(() => {});
     }
     // Reusing a root moves it behind older inactive views in eviction order.
-    this.views.delete(rootId);
-    this.views.set(rootId, lease);
+    this.views.delete(key);
+    this.views.set(key, lease);
     clearTimeout(lease.timer);
     lease.users++;
     const retained = lease;
@@ -462,9 +421,9 @@ export class AppRuntime {
         if (released) return;
         released = true;
         retained.users--;
-        if (!retained.users && this.views.get(rootId) === retained)
+        if (!retained.users && this.views.get(key) === retained)
           retained.timer = setTimeout(
-            () => this.dropView(rootId, retained),
+            () => this.dropView(key, retained),
             30_000,
           );
       },
@@ -547,8 +506,10 @@ export class AppRuntime {
     onAccepted?: () => void,
     draftKey?: string,
   ): Promise<CommandOutcome<O>> {
-    const epoch = this.epoch;
-    const signal = this.waits.signal;
+    const { runtimeId, clientId } = handle.record;
+    const signal = this.connections.signal(handle.client);
+    const id = JSON.stringify([runtimeId, clientId, handle.commandId]);
+    const attached = () => this.connections.isAttached(handle.client);
     let accepted = false;
     let uncertain = false;
     let work: Promise<CommandOutcome<O>> | undefined;
@@ -557,7 +518,9 @@ export class AppRuntime {
       extra: Pick<CommandNotice, 'error' | 'delivery'> = {},
     ) =>
       this.commandNotice({
-        id: handle.commandId,
+        id,
+        commandId: handle.commandId,
+        runtimeId,
         label,
         draftKey,
         status,
@@ -592,19 +555,19 @@ export class AppRuntime {
         } catch (error) {
           if (!(error instanceof DeliveryUncertainError)) throw error;
           signal.throwIfAborted();
-          if (epoch !== this.epoch)
+          if (!attached())
             throw new Error('Host changed while submitting');
           uncertain = true;
-          this.pending.set(handle.commandId, pending);
-          if (!signal.aborted && epoch === this.epoch)
+          this.pending.set(id, pending);
+          if (!signal.aborted && attached())
             notice('Checking acceptance', { delivery: 'uncertain' });
           receipt = await lookup();
         }
         signal.throwIfAborted();
-        if (epoch !== this.epoch)
+        if (!attached())
           throw new Error('Host changed while submitting');
-        this.pending.delete(handle.commandId);
-        this.submittedInputs.acknowledge(receipt);
+        this.pending.delete(id);
+        this.submittedInputs.acknowledge(receipt, runtimeId);
         notice(receipt.status);
         if (!accepted) {
           accepted = true;
@@ -612,8 +575,8 @@ export class AppRuntime {
         }
         const outcome = await handle.result({ signal });
         signal.throwIfAborted();
-        if (epoch !== this.epoch) throw new Error('Host changed while awaiting the command');
-        this.submittedInputs.acknowledge(outcome);
+        if (!attached()) throw new Error('Host changed while awaiting the command');
+        this.submittedInputs.acknowledge(outcome, runtimeId);
         terminal = true;
         notice(
           outcome.status,
@@ -623,15 +586,15 @@ export class AppRuntime {
           throw new Error(
             outcome.failure?.message ?? `${label}: ${outcome.status}`,
           );
-        await this.queries.invalidateQueries();
+        await this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
         signal.throwIfAborted();
-        if (epoch !== this.epoch) throw new Error('Host changed while refreshing the command result');
+        if (!attached()) throw new Error('Host changed while refreshing the command result');
         return outcome;
       } catch (error) {
-        if (!signal.aborted && epoch === this.epoch) {
-          if (!uncertain || accepted) this.submittedInputs.remove(handle.commandId);
+        if (!signal.aborted && attached()) {
+          if (!uncertain || accepted) this.submittedInputs.remove(handle.commandId, runtimeId);
           if (uncertain && !accepted) {
-            this.pending.set(handle.commandId, pending);
+            this.pending.set(id, pending);
             const absent =
               error instanceof RpcError && error.kind === 'command_not_found';
             notice(
@@ -658,31 +621,21 @@ export class AppRuntime {
       return work;
     };
     const pending: PendingCommand = {
+      client: handle.client,
       check: () => start('check'),
       retry: () => start('retry'),
     };
     notice('Submitting');
     return start('initial');
   }
-  private detach() {
-    this.compositions.invalidateRuntime(this.state.client?.getSnapshot().info?.runtime_id);
-    this.submittedInputs.clear();
-    this.waits.abort();
-    this.waits = new AbortController();
-    this.pending.clear();
-    this.unsubscribe?.();
-    this.unsubscribe = undefined;
-    for (const [id, lease] of this.views) this.dropView(id, lease);
-    void this.state.list?.dispose();
-    this.state.client?.close();
-    this.queries.clear();
-  }
   dispose() {
     if (this.closed) return;
     this.flushDrafts();
     this.closed = true;
-    ++this.epoch;
-    this.detach();
+    this.connections.dispose();
+    this.submittedInputs.clear();
+    this.pending.clear();
+    this.queries.clear();
     this.tabs.dispose();
     this.compositions.dispose();
     this.readingPositions.clear();

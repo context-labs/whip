@@ -1,4 +1,4 @@
-import type { ConfigurationUpdate, HostAttentionParams, HostDirectoryParams, PermissionDecision, ProviderKeySetup, ProviderValidateParams } from '@whip/protocol';
+import type { ConfigurationUpdate, HostAttentionParams, HostDirectoryParams, HostDirectoryPickParams, PermissionDecision, ProviderKeySetup, ProviderValidateParams } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
 import { uuid } from './util.js';
@@ -8,6 +8,10 @@ export class Host {
   constructor(private readonly client: WhipClient) {}
   directories(params: Partial<HostDirectoryParams> = {}, options: CallOptions = {}) {
     return this.client.call('host.directories.list', { limit: 64, ...params }, options);
+  }
+  /** Opens the OS folder chooser on the execution host; rejects where the host has no desktop picker. */
+  pickDirectory(params: HostDirectoryPickParams = {}, options: CallOptions = {}) {
+    return this.client.call('host.directory.pick', params, options);
   }
   /** Advisory paged attention index. Refresh its first page to see newly active roots. */
   attention(params: Partial<HostAttentionParams> = {}, options: CallOptions = {}) {

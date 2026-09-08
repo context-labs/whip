@@ -38,7 +38,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     });
     socket.on('close', () => sockets.delete(socket));
   });
-  const workspace = () => page.evaluate(id => JSON.parse(sessionStorage.getItem('whip.web.workspace.v2')).workspaces.find(w => w.runtimeId === id), runtimeId);
+  const workspace = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('whip.web.workspace.v3')).workspace);
   const tab = id => page.locator(`[id="whip-workspace-tab-${encodeURIComponent(id)}"]`);
   const panel = id => page.locator(`[data-workspace-view="${id}"]`);
   const ready = id => panel(id).locator('[data-whip-composer]').waitFor();

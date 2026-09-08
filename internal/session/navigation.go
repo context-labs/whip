@@ -63,7 +63,8 @@ func (s *Store) SessionSummaries(ctx context.Context, rootIDs []string) ([]Sessi
 )
  SELECT r.id,s.id IS NULL,substr(COALESCE(s.title,''),1,128),substr(COALESCE(s.cwd,''),1,4096),
  COALESCE(length(s.title)>128 OR length(s.cwd)>128,0),COALESCE(length(s.cwd)>4096,0),
- (SELECT COUNT(*) FROM agents a WHERE a.root_id=s.id AND a.status='running'),
+ (SELECT COUNT(DISTINCT a.id) FROM agents a WHERE a.root_id=s.id AND (a.status='running' OR EXISTS(
+   SELECT 1 FROM turns t WHERE t.root_id=s.id AND t.agent_id=a.id AND t.status='running'))),
  (SELECT COUNT(*) FROM agents a WHERE a.root_id=s.id AND EXISTS(
    SELECT 1 FROM inbox i WHERE i.root_id=s.id AND i.agent_id=a.id AND i.status='queued')),
  COALESCE(p.pending,0)

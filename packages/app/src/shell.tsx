@@ -4,8 +4,6 @@ import { useHotkey } from '@tanstack/react-hotkeys';
 import {
   Button,
   IconButton,
-  Input,
-  Dialog,
   Sheet,
   CommandPicker,
 } from '@whip/ui';
@@ -17,11 +15,13 @@ import {
 } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
+import { Attention } from './attention';
 import { SessionSearchDialog } from './session-search-dialog';
 import { SessionSidebar } from './session-sidebar';
 import { SidebarResize, useSidebarLayout } from './sidebar-layout';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { inspectorSections, isInspectorSection } from './navigation';
+import { HostDialog } from './host-dialog';
 import { ConnectionNotice } from './connection-notice';
 import { SessionTabStrip, type SessionTabActions } from './session-tab-strip';
 
@@ -30,6 +30,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const state = useAppState();
   const navigate = useNavigate();
   const params = useParams({ strict: false });
+  const focusedHost = params.runtimeId ? state.hosts.find(host => host.runtimeId === params.runtimeId) : state.home;
+  const client = focusedHost?.client;
   useSessionTabs();
   const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 767px)').matches);
   useEffect(() => { const query = window.matchMedia('(max-width: 767px)'); const update = () => setCompact(query.matches); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, []);
@@ -56,12 +58,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     onClick={toggleNavigation}><PanelLeft size={18} /></IconButton>;
   const [connection, setConnection] = useState(false);
   const [commands, setCommands] = useState(false);
-  const [endpoint, setEndpoint] = useState(state.endpoint);
-  const [connecting, setConnecting] = useState(false);
   const tabActions = useRef<SessionTabActions>(null);
   const focusComposer = () => {
-    const id = state.client?.getSnapshot().info?.runtime_id;
-    const tab = id ? selectedSessionTab(runtime.tabs.workspace(id)) : undefined;
+    const tab = selectedSessionTab(runtime.tabs.workspace());
     const container = tab ? document.getElementById(workspacePanelId(tab.id)) : undefined;
     container?.querySelector<HTMLTextAreaElement>('[data-whip-composer]')?.focus();
   };
@@ -69,9 +68,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     setCommands((value) => !value),
   );
   useHotkey(state.preferences.composerShortcut, focusComposer);
-  useEffect(() => setEndpoint(state.endpoint), [state.endpoint]);
+  useEffect(() => {
+    const refresh = () => { void runtime.connections.refreshProfiles().catch(() => {}); };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [runtime]);
   const notices = <>
-{state.client && <ConnectionNotice client={state.client} />}
+{client && <ConnectionNotice client={client} />}
         {state.error && (
           <div role="alert" {...stylex.props(layout.row, layout.notice)}>
             <span {...stylex.props(layout.grow)}>{state.error}</span>
@@ -94,9 +97,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           onHide={() => { sidebar.setState(value => ({ ...value, hidden: true })); requestAnimationFrame(() => toggleRef.current?.focus()); }} toggleRef={toggleRef} />
       </aside>}
       <div {...stylex.props(layout.main)}>
-        {state.client ? <SessionTabStrip ref={tabActions} client={state.client} compact={compact}
-          utilities={compact || sidebar.state.hidden ? navigationToggle : null} notices={notices}>{children}</SessionTabStrip>
-          : <>{(compact || sidebar.state.hidden) && <div {...stylex.props(layout.row)}>{navigationToggle}</div>}{notices}{children}</>}
+        <SessionTabStrip ref={tabActions} compact={compact} onManageHosts={() => setConnection(true)}
+          utilities={<>{(compact || sidebar.state.hidden) && navigationToggle}<Attention /></>} notices={notices}>{children}</SessionTabStrip>
       </div>
       <Sheet xstyle={layout.sidebarSheet} open={compact && navigation} onOpenChange={setNavigation} title="WHIP">
         <div id="whip-session-navigation" {...stylex.props(layout.sidebar, layout.sidebarMobile)}>
@@ -109,78 +111,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
         </div>
       </Sheet>
-      <Dialog
-        open={connection}
-        onOpenChange={setConnection}
-        title="Connect to an execution host"
-        description="Your sessions and work run on this host."
-      >
-        <form
-          {...stylex.props(layout.column)}
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setConnecting(true);
-            try {
-              await runtime.connect(endpoint);
-              setConnection(false);
-            } catch {
-              // Setup and connection errors are displayed by their owners.
-            } finally {
-              setConnecting(false);
-            }
-          }}
-        >
-          {state.hosts.length > 0 && (
-            <div
-              {...stylex.props(layout.column)}
-              aria-label="Saved execution hosts"
-            >
-              {state.hosts.map((host) => (
-                <div key={host} {...stylex.props(layout.row)}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setEndpoint(host)}
-                  >
-                    {host}
-                  </Button>
-                  <IconButton
-                    label={`Forget ${host}`}
-                    onClick={() => {
-                      try {
-                        runtime.forgetHost(host);
-                      } catch (error) {
-                        runtime.report(error);
-                      }
-                    }}
-                  >
-                    <X size={13} />
-                  </IconButton>
-                </div>
-              ))}
-            </div>
-          )}
-          <label htmlFor="host-endpoint">Daemon address</label>
-          <Input
-            id="host-endpoint"
-            value={endpoint}
-            onChange={(event) => setEndpoint(event.target.value)}
-            placeholder="http://localhost:8080"
-            required
-            autoFocus
-          />
-          <p {...stylex.props(layout.muted)}>
-            Use the endpoint shown by <code>whip daemon status</code>. A phone
-            or remote browser needs the host’s HTTPS address.
-          </p>
-          <Button type="submit" variant="primary" loading={connecting}>
-            Connect
-          </Button>
-        </form>
-      </Dialog>
-      {state.client && state.list && <SessionSearchDialog key={state.endpoint} client={state.client} list={state.list}
+      <HostDialog open={connection} onOpenChange={setConnection} />
+      <SessionSearchDialog
         open={searchOpen} onOpenChange={setSearchOpen}
-        finalFocus={() => searchOpener.current?.isConnected ? searchOpener.current : toggleRef.current} />}
+        finalFocus={() => searchOpener.current?.isConnected ? searchOpener.current : toggleRef.current} />
       <CommandPicker
         open={commands}
         onOpenChange={setCommands}
@@ -188,7 +122,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           { value: 'new', label: 'New session' },
           { value: 'focus', label: 'Focus message composer' },
           { value: 'navigation', label: 'Browse sessions' },
-          { value: 'connect', label: 'Change execution host' },
+          { value: 'connect', label: 'Manage execution hosts' },
           { value: 'tabs:search', label: 'Search open tabs' },
           { value: 'tabs:next', label: 'Next session tab' },
           { value: 'tabs:previous', label: 'Previous session tab' },
@@ -212,7 +146,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           else if (action === 'tabs:previous') tabActions.current?.next(-1);
           else if (action === 'tabs:close') tabActions.current?.close();
           else if (action === 'tabs:reopen') tabActions.current?.reopen();
-          else if (action.startsWith('panel:') && params.runtimeId && params.rootId && isInspectorSection(action.slice(6))) void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: params.runtimeId, rootId: params.rootId }, state: { whipViewId: selectedSessionTab(runtime.tabs.workspace(params.runtimeId))?.id }, search: previous => ({ ...previous, panel: action.slice(6) as import('./navigation').InspectorSection }) });
+          else if (action.startsWith('panel:') && params.runtimeId && params.rootId && isInspectorSection(action.slice(6))) void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: params.runtimeId, rootId: params.rootId }, state: { whipViewId: selectedSessionTab(runtime.tabs.workspace())?.id }, search: previous => ({ ...previous, panel: action.slice(6) as import('./navigation').InspectorSection }) });
           else void navigate({ to: '/settings', search: { section: action } });
         }}
       />

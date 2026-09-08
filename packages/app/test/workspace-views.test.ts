@@ -1,48 +1,56 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AppRuntime } from '../src/runtime';
-import { reconcileWorkspaceViews } from '../src/workspace-views';
+import type { WhipClient } from '@whip/sdk';
+import { reconcileWorkspaceViews, workspaceRootKey, type WorkspaceLease } from '../src/workspace-views';
 
 type Lease = ReturnType<AppRuntime['acquireView']>;
+const local = {} as WhipClient, remote = {} as WhipClient;
+const root = (rootId: string, runtimeId = 'local', client: WhipClient | undefined = local) => ({ runtimeId, rootId, client });
+const key = (id: string, runtimeId = 'local') => workspaceRootKey(root(id, runtimeId));
 function fixture() {
   const active = new Set<string>();
   const events: string[] = [];
-  const acquireView = vi.fn((id: string): Lease => {
+  const acquireView = vi.fn((runtimeId: string, id: string): Lease => {
     if (active.size === 4) throw new Error('Four session views');
-    active.add(id); events.push(`acquire:${id}`);
-    return { view: { id } as unknown as Lease['view'], release: vi.fn(() => { active.delete(id); events.push(`release:${id}`); }) };
+    const k = key(id, runtimeId);
+    active.add(k); events.push(`acquire:${k}`);
+    return { view: { id } as unknown as Lease['view'], release: vi.fn(() => { active.delete(k); events.push(`release:${k}`); }) };
   });
-  return { active, events, runtime: { acquireView }, leases: new Map<string, Lease>() };
+  return { active, events, runtime: { acquireView }, leases: new Map<string, WorkspaceLease>() };
 }
 describe('workspace root reconciliation', () => {
-  it('releases an obsolete root before admitting its replacement at four active roots', () => {
+  it('releases obsolete roots before admitting replacements at the window-wide limit', () => {
     const f = fixture();
-    reconcileWorkspaceViews(f.runtime, f.leases, ['a', 'b', 'c', 'd']);
-    const retained = f.leases.get('b'); f.events.length = 0;
-    expect(reconcileWorkspaceViews(f.runtime, f.leases, ['e', 'b', 'c', 'd']).size).toBe(0);
-    expect(f.events).toEqual(['release:a', 'acquire:e']);
-    expect(f.leases.get('b')).toBe(retained);
-    expect([...f.active].sort()).toEqual(['b', 'c', 'd', 'e']);
+    reconcileWorkspaceViews(f.runtime, f.leases, ['a', 'b', 'c', 'd'].map(id => root(id)));
+    const retained = f.leases.get(key('b')); f.events.length = 0;
+    expect(reconcileWorkspaceViews(f.runtime, f.leases, [root('e', 'remote', remote), ...['b', 'c', 'd'].map(id => root(id))]).size).toBe(0);
+    expect(f.events).toEqual([`release:${key('a')}`, `acquire:${key('e', 'remote')}`]);
+    expect(f.leases.get(key('b'))).toBe(retained);
+    expect(f.active.size).toBe(4);
   });
-  it('shares duplicate roots and releases each only after its last pane disappears', () => {
+  it('shares duplicates only on the same host, retaining other hosts through disconnect and reconnect', () => {
     const f = fixture();
-    reconcileWorkspaceViews(f.runtime, f.leases, ['a', 'a', 'b']);
+    reconcileWorkspaceViews(f.runtime, f.leases, [root('a'), root('a'), root('a', 'remote', remote)]);
     expect(f.runtime.acquireView).toHaveBeenCalledTimes(2);
-    const a = f.leases.get('a')!;
-    reconcileWorkspaceViews(f.runtime, f.leases, ['a', 'b']);
-    expect(a.release).not.toHaveBeenCalled();
-    reconcileWorkspaceViews(f.runtime, f.leases, ['b']);
-    expect(a.release).toHaveBeenCalledTimes(1);
+    const a = f.leases.get(key('a'))!, b = f.leases.get(key('a', 'remote'))!;
+    reconcileWorkspaceViews(f.runtime, f.leases, [root('a'), { ...root('a', 'remote'), client: undefined }]);
+    expect(a.lease.release).not.toHaveBeenCalled();
+    expect(b.lease.release).toHaveBeenCalledTimes(1);
+    reconcileWorkspaceViews(f.runtime, f.leases, [root('a'), root('a', 'remote', {} as WhipClient)]);
+    expect(f.leases.get(key('a'))).toBe(a);
+    expect(f.leases.get(key('a', 'remote'))).not.toBe(b);
     reconcileWorkspaceViews(f.runtime, f.leases, []);
+    expect(a.lease.release).toHaveBeenCalledTimes(1);
     expect(f.active.size).toBe(0); expect(f.leases.size).toBe(0);
   });
-  it('reports failed admissions without dropping already admitted roots and permits retry', () => {
+  it('reports failed admissions without dropping healthy roots and permits retry', () => {
     const f = fixture();
     f.runtime.acquireView.mockImplementationOnce(() => { throw new Error('Root unavailable'); });
-    const errors = reconcileWorkspaceViews(f.runtime, f.leases, ['a', 'b']);
-    expect([...errors]).toEqual([['a', 'Root unavailable']]);
-    expect([...f.leases.keys()]).toEqual(['b']);
-    const b = f.leases.get('b');
-    expect(reconcileWorkspaceViews(f.runtime, f.leases, ['a', 'b']).size).toBe(0);
-    expect(f.leases.get('b')).toBe(b);
+    const errors = reconcileWorkspaceViews(f.runtime, f.leases, [root('a'), root('b')]);
+    expect([...errors]).toEqual([[key('a'), 'Root unavailable']]);
+    expect([...f.leases.keys()]).toEqual([key('b')]);
+    const b = f.leases.get(key('b'));
+    expect(reconcileWorkspaceViews(f.runtime, f.leases, [root('a'), root('b')]).size).toBe(0);
+    expect(f.leases.get(key('b'))).toBe(b);
   });
 });

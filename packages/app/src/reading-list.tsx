@@ -13,6 +13,7 @@ const styles = stylex.create({
   inner: { maxWidth: 840, marginInline: 'auto', paddingInline: { default: 32, [scale.phone]: 16 }, paddingBlock: 24 },
   jump: { position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', boxShadow: '0 2px 8px rgb(0 0 0 / 0.08)' },
   region: { flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0 },
+  exhausted: { visibility: 'hidden' },
 });
 
 /** Shared virtual reading/selection anchors; session data stays with the SDK. */
@@ -53,8 +54,8 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     getScrollElement: () => viewport.current,
     estimateSize: (index) => (index === 0 ? 0 : 140),
     overscan: 8,
-    // The older-history control has a measured row too: removing it when the
-    // final page arrives must preserve the same anchor as any other resize.
+    // Keep the control's measured space after exhaustion. The virtualizer skips
+    // resize compensation while scrolling backward, so removing it shifts rows.
     getItemKey: (index) => (index === 0 ? 0 : rows[index - 1]!.id),
     anchorTo: 'end',
     scrollEndThreshold: 64,
@@ -105,8 +106,9 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     cancelAnimationFrame(restoreFrame.current);
     restoring.current = false;
   };
+  const canReadHistory = hasMore && canLoadOlder && historyReady && !loadingHistory;
   const loadEarlier = async () => {
-    if (loadingRef.current) return;
+    if (!canReadHistory || loadingRef.current || restoring.current) return;
     loadingRef.current = true;
     setLoading(true);
     try {
@@ -124,14 +126,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   // page on their own; prepended rows cannot retrigger while the user holds
   // position because scrollTop stays beyond the threshold.
   const maybeAutoLoad = (root: HTMLDivElement) => {
-    if (
-      hasMore &&
-      canLoadOlder &&
-      !loadingRef.current &&
-      !restoring.current &&
-      nearTop(root)
-    )
-      void loadEarlier();
+    if (nearTop(root)) void loadEarlier();
   };
   useLayoutEffect(() => {
     if (
@@ -301,20 +296,20 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
                 }}
               >
                 {item.index === 0 ? (
-                  hasMore && (
-                    <Button
-                      variant="ghost"
-                      loading={loading || loadingHistory}
-                      disabled={!canLoadOlder || loading || loadingHistory}
-                      onClick={() => {
-                        stopRestore();
-                        follow.current = false;
-                        void loadEarlier();
-                      }}
-                    >
-                      {earlierLabel}
-                    </Button>
-                  )
+                  <Button
+                    variant="ghost"
+                    xstyle={!hasMore && styles.exhausted}
+                    aria-hidden={!hasMore || undefined}
+                    loading={loading || loadingHistory}
+                    disabled={!canReadHistory || loading}
+                    onClick={() => {
+                      stopRestore();
+                      follow.current = false;
+                      void loadEarlier();
+                    }}
+                  >
+                    {earlierLabel}
+                  </Button>
                 ) : (
                   renderRow(rows[item.index - 1]!, item.index - 1)
                 )}

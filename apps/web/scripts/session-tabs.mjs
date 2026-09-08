@@ -132,7 +132,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.screenshot({ path: join(directory, `${name}-desktop-dark.png`) });
     await page.evaluate(() => localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'light' })));
     const storage = { version: 1, workspaces: [{ ...seed.workspaces[0], tabs: roots.map((rootId, index) => ({ rootId, titleHint: `Session ${index + 1}`, location: {} })), lastActiveRootId: roots[0] }] };
-    await page.evaluate(value => { sessionStorage.removeItem('whip.web.workspace.v2'); sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify(value)); }, storage);
+    await page.evaluate(value => { sessionStorage.removeItem('whip.web.workspace.v3'); sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify(value)); }, storage);
     await page.goto(origin + route(roots[0])); await ready(); assert.equal(await page.getByRole('tab').count(), 32);
     const cold = [];
     for (let i = 0; i < 8; i++) { const start = performance.now(); await tab(roots[i]).click(); await ready(); cold.push(performance.now() - start); }
@@ -192,13 +192,13 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       const inspector = await context.newCDPSession(page);
       for (const count of [1, 8, 32]) {
         const ids = [roots[2], ...roots.filter(id => id !== roots[2])].slice(0, count);
-        await page.evaluate(value => { sessionStorage.removeItem('whip.web.workspace.v2'); sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify(value)); }, { version: 1, workspaces: [{ runtimeId: fixture.info.runtime_id, tabs: ids.map(rootId => ({ rootId, titleHint: '', location: {} })), closed: [] }] });
+        await page.evaluate(value => { sessionStorage.removeItem('whip.web.workspace.v3'); sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify(value)); }, { version: 1, workspaces: [{ runtimeId: fixture.info.runtime_id, tabs: ids.map(rootId => ({ rootId, titleHint: '', location: {} })), closed: [] }] });
         await page.goto(origin + route(roots[2])); await ready();
         for (const id of ids.slice(1, 4)) { await tab(id).click(); await ready(); }
         await tab(roots[2]).click(); await ready();
         await inspector.send('HeapProfiler.collectGarbage');
         const heap = await inspector.send('Runtime.getHeapUsage');
-        retainedState.push({ openTabs: count, usedHeapBytesAfterGC: heap.usedSize, activeSubscriptions: subscriptionSets.get(currentSocket)?.size ?? 0, metadataBytes: await page.evaluate(() => new TextEncoder().encode(sessionStorage.getItem('whip.web.workspace.v2')).length), mountedConversations: await page.getByRole('region', { name: 'Conversation', exact: true }).count() });
+        retainedState.push({ openTabs: count, usedHeapBytesAfterGC: heap.usedSize, activeSubscriptions: subscriptionSets.get(currentSocket)?.size ?? 0, metadataBytes: await page.evaluate(() => new TextEncoder().encode(sessionStorage.getItem('whip.web.workspace.v3')).length), mountedConversations: await page.getByRole('region', { name: 'Conversation', exact: true }).count() });
       }
       await inspector.detach();
       checks.push('whole-app retained heap, metadata bytes and subscriptions measured at 1/8/32 tabs');

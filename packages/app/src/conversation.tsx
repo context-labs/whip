@@ -12,9 +12,11 @@ import {
   Input,
   Menu,
   Sheet,
+  Spinner,
 } from '@whip/ui';
 import { GitBranch, MoreHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
+import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { layout } from './styles';
 import {
@@ -34,11 +36,49 @@ import type { InspectorSection } from './navigation';
 import { SessionInspector } from './inspector';
 import { selectedSessionTab, sessionViewPane, sessionSearch, type SessionTab } from './session-tabs';
 
+const loadingStyles = stylex.create({
+  overlay: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 2,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: 'translateY(-20px)',
+    minWidth: 0,
+    minHeight: 0,
+    backgroundColor: 'inherit',
+  },
+  indicator: {
+    width: 40,
+    height: 40,
+    display: 'grid',
+    placeItems: 'center',
+    color: surface.secondaryText,
+    backgroundColor: `color-mix(in srgb, ${colors.foreground} 3%, ${colors.background})`,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: surface.quietBorder,
+    borderRadius: '50%',
+    boxShadow: 'none',
+    opacity: { [scale.reducedMotion]: 0.88 },
+  },
+});
+
+export function SessionLoading() {
+  return <div role="status" aria-label="Opening session" {...stylex.props(loadingStyles.overlay)}>
+    <span {...stylex.props(loadingStyles.indicator)}>
+      <Spinner size={18} label="Opening session" />
+    </span>
+  </div>;
+}
+
 /** Route admission/status only. Workspace reconciliation is the sole root lease owner. */
 export function ConversationRoute({ rootId, runtimeId }: { rootId: string; runtimeId: string }) {
   const runtime = useRuntime();
   useSessionTabs();
-  const { client } = useAppState();
+  const { hosts } = useAppState();
+  const client = hosts.find(host => host.runtimeId === runtimeId)?.client;
   if (!runtime.tabs.canOpen(runtimeId, rootId)) return <div {...stylex.props(layout.empty)}><h1 {...stylex.props(layout.emptyTitle)}>Your session tabs are full</h1><p>Close an open tab to view this session. Its work stays on the host.</p></div>;
   if (!client) return <div {...stylex.props(layout.empty)}>Connect to the session’s execution host.</div>;
   return <ConversationHostStatus client={client} runtimeId={runtimeId} />;
@@ -107,25 +147,25 @@ export function SessionContent({
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const canCreateTab = () => {
-    if (runtime.tabs.workspace(expectedRuntimeId).tabs.length < 32) return true;
+    if (runtime.tabs.workspace().tabs.length < 32) return true;
     runtime.report('There are 32 open session tabs. Close a tab before creating another.');
     return false;
   };
   const navigationRevision = useRef(0);
   useLayoutEffect(() => { navigationRevision.current++; }, [agentId, panel, session, kind]);
-  const stillHere = (revision: number) => mounted.current && navigationRevision.current === revision && runtime.getSnapshot().client === session.client;
-  const focused = !viewId || selectedSessionTab(runtime.tabs.workspace(expectedRuntimeId))?.id === viewId;
+  const stillHere = (revision: number) => mounted.current && navigationRevision.current === revision && runtime.connections.isAttached(session.client);
+  const focused = !viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId;
   const setPanel = (next?: InspectorSection) => {
     const search = sessionSearch({ kind, location: { ...(agentId !== session.rootId ? { agent: agentId } : {}), panel: next } });
     void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true });
   };
   const openCreated = async (rootId: string) => {
-    const workspace = runtime.tabs.workspace(expectedRuntimeId);
+    const workspace = runtime.tabs.workspace();
     const pane = viewId ? sessionViewPane(workspace, viewId) : undefined;
     const active = !viewId || selectedSessionTab(workspace)?.id === viewId;
     const id = runtime.tabs.open(expectedRuntimeId, rootId, '', pane?.id);
     if (active) await navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId }, search: {}, state: { whipViewId: id } });
-    else runtime.tabs.activate(expectedRuntimeId, id, false);
+    else runtime.tabs.activate(id, false);
   };
   const currentRuntime = connection.info?.runtime_id;
   const wrongRuntime = !!currentRuntime && currentRuntime !== expectedRuntimeId;
@@ -142,14 +182,14 @@ export function SessionContent({
     history, presentation,
     root?.inbox?.filter(item => item.agent_id === agentId) ?? [],
     submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId),
-    new Map(commands.filter(item => item.delivery).map(item => [item.id, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])),
+    new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])),
   ) : [], [kind, history, presentation, root?.inbox, submitted, commands, expectedRuntimeId, session.rootId, agentId]);
   const admitted = root?.inbox?.filter(item => item.agent_id === agentId && !isChatInput(item)) ?? [];
   const pendingInputs = submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.accepted && !item.confirmed);
   const pendingInputIds = pendingInputs.map(item => item.id).join(',');
   useEffect(() => {
     // Seeing the exact inbox identity is sufficient, including after recovery.
-    runtime.submittedInputs.confirm(submitted.filter(input => input.runtimeId === expectedRuntimeId && input.rootId === session.rootId && root?.inbox?.some(item => item.agent_id === input.agentId && item.seq === input.inboxSeq)).map(input => input.id));
+    runtime.submittedInputs.confirm(submitted.filter(input => input.runtimeId === expectedRuntimeId && input.rootId === session.rootId && root?.inbox?.some(item => item.agent_id === input.agentId && item.seq === input.inboxSeq)).map(input => input.id), expectedRuntimeId);
   }, [runtime, submitted, expectedRuntimeId, session.rootId, root?.inbox]);
   useEffect(() => {
     if (!pendingInputIds || connection.state !== 'connected' || wrongRuntime) return;
@@ -162,7 +202,7 @@ export function SessionContent({
         await view.refresh();
         if (!current) return;
         await view.refresh();
-        if (current && view.getSnapshot().status === 'live') runtime.submittedInputs.confirm(pendingInputIds.split(','));
+        if (current && view.getSnapshot().status === 'live') runtime.submittedInputs.confirm(pendingInputIds.split(','), expectedRuntimeId);
       })().catch(error => runtime.report(error));
     }, 250);
     return () => { current = false; clearTimeout(timer); };
@@ -267,6 +307,8 @@ export function SessionContent({
           bookmarkKey={`${expectedRuntimeId}:${viewId ?? session.rootId}:${agentId}`}
           historyRevision={history?.revision}
           historyReady={!!history && !history.loading}
+          canLoadOlder={connected}
+          loadingHistory={history?.loading}
           hasMore={history?.hasMore ?? false}
           loadOlder={() => view.loadOlder(agentId)}
           readBody={(row) => void readBody(row)}
@@ -283,13 +325,11 @@ export function SessionContent({
               : undefined
           }
         />
+      ) : state.status === 'loading' ? (
+        <SessionLoading />
       ) : (
         <div {...stylex.props(layout.empty)}>
-          <h2 {...stylex.props(layout.emptyTitle)}>
-            {state.status === 'loading'
-              ? 'Loading conversation…'
-              : 'What would you like to work on?'}
-          </h2>
+          <h2 {...stylex.props(layout.emptyTitle)}>What would you like to work on?</h2>
           <p {...stylex.props(layout.emptyText)}>
             Give WHIP a goal, then follow the work and guide it as needed.
           </p>
@@ -327,6 +367,7 @@ export function SessionContent({
         activeTurn={activeTurn}
         runtimeId={expectedRuntimeId}
         viewId={viewId}
+        active={focused && !panel}
         modelControl={root && <>
           <PermissionModePicker view={view} root={root} connected={connected} agentId={agentId} />
           <SessionModelPicker view={view} root={root} connected={connected} agentId={agentId} />
@@ -456,12 +497,12 @@ export function SessionContent({
                   action === 'delete' ? 'Delete session' : 'Clear history',
                 );
                 setConfirm(undefined);
-                if (action === 'delete' && runtime.getSnapshot().client === session.client) {
-                  const active = selectedSessionTab(runtime.tabs.workspace(expectedRuntimeId));
+                if (action === 'delete' && runtime.connections.isAttached(session.client)) {
+                  const active = selectedSessionTab(runtime.tabs.workspace());
                   runtime.tabs.close(expectedRuntimeId, [session.rootId], active?.rootId);
-                  if (active?.rootId === session.rootId) {
-                    const next = selectedSessionTab(runtime.tabs.workspace(expectedRuntimeId));
-                    if (next) await navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: next.rootId }, search: sessionSearch(next), state: { whipViewId: next.id }, replace: true });
+                  if (active?.runtimeId === expectedRuntimeId && active.rootId === session.rootId) {
+                    const next = selectedSessionTab(runtime.tabs.workspace());
+                    if (next) await navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: next.runtimeId, rootId: next.rootId }, search: sessionSearch(next), state: { whipViewId: next.id }, replace: true });
                     else await navigate({ to: '/', replace: true });
                   }
                 }

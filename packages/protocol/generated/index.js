@@ -118,6 +118,14 @@ export const manifest = {
       "result_type": "HostDirectoryResult"
     },
     {
+      "name": "host.directory.pick",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "HostDirectoryPickParams",
+      "result_type": "HostDirectoryPickResult"
+    },
+    {
       "name": "host.themes.list",
       "surface": "rpc",
       "execution": "query",

@@ -158,6 +158,7 @@ const DefaultCompactPct = 50
 
 // Config is the root of ~/.whip/config.json (JSONC: comments allowed).
 type Config struct {
+	RemoteHosts     []RemoteHost        `json:"remote_hosts,omitempty"`
 	DefaultModel    string              `json:"defaultModel"`
 	DefaultProvider string              `json:"defaultProvider,omitempty"` // override the model's first provider
 	DefaultEffort   string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"

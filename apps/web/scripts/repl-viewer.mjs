@@ -26,6 +26,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
   const url = `${origin}/h/${runtimeId}/s/${root}`;
   const frames = [], errors = [], checks = [];
+  const replies = new Set();
   const subscriptions = new Map();
   let maximumSubscriptions = 0;
   page.on('pageerror', error => errors.push(error.message));
@@ -41,11 +42,15 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       } catch {}
     });
     socket.on('close', () => subscriptions.delete(socket));
+    socket.on('framereceived', ({ payload }) => {
+      const frame = JSON.parse(String(payload));
+      if (frame.id) replies.add(frame.id);
+    });
   });
   await context.addInitScript(() => {
     if (!localStorage.getItem('whip.appearance.theme.v1')) localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'claude-code' }));
   });
-  const workspace = () => page.evaluate(id => JSON.parse(sessionStorage.getItem('whip.web.workspace.v2')).workspaces.find(value => value.runtimeId === id), runtimeId);
+  const workspace = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('whip.web.workspace.v3')).workspace);
   const panel = id => page.locator(`[data-workspace-view="${id}"]`);
   const tab = id => page.locator(`[id="whip-workspace-tab-${encodeURIComponent(id)}"]`);
   const chat = id => panel(id).getByRole('region', { name: 'Conversation', exact: true });
@@ -73,6 +78,33 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const value = await anchor(region);
     return value?.id === expected?.id && Math.abs(value.offset - expected.offset) < 4;
   }, { description: 'saved reading anchor' });
+  const backwardReads = agentId => frames.filter(frame => frame.method === 'history.page' && frame.params.agent_id === agentId && frame.params.before_seq > 0);
+  const scrollPage = async (region, agentId) => {
+    const count = backwardReads(agentId).length;
+    await region.dispatchEvent('wheel');
+    await eventually(async () => {
+      // Newly prepended rows are measured lazily when this position is visited.
+      await region.evaluate(element => { element.scrollTop = 350; });
+      await region.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      return Math.abs((await region.evaluate(element => element.scrollTop)) - 350) < 1 && await anchor(region);
+    }, { description: 'settled position above pagination threshold' });
+    // Scroll the real viewport through the threshold. Capture the visible row in
+    // the same task, before the scroll handler can start its asynchronous read.
+    const before = await region.evaluate(element => {
+      element.scrollTop = 200;
+      const top = element.getBoundingClientRect().top;
+      const row = [...element.querySelectorAll('[data-reading-id]')].find(item => item.getBoundingClientRect().bottom > top);
+      return row ? { id: row.dataset.readingId, offset: row.getBoundingClientRect().top - top } : null;
+    });
+    assert.ok(before, 'No visible row before pagination');
+    await eventually(() => {
+      const reads = backwardReads(agentId);
+      return reads.length > count && replies.has(reads.at(-1).id);
+    }, { description: 'scroll fetches an older history page' });
+    await sameAnchor(region, before);
+    assert.equal(backwardReads(agentId).length, count + 1, 'A prepend must not start another page');
+    return backwardReads(agentId).at(-1);
+  };
   const scrollUp = async region => {
     await region.hover({ position: { x: 8, y: 8 } });
     await page.mouse.wheel(0, -700);
@@ -218,6 +250,47 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       await screenshot(theme);
     }
     checks.push('Claude Code, light and dark screenshots with WCAG 2/2.1 A/AA Axe checks');
+
+    await chooseAgent(moved, 'repl-paged');
+    await expect(panel(moved).getByText('32 loaded cells', { exact: true })).toBeVisible();
+    const firstPage = await scrollPage(notebook(moved), 'repl-paged');
+    await expect(panel(moved).getByText('64 loaded cells', { exact: true })).toBeVisible();
+    const finalPage = await scrollPage(notebook(moved), 'repl-paged');
+    assert.ok(finalPage.params.before_seq < firstPage.params.before_seq);
+    await expect(panel(moved).getByText('80 loaded cells', { exact: true })).toBeVisible();
+    const olderChild = panel(moved).getByRole('button', { name: /Load older executions$/ });
+    await expect(olderChild).toHaveCount(0);
+    await notebook(moved).evaluate(element => { element.scrollTop = 0; });
+    await expect(notebook(moved)).toContainText('Paged cell 000');
+    const exhaustedReads = backwardReads('repl-paged').length;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const before = frames.length;
+      await step('refresh');
+      await eventually(() => frames.slice(before).some(frame => frame.method === 'history.page' && frame.params.agent_id === 'repl-paged' && replies.has(frame.id)), { description: 'child metadata refresh completes' });
+      await expect(panel(moved).getByText('80 loaded cells', { exact: true })).toBeVisible();
+      await expect(olderChild).toHaveCount(0);
+      await notebook(moved).evaluate(element => { element.scrollTop = 100; });
+      await notebook(moved).evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert.equal(backwardReads('repl-paged').length, exhaustedReads, 'Refresh resurrected exhausted pagination');
+    }
+    checks.push('child REPL scrolls through history with stable anchors and remains exhausted after metadata refresh');
+
+    await chooseAgent(moved, 'repl-sparse');
+    await expect(notebook(moved)).toContainText('No executions in the loaded history');
+    assert.equal(backwardReads('repl-sparse').length, 0, 'A sparse page must not automatically scan older history');
+    await panel(moved).getByRole('button', { name: 'Load older executions', exact: true }).click();
+    await expect(panel(moved).getByText('4 loaded cells', { exact: true })).toBeVisible();
+    assert.equal(backwardReads('repl-sparse').length, 1);
+    await expect(panel(moved).getByRole('button', { name: /Load older executions$/ })).toHaveCount(0);
+    checks.push('a page without REPL cells has an explicit bounded fallback to earlier executions');
+
+    await chooseAgent(moved, 'Root agent');
+    const rootPage = await scrollPage(notebook(moved), root);
+    await action(moved, 'Open chat'); await ready(moved, 'chat');
+    const chatPage = await scrollPage(chat(moved), root);
+    assert.ok(chatPage.params.before_seq < rootPage.params.before_seq);
+    await action(moved, 'Open REPL'); await ready(moved, 'repl');
+    checks.push('root REPL and main chat both fetch older pages by scrolling through the shared reader');
 
     const historyBeforePaging = frames.filter(frame => frame.method === 'history.page').length;
     for (let index = 0; index < 4; index++) {

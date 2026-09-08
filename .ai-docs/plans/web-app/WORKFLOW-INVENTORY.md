@@ -22,6 +22,7 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:history.page` | Web | Conversation pagination and inspector collections through the shared SDK view; bounded references remain explicit. |
 | `rpc:host.attention` | Web | Session sidebar/search and paged host attention; inactive roots are not opened. |
 | `rpc:host.directories.list` | Web | Welcome host directory picker and composer host completions. |
+| `rpc:host.directory.pick` | Web | Welcome native OS folder picker; falls back to the web directory browser where the host has no desktop picker. |
 | `rpc:host.themes.list` | Web | Appearance settings: shared builtin/custom host themes and bounded JSON import. |
 | `rpc:host.themes.resolve` | Web | Appearance settings: shared builtin/custom host themes and bounded JSON import. |
 | `rpc:initialize` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |

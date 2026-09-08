@@ -29,12 +29,18 @@ import { commandShortcuts, composerShortcuts } from './runtime';
 import { layout } from './styles';
 
 export function Settings({ section = 'appearance' }: { section?: string }) {
-  const { client } = useAppState();
+  const runtime = useRuntime();
+  const { hosts, home } = useAppState();
+  const [target, setTarget] = useState(() => runtime.lastSession()?.runtimeId ?? 'local');
+  const host = target === 'local' ? home : hosts.find(host => host.runtimeId === target || host.id === target);
+  const client = host?.client;
   const navigate = useNavigate();
   return (
     <div {...stylex.props(layout.page)}>
       <div {...stylex.props(layout.pageInner)}>
         <h1 {...stylex.props(layout.pageTitle)}>Settings</h1>
+        {['providers', 'runtime', 'recovery'].includes(section) && <Select label="Execution host" value={host?.id ?? ''}
+          options={hosts.map(host => ({ value: host.id, label: host.name }))} onValueChange={setTarget} />}
         <Tabs
           value={section}
           onValueChange={(section) =>
@@ -59,7 +65,7 @@ export function Settings({ section = 'appearance' }: { section?: string }) {
               ) : value === 'device' ? (
                 <DeviceSettings />
               ) : client ? (
-                <HostSettings client={client} section={value} />
+                <HostSettings key={`${host?.id}:${host?.runtimeId}`} client={client} section={value} />
               ) : (
                 <p>Connect to an execution host to configure it.</p>
               ),

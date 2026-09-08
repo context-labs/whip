@@ -10,6 +10,22 @@ import (
 	"unicode/utf8"
 )
 
+func TestSessionSummariesCountRunningRootTurns(t *testing.T) {
+	store, rootID, _ := newMailboxFixture(t)
+	// Root turns start without flipping agents.status, so a busy root would
+	// otherwise report zero running agents and the sidebar shows no spinner.
+	if _, err := store.StartRootMailboxTurn(t.Context(), rootID, rootID); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.SessionSummaries(t.Context(), []string{rootID})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("summaries %+v: %v", items, err)
+	}
+	if items[0].RunningAgents != 1 {
+		t.Fatalf("running root turn not counted: %+v", items[0])
+	}
+}
+
 func TestSessionSummariesObserveDescendantsWithoutCatalogPaging(t *testing.T) {
 	store, rootID, _ := newMailboxFixture(t)
 	for range 129 {

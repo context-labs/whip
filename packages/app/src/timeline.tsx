@@ -687,6 +687,8 @@ export function Timeline({
   bookmarkKey,
   historyRevision,
   historyReady = true,
+  canLoadOlder = true,
+  loadingHistory = false,
 }: {
   rows: TimelineRow[];
   hasMore: boolean;
@@ -696,9 +698,12 @@ export function Timeline({
   bookmarkKey?: string;
   historyRevision?: string;
   historyReady?: boolean;
+  canLoadOlder?: boolean;
+  loadingHistory?: boolean;
 }) {
   return <ReadingList rows={rows} hasMore={hasMore} loadOlder={loadOlder}
     bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyReady={historyReady}
+    canLoadOlder={canLoadOlder} loadingHistory={loadingHistory}
     label="Conversation" earlierLabel="Load earlier messages"
     renderRow={row => <MessageRow row={row} readBody={readBody} historyAction={historyAction} />} />;
 }

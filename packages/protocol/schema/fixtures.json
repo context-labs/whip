@@ -185,6 +185,16 @@
     }
   },
   {
+    "type": "HostDirectoryPickParams",
+    "value": {}
+  },
+  {
+    "type": "HostDirectoryPickResult",
+    "value": {
+      "cancelled": false
+    }
+  },
+  {
     "type": "EmptyParams",
     "value": {}
   },

@@ -67,6 +67,7 @@ export function Composer({
   runtimeId,
   viewId,
   modelControl,
+  active = false,
 }: {
   session: Session;
   agentId: string;
@@ -75,6 +76,7 @@ export function Composer({
   runtimeId: string;
   viewId?: string;
   modelControl?: ReactNode;
+  active?: boolean;
 }) {
   const runtime = useRuntime();
   const app = useAppState();
@@ -117,6 +119,17 @@ export function Composer({
       mountedKey.current = undefined;
     };
   }, [runtime, key, selectionKey]);
+  useEffect(() => {
+    if (!active || !window.matchMedia('(min-width: 768px)').matches) return;
+    const frame = requestAnimationFrame(() => {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && focused.closest(
+        '[aria-modal="true"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]',
+      )) return;
+      input.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active, key]);
   useEffect(() => {
     const update = () => { const text = runtime.draft(key); draftRef.current = text; setDraft(text); };
     update();
@@ -210,12 +223,12 @@ export function Composer({
           }
           runtime.compositions.clear(key, sentIds);
           runtime.compositions.finishSubmission(key, token!);
-          if (mountedKey.current === key && (!viewId || selectedSessionTab(runtime.tabs.workspace(runtimeId))?.id === viewId)) input.current?.focus();
+          if (mountedKey.current === key && (!viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId)) input.current?.focus();
         },
         key,
       );
     } catch (error) {
-      if (inputId && !runtime.getSnapshot().commands.some(item => item.id === inputId && item.delivery)) runtime.submittedInputs.remove(inputId);
+      if (inputId && !runtime.getSnapshot().commands.some(item => item.commandId === inputId && item.runtimeId === runtimeId && item.delivery)) runtime.submittedInputs.remove(inputId, runtimeId);
       runtime.report(error);
       /* Preserve drafts when acceptance is uncertain. Do not resubmit automatically. */
     } finally {

@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,6 +99,15 @@ func TestV2SDKBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	network := NetworkOptions{Enabled: true, AllowedOrigins: []string{frontend}}
+	// Multi-host browser fixtures explicitly trust the local fixture's origin.
+	// Production network defaults and origin validation remain authoritative.
+	if raw := os.Getenv("WHIP_SDK_FIXTURE_ALLOWED_ORIGINS"); raw != "" {
+		origins := []string{}
+		if err := json.Unmarshal([]byte(raw), &origins); err != nil {
+			t.Fatal(err)
+		}
+		network.AllowedOrigins = append(network.AllowedOrigins, origins...)
+	}
 	if previous.Endpoint != "" {
 		network.Address = strings.TrimSuffix(strings.TrimPrefix(previous.Endpoint, "ws://"), "/api/v3/ws")
 	}
@@ -134,6 +145,19 @@ func TestV2SDKBridge(t *testing.T) {
 	done := make(chan struct{})
 	var once sync.Once
 	mux := http.NewServeMux()
+	// Test wrappers, including the actual Safari runner, use the same-origin
+	// attachment that production assets use. Keep the browser Origin intact.
+	daemonURL, err := url.Parse(initialized.NetworkEndpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(daemonURL)
+	direct := proxy.Director
+	proxy.Director = func(r *http.Request) {
+		direct(r)
+		r.Host = daemonURL.Host
+	}
+	mux.Handle("/api/", proxy)
 	if os.Getenv("WHIP_WEB_PERF_FIXTURE") == "1" {
 		registerSDKPerformanceProbes(mux, store, rootID)
 	}
@@ -178,7 +202,7 @@ func TestV2SDKBridge(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	assets := http.FileServer(http.Dir(filepath.Join(directory, "public")))
-	mux.Handle("GET /", assets)
+	mux.Handle("/", assets)
 	frontendServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", webassets.ContentSecurityPolicy)
 		w.Header().Set("Cache-Control", "no-store")

@@ -21,26 +21,32 @@ function fixture() {
   let connection = { state: 'connected', info: { runtime_id: 'host' } };
   const create = vi.fn(() => 'command');
   const client = { subscribe: () => () => {}, getSnapshot: () => connection, providers: { catalogs: vi.fn(async () => ({ result: { models: {} } })) }, sessions: { create } };
-  const state = { client };
+  const otherConnection = { state: 'connected', info: { runtime_id: 'another' } };
+  const other = { ...client, getSnapshot: () => otherConnection };
+  const state = { hosts: [
+    { id: 'local', name: 'Local', local: true, runtimeId: 'host', state: 'connected', client },
+    { id: 'remote', name: 'Kuzco', local: false, runtimeId: 'another', state: 'connected', client: other },
+  ] };
   const run = vi.fn(async () => ({ result: { root_id: 'created' } }));
-  const runtime = { subscribe: () => () => {}, getSnapshot: () => state, lastSession: () => undefined, tabs: { canOpen: () => true }, run, report: vi.fn() } as unknown as AppRuntime;
+  const runtime = { connections: { isAttached: () => true }, subscribe: () => () => {}, getSnapshot: () => state, lastSession: () => undefined, tabs: { canOpen: () => true }, run, report: vi.fn() } as unknown as AppRuntime;
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const tree = () => <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={query}><Welcome /></QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>;
   const view = render(tree());
   return { create, run, rerender: () => view.rerender(tree()), host: (id: string) => { connection = { ...connection, info: { runtime_id: id } }; view.rerender(tree()); } };
 }
 it('prefills without submitting, preserves edits on rerender, and clears on new route or host', async () => {
-  const f = fixture(); const input = screen.getByLabelText('Working directory on the host') as HTMLInputElement;
+  const f = fixture(); const input = screen.getByLabelText('Working directory on Local') as HTMLInputElement;
   expect(input.value).toBe('/repo'); expect(f.create).not.toHaveBeenCalled();
   fireEvent.change(input, { target: { value: '/typed' } }); f.rerender(); expect(input.value).toBe('/typed');
   route.location = { state: { __TSR_key: 'explicit-new' } }; route.search = {}; f.rerender(); expect(input.value).toBe('');
   route.search = { cwd: '/second', runtimeId: 'host' }; f.rerender(); expect(input.value).toBe('/second');
-  f.host('another'); expect(input.value).toBe('');
+  fireEvent.click(screen.getByRole('button', { name: 'Remote', exact: true }));
+  expect((screen.getByLabelText('Working directory on Kuzco') as HTMLInputElement).value).toBe('');
   expect(f.create).not.toHaveBeenCalled();
 });
 it('submits the edited directory only when the existing form is submitted', async () => {
   const f = fixture();
-  fireEvent.change(screen.getByLabelText('Working directory on the host'), { target: { value: '/edited' } });
+  fireEvent.change(screen.getByLabelText('Working directory on Local'), { target: { value: '/edited' } });
   fireEvent.click(screen.getByRole('button', { name: 'Start a session' }));
   await waitFor(() => expect(f.create).toHaveBeenCalledExactlyOnceWith({ cwd: '/edited', model: '', provider: '' }));
   await waitFor(() => expect(route.navigate).toHaveBeenCalledWith({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'host', rootId: 'created' }, search: {} }));

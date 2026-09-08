@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +68,58 @@ func providerBehaviorFixture(t *testing.T) (*Server, *Client, *RootClient, strin
 	return server, client, root, rootID
 }
 
+func TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts(t *testing.T) {
+	_, client, root, _ := providerBehaviorFixture(t)
+	c, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := c.Providers["inference-net"]
+	provider.APIKey = "private-test-key"
+	c.Providers["inference-net"] = provider
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := client.ReadConfiguration(t.Context())
+	if err != nil || before.RemoteHosts == nil || len(*before.RemoteHosts) != 0 {
+		t.Fatalf("legacy config must advertise an empty host list: %+v %v", before, err)
+	}
+	hosts := []config.RemoteHost{{
+		ID: "kuzco", Name: "Kuzco", URL: "ws://kuzco.test/api/v3/ws",
+		RuntimeID: "remote-runtime", ConnectOnLaunch: true,
+	}}
+	after, err := client.UpdateConfiguration(t.Context(), ConfigurationUpdate{Revision: before.Revision, RemoteHosts: &hosts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := root.ReadConfiguration(t.Context())
+	if err != nil || !reflect.DeepEqual(read, after) || len(*read.RemoteHosts) != 1 {
+		t.Fatalf("another client cannot read persisted profiles: %+v %v", read, err)
+	}
+	if (*read.RemoteHosts)[0].URL != "http://kuzco.test" {
+		t.Fatalf("endpoint was not normalized: %+v", *read.RemoteHosts)
+	}
+	empty := []config.RemoteHost{}
+	if _, err := root.UpdateConfiguration(t.Context(), ConfigurationUpdate{Revision: before.Revision, RemoteHosts: &empty}); err == nil {
+		t.Fatal("stale browser overwrote host list")
+	}
+	persisted, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Providers["inference-net"].APIKey != provider.APIKey || persisted.DefaultModel != c.DefaultModel {
+		t.Fatal("host update changed provider configuration")
+	}
+	encoded, err := json.Marshal(after)
+	if err != nil || strings.Contains(string(encoded), provider.APIKey) {
+		t.Fatalf("config response exposed a credential: %v", err)
+	}
+	cleared, err := root.UpdateConfiguration(t.Context(), ConfigurationUpdate{Revision: after.Revision, RemoteHosts: &empty})
+	if err != nil || cleared.RemoteHosts == nil || len(*cleared.RemoteHosts) != 0 {
+		t.Fatalf("cannot remove last profile: %+v %v", cleared, err)
+	}
+}
+
 func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *testing.T) {
 	for _, mode := range []string{"client", "root"} {
 		t.Run(mode, func(t *testing.T) {
@@ -106,7 +159,7 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 				t.Fatal(err)
 			}
 			persisted, err := api.ReadConfiguration(t.Context())
-			if err != nil || persisted != after || persisted.ImportClaude || persisted.ImportCodex || persisted.DefaultModel != "fixture-model" || persisted.DefaultEffort != "high" || persisted.CompactPercent != 72 || persisted.GoalMaxRounds != 8 || persisted.MaxRetries != 2 {
+			if err != nil || !reflect.DeepEqual(persisted, after) || persisted.ImportClaude || persisted.ImportCodex || persisted.DefaultModel != "fixture-model" || persisted.DefaultEffort != "high" || persisted.CompactPercent != 72 || persisted.GoalMaxRounds != 8 || persisted.MaxRetries != 2 {
 				t.Fatalf("settings did not persist: %+v %v", persisted, err)
 			}
 			if _, err := api.UpdateConfiguration(t.Context(), ConfigurationUpdate{Revision: before.Revision, MaxRetries: new(99)}); err == nil {
@@ -218,7 +271,7 @@ func TestProviderConfigurationRejectsInvalidChangesAtomically(t *testing.T) {
 				t.Fatal("invalid update accepted")
 			}
 			after, err := service.ReadConfiguration()
-			if err != nil || after != before {
+			if err != nil || !reflect.DeepEqual(after, before) {
 				t.Fatalf("failed update changed configuration: %+v %v", after, err)
 			}
 		})
@@ -408,7 +461,7 @@ func TestProviderCompletionPersistsCredentialsOnlyBeforeCancellation(t *testing.
 		t.Fatalf("cancelled key setup=%v", err)
 	}
 	afterConfig, err := service.ReadConfiguration()
-	if err != nil || afterConfig != beforeConfig {
+	if err != nil || !reflect.DeepEqual(afterConfig, beforeConfig) {
 		t.Fatalf("cancelled key setup changed config: %+v %v", afterConfig, err)
 	}
 }

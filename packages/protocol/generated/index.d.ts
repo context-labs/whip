@@ -453,6 +453,15 @@ export interface ComputerStatusResult {
 }
 
 export interface ConfigurationUpdate {
+  remote_hosts?:
+    | null
+    | {
+        id: string;
+        name: string;
+        url: string;
+        runtime_id: string;
+        connect_on_launch: boolean;
+      }[];
   import_claude?: null | boolean;
   import_codex?: null | boolean;
   revision: string;
@@ -690,6 +699,15 @@ export interface HostDirectoryParams {
   prefix?: string;
   show_hidden?: boolean;
   limit: number;
+}
+
+export interface HostDirectoryPickParams {
+  start?: string;
+}
+
+export interface HostDirectoryPickResult {
+  path?: string;
+  cancelled: boolean;
 }
 
 export interface HostDirectoryResult {
@@ -1975,6 +1993,15 @@ export interface RunConfigureParams {
 }
 
 export interface RuntimeConfiguration {
+  remote_hosts?:
+    | null
+    | {
+        id: string;
+        name: string;
+        url: string;
+        runtime_id: string;
+        connect_on_launch: boolean;
+      }[];
   import_claude: boolean;
   import_codex: boolean;
   revision: string;
@@ -2322,6 +2349,8 @@ export interface ContractTypes {
   HostAttentionParams: HostAttentionParams;
   HostAttentionResult: HostAttentionResult;
   HostDirectoryParams: HostDirectoryParams;
+  HostDirectoryPickParams: HostDirectoryPickParams;
+  HostDirectoryPickResult: HostDirectoryPickResult;
   HostDirectoryResult: HostDirectoryResult;
   HostThemeResolveParams: HostThemeResolveParams;
   IDParams: IDParams;
@@ -2505,6 +2534,7 @@ export interface RpcMethods {
   "history.page": { params: HistoryPageParams; result: BoundedTranscriptPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.directories.list": { params: HostDirectoryParams; result: HostDirectoryResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.themes.list": { params: EmptyParams; result: CatalogResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.themes.resolve": { params: HostThemeResolveParams; result: Resolved; execution: "query"; permission: "host-runtime"; sensitive: false };
   "initialize": { params: InitializeParams; result: InitializeResult; execution: "query"; permission: "none"; sensitive: false };

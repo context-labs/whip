@@ -26,6 +26,16 @@ narrows it. The default maximum depth is two edges. Child names must be unique
 under one parent, and child admission fails before persistence if no kernel
 worker is available.
 
+Spawn receipts contain only `id`, `name`, `parent_id`, `status`, and `report`.
+`agents.inspect(id=...)` returns current state, capabilities, and budgets.
+Exact MCP selectors are loaded only with `include_grants=True`, in a
+`mcp_grants` inline JSON result or a caller-owned content handle. The JSON
+includes `all` and `selectors`, distinguishing a root's all-tools grant from
+an agent with no MCP access. This keeps large permission snapshots out of
+ordinary responses without changing delegation or authorization. See
+[agent inspection](tools.md#choosing-between-models-and-agents) for retrieval
+and response-shape migration examples.
+
 ## Durable communication
 
 Spawn returns immediately with the child’s admission metadata. The child’s

@@ -48,13 +48,11 @@ const inputValue = (element, value) => {
 };
 async function smoke() {
   const reloaded = localStorage.getItem('whip.safari.smoke.phase') === 'reload';
-  localStorage.setItem('whip.web.endpoint', JSON.stringify(config.endpoint));
   if (!reloaded) sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify({ version: 1, workspaces: [{ runtimeId: config.runtimeId, tabs: [config.rootId, config.otherId].map(rootId => ({ rootId, titleHint: '', location: {} })), closed: [] }] }));
   if (!reloaded) localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'nord' }));
   history.replaceState(null, '', config.route);
   await import(config.entry);
   const input = await until(() => document.querySelector('textarea[data-whip-composer]'), 'application composer');
-  await until(() => [...document.querySelectorAll('span')].some(element => element.textContent === 'live'), 'live session');
   if (!reloaded) {
     check(document.documentElement.dataset.theme === 'nord', 'Saved theme was not applied before attachment');
     inputValue(input, 'Safari production app round trip');
@@ -71,8 +69,7 @@ async function smoke() {
     await until(() => document.querySelector('textarea[data-whip-composer]')?.value === 'Safari draft survives reload', 'tab draft restoration');
     document.querySelector('[data-workspace-tab="' + config.rootId + '"] button[aria-label^="Close "]').click();
     await until(() => !document.getElementById('whip-workspace-tab-' + config.rootId), 'closed tab');
-    button('Application menu').click();
-    (await until(() => [...document.querySelectorAll('[role="menuitem"]')].find(element => element.textContent === 'Reopen closed tab'), 'reopen menu')).click();
+    (await until(() => button('Reopen'), 'reopen closed-tab notice')).click();
     await until(() => document.querySelector('textarea[data-whip-composer]')?.value === 'Safari draft survives reload', 'reopen restores draft');
     document.querySelector('a[href="/settings"]').click();
     const picker = await until(() => button('nord'), 'theme picker'); picker.click();

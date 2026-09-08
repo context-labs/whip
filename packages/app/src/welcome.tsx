@@ -2,17 +2,28 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useRouter, useSearch, useLocation } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useWhipConnection } from '@whip/sdk/react';
-import { Button, Combobox, Input } from '@whip/ui';
+import { Button, Combobox, Input, Select } from '@whip/ui';
 import { ArrowRight, FolderOpen, Sparkles } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime } from './context';
 import { layout } from './styles';
 import type { WhipClient } from '@whip/sdk';
+import { HostDialog } from './host-dialog';
+import type { HostConnection } from './hosts';
 import { DirectoryPicker } from './directory-picker';
 import { sessionSearch } from './session-tabs';
 
 export function Welcome() {
-  const { client } = useAppState();
+  const runtime = useRuntime();
+  const { hosts } = useAppState();
+  const search = useSearch({ from: '/' });
+  const locationKey = useLocation({ select: location => location.state.__TSR_key });
+  const [selected, setSelected] = useState(search.runtimeId ?? 'local');
+  const [adding, setAdding] = useState(false);
+  useEffect(() => setSelected(search.runtimeId ?? 'local'), [search.runtimeId, locationKey]);
+  const host = hosts.find(host => host.id === selected || host.runtimeId === selected);
+  const remote = selected !== 'local' && !host?.local;
+  const remotes = hosts.filter(host => !host.local);
   return (
     <div {...stylex.props(layout.empty)}>
       <Sparkles size={28} strokeWidth={1.3} />
@@ -23,15 +34,25 @@ export function Welcome() {
         Start a conversation. Give your agents a direction, follow their
         progress, and step in when they need you.
       </p>
-      {client ? (
-        <NewSession client={client} />
-      ) : (
-        <p>Connect to your execution host to begin.</p>
-      )}
+      <div {...stylex.props(layout.column)} style={{ width: 'min(100%, 420px)', textAlign: 'left' }}>
+        <div role="group" aria-label="Session location" {...stylex.props(layout.row)}>
+          <Button variant={remote ? 'ghost' : 'secondary'} aria-pressed={!remote} onClick={() => setSelected('local')}>Local</Button>
+          <Button variant={remote ? 'secondary' : 'ghost'} aria-pressed={remote} onClick={() => setSelected(remotes[0]?.id ?? 'remote')}>Remote</Button>
+        </div>
+        {remote && <div {...stylex.props(layout.column)}>
+          {!!remotes.length && <Select label="Execution host" value={host?.id ?? ''} options={remotes.map(host => ({ value: host.id, label: host.name }))} onValueChange={setSelected} />}
+          <Button variant="ghost" onClick={() => setAdding(true)}>Add remote host</Button>
+        </div>}
+        {host?.client ? <NewSession key={`${host.id}:${host.runtimeId}`} client={host.client} host={host} />
+          : host ? <><p>{host.name} is {host.state === 'closed' ? 'disconnected' : host.state}.</p><Button onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button></>
+          : <p>Select or add a remote host to begin.</p>}
+        {host?.error && <p role="status">{host.error}</p>}
+      </div>
+      <HostDialog open={adding} onOpenChange={setAdding} onSaved={setSelected} />
     </div>
   );
 }
-function NewSession({ client }: { client: WhipClient }) {
+function NewSession({ client, host }: { client: WhipClient; host: HostConnection }) {
   const runtime = useRuntime();
   const connection = useWhipConnection(client);
   const navigate = useNavigate();
@@ -87,7 +108,7 @@ function NewSession({ client }: { client: WhipClient }) {
           );
           if (!outcome.result)
             throw new Error('Session creation returned no session');
-          if (!mounted.current || router.state.location !== startingLocation || runtime.getSnapshot().client !== client) return;
+          if (!mounted.current || router.state.location !== startingLocation || !runtime.connections.isAttached(client)) return;
           await navigate({
             to: '/h/$runtimeId/s/$rootId',
             params: {
@@ -112,7 +133,7 @@ function NewSession({ client }: { client: WhipClient }) {
         htmlFor="workspace-path"
         {...stylex.props(layout.row, layout.muted)}
       >
-        <FolderOpen size={14} /> Working directory on the host
+        <FolderOpen size={14} /> Working directory on {host.name}
       </label>
       <Input
         id="workspace-path"
@@ -123,6 +144,7 @@ function NewSession({ client }: { client: WhipClient }) {
       />
       <DirectoryPicker
         client={client}
+        native={host.local}
         value={cwd}
         onSelect={setCwd}
         disabled={!enabled}

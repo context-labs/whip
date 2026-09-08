@@ -366,7 +366,7 @@ try {
       progress('wrong-runtime route guard');
       const wrong = await context.newPage(); const wrongObserved = observe(wrong); observations.push(wrongObserved);
       await wrong.goto(origin() + `/h/wrong-runtime/s/${rootId}`);
-      await wrong.getByRole('heading', { name: 'This session belongs to another host' }).waitFor();
+      await wrong.getByRole('heading', { name: 'This execution host is unavailable' }).waitFor();
       assert.equal(wrongObserved.requests.filter(item => ['root.snapshot', 'events.subscribe', 'history.page'].includes(item.method)).length, 0);
       await wrong.close(); checks.push('wrong-runtime routes never open or subscribe roots');
 

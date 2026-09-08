@@ -128,11 +128,35 @@ Use `models.call` or `models.batch` for independent stateless analysis. Use
 `agents.spawn` when work needs an identity, capabilities, a transcript,
 follow-up turns, messages, or further recursive delegation.
 
-Spawn is asynchronous and returns admission metadata, not an answer. When a
-child turn ends the parent receives an `agent.completed` message with a short
-preview and an evidence handle; a child sends `messages.send` for anything
-more. Mail reaches a turn as a bounded digest of excerpts; the parent loads
+Spawn is asynchronous and returns a compact admission receipt containing `id`,
+`name`, `parent_id`, `status`, and `report`. The `queued` status acknowledges
+admission; `agents.inspect(id=...)` reports current state, capabilities, and
+budgets. When a child turn ends the parent receives an `agent.completed`
+message with a short preview and an evidence handle; a child sends
+`messages.send` for anything more. Mail reaches a turn as a bounded digest of excerpts; the parent loads
 full bodies with `messages.read` and finishes them with `messages.complete`.
+
+Full MCP grants are available explicitly:
+
+```python
+child = agents.spawn(name="review", prompt="Review the changes.")
+info = agents.inspect(id=child["id"], include_grants=True)
+print(info["mcp_grants"])
+```
+
+`mcp_grants` contains either `output` with complete JSON, or `handle`, `size`,
+`source`, and `preview` for bounded `context.inspect/search/read` retrieval.
+The JSON has `all` (whether a root grant covers all tools) and `selectors`
+(exact server, tool, and definition fingerprints). An agent without MCP has
+`all: false` and an empty selector list. Handles belong to the inspecting
+caller. Inspection is restricted to parents, direct children, and siblings;
+grant-chain read failures are reported as errors. Current consent and tool
+availability are still checked when calling a tool.
+
+Scripts that previously read `effective_mcp_tools` from spawn or inspection
+must request `include_grants=True`. Spawn's former `effective_capabilities`
+and `effective_budgets` fields are available through ordinary inspection as
+`effective_capabilities` and `budgets`.
 
 ## MCP
 

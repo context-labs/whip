@@ -110,7 +110,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal((await sidebar().boundingBox()).width, 420);
     await separator().focus(); await page.keyboard.press('Enter');
     assert.equal(await sidebar().count(), 0);
-    assert.equal(await page.getByRole('button', { name: 'Open navigation', exact: true }).evaluate(node => node === document.activeElement), true);
+    await eventually(() => page.getByRole('button', { name: 'Open navigation', exact: true }).evaluate(node => node === document.activeElement), { description: 'focus transfers after hiding navigation' });
     await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     assert.equal((await sidebar().boundingBox()).width, 420);
     await page.setViewportSize({ width: 768, height: 960 });
@@ -122,7 +122,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     checks.push('pointer/keyboard resize, viewport cap, hide/restore and focus');
 
     await sidebar().getByRole('link', { name: `New session in ${paths[1]}`, exact: true }).click();
-    const cwd = page.getByLabel('Working directory on the host', { exact: true });
+    const cwd = page.getByLabel('Working directory on Local', { exact: true });
     await eventually(async () => await cwd.inputValue() === paths[1], { description: 'directory prefill after handshake' });
     await cwd.fill('/typed/unsent'); await page.waitForTimeout(2200); assert.equal(await cwd.inputValue(), '/typed/unsent');
     await page.reload(); await eventually(async () => await cwd.inputValue() === paths[1], { description: 'reload directory prefill' });
@@ -130,9 +130,11 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(frames.filter(frame => frame.method === 'command.submit').length, 0);
     await page.goto(origin + route(roots[133]) + '?panel=execution');
     await page.getByRole('dialog', { name: 'Session details', exact: true }).waitFor();
-    await page.goto(`${origin}/?cwd=${encodeURIComponent(paths[0])}&runtimeId=another-host`); assert.equal(await cwd.inputValue(), '');
+    await page.goto(`${origin}/?cwd=${encodeURIComponent(paths[0])}&runtimeId=another-host`);
+    await page.getByText('Select or add a remote host to begin.', { exact: true }).waitFor();
+    assert.equal(await cwd.count(), 0);
     console.log(`${name}: completed workflow ${checks.length + 1}`);
-    checks.push('directory prefill survives reload, preserves edits, clears globally, ignores foreign host and submits nothing');
+    checks.push('directory prefill survives reload, preserves edits, clears globally, keeps an unknown host explicit and submits nothing');
 
     await page.getByRole('button', { name: 'Hide navigation', exact: true }).focus();
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
@@ -157,7 +159,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const count = frames.filter(frame => frame.method === 'root.snapshot').length;
     await page.getByLabel('Session search results', { exact: true }).getByRole('link', { name: /Session 133/ }).hover();
     await page.waitForTimeout(300); assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, count);
-    await page.getByRole('button', { name: 'Actions for Session 133', exact: true }).click();
+    await page.getByRole('button', { name: 'Actions for Session 133 on Local', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Open in background tab', exact: true }).click();
     assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, count);
     assert.equal(new URL(page.url()).pathname, '/');
@@ -180,7 +182,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     // A rename moves an old row to the front of its directory in server order.
     await client.session(roots[0]).rename('Moved by catalog refresh').result();
     await page.waitForTimeout(2500);
-    const after = await page.locator(`[data-sidebar-session="${anchor.id}"]`).evaluate(node => node.getBoundingClientRect().top - node.parentElement.parentElement.getBoundingClientRect().top);
+    const after = await page.locator(`[data-sidebar-session="${anchor.id}"]`).evaluate(node => node.getBoundingClientRect().top - node.closest('[aria-label="Saved sessions"]').getBoundingClientRect().top);
     assert.ok(Math.abs(after - anchor.y) < 2, `Reading anchor moved: ${anchor.y} -> ${after}`);
     await saved().evaluate(node => { node.scrollTop = node.scrollHeight; });
     await saved().getByRole('button', { name: 'Load more sessions' }).click();
@@ -216,7 +218,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     const sheet = page.getByRole('dialog', { name: 'WHIP', exact: true });
     assert.ok((await sheet.getByRole('button', { name: 'Search sessions', exact: true }).boundingBox()).height >= 44);
-    const geometry = await sheet.evaluate(node => { const list = node.querySelector('[aria-label="Saved sessions"]'); const host = node.querySelector('[aria-label^="Change execution host"]'); return { height: list.clientHeight, hostBottom: host.getBoundingClientRect().bottom, viewport: innerHeight }; });
+    const geometry = await sheet.evaluate(node => { const list = node.querySelector('[aria-label="Saved sessions"]'); const host = node.querySelector('[aria-label="Manage execution hosts"]'); return { height: list.clientHeight, hostBottom: host.getBoundingClientRect().bottom, viewport: innerHeight }; });
     assert.ok(geometry.height > 100 && geometry.hostBottom <= geometry.viewport, JSON.stringify(geometry));
     await sheet.getByRole('button', { name: 'Search sessions', exact: true }).click();
     const searchDialog = page.getByRole('dialog', { name: 'Search sessions', exact: true });

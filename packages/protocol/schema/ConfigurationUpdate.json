@@ -1,6 +1,40 @@
 {
   "type": "object",
   "properties": {
+    "remote_hosts": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "runtime_id": {
+            "type": "string"
+          },
+          "connect_on_launch": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "url",
+          "runtime_id",
+          "connect_on_launch"
+        ],
+        "additionalProperties": false
+      }
+    },
     "import_claude": {
       "type": [
         "null",

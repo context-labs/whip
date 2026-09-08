@@ -1062,7 +1062,12 @@ func (host *recursiveHost) agents(ctx context.Context, operation string, argumen
 		return node.root.ListAgentRelatives(ctx, node.id)
 	case "inspect":
 		id, _ := stringArgument(arguments, "id")
-		return node.runtime.inspect(ctx, node, id)
+		value, provided := arguments["include_grants"]
+		includeGrants, ok := value.(bool)
+		if provided && !ok {
+			return nil, errors.New("include_grants must be a boolean")
+		}
+		return node.runtime.inspect(ctx, node, id, includeGrants)
 	case "stop", "delete":
 		id, _ := stringArgument(arguments, "id")
 		return node.runtime.terminalize(ctx, node, id, operation)
@@ -1149,11 +1154,8 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 	runtime.agents[id] = node
 	runtime.mu.Unlock()
 	node.wake()
-	effectiveBudgets, _ := parent.root.InspectBudgets(ctx, parent.id, id)
 	return map[string]any{
 		"id": id, "name": name, "parent_id": parent.id, "status": "queued", "report": report,
-		"effective_capabilities": capabilities, "effective_budgets": effectiveBudgets,
-		"effective_mcp_tools": mcpTools,
 	}, nil
 }
 
@@ -1317,7 +1319,7 @@ func (runtime *RecursiveRuntime) wait(ctx context.Context, caller *AgentSession,
 	}
 }
 
-func (runtime *RecursiveRuntime) inspect(ctx context.Context, caller *AgentSession, id string) (any, error) {
+func (runtime *RecursiveRuntime) inspect(ctx context.Context, caller *AgentSession, id string, includeGrants bool) (any, error) {
 	if id == "" {
 		return nil, errors.New("agent id is required")
 	}
@@ -1342,14 +1344,40 @@ func (runtime *RecursiveRuntime) inspect(ctx context.Context, caller *AgentSessi
 	}
 	summary, _ := caller.root.MailboxSummary(ctx, id)
 	budgets, _ := caller.root.InspectBudgets(ctx, caller.id, id)
-	authority, names, _ := caller.root.store.LoadAgentAuthority(ctx, caller.root.ID(), id)
-	mcpTools, _, _ := caller.root.store.MCPSelectors(ctx, caller.root.ID(), id, authority.MCP)
-	return map[string]any{
+	authority, names, err := caller.root.store.LoadAgentAuthority(ctx, caller.root.ID(), id)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{
 		"id": found.ID, "name": found.Name, "parent_id": found.ParentID, "status": found.Status,
 		"model": found.Model, "provider": found.Provider, "effort": found.Effort, "cwd": found.CWD,
 		"unread_messages": summary.UnreadCount, "budgets": budgets, "report": found.Report,
-		"effective_capabilities": names, "effective_mcp_tools": mcpTools,
-	}, nil
+		"effective_capabilities": names,
+	}
+	if !includeGrants {
+		return result, nil
+	}
+	var selectors []capability.MCPSelector
+	var all bool
+	if authority.MCP.ID != "" {
+		selectors, all, err = caller.root.store.MCPSelectors(ctx, caller.root.ID(), id, authority.MCP)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if selectors == nil {
+		selectors = []capability.MCPSelector{}
+	}
+	encoded, err := json.Marshal(map[string]any{"all": all, "selectors": selectors})
+	if err != nil {
+		return nil, err
+	}
+	grants, err := caller.host.boundedText(ctx, "MCP grants: "+id, string(encoded))
+	if err != nil {
+		return nil, err
+	}
+	result["mcp_grants"] = grants
+	return result, nil
 }
 
 func (runtime *RecursiveRuntime) terminalize(ctx context.Context, caller *AgentSession, id, operation string) (any, error) {

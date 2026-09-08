@@ -108,6 +108,7 @@ func (s *ProviderService) Close() {
 }
 
 func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguration {
+	hosts := append([]config.RemoteHost{}, c.RemoteHosts...)
 	claude, codex := true, true
 	if c.MCPImport != nil {
 		if c.MCPImport.Claude != nil && c.MCPImport.Claude.Enabled != nil {
@@ -118,6 +119,7 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 		}
 	}
 	return RuntimeConfiguration{
+		RemoteHosts:  &hosts,
 		ImportClaude: claude, ImportCodex: codex, Revision: revision, DefaultModel: c.DefaultModel,
 		DefaultProvider: c.DefaultProvider, DefaultEffort: c.DefaultEffort,
 		CompactModel: c.CompactModel, CompactProvider: c.CompactProvider, CompactPercent: c.CompactPct,
@@ -138,6 +140,13 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 		return RuntimeConfiguration{}, errors.New("configuration revision is required")
 	}
 	c, revision, err := config.UpdateVersioned(p.Revision, func(c *config.Config) error {
+		if p.RemoteHosts != nil {
+			hosts, err := config.NormalizeRemoteHosts(*p.RemoteHosts)
+			if err != nil {
+				return err
+			}
+			c.RemoteHosts = hosts
+		}
 		if p.ImportClaude != nil || p.ImportCodex != nil {
 			if c.MCPImport == nil {
 				c.MCPImport = &config.MCPImport{}

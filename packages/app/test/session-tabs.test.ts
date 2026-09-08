@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SessionTabs, TAB_STORAGE_KEY, LEGACY_TAB_STORAGE_KEY, sessionPanes, sessionViewPane, selectedSessionTab, sessionSearch, validateSessionSearch } from '../src/session-tabs';
+import { SessionTabs, TAB_STORAGE_KEY, PREVIOUS_TAB_STORAGE_KEY, LEGACY_TAB_STORAGE_KEY, sessionPanes, sessionViewPane, selectedSessionTab, sessionSearch, validateSessionSearch } from '../src/session-tabs';
 import { sessionDestination } from '../src/session-tab-routing';
 import type { AppStorage } from '../src/platform';
 
@@ -12,9 +12,10 @@ describe('window session tabs', () => {
     const state = new SessionTabs();
     state.open('mac', 'root', 'Review'); state.visit('mac', 'root', { agent: 'child', panel: 'execution' }); state.open('mac', 'root', 'ignored');
     state.open('server', 'root', 'Review');
-    expect(state.workspace('mac').tabs).toHaveLength(1);
-    expect(state.workspace('mac').tabs[0]?.location).toEqual({ agent: 'child', panel: 'execution' });
-    expect(state.workspace('server').lastActiveRootId).toBeUndefined();
+    expect(state.workspace().tabs).toHaveLength(2);
+    expect(state.workspace().tabs[0]?.location).toEqual({ agent: 'child', panel: 'execution' });
+    expect(state.workspace().tabs.map(tab => tab.runtimeId)).toEqual(['mac', 'server']);
+    expect(new Set(state.workspace().tabs.map(tab => tab.id)).size).toBe(2);
     const snapshot = state.getSnapshot(); state.visit('mac', 'root', { agent: 'child', panel: 'execution' });
     expect(state.getSnapshot()).toBe(snapshot);
   });
@@ -23,14 +24,14 @@ describe('window session tabs', () => {
     ['a', 'b', 'c'].forEach(id => state.open('mac', id));
     state.visit('mac', 'b', { panel: 'context' });
     expect(state.close('mac', ['a'], 'b')).toBeUndefined();
-    expect(state.workspace('mac').lastActiveRootId).toBe('b');
-    expect(state.reopenView('mac')).toBe('a');
-    expect(state.workspace('mac').tabs.map(x => x.rootId)).toEqual(['a', 'b', 'c']);
+    expect(selectedSessionTab(state.workspace())?.rootId).toBe('b');
+    expect(state.reopenView()).toBe('a');
+    expect(state.workspace().tabs.map(x => x.rootId)).toEqual(['a', 'b', 'c']);
     expect(state.close('mac', ['b'], 'b')).toBe('c');
     expect(state.close('mac', ['c'], 'c')).toBe('a');
     expect(state.close('mac', ['a'], 'a')).toBeNull();
-    state.reopenView('mac'); state.reopenView('mac'); state.reopenView('mac');
-    expect(state.workspace('mac').tabs.find(x => x.rootId === 'b')?.location.panel).toBe('context');
+    state.reopenView(); state.reopenView(); state.reopenView();
+    expect(state.workspace().tabs.find(x => x.rootId === 'b')?.location.panel).toBe('context');
   });
   it('closes a group atomically and does not replace the active background session', () => {
     const state = new SessionTabs(), update = vi.fn();
@@ -38,47 +39,48 @@ describe('window session tabs', () => {
     const off = state.subscribe(update);
     expect(state.close('mac', ['a', 'b', 'd'], 'c')).toBeUndefined();
     expect(update).toHaveBeenCalledTimes(1);
-    expect(state.workspace('mac').tabs.map(x => x.rootId)).toEqual(['c']); off();
+    expect(state.workspace().tabs.map(x => x.rootId)).toEqual(['c']); off();
   });
   it('bounds open tabs without silently evicting work and bounds closed history', () => {
     const state = new SessionTabs();
     for (let i = 0; i < 32; i++) state.open('mac', `root-${i}`);
     expect(() => state.open('mac', 'extra')).toThrow('32 open');
-    expect(state.workspace('mac').tabs[0]?.rootId).toBe('root-0');
+    expect(state.workspace().tabs[0]?.rootId).toBe('root-0');
     expect(() => state.open('mac', 'root-0')).not.toThrow();
-    state.close('mac', state.workspace('mac').tabs.map(x => x.rootId));
-    expect(state.workspace('mac').closed).toHaveLength(20);
+    state.close('mac', state.workspace().tabs.map(x => x.rootId));
+    expect(state.workspace().closed).toHaveLength(20);
   });
   it('accepts exact reorder permutations only', () => {
     const state = new SessionTabs(); ['a', 'b', 'c'].forEach(id => state.open('mac', id));
-    state.move('mac', 'c', -1); expect(state.workspace('mac').tabs.map(x => x.rootId)).toEqual(['a', 'c', 'b']);
-    expect(() => state.reorderPane('mac', 'main', ['a', 'c', 'c'])).toThrow();
-    expect(() => state.reorderPane('mac', 'main', ['a', 'c', 'unknown'])).toThrow();
-    state.reorderPane('mac', 'main', ['b', 'c', 'a']); expect(state.workspace('mac').tabs.map(x => x.rootId)).toEqual(['b', 'c', 'a']);
+    state.move('c', -1); expect(state.workspace().tabs.map(x => x.rootId)).toEqual(['a', 'c', 'b']);
+    expect(() => state.reorderPane('main', ['a', 'c', 'c'])).toThrow();
+    expect(() => state.reorderPane('main', ['a', 'c', 'unknown'])).toThrow();
+    state.reorderPane('main', ['b', 'c', 'a']); expect(state.workspace().tabs.map(x => x.rootId)).toEqual(['b', 'c', 'a']);
   });
   it('restores a window independently, preserving valid entries from damaged records', () => {
     const disk = storage(); disk.setItem(TAB_STORAGE_KEY, JSON.stringify({ version: 1, workspaces: [{ runtimeId: 'mac', tabs: [null, { rootId: 'a', titleHint: 'A', location: { panel: 'fake', agent: 'child', secret: 'not copied' } }, { rootId: 'a' }, { rootId: 'b' }], lastActiveRootId: 'b' }] }));
     const state = new SessionTabs(disk), independent = new SessionTabs(disk);
-    expect(state.workspace('mac').tabs.map(x => x.rootId)).toEqual(['a', 'b']);
-    expect(state.workspace('mac').tabs[0]?.location).toEqual({ agent: 'child' });
-    state.close('mac', ['a']); expect(independent.workspace('mac').tabs).toHaveLength(2);
-    const restored = new SessionTabs(disk); expect(restored.workspace('mac').tabs).toHaveLength(1);
-    expect(restored.workspace('mac').lastActiveRootId).toBe('b');
-    restored.home('mac'); expect(new SessionTabs(disk).workspace('mac').lastActiveRootId).toBeUndefined();
+    expect(state.workspace().tabs.map(x => x.rootId)).toEqual(['a', 'b']);
+    expect(state.workspace().tabs[0]?.location).toEqual({ agent: 'child' });
+    state.close('mac', ['a']); expect(independent.workspace().tabs).toHaveLength(2);
+    const restored = new SessionTabs(disk); expect(restored.workspace().tabs).toHaveLength(1);
+    expect(selectedSessionTab(restored.workspace())?.rootId).toBe('b');
+    restored.home(); expect(new SessionTabs(disk).workspace().restoreSelection).toBe(false);
   });
   it('bounds bytes and host layouts and retains no prompt or operation payloads', () => {
     const disk = storage(), state = new SessionTabs(disk);
-    for (let host = 0; host < 6; host++) for (let i = 0; i < 32; i++) state.open(`host-${host}`, `root-${i}`, '界'.repeat(1000));
+    for (let i = 0; i < 32; i++) state.open(`host-${i % 6}`, `root-${i}`, '界'.repeat(1000));
+    expect(() => state.open('another-host', 'overflow')).toThrow('32 open');
     const saved = disk.getItem(TAB_STORAGE_KEY)!;
     expect(new TextEncoder().encode(saved).byteLength).toBeLessThanOrEqual(64 * 1024);
-    expect(state.getSnapshot().workspaces.length).toBeLessThanOrEqual(4);
-    expect(state.workspace('host-5').tabs).toHaveLength(32);
-    expect(Object.keys(state.workspace('host-5').tabs[0]!)).toEqual(['id', 'kind', 'rootId', 'titleHint', 'location']);
+    expect(state.getSnapshot().version).toBe(3);
+    expect(state.workspace().tabs).toHaveLength(32);
+    expect(Object.keys(state.workspace().tabs[0]!)).toEqual(['id', 'kind', 'runtimeId', 'rootId', 'titleHint', 'location']);
   });
   it('continues in memory after denied storage and rejects invalid identities', () => {
     const disk = storage(), notice = vi.fn(); disk.setItem = () => { throw Error('denied'); };
     const state = new SessionTabs(disk, notice); state.open('mac', 'root');
-    expect(state.workspace('mac').tabs).toHaveLength(1); expect(notice).toHaveBeenCalled();
+    expect(state.workspace().tabs).toHaveLength(1); expect(notice).toHaveBeenCalled();
     expect(() => state.open('', 'root')).toThrow(); expect(() => state.open('mac', '\n')).toThrow();
   });
   it('parses canonical routes without interpreting other destinations as sessions', () => {
@@ -91,10 +93,10 @@ describe('split workspace views', () => {
   it('duplicates a view with independent locations and builds nested directional splits', () => {
     const state = new SessionTabs();
     state.visit('mac', 'root', { agent: 'first', panel: 'context' });
-    const right = state.split('mac', 'root', 'right');
-    const bottom = state.split('mac', right, 'bottom');
-    state.updateLocation('mac', right, { agent: 'second', panel: 'execution' });
-    const workspace = state.workspace('mac');
+    const right = state.split('root', 'right');
+    const bottom = state.split(right, 'bottom');
+    state.updateLocation(right, { agent: 'second', panel: 'execution' });
+    const workspace = state.workspace();
     expect(workspace.layout).toMatchObject({ type: 'split', direction: 'horizontal', first: { type: 'pane' }, second: { type: 'split', direction: 'vertical' } });
     expect(workspace.tabs.map(tab => tab.rootId)).toEqual(['root', 'root', 'root']);
     expect(new Set(workspace.tabs.map(tab => tab.id)).size).toBe(3);
@@ -102,66 +104,66 @@ describe('split workspace views', () => {
     expect(workspace.tabs.find(tab => tab.id === bottom)?.location).toEqual({ agent: 'first', panel: 'context' });
     expect(state.preferred('mac', 'root')?.id).toBe(bottom);
     state.visit('mac', 'root', { agent: 'third' }, right);
-    expect(selectedSessionTab(state.workspace('mac'))?.id).toBe(right);
-    expect(state.workspace('mac').tabs.find(tab => tab.id === 'root')?.location.agent).toBe('first');
+    expect(selectedSessionTab(state.workspace())?.id).toBe(right);
+    expect(state.workspace().tabs.find(tab => tab.id === 'root')?.location.agent).toBe('first');
   });
   it('transfers view identity, prunes empty branches and reopens into a surviving pane', () => {
     const state = new SessionTabs(); state.visit('mac', 'root', { agent: 'child' });
-    const duplicate = state.split('mac', 'root', 'right');
-    const third = state.split('mac', duplicate, 'bottom');
-    const target = sessionViewPane(state.workspace('mac'), 'root')!.id;
-    state.transfer('mac', duplicate, target, undefined, 0);
-    expect(sessionPanes(state.workspace('mac').layout)).toHaveLength(2);
-    expect(sessionViewPane(state.workspace('mac'), duplicate)?.tabs.map(tab => tab.id)).toEqual([duplicate, 'root']);
-    expect(state.workspace('mac').closed).toEqual([]);
-    state.activate('mac', third);
-    expect(state.closeViews('mac', [third], third)).toBe(duplicate);
-    expect(state.workspace('mac').layout.type).toBe('pane');
-    expect(state.reopenView('mac')).toBe(third);
-    expect(sessionPanes(state.workspace('mac').layout)).toHaveLength(1);
-    expect(state.workspace('mac').tabs.find(tab => tab.id === third)?.location).toEqual({ agent: 'child' });
+    const duplicate = state.split('root', 'right');
+    const third = state.split(duplicate, 'bottom');
+    const target = sessionViewPane(state.workspace(), 'root')!.id;
+    state.transfer(duplicate, target, undefined, 0);
+    expect(sessionPanes(state.workspace().layout)).toHaveLength(2);
+    expect(sessionViewPane(state.workspace(), duplicate)?.tabs.map(tab => tab.id)).toEqual([duplicate, 'root']);
+    expect(state.workspace().closed).toEqual([]);
+    state.activate(third);
+    expect(state.closeViews([third], third)).toBe(duplicate);
+    expect(state.workspace().layout.type).toBe('pane');
+    expect(state.reopenView()).toBe(third);
+    expect(sessionPanes(state.workspace().layout)).toHaveLength(1);
+    expect(state.workspace().tabs.find(tab => tab.id === third)?.location).toEqual({ agent: 'child' });
   });
   it('enforces pane and view limits atomically while allowing transfers at capacity', () => {
     const state = new SessionTabs(); state.open('mac', 'root');
-    const copies = Array.from({ length: 3 }, () => state.split('mac', 'root', 'right'));
+    const copies = Array.from({ length: 3 }, () => state.split('root', 'right'));
     const fullPanes = state.getSnapshot();
-    expect(() => state.split('mac', 'root', 'top')).toThrow('four panes');
+    expect(() => state.split('root', 'top')).toThrow('four panes');
     expect(state.getSnapshot()).toBe(fullPanes);
-    const target = sessionViewPane(state.workspace('mac'), 'root')!.id;
-    state.transfer('mac', copies[0]!, target, 'bottom');
-    expect(sessionPanes(state.workspace('mac').layout)).toHaveLength(4);
+    const target = sessionViewPane(state.workspace(), 'root')!.id;
+    state.transfer(copies[0]!, target, 'bottom');
+    expect(sessionPanes(state.workspace().layout)).toHaveLength(4);
     for (let i = 0; i < 28; i++) state.open('mac', `extra-${i}`);
     const full = state.getSnapshot();
     expect(() => state.open('mac', 'overflow')).toThrow('32 open');
     expect(state.getSnapshot()).toBe(full);
-    state.closeViews('mac', [copies[1]!]);
+    state.closeViews([copies[1]!]);
     state.open('mac', 'replacement');
-    expect(() => state.split('mac', 'root', 'left')).toThrow('32 open');
-    expect(state.workspace('mac').tabs).toHaveLength(32);
+    expect(() => state.split('root', 'left')).toThrow('32 open');
+    expect(state.workspace().tabs).toHaveLength(32);
   });
-  it('migrates legacy layouts then restores v2 duplicate views, focus and split ratios', () => {
+  it('migrates legacy layouts then restores v3 duplicate views, focus and split ratios', () => {
     const disk = storage();
     disk.setItem(LEGACY_TAB_STORAGE_KEY, JSON.stringify({ version: 1, workspaces: [{ runtimeId: 'mac', tabs: [{ rootId: 'root', location: { agent: 'child' } }], lastActiveRootId: 'root' }] }));
     const state = new SessionTabs(disk);
-    expect(state.workspace('mac').tabs[0]).toMatchObject({ id: 'root', kind: 'chat', rootId: 'root' });
-    const duplicate = state.split('mac', 'root', 'left');
-    state.updateLocation('mac', duplicate, { panel: 'execution' });
-    state.resize('mac', state.workspace('mac').layout.id, .35);
+    expect(state.workspace().tabs[0]).toMatchObject({ id: 'root', kind: 'chat', rootId: 'root' });
+    const duplicate = state.split('root', 'left');
+    state.updateLocation(duplicate, { panel: 'execution' });
+    state.resize(state.workspace().layout.id, .35);
     const restored = new SessionTabs(disk);
-    expect(restored.workspace('mac')).toEqual(state.workspace('mac'));
-    expect(selectedSessionTab(restored.workspace('mac'))?.id).toBe(duplicate);
-    expect(JSON.parse(disk.getItem(TAB_STORAGE_KEY)!).version).toBe(2);
+    expect(restored.workspace()).toEqual(state.workspace());
+    expect(selectedSessionTab(restored.workspace())?.id).toBe(duplicate);
+    expect(JSON.parse(disk.getItem(TAB_STORAGE_KEY)!).version).toBe(3);
   });
   it('rejects malformed split trees and sanitizes duplicate view identities on restore', () => {
     const disk = storage();
     const tab = { id: 'view', kind: 'chat', rootId: 'root', location: { panel: 'invalid', agent: 'child' } };
     const pane = { type: 'pane', id: 'main', tabs: [tab, tab, { ...tab, id: 'other', kind: 'terminal' }], selected: 'missing' };
     const load = (layout: unknown) => { disk.setItem(TAB_STORAGE_KEY, JSON.stringify({ version: 2, workspaces: [{ runtimeId: 'mac', layout, focusedPaneId: 'missing', closed: [] }] })); return new SessionTabs(disk); };
-    const valid = load(pane).workspace('mac');
+    const valid = load(pane).workspace();
     expect(valid.tabs).toHaveLength(1); expect(valid.focusedPaneId).toBe('main');
     expect(selectedSessionTab(valid)?.location).toEqual({ agent: 'child' });
-    for (const ratio of [0, 1, -1, null]) expect(load({ type: 'split', id: 'split', direction: 'horizontal', ratio, first: pane, second: { ...pane, id: 'second' } }).getSnapshot().workspaces).toEqual([]);
-    expect(load({ type: 'split', id: 'split', direction: 'horizontal', ratio: .5, first: pane, second: pane }).getSnapshot().workspaces).toEqual([]);
+    for (const ratio of [0, 1, -1, null]) expect(load({ type: 'split', id: 'split', direction: 'horizontal', ratio, first: pane, second: { ...pane, id: 'second' } }).getSnapshot().workspace.tabs).toEqual([]);
+    expect(load({ type: 'split', id: 'split', direction: 'horizontal', ratio: .5, first: pane, second: pane }).getSnapshot().workspace.tabs).toEqual([]);
   });
 });
 
@@ -170,47 +172,47 @@ it('sanitizes overfull restored panes and rejects trees beyond the four-pane bou
   const pane = (id: string) => ({ type: 'pane', id, tabs: Array.from({ length: 40 }, (_, index) => ({ id: `${id}-${index}`, kind: 'chat', rootId: `root-${index}`, location: {} })) });
   const split = (id: string, first: unknown, second: unknown) => ({ type: 'split', id, direction: 'horizontal', ratio: .5, first, second });
   const load = (layout: unknown) => { disk.setItem(TAB_STORAGE_KEY, JSON.stringify({ version: 2, workspaces: [{ runtimeId: 'mac', layout, closed: [] }] })); return new SessionTabs(disk); };
-  expect(load(pane('one')).workspace('mac').tabs).toHaveLength(32);
+  expect(load(pane('one')).workspace().tabs).toHaveLength(32);
   const five = split('top', split('left', pane('a'), pane('b')), split('right', pane('c'), split('nested', pane('d'), pane('e'))));
-  expect(load(five).getSnapshot().workspaces).toEqual([]);
+  expect(load(five).getSnapshot().workspace.tabs).toEqual([]);
 });
 
 it('moves a view within its pane using original drop positions without duplicating it', () => {
   const state = new SessionTabs(); ['a', 'b', 'c', 'd'].forEach(id => state.open('mac', id));
-  const pane = state.workspace('mac').focusedPaneId;
-  state.transfer('mac', 'a', pane, undefined, 3);
-  expect(state.workspace('mac').tabs.map(tab => tab.id)).toEqual(['b', 'c', 'a', 'd']);
-  state.transfer('mac', 'd', pane, undefined, 0);
-  expect(state.workspace('mac').tabs.map(tab => tab.id)).toEqual(['d', 'b', 'c', 'a']);
-  expect(selectedSessionTab(state.workspace('mac'))?.id).toBe('d');
+  const pane = state.workspace().focusedPaneId;
+  state.transfer('a', pane, undefined, 3);
+  expect(state.workspace().tabs.map(tab => tab.id)).toEqual(['b', 'c', 'a', 'd']);
+  state.transfer('d', pane, undefined, 0);
+  expect(state.workspace().tabs.map(tab => tab.id)).toEqual(['d', 'b', 'c', 'a']);
+  expect(selectedSessionTab(state.workspace())?.id).toBe('d');
 });
 
 it('reuses the selected duplicate when multiple views of one root share a pane', () => {
   const tabs = new SessionTabs();
   tabs.visit('mac', 'root', { agent: 'first' });
-  const duplicate = tabs.split('mac', 'root', 'right');
+  const duplicate = tabs.split('root', 'right');
   tabs.visit('mac', 'root', { agent: 'second' }, duplicate);
-  tabs.transfer('mac', duplicate, 'main');
+  tabs.transfer(duplicate, 'main');
   expect(tabs.preferred('mac', 'root')?.id).toBe(duplicate);
   expect(tabs.open('mac', 'root')).toBe(duplicate);
   tabs.visit('mac', 'root', { agent: 'second', panel: 'execution' });
-  expect(tabs.workspace('mac').tabs.find(tab => tab.id === 'root')?.location).toEqual({ agent: 'first' });
-  expect(tabs.workspace('mac').tabs.find(tab => tab.id === duplicate)?.location).toEqual({ agent: 'second', panel: 'execution' });
+  expect(tabs.workspace().tabs.find(tab => tab.id === 'root')?.location).toEqual({ agent: 'first' });
+  expect(tabs.workspace().tabs.find(tab => tab.id === duplicate)?.location).toEqual({ agent: 'second', panel: 'execution' });
 });
 
 describe('session presentation mode', () => {
   it('switches only the targeted view in place and keeps mode out of its location', () => {
     const tabs = new SessionTabs();
     tabs.visit('mac', 'root', { agent: 'first', panel: 'context' });
-    const duplicate = tabs.split('mac', 'root', 'right');
-    const paneId = sessionViewPane(tabs.workspace('mac'), duplicate)!.id;
+    const duplicate = tabs.split('root', 'right');
+    const paneId = sessionViewPane(tabs.workspace(), duplicate)!.id;
     tabs.visit('mac', 'root', { view: 'repl', agent: 'second', panel: 'execution' }, duplicate);
-    expect(tabs.workspace('mac').tabs).toHaveLength(2);
-    expect(sessionViewPane(tabs.workspace('mac'), duplicate)?.id).toBe(paneId);
-    expect(tabs.workspace('mac').tabs.find(tab => tab.id === 'root')).toMatchObject({ kind: 'chat', location: { agent: 'first', panel: 'context' } });
+    expect(tabs.workspace().tabs).toHaveLength(2);
+    expect(sessionViewPane(tabs.workspace(), duplicate)?.id).toBe(paneId);
+    expect(tabs.workspace().tabs.find(tab => tab.id === 'root')).toMatchObject({ kind: 'chat', location: { agent: 'first', panel: 'context' } });
     expect(tabs.preferred('mac', 'root')).toMatchObject({ id: duplicate, kind: 'repl', location: { agent: 'second', panel: 'execution' } });
     expect(sessionSearch(tabs.preferred('mac', 'root'))).toEqual({ view: 'repl', agent: 'second', panel: 'execution' });
-    tabs.updateLocation('mac', duplicate, { agent: 'third' });
+    tabs.updateLocation(duplicate, { agent: 'third' });
     expect(sessionSearch(tabs.preferred('mac', 'root'))).toEqual({ view: 'repl', agent: 'third' });
     tabs.visit('mac', 'root', { agent: 'third' }, duplicate);
     expect(tabs.preferred('mac', 'root')?.kind).toBe('chat');
@@ -220,25 +222,25 @@ describe('session presentation mode', () => {
   it('copies and retains REPL mode through splitting, transfer, close, reopen and reload', () => {
     const disk = storage(), tabs = new SessionTabs(disk);
     tabs.visit('mac', 'root', { view: 'repl', agent: 'child' });
-    const duplicate = tabs.split('mac', 'root', 'right');
-    tabs.transfer('mac', duplicate, 'main');
-    expect(tabs.workspace('mac').tabs.map(tab => tab.kind)).toEqual(['repl', 'repl']);
-    tabs.closeViews('mac', [duplicate], duplicate);
+    const duplicate = tabs.split('root', 'right');
+    tabs.transfer(duplicate, 'main');
+    expect(tabs.workspace().tabs.map(tab => tab.kind)).toEqual(['repl', 'repl']);
+    tabs.closeViews([duplicate], duplicate);
     const restored = new SessionTabs(disk);
-    expect(restored.workspace('mac').closed[0]?.tab).toMatchObject({ id: duplicate, kind: 'repl', location: { agent: 'child' } });
-    expect(restored.reopenView('mac')).toBe(duplicate);
-    expect(restored.workspace('mac').tabs.find(tab => tab.id === duplicate)?.kind).toBe('repl');
-    expect(new SessionTabs(disk).workspace('mac')).toEqual(restored.workspace('mac'));
-    expect(restored.workspace('other-host').tabs).toEqual([]);
+    expect(restored.workspace().closed[0]?.tab).toMatchObject({ id: duplicate, kind: 'repl', location: { agent: 'child' } });
+    expect(restored.reopenView()).toBe(duplicate);
+    expect(restored.workspace().tabs.find(tab => tab.id === duplicate)?.kind).toBe('repl');
+    expect(new SessionTabs(disk).workspace()).toEqual(restored.workspace());
+    expect(restored.workspace().tabs.map(tab => tab.runtimeId)).toEqual(['mac', 'mac']);
   });
 
   it('validates saved modes while migrating chat descriptors from legacy storage', () => {
     const disk = storage();
     const tabs = [{ rootId: 'old' }, { rootId: 'chat', kind: 'chat' }, { rootId: 'repl', kind: 'repl' }, { rootId: 'unknown', kind: 'terminal' }, { rootId: 'null', kind: null }];
     disk.setItem(LEGACY_TAB_STORAGE_KEY, JSON.stringify({ version: 1, workspaces: [{ runtimeId: 'mac', tabs }] }));
-    expect(new SessionTabs(disk).workspace('mac').tabs.map(tab => [tab.rootId, tab.kind])).toEqual([['old', 'chat'], ['chat', 'chat'], ['repl', 'repl']]);
+    expect(new SessionTabs(disk).workspace().tabs.map(tab => [tab.rootId, tab.kind])).toEqual([['old', 'chat'], ['chat', 'chat'], ['repl', 'repl']]);
     disk.setItem(TAB_STORAGE_KEY, JSON.stringify({ version: 2, workspaces: [{ runtimeId: 'mac', layout: { type: 'pane', id: 'main', tabs: tabs.map(tab => ({ ...tab, id: tab.rootId, location: { view: 'repl' } })) }, closed: [] }] }));
-    const restored = new SessionTabs(disk).workspace('mac');
+    const restored = new SessionTabs(disk).workspace();
     expect(restored.tabs.map(tab => [tab.rootId, tab.kind])).toEqual([['chat', 'chat'], ['repl', 'repl']]);
     expect(restored.tabs.map(tab => tab.location)).toEqual([{}, {}]);
   });
@@ -261,4 +263,103 @@ describe('session presentation mode', () => {
     for (const agent of ['', '\nchild', 'a'.repeat(257), ['child']]) expect(validateSessionSearch({ agent, panel: 'unknown', view: 'repl' })).toEqual({ view: 'repl' });
     expect(sessionSearch()).toEqual({});
   });
+});
+
+it('keeps same-ID roots, titles, close actions and history isolated across hosts', () => {
+  const disk = storage(), tabs = new SessionTabs(disk);
+  const local = tabs.visit('local', 'root', { agent: 'local-child' });
+  const remote = tabs.visit('remote', 'root', { view: 'repl', agent: 'remote-child' });
+  expect(remote).not.toBe(local);
+  tabs.titles('remote', new Map([['root', 'Remote title']]));
+  expect(tabs.preferred('local', 'root')?.titleHint).toBe('');
+  const copy = tabs.split(remote, 'right');
+  expect(tabs.workspace().tabs.find(tab => tab.id === copy)?.runtimeId).toBe('remote');
+  tabs.close('local', ['root']);
+  expect(tabs.workspace().tabs.map(tab => tab.runtimeId)).toEqual(['remote', 'remote']);
+  expect(tabs.reopenView()).toBe(local);
+  expect(new SessionTabs(disk).workspace()).toEqual(tabs.workspace());
+  tabs.close('remote', ['root']);
+  expect(tabs.workspace().tabs.map(tab => tab.runtimeId)).toEqual(['local']);
+});
+
+it('migrates the last host layout and retains overflow layouts until explicit restoration', () => {
+  const disk = storage();
+  const old = JSON.stringify({ version: 1, workspaces: ['local', 'remote'].map(runtimeId => ({ runtimeId, lastActiveRootId: 'root-0', tabs: Array.from({ length: 20 }, (_, i) => ({ rootId: `root-${i}`, titleHint: `${runtimeId} ${i}`, location: { agent: 'child', panel: 'execution' } })) })) });
+  disk.setItem(LEGACY_TAB_STORAGE_KEY, old);
+  const tabs = new SessionTabs(disk, undefined, 'local');
+  expect(selectedSessionTab(tabs.workspace())?.runtimeId).toBe('local');
+  expect(tabs.getSnapshot().previous.map(item => item.runtimeId)).toEqual(['remote']);
+  const before = tabs.getSnapshot();
+  expect(() => tabs.restorePrevious('remote')).toThrow('32 open');
+  expect(tabs.getSnapshot()).toBe(before);
+  expect(new SessionTabs(disk).getSnapshot().previous).toHaveLength(1);
+  tabs.close('local', Array.from({ length: 10 }, (_, i) => `root-${i}`));
+  tabs.restorePrevious('remote');
+  expect(tabs.workspace().tabs).toHaveLength(30);
+  expect(new Set(tabs.workspace().tabs.map(tab => tab.id)).size).toBe(30);
+  expect(sessionPanes(tabs.workspace().layout)).toHaveLength(2);
+  expect(tabs.preferred('remote', 'root-0')?.location).toEqual({ agent: 'child', panel: 'execution' });
+  expect(new SessionTabs(disk).getSnapshot().previous).toEqual([]);
+  expect(disk.getItem(LEGACY_TAB_STORAGE_KEY)).toBe(old);
+});
+
+it('keeps unmigrated layouts recoverable when storage writes fail', () => {
+  const disk = storage(), notice = vi.fn();
+  disk.setItem(PREVIOUS_TAB_STORAGE_KEY, JSON.stringify({ version: 2, workspaces: ['a', 'b'].map(runtimeId => ({ runtimeId, layout: { type: 'pane', id: 'main', selected: 'root', tabs: [{ id: 'root', kind: 'chat', rootId: 'root' }] }, closed: [] })) }));
+  disk.setItem = () => { throw new Error('denied'); };
+  const tabs = new SessionTabs(disk, notice);
+  tabs.restorePrevious('a');
+  expect(tabs.workspace().tabs).toHaveLength(2);
+  expect(notice).toHaveBeenCalledWith(expect.stringContaining('memory'));
+  const reloaded = new SessionTabs(disk, notice);
+  expect(reloaded.getSnapshot().previous.map(item => item.runtimeId)).toEqual(['a']);
+  reloaded.dismissPrevious('a');
+  expect(reloaded.getSnapshot().previous).toEqual([]);
+  expect(reloaded.workspace().tabs).toHaveLength(1);
+});
+
+it('keeps oversized legacy metadata recoverable without writing unreadable v3 storage', () => {
+  const disk = storage(), notice = vi.fn();
+  const long = '界'.repeat(256);
+  const runtimeId = long;
+  const entries = Array.from({ length: 32 }, (_, i) => ({ id: long.slice(0, 250) + i, rootId: long.slice(0, 250) + i, kind: 'chat', titleHint: '界'.repeat(64), location: { agent: long } }));
+  // Stay within the original 64KiB representation, then exceed it when the
+  // runtime identity is repeated in all 32 v3 descriptors.
+  entries.forEach(tab => { tab.id = tab.rootId.slice(0, 40); });
+  entries.forEach((tab, i) => { tab.id = tab.id + i; });
+  const old = JSON.stringify({ version: 2, workspaces: [{ runtimeId, layout: { type: 'pane', id: 'main', tabs: entries }, closed: [] }] });
+  expect(new TextEncoder().encode(old).byteLength).toBeLessThan(64 * 1024);
+  disk.setItem(PREVIOUS_TAB_STORAGE_KEY, old);
+  const tabs = new SessionTabs(disk, notice);
+  expect(tabs.workspace().tabs).toEqual([]);
+  expect(tabs.getSnapshot().previous).toHaveLength(1);
+  expect(disk.getItem(TAB_STORAGE_KEY)).toBeNull();
+  expect(() => tabs.restorePrevious(runtimeId)).toThrow('metadata');
+  tabs.openPrevious(runtimeId, entries[0]!.id);
+  const reloaded = new SessionTabs(disk);
+  expect(reloaded.workspace().tabs).toHaveLength(1);
+  expect(reloaded.getSnapshot().previous[0]?.workspace.tabs).toHaveLength(32);
+  expect(reloaded.workspace().tabs[0]?.location.agent).toBe(long);
+  expect(notice).toHaveBeenCalledWith(expect.stringContaining('individually'));
+});
+
+it('remaps previous closed tabs and refuses to silently evict history when merging', () => {
+  const disk = storage();
+  disk.setItem(PREVIOUS_TAB_STORAGE_KEY, JSON.stringify({ version: 2, workspaces: ['a', 'b'].map(runtimeId => ({ runtimeId, layout: { type: 'pane', id: 'main', tabs: [{ id: 'open', rootId: 'open', kind: 'chat' }] }, closed: [{ tab: { id: 'closed', rootId: 'closed', kind: 'repl', location: { agent: 'child' } }, paneId: 'main', index: 0 }] })) }));
+  const tabs = new SessionTabs(disk, undefined, 'a');
+  tabs.restorePrevious('b');
+  expect(tabs.workspace().closed.map(item => item.tab.runtimeId)).toEqual(['a', 'b']);
+  const id = tabs.reopenView();
+  expect(tabs.workspace().tabs.find(tab => tab.id === id)).toMatchObject({ runtimeId: 'b', rootId: 'closed', kind: 'repl', location: { agent: 'child' } });
+  expect(new SessionTabs(disk).workspace()).toEqual(tabs.workspace());
+
+  const full = new SessionTabs();
+  for (let i = 0; i < 20; i++) full.open('a', `closed-${i}`);
+  full.close('a', full.workspace().tabs.map(tab => tab.rootId));
+  disk.setItem(TAB_STORAGE_KEY, JSON.stringify({ version: 3, workspace: full.workspace(), migrated: ['a'] }));
+  const merging = new SessionTabs(disk);
+  const before = merging.getSnapshot();
+  expect(() => merging.restorePrevious('b')).toThrow('20 closed tabs');
+  expect(merging.getSnapshot()).toBe(before);
+  expect(new SessionTabs(disk).getSnapshot().previous).toHaveLength(1);
 });

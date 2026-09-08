@@ -4,9 +4,10 @@ For implementation decisions and coding-agent context, read the canonical
 [frontend architecture and design guide](frontend.md). This page covers product
 behavior, local setup, deployment boundaries, and validation evidence.
 
-The browser attaches to WHIP's daemon. The daemon owns execution, credentials,
-permissions and durable sessions; closing a browser does not cancel its work.
-Multiple clients can use the same daemon concurrently. This first release is
+The browser attaches to Local and any saved remote daemons concurrently. Each
+daemon owns its execution, credentials, permissions and durable sessions; closing
+a browser does not cancel its work. Multiple clients can use the same daemon
+concurrently. This first release is
 focused on conversations and directing agents. Editors, code review and
 standalone terminals remain later work.
 
@@ -31,18 +32,73 @@ inspect and forget saved identities after reload; those records contain no promp
 Its separate, confirmed discard action clears unsent drafts, including drafts for
 removed sessions, without deleting command identities or device preferences.
 
+## Multiple execution hosts
+
+Open `whipcode web` on your computer. **Local** is the daemon that launched the
+app. Use **Execution hosts** in the sidebar footer to add an existing daemon by
+its LAN or Tailscale URL, give it a name, and choose whether it connects when the
+app opens. **Save and connect** verifies its runtime identity. The app connects
+directly from the browser; it does not install a daemon, open SSH tunnels, or
+change listeners.
+
+Saved profiles live in the local distribution's `config.json` under `remote_hosts`:
+`~/.whipcode/config.json` or `$WHIPCODE_HOME/config.json` for whipcode, and
+`~/.whip/config.json` or `$WHIP_HOME/config.json` for whip. Each entry contains an
+ID, name, URL, verified `runtime_id`, and `connect_on_launch`. The existing config
+revision check protects concurrent edits. Browsers using the same Local daemon
+share profiles; tabs and split layouts remain separate per browser window.
+Execution hosts refreshes profiles on open, browser focus and Local reconnect.
+Previously saved browser-only addresses are available for explicit import.
+
+The sidebar groups sessions by host and then directory. Different hosts can be
+open in the same tab strip and split panes. Disconnecting one host leaves the
+others usable, and its tabs stay in place with connection feedback. Disconnect
+changes browser observation, not the remote daemon's accepted work. If Local
+becomes unavailable, existing remote connections continue, while editing the
+saved-host registry waits for Local to reconnect.
+
+An address serving a different runtime is refused until **Edit → Accept a new
+daemon identity** explicitly confirms the replacement. Old tabs retain their
+original identity. Adding another address for the same runtime is rejected, so
+aliases cannot duplicate sessions or command observations.
+
+**New session** offers Local or Remote, a saved host or Add remote host, then a
+folder and that host's model/default. Local can use the native folder picker;
+Remote browses directories through its daemon or accepts a typed path. Changing
+host resets folder/model choices. A directory's **+** action preselects its host
+and folder without creating work until submission. Provider, runtime and recovery
+settings have an execution-host selector. Saved-host management always targets
+Local; appearance and keyboard preferences remain on the viewing device.
+
+Search spans hosts, labels the source of each result, and offers a host filter.
+Recent results reuse each daemon's loaded catalog; typing searches one bounded
+64-item / 256 KiB page per host with separate pagination. One failed host does not
+hide the others' results. Attention likewise groups requests by host, with its
+own filter and pages. Its badge counts sessions needing a response on loaded
+pages, not a guaranteed total; opening a result directs the response to its
+owning session.
+
+Every remote listener must permit its actual Host and the **exact Origin of the
+locally opened browser app**, as described under
+[trusted-network access](#trusted-network-and-phone-access). Saving a URL does not
+change either allowlist. A stable local browser Origin and automatic handling of
+local port changes are deferred; if Local's port changes, remote Origin settings
+may need updating. This feature does not add a wildcard Origin allowance or a
+new authentication flow.
+
 ## Session tabs and split views
 
 Selecting a saved session reuses a matching view or opens a tab in the focused
-pane. Tabs span projects on the connected host; child agents stay inside a chat
-view. Use its tab menu or pane actions to **Split right** or **Split down**.
+pane. Tabs span projects and connected hosts; child agents stay inside a chat
+view. Labels identify the execution host, and matching includes both host and root.
+Use its tab menu or pane actions to **Split right** or **Split down**.
 Splitting opens another view of the same session with independent scroll, agent
 and inspector selection. Drafts, files and submission locks remain shared when
 both views address the same agent.
 The URL controls selection, including browser Back/Forward and deep links.
-On an initial Home load, the window restores its last active session after the
-host identity is known. Intentional Home navigation stays on the New session
-launcher. Other browser windows have independent layouts.
+On an initial Home load, the window restores its last active session, including
+an offline host; its pane waits for that host to connect. Intentional Home
+navigation stays on the New session launcher. Other browser windows have independent layouts.
 
 Drag tabs between pane strips or into a pane center to move them; edge drops
 create nested splits, and Escape cancels. Move-to-pane menu actions provide a
@@ -60,27 +116,37 @@ the focused tab. Browser-owned new-tab/close-tab shortcuts remain untouched.
 On phones, the current-session button opens a searchable list with explicit actions.
 
 Window layout uses sessionStorage with memory fallback: 32 open tabs, 20 closed
-entries, four host layouts and 64 KiB total metadata. It contains only IDs, bounded
-title hints, the split tree and ratios, order and child/inspector route hints.
-The v2 workspace entry migrates the previous flat list. It contains no messages or
-credentials. Only the selected conversation in each visible pane mounts. Duplicate views
-share root observation; at most four distinct root views stay
-warm for 30 seconds after release, with least-recently-used eviction. Reading
-anchors and composer selection are bounded memory hints; history changes fall
+entries, four panes and 64 KiB total metadata across all hosts. The v3 workspace
+contains runtime/view/root IDs, bounded title hints, the split tree and ratios,
+order and child/inspector route hints. It contains no messages or credentials.
+It migrates the last-used v1/v2 host layout first and retains the original storage.
+Other layouts appear under **Execution hosts → Restore previous host tabs**.
+Restore checks the same window limits and asks you to make room rather than
+silently dropping old tabs or closed-tab history. **Open individual previous tabs**
+lets you recover open or closed tabs when the complete layout cannot fit. You can
+also dismiss a previous layout explicitly.
+If storage writes fail, layouts remain in memory and the originals stay
+recoverable on reload.
+
+Only the selected conversation in each visible pane mounts. Duplicate views of
+the same runtime/root share observation; at most four distinct roots across all
+hosts stay warm for 30 seconds after release, with least-recently-used eviction.
+Reading anchors and composer selection are bounded memory hints; history changes fall
 back visibly to retained content instead of fetching unbounded history.
 
 Attachments remain in window memory across switching and closing/reopening tabs.
 The limits are 16 files per recipient and 20 MiB across the window; uploads run
 serially. A reload or page close requires selecting files again, and the browser
-warns while attachments remain. Switching hosts interrupts transfers and marks
-attachments unavailable. Explicit removal, accepted submission and Settings →
-Recovery → Discard drafts clear the corresponding attachment state.
+warns while attachments remain. Switching focus between hosts preserves transfers
+and attachments. Explicitly detaching a host interrupts only its transfers and
+marks its attachment references unavailable. Explicit removal, accepted submission
+and Settings → Recovery → Discard drafts clear the corresponding attachment state.
 
 The negotiated `session_summaries` capability supplies tab titles and
 running/queued agent and pending permission/question counts without opening each
-root. The window batches all open IDs into one query every two visible seconds;
-local lifecycle events coalesce refreshes. Hidden and disconnected windows pause
-polling. An unavailable host/capability or failed lookup shows unknown activity;
+root. The window batches each host’s open IDs into a separate query every two
+visible seconds; that host’s lifecycle events coalesce refreshes. Polling pauses
+when hidden or when its source host disconnects. An unavailable host/capability or failed lookup shows unknown activity;
 authoritative missing roots show unavailable. A quiet tab is not a promise that
 all descendants, schedules or future work are complete.
 
@@ -162,8 +228,9 @@ WHIP_WEB_DAEMON=http://127.0.0.1:8080 npm run dev:web
 Open `http://localhost:3000` or `http://127.0.0.1:3000`. These are distinct browser
 origins, so both are explicitly allowed above. An existing daemon retains the
 configuration it was started with; substitute `daemon restart` explicitly when changing listener
-settings. The release application uses its own origin and needs no copied port
-or separately configured browser origin.
+settings. Local same-origin attachment needs no copied port or separately
+configured browser Origin. Additional remote daemons must explicitly allow the
+Origin where this web app is open.
 
 If Vite reports WebSocket proxy errors (`EPIPE`) and the app stays reconnecting,
 check the daemon's protocol and allowed origins. A running older daemon is not
@@ -241,6 +308,49 @@ Go tests cover route fallback, missing assets, HTTP boundaries and the explicit
 runtime-management behavior of `whip web`.
 
 ## Validation and measured behavior
+
+### Multiple execution hosts — September 8, 2026
+
+The production app passed `apps/web/scripts/multiple-hosts.mjs` in Chromium 153
+and Firefox 155 against three isolated fake-provider daemons. Both browsers
+completed nine workflows: local configuration shared by a second browser,
+folder-based creation with each host's own model default, mixed panes with concurrent turns and drafts,
+host-labelled search and permission attention, a remote upload, remote and Local
+process outages, reconnect after explicit disconnect, removal/re-addition with a
+retained draft, and layout reload.
+Maximum root subscriptions across all hosts was four. This measures observed
+subscriptions; it is not a claim about unlimited aggregate catalog memory.
+
+The existing production core, tab, split-workspace, search and sidebar suites
+also passed in Chromium and Firefox. Core checks include strict CSP, wrong-runtime routes,
+content transfer, uncertain-command reconciliation, keyboard/narrow layouts and
+no critical/serious Axe violations in the states exercised. Actual Safari 26.3.1
+passed the application smoke for submission, independent drafts, close/reopen,
+theme selection and reload under CSP. Safari coverage here is single-host;
+the dedicated three-host scenario ran in Chromium and Firefox.
+The final packed build also passed a 390px-wide host-manager check in both
+browsers: long names stay editable, connection status and actions stay visible,
+and the dialog has no horizontal overflow.
+
+`task check`, `task acceptance` and affected config/daemon race tests passed. The
+web unit suite passed 218 tests, including multi-host config/lifecycle races,
+colliding root and command IDs, migration overflow and stale directory replies.
+
+The final build also passed nine workflows per browser against Local and the
+physical `kuzco-4090` machine over Tailscale in Chromium and Firefox. These cover
+remote folder creation, concurrent streaming, HTTP upload, mixed-layout/draft
+reload, independent disconnects, continued accepted work after detachment, a
+real remote daemon restart, profile removal/re-addition and fresh-browser profile
+discovery. This two-host workspace retained at most two root subscriptions and
+left no page/CSP errors or global cancellation banners.
+
+Three additional checks per browser verified remote HTTP downloads and rejection
+of the wrong root, duplicate-runtime detection through the full Tailscale hostname,
+and refusal to silently retarget a profile to another daemon. Short-hostname DNS
+resolution was intermittently slow on this Mac; the full Tailscale name resolved
+promptly. Physical-host tests used isolated homes, controlled fake providers and
+explicit Host/Origin allowlists. The exact-Origin/stable-port follow-up remains
+deferred. Safari's recorded coverage remains the single-host smoke above.
 
 Run the application gates against the actual production bundle and a temporary
 fake-provider daemon. The fixture owns its home, sessions, listener and process;

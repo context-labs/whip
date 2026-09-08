@@ -21,11 +21,11 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func localMCPFixture(t *testing.T, instructions string) (string, *atomic.Int32) {
+func localMCPFixture(t *testing.T, instructions string, extraTools ...string) (string, *atomic.Int32) {
 	t.Helper()
 	effects := new(atomic.Int32)
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "local-fixture"}, &sdkmcp.ServerOptions{Instructions: instructions})
-	for _, name := range []string{"mutate", "mutate.other"} {
+	for _, name := range append([]string{"mutate", "mutate.other"}, extraTools...) {
 		sdkmcp.AddTool(server, &sdkmcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}},
 			func(context.Context, *sdkmcp.CallToolRequest, struct{}) (*sdkmcp.CallToolResult, any, error) {
 				effects.Add(1)

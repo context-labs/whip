@@ -449,6 +449,101 @@ test('backward pagination retains requested pages and revision-bound cursors', a
   await view.dispose();
 });
 
+for (const agentId of ['root', 'child']) {
+  test(`${agentId} history exhaustion survives refresh until its boundary is evicted or revised`, async () => {
+    const host = new Host();
+    const messages = (first: number, last: number) => Array.from({ length: last - first + 1 }, (_, index) => ({
+      seq: first + index, message: { role: 'user' as const, content: String(first + index) },
+    }));
+    let recent = messages(3, 4);
+    const setRecent = () => {
+      host.root.messages = recent.map(item => item.message);
+      host.root.message_seqs = recent.map(item => item.seq);
+      host.root.first_message_seq = recent[0]!.seq;
+      host.root.omitted = { messages: true };
+    };
+    setRecent();
+    host.history = async params => {
+      const page = params.before_seq ? messages(1, Number(params.before_seq) - 1) : recent;
+      return { history_revision: host.root.history_revision, through_seq: recent.at(-1)!.seq,
+        next_seq: page[0]?.seq ?? params.before_seq, has_more: page[0]!.seq > 1, messages: page };
+    };
+    const view = createSessionView(host.session(), { maxMessages: 4 });
+    try {
+      await view.start();
+      if (agentId === 'child') await view.openAgent(agentId);
+      assert.equal(view.getSnapshot().history[agentId]!.hasMore, true);
+      await view.loadOlder(agentId);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await view.refresh();
+        const history = view.getSnapshot().history[agentId]!;
+        assert.deepEqual(history.messages.map(item => item.seq), [1, 2, 3, 4]);
+        assert.equal(history.nextSeq, 1);
+        assert.equal(history.hasMore, false);
+        const count = host.calls.length;
+        await view.loadOlder(agentId);
+        assert.equal(host.calls.length, count, 'Exhausted history must not issue another RPC');
+      }
+      // A complete incoming page still needs older paging if the cache trims it.
+      recent = messages(1, 6);
+      setRecent();
+      await view.refresh();
+      assert.deepEqual(view.getSnapshot().history[agentId]!.messages.map(item => item.seq), [3, 4, 5, 6]);
+      assert.equal(view.getSnapshot().history[agentId]!.nextSeq, 3);
+      assert.equal(view.getSnapshot().history[agentId]!.hasMore, true);
+      await view.loadOlder(agentId);
+      assert.equal(view.getSnapshot().history[agentId]!.hasMore, false);
+      recent = messages(3, 4);
+      setRecent();
+      host.root.history_revision = '2';
+      await view.refresh();
+      assert.deepEqual(view.getSnapshot().history[agentId]!.messages.map(item => item.seq), [3, 4]);
+      assert.equal(view.getSnapshot().history[agentId]!.hasMore, true);
+    } finally { await view.dispose(); }
+  });
+}
+
+test('a terminal empty page exhausts a retained boundary and concurrent readers share a page', async () => {
+  const host = new Host();
+  host.root.messages = [{ role: 'user', content: 'retained' }];
+  host.root.message_seqs = [5];
+  const view = createSessionView(host.session());
+  try {
+    await view.start();
+    let resolve!: (value: unknown) => void;
+    host.history = () => new Promise(done => { resolve = done; });
+    const before = host.calls.length;
+    const pending = [view.loadOlder(), view.loadOlder()];
+    assert.equal(host.calls.length, before + 1);
+    resolve({ history_revision: '1', through_seq: 5, next_seq: 5, has_more: false, messages: [] });
+    await Promise.all(pending);
+    await view.refresh();
+    assert.equal(view.getSnapshot().history.root!.messages[0]!.seq, 5);
+    assert.equal(view.getSnapshot().history.root!.hasMore, false);
+  } finally { await view.dispose(); }
+});
+
+test('empty root history and omitted bodies do not imply older messages', async () => {
+  const host = new Host();
+  host.root.omitted = { messages: true };
+  const view = createSessionView(host.session());
+  try {
+    await view.start();
+    assert.equal(view.getSnapshot().history.root!.hasMore, false);
+    host.root = { ...snapshot('20', '2'), messages: [], message_seqs: [] };
+    await view.refresh();
+    assert.equal(view.getSnapshot().history.root!.hasMore, false);
+    assert.equal(view.getSnapshot().history.root!.messages.length, 0);
+    host.root.omitted = { messages: true };
+    await view.refresh();
+    assert.equal(view.getSnapshot().history.root!.hasMore, true, 'An omitted empty snapshot can be recovered');
+    await view.loadOlder();
+    assert.equal(view.getSnapshot().history.root!.hasMore, false);
+    assert.equal(host.calls.at(-1)?.params.through_seq, -1);
+    assert.equal(host.calls.at(-1)?.params.before_seq, undefined);
+  } finally { await view.dispose(); }
+});
+
 test('large live output is bounded and explicitly unavailable', async () => {
   const host = new Host();
   const view = createSessionView(host.session(), { maxBytes: 2048, notificationIntervalMs: 1 });
@@ -506,6 +601,11 @@ test('cache pressure evicts child history before the current root history', asyn
   assert.equal(view.getSnapshot().history.root?.messages[0]?.message?.content, 'root'.repeat(500));
   assert.ok(view.getSnapshot().retainedBytes <= 6000);
   assert.equal(view.getSnapshot().truncated, true);
+  host.history = async () => ({ history_revision: '1', through_seq: 1, next_seq: 1, has_more: false,
+    messages: [{ seq: 1, message: { role: 'assistant', content: 'recovered child' } }] });
+  await view.loadOlder('child');
+  assert.equal(view.getSnapshot().history.child?.messages[0]?.message?.content, 'recovered child');
+  assert.equal(view.getSnapshot().history.child?.hasMore, false);
   await view.dispose();
 });
 

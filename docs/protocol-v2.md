@@ -243,6 +243,23 @@ runtime admission checks. `identity.enroll` and `identity.status` are removed.
 This trusted-client assumption does not expose an approval tool to agents or
 remove delegated MCP authority validation.
 
+## Saved execution hosts
+
+`config.get` advertises saved-host support with a present `remote_hosts` array,
+including when empty. Each profile has `id`, `name`, `url`, `runtime_id` and
+`connect_on_launch`. `config.update` accepts an optional replacement array along
+with the existing required configuration `revision`; an empty array removes saved
+profiles, while omission preserves them. Validation and atomic revision-checked
+persistence use the existing configuration path and preserve provider credentials.
+
+The locally launched web app reads and writes this registry only through Local.
+It verifies each remote's handshake identity and opens independent SDK connections;
+there is no new aggregate session API or forwarded production traffic. Older
+local daemons without this optional field remain usable for local sessions but
+must be updated before profiles can be saved. Remote daemons need only the
+capabilities used by their own views. See [web setup](web-app.md) and
+[frontend ownership](frontend.md).
+
 ## Persistence and validation
 
 SQLite remains in WAL mode with `synchronous=NORMAL`. Accepted commands survive

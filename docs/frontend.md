@@ -1,8 +1,8 @@
 # Frontend architecture and design guide
 
 This is the canonical starting point for coding agents working on WHIP's frontend.
-It explains the current design, why it exists, and how to extend it. Last verified
-against the implementation on 2026-09-07, following commit `f1e0ad9`.
+It explains the current design, why it exists, and how to extend it. Updated on
+2026-09-08 for the multi-host workspace.
 
 This is a maintained engineering guide, not a delivery checklist. Historical
 plans preserve research and past alternatives; they are not instructions to
@@ -150,38 +150,56 @@ the saved theme before first render and creates one `createWhipApplication`
 instance outside React rendering. That factory wires the router, runtime,
 ThemeProvider, UIProvider, QueryClientProvider, and runtime context.
 
-[`AppRuntime`](../packages/app/src/runtime.ts) owns the current SDK client,
-session-list view, one Query client, root-view leases, command observations,
-draft storage, and local tab/composition/reading stores. Components subscribe
+[`AppRuntime`](../packages/app/src/runtime.ts) owns one window's connections,
+Query client, root-view leases, command observations, drafts, and tab/composition/
+reading stores. [`HostConnections`](../packages/app/src/hosts.ts) owns an independent
+SDK client and `SessionListView` for each attached daemon. Components subscribe
 using `useSyncExternalStore` through app hooks or `@whip/sdk/react`. Store
-snapshots must remain immutable and referentially stable between changes.
+snapshots remain immutable and referentially stable between changes.
 
-The application attaches to one host at a time. Host replacement increments an
-epoch, aborts local waits, disposes old observers/views, clears Query data, and
-closes the old client. Late results cannot update the replacement host. This
-detaches observation; it does not stop the old host's accepted work.
+Local is the daemon supplied by the launch platform's endpoint. Its configuration
+owns the `remote_hosts` registry, shared by browsers using that local daemon:
+profile ID, display name, normalized URL, verified runtime ID, and connect-on-launch
+preference. These are attachment profiles, not copied sessions or credentials.
+The existing revision-checked configuration update persists the whole registry.
+Host management refreshes it on open, browser focus, and Local reconnect; conflicts
+surface rather than overwriting another browser's changes. Legacy browser-only
+addresses remain available for explicit import.
 
-The selected route verifies its runtime ID against the handshake before leasing
-a root view. `runtime.acquireView(rootId)` returns `{ view, release }`; release
-is idempotent and belongs in effect cleanup. StrictMode and overlapping
-components share the same view. Do not instantiate clients/views during render,
-open subscriptions on link hover, or hydrate all tab roots to obtain labels.
-Inspect child history through `runtime.acquireAgent(view, agentId)` and release
-the consumer in cleanup; only the final consumer closes shared child history. The daemon caps root subscriptions at 16 per connection; do not open extra
-connections to bypass that limit.
+Each client verifies its handshake runtime ID before exposing session reads or
+views. Duplicate runtime aliases are rejected. Rebinding an address to a replacement
+daemon requires explicit acceptance; existing tabs retain their original runtime
+identity. SDK reconnect belongs to each connection. An explicit detach aborts
+only that host's waits, disposes its observers/views, clears its Query data, and
+invalidates its attachment references. Healthy hosts, their panes, drafts and
+accepted work remain independent. Losing Local prevents registry edits while
+already attached remote hosts remain usable. Late reads and configuration replies
+must match their source connection and revision before changing current state.
+
+`runtime.acquireView(runtimeId, rootId)` returns `{ view, release }`; release
+is idempotent and belongs in effect cleanup. Leases use both runtime and root
+identity, so equal root IDs on different hosts never share data. StrictMode and
+duplicate views of the same root share a lease. The four-root retention budget
+is window-wide, not multiplied by the number of connected hosts. Do not instantiate
+clients/views during render, open subscriptions on link hover, or hydrate tab
+roots to obtain labels. Inspect child history through
+`runtime.acquireAgent(view, agentId)` and release the consumer in cleanup; only
+the final consumer closes shared child history. The daemon caps root subscriptions
+at 16 per connection; do not open extra connections to bypass that limit.
 
 ## State ownership
 
 | State | Owner | Persistence / lifetime |
 | --- | --- | --- |
 | Execution, commands, sessions, provider credentials, permissions, model context, scheduling | Daemon | Durable host truth; clients cannot replace it |
-| Connection, request correlation, replay, command delivery/status | SDK `WhipClient` / `CommandHandle` | Connection and identity-scoped recovery |
+| Saved execution hosts | Local daemon configuration `remote_hosts` | Revision-checked file shared by browsers; remote daemon credentials stay remote |
+| Connection, request correlation, replay, command delivery/status | One SDK `WhipClient` per host / `CommandHandle` | Independent connections and runtime/client/command-scoped recovery |
 | Root snapshot, history, live presentation, agents, requests, history revision, root collections | SDK `SessionView` | Reconstructible bounded memory; app leases it |
-| Ordinary lightweight session list | SDK `SessionListView` | Observed list; do not add a duplicate Query list poller |
-| Host catalogs/settings, search, attention, tab summaries, explicit detail reads | TanStack Query via SDK | Bounded application memory; cleared on host detach |
+| Ordinary lightweight session lists | One SDK `SessionListView` per host | Observed catalogs; do not add duplicate Query list pollers |
+| Host catalogs/settings, search, attention, tab summaries, explicit detail reads | TanStack Query via SDK | Runtime-scoped keys; only the detached host’s data is cleared |
 | Focused root, child and shareable inspector section | TanStack Router | Validated URL/search; history carries a local view-ID hint |
 | Sidebar width, visibility and directory collapse | App shell | Window storage with memory fallback; host-scoped collapse |
-| Split tree, pane focus/selection, open/closed view order and locations | App `SessionTabs` | Window-local sessionStorage v2; migrates the flat v1 list; memory fallback |
+| Split tree, pane focus/selection, open/closed view order and locations | App `SessionTabs` | One window-local sessionStorage v3 workspace spanning hosts; v1/v2 recovery and memory fallback |
 | Draft text | App runtime | Device storage, keyed by runtime/root/recipient |
 | Files, upload progress and submission locks | App `CompositionStore` | Window memory shared by runtime/root/recipient |
 | Composer caret selection | App `CompositionStore` | Window memory scoped by runtime/view/agent |
@@ -203,13 +221,15 @@ update their source, boundary tests, and this table together.
 | --- | --- | --- |
 | SDK session view | 8 MiB retained payload; 512 history messages per opened agent | [state.ts](../packages/sdk/src/state.ts) |
 | SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/sdk/src/executions.ts) |
-| App root views | 4 retained roots; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
-| Tab layout | 4 panes, 32 open views, 20 closed entries, 4 host layouts, 64 KiB metadata | [session-tabs.ts](../packages/app/src/session-tabs.ts) |
-| Sidebar layout | 4 hosts, 64 collapsed directories per host, 64 KiB metadata | [sidebar-state.ts](../packages/app/src/sidebar-state.ts) |
+| App root views | 4 retained roots across all hosts; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
+| Tab layout | One workspace: 4 panes, 32 open views, 20 closed entries, 64 KiB metadata; unmigrated v1/v2 layouts remain in their original storage | [session-tabs.ts](../packages/app/src/session-tabs.ts) |
+| Sidebar layout preferences | 4 hosts, 64 collapsed directories per host, 64 KiB metadata; this does not limit connected hosts | [sidebar-state.ts](../packages/app/src/sidebar-state.ts) |
 | Draft text | 32 nonempty drafts, 256 KiB each, 1 MiB total | [runtime.ts](../packages/app/src/runtime.ts) |
 | Submission previews | 32 entries, 1 MiB total; confirmed entries evicted first | [input-presentation.ts](../packages/app/src/input-presentation.ts) |
 | Attachments | 16 files per recipient; 20 MiB across the window; serial uploads | [compositions.ts](../packages/app/src/compositions.ts) |
 | Reading bookmarks | 128 entries, 64 KiB | [reading-positions.ts](../packages/app/src/reading-positions.ts) |
+| Search | One 64-item / 256 KiB page per included host while open; recent results reuse each host’s catalog | [session-search-dialog.tsx](../packages/app/src/session-search-dialog.tsx) |
+| Attention | One 64-item / 256 KiB advisory page per connected host | [attention.tsx](../packages/app/src/attention.tsx) |
 | Agent mailbox pages | At most 4 bounded Query pages | [observation.tsx](../packages/app/src/details/observation.tsx) |
 | Explicit content inspection | 1 MiB text read; 64 MiB download; rendering has its own smaller caps | [shared.tsx](../packages/app/src/details/shared.tsx) |
 
@@ -220,19 +240,35 @@ exceed the aggregate storage budget; subsequent writes require clearing drafts.
 
 ### Split workspace
 
-`SessionTabs` owns an immutable binary tree: split nodes carry a direction and
-ratio; pane leaves carry ordered chat/REPL descriptors, a selected view ID, and stable
-pane IDs. A view ID identifies one presentation of a session. Duplicates share
+`SessionTabs` owns one immutable binary tree across all hosts: split nodes carry
+a direction and ratio; pane leaves carry ordered chat/REPL descriptors, a selected
+view ID, and stable pane IDs. Every descriptor stores its runtime ID; the global
+view ID identifies one presentation of that host’s session. Duplicates share
 SDK data and recipient drafts/files/locks, but retain independent mode, agent, inspector,
-scroll and caret state. Only the focused view is reflected in the URL. Native
+scroll and caret state. When a chat view becomes active on desktop, its composer
+receives focus without scrolling; compact layouts and open overlays retain their focus.
+Only the focused view is reflected in the URL. Native
 links carry a validated `whipViewId` history hint so Back/Forward can distinguish
 two views with identical URLs. Sidebar/search reuse the selected matching view,
-then one in its pane, then another existing view before adding a new tab.
+then one in its pane, then another existing view before adding a new tab. Matching
+always includes runtime and root identity.
+
+The v3 window record migrates the last-used v1/v2 host layout first. Other legacy
+layouts remain recoverable under **Execution hosts → Restore previous host tabs**.
+Restoring merges panes and closed-tab history after checking the window-wide
+limits and remaps view/pane IDs to avoid collisions. If the complete layout cannot
+fit, **Open individual previous tabs** recovers either open or closed descriptors
+without consuming the original layout. Both initial migration and explicit restore
+validate the expanded v3 metadata before marking a layout migrated. Original v1/v2
+storage is retained, with restored/dismissed identities recorded in v3. Failed
+writes visibly use memory, leaving original layouts recoverable on reload.
 
 `SessionTabStrip` coordinates the workspace and renders one selected session view
 per visible pane. `ConversationRoute` handles admission/host status only. The
 workspace reconciler releases obsolete root leases **before** acquiring new roots;
-it deduplicates selected roots and never mounts background tabs for labels.
+it deduplicates selected `(runtimeId, rootId)` pairs and never mounts background
+tabs for labels. A disconnected host shows an unavailable state in its own panes;
+it does not replace the layout or release healthy hosts’ selected roots.
 New-session and Settings routes retain the tree and release visible consumers.
 `SessionContent` takes an explicit mode and view location; late actions verify the
 originating location and host before updating their view.
@@ -283,11 +319,22 @@ replaces cumulative output, and keeps live keys through history commits. Revisio
 changes discard incompatible evidence. If a child was observed before its history
 was opened, an ambiguous call cannot safely be joined to an older record; the SDK
 retains it as separate observed evidence. Host traces and restart notices from
-before observation can be absent; the UI says so. Any displayed elapsed duration
-is explicitly client-observed, never reconstructed historical timing.
+before observation can be absent; the toolbar's **About REPL history** tooltip
+explains that limitation. Persistent notices are reserved for paused updates and
+known truncation. Any displayed elapsed duration is explicitly client-observed,
+never reconstructed historical timing.
 
 `ReadingList` shares TanStack Virtual, selection pinning, follow/Latest behavior,
-explicit older-page loading and bounded anchor restoration between chat and REPL.
+near-top scroll pagination and bounded anchor restoration between chat and REPL.
+Both modes use SDK-owned history and loading state. Scrolling within 256 px of
+the top requests one bounded older page when connected and history is ready;
+pending reads and bookmark restoration suppress automatic paging. The explicit
+older-history button also supports REPL pages with too few cells to scroll.
+Its measured space remains after exhaustion so the final prepend does not move
+the reader; the exhausted control is hidden, disabled, and excluded from accessibility.
+Transcript pages can contain no execution cells, so cell count does not determine
+exhaustion. The SDK keeps the older cursor and availability consistent with the
+retained history across refreshes, revision changes and cache eviction.
 REPL bookmarks use a mode suffix within the existing runtime/view/agent namespace;
 closing the view forgets both modes. Output previews show six lines, following
 the tail while running and the beginning after completion. Expanded output IDs
@@ -319,8 +366,8 @@ For new Query reads:
   A local daemon can work without public internet; browser online heuristics
   must not pause a mutation and send it later.
 - Refresh through relevant SDK events, successful actions, or bounded polling
-  where required. A new connection invalidates host reads; host detach clears
-  them. Overrides must have a workflow-specific reason and cleanup.
+  where required. A new connection invalidates that runtime’s reads; host detach clears
+  only those keys. Overrides must have a workflow-specific reason and cleanup.
 - Bound pages and bytes as well as cache lifetime. Do not persist the cache or
   create an independent interval in every component reading the same resource.
 
@@ -328,8 +375,9 @@ The sidebar queries summaries only for rendered rows (including overscan), in
 batches of at most 32 roots. Those reads pause while the document is hidden and
 never hydrate session views.
 
-Tab summaries deliberately use one batched `sessions.summaries` query for open
-IDs, every two visible connected seconds, with coalesced lifecycle invalidation.
+Tab summaries deliberately use one batched `sessions.summaries` query per host
+for its open IDs, every two visible connected seconds, with coalesced lifecycle
+invalidation.
 They require `session_summaries` negotiation and do not open roots. Ordinary
 session listing stays with `SessionListView`; filtered search and host attention
 are separate reads. Do not confuse agent mailbox messages with queued execution
@@ -400,6 +448,9 @@ Provider onboarding, tokens, machine keys, and shared configuration writes remai
 host-owned. API-key entry is an ephemeral UI input: never place it in drafts,
 Query persistence, command-recovery storage, or logs. Configuration updates use
 revision checks; display conflicts instead of overwriting newer settings.
+Provider/runtime/recovery settings have an explicit execution-host selector,
+initially the last session's host or Local. Saved-host management always writes to
+Local. Appearance and keyboard preferences remain viewing-device settings.
 
 ## Conversation and navigation patterns
 
@@ -490,26 +541,39 @@ browser's new-tab or close-tab shortcuts.
 ### Saved-session navigation
 
 [`session-sidebar.tsx`](../packages/app/src/session-sidebar.tsx) projects the SDK's
-bounded catalog into virtual directory headers and compact session rows. Group by
-exact host `cwd`: worktrees remain separate, directories with matching names show
+bounded per-host catalogs into host sections, virtual directory headers and compact
+session rows in one scroll area. Group within each host by exact `cwd`: worktrees remain separate, directories with matching names show
 a distinguishing parent suffix, and full paths remain available in labels and
 titles. Groups follow their first catalog occurrence; sessions retain server
 pin/recency order. Only loaded pages are grouped; Load more retains the SDK's
 existing page/cache limits. Sidebar labels never lease root views.
 
-New session, Search sessions and Settings are the top destinations; the host
-control stays in the footer. The tab strip sits directly above the conversation,
+New session, Search sessions and Settings are the top destinations; execution-host
+management stays in the footer. Host headings show connection status and collapse
+independently. The tab strip sits directly above the conversation,
 without a global toolbar or repeated session heading. Session details opens from
 the tab menu or command palette; its Sheet contains the session management
 actions. Connection and error notices remain visible when relevant.
 
-Search opens a centered dialog with an automatically focused search field and
-up to 64 recent catalog entries. Typing debounces 200 ms
-and uses host-scoped bounded Query pages; Enter opens the highlighted result,
-arrow keys move the highlight, and Escape/close restores focus. On mobile,
+Search opens a centered dialog with an automatically focused search field, host
+labels/filter, and up to 64 recent catalog entries per host. Typing debounces
+200 ms and uses an independent 64-item / 256 KiB Query page and cursor per host.
+A failed or offline host shows its own status while healthy results remain usable.
+Enter opens the highlighted result, arrow keys move the highlight, and Escape/close
+restores focus. Highlight identity includes the runtime/root pair, so a later
+response from another host cannot change which session Enter opens. On mobile,
 opening search closes the navigation Sheet and returns focus to its toggle.
 Search retains native modified links, remembered inspector locations and
-background-tab actions. Its catalog/query observers only mount while open.
+background-tab actions. Its catalog/query observers only mount while open;
+closing releases pending reads and cached search pages.
+
+Attention aggregates one lightweight advisory page per connected host, polling
+every three seconds without leasing roots. Its sheet labels hosts, supports a
+host filter and independent pagination, and opens the owning session to answer
+requests. The badge counts requests on loaded pages, not all host work; pagination,
+truncation and unavailable hosts keep that incompleteness explicit. Unsupported
+attention reads stop automatic polling until retry or reconnect.
+
 Desktop row menus appear on hover/focus (and remain visible
 while open); touch keeps them visible. Trailing directory carets appear while
 that directory or its visible children are hovered, or its heading is focused.
@@ -524,8 +588,13 @@ Session links retain native modified clicks and saved
 agent/inspector locations; sibling menus expose Open in background tab.
 
 Directory + links carry validated `cwd` and `runtimeId` home-route search values.
-The existing creation form ignores a foreign-host prefill, preserves edits across
-ordinary renders, and submits only on explicit form submission. These links take
+New session first selects Local or Remote, then a saved host or Add remote host,
+then the working directory and that host's model/default. A directory + link
+preselects its source host and directory; changing host resets folder/model
+choices. Only Local offers the native OS folder picker; Remote always browses the
+daemon's directory API or accepts a typed path. Browsing a directory does not
+submit the creation form. Submission pins the source client, and late completion
+cannot redirect a different route or target another host. These links take
 precedence over startup tab restoration.
 
 The desktop sidebar defaults to 320 px, resizes between 256 and 420 px while
@@ -688,9 +757,11 @@ with `task build:whipcode`; launch with `whipcode web`. Package names and wire
 identifiers stay shared. See [branch installation](../README.md#whipcode-branch-builds).
 
 Release builds pack Vite assets for the Go daemon; there is no production Vite
-server. Same-origin attachment is the default. The shell attaches to an existing
-daemon and does not start, restart, or reconfigure it. See
-[web setup](web-app.md#develop-against-an-existing-daemon) for exact origin and
+server. The launch endpoint defines Local; saved profiles attach directly to
+additional existing daemons over separate browser connections. The shell does not start,
+restart, or reconfigure their listeners. Exact browser Origin configuration and
+a stable local Origin remain separate work; this feature does not relax allowlists.
+See [web setup](web-app.md#develop-against-an-existing-daemon) for exact origin and
 listener setup; building frontend assets alone cannot upgrade a running daemon.
 
 ## Working on a change
@@ -713,7 +784,7 @@ Useful starting files:
 
 | Change | Read first |
 | --- | --- |
-| Application lifetime / host changes | [runtime.ts](../packages/app/src/runtime.ts), [context.tsx](../packages/app/src/context.tsx), [concurrency](concurrency.md#react-application-lifetimes) |
+| Application lifetime / host changes | [hosts.ts](../packages/app/src/hosts.ts), [host-dialog.tsx](../packages/app/src/host-dialog.tsx), [runtime.ts](../packages/app/src/runtime.ts), [context.tsx](../packages/app/src/context.tsx), [concurrency](concurrency.md#react-application-lifetimes) |
 | Host/detail query | [details/shared.tsx](../packages/app/src/details/shared.tsx), [directory-picker.tsx](../packages/app/src/directory-picker.tsx) |
 | Durable input and drafts | [composer.tsx](../packages/app/src/composer.tsx), [compositions.ts](../packages/app/src/compositions.ts) |
 | Permissions and questions | [requests.tsx](../packages/app/src/requests.tsx), [attention.tsx](../packages/app/src/attention.tsx) |

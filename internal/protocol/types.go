@@ -315,31 +315,34 @@ type UnsubscribeParams struct {
 func (e *RPCError) Error() string { return e.Message }
 
 type RuntimeConfiguration struct {
-	ImportClaude    bool   `json:"import_claude"`
-	ImportCodex     bool   `json:"import_codex"`
-	Revision        string `json:"revision"`
-	DefaultModel    string `json:"default_model"`
-	DefaultProvider string `json:"default_provider"`
-	DefaultEffort   string `json:"default_effort"`
-	CompactModel    string `json:"compact_model"`
-	CompactProvider string `json:"compact_provider"`
-	CompactPercent  int    `json:"compact_percent"`
-	GoalMaxRounds   int    `json:"goal_max_rounds"`
-	MaxRetries      int    `json:"max_retries"`
+	// Presence identifies support even when no remote hosts have been saved.
+	RemoteHosts     *[]config.RemoteHost `json:"remote_hosts,omitempty"`
+	ImportClaude    bool                 `json:"import_claude"`
+	ImportCodex     bool                 `json:"import_codex"`
+	Revision        string               `json:"revision"`
+	DefaultModel    string               `json:"default_model"`
+	DefaultProvider string               `json:"default_provider"`
+	DefaultEffort   string               `json:"default_effort"`
+	CompactModel    string               `json:"compact_model"`
+	CompactProvider string               `json:"compact_provider"`
+	CompactPercent  int                  `json:"compact_percent"`
+	GoalMaxRounds   int                  `json:"goal_max_rounds"`
+	MaxRetries      int                  `json:"max_retries"`
 }
 
 type ConfigurationUpdate struct {
-	ImportClaude    *bool   `json:"import_claude,omitempty"`
-	ImportCodex     *bool   `json:"import_codex,omitempty"`
-	Revision        string  `json:"revision"`
-	DefaultModel    *string `json:"default_model,omitempty"`
-	DefaultProvider *string `json:"default_provider,omitempty"`
-	DefaultEffort   *string `json:"default_effort,omitempty"`
-	CompactModel    *string `json:"compact_model,omitempty"`
-	CompactProvider *string `json:"compact_provider,omitempty"`
-	CompactPercent  *int    `json:"compact_percent,omitempty"`
-	GoalMaxRounds   *int    `json:"goal_max_rounds,omitempty"`
-	MaxRetries      *int    `json:"max_retries,omitempty"`
+	RemoteHosts     *[]config.RemoteHost `json:"remote_hosts,omitempty"`
+	ImportClaude    *bool                `json:"import_claude,omitempty"`
+	ImportCodex     *bool                `json:"import_codex,omitempty"`
+	Revision        string               `json:"revision"`
+	DefaultModel    *string              `json:"default_model,omitempty"`
+	DefaultProvider *string              `json:"default_provider,omitempty"`
+	DefaultEffort   *string              `json:"default_effort,omitempty"`
+	CompactModel    *string              `json:"compact_model,omitempty"`
+	CompactProvider *string              `json:"compact_provider,omitempty"`
+	CompactPercent  *int                 `json:"compact_percent,omitempty"`
+	GoalMaxRounds   *int                 `json:"goal_max_rounds,omitempty"`
+	MaxRetries      *int                 `json:"max_retries,omitempty"`
 }
 
 type ProviderKeySetup struct {

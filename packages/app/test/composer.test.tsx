@@ -15,10 +15,13 @@ import { CompositionStore } from '../src/compositions';
 import { SubmittedInputs } from '../src/input-presentation';
 import { SessionTabs } from '../src/session-tabs';
 
-beforeEach(() => vi.stubGlobal('ResizeObserver', class {
-  observe() {}
-  disconnect() {}
-}));
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {}
+    disconnect() {}
+  });
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+});
 afterEach(() => vi.unstubAllGlobals());
 
 function fixture() {
@@ -46,7 +49,7 @@ function fixture() {
     rootId: 'root',
     command: vi.fn(() => ({})),
   } as unknown as Session;
-  const app = (agentId: string, viewId?: string) => (
+  const app = (agentId: string, viewId?: string, active = false) => (
     <RuntimeContext.Provider value={runtime}>
       <UIProvider>
         <Composer
@@ -56,12 +59,46 @@ function fixture() {
           agentId={agentId}
           connected
           runtimeId="runtime"
+          active={active}
         />
       </UIProvider>
     </RuntimeContext.Provider>
   );
   return { drafts, waits, app, session, runtime };
 }
+
+it('focuses the composer when its desktop chat view becomes active', async () => {
+  const f = fixture();
+  const rendered = render(f.app('a', 'one'));
+  const input = screen.getByLabelText('Message this agent');
+  expect(document.activeElement).not.toBe(input);
+  rendered.rerender(f.app('a', 'one', true));
+  await waitFor(() => expect(document.activeElement).toBe(input));
+});
+
+it('does not summon the composer on compact screens', async () => {
+  vi.mocked(window.matchMedia).mockReturnValue({ matches: false } as MediaQueryList);
+  const f = fixture();
+  render(f.app('a', 'one', true));
+  const input = screen.getByLabelText('Message this agent');
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+  expect(document.activeElement).not.toBe(input);
+});
+
+it('does not move focus out of an open overlay', async () => {
+  const f = fixture();
+  const overlay = document.createElement('div');
+  overlay.setAttribute('role', 'dialog');
+  const button = document.createElement('button');
+  overlay.append(button);
+  document.body.append(overlay);
+  button.focus();
+  render(f.app('a', 'one', true));
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+  expect(document.activeElement).toBe(button);
+  overlay.remove();
+});
+
 it('a late acceptance for one recipient cannot clear another recipient’s identical draft', async () => {
   const f = fixture();
   const rendered = render(f.app('a'));
@@ -126,7 +163,7 @@ it('keeps the acceptance latch and a newer draft through closing and reopening t
   ).toBe('newer unsent draft');
   await act(async () => f.waits[0]!.finish());
 });
-it('restores selection on reopening without focusing the composer', () => {
+it('restores selection on reopening while the chat view is inactive', () => {
   const f = fixture();
   const first = render(f.app('a'));
   const input = screen.getByLabelText(
@@ -159,7 +196,7 @@ it('clears an unchanged reopened composer when its detached submission is accept
 it('shares recipient text and submission lock across views without stealing focus on late acceptance', async () => {
   const f = fixture();
   f.runtime.tabs.visit('runtime', 'root', { agent: 'a' });
-  const duplicate = f.runtime.tabs.split('runtime', 'root', 'right');
+  const duplicate = f.runtime.tabs.split('root', 'right');
   render(<>{f.app('a', 'root')}{f.app('a', duplicate)}</>);
   const inputs = screen.getAllByLabelText('Message this agent') as HTMLTextAreaElement[];
   fireEvent.change(inputs[0]!, { target: { value: 'Shared recipient draft' } });
