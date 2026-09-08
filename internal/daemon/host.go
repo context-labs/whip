@@ -195,8 +195,10 @@ func directoryPickCommand(goos, start string) (name string, args []string, cance
 		}
 	case "windows":
 		// `4` is the SSF_DESKTOPDIRECTORY folder constant (numeric so quoting is moot).
-		return "powershell", []string{"-NoProfile", "-NonInteractive", "-Command",
-				`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Choose a working directory'; $d.RootFolder = 4; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }`},
+		return "powershell", []string{
+				"-NoProfile", "-NonInteractive", "-Command",
+				`Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Choose a working directory'; $d.RootFolder = 4; if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath }`,
+			},
 			func(output string) bool { return output == "" } // cancel prints no path
 	}
 	return "", nil, nil
@@ -216,7 +218,7 @@ func hostDirectoryPick(ctx context.Context, p protocol.HostDirectoryPickParams) 
 		return result, fmt.Errorf("no native folder picker available on %s", runtime.GOOS)
 	}
 	var stdout, stderr strings.Builder
-	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: fixed platform chooser binaries; the validated start path is passed as data
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()

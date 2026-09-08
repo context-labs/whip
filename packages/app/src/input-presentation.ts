@@ -39,12 +39,13 @@ export class SubmittedInputs {
     scope: Pick<SubmittedInput, 'runtimeId' | 'rootId' | 'agentId'>,
     text: string,
     queued = false,
+    id: string = crypto.randomUUID(),
   ) {
     const input = Object.freeze({
       ...scope,
       text,
       queued,
-      id: crypto.randomUUID(),
+      id,
       sentAt: new Date().toISOString(),
       accepted: false,
       confirmed: false,

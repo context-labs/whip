@@ -106,6 +106,16 @@ CI and security checks. Stable whip continues to use `v*` releases. Source build
 use `npm ci && task build:whipcode`; `task install:whipcode` installs into GOBIN
 or GOPATH/bin. These local builds report `dev` unless `WHIPCODE_VERSION` is set.
 
+The macOS desktop app uses the same installed **whipcode** backend. In
+**Execution hosts → This Mac**, choose the canonical executable (normally
+`/usr/local/bin/whipcode`), or explicitly install the verified bundled payload.
+**Test Connection** reports installation and daemon status without starting it;
+**Connect** starts or attaches to that installation under `~/.whipcode`.
+Desktop updates preserve the backend and its work. For a CLI-first start with
+the desktop's fixed local web endpoint, use
+`WHIPCODE_LISTEN=127.0.0.1:8080 whipcode daemon start`. See the
+[desktop guide](docs/desktop.md) for packaging, setup and explicit backend upgrades.
+
 ## Documentation
 
 - [Manual](docs/README.md)

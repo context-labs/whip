@@ -1,0 +1,42 @@
+{
+  "bundle": "/Applications/Whip.app",
+  "version": "0.1.2",
+  "distribution": "whipcode",
+  "buildId": "local-efeb8242951a",
+  "rendererDigest": "99beb5db8c00726023e6abfd6b5bc8449a74fcc0f4c6fb8a44a7c8e242949f16",
+  "nativeFiles": {
+    "whipcode": {
+      "bytes": 41117776,
+      "sha256": "d9a1167152620fa1347e27037e77f01309ae1c87e93c7eb4272999d9b199953c"
+    },
+    "whip-computer": {
+      "bytes": 431648,
+      "sha256": "ae68bf61ed7088b1e24f26b9eff38a28123d0da191557a6bd78ad09adf3e41b6"
+    }
+  },
+  "source": {
+    "commit": "efeb8242951a75040b0ba5f81f78ce859b16d7de",
+    "dirty": true,
+    "lockfile": "305e8be9b5a01041daf9bc2c8b1a18bcd47895d988d6784c036ad1d5a1d42f06"
+  },
+  "compatibility": {
+    "protocolMajor": 4,
+    "protocolMinor": 1,
+    "schemaVersion": 10
+  },
+  "teamId": "JAPWPV5JY2",
+  "fuses": {
+    "0": 48,
+    "1": 49,
+    "2": 48,
+    "3": 48,
+    "4": 49,
+    "5": 49,
+    "6": 48,
+    "7": 48,
+    "8": 49,
+    "version": "1"
+  },
+  "signed": true,
+  "notarized": true
+}

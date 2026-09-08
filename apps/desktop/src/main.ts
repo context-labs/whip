@@ -1,11 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, protocol, screen, session } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { validateProfile } from '@whip/app/platform';
 import type { DesktopEvent, HostPrompt } from '@whip/app/desktop-bridge';
 import { createAssetHandler, desktopScheme, desktopURL, isDesktopURL, type RendererManifest } from './assets';
-import { installRuntime, prepareLocal, readRuntimeManifest, runtimeEnvironment } from './runtime';
+import { LocalRuntime, readRuntimeManifest, runtimeEnvironment } from './runtime';
 import { DesktopTransports, validHandle } from './transport';
 import { NativeEffects } from './native';
 import { SSHConnection } from './ssh';
@@ -15,11 +16,11 @@ import { attachStartupProbe } from './startup-probe';
 
 protocol.registerSchemesAsPrivileged([{ scheme: desktopScheme,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
-// Fixtures must opt in explicitly; never silently attach dev scripts to ~/.whip.
+// Fixtures must opt in explicitly; never silently attach dev scripts to ~/.whipcode.
 if (!app.isPackaged || process.env.WHIP_DESKTOP_FIXTURE) {
-  if (!process.env.WHIP_DESKTOP_FIXTURE || !process.env.WHIP_HOME || !process.env.WHIP_DESKTOP_USER_DATA)
-    throw new Error('Development requires an isolated WHIP_HOME and WHIP_DESKTOP_USER_DATA');
-  if (!path.isAbsolute(process.env.WHIP_HOME) || !path.isAbsolute(process.env.WHIP_DESKTOP_USER_DATA))
+  if (!process.env.WHIP_DESKTOP_FIXTURE || !process.env.WHIPCODE_HOME || !process.env.WHIP_DESKTOP_USER_DATA || !process.env.WHIP_DESKTOP_EXECUTABLE)
+    throw new Error('Development requires isolated WHIPCODE_HOME, WHIP_DESKTOP_USER_DATA and WHIP_DESKTOP_EXECUTABLE paths');
+  if (!path.isAbsolute(process.env.WHIPCODE_HOME) || !path.isAbsolute(process.env.WHIP_DESKTOP_USER_DATA) || !path.isAbsolute(process.env.WHIP_DESKTOP_EXECUTABLE))
     throw new Error('Fixture data paths must be absolute');
   app.setPath('userData', process.env.WHIP_DESKTOP_USER_DATA);
 }
@@ -59,10 +60,16 @@ async function start() {
   const renderer = JSON.parse(await readFile(path.join(root, 'renderer-manifest.json'), 'utf8')) as RendererManifest;
   const manifest = await readRuntimeManifest(path.join(root, 'runtime-manifest.json'));
   const config = readDesktopConfig(JSON.parse(await readFile(path.join(root, 'desktop-config.json'), 'utf8')));
-  if (config.channel === 'beta' && !process.env.WHIP_HOME) process.env.WHIP_HOME = path.join(app.getPath('userData'), 'runtime-home');
   if (manifest.rendererDigest !== renderer.digest) throw new Error('The renderer and runtime belong to different builds');
   const source = app.isPackaged ? path.join(process.resourcesPath, '..', 'Helpers') : path.join(root, '..', 'native');
-  const retainedRoot = path.join(app.getPath('userData'), 'runtimes');
+  const localRuntime = new LocalRuntime({ source, manifest,
+    settingsFile: path.join(app.getPath('userData'), 'native-local-runtime.json'),
+    confirmUpdate: async detail => (await dialog.showMessageBox(window, { type: 'warning',
+      message: 'Restart and update the local Whip backend?', detail,
+      buttons: ['Later', 'Restart and update'], defaultId: 0, cancelId: 0 })).response === 1,
+    defaultExecutable: process.env.WHIP_DESKTOP_FIXTURE ? process.env.WHIP_DESKTOP_EXECUTABLE : undefined });
+  let runtimeLifetime = new AbortController();
+  const cancelRuntimeActions = () => { runtimeLifetime.abort(); runtimeLifetime = new AbortController(); };
   protocol.handle(desktopScheme, createAssetHandler(path.join(root, 'renderer'), renderer));
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, respond) => respond(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
@@ -119,6 +126,29 @@ async function start() {
       catch { void disposeConnections(); }
     });
   };
+  let runtimeActionPending = false;
+  const runtimeAction = (name: string, action: (signal: AbortSignal) => Promise<unknown>) => handle(name, async (...args: unknown[]) => {
+    if (args.length) throw new Error('Local runtime actions do not accept arguments.');
+    if (runtimeActionPending) throw new Error('A local runtime action is already in progress.');
+    runtimeActionPending = true;
+    try { return await action(AbortSignal.any([runtimeLifetime.signal, AbortSignal.timeout(45_000)])); }
+    finally { runtimeActionPending = false; }
+  });
+  runtimeAction('testLocalRuntime', signal => localRuntime.test(signal));
+  runtimeAction('chooseLocalRuntime', async signal => {
+    const choice = await dialog.showOpenDialog(window, { title: 'Choose whipcode executable', properties: ['openFile'], buttonLabel: 'Use whipcode' });
+    signal.throwIfAborted();
+    return choice.canceled || !choice.filePaths[0] ? localRuntime.test(signal) : localRuntime.choose(choice.filePaths[0], signal);
+  });
+  runtimeAction('installLocalRuntime', async signal => {
+    const current = await localRuntime.test(signal);
+    if (!current.canInstall) throw new Error('whipcode is already installed. Desktop will not overwrite an existing backend.');
+    const choice = await dialog.showSaveDialog(window, { title: 'Install whipcode', buttonLabel: 'Install whipcode',
+      defaultPath: current.executable || path.join(homedir(), '.local/bin/whipcode'), message: 'Desktop and terminal will share this executable. Desktop will keep the binary updated with the app.' });
+    signal.throwIfAborted();
+    return choice.canceled || !choice.filePath ? current : localRuntime.install(choice.filePath, signal);
+  });
+  runtimeAction('restartLocalRuntime', signal => localRuntime.restart(signal));
   handle('prepareConnection', async (id: string, input: unknown) => {
     validHandle(id);
     const profile = validateProfile(input);
@@ -131,12 +161,12 @@ async function start() {
       const signal = connection.controller.signal;
       if (profile.target.kind === 'ssh') {
         progress('Preparing SSH…');
-        const installed = await installRuntime(source, retainedRoot, manifest, signal);
+        const executable = await localRuntime.executable(signal);
         const env = await runtimeEnvironment(signal);
-        connection.ssh = new SSHConnection({ target: profile.target, executable: installed.executable, env, signal, progress,
+        connection.ssh = new SSHConnection({ target: profile.target, executable, env, signal, progress,
           prompt: (value, lifetime) => prompt(id, value, lifetime) });
         connection.socket = await connection.ssh.getSocket();
-      } else connection.socket = await prepareLocal({ source, retainedRoot, manifest, signal, progress });
+      } else connection.socket = await localRuntime.prepare(signal, progress);
       connection.controller.signal.throwIfAborted();
     } catch (error) { if (connections.get(id) === connection) await release(id); throw error; }
   });
@@ -173,12 +203,20 @@ async function start() {
   handle('checkForUpdates', () => updates.check());
   handle('installUpdate', () => updates.install());
   let rendererReady = false;
+  let checkedLocalUpdate = false;
   openSession = path => {
     window.show(); window.focus();
     if (rendererReady) emit({ kind: 'navigate', path }); else pendingSessionPath = path;
   };
   listen('ready', () => {
     rendererReady = true; updates.ready(); if (!window.isVisible()) window.show();
+    if (!checkedLocalUpdate) {
+      checkedLocalUpdate = true;
+      const signal = runtimeLifetime.signal;
+      void localRuntime.synchronize(signal).catch(error => {
+        if (!signal.aborted && !(error instanceof Error && error.name === 'AbortError')) dialog.showErrorBox('Local backend update needs attention', error instanceof Error ? error.message : 'Connect This Mac to retry the update.');
+      });
+    }
     if (pendingSessionPath) { const path = pendingSessionPath; pendingSessionPath = undefined; openSession?.(path); }
   });
   let quitApproved = false;
@@ -194,7 +232,7 @@ async function start() {
     const temporary = `${boundsFile}.tmp`;
     await writeFile(temporary, JSON.stringify(window.getNormalBounds()), { mode: 0o600 }); await rename(temporary, boundsFile);
   };
-  const requestClose = async (reason: 'quit' | 'reload' | 'update') => {
+  const requestClose = async (reason: 'quit' | 'reload' | 'update', updateVersion?: string) => {
     if (closeInProgress) return;
     closeInProgress = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -205,20 +243,25 @@ async function start() {
         if (rendererReady && !window.webContents.isCrashed()) emit({ kind: 'close-request', id, reason });
       });
       clearTimeout(timer);
-      if (result.attachments || result.error) {
+      if (result.attachments || result.error || reason === 'update') {
         const choice = await dialog.showMessageBox(window, { type: 'warning', buttons: ['Cancel', reason === 'quit' ? 'Quit Whip' : reason === 'update' ? 'Restart to update' : 'Reload'],
-          defaultId: 0, cancelId: 0, message: 'Some work is only stored in this window',
-          detail: [result.error, result.attachments ? 'Unsent file attachments will be lost.' : undefined].filter(Boolean).join('\n') });
+          defaultId: 0, cancelId: 0, message: reason === 'update' ? 'Restart and update Whip?' : 'Some work is only stored in this window',
+          detail: [reason === 'update' ? 'The app and its managed local backend will update together. Restarting the backend interrupts work from all connected clients; sessions and configuration remain on disk.' : undefined,
+            result.error, result.attachments ? 'Unsent file attachments will be lost.' : undefined].filter(Boolean).join('\n') });
         if (choice.response !== 1) return;
       }
       await saveBounds().catch(() => {});
       if (reason === 'update') {
+        await localRuntime.approveUpdate(updateVersion, runtimeLifetime.signal);
         // Leave observations alive if Squirrel fails before it can quit.
         quitApproved = true;
-        try { updates.quitAndInstall(); } catch (error) { quitApproved = false; throw error; }
+        try { updates.quitAndInstall(); } catch (error) {
+          quitApproved = false; await localRuntime.approveUpdate(undefined, runtimeLifetime.signal); throw error;
+        }
         return;
       }
       await disposeConnections(); await native.dispose();
+      cancelRuntimeActions();
       if (reason === 'quit') { quitApproved = true; app.quit(); }
       else { rendererReady = false; window.webContents.setBackgroundThrottling(true); window.webContents.reload(); }
     } catch (error) {
@@ -226,9 +269,12 @@ async function start() {
       dialog.showErrorBox('Whip could not complete this action', error instanceof Error ? error.message : 'Please try again.');
     } finally { clearTimeout(timer); pendingClose = undefined; closeInProgress = false; }
   };
-  const updates = new DesktopUpdates(config, emit, () => requestClose('update'), quitting => { quitApproved = quitting; });
+  const updates = new DesktopUpdates(config, emit, version => requestClose('update', version), quitting => {
+    quitApproved = quitting;
+    if (!quitting) void localRuntime.approveUpdate(undefined, runtimeLifetime.signal).catch(() => {});
+  });
   app.on('before-quit', event => { if (!quitApproved) { event.preventDefault(); void requestClose('quit'); } });
-  app.on('will-quit', () => { updates.dispose(); void disposeConnections(); void native.dispose(); transports.dispose(); });
+  app.on('will-quit', () => { runtimeLifetime.abort(); updates.dispose(); void disposeConnections(); void native.dispose(); transports.dispose(); });
   app.on('second-instance', () => { window.show(); window.focus(); });
   app.on('activate', () => { window.show(); window.focus(); });
   window.on('close', event => {
@@ -243,6 +289,7 @@ async function start() {
   window.webContents.on('will-redirect', (event, url) => { if (!rendererURL(url)) event.preventDefault(); });
   window.webContents.on('will-attach-webview', event => event.preventDefault());
   window.webContents.on('render-process-gone', () => {
+    cancelRuntimeActions();
     window.webContents.setBackgroundThrottling(true);
     rendererReady = false; void disposeConnections(); void native.dispose();
     void dialog.showMessageBox(window, { type: 'error', message: 'The Whip window stopped responding',

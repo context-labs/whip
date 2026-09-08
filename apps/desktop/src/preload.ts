@@ -25,6 +25,10 @@ const bridge: DesktopBridge = {
   copy: text => invoke('copy', text),
   openExternal: url => invoke('openExternal', url),
   pickDirectory: () => invoke('pickDirectory'),
+  testLocalRuntime: () => invoke('testLocalRuntime'),
+  chooseLocalRuntime: () => invoke('chooseLocalRuntime'),
+  installLocalRuntime: () => invoke('installLocalRuntime'),
+  restartLocalRuntime: () => invoke('restartLocalRuntime'),
   beginSave: (filename, mediaType, bytes) => invoke('beginSave', filename, mediaType, bytes),
   writeSave: (id, offset, bytes) => {
     if (!(bytes instanceof Uint8Array) || bytes.length > 256 << 10) return Promise.reject(new Error('Save chunk limit exceeded'));

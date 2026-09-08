@@ -19,9 +19,9 @@ permissions:
 
 jobs:
   package:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
-    environment: desktop-${{ inputs.channel }}
+    environment: desktop-signing
     env:
       WHIP_DESKTOP_VERSION: ${{ inputs.version }}
       WHIP_DESKTOP_CHANNEL: ${{ inputs.channel }}
@@ -29,18 +29,18 @@ jobs:
       WHIP_DESKTOP_NOTARIZE: '1'
       WHIP_DESKTOP_SIGN_IDENTITY: ${{ vars.WHIP_DESKTOP_SIGN_IDENTITY }}
       WHIP_DESKTOP_TEAM_ID: ${{ vars.WHIP_DESKTOP_TEAM_ID }}
-      WHIP_DESKTOP_UPDATE_URL: ${{ vars.WHIP_DESKTOP_UPDATE_URL }}
+      WHIP_DESKTOP_UPDATE_URL: ${{ inputs.channel == 'beta' && vars.WHIP_DESKTOP_BETA_UPDATE_URL || vars.WHIP_DESKTOP_STABLE_UPDATE_URL }}
       WHIP_DESKTOP_NOTARY_KEY_ID: ${{ vars.WHIP_DESKTOP_NOTARY_KEY_ID }}
       WHIP_DESKTOP_NOTARY_ISSUER: ${{ vars.WHIP_DESKTOP_NOTARY_ISSUER }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
           cache: npm
@@ -59,7 +59,7 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: node node_modules/electron/install.js
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: ${{ inputs.renderer-artifact }}
           path: apps/web
@@ -73,6 +73,15 @@ jobs:
         run: node apps/desktop/scripts/ci-signing.mjs setup
       - name: Make and verify signed, notarized release artifacts
         run: npm run make:desktop -- --renderer-ready
+      - name: Test the actual signed native helpers
+        run: WHIP_DESKTOP_SSH_TEST_EXECUTABLE="$PWD/apps/desktop/.stage/native/whipcode" npm run test:desktop
+      - name: Staged signed-payload startup acceptance
+        run: node apps/desktop/scripts/smoke.mjs
+      - name: LaunchServices acceptance of the signed and notarized app
+        shell: bash
+        run: |
+          if [ "$WHIP_DESKTOP_CHANNEL" = beta ]; then product='Whip Beta'; else product='Whip'; fi
+          node apps/desktop/scripts/startup.mjs "apps/desktop/out/$product-darwin-arm64/$product.app" --notarized --samples 30 --first-samples 1 --output apps/desktop/out/release/signed-startup.json
       - name: Require final release evidence
         run: |
           node --input-type=module <<'NODE'
@@ -86,7 +95,7 @@ jobs:
             if (!(await stat(`${root}/${name}`)).size) throw new Error(`Missing final ${name}`);
           }
           NODE
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: desktop-release-arm64
           path: apps/desktop/out/release

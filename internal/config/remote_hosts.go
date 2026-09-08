@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -23,12 +24,12 @@ func NormalizeRemoteHosts(hosts []RemoteHost) ([]RemoteHost, error) {
 	runtimes := make(map[string]bool, len(hosts))
 	for _, host := range hosts {
 		if host.ID == "local" {
-			return nil, fmt.Errorf("a remote host cannot replace Local")
+			return nil, errors.New("a remote host cannot replace Local")
 		}
 		host.Name = strings.TrimSpace(host.Name)
 		for _, identity := range []string{host.ID, host.Name, host.RuntimeID} {
 			if strings.TrimSpace(identity) == "" || strings.ContainsAny(identity, "\r\n\t\x00") {
-				return nil, fmt.Errorf("remote host requires an ID, name, and verified runtime ID")
+				return nil, errors.New("remote host requires an ID, name, and verified runtime ID")
 			}
 		}
 		endpoint, err := url.Parse(strings.TrimSpace(host.URL))

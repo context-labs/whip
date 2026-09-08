@@ -25,6 +25,10 @@ const installURL = "https://raw.githubusercontent.com/context-labs/whip/main/ins
 // updateCLI implements `whip update`: re-run the install script to get the
 // latest release.
 func updateCLI() error {
+	if buildinfo.UpdateOwner == "desktop" {
+		fmt.Println("This whipcode installation is updated by Whip desktop. Open Whip → Check for Updates to update the app and backend together.")
+		return nil
+	}
 	url := installURL
 	if buildinfo.Name == "whipcode" {
 		url = "https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh"

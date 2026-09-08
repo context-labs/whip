@@ -1,8 +1,14 @@
 # Whip mobile companion: research and implementation plan
 
-Branch: planning on `whip-rlm`; proposed implementation branch `codex/mobile-companion`
+Branch: integrated into `whip-rlm` from `mobile-app` (checkpoint `0245ec9e6`).
 
-Status: proposal, not implemented or device-tested. Researched September 7, 2026.
+Checkout: `/Users/samheutmaker/Desktop/context-labs/src/rlm/whip`
+
+The original mobile worktree remains available. See [merge evidence](MERGE-EVIDENCE.md).
+
+Status: core implementation and automated checks are in place; native/device and
+distribution acceptance remain in progress. Researched September 7, 2026.
+See [implementation evidence](EVIDENCE.md) for verified results and limitations.
 Updated scope: manual server URL over Tailscale; app authentication, QR pairing
 and notifications deferred at the user's request.
 

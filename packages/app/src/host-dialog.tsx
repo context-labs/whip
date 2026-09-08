@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Dialog, Input, Switch } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
-import { errorMessage } from './platform';
+import { errorMessage, type AppLocalRuntime, type LocalRuntimeStatus } from './platform';
 import type { HostConnection } from './hosts';
 import { layout } from './styles';
 import { SSHFields } from './connection-dialog';
@@ -30,6 +30,7 @@ function HostManager({ onSaved }: { onSaved(id: string): void }) {
   const [connectOnLaunch, setConnectOnLaunch] = useState(true);
   const [acceptIdentity, setAcceptIdentity] = useState(false);
   const [pending, setPending] = useState(false);
+  const [localPending, setLocalPending] = useState(false);
   const [error, setError] = useState('');
   const canSave = state.home?.state === 'connected' && state.profilesReady;
   useEffect(() => { void runtime.connections.refreshProfiles().catch(() => {}); }, [runtime]);
@@ -52,16 +53,19 @@ function HostManager({ onSaved }: { onSaved(id: string): void }) {
             <span>{host.state === 'closed' ? 'Disconnected' : host.state}</span>
           </div>
           <div {...stylex.props(layout.row)}>
-            <Button variant="ghost" disabled={pending} onClick={() => void action(async () => {
+            <Button variant="ghost" disabled={pending || localPending} onClick={() => void action(async () => {
               if (host.client || host.state === 'connecting') runtime.connections.disconnect(host.id); else { await runtime.connections.connect(host.id); runtime.connections.select(host.id); }
             })}>{host.client ? 'Disconnect' : host.state === 'connecting' ? 'Cancel connection' : 'Connect'}</Button>
-            {(!host.local || host.device) && <Button variant="ghost" disabled={pending} onClick={() => edit(host)}>Edit</Button>}
+            {(!host.local || host.device) && <Button variant="ghost" disabled={pending || localPending} onClick={() => edit(host)}>Edit</Button>}
             {!host.local && <Button variant="ghost" disabled={pending || (!host.device && !canSave)} onClick={() => void action(() => runtime.connections.remove(host.id))}>Remove</Button>}
           </div>
         </div>
         <span {...stylex.props(layout.muted)}>{host.profile.target.kind === 'ssh' ? `SSH · ${host.profile.target.host}` : host.endpoint}</span>
         {host.progress && <p role="status">{host.progress}</p>}
         {host.error && <p role="status" {...stylex.props(layout.muted)}>{host.error}</p>}
+        {host.profile.target.kind === 'local' && runtime.platform.localRuntime && <LocalRuntimePanel
+          api={runtime.platform.localRuntime} hostState={host.state} disabled={pending}
+          onBusyChange={setLocalPending} />}
       </div>)}
     </div>
     {state.profileError && <p role="status">{state.profileError}</p>}
@@ -122,6 +126,75 @@ function HostManager({ onSaved }: { onSaved(id: string): void }) {
   </div>;
 }
 
+function LocalRuntimePanel({ api, hostState, disabled, onBusyChange }: {
+  api: AppLocalRuntime; hostState: HostConnection['state']; disabled: boolean; onBusyChange(busy: boolean): void;
+}) {
+  const mounted = useRef(true);
+  const request = useRef(0);
+  const active = useRef<keyof AppLocalRuntime | undefined>(undefined);
+  const [pending, setPending] = useState<keyof AppLocalRuntime>();
+  const [status, setStatus] = useState<LocalRuntimeStatus>();
+  const [error, setError] = useState('');
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; request.current++; onBusyChange(false); };
+  }, [onBusyChange]);
+  const run = async (method: keyof AppLocalRuntime) => {
+    if (active.current && (active.current !== 'test' || method !== 'test')) return;
+    const id = ++request.current;
+    active.current = method; setPending(method); onBusyChange(true); setError(''); setConfirmRestart(false);
+    try {
+      const result = await api[method]();
+      if (mounted.current && id === request.current) setStatus(result);
+    } catch (error) {
+      if (mounted.current && id === request.current) setError(errorMessage(error));
+    } finally {
+      if (mounted.current && id === request.current) {
+        active.current = undefined; setPending(undefined); onBusyChange(false);
+      }
+    }
+  };
+  useEffect(() => {
+    if (hostState !== 'connecting') void run('test');
+  }, [api, hostState]);
+  const busy = disabled || pending !== undefined;
+  return <section aria-label="This Mac runtime" {...stylex.props(layout.column)}>
+    <p role="status" {...stylex.props(styles.runtimeMessage)}>{pending === 'test' ? 'Locating whipcode, checking the installation and contacting the daemon…'
+      : pending === 'choose' ? 'Choose the whipcode executable in the native file dialog…'
+      : pending === 'install' ? 'Installing the verified whipcode runtime…'
+      : pending === 'restart' ? 'Restarting the local daemon…'
+      : status?.message ?? 'Test the local whipcode installation to see its status.'}</p>
+    {error && <p role="alert" {...stylex.props(layout.error, styles.runtimeMessage)}>{error}</p>}
+    <div {...stylex.props(layout.row, layout.wrap)}>
+      <Button variant="secondary" disabled={busy} loading={pending === 'test'} onClick={() => void run('test')}>Test Connection</Button>
+      <Button variant="ghost" disabled={busy} loading={pending === 'choose'} onClick={() => void run('choose')}>Choose executable</Button>
+      {status?.canInstall && <Button variant="primary" disabled={busy} loading={pending === 'install'} onClick={() => void run('install')}>Install whipcode</Button>}
+      {status?.executable && status.state !== 'missing' && status.state !== 'stopped' && <Button variant="ghost" disabled={busy} loading={pending === 'restart'} onClick={() => setConfirmRestart(true)}>Restart daemon</Button>}
+    </div>
+    {status?.state === 'stopped' && <p {...stylex.props(layout.muted, styles.runtimeMessage)}>Use Connect above to start this daemon. Test Connection does not start it.</p>}
+    {confirmRestart && <div {...stylex.props(layout.column, layout.notice)}>
+      <p {...stylex.props(styles.runtimeMessage)}>Restarting interrupts running work on This Mac, including work started from the CLI or web app. Existing sessions are retained.</p>
+      <div {...stylex.props(layout.row, layout.wrap)}>
+        <Button variant="danger" disabled={busy} onClick={() => void run('restart')}>Interrupt work and restart</Button>
+        <Button variant="ghost" disabled={busy} onClick={() => setConfirmRestart(false)}>Cancel restart</Button>
+      </div>
+    </div>}
+    {status && <details>
+      <summary>Runtime diagnostics</summary>
+      <dl {...stylex.props(styles.diagnostics)}>
+        <dt>Last checked state</dt><dd>{status.state}</dd>
+        <dt>Executable</dt><dd><code>{status.executable ?? 'No executable selected'}</code></dd>
+        <dt>State directory</dt><dd><code>{status.home}</code></dd>
+        <dt>Client build</dt><dd><code>{status.clientBuild ?? 'Unavailable'}</code></dd>
+        <dt>Daemon build</dt><dd><code>{status.daemonBuild ?? 'Unavailable'}</code></dd>
+      </dl>
+    </details>}
+  </section>;
+}
+
 const styles = stylex.create({
   identity: { flex: '1 1 160px' },
+  runtimeMessage: { margin: 0 },
+  diagnostics: { display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 8, overflowWrap: 'anywhere' },
 });

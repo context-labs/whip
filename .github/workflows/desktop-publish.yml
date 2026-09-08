@@ -1,0 +1,75 @@
+name: desktop publish
+on:
+  workflow_call:
+    inputs:
+      channel:
+        required: true
+        type: string
+      source:
+        required: true
+        type: string
+      mode:
+        required: true
+        type: string
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Only promote environments require human review. Their deployment rules
+    # permit desktop-v* tags; the stage operation leaves the live feed unchanged.
+    environment: desktop-${{ inputs.channel }}-${{ inputs.mode }}
+    permissions:
+      contents: write
+      attestations: read
+    env:
+      SOURCE_SHA: ${{ inputs.source }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      WHIP_DESKTOP_PUBLISH_MODE: ${{ inputs.mode }}
+      WHIP_DESKTOP_UPDATE_URL: ${{ vars.WHIP_DESKTOP_UPDATE_URL }}
+      WHIP_DESKTOP_BUCKET: ${{ vars.WHIP_DESKTOP_BUCKET }}
+      WHIP_DESKTOP_R2_ENDPOINT: ${{ vars.WHIP_DESKTOP_R2_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: desktop-candidate
+          path: candidate
+      - name: Require exact source and artifact identity before any publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node apps/desktop/scripts/release-candidate.mjs verify candidate
+          for artifact in candidate/*; do
+            gh attestation verify "$artifact" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow context-labs/whip/.github/workflows/release-desktop.yml \
+              --source-digest "$SOURCE_SHA" --source-ref "$GITHUB_REF" \
+              --signer-digest "$SOURCE_SHA" --deny-self-hosted-runners
+          done
+      - name: Stage or promote the complete verified GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node apps/desktop/scripts/publish-github.mjs candidate/*
+      - name: Stage immutable public downloads without changing the feed
+        env:
+          WHIP_DESKTOP_R2_ACCESS_KEY_ID: ${{ secrets.WHIP_DESKTOP_R2_ACCESS_KEY_ID }}
+          WHIP_DESKTOP_R2_SECRET_ACCESS_KEY: ${{ secrets.WHIP_DESKTOP_R2_SECRET_ACCESS_KEY }}
+        if: inputs.mode == 'stage'
+        run: node apps/desktop/scripts/publish.mjs candidate
+      - name: Promote and read back the live feed last
+        env:
+          WHIP_DESKTOP_R2_ACCESS_KEY_ID: ${{ secrets.WHIP_DESKTOP_R2_ACCESS_KEY_ID }}
+          WHIP_DESKTOP_R2_SECRET_ACCESS_KEY: ${{ secrets.WHIP_DESKTOP_R2_SECRET_ACCESS_KEY }}
+        if: inputs.mode == 'promote'
+        run: node apps/desktop/scripts/publish.mjs candidate

@@ -202,7 +202,8 @@ export class SSHConnection {
       progress('Finding Whip on the SSH host…');
       const executable = target.remoteExecutable ?? await remote('PATH="$PATH:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin"; command -v whip');
       if (!path.posix.isAbsolute(executable) && !/^[a-zA-Z0-9_.-]+$/.test(executable)) throw new Error('Whip is not installed on this SSH host; provide its absolute executable path');
-      const program = `${target.remoteHome ? `WHIP_HOME=${shellQuote(target.remoteHome)} ` : ''}${shellQuote(executable)}`;
+      // The explicit remote home applies to either installed distribution.
+      const program = `${target.remoteHome ? `WHIP_HOME=${shellQuote(target.remoteHome)} WHIPCODE_HOME=${shellQuote(target.remoteHome)} ` : ''}${shellQuote(executable)}`;
       let status = parseDaemonStatus(await remote(`${program} daemon status --json`));
       if (status.state === 'unhealthy' && !status.stale_socket) throw new Error(`The remote runtime needs attention: ${status.error ?? 'unhealthy daemon'}`);
       if (status.state === 'stopped' || status.stale_socket) {

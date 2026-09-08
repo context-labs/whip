@@ -44,7 +44,7 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 				return finish(resolveErr)
 			}
 			if admitted.Command.Status != "succeeded" {
-				return finish(errors.New(string(body)))
+				return finish(permissionDecisionFailure(body))
 			}
 			return finish(json.Unmarshal(body, &ticket))
 		}
@@ -67,7 +67,7 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 		var err error
 		if decisionErr != nil {
 			status = "failed"
-			outcome = []byte(decisionErr.Error())
+			outcome = encodeCommandOutcome(command.Kind, "", decisionErr)
 		} else {
 			outcome, err = json.Marshal(ticket)
 			if err != nil {
@@ -79,6 +79,19 @@ func (s *Session) DecidePermissionCommand(ctx context.Context, command sessionst
 		})
 		return finish(errors.Join(decisionErr, finishErr))
 	})
+}
+
+// Earlier permission decisions persisted error text despite declaring JSON.
+// Keep that compatibility local to this operation; other commands stay strict.
+func permissionDecisionFailure(body []byte) *RPCError {
+	var failure RPCError
+	if err := json.Unmarshal(body, &failure); err == nil && failure.Code != 0 {
+		return &failure
+	}
+	if string(body) == capability.ErrDenied.Error() {
+		return rpcFromError(capability.ErrDenied)
+	}
+	return rpcFailure(-32000, string(body))
 }
 
 // rememberedRules validates decision.Remember and names the rules an approval

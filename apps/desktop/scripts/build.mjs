@@ -5,6 +5,7 @@ import { copyFile, cp, lstat, mkdir, readFile, rm, writeFile } from 'node:fs/pro
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { dependencyNotices } from './notices.mjs';
 import { readRendererManifest, repositoryRoot, sha256, verifyRenderer, verifyRendererProvenance } from '../../../scripts/renderer-artifact.mjs';
 
 const desktop = fileURLToPath(new URL('../', import.meta.url));
@@ -24,6 +25,8 @@ export async function buildDesktop({ rendererReady = false } = {}) {
   const metadata = JSON.parse(await readFile(path.join(desktop, 'package.json'), 'utf8'));
   const version = process.env.WHIP_DESKTOP_VERSION || metadata.version;
   if (!/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(version)) throw new Error('Invalid desktop version');
+  const buildId = process.env.WHIPCODE_VERSION || version;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9.+-]{0,127}$/.test(buildId)) throw new Error('Invalid whipcode build ID');
   const channel = process.env.WHIP_DESKTOP_CHANNEL || (version.includes('-') ? 'beta' : 'stable');
   if (!['stable', 'beta'].includes(channel) || (channel === 'stable' && version.includes('-'))) throw new Error('Invalid desktop release channel');
   const appName = channel === 'beta' ? 'Whip Beta' : 'Whip';
@@ -34,7 +37,7 @@ export async function buildDesktop({ rendererReady = false } = {}) {
     if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/RELEASES.json'))
       throw new Error('WHIP_DESKTOP_UPDATE_URL must be an HTTPS RELEASES.json feed');
   }
-  if (!rendererReady) await command('npm', ['run', 'build:web']);
+  await command('npm', ['run', rendererReady ? 'build' : 'build:web']);
   const renderer = await readRendererManifest(path.join(repositoryRoot, 'apps/web/renderer-manifest.json'));
   await verifyRendererProvenance(renderer, repositoryRoot, process.env.WHIP_DESKTOP_RELEASE === '1');
   await verifyRenderer(path.join(repositoryRoot, 'apps/web/dist'), renderer);
@@ -55,24 +58,24 @@ export async function buildDesktop({ rendererReady = false } = {}) {
   // placeholder or let a concurrent CLI build pick up desktop signing inputs.
   const overlay = path.join(stage, 'go-overlay.json');
   await writeFile(overlay, JSON.stringify({ Replace: { [path.join(repositoryRoot, 'internal/computer/bin/whip-computer')]: helper } }));
-  await command('go', ['build', '-overlay', overlay, '-trimpath', '-ldflags', `-s -w -X main.version=${version}`, '-o', path.join(native, 'whip'), './cmd/whip'],
+  await command('go', ['build', '-overlay', overlay, '-trimpath', '-ldflags', `-s -w -X main.version=${buildId} -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode -X github.com/context-labs/whip/internal/buildinfo.UpdateOwner=desktop`, '-o', path.join(native, 'whipcode'), './cmd/whip'],
     { env: { ...process.env, GOOS: 'darwin', GOARCH: 'arm64', CGO_ENABLED: '0' } });
   await command('/usr/bin/codesign', ['--force', '--sign', identity || '-', '--identifier', `${bundleId}.runtime`,
-    ...(identity ? ['--options', 'runtime', '--timestamp'] : []), path.join(native, 'whip')]);
+    ...(identity ? ['--options', 'runtime', '--timestamp'] : []), path.join(native, 'whipcode')]);
   const files = {};
-  for (const name of ['whip', 'whip-computer']) {
+  for (const name of ['whipcode', 'whip-computer']) {
     const bytes = await readFile(path.join(native, name));
     if (!(await lstat(path.join(native, name))).isFile() || !bytes.length) throw new Error(`Missing ${name}`);
     files[name] = { bytes: bytes.length, sha256: sha256(bytes) };
   }
-  if ((await readFile(path.join(native, 'whip'))).indexOf(await readFile(helper)) < 0)
+  if ((await readFile(path.join(native, 'whipcode'))).indexOf(await readFile(helper)) < 0)
     throw new Error('Go did not embed the exact signed helper');
-  const info = JSON.parse((await promisify(execFile)(path.join(native, 'whip'), ['_desktop-runtime-info'],
+  const info = JSON.parse((await promisify(execFile)(path.join(native, 'whipcode'), ['_desktop-runtime-info'],
     { timeout: 5000, maxBuffer: 16 << 10, encoding: 'utf8' })).stdout);
-  if (info.buildId !== version || !Number.isSafeInteger(info.protocolMajor) || info.protocolMajor < 1 ||
+  if (info.distribution !== 'whipcode' || info.updateOwner !== 'desktop' || info.buildId !== buildId || !Number.isSafeInteger(info.protocolMajor) || info.protocolMajor < 1 ||
       !Number.isSafeInteger(info.protocolMinor) || info.protocolMinor < 0 ||
       !Number.isSafeInteger(info.schemaVersion) || info.schemaVersion < 1) throw new Error('Go runtime metadata did not match the requested build');
-  const manifest = { schema: 1, version, architecture: 'arm64', ...(identity ? { teamId } : {}), rendererDigest: renderer.digest,
+  const manifest = { schema: 1, distribution: 'whipcode', version, buildId, architecture: 'arm64', ...(identity ? { teamId } : {}), rendererDigest: renderer.digest,
     source: { ...renderer.source, lockfile: renderer.lockfile }, compatibility: { protocolMajor: info.protocolMajor, protocolMinor: info.protocolMinor, schemaVersion: info.schemaVersion }, files };
   await writeFile(path.join(appDirectory, 'runtime-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   await writeFile(path.join(appDirectory, 'desktop-config.json'), JSON.stringify({ channel, ...(updateURL ? { updateURL } : {}) }, null, 2) + '\n');
@@ -82,6 +85,7 @@ export async function buildDesktop({ rendererReady = false } = {}) {
   await copyFile(path.join(repositoryRoot, 'LICENSE'), path.join(licenses, 'Whip.txt'));
   for (const name of ['LICENSE', 'LICENSES.chromium.html'])
     await copyFile(path.join(repositoryRoot, 'node_modules/electron/dist', name), path.join(licenses, name));
+  await dependencyNotices(path.join(native, 'whipcode'), licenses, version);
   await cp(path.join(repositoryRoot, 'apps/web/dist'), path.join(appDirectory, 'renderer'), { recursive: true });
   await verifyRenderer(path.join(appDirectory, 'renderer'), renderer);
   await build({ absWorkingDir: desktop, entryPoints: { main: 'src/main.ts', preload: 'src/preload.ts' },
@@ -91,7 +95,7 @@ export async function buildDesktop({ rendererReady = false } = {}) {
   await writeFile(path.join(appDirectory, 'package.json'), JSON.stringify({ name: channel === 'beta' ? 'whip-desktop-beta' : 'whip-desktop', productName: appName, version,
     description: 'Whip desktop', author: 'Context Labs', main: 'main.cjs',
     devDependencies: { electron: metadata.devDependencies.electron }, config: { forge: '../../forge.config.cjs' } }, null, 2) + '\n');
-  console.log(`Desktop staged: ${appDirectory}\nRenderer: ${renderer.digest}\nRuntime: ${files.whip.sha256}`);
+  console.log(`Desktop staged: ${appDirectory}\nRenderer: ${renderer.digest}\nRuntime: ${files.whipcode.sha256}`);
   return appDirectory;
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))

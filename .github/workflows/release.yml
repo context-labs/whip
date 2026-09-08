@@ -158,28 +158,14 @@ jobs:
           path: dist/release/${{ matrix.asset }}
           if-no-files-found: error
 
-  desktop:
-    needs: [test, renderer]
-    uses: ./.github/workflows/desktop-release.yml
-    with:
-      renderer-artifact: release-renderer
-      version: ${{ needs.renderer.outputs.version }}
-      channel: ${{ needs.renderer.outputs.channel }}
-    secrets: inherit
-
   release:
-    needs: [build, desktop, renderer]
+    needs: [build, renderer]
     runs-on: ubuntu-latest
-    environment: desktop-${{ needs.renderer.outputs.channel }}
     permissions:
       contents: write
-      id-token: write
     env:
       RELEASE_TAG: ${{ github.ref_name }}
-      WHIP_DESKTOP_UPDATE_URL: ${{ vars.WHIP_DESKTOP_UPDATE_URL }}
-      WHIP_DESKTOP_BUCKET: ${{ vars.WHIP_DESKTOP_BUCKET }}
-      AWS_REGION: ${{ vars.WHIP_DESKTOP_AWS_REGION }}
-      AWS_ROLE_ARN: ${{ vars.WHIP_DESKTOP_AWS_ROLE_ARN }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -187,41 +173,14 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          cache: npm
-      - run: npm ci
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - uses: actions/download-artifact@v8
         with:
           pattern: whip-*
           path: artifacts
           merge-multiple: true
-      - uses: actions/download-artifact@v8
-        with:
-          name: desktop-release-arm64
-          path: desktop-release
-      - name: Require publication configuration
-        run: |
-          node --input-type=module <<'NODE'
-          for (const name of ['WHIP_DESKTOP_UPDATE_URL', 'WHIP_DESKTOP_BUCKET', 'AWS_REGION', 'AWS_ROLE_ARN']) {
-            if (!process.env[name]?.trim()) throw new Error(`Missing release configuration: ${name}`);
-          }
-          NODE
-      - uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.WHIP_DESKTOP_AWS_ROLE_ARN }}
-          aws-region: ${{ vars.WHIP_DESKTOP_AWS_REGION }}
-          role-session-name: whip-release-${{ github.run_id }}
-          mask-aws-account-id: true
       - name: CLI checksums
         run: |
           cd artifacts
           sha256sum whip-* > SHA256SUMS
-      - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          node apps/desktop/scripts/publish-github.mjs artifacts/whip-* artifacts/SHA256SUMS install.sh \
-            desktop-release/*.dmg desktop-release/*.zip desktop-release/RELEASES.json desktop-release/evidence.json
-      - name: Publish verified desktop assets and promote feed last
-        run: node apps/desktop/scripts/publish.mjs desktop-release
+      - name: Publish the standalone CLI release
+        run: node apps/desktop/scripts/publish-github.mjs artifacts/whip-* artifacts/SHA256SUMS install.sh

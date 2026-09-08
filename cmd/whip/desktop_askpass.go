@@ -69,7 +69,7 @@ func desktopAskpass(ctx context.Context, args []string, output io.Writer) error 
 	if err != nil {
 		return errors.New("SSH prompt connection failed")
 	}
-	defer connection.Close()
+	defer func() { _ = connection.Close() }()
 	closed := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
 		_ = connection.Close()
@@ -184,21 +184,21 @@ func desktopPromptSocket(path string) error {
 	if !validPath || strings.IndexFunc(path, unicode.IsControl) >= 0 {
 		return errors.New("invalid SSH prompt socket")
 	}
-	directory, err := os.Lstat(filepath.Dir(path))
+	directory, err := os.Lstat(filepath.Dir(path)) //nolint:gosec // Only inspect the validated absolute prompt path; no files are read.
 	if err != nil {
 		return errors.New("invalid SSH prompt directory")
 	}
 	directoryStat, ok := directory.Sys().(*syscall.Stat_t)
 	privateDirectory := directory.IsDir() && directory.Mode().Perm()&0o077 == 0
-	if !ok || !privateDirectory || directoryStat.Uid != uint32(os.Geteuid()) {
+	if !ok || !privateDirectory || int64(directoryStat.Uid) != int64(os.Geteuid()) {
 		return errors.New("invalid SSH prompt directory")
 	}
-	socket, err := os.Lstat(path)
+	socket, err := os.Lstat(path) //nolint:gosec // Inspect the socket inode before dialing the private owned path.
 	if err != nil {
 		return errors.New("invalid SSH prompt socket")
 	}
 	socketStat, ok := socket.Sys().(*syscall.Stat_t)
-	if !ok || socket.Mode()&os.ModeSocket == 0 || socketStat.Uid != uint32(os.Geteuid()) {
+	if !ok || socket.Mode()&os.ModeSocket == 0 || int64(socketStat.Uid) != int64(os.Geteuid()) {
 		return errors.New("invalid SSH prompt socket")
 	}
 	return nil

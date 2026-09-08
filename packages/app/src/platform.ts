@@ -30,6 +30,25 @@ export interface AppNotification {
   body: string;
   path: string;
 }
+/** A bounded diagnostic result from the native host; never raw logs or environment. */
+export interface LocalRuntimeStatus {
+  state: 'missing' | 'stopped' | 'running' | 'unhealthy' | 'incompatible';
+  executable?: string;
+  home: string;
+  clientBuild?: string;
+  daemonBuild?: string;
+  message: string;
+  canInstall: boolean;
+}
+export interface AppLocalRuntime {
+  /** Inspect the installation and daemon without creating state or starting work. */
+  test(): Promise<LocalRuntimeStatus>;
+  /** Use a native chooser; selecting an executable does not restart the daemon. */
+  choose(): Promise<LocalRuntimeStatus>;
+  install(): Promise<LocalRuntimeStatus>;
+  /** Explicitly interrupts the local daemon's work. */
+  restart(): Promise<LocalRuntimeStatus>;
+}
 export interface AppPlatform {
   storage: AppStorage;
   /** Independent per-window layout storage; omitted shells retain tabs in memory. */
@@ -44,6 +63,7 @@ export interface AppPlatform {
   sessionLink?(path: string, profile?: ConnectionProfile): string;
   pickDirectory?(): Promise<string | undefined>;
   updates?: AppUpdates;
+  localRuntime?: AppLocalRuntime;
   notify?(notification: AppNotification): Promise<void>;
   setNotificationsEnabled?(enabled: boolean): void;
   onCloseTab?(listener: () => void): () => void;

@@ -1,0 +1,66 @@
+
+> package:desktop
+> node apps/desktop/scripts/package.mjs
+
+
+> build:web
+> npm run build -w @whip/sdk && npm run build -w @whip/web && node scripts/renderer-artifact.mjs
+
+
+> @whip/sdk@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> @whip/web@0.1.0 build
+> vite build
+
+vite v8.2.2 building client environment for production...
+transforming...
+✓ 2743 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                         0.62 kB │ gzip:   0.33 kB
+dist/assets/jetbrains-mono-cyrillic-ext-wght-normal-EocZY2iu.woff2      2.02 kB
+dist/assets/jetbrains-mono-vietnamese-wght-normal-Bt-aOZkq.woff2        7.50 kB
+dist/assets/jetbrains-mono-greek-wght-normal-Bw9x6K1M.woff2             9.00 kB
+dist/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2                10.25 kB
+dist/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2                 11.23 kB
+dist/assets/jetbrains-mono-cyrillic-wght-normal-D73BlboJ.woff2         12.10 kB
+dist/assets/jetbrains-mono-latin-ext-wght-normal-DBQx-q_a.woff2        15.19 kB
+dist/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2                  18.74 kB
+dist/assets/inter-greek-wght-normal-CkhJZR-_.woff2                     18.99 kB
+dist/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2              25.96 kB
+dist/assets/jetbrains-mono-latin-wght-normal-B9CIFXIH.woff2            40.40 kB
+dist/assets/inter-latin-wght-normal-Dx4kXJAl.woff2                     48.25 kB
+dist/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2                 85.06 kB
+dist/assets/index-BdvxMa7c.css                                         83.96 kB │ gzip:  19.19 kB
+dist/assets/h._runtimeId.s._rootId-Bjnof3IQ.js                          0.21 kB │ gzip:   0.17 kB
+dist/assets/h._runtimeId.s._rootId-B3n6E9Qf.js                          0.27 kB │ gzip:   0.21 kB
+dist/assets/rolldown-runtime-hePW80VL.js                                0.71 kB │ gzip:   0.42 kB
+dist/assets/routes-DixQELEB.js                                          7.44 kB │ gzip:   3.10 kB
+dist/assets/code-highlight-COcMIFpe.js                                 48.04 kB │ gzip:  18.10 kB
+dist/assets/settings-B_WK6XaK.js                                       77.13 kB │ gzip:  19.70 kB
+dist/assets/src-DS01xMsN.js                                           442.23 kB │ gzip: 120.67 kB
+dist/assets/index-DJBR8ZOT.js                                       2,785.06 kB │ gzip: 389.69 kB
+
+[plugin builtin:vite-reporter]
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.21s
+Renderer artifact 99beb5db8c00726023e6abfd6b5bc8449a74fcc0f4c6fb8a44a7c8e242949f16: 23 files
+Web assets packaged for go:embed: 99beb5db8c00726023e6abfd6b5bc8449a74fcc0f4c6fb8a44a7c8e242949f16
+[0/1] Planning build
+Building for production...
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+[2/4] Compiling WhipComputerCore AXTree.swift
+[3/5] Compiling WhipComputer main.swift
+[3/5] Write Objects.LinkFileList
+[4/5] Linking whip-computer
+Build complete! (6.99s)
+/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/native/whip-computer: replacing existing signature
+/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/native/whipcode: replacing existing signature
+Desktop staged: /Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/.stage/app
+Renderer: 99beb5db8c00726023e6abfd6b5bc8449a74fcc0f4c6fb8a44a7c8e242949f16
+Runtime: d9a1167152620fa1347e27037e77f01309ae1c87e93c7eb4272999d9b199953c

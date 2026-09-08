@@ -14,6 +14,7 @@ import { parseArgs, promisify } from 'node:util';
 import asar from '@electron/asar';
 import { createWhipClient } from '@whip/sdk';
 import { unixSocket } from '@whip/sdk/node';
+import { LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { verifyDesktop } from './verify.mjs';
 import { repositoryRoot, sha256 } from '../../../scripts/renderer-artifact.mjs';
 
@@ -44,7 +45,7 @@ async function eventually(check, label, timeout = 35_000) {
 async function fixtureStatus(executable, env) {
   // internal/daemon/socket_unix.go uses this path below 100 bytes, otherwise a
   // hashed temporary runtime. Keep our fixtures short and prove the exact path.
-  const socket = path.join(env.WHIP_HOME, 'runtime-v2/daemon.sock');
+  const socket = path.join(env.WHIPCODE_HOME, 'runtime-v2/daemon.sock');
   assert(Buffer.byteLength(socket) < 100, 'Use a shorter fixture home');
   const status = JSON.parse(await run(executable, ['daemon', 'status', '--json'], env));
   assert.equal(status.socket, socket); assert(!status.network_endpoint);
@@ -187,7 +188,7 @@ async function selfTest() {
     await assert.rejects(lstat(path.join(fixture, 'startup.json')), { code: 'ENOENT' });
     process.env.WHIP_DESKTOP_FIXTURE = '1'; process.env.WHIP_DESKTOP_STARTUP_PROBE = '1';
     process.env.WHIP_DESKTOP_STARTUP_RUN = 'a'.repeat(32); process.env.WHIP_DESKTOP_STARTUP_NS = String(process.hrtime.bigint());
-    process.env.WHIP_DESKTOP_USER_DATA = fixture; process.env.WHIP_HOME = fixture;
+    process.env.WHIP_DESKTOP_USER_DATA = fixture; process.env.WHIPCODE_HOME = fixture;
     const f = fakeWindow(); let quit = 0;
     await attachStartupProbe(f.window, { userData: fixture, rendererDigest: 'a'.repeat(64), quit() { quit++; } });
     assert.equal(JSON.parse(await readFile(path.join(fixture, 'startup.json'), 'utf8')).state, 'collecting');
@@ -228,7 +229,7 @@ async function selfTest() {
   }
 }
 
-async function seedSession(fixture, executable, env) {
+async function seedSession(fixture, executable, env, scheme) {
   let requests = 0; let providerFailure;
   const provider = createServer((request, response) => {
     void (async () => {
@@ -258,17 +259,17 @@ async function seedSession(fixture, executable, env) {
   const baseURL = `http://127.0.0.1:${provider.address().port}`;
   let client;
   try {
-    await writeFile(path.join(env.WHIP_HOME, 'config.json'), JSON.stringify({ defaultModel: 'startup-model', defaultProvider: 'startup-provider',
+    await writeFile(path.join(env.WHIPCODE_HOME, 'config.json'), JSON.stringify({ defaultModel: 'startup-model', defaultProvider: 'startup-provider',
       compactModel: 'startup-model', compactProvider: 'startup-provider',
       providers: { 'startup-provider': { baseUrl: baseURL, api: 'openai-completions', apiKey: 'fixture-only' } },
       models: { 'startup-model': { providers: ['startup-provider'], context: 65536, maxOut: 256 } }, rlm: { maxWorkers: 2 } }), { mode: 0o600 });
-    await writeFile(path.join(env.WHIP_HOME, 'models.json'), JSON.stringify({ 'startup-provider': { fetchedAt: new Date().toISOString(), baseUrl: baseURL,
+    await writeFile(path.join(env.WHIPCODE_HOME, 'models.json'), JSON.stringify({ 'startup-provider': { fetchedAt: new Date().toISOString(), baseUrl: baseURL,
       models: [{ id: 'startup-model', contextLength: 65536, maxCompletionTokens: 256, pricing: { prompt: '0', completion: '0' } }] } }), { mode: 0o600 });
     // prepare has already started this isolated daemon. Restart after config
     // seeding so provider registration never depends on live config reloading.
     await run(executable, ['daemon', 'stop'], env);
     assert.equal((await fixtureStatus(executable, env)).state, 'stopped');
-    await run(executable, ['daemon', 'start'], { ...env, WHIP_COMPUTER_BIN: path.join(path.dirname(executable), 'whip-computer') });
+    await run(executable, ['daemon', 'start'], env);
     const status = await fixtureStatus(executable, env);
     assert.equal(status.state, 'running');
     client = createWhipClient({ endpoint: unixSocket(status.socket), clientId: randomUUID(), clientKind: 'automation' });
@@ -282,7 +283,7 @@ async function seedSession(fixture, executable, env) {
     assert(snapshot.messages.some(message => message.role === 'assistant' && message.content === answer));
     assert.equal(requests, 2);
     const runtimeId = client.getSnapshot().info.runtime_id;
-    return { route: `/h/${runtimeId}/s/${rootId}`, link: `whip://session/${runtimeId}/${rootId}`, providerRequests: requests };
+    return { route: `/h/${runtimeId}/s/${rootId}`, link: `${scheme}://session/${runtimeId}/${rootId}`, providerRequests: requests };
   } finally {
     client?.close(); provider.closeAllConnections(); await new Promise(resolve => provider.close(resolve));
   }
@@ -292,7 +293,7 @@ async function main() {
   assert.equal(process.platform, 'darwin'); assert.equal(process.arch, 'arm64');
   const samples = Number(values.samples), firstSamples = Number(values['first-samples']);
   assert(Number.isInteger(samples) && samples >= 30 && samples <= 100, 'Use 30–100 warm samples');
-  assert(Number.isInteger(firstSamples) && firstSamples >= 1 && firstSamples <= 30, 'Use 1–30 first-install samples');
+  assert(Number.isInteger(firstSamples) && firstSamples >= 1 && firstSamples <= 30, 'Use 1–30 first-launch samples');
   const bundle = await realpath(positionals[0] ?? path.join(repositoryRoot, 'apps/desktop/out/Whip-darwin-arm64/Whip.app'));
   const evidence = await verifyDesktop(bundle, { signed: true, notarized: !!values.notarized });
   const archive = path.join(bundle, 'Contents/Resources/app.asar');
@@ -301,8 +302,8 @@ async function main() {
   const appBinary = path.join(bundle, 'Contents/MacOS', packageInfo.productName);
   assert((await lstat(appBinary)).isFile());
   assert(asar.extractFile(archive, 'main.cjs').includes(Buffer.from('WHIP_DESKTOP_STARTUP_PROBE')), 'Rebuild/sign the app with the reviewed startup probe first');
-  const executable = path.join(bundle, 'Contents/Helpers/whip');
   const fixture = await realpath(await mkdtemp('/tmp/whip-startup-'));
+  const executable = path.join(fixture, 'bin/whipcode');
   const output = path.resolve(values.output ?? path.join(repositoryRoot, `.ai-docs/plans/desktop-app/evidence/packaged-${values.idle ? 'idle' : 'startup'}.json`));
   const results = []; const environments = []; const ownedPids = new Set(); const ownedDaemonPids = new Set();
   let completed = false; let interrupted = false; let seeded;
@@ -316,7 +317,8 @@ async function main() {
     // /usr/bin/open itself keeps the login user's HOME for LaunchServices. Its
     // --env arguments isolate app/daemon credential lookup and login shell files.
     const env = { ...minimalEnvironment(), HOME: userHome, TMPDIR: temporary,
-      WHIP_HOME: home, WHIP_DESKTOP_USER_DATA: userData, WHIP_DESKTOP_FIXTURE: '1' };
+      WHIPCODE_HOME: home, WHIPCODE_NETWORK: '0', WHIP_DESKTOP_USER_DATA: userData, WHIP_DESKTOP_FIXTURE: '1',
+      WHIP_DESKTOP_EXECUTABLE: executable };
     environments.push(env); return { directory, env, userData };
   };
   async function launch(f, scenario, { route = '/', link, warmup = false, idle = false } = {}) {
@@ -367,6 +369,7 @@ async function main() {
           const filename = path.join(f.userData, 'startup.json'); const stat = await lstat(filename);
           assert(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid() && (stat.mode & 0o077) === 0 && stat.size <= 8192);
           const value = JSON.parse(await readFile(filename, 'utf8'));
+          captured = value;
           assert.equal(value.runId, runId); assert.equal(value.rendererDigest, evidence.rendererDigest);
           assert(Number.isSafeInteger(value.pid) && value.pid > 0); pid = value.pid; ownedPids.add(pid);
           assert(!interrupted, 'Startup measurement interrupted');
@@ -391,7 +394,8 @@ async function main() {
       assert.equal(status.state, 'running'); assert(Number.isSafeInteger(status.pid) && status.pid > 0); ownedDaemonPids.add(status.pid);
       console.log(`${scenario}${warmup ? ' warmup' : ''}: shell ≤${record.shell.upperMs.toFixed(1)} ms, usable ≤${record.usable.upperMs.toFixed(1)} ms`);
     } catch (error) {
-      if (!captured) results.push({ scenario, warmup, runId, pid, state: 'runner-failed', unidentifiedApp: !pid && !launchExit });
+      if (!idle) results.push({ scenario, warmup, runId, pid, state: 'runner-failed',
+        unidentifiedApp: !pid && !launchExit, ...(captured ? { lastReport: captured } : {}), launchError, launchExit });
       throw error;
     } finally {
       if (pid) {
@@ -413,12 +417,19 @@ async function main() {
   }
   try {
     await mkdir(path.join(fixture, 'work'), { mode: 0o700 });
+    await mkdir(path.join(fixture, 'installer-user'), { mode: 0o700 });
+    const manifestFile = path.join(fixture, 'runtime-manifest.json');
+    await writeFile(manifestFile, asar.extractFile(archive, 'runtime-manifest.json'), { mode: 0o600 });
+    await new LocalRuntime({ source: path.join(bundle, 'Contents/Helpers'), manifest: await readRuntimeManifest(manifestFile),
+      settingsFile: path.join(fixture, 'native-local-runtime.json'), defaultExecutable: executable,
+      env: { ...minimalEnvironment(), HOME: path.join(fixture, 'installer-user'), WHIPCODE_HOME: path.join(fixture, 'installer-home') } })
+      .install(executable, AbortSignal.timeout(15_000));
     for (let index = 0; index < (values.idle ? 0 : firstSamples); index++) {
-      const f = await createFixture(`first-${index}`); await launch(f, 'first-install');
+      const f = await createFixture(`first-${index}`); await launch(f, 'first-launch');
       await run(executable, ['daemon', 'stop'], f.env); await rm(f.directory, { recursive: true, force: true });
     }
     const retained = await createFixture('retained'); await launch(retained, 'prepare', { warmup: true });
-    seeded = await seedSession(fixture, executable, retained.env);
+    seeded = await seedSession(fixture, executable, retained.env, packageInfo.productName === 'Whip Beta' ? 'whip-beta' : 'whip');
     await launch(retained, 'prepare-session', { route: seeded.route, link: seeded.link, warmup: true });
     if (values.idle) {
       await launch(retained, 'idle', { idle: true });
@@ -435,17 +446,17 @@ async function main() {
   } finally {
     const cleanup = [];
     for (const env of environments) {
-      if (!await lstat(env.WHIP_HOME).catch(() => false)) continue;
+      if (!await lstat(env.WHIPCODE_HOME).catch(() => false)) continue;
       try {
         const status = await fixtureStatus(executable, env);
         if (status.pid) ownedDaemonPids.add(status.pid);
         await run(executable, ['daemon', 'stop'], env).catch(() => {});
         if ((await fixtureStatus(executable, env)).state !== 'stopped') await run(executable, ['daemon', 'stop', '--force'], env);
-        cleanup.push({ scenario: path.basename(path.dirname(env.WHIP_HOME)), state: (await fixtureStatus(executable, env)).state });
-      } catch { cleanup.push({ scenario: path.basename(path.dirname(env.WHIP_HOME)), state: 'cleanup-failed' }); }
+        cleanup.push({ scenario: path.basename(path.dirname(env.WHIPCODE_HOME)), state: (await fixtureStatus(executable, env)).state });
+      } catch { cleanup.push({ scenario: path.basename(path.dirname(env.WHIPCODE_HOME)), state: 'cleanup-failed' }); }
     }
     const statistics = {};
-    for (const scenario of ['first-install', 'warm-attach', 'retained-start']) {
+    for (const scenario of ['first-launch', 'warm-attach', 'retained-start']) {
       const attempts = results.filter(record => record.scenario === scenario && !record.warmup);
       const measured = attempts.filter(record => record.state === 'complete' && record.launchServicesExit?.code === 0);
       statistics[scenario] = { attempted: attempts.length, failed: attempts.length - measured.length,
@@ -455,7 +466,7 @@ async function main() {
         maxProbeBracketMs: summarize(measured.map(record => record.instrumentation.maxWallMs)) };
     }
     await mkdir(path.dirname(output), { recursive: true });
-    await writeFile(output, JSON.stringify({ recordedAt: new Date().toISOString(), purpose: values.idle ? 'Signed app settled idle OS sampling; startup probe disabled during idle window' : 'Signed LaunchServices startup; OS caches warm; first installation separate from retained start and attachment',
+    await writeFile(output, JSON.stringify({ recordedAt: new Date().toISOString(), purpose: values.idle ? 'Signed app settled idle OS sampling; startup probe disabled during idle window' : 'Signed LaunchServices startup; OS caches warm; first launch with an explicitly installed canonical runtime separate from daemon start and attachment',
       clock: 'Parent/main Darwin mach_continuous_time via hrtime; renderer mark correlated through native executeJavaScript call/return',
       timingSemantics: 'shell lower/upper bound the existing renderer mark. connected/usable lower/upper bracket an observation, not the unknown readiness transition. Report only conservative upperMs. Polling is 25 ms; each usable observation waits for fonts and two animation frames (250 ms bound). Probe wall time includes that wait and IPC, not CPU time; initial report write/datasync is additional startup overhead.',
       completed, interrupted, archiveSHA256, environment: { cpu: cpus()[0]?.model, totalMemoryBytes: totalmem(), darwin: release(), node: process.version,

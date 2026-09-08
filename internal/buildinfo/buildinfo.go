@@ -11,6 +11,10 @@ import (
 // executable must not change its configuration or update channel.
 var Name = "whip"
 
+// UpdateOwner is set to desktop for the payload installed by the desktop app.
+// Its GUI and canonical executable must be updated through the same release.
+var UpdateOwner = "standalone"
+
 // Env names a distribution-owned environment variable.
 func Env(suffix string) string { return strings.ToUpper(Name) + "_" + suffix }
 

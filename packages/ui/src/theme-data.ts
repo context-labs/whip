@@ -33,3 +33,6 @@ export function validateTheme(input: unknown): ThemeDefinition {
   // Copy data rather than retaining a caller-owned mutable theme object.
   return JSON.parse(serialized) as ThemeDefinition;
 }
+
+export { themeCatalog, themeIds, type ThemeDefinition } from './generated/theme-catalog.ts';
+export { contrastRatio, readableColor, adaptThemeForWeb } from './theme-contrast.ts';

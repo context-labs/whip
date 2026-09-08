@@ -2,10 +2,11 @@
 // signed Finder acceptance are separate; this diagnostic uses stock Electron.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
+import { fileDigest, LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
 import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
 
@@ -13,17 +14,24 @@ const exec = promisify(execFile);
 // Keep both the runtime and its isolated TMPDIR below macOS's Unix socket limit.
 const fixture = await mkdtemp('/tmp/whip-desktop-smoke-');
 const stage = path.join(repositoryRoot, 'apps/desktop/.stage');
-const executable = path.join(stage, 'native/whip');
+const executable = path.join(fixture, 'bin/whipcode');
 const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/zsh',
   HOME: path.join(fixture, 'user'), TMPDIR: path.join(fixture, 'tmp'),
-  WHIP_DESKTOP_FIXTURE: '1', WHIP_HOME: path.join(fixture, 'home'),
+  WHIP_DESKTOP_FIXTURE: '1', WHIPCODE_HOME: path.join(fixture, 'home'), WHIPCODE_NETWORK: '0',
+  WHIP_DESKTOP_EXECUTABLE: executable,
   WHIP_DESKTOP_USER_DATA: path.join(fixture, 'user-data') };
-for (const directory of [env.HOME, env.TMPDIR, env.WHIP_HOME, env.WHIP_DESKTOP_USER_DATA]) {
+for (const directory of [env.HOME, env.TMPDIR, env.WHIPCODE_HOME, env.WHIP_DESKTOP_USER_DATA]) {
   await mkdir(directory, { mode: 0o700 });
 }
 let electron;
 let remote;
+let runtimeInstalled = false;
 try {
+  const manifest = await readRuntimeManifest(path.join(stage, 'app/runtime-manifest.json'));
+  await new LocalRuntime({ source: path.join(stage, 'native'), manifest, env,
+    settingsFile: path.join(env.WHIP_DESKTOP_USER_DATA, 'native-local-runtime.json'), defaultExecutable: executable })
+    .install(executable, AbortSignal.timeout(15_000));
+  runtimeInstalled = true;
   remote = await startFixture({ allowedOrigins: ['whip-app://bundle'] });
   const launch = () => _electron.launch({ args: [path.join(stage, 'app')], env, timeout: 30_000 });
   electron = await launch();
@@ -36,8 +44,9 @@ try {
   const { stdout } = await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 });
   const initial = JSON.parse(stdout);
   assert.equal(initial.state, 'running'); assert(!initial.network_endpoint, 'Local attachment must not enable TCP');
-  const runtimeFiles = await readdir(path.join(env.WHIP_DESKTOP_USER_DATA, 'runtimes'));
-  assert.equal(runtimeFiles.length, 1);
+  assert.equal(await fileDigest(executable), manifest.files.whipcode.sha256);
+  await assert.rejects(lstat(path.join(env.WHIP_DESKTOP_USER_DATA, 'runtimes')), { code: 'ENOENT' });
+  await assert.rejects(lstat(path.join(env.HOME, '.whip')), { code: 'ENOENT' });
   await page.getByRole('button', { name: 'Manage execution hosts', exact: true }).click();
   const hosts = page.getByRole('dialog', { name: 'Execution hosts', exact: true });
   await hosts.getByRole('textbox', { name: 'Name', exact: true }).fill('Smoke URL');
@@ -79,18 +88,20 @@ try {
   assert.equal(attached.pid, initial.pid);
   const result = { purpose: 'Staged host integration; not signed/fused installed-app acceptance or a startup benchmark',
     recordedAt: new Date().toISOString(),
-    noNetwork: !initial.network_endpoint, runtimeInstalled: true, daemonSurvivedGUIExit: true,
+    noNetwork: !initial.network_endpoint, canonicalRuntimeInstalled: true, noRetainedRuntime: true, noLegacyHome: true, daemonSurvivedGUIExit: true,
     relaunchAttachedSameDaemon: true, settingsReload: true, desktopOriginURL: true, independentHostDisconnect: true, multipleHostsRestored: true, rendererErrors: errors };
   await writeFile(process.env.WHIP_DESKTOP_SMOKE_OUTPUT ?? path.join(repositoryRoot, '.ai-docs/plans/desktop-app/evidence/local-smoke.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result, null, 2));
 } finally {
   if (electron) await electron.evaluate(({ app }) => app.exit(0)).catch(() => {});
-  // Retained executables must stay present if cleanup cannot stop their owner.
+  // Canonical fixture executables must stay present if cleanup cannot stop their owner.
   // In particular, do not turn a shutdown failure into a deleted live runtime.
   try {
-    await exec(executable, ['daemon', 'stop'], { env, timeout: 15_000 });
-    const stopped = JSON.parse((await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 })).stdout);
-    assert.equal(stopped.state, 'stopped');
+    if (runtimeInstalled) {
+      await exec(executable, ['daemon', 'stop'], { env, timeout: 15_000 });
+      const stopped = JSON.parse((await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 })).stdout);
+      assert.equal(stopped.state, 'stopped');
+    }
     await rm(fixture, { recursive: true, force: true });
   } catch (error) {
     console.error(`Preserved smoke fixture after cleanup failure: ${fixture}`);

@@ -57,6 +57,58 @@ test('lost decision acknowledgement is not replayed after reconnect', async t =>
   assert.equal(fixture.connections.flatMap(connection => connection.requests).filter(request => request.method === 'permission.decide').length, 1);
 });
 
+test('permission decision status reads pending and terminal outcomes without sending a decision', async t => {
+  for (const status of ['queued', 'running', 'waiting', 'succeeded', 'failed', 'cancelled', 'interrupted']) {
+    await t.test(status, async t => {
+      const outcome = { command_id: 'decision-1', operation: 'permission.decide', ingress_seq: '-1', status,
+        ...(status === 'succeeded' ? { result: { operation_id: 'operation', lease_id: 'lease' } } : {}),
+        ...(['failed', 'cancelled', 'interrupted'].includes(status) ? { failure: { code: -32003, message: 'denied', data: { kind: 'permission_denied' } } } : {}),
+      };
+      const fixture = transportFixture({ request(request, connection) { connection.reply(request, outcome); } });
+      const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client', reconnect: false });
+      t.after(() => client.close());
+      await client.connect();
+      assert.deepEqual(await client.permissions.status('decision-1'), outcome);
+      assert.deepEqual(fixture.current.requests.map(request => request.method), ['initialize', 'command.status']);
+    });
+  }
+});
+
+test('permission decision status validates identity, namespace and outcome shape', async t => {
+  const valid = { command_id: 'decision-1', operation: 'permission.decide', ingress_seq: '-1', status: 'succeeded', result: { operation_id: 'operation', lease_id: 'lease' } };
+  for (const [name, patch] of Object.entries({
+    'wrong ID': { command_id: 'other' },
+    'wrong operation': { operation: 'submit' },
+    'unknown status': { status: 'unknown' },
+    'untranslated stored ticket': { result: { OperationID: 'operation', LeaseID: 'lease' } },
+    'missing successful result': { result: undefined },
+    'failed without failure': { status: 'failed', result: undefined },
+    'pending with terminal result': { status: 'running' },
+    'successful with failure': { failure: { code: -32003, message: 'denied' } },
+    'unexpected content': { content: { reference_id: 'ref', digest: 'a'.repeat(64), size: '1' } },
+  })) {
+    await t.test(name, async t => {
+      const fixture = transportFixture({ request(request, connection) { connection.reply(request, { ...valid, ...patch }); } });
+      const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client', reconnect: false });
+      t.after(() => client.close());
+      await client.connect();
+      await assert.rejects(client.permissions.status('decision-1'), { kind: 'invalid_response' });
+      assert.equal(fixture.current.requests.length, 2);
+    });
+  }
+});
+
+test('missing and unavailable permission statuses remain distinct and never authorize an automatic retry', async t => {
+  const fixture = transportFixture({ request(request, connection) { connection.error(request, String(request.params.command_id)); } });
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client', reconnect: false });
+  t.after(() => client.close());
+  await client.connect();
+  for (const kind of ['command_not_found', 'execution_failed']) await assert.rejects(client.permissions.status(kind), { kind });
+  await assert.rejects(client.permissions.status(''), TypeError);
+  await assert.rejects(client.permissions.status('aborted', { signal: AbortSignal.abort() }), { name: 'AbortError' });
+  assert.deepEqual(fixture.current.requests.map(request => request.method), ['initialize', 'command.status', 'command.status']);
+});
+
 test('a locally rejected approval does not reset unrelated in-flight queries', async t => {
   const fixture = transportFixture();
   fixture.info.limits.in_flight_requests = 1;

@@ -15,6 +15,10 @@ function fixture() {
     finishSave: vi.fn(async () => {}), cancelSave: vi.fn(async () => {}),
     checkForUpdates: vi.fn(async () => {}), installUpdate: vi.fn(async () => {}),
     pickDirectory: vi.fn(async () => '/native/project'),
+    testLocalRuntime: vi.fn(async () => ({ state: 'stopped', home: '/home/.whipcode', message: 'Ready to start.', canInstall: false })),
+    chooseLocalRuntime: vi.fn(async () => ({ state: 'missing', home: '/home/.whipcode', message: 'Choose whipcode.', canInstall: true })),
+    installLocalRuntime: vi.fn(async () => ({ state: 'stopped', home: '/home/.whipcode', message: 'Installed.', canInstall: false })),
+    restartLocalRuntime: vi.fn(async () => ({ state: 'running', home: '/home/.whipcode', message: 'Running.', canInstall: false })),
     notify: vi.fn(async () => {}),
     setNotificationsEnabled: vi.fn(), hideWindow: vi.fn(),
   };
@@ -22,6 +26,23 @@ function fixture() {
     emit(event: DesktopEvent) { for (const listener of listeners) listener(event); } };
 }
 afterEach(() => { localStorage.clear(); sessionStorage.clear(); });
+
+it('forwards local runtime actions separately without starting or installing during a read-only test', async () => {
+  const f = fixture(); const platform = createDesktopPlatform(f.api, vi.fn());
+  expect(f.bridge.testLocalRuntime).not.toHaveBeenCalled();
+  expect((await platform.localRuntime!.test()).state).toBe('stopped');
+  expect(f.bridge.prepareConnection).not.toHaveBeenCalled();
+  expect(f.bridge.installLocalRuntime).not.toHaveBeenCalled();
+  expect(f.bridge.restartLocalRuntime).not.toHaveBeenCalled();
+  await platform.localRuntime!.choose(); await platform.localRuntime!.install(); await platform.localRuntime!.restart();
+  expect(f.bridge.chooseLocalRuntime).toHaveBeenCalledExactlyOnceWith();
+  expect(f.bridge.installLocalRuntime).toHaveBeenCalledExactlyOnceWith();
+  expect(f.bridge.restartLocalRuntime).toHaveBeenCalledExactlyOnceWith();
+  platform.dispose?.();
+  for (const method of ['test', 'choose', 'install', 'restart'] as const)
+    await expect(platform.localRuntime![method]()).rejects.toThrow('closed');
+  expect(f.bridge.testLocalRuntime).toHaveBeenCalledOnce();
+});
 
 it('preserves frame order, bounded backpressure and listener lifetime across the bridge', async () => {
   const f = fixture();

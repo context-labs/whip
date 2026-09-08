@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { writeFile } from 'node:fs/promises';
+import { get as httpGet } from 'node:http';
 import { createWhipClient, webSocket } from '../dist/index.js';
 import { unixSocket } from '../dist/node.js';
 import { createSessionView, executionRows } from '../dist/state.js';
@@ -26,6 +27,46 @@ async function connect(transport, clientId = crypto.randomUUID(), options = {}) 
 }
 
 const deadline = () => ({ signal: AbortSignal.timeout(15_000) });
+test('an external fixture permits only its exact proxy Host and Origin alongside loopback', async () => {
+  const externalOrigin = 'https://whip.example.ts.net:8443';
+  const discoveryURL = target => target.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '/api/v3/web');
+  const discover = (target, origin) => fetch(discoveryURL(target), {
+    headers: { Origin: origin }, signal: AbortSignal.timeout(5_000),
+  });
+  const requestHost = (target, host, origin) => new Promise((resolve, reject) => {
+    httpGet(discoveryURL(target), {
+      headers: { Host: host, ...(origin ? { Origin: origin } : {}) }, signal: AbortSignal.timeout(5_000),
+    }, response => {
+      response.resume();
+      response.once('end', () => resolve(response.statusCode));
+      response.once('error', reject);
+    }).once('error', reject);
+  });
+  assert.equal((await discover(fixture, externalOrigin)).status, 403);
+  assert.equal(await requestHost(fixture, new URL(externalOrigin).host), 403);
+  const configured = await startFixture({ externalOrigin });
+  try {
+    assert.equal(new URL(configured.info.endpoint).hostname, '127.0.0.1');
+    for (const origin of [externalOrigin, configured.info.frontend]) {
+      const response = await discover(configured, origin);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('Access-Control-Allow-Origin'), origin);
+      await response.arrayBuffer();
+    }
+    for (const origin of ['https://other.example.ts.net:8443', 'http://whip.example.ts.net:8443', 'https://whip.example.ts.net']) {
+      assert.equal((await discover(configured, origin)).status, 403);
+    }
+    const externalHost = new URL(externalOrigin).host;
+    for (const origin of [undefined, externalOrigin]) {
+      assert.equal(await requestHost(configured, externalHost, origin), 200);
+      assert.equal(await requestHost(configured, new URL(configured.info.endpoint).host, origin), 200);
+      assert.equal(await requestHost(configured, 'other.example.ts.net:8443', origin), 403);
+      assert.equal(await requestHost(configured, 'whip.example.ts.net', origin), 403);
+    }
+    assert.equal(await requestHost(configured, externalHost, 'https://other.example.ts.net:8443'), 403);
+  } finally { await configured.close(); }
+});
+
 async function createRoot(client) {
   const outcome = await client.submit('session.create', {
     kind: 'agent', cwd: fixture.directory, model: 'model', provider: 'provider',
@@ -308,6 +349,44 @@ for (const transport of ['unix', 'websocket']) {
     await assert.rejects(content.readBytes({ maxBytes: 1024 }));
     await assert.rejects(client.content(content.handle, { rootId: otherRoot }).readBytes({ maxBytes: data.byteLength }));
     client.close();
+  });
+
+  test(`${transport}: fixture questions return single and batched answers to both clients`, async () => {
+    const client = await connect(transport);
+    const observer = await connect(transport === 'unix' ? 'websocket' : 'unix', crypto.randomUUID(), { clientKind: 'human' });
+    const rootId = await createRoot(client);
+    const views = [client, observer].map(connection => createSessionView(connection.session(rootId)));
+    try {
+      await Promise.all(views.map(view => view.start()));
+      for (const kind of ['single', 'batch']) {
+        const command = client.session(rootId).submit({ text: `question:${kind}` });
+        await command.accepted(deadline());
+        const question = await eventually(() => views[0].getSnapshot().root.questions?.[0]);
+        await eventually(() => views[1].getSnapshot().root.questions?.some(item => item.question_id === question.question_id));
+        assert.equal(question.questions.length, kind === 'batch' ? 3 : 1);
+        assert.equal(question.questions[0].options[0].recommended, true);
+        const attention = await observer.host.attention();
+        assert.ok(attention.items.some(item => item.root_id === rootId && item.questions?.some(item => item.question_id === question.question_id)));
+        const expected = [{ answer: ['Proceed'] }];
+        if (kind === 'batch') {
+          assert.equal(question.questions[1].multiple, true);
+          expected.push({ answer: ['Web', 'Mobile', 'Custom fixture answer'] }, { dismissed: true });
+        }
+        const answer = kind === 'batch'
+          ? observer.session(rootId).answerQuestions(question.question_id, [expected[0], expected[1], null])
+          : observer.session(rootId).answerQuestion(question.question_id, ['Proceed']);
+        assert.equal((await answer.result(deadline())).status, 'succeeded');
+        const outcome = await command.result(deadline());
+        assert.equal(outcome.status, 'succeeded');
+        assert.deepEqual(JSON.parse(outcome.result.text), expected);
+        await eventually(() => views.every(view => !view.getSnapshot().root.questions?.some(item => item.question_id === question.question_id)));
+        const late = await client.session(rootId).answerQuestion(question.question_id, ['Wait']).result(deadline());
+        assert.equal(late.status, 'failed', 'a second client cannot replace the accepted answer');
+      }
+    } finally {
+      await Promise.all(views.map(view => view.dispose()));
+      observer.close(); client.close();
+    }
   });
 
   test(`${transport}: unsigned permission decisions preserve scope, deduplication, and competing-client convergence`, async () => {

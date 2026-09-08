@@ -1,0 +1,183 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
+import * as Crypto from 'expo-crypto';
+import { useQuery } from '@tanstack/react-query';
+import type { WhipClient } from '@whip/sdk';
+import { Actions, Field, Label, Loading, Notice, RowButton, Screen, Stack } from '../components/primitives';
+import { Connection } from '../components/connection';
+import { useRuntime, useRuntimeState } from '../runtime/context';
+import type { SavedHost } from '../runtime/runtime';
+import {
+  advanceCreation, creationCommands, creationDraftKey, creationModels, creationSettingsKey,
+  nextCreationStep, reconcileCreation, stepCommand, validateWorkflow, type CreationWorkflow,
+} from '../features/creation';
+
+const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+export default function NewSessionScreen() {
+  const { host, client } = useRuntimeState();
+  const params = useLocalSearchParams<{ cwd?: string; runtimeId?: string }>();
+  if (!host?.runtimeId || !client) return <Screen><Connection /><Notice>Connect to a Whip host to create a session.</Notice></Screen>;
+  return <CreationForm key={`${host.id}:${host.runtimeId}:${host.clientId}`} host={host} client={client}
+    initialPath={params.runtimeId === host.runtimeId && typeof params.cwd === 'string' ? params.cwd.slice(0, 2048) : ''} />;
+}
+function CreationForm({ host, client, initialPath }: { host: SavedHost; client: WhipClient; initialPath: string }) {
+  const runtime = useRuntime(); const state = useRuntimeState(); const focused = useIsFocused();
+  const runtimeId = host.runtimeId!;
+  const [workflow, setWorkflow] = useState<CreationWorkflow>();
+  const workflowRef = useRef<CreationWorkflow | undefined>(undefined);
+  const [busy, setBusy] = useState(false); const busyRef = useRef(false);
+  const [error, setError] = useState<string>();
+  const [loadError, setLoadError] = useState<string>();
+  const [browse, setBrowse] = useState(false); const [path, setPath] = useState('');
+  const [typedPath, setTypedPath] = useState(''); const [after, setAfter] = useState<string>();
+  const [showModels, setShowModels] = useState(false); const [modelSearch, setModelSearch] = useState('');
+  const mounted = useRef(true); const visible = useRef(focused); visible.current = focused;
+  const current = () => mounted.current && visible.current && runtime.getSnapshot().client === client && runtime.getSnapshot().host?.runtimeId === runtimeId && runtime.getSnapshot().ready;
+  const save = async (next: CreationWorkflow) => {
+    workflowRef.current = next;
+    if (mounted.current) setWorkflow(next);
+    await runtime.storage.set('settings', creationSettingsKey(host.id), next);
+  };
+  useEffect(() => {
+    mounted.current = true;
+    let cancelled = false;
+    void (async () => {
+      const saved = await runtime.storage.get<CreationWorkflow>('settings', creationSettingsKey(host.id));
+      const next = saved ? validateWorkflow(saved, runtimeId, host.clientId) : {
+        version: 1 as const, id: Crypto.randomUUID(), runtimeId, clientId: host.clientId, cwd: initialPath,
+        effortDone: false, promptSent: false,
+      };
+      if (cancelled) return;
+      if (!saved) await runtime.storage.set('settings', creationSettingsKey(host.id), next);
+      if (!cancelled) { workflowRef.current = next; setWorkflow(next); }
+    })().catch(e => { if (!cancelled) setLoadError(errorText(e)); });
+    return () => { cancelled = true; mounted.current = false; };
+  }, [runtime, host.id, runtimeId, host.clientId, initialPath]);
+  useEffect(() => {
+    if (!workflow || busy) return;
+    try {
+      const next = reconcileCreation(workflow, state.commands);
+      if (next !== workflow) void save(next).catch(e => setError(errorText(e)));
+    } catch (e) { setError(errorText(e)); }
+  }, [workflow, state.commands, busy]);
+  const enabled = state.ready && state.active && focused;
+  const directories = useQuery({ queryKey: [runtimeId, 'host.directories', path, after], enabled: enabled && browse,
+    queryFn: ({ signal }) => client.host.directories({ path: path || undefined, after, limit: 64 }, { signal }) });
+  const catalogs = useQuery({ queryKey: [runtimeId, 'provider.catalogs'], enabled,
+    queryFn: async ({ signal }) => {
+      const response = await client.providers.catalogs({ signal });
+      if (new TextEncoder().encode(JSON.stringify(response)).byteLength > 1 << 20) throw new Error('Provider catalog exceeds the 1 MiB mobile limit.');
+      return response;
+    } });
+  const models = useMemo(() => creationModels(catalogs.data?.result), [catalogs.data]);
+  const selected = models.find(item => item.model === workflow?.model && item.provider === workflow?.provider);
+  const matchingModels = useMemo(() => models.filter(item => `${item.model} ${item.provider}`.toLowerCase().includes(modelSearch.trim().toLowerCase())), [models, modelSearch]);
+  if (loadError) return <Screen><Connection /><Notice danger>{loadError}</Notice></Screen>;
+  if (!workflow) return <Screen><Loading label="Restoring creation draft…" /></Screen>;
+  const draftKey = creationDraftKey(workflow);
+  const draft = runtime.draft(draftKey);
+  const related = creationCommands(workflow, state.commands);
+  const activeCommand = related.find(command => ['sending', 'checking', 'queued', 'running', 'waiting'].includes(command.status));
+  const pending = workflow.pendingStep ? stepCommand(workflow, related, workflow.pendingStep) : undefined;
+  const locked = busy || !!activeCommand || !!workflow.pendingStep;
+  const editable = !locked && !workflow.rootId;
+  const update = (patch: Partial<CreationWorkflow>) => { void save({ ...workflowRef.current!, ...patch }).catch(e => setError(errorText(e))); };
+  const navigateFolder = (target: string) => { setPath(target); setTypedPath(target); setAfter(undefined); };
+  const openCreated = () => {
+    const rootId = workflowRef.current?.rootId;
+    if (rootId && runtime.getSnapshot().client === client) router.replace({ pathname: '/session/[rootId]', params: { rootId, runtimeId } });
+  };
+  const start = async () => {
+    if (busyRef.current || !current() || locked) return;
+    busyRef.current = true; setBusy(true); setError(undefined);
+    try {
+      const next = await advanceCreation(workflowRef.current!, { run: runtime.run.bind(runtime), current, save, saveDraft: (key, value) => runtime.storage.setDraft(key, value), draft: key => runtime.draft(key) });
+      if (current() && next.rootId && !nextCreationStep(next, runtime.draft(creationDraftKey(next)))) openCreated();
+    } catch (e) { if (mounted.current) setError(errorText(e)); }
+    finally { busyRef.current = false; if (mounted.current) setBusy(false); }
+  };
+  const resolve = async () => {
+    if (busyRef.current || !current()) return;
+    busyRef.current = true; setBusy(true); setError(undefined);
+    try {
+      if (pending) {
+        if (!['failed', 'cancelled', 'interrupted', 'not_found'].includes(pending.status)) throw new Error('Check the original command before continuing.');
+        await runtime.forgetCommand(pending);
+      }
+      await save({ ...workflowRef.current!, pendingStep: undefined });
+    } catch (e) { if (mounted.current) setError(errorText(e)); }
+    finally { busyRef.current = false; if (mounted.current) setBusy(false); }
+  };
+  const startAnother = async () => {
+    if (busyRef.current || locked || !workflow.rootId || draft.text.trim() && !workflow.promptSent) return;
+    setError(undefined);
+    await save({ version: 1, id: Crypto.randomUUID(), runtimeId, clientId: host.clientId, cwd: workflow.cwd,
+      model: workflow.model, provider: workflow.provider, effort: workflow.effort, effortDone: false, promptSent: false }).catch(e => setError(errorText(e)));
+  };
+  const step = nextCreationStep(workflow, draft);
+  const proceedLabel = !workflow.rootId ? 'Create session' : step === 'effort' ? 'Apply reasoning and continue' : 'Send first message';
+  return <Screen>
+    <Connection />
+    <Stack><Label style={{ fontSize: 24, lineHeight: 32, fontWeight: '600' }}>{workflow.rootId ? 'Your session is created' : 'What would you like to work on?'}</Label>
+      <Label muted>{workflow.rootId ? `${workflow.cwd} · ${workflow.rootId}` : 'Choose a folder on your Whip host. The host runs your session.'}</Label></Stack>
+    {error && <Notice danger>{error}</Notice>}
+    {workflow.rootId && <Actions items={[{ label: 'Open created session', onPress: openCreated }]} />}
+    <Field label="Working directory on host" value={workflow.cwd} onChangeText={cwd => update({ cwd })} editable={editable} autoCapitalize="none" autoCorrect={false} maxLength={2048} placeholder="/path/to/project" />
+    {!workflow.rootId && <Actions items={[{ label: browse ? 'Close folder browser' : 'Browse host folders', secondary: true, disabled: !enabled || locked,
+      onPress: () => { if (!browse) navigateFolder(workflow.cwd); setBrowse(!browse); } }]} />}
+    {browse && !workflow.rootId && <Stack>
+      <Field label="Browse a host path" value={typedPath} onChangeText={setTypedPath} editable={!locked} autoCapitalize="none" autoCorrect={false} maxLength={2048} onSubmitEditing={() => navigateFolder(typedPath.trim())} />
+      <Actions items={[{ label: 'Go to path', secondary: true, disabled: !enabled || locked, onPress: () => navigateFolder(typedPath.trim()) }]} />
+      {directories.isFetching && <Loading label="Reading host folders…" />}
+      {directories.error && <Notice danger>{directories.error.message}</Notice>}
+      {directories.data && <>
+        <Label muted>{directories.data.path}</Label>
+        {!!directories.data.parent && <Actions items={[{ label: 'Parent folder', secondary: true, disabled: !enabled || locked, onPress: () => navigateFolder(directories.data!.parent) }]} />}
+        {(directories.data.entries ?? []).slice(0, 64).map(entry => <RowButton key={entry.path} title={entry.name} detail={entry.path} disabled={!enabled || locked} onPress={() => navigateFolder(entry.path)} />)}
+        {!directories.data.entries?.length && !directories.isFetching && <Label muted>No subfolders here. You can use this folder.</Label>}
+        {(directories.data.truncated || directories.data.has_more) && <Notice>Folder listings are bounded. Browse a subfolder or enter its full path.</Notice>}
+        <Actions items={[
+          { label: 'Use this folder', disabled: !enabled || locked || directories.isFetching, onPress: () => { update({ cwd: directories.data!.path }); setBrowse(false); } },
+          ...(directories.data.has_more && directories.data.next_after ? [{ label: 'Next folders', secondary: true, disabled: !enabled || locked || directories.isFetching, onPress: () => setAfter(directories.data!.next_after) }] : []),
+          ...(after ? [{ label: 'First folders', secondary: true, disabled: !enabled || locked, onPress: () => setAfter(undefined) }] : []),
+        ]} />
+      </>}
+    </Stack>}
+    <Stack><Label muted>Model</Label><Label>{workflow.model ? `${workflow.model} · ${workflow.provider}` : 'Use the host’s default model and provider'}</Label>
+      {!workflow.rootId && <Actions items={[{ label: showModels ? 'Close model selection' : 'Choose model', secondary: true, disabled: locked, onPress: () => setShowModels(!showModels) }]} />}
+      {catalogs.error && <Notice>{catalogs.error.message} Host defaults are still available.</Notice>}
+      {catalogs.data?.result?.errors && <Notice>Some provider catalogs are unavailable. Configure providers on the host and refresh the catalog.</Notice>}
+      {showModels && !workflow.rootId && <Stack>
+        <Field label="Find a model or provider" value={modelSearch} onChangeText={setModelSearch} editable={!locked} maxLength={128} />
+        <RowButton title="Use host defaults" selected={!workflow.model} disabled={locked} onPress={() => { update({ model: undefined, provider: undefined, effort: undefined }); setShowModels(false); }} />
+        {catalogs.isFetching && <Loading label="Reading provider catalogs…" />}
+        {matchingModels.slice(0, 64).map(item => <RowButton key={JSON.stringify([item.provider, item.model])} title={item.model} detail={item.provider}
+          selected={selected === item} disabled={locked} onPress={() => { update({ model: item.model, provider: item.provider, effort: undefined }); setShowModels(false); }} />)}
+        {matchingModels.length > 64 && <Notice>Showing 64 models. Narrow the search to find another model.</Notice>}
+        {!matchingModels.length && !catalogs.isFetching && <Label muted>No matching catalog models. You can use the host defaults.</Label>}
+        <Actions items={[{ label: 'Refresh models', secondary: true, disabled: !enabled || catalogs.isFetching, onPress: () => { void catalogs.refetch(); } }]} />
+      </Stack>}
+    </Stack>
+    <Stack><Label muted>Reasoning effort</Label>
+      {workflow.rootId ? <Label>{workflow.effort ?? 'Host default'}{workflow.effortDone ? ' · Applied' : ''}</Label> : <>
+        <RowButton title="Use host default effort" selected={!workflow.effort} disabled={locked} onPress={() => update({ effort: undefined })} />
+        {(selected?.efforts ?? []).slice(0, 32).map(effort => <RowButton key={effort} title={effort} selected={workflow.effort === effort} disabled={locked} onPress={() => update({ effort })} />)}
+        {!selected?.efforts.length && <Label muted>Select a catalog model with reasoning support to choose an effort level.</Label>}
+      </>}
+    </Stack>
+    {!workflow.promptSent && <Field label="First message (optional)" value={draft.text} multiline textAlignVertical="top" style={{ minHeight: 144 }} editable={!busy && !activeCommand && workflow.pendingStep !== 'submit'}
+      placeholder="Describe the work to start…" onChangeText={text => { try { runtime.setDraft(draftKey, text); } catch (e) { setError(errorText(e)); } }} />}
+    {workflow.promptSent && <Notice>Your first message was submitted to the created session.</Notice>}
+    {workflow.pendingStep && <Stack><Notice>{pending ? `Previous ${workflow.pendingStep} step: ${pending.status}. ${pending.message ?? 'Check its original command before continuing.'}` : 'No command record is available for this prepared step. Review the saved settings before clearing the preparation and continuing.'}</Notice>
+      <Actions items={[
+        ...(pending ? [{ label: 'Check original command', secondary: true, disabled: !enabled || busy, onPress: () => { void runtime.checkCommand(pending).catch(e => setError(errorText(e))); } }] : []),
+        ...(!activeCommand && (!pending || ['failed', 'cancelled', 'interrupted', 'not_found'].includes(pending.status)) ? [{ label: pending?.status === 'not_found' ? 'Resolve missing attempt' : pending ? 'Resolve failed attempt' : 'Review and clear preparation', secondary: true, disabled: !enabled || busy, onPress: () => { void resolve(); } }] : []),
+      ]} />
+      <Label muted>Resolving preserves your draft. Continuing uses a new command ID for this step and keeps any session already created.</Label>
+    </Stack>}
+    {!workflow.pendingStep && activeCommand && <Notice>The previous step is still {activeCommand.status}. Whip will keep its result here.</Notice>}
+    {step && <Actions items={[{ label: busy ? 'Starting your session…' : proceedLabel, disabled: !enabled || locked || !workflow.cwd.trim(), onPress: () => { void start(); }, testID: 'create-session' }]} />}
+    {workflow.rootId && !locked && (!draft.text.trim() || workflow.promptSent) && <Actions items={[{ label: 'Prepare another session', secondary: true, onPress: () => { void startAnother(); } }]} />}
+    <Label muted>Drafts stay encrypted on this phone. Leaving the app keeps accepted work running; saved creation steps never continue automatically after a restart.</Label>
+  </Screen>;
+}

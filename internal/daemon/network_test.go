@@ -113,6 +113,7 @@ func TestNetworkDesktopOriginIsExplicitAndExact(t *testing.T) {
 		{name: "wildcard", origin: "*"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			options := NetworkOptions{
 				Enabled: true, AllowedHosts: []string{"localhost"},
 				AllowedOrigins: []string{tc.origin},
@@ -137,6 +138,7 @@ func TestNetworkDesktopOriginIsExplicitAndExact(t *testing.T) {
 			origins = append(origins, "whip-app://bundle")
 		}
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			handler, err := newNetworkHandler(
 				NetworkOptions{Enabled: true, AllowedHosts: []string{"localhost"}, AllowedOrigins: origins},
 				func(messageTransport) {},
@@ -148,7 +150,7 @@ func TestNetworkDesktopOriginIsExplicitAndExact(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, method := range []string{http.MethodGet, http.MethodOptions} {
-				request := httptest.NewRequest(method, "http://localhost/api/v3/web", nil)
+				request := httptest.NewRequestWithContext(t.Context(), method, "http://localhost/api/v3/web", nil)
 				request.Header.Set("Origin", "whip-app://bundle")
 				response := httptest.NewRecorder()
 				handler.ServeHTTP(response, request)

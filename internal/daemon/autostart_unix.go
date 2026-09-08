@@ -27,6 +27,12 @@ func LaunchSelfDaemon(paths RuntimePaths) error {
 }
 
 func launchDaemonProcess(paths RuntimePaths, executable string) error {
+	return LaunchInstalledDaemon(paths, executable, nil)
+}
+
+// LaunchInstalledDaemon starts a canonical executable. A maintenance owner can
+// pass its held descriptor through readiness without admitting competing starts.
+func LaunchInstalledDaemon(paths RuntimePaths, executable string, maintenance *os.File) error {
 	logPath := filepath.Join(paths.Home, "daemon.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // paths.Home is the validated owner-only whip runtime.
 	if err != nil {
@@ -37,6 +43,10 @@ func launchDaemonProcess(paths RuntimePaths, executable string) error {
 		return err
 	}
 	command := exec.CommandContext(context.Background(), executable, "_daemon")
+	if maintenance != nil {
+		command.Args = append(command.Args, "--maintenance-fd", "3")
+		command.ExtraFiles = []*os.File{maintenance}
+	}
 	command.Stdin = nil
 	command.Stdout = logFile
 	command.Stderr = logFile

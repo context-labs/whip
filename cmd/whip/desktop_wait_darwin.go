@@ -12,6 +12,9 @@ type desktopProcessWatcher struct {
 }
 
 func desktopWatchProcess(pid int) (*desktopProcessWatcher, error) {
+	if pid <= 0 {
+		return nil, errors.New("invalid SSH process ID")
+	}
 	fd, err := unix.Kqueue()
 	if err != nil {
 		return nil, err
@@ -57,7 +60,11 @@ func (w *desktopProcessWatcher) exited() (bool, error) {
 	}
 	if n == 1 {
 		if events[0].Flags&unix.EV_ERROR != 0 {
-			return false, unix.Errno(events[0].Data)
+			code := events[0].Data
+			if code < 0 {
+				return false, errors.New("invalid SSH process watcher error")
+			}
+			return false, unix.Errno(code)
 		}
 		w.done = events[0].Fflags&unix.NOTE_EXIT != 0
 	}

@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
@@ -704,5 +705,119 @@ func TestCommandStatusNotFoundIsDistinctFromLookupFailure(t *testing.T) {
 		if failure.Data.Kind == "command_not_found" {
 			t.Fatalf("lookup failure classified as absent: %v", err)
 		}
+	}
+}
+
+func TestPermissionDecisionStatusRecoversStoredOutcomes(t *testing.T) {
+	for _, transport := range []string{"unix", "websocket"} {
+		t.Run(transport, func(t *testing.T) {
+			fixture := newV2Fixture(t, &fakeRunner{})
+			client := fixture.dial(transport, "decision-owner")
+			ctx := t.Context()
+			cases := []struct {
+				name    string
+				status  string
+				body    []byte
+				message string
+				kind    string
+			}{
+				{
+					name: "stored-ticket", status: "succeeded",
+					body: mustJSON(t, capability.Ticket{OperationID: "operation", LeaseID: "lease", PermissionID: "permission"}),
+				},
+				{
+					name: "legacy-denied", status: "failed", body: []byte(capability.ErrDenied.Error()),
+					message: capability.ErrDenied.Error(), kind: "permission_denied",
+				},
+				{
+					name: "legacy-error", status: "failed", body: []byte("permission owner is unavailable"),
+					message: "permission owner is unavailable", kind: "execution_failed",
+				},
+				{
+					name: "structured-error", status: "failed",
+					body: mustJSON(t, rpcFailure(-32009, "decision conflict")), message: "decision conflict", kind: "conflict",
+				},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					decision := PermissionDecision{
+						CommandID: tc.name, RootID: fixture.rootID, PermissionID: "permission", Allow: true,
+					}
+					payload := mustJSON(t, decision)
+					digest, err := requestDigest("root", fixture.rootID, "permission.decide", payload)
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, err = fixture.store.AdmitControlCommand(ctx, session.CommandAdmission{
+						ClientID: "decision-owner", CommandID: tc.name, Scope: session.CommandScopeRoot,
+						RootID: fixture.rootID, AgentID: fixture.rootID, Kind: "permission.decide", RequestDigest: digest,
+						Payload: session.RuntimePayload{Data: payload, MediaType: "application/json"},
+					})
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, err = fixture.store.FinishCommand(
+						ctx, "decision-owner", tc.name, tc.status,
+						session.RuntimePayload{Data: tc.body, MediaType: "application/json"},
+					)
+					if err != nil {
+						t.Fatal(err)
+					}
+					status, err := client.CommandStatus(ctx, tc.name)
+					if err != nil || status.CommandID != tc.name || status.Operation != "permission.decide" || status.Status != tc.status {
+						t.Fatalf("decision status = %+v, %v", status, err)
+					}
+					if tc.status == "succeeded" {
+						want := PermissionDecisionResult{OperationID: "operation", LeaseID: "lease"}
+						wire := map[string]string{}
+						if err := json.Unmarshal(status.Result, &wire); err != nil {
+							t.Fatal(err)
+						}
+						if !reflect.DeepEqual(wire, map[string]string{"operation_id": "operation", "lease_id": "lease"}) || status.Failure != nil {
+							t.Fatalf("successful decision result = %s, %+v", status.Result, status.Failure)
+						}
+						replayed, err := client.DecidePermission(ctx, decision)
+						if err != nil || replayed != want {
+							t.Fatalf("stored decision replay = %+v, %v", replayed, err)
+						}
+						return
+					}
+					if status.Failure == nil || status.Failure.Message != tc.message || status.Failure.Data == nil || status.Failure.Data.Kind != tc.kind {
+						t.Fatalf("failed decision result = %+v", status)
+					}
+					_, err = client.DecidePermission(ctx, decision)
+					failure, ok := errors.AsType[*RPCError](err)
+					if !ok || failure.Message != tc.message || failure.Data == nil || failure.Data.Kind != tc.kind {
+						t.Fatalf("stored decision replay error = %#v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestPermissionDecisionPersistsStructuredFailure(t *testing.T) {
+	fixture := newV2Fixture(t, &fakeRunner{})
+	client := fixture.dial("websocket", "decision-owner")
+	decision := PermissionDecision{CommandID: "failed-decision", RootID: fixture.rootID, PermissionID: "missing", Allow: true}
+	_, err := client.DecidePermission(t.Context(), decision)
+	failure, ok := errors.AsType[*RPCError](err)
+	if !ok {
+		t.Fatalf("missing permission error = %#v", err)
+	}
+	record, err := fixture.store.LoadCommand(t.Context(), "decision-owner", decision.CommandID)
+	if err != nil || record.Status != "failed" {
+		t.Fatalf("persisted decision = %+v, %v", record, err)
+	}
+	var stored RPCError
+	if err := json.Unmarshal(record.Outcome.Inline, &stored); err != nil {
+		t.Fatalf("persisted failure is not structured JSON: %q, %v", record.Outcome.Inline, err)
+	}
+	if !reflect.DeepEqual(&stored, failure) {
+		t.Fatalf("stored failure = %+v, want %+v", stored, failure)
+	}
+	status, err := client.CommandStatus(t.Context(), decision.CommandID)
+	if err != nil || status.Status != "failed" || !reflect.DeepEqual(status.Failure, failure) {
+		t.Fatalf("recovered decision = %+v, %v", status, err)
 	}
 }

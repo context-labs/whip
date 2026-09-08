@@ -170,19 +170,30 @@ root prompt (`evals/rlm`).
 ## macOS desktop application
 
 The Electron host packages the same production renderer as the web application.
-The [desktop guide](desktop.md) documents local builds, native runtime retention,
+The [desktop guide](desktop.md) documents local builds, canonical runtime installation,
 signing and release configuration. [Desktop acceptance](../.ai-docs/plans/desktop-app/progress.md)
 is still open for notarized distribution, actual updates and manual device checks.
+
+Local connections use one selected installed `whipcode` executable, with
+`~/.whipcode` as the default home in both normal desktop channels. The packaged
+backend is an installation payload, not a privately retained daemon. The initial
+canonical path on this Mac is `/usr/local/bin/whipcode`. The historical-state
+cleanup and signed/notarized local installation are complete. Actual desktop
+diagnostics, CLI/desktop startup, shared WebSocket sessions, reconnects and a live
+provider message passed; see the
+[canonical installation record](../.ai-docs/plans/canonical-whipcode/README.md).
 
 | Behavior | Implementation | Validation |
 | --- | --- | --- |
 | One bootstrap and UI in browser and desktop, with independent SDK clients per host; native effects behind an adapter | `apps/web/src/{main,bootstrap}.tsx`, `apps/web/src/platform/`, `packages/app/src/{platform,desktop-bridge}.ts` | App architecture/bootstrap/desktop-adapter tests; packed app/UI consumer and production renderer native-import guard |
 | Exact shared renderer in Go embed and Electron ASAR, verified native companions and full DMG/ZIP contents | `scripts/{renderer-artifact,pack-web}.mjs`, `apps/desktop/scripts/{build,package,verify,distribution}.mjs`, `apps/desktop/forge.config.cjs` | Renderer/provenance/distribution tests, actual signed archive extraction/mount and signature/fuse checks |
 | Stable local/URL/SSH profiles, safe migration, explicit replacement identity and stale connection disposal | `packages/app/src/{connections,hosts,runtime}.ts`, `packages/app/src/{host-dialog,connection-dialog}.tsx`, `packages/sdk/src/client.ts` | App connections/runtime/replacement-runtime/session-navigator tests; SDK changed-runtime regression |
-| Retained immutable Go/Swift runtime, attach-before-start, owner-proven stale socket recovery, no daemon shutdown on GUI exit | `apps/desktop/src/{runtime,transport}.ts`, `cmd/whip/daemon_manage.go`, `cmd/whip/desktop_runtime.go` | Native runtime/transport tests, Go owner/socket tests, staged lifecycle smoke and signed real-worker continuity fixture |
+| Canonical installed whipcode selection, compatible attach-before-start, owner-proven stale socket recovery, no daemon shutdown on GUI exit or backend replacement during an app update | `apps/desktop/src/{main,runtime,transport}.ts`, `cmd/whip/daemon_manage.go`, `cmd/whip/desktop_runtime.go` | `apps/desktop/tests/runtime.test.ts`: saved-path precedence, missing-path refusal, compatible reuse, explicit restart, port conflicts and bounded/cancelled processes; Go owner/socket tests |
+| Verified whipcode payload with source/build/distribution provenance and the matching embedded Swift helper; explicit installation refuses a different existing executable | `apps/desktop/scripts/{build,verify,distribution}.mjs`, `apps/desktop/src/runtime.ts`, `cmd/whip/desktop_runtime.go` | Native runtime manifest/integrity, explicit-install, concurrent-publication and cancelled-copy tests; distribution checks; signed/notarized installed artifact and matching canonical executable verified |
+| This Mac setup before daemon availability, read-only Test Connection, native executable choice, explicit installation/restart and expandable path/build diagnostics | `packages/app/src/{platform,desktop-bridge}.ts`, `packages/app/src/host-dialog.tsx`, `apps/web/src/platform/desktop.ts`, `apps/desktop/src/{main,preload,runtime}.ts` | `packages/app/test/{local-runtime,desktop-adapter,architecture}.test.ts*`; `TestDaemonStatusDoesNotInitializeHome`, `TestDaemonStatusPreservesExistingRuntime`; Chromium missing-daemon UI check |
 | System SSH configuration, private Unix forwarding, in-app prompts and owned helper cleanup on GUI death | `apps/desktop/src/ssh.ts`, `cmd/whip/desktop_{ssh,askpass,wait_darwin,wait_linux}.go`, `packages/app/src/host-prompts.tsx` | Real isolated sshd native tests, Go race/integration process-group and askpass tests, shared prompt stale/cancel tests |
 | Native save/copy/folder/link effects, opt-in attention notifications, restored tabs and draft-aware close | `apps/desktop/src/{main,native,links}.ts`, `packages/app/src/{attention-notifications,session-tab-routing,session-tab-strip,settings}.ts*` | Native save/disposal tests, app attention/close-tab/settings tests, signed Finder launch and tab/draft checks |
-| Deferred updater, safe restart, single-renderer release graph and conditional immutable feed publication | `apps/desktop/src/updates.ts`, `apps/desktop/scripts/{ci-signing,publish}.mjs`, `.github/workflows/{release,desktop-release}.yml` | Updater listener/handshake/retry tests; publisher archive-proof and conditional-write races; actual notarized N-to-N+1 remains a release gate |
+| Deferred updater, one-action managed backend synchronization, attested candidate staging and conditional feed promotion | `apps/desktop/src/{updates,runtime}.ts`, `cmd/whip/desktop_runtime_sync.go`, `internal/daemon/maintenance_unix.go`, `apps/desktop/scripts/{ci-signing,publish,publish-github,release-candidate,notices}.mjs`, `.github/workflows/release-desktop.yml` | Updater release-name/approval/retry tests, `TestDesktopCompiledUpdate` (real two-build handoff and session/config preservation), maintenance-lock race tests, candidate/publisher identity and conditional-write tests; actual Squirrel N→N+1 remains a release gate ([runbook](desktop-releases.md)) |
 
 ## React web application
 
@@ -523,3 +534,44 @@ Tests: `TestDistribution*` in the affected Go packages, `TestFetchWhipcodePages`
 `TestWhipcodeVersionComparison`, `scripts/test-install-whipcode.py`, and
 `scripts/test-distributions.py` (both compiled binaries, independent sockets,
 restart, and self-update).
+## Native mobile companion (development)
+
+The Expo workspace in `apps/mobile` provides manual private-host setup, themed
+Sessions/Attention/Settings, root and child conversations, queued/steering input,
+turn-specific Stop, question forms and one-shot permission decisions. It consumes
+the existing SDK WebSocket protocol; execution stays on the host. Application auth,
+QR pairing and push notifications remain outside this release.
+
+- Connection diagnostics: `apps/mobile/src/runtime/connection-test.ts` and
+  `app/server.tsx`; transient HTTPS/WSS/session probes, per-step deadlines,
+  identity checks and modal-local actionable errors. `connection-test.test.ts`
+  and `server-screen.test.tsx` cover HTTP/protocol failures, headless hosts,
+  response bounds, cancellation and late results. SDK transport tests preserve
+  React Native close reasons without leaking callbacks after disposal.
+- Native runtime and lifecycle: `apps/mobile/src/runtime/runtime.ts`, SDK
+  `client.pause/resume` and synchronized views; covered by SDK client/state tests
+  and mobile runtime tests.
+- Durable local identity, revisioned drafts and atomic correlation:
+  `apps/mobile/src/runtime/storage.ts`, local `WhipStorage` native module;
+  `storage.test.ts` and `storage.native.test.ts` cover SQLite atomicity, quotas,
+  key/database mismatch and native setup boundaries.
+- Partial creation recovery: `apps/mobile/src/features/creation.ts` and
+  `creation.test.ts`; separate create/effort/input identities preserve the created
+  root without automatic continuation after restart.
+- Foreground Attention and its qualified tab badge:
+  `apps/mobile/src/features/attention.tsx` and `attention.test.tsx`; one observer
+  handles polling, bounded pagination, focus refresh and stale/partial counts.
+- Bounded native text: `apps/mobile/src/components/paged-text.tsx` and
+  `conversation.tsx`; paging, recycling, full-copy and explicit body-read tests
+  cover the rendering boundary. `markdown.test.tsx` covers source fallback for
+  images/HTML and the external-link allowlist.
+- Permission recovery: SDK `permissions.status`, daemon permission outcome
+  normalization/legacy decoding; SDK services and daemon server tests cover both
+  transports, failed outcomes and original decision identity.
+- Pure reuse: `@whip/app/presentation` and `@whip/ui/theme-data`; web retains its
+  own renderer. See [frontend.md](frontend.md) for package boundaries.
+
+Native device validation and distribution are not implied by this entry.
+[Mobile setup](mobile.md) and the
+[implementation evidence](../.ai-docs/plans/mobile-app/EVIDENCE.md) track the actual
+build/device/release state.

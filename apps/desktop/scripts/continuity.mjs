@@ -1,4 +1,4 @@
-// Retained signed runtime acceptance; this models client detach and source-bundle
+// Canonical signed runtime acceptance; this models client detach and source-bundle
 // removal, not a Finder launch or a notarized Squirrel N -> N+1 installation.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -10,12 +10,12 @@ import { parseArgs, promisify } from 'node:util';
 import asar from '@electron/asar';
 import { createWhipClient } from '@whip/sdk';
 import { unixSocket } from '@whip/sdk/node';
-import { fileDigest, installRuntime, readRuntimeManifest, verifyRuntime } from '../src/runtime.ts';
+import { fileDigest, LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   manifest: { type: 'string' }, output: { type: 'string' },
-  'keep-fixture': { type: 'boolean' }, 'allow-legacy-manifest': { type: 'boolean' },
+  'keep-fixture': { type: 'boolean' },
 } });
 assert(positionals.length <= 1, 'Usage: node continuity.mjs [Whip.app | native-directory] [--manifest file] [--output file]');
 assert.equal(process.platform, 'darwin'); assert.equal(process.arch, 'arm64');
@@ -83,6 +83,7 @@ const provider = createServer((request, response) => {
 });
 
 let installed, env, daemonPID, result, cleanupError;
+let startAttempted = false;
 try {
   await Promise.all([copiedSource, home, path.join(fixture, 'user'), path.join(fixture, 'tmp'), path.join(fixture, 'work')]
     .map(directory => mkdir(directory, { mode: 0o700 })));
@@ -93,31 +94,26 @@ try {
       : await readFile(path.join(source, '../app/runtime-manifest.json'));
   assert(manifestBytes.length <= 16 << 10, 'Runtime manifest exceeds its size bound');
   await writeFile(path.join(copiedSource, 'runtime-manifest.json'), manifestBytes, { mode: 0o600 });
-  let manifest;
-  let legacyManifest = false;
-  try { manifest = await readRuntimeManifest(path.join(copiedSource, 'runtime-manifest.json')); }
-  catch (error) {
-    // Early signed fixtures predate protocolMinor metadata. Preserve their exact
-    // manifest and report negotiated metadata separately; never infer a minor.
-    manifest = JSON.parse(manifestBytes);
-    if (!values['allow-legacy-manifest'] || manifest.compatibility?.protocolMinor !== undefined) throw error;
-    legacyManifest = true;
-  }
+  const manifest = await readRuntimeManifest(path.join(copiedSource, 'runtime-manifest.json'));
   assert.equal(manifest.schema, 1); assert.equal(manifest.architecture, 'arm64');
   assert.match(manifest.teamId ?? '', /^[A-Z0-9]{10}$/, 'Acceptance requires a Developer ID signed runtime');
-  assert.deepEqual(Object.keys(manifest.files).sort(), ['whip', 'whip-computer']);
-  for (const name of ['whip', 'whip-computer']) {
+  assert.deepEqual(Object.keys(manifest.files).sort(), ['whip-computer', 'whipcode']);
+  for (const name of ['whip-computer', 'whipcode']) {
     assert((await lstat(path.join(sourceNative, name))).isFile());
     await copyFile(path.join(sourceNative, name), path.join(copiedSource, name));
   }
-  installed = await installRuntime(copiedSource, path.join(fixture, 'retained-runtimes'), manifest, deadline);
-  assert(installed.executable.startsWith(fixture + path.sep));
+  installed = { executable: path.join(fixture, 'bin/whipcode') };
   env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: path.join(fixture, 'user'), TMPDIR: path.join(fixture, 'tmp'),
-    WHIP_HOME: home, WHIP_COMPUTER_BIN: installed.helper };
+    WHIPCODE_HOME: home, WHIPCODE_NETWORK: '0' };
+  await new LocalRuntime({ source: copiedSource, manifest, env, settingsFile: path.join(fixture, 'native-local-runtime.json'),
+    defaultExecutable: installed.executable }).install(installed.executable, deadline);
+  const helperBytes = await readFile(path.join(copiedSource, 'whip-computer'));
+  assert.equal(manifest.distribution, 'whipcode');
   const metadata = JSON.parse(await run(installed.executable, ['_desktop-runtime-info'], env));
-  assert.equal(metadata.buildId, manifest.version); assert.equal(metadata.protocolMajor, manifest.compatibility.protocolMajor);
+  assert.equal(metadata.buildId, manifest.buildId); assert.equal(metadata.protocolMajor, manifest.compatibility.protocolMajor);
   assert.equal(metadata.schemaVersion, manifest.compatibility.schemaVersion);
-  if (!legacyManifest) assert.equal(metadata.protocolMinor, manifest.compatibility.protocolMinor);
+  assert.equal(metadata.distribution, 'whipcode');
+  assert.equal(metadata.protocolMinor, manifest.compatibility.protocolMinor);
   provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
   const baseURL = `http://127.0.0.1:${provider.address().port}`;
   const model = { providers: ['continuity-provider'], context: 65536, maxOut: 256 };
@@ -132,6 +128,7 @@ try {
       pricing: { prompt: '0', completion: '0', inputCacheRead: '0' } }],
   } }), { mode: 0o600 });
   assert.equal(JSON.parse(await run(installed.executable, ['daemon', 'status', '--json'], env)).state, 'stopped');
+  startAttempted = true;
   await run(installed.executable, ['daemon', 'start'], env, 20_000);
   const status = async () => JSON.parse(await run(installed.executable, ['daemon', 'status', '--json'], env));
   const initial = await status();
@@ -146,8 +143,8 @@ try {
     const command = (await run('/bin/ps', ['-p', String(pid), '-o', 'command='], env)).trim();
     const files = await run('/usr/sbin/lsof', ['-a', '-p', String(pid), '-d', 'txt', '-Fn'], env);
     const executableMapped = files.split('\n').includes('n' + installed.executable);
-    assert(command.startsWith(installed.executable + ' '), `Process ${pid} did not launch from retained runtime`);
-    assert(executableMapped, `Process ${pid} does not map the retained executable`);
+    assert(command.startsWith(installed.executable + ' '), `Process ${pid} did not launch from canonical runtime`);
+    assert(executableMapped, `Process ${pid} does not map the canonical executable`);
     return { pid, command, executableMapped };
   }
   async function workers() {
@@ -186,17 +183,17 @@ try {
   }
   let client = await connect();
   const info = client.requireConnected();
-  assert.equal(info.pid, daemonPID); assert.equal(info.build_id, manifest.version);
+  assert.equal(info.pid, daemonPID); assert.equal(info.build_id, manifest.buildId);
   const daemon = await processEvidence(daemonPID);
   const before = await finish(client, 'before', await start(client, 'before'));
-  const beforeWorkers = await eventually(async () => { const found = await workers(); return found.length ? found : undefined; }, 'first retained worker');
+  const beforeWorkers = await eventually(async () => { const found = await workers(); return found.length ? found : undefined; }, 'first canonical worker');
   const pending = await start(client, 'held');
   await eventually(() => { if (providerFailure) throw providerFailure; return phases.get('held').toolResult; }, 'held worker result');
   assert.equal((await pending.command.status({ signal: deadline })).status, 'running');
   const heldWorkers = await workers(); assert(heldWorkers.length > beforeWorkers.length, 'A new session must start a distinct worker');
   client.close(); clients.delete(client);
   // Only our disposable source copy is removed. The installed app, staging
-  // directory and immutable retained installation are never modified.
+  // directory and canonical installation are never modified.
   assert.equal(path.dirname(copiedSource), fixture);
   await rm(copiedSource, { recursive: true });
   assert.equal(await lstat(copiedSource).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error; }), false);
@@ -207,24 +204,26 @@ try {
   const after = await finish(client, 'after', await start(client, 'after'));
   const afterWorkers = await workers();
   const newWorkers = afterWorkers.filter(worker => !heldWorkers.some(previous => previous.pid === worker.pid));
-  assert(newWorkers.length > 0, 'Source removal must be followed by spawning a new worker from the retained executable');
+  assert(newWorkers.length > 0, 'Source removal must be followed by spawning a new worker from the canonical executable');
   const final = await status(); assert.equal(final.state, 'running'); assert.equal(final.pid, daemonPID);
-  await verifyRuntime(path.dirname(installed.executable), manifest, deadline);
-  assert.equal(await fileDigest(installed.helper), manifest.files['whip-computer'].sha256);
+  assert.equal(await fileDigest(installed.executable), manifest.files.whipcode.sha256);
+  assert((await readFile(installed.executable)).includes(helperBytes), 'Canonical runtime must retain the exact embedded helper');
+  await run('/usr/bin/codesign', ['--verify', '--strict', '-R',
+    `=anchor apple generic and certificate leaf[subject.OU] = "${manifest.teamId}"`, installed.executable], env);
   assert.equal(providerRequests, 6); assert(!providerFailure);
-  result = { purpose: 'Signed retained runtime and RLM worker continuity across client detach and copied application-source removal; not an actual Squirrel upgrade',
-    recordedAt: new Date().toISOString(), source, fixture, manifest, legacyManifest, executableMetadata: metadata,
+  result = { purpose: 'Signed canonical runtime and RLM worker continuity across client detach and copied application-source removal; not an actual Squirrel upgrade',
+    recordedAt: new Date().toISOString(), source, fixture, manifest, executableMetadata: metadata,
     negotiated: { protocolMajor: info.protocol_major, protocolMinor: info.protocol_minor, runtimeId: info.runtime_id, buildId: info.build_id },
-    environment: { WHIP_HOME: home, WHIP_COMPUTER_BIN: installed.helper, inheritedCredentials: false, provider: baseURL, daemonTCP: false },
+    environment: { WHIPCODE_HOME: home, embeddedHelper: true, inheritedCredentials: false, provider: baseURL, daemonTCP: false },
     daemon, finalDaemonPID: final.pid, beforeWorkers, heldWorkers, afterWorkers, newWorkerPIDsAfterSourceRemoval: newWorkers.map(worker => worker.pid),
-    before, disconnectedAcceptedTurn: recovered, after, providerRequests, sourceCopyRemoved: true, retainedSignaturesAndHashesVerified: true,
+    before, disconnectedAcceptedTurn: recovered, after, providerRequests, sourceCopyRemoved: true, canonicalSignaturesAndHashesVerified: true,
     limits: ['No Electron process launched: SDK client disconnect models GUI detachment.', 'No N-to-N+1 Squirrel installation or notarization tested.',
-      ...(legacyManifest ? ['Original signed manifest predates protocolMinor metadata; negotiated minor is recorded separately.'] : [])],
+],
   };
 } finally {
   releaseHeld(); for (const client of clients) client.close();
   provider.closeAllConnections(); if (provider.listening) await new Promise(resolve => provider.close(resolve));
-  if (installed && env) {
+  if (startAttempted) {
     try {
       await run(installed.executable, ['daemon', 'stop', '--force'], env, 20_000);
       const stopped = JSON.parse(await run(installed.executable, ['daemon', 'status', '--json'], env));
@@ -239,4 +238,4 @@ if (cleanupError) throw cleanupError;
 await mkdir(path.dirname(output), { recursive: true });
 await writeFile(output, JSON.stringify(result, null, 2) + '\n');
 console.log(JSON.stringify({ evidence: output, daemonPID, newWorkers: result.newWorkerPIDsAfterSourceRemoval,
-  workerTurnsVerified: 3, recoveredAcceptedTurn: true, legacyManifest: result.legacyManifest, cleanup: result.cleanup }, null, 2));
+  workerTurnsVerified: 3, recoveredAcceptedTurn: true, cleanup: result.cleanup }, null, 2));

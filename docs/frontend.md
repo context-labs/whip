@@ -2,7 +2,7 @@
 
 This is the canonical starting point for coding agents working on WHIP's frontend.
 It explains the current design, why it exists, and how to extend it. Updated on
-2026-09-08 for the multi-host workspace.
+2026-09-08 for the multi-host workspace and native companion.
 
 This is a maintained engineering guide, not a delivery checklist. Historical
 plans preserve research and past alternatives; they are not instructions to
@@ -92,6 +92,7 @@ Use Node 24. Exact installed versions belong to the package manifests and
 | `@whip/app` — `packages/app` | Shared React application, routes, feature UI, application state/lifetimes | UI, SDK, protocol types, TanStack tools |
 | `@whip/web` — `apps/web` | Browser bootstrap, platform adapters, Vite configuration, static release build | App and UI bootstrap exports |
 | `@whip/desktop` — `apps/desktop` | Electron main/preload, packaged runtimes, SSH, native effects and distribution | Consumes the web renderer artifact; native SDK imports stay outside the renderer |
+| `@whip/mobile` — `apps/mobile` | Expo/React Native companion, native UI, lifecycle and encrypted device storage | SDK; only `@whip/app/presentation` and `@whip/ui/theme-data` from web-facing packages |
 | `examples/client` | Small SDK usage example | Independent of the product application |
 
 ```mermaid
@@ -148,6 +149,80 @@ CSS framework, or a frontend provider/agent execution loop without a concrete
 architectural need. Existing tools are choices with defined jobs, not an excuse
 to route every piece of state through a framework.
 
+## Native mobile companion
+
+[`apps/mobile`](../apps/mobile) is a separate Expo Router renderer for iOS and
+Android. It shares daemon truth and portable presentation with the web app, while
+native SwiftUI/Compose controls come from Expo UI. React Native StyleSheet supplies
+layout; FlashList virtualizes conversation/catalog rows; Enriched Markdown renders
+selectable text; keyboard controller and safe-area providers own native insets.
+This is a development implementation; [mobile acceptance evidence](../.ai-docs/plans/mobile-app/EVIDENCE.md)
+records the remaining native and release gates. Setup belongs in [mobile.md](mobile.md).
+
+Native imports must use `@whip/app/presentation` (pure conversation rows,
+submitted-input identity reconciliation and reading targets) and
+`@whip/ui/theme-data` (resolved catalog and portable contrast helpers). Neither
+entry point imports DOM controls, StyleX, web routing or browser providers.
+`timeline.tsx` remains the web renderer of the same projection. Do not import the
+web app/UI barrels into Metro or duplicate SDK stream reducers in mobile.
+
+The native runtime owns one SDK client, one QueryClient, one catalog and the
+selected root/child leases. A saved host pins its persistent runtime ID and stable
+human client ID. Replacement aborts local observations, releases views and clears
+host reads. Actual backgrounding pauses the SDK socket/heartbeat/reconnect and
+command ticks; foreground resume reconciles durable identity before applicable
+actions are enabled. Temporary `inactive` transitions do not detach. `close()` is
+terminal and reserved for disposal/replacement. Work continues on the daemon.
+
+The connection sheet owns its actionable errors so native modal presentation
+cannot hide the root layout's error banner. Its explicit Test Connection uses
+one temporary SDK client for HTTPS discovery, initialization/identity and a
+one-item session read, without saving or replacing the runtime's client. Each
+stage is limited to 15 seconds; discovery is streamed into an 8 KiB buffer through
+Expo fetch. Completion, failure, leaving the sheet or backgrounding closes the
+probe. Native close details are bounded in the shared SDK and remain ephemeral;
+the diagnostic export continues to omit raw errors and addresses.
+
+The native [AttentionProvider](../apps/mobile/src/features/attention.tsx), mounted
+above route navigation inside the runtime QueryClient provider, owns the only
+foreground attention query and 10-second poll. The Attention screen and tab badge
+consume its context without separate query observers. Focus refresh joins an
+in-flight request; runtime reconnect and completed decisions invalidate the same
+query. Backgrounding cancels reads and disables polling; host replacement clears
+the cache. Reads retain at most four 64-entry / 128 KiB pages. The badge counts
+loaded sessions with human requests, qualifies incomplete indexes with `+`, and
+announces stale/unavailable data without implying a current zero count.
+
+Use the private SQLCipher database for four saved hosts, bounded preferences,
+16 revisioned drafts (64 KiB per record, 512 KiB total), 64 reading bookmarks
+(64 KiB total), and 64 recovery/permission records sharing a 64 KiB budget.
+The SecureStore key uses device-only keychain accessibility; the database lives
+in a native backup-excluded directory. Failure to open or write durable storage
+must remain visible and must not silently switch to plaintext or allow an
+unrecorded send. Snapshots, query caches, prompts in recovery records, provider
+credentials and transcripts are not persisted. Draft text is a separate record.
+
+Runtime command metadata and its recipient/request/draft revision are committed
+atomically before sending. Permission decisions retain a separate typed record
+and use `client.permissions.status`; they are not generic runtime commands.
+A status failure is not evidence of non-admission. Retried runtime commands retain
+original bytes/identity and require an explicit action after authoritative missing
+status; restored records contain no payload and cannot replay automatically.
+Creation journals retain the created root across effort/input partial failures.
+
+Only an explicit full-message sheet fetches content, at most 256 KiB through SDK
+scope/hash checks. Recycled transcript rows cannot initiate reads. Native text
+pages contain at most 8,192 UTF-16 units, preserving surrogate pairs. Short messages
+keep Markdown rendering; larger messages use selectable source pages. Collapsed
+tool details use 512-unit previews, and explicit Copy retains the complete loaded
+text. Paging resets on recycled message identity and preserves the selected page
+during live appends. These bounds apply to combined tool arguments/output and
+explicitly inspected bodies as well as ordinary conversation text. Markdown with
+image syntax or raw HTML delimiters uses selectable source presentation so the
+native renderer cannot fetch embedded images; link previews are disabled, and
+links open only after a user tap through an external-scheme allowlist.
+Uploads, QR pairing, application auth and push notifications are deferred.
+
 ## Runtime construction and lifetimes
 
 [`apps/web/src/main.tsx`](../apps/web/src/main.tsx) selects the browser adapter or
@@ -174,6 +249,48 @@ can use the daemon picker RPC. Picker requests retire when their client or route
 changes. Cancellation preserves the directory; unavailable native choosers fall
 back to browsing directories on the original host.
 Bootstrap calls `platform.dispose()` after the shared application unmounts.
+
+Desktop's optional `localRuntime` capability provides `test`, `choose`, `install`
+and `restart`. Electron main owns executable discovery, compatibility checks,
+installation and process effects through [`LocalRuntime`](../apps/desktop/src/runtime.ts).
+Its native `native-local-runtime.json` settings record contains the selected
+absolute executable path, optional management hash/channel, and a release-specific
+restart approval. React does not store another copy or derive sockets.
+The first connection discovers and validates `whipcode`, then persists the path
+so Finder and terminal launches use the same installation. A missing saved path
+does not fall back to another executable. Packaged backend bytes are an explicit
+installation/update payload; ordinary daemon execution uses the selected installed
+executable. A main-process synchronization gate verifies managed installations
+before local connection, coordinates restart with the Go maintenance lock, and
+consumes the existing update approval after matching readiness. Any running daemon
+requires explicit interruption approval; a UI status snapshot is not an idle fence.
+An explicitly chosen external binary is never automatically adopted or replaced.
+Normal stable and beta desktop channels share the default `~/.whipcode` runtime
+home. An explicit `WHIPCODE_HOME` can isolate a fixture; legacy `WHIP_HOME` never
+redirects local work. The canonical installation on the development Mac is
+`/usr/local/bin/whipcode`.
+
+[`HostDialog`](../packages/app/src/host-dialog.tsx) exposes **This Mac** diagnostics
+even before the first successful connection. Opening the dialog and changes to
+the host's connection state refresh a read-only diagnostic snapshot; **Test
+Connection** repeats that check without starting a daemon, installing a binary,
+creating the runtime home or rewriting its configuration. Only the bounded
+`LocalRuntimeStatus` crosses the bridge: state, selected executable, home, client
+and daemon builds, an actionable message and installation availability. Paths
+and builds live in expandable diagnostics; raw logs and environment values do
+not enter the renderer. The panel owns its temporary busy/error/confirmation
+state and retires late results on close; it is not another SDK connection owner.
+
+**Choose executable** uses a native picker and validates the selected distribution.
+**Install whipcode** requires an explicit action and installs verified packaged
+bytes without overwriting a different existing installation. Neither action starts
+work. The existing host **Connect** action attaches to a healthy daemon or starts
+the selected installation when stopped, with bounded progress through the existing
+connection resolver. **Restart daemon** explains the interruption to CLI, web and
+desktop work and requires a separate explicit confirmation. SDK reconnect and
+runtime-identity acceptance remain unchanged. Disconnecting, switching hosts and
+quitting the GUI do not stop accepted work. Browser adapters omit `localRuntime`;
+URL and SSH connections retain their existing transport paths.
 
 [`HostPrompts`](../packages/app/src/host-prompts.tsx) uses the shared Application
 child slot and its existing theme/UI/Query providers. Bootstrap observes prompts
@@ -270,6 +387,8 @@ at 16 per connection; do not open extra connections to bypass that limit.
 | --- | --- | --- |
 | Execution, commands, sessions, provider credentials, permissions, model context, scheduling | Daemon | Durable host truth; clients cannot replace it |
 | Native local/SSH profiles | Device storage | Bounded v2 profiles; URL profiles move to the shared registry only after verified import |
+| Canonical local executable selection | Electron main `LocalRuntime` | Native settings hold one absolute installed path; default home is `~/.whipcode` in both desktop channels |
+| Local runtime diagnostics and repair UI | Native probe / host dialog | Bounded serialized diagnostic snapshot and transient busy/error/confirmation state; no daemon state duplication |
 | Native notification deduplication | One app observer per attached runtime | Up to four pages / 256 roots, transient counts and question IDs; no transcript subscriptions |
 | Desktop updates and authentication prompts | Platform adapter / bootstrap | Native update snapshot and bounded ephemeral prompt queue |
 | Saved execution hosts | Local daemon configuration `remote_hosts` | Revision-checked file shared by browsers; remote daemon credentials stay remote |

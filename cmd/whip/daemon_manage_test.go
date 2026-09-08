@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -11,8 +12,82 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/daemon"
 )
+
+func TestDaemonStatusDoesNotInitializeHome(t *testing.T) {
+	for _, distribution := range []string{"whip", "whipcode"} {
+		for _, override := range []bool{false, true} {
+			name := distribution + "/default home"
+			if override {
+				name = distribution + "/home override"
+			}
+			t.Run(name, func(t *testing.T) {
+				previous := buildinfo.Name
+				buildinfo.Name = distribution
+				t.Cleanup(func() { buildinfo.Name = previous })
+				userHome := filepath.Join(t.TempDir(), "absent-user-home")
+				t.Setenv("HOME", userHome)
+				t.Setenv("WHIP_HOME", "")
+				t.Setenv("WHIPCODE_HOME", "")
+				home := filepath.Join(userHome, "."+distribution)
+				if override {
+					home = filepath.Join(userHome, "custom-home")
+					t.Setenv(buildinfo.Env("HOME"), home)
+				}
+				paths, err := daemon.ResolvePaths(home)
+				if err != nil {
+					t.Fatal(err)
+				}
+				output := invokeMain(t, "daemon", "status", "--json")
+				var status daemonStatus
+				if err := json.Unmarshal([]byte(output), &status); err != nil || status.State != "stopped" || status.Error != "" || status.Socket != paths.Socket {
+					t.Fatalf("absent home status = %q, %v", output, err)
+				}
+				for _, path := range []string{userHome, home, paths.Home, paths.Runtime, paths.Lock} {
+					if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("status touched %s: %v", path, err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestDaemonStatusPreservesExistingRuntime(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(buildinfo.Env("HOME"), home)
+	paths, err := daemon.Paths(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paths.Runtime != paths.Home {
+		t.Cleanup(func() { _ = os.RemoveAll(paths.Runtime) })
+	}
+	for _, dir := range []string{home, paths.Home, paths.Runtime} {
+		if err := os.Chmod(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output := captureDaemonOutput(t, func() error { return daemonStatusCLI([]string{"--json"}) })
+	var status daemonStatus
+	if err := json.Unmarshal([]byte(output), &status); err != nil || status.State != "stopped" {
+		t.Fatalf("empty runtime status = %q, %v", output, err)
+	}
+	for _, dir := range []string{home, paths.Home, paths.Runtime} {
+		info, err := os.Stat(dir)
+		if err != nil || info.Mode().Perm() != 0o750 {
+			t.Fatalf("status changed permissions on %s: %v, %v", dir, info, err)
+		}
+	}
+	for _, dir := range []string{paths.Home, paths.Runtime} {
+		entries, err := os.ReadDir(dir)
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("status wrote runtime files in %s: %v, %v", dir, entries, err)
+		}
+	}
+}
 
 func TestDaemonStatusIdentifiesOnlyUnownedStaleSocket(t *testing.T) {
 	paths, err := daemon.Paths(t.TempDir())
@@ -35,13 +110,16 @@ func TestDaemonStatusIdentifiesOnlyUnownedStaleSocket(t *testing.T) {
 	if client != nil || status.State != "unhealthy" || !status.StaleSocket {
 		t.Fatalf("unowned stale socket = %+v", status)
 	}
+	if _, err := os.Stat(paths.Lock); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale socket inspection created an owner lock: %v", err)
+	}
 	owner, err := daemon.AcquireOwner(paths.Lock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = owner.Close() }()
 	status, client = probeDaemon(paths, time.Second)
-	if client != nil || status.StaleSocket || status.PID != os.Getpid() {
+	if client != nil || status.State != "unhealthy" || status.StaleSocket || status.PID != os.Getpid() {
 		t.Fatalf("owned unhealthy socket must not be recovered: %+v", status)
 	}
 }
@@ -85,9 +163,20 @@ func TestDaemonManagementLifecycle(t *testing.T) {
 	if !strings.Contains(output, "daemon started") || len(daemonRuns) != 1 {
 		t.Fatalf("start output = %q, launches = %d", output, len(daemonRuns))
 	}
+	for _, dir := range []string{paths.Home, paths.Runtime} {
+		if err := os.Chmod(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
 	output = captureDaemonOutput(t, func() error { return daemonStatusCLI([]string{"--json"}) })
 	if err := json.Unmarshal([]byte(output), &status); err != nil || status.State != "running" || status.PID != os.Getpid() || !status.BuildMatch {
 		t.Fatalf("running status = %q, %+v, %v", output, status, err)
+	}
+	for _, dir := range []string{paths.Home, paths.Runtime} {
+		info, err := os.Stat(dir)
+		if err != nil || info.Mode().Perm() != 0o750 {
+			t.Fatalf("running status changed permissions on %s: %v, %v", dir, info, err)
+		}
 	}
 	output = captureDaemonOutput(t, func() error { return daemonStatusCLI(nil) })
 	for _, want := range []string{"state:         running", "build match:   true", "uptime:", "socket:", "database:"} {

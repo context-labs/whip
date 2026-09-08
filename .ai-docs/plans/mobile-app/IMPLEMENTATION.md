@@ -1,9 +1,20 @@
 # Whip mobile: phased implementation plan
 
-Branch: planning on `whip-rlm`; proposed implementation branch `codex/mobile-companion`
+Branch: integrated into `whip-rlm` from `mobile-app` (checkpoint `0245ec9e6`).
 
-Status: not started. Source inspected at `dd7aaa3a` plus the current working-tree
-changes, including batched questions. This plan does not mark any code as shipped.
+Checkout: `/Users/samheutmaker/Desktop/context-labs/src/rlm/whip`
+
+See [merge evidence](MERGE-EVIDENCE.md); the original mobile worktree is retained.
+
+Status: core implementation is in place and repository/mobile automated checks
+pass. Native Android and iOS simulator workflows have been exercised; the iOS
+restart storage defect is corrected and a replacement signed phone preview is
+ready, and the owner reports the app running on the selected iPhone. The private
+`gpu-4090-sam` daemon now passes HTTPS/WSS and mobile-facing API reads from the Mac.
+The owner subsequently confirmed successful phone connection after the diagnostic
+update. Full physical-device workflow and distribution gates remain incomplete.
+See [evidence and next action](EVIDENCE.md).
+Checked work items below identify implementation, not completion of phase gates.
 
 Build a native companion that behaves like the current web app for its core
 workflows. Use the same Go daemon, generated protocol, WebSocket transport, SDK
@@ -297,10 +308,10 @@ build/connect smoke test. This is a feasibility build, not the beta.
 
 **Work:**
 
-- [ ] Capture the implementation baseline and reconcile current batched-question
+- [x] Capture the implementation baseline and reconcile current batched-question
   changes. Read `docs/frontend.md`, current SDK APIs and the parity sources above.
   Do not restart/reset the developer's live daemon to obtain a fixture.
-- [ ] Create `apps/mobile` in the npm workspace using the researched stable Expo
+- [x] Create `apps/mobile` in the npm workspace using the researched stable Expo
   baseline and Expo-compatible dependencies. Recheck actual package compatibility
   when implementation begins; the root lockfile, Expo Doctor and native builds
   decide exact versions, not a copied historical dependency table.
@@ -309,6 +320,8 @@ build/connect smoke test. This is a feasibility build, not the beta.
   Keep one React instance; preserve the current Node/npm workspace toolchain.
 - [ ] Use an isolated fake-provider daemon and Tailscale Serve. Prove WSS
   initialization, scoped HTTPS text content, cellular access and reconnect.
+  Android release-emulator WSS and reconnect now pass through real Serve;
+  physical-device/cellular evidence remains outstanding.
 - [ ] Exercise actual SDK dependencies: UUID, SHA-256, TextEncoder/Decoder,
   base64, BigInt, abort methods, response streams, byte limits, WebSocket text
   events, close behavior and buffer reporting. Record pass/fail per platform.
@@ -318,9 +331,11 @@ build/connect smoke test. This is a feasibility build, not the beta.
 - [ ] Compare against the web behaviors for streamed-to-history transition,
   identical prompts, queue/steer and reconnect. Keep fixture protocol behavior
   reusable rather than copying an entire browser test runner into mobile.
-- [ ] Choose Expo UI or the existing Paper fallback, decide the narrow SDK
-  lifecycle path and name any proven native adapter requirements. Record the
-  device/OS/build and findings in a new `EVIDENCE.md` beside this plan.
+- [x] Choose Expo UI or the existing Paper fallback, decide the narrow SDK
+  lifecycle path and name any proven native adapter requirements. Expo UI is
+  implemented and verified on Android; iOS acceptance remains open. Native abort
+  compatibility, string socket URLs and missing native queue measurements are
+  documented in `EVIDENCE.md` and the SDK README.
 
 **Files:** new mobile workspace/config/fixture screen; SDK portability probes;
 existing isolated daemon/browser fixture helpers only if extraction is useful.
@@ -342,23 +357,23 @@ native Sessions / Attention / Settings structure using Whip themes.
 
 **Work:**
 
-- [ ] Set up Expo Router, one bootstrap/provider tree, safe areas, font loading,
+- [x] Set up Expo Router, one bootstrap/provider tree, safe areas, font loading,
   keyboard-controller provider, app appearance and dev/preview/production profiles.
   Keep runtime creation outside render; clean up Fast Refresh/StrictMode instances.
-- [ ] Export portable theme data through `@whip/ui/theme-data`; map canvas, panel,
+- [x] Export portable theme data through `@whip/ui/theme-data`; map canvas, panel,
   secondary text, quiet borders, composer, code and status roles into native UI.
   Preserve stable theme IDs and source palettes. Reuse portable contrast helpers
   where appropriate without importing the browser ThemeProvider.
-- [ ] Build only needed components: status indicator, session row, request strip,
+- [x] Build only needed components: status indicator, session row, request strip,
   choice row, sheet/dialog, empty/error state and composer frame. Use Expo UI
   controls and RN StyleSheet; no second complete styling or component framework.
-- [ ] Implement Add/Edit server with a bounded URL field and optional label.
+- [x] Implement Add/Edit server with a bounded URL field and optional label.
   Normalize a bare host to HTTPS; reject credentials, query/fragment, invalid
   schemes and unsupported paths. Show the canonical destination before Connect.
-- [ ] Implement bounded connection test/handshake, cancellation, runtime-ID
+- [x] Implement bounded connection test/handshake, cancellation, runtime-ID
   confirmation, stable mobile client ID and saved host persistence. No prompts
   or mutations during connection testing; no automatic connection from chat links.
-- [ ] Document the existing listener flags and validated Serve mapping. Keep
+- [x] Document the existing listener flags and validated Serve mapping. Keep
   daemon HTTP/WS on loopback, exact Host/browser Origin checks, and private tailnet
   access. Use existing network setup; add no mobile listener or CLI command tree.
 - [ ] Design offline, invalid TLS, unavailable host, incompatible protocol,
@@ -391,36 +406,36 @@ connection owner, correct cleanup and safe command observations across suspensio
 
 **Work:**
 
-- [ ] Implement the smaller mobile runtime using the web epoch/lease pattern:
+- [x] Implement the smaller mobile runtime using the web epoch/lease pattern:
   one current client, one QueryClient, SDK catalog, root/child consumers, command
   notices, drafts and bounded bookmarks. Subscribe with `useSyncExternalStore`
   and SDK React hooks; no duplicated session/event reducer.
 - [ ] Add only the crypto/content/transport seams proven by phase 0. Keep Expo
   imports in the mobile adapter. Default SDK browser/Node behavior stays valid.
-- [ ] Implement the chosen pause/resume or close/recreate lifecycle contract.
+- [x] Implement the chosen pause/resume or close/recreate lifecycle contract.
   Guard connection attempts, detail reads and action callbacks by epoch and
   runtime ID. Stop timers when backgrounded even if tabs remain mounted.
-- [ ] Finish transactional SQLCipher persistence and schema/version handling.
+- [x] Finish transactional SQLCipher persistence and schema/version handling.
   Commit client IDs and command metadata before network use. Draft writes are
   serialized, revisioned and bounded; surface pending/save-failed states.
   Use SecureStore only for the database key; no server credential storage.
-- [ ] Implement the SDK `RecoveryStorage` adapter with atomic put/delete/list.
+- [x] Implement the SDK `RecoveryStorage` adapter with atomic put/delete/list.
   Refuse a new durable send when recovery cannot be persisted; do not claim
   restart-safe delivery after silently falling back to memory.
-- [ ] Commit bounded native command-to-recipient/request and draft-revision
+- [x] Commit bounded native command-to-recipient/request and draft-revision
   associations with SDK records. Restore locks and acceptance cleanup from those
   associations, with root-scoped conservative handling when association is missing.
-- [ ] Extract `messagePresentation`, `timelineRows`, `conversationRows`, the
+- [x] Extract `messagePresentation`, `timelineRows`, `conversationRows`, the
   submitted-input reconciliation and the pure reading-target helper to a DOM-free
   `@whip/app/presentation` export. Web keeps its renderer and behavior tests.
   Parameterize a bound only if mobile actually needs a different value.
-- [ ] Build the native equivalent of `runtime.run`: admission versus completion,
+- [x] Build the native equivalent of `runtime.run`: admission versus completion,
   coalesced command observations, uncertainty/status inspection, explicit retry,
   recipient locks, accepted-draft revision checks and host-change guards.
-- [ ] Hydrate/reconcile stored unresolved commands for the matching runtime/client.
+- [x] Hydrate/reconcile stored unresolved commands for the matching runtime/client.
   Bound active status waiters and history notices. Unavailable status stays
   unresolved; no automatic replay or reconnection-triggered draft submission.
-- [ ] Add the typed permission-decision recovery seam needed by phase 4. Keep its
+- [x] Add the typed permission-decision recovery seam needed by phase 4. Keep its
   own operation/result type: the current `permission.decide` RPC is not a generic
   runtime `CommandHandle` operation. Persist original decision IDs before send.
   Inspect the daemon's plain-error versus structured-failure persistence boundary
@@ -454,39 +469,39 @@ or child output, send queued/steering text and stop an exact turn.
 
 **Work:**
 
-- [ ] Wire Sessions to `createSessionListView`, `refresh()` and `loadMore()`.
+- [x] Wire Sessions to `createSessionListView`, `refresh()` and `loadMore()`.
   Group by exact host directory and preserve catalog order. Never open roots for
   labels. Show pagination, truncation, offline/stale and genuinely empty states.
-- [ ] Add cancellable debounced host search and a bounded host folder picker via
+- [x] Add cancellable debounced host search and a bounded host folder picker via
   `sessions.list(...)` / `host.directories(...)`. Include runtime/filter/cursor
   in keys. Directory shortcuts prefill creation; they do not start work.
-- [ ] Validate route runtime/root/agent before acquiring a view. Release the
+- [x] Validate route runtime/root/agent before acquiring a view. Release the
   prior root before acquiring another; keep at most one selected child history.
   Back navigation retains draft and bounded reading hints, not hidden live roots.
-- [ ] Render the shared conversation projection with FlashList and native Markdown.
+- [x] Render the shared conversation projection with FlashList and native Markdown.
   Preserve stable row IDs, live-to-history reconciliation, inbox user messages,
   compact tool groups, recorded timestamps and truthful missing/truncated content.
-- [ ] Implement the native composer with explicit Send, growing multiline entry,
+- [x] Implement the native composer with explicit Send, growing multiline entry,
   visible recipient and queued/steer selection. Follow web dispatch: root uses
   `session.submit`, or `session.steer` when steering an active turn; child uses
   `session.command('agent.submit', ..., { commandId })` with explicit delivery.
-- [ ] Use the phase-2 lock/preview/draft/command machinery. Duplicate text remains
+- [x] Use the phase-2 lock/preview/draft/command machinery. Duplicate text remains
   separate authored messages. Disable unsupported, offline or unresolved actions
   without losing editable drafts. Route changes cannot clear another recipient.
-- [ ] Implement new-session directory/model selection from host catalogs/defaults.
+- [x] Implement new-session directory/model selection from host catalogs/defaults.
   `client.sessions.create` takes cwd/kind/model/provider. If effort is selected,
   apply the existing `session.effort` command with `persist_default: false` once
   the root exists; only then send an optional first prompt. Journal each step.
-- [ ] Display a created root with an unsent prompt when a later step was never
+- [x] Display a created root with an unsent prompt when a later step was never
   admitted. After timeout recover the original create ID; never create a second
   root to compensate. Late completion must not hijack the user's new location.
-- [ ] Match web's idle-root model/effort edits with no host-default persistence.
+- [x] Match web's idle-root model/effort edits with no host-default persistence.
   Child composer shows its actual model. Provider setup and permission-mode
   toggles remain outside mobile scope; existing host permission policy stays visible.
-- [ ] Add Stop for the authoritative root or selected child turn ID. Capture the
+- [x] Add Stop for the authoritative root or selected child turn ID. Capture the
   target when the action is initiated; a later new turn is not the old target.
   Distinguish root idle from descendants still working.
-- [ ] Implement Latest, older-page loading, selection/copy and revision-aware
+- [x] Implement Latest, older-page loading, selection/copy and revision-aware
   bookmark restore. Native layout changes cannot steal the reader's place. Show
   attachment metadata and explicit bounded text inspection; uploads remain absent.
 
@@ -511,34 +526,34 @@ its context, answer it once and see work continue on both phone and web.
 
 **Work:**
 
-- [ ] Add one foreground owner for `host.attention` refresh and its bounded pages.
+- [x] Add one foreground owner for `host.attention` refresh and its bounded pages.
   SDK events/successful decisions may coalesce an earlier refresh; never poll
   each root or build a second notification service.
-- [ ] Show index order, loaded/lower-bound count and an explicit Load more/Refresh.
+- [x] Show index order, loaded/lower-bound count and an explicit Load more/Refresh.
   The index contains active-root summaries and limited question details, not a
   complete chronological inbox. Permission counts require selected-root detail.
-- [ ] Open the chosen root and selected request through the existing view lease.
+- [x] Open the chosen root and selected request through the existing view lease.
   Include child requests and agent identity. Preserve the originating conversation
   and composer; request arrival does not move focus automatically.
-- [ ] Implement single/multi-select, option descriptions, recommendation marker,
+- [x] Implement single/multi-select, option descriptions, recommendation marker,
   free-text answer, Back/Next and explicit Skip/Dismiss in the question wizard.
   Preselection is not submission. Closing a sheet is not dismissing the question.
-- [ ] Follow the current generated `question.answer` contract and batched answer
+- [x] Follow the current generated `question.answer` contract and batched answer
   order exactly. Use the shared SDK helper or explicit typed command with a stable
   ID; never derive the wire shape from a mock screen or an older protocol example.
-- [ ] Retain unfinished question forms by runtime/root/question and batch shape
+- [x] Retain unfinished question forms by runtime/root/question and batch shape
   within the draft budget. Revalidate against the current request on restore;
   preserve obsolete text for copy/discard, never apply it to another question.
-- [ ] Show operation, agent, canonical target/command and relevant arguments in a
+- [x] Show operation, agent, canonical target/command and relevant arguments in a
   native permission sheet. Offer Allow once / Deny only. Existing permanent rules
   and host policy remain honored, but no rule editor or policy toggle is added.
-- [ ] Use phase-2 decision recovery. Resolve accepted handoff, failed decision,
+- [x] Use phase-2 decision recovery. Resolve accepted handoff, failed decision,
   answered elsewhere and unknown delivery separately. Persist command identity
   before sending; reuse it on a permitted explicit retry, never on a new decision.
   A decision receipt is not proof the tool itself completed successfully.
-- [ ] Disable stale controls while reconnecting/reconciling. After another client
+- [x] Disable stale controls while reconnecting/reconciling. After another client
   answers, remove the actionable state and retain useful unsent text for copy.
-- [ ] Refresh attention and selected detail on return to foreground. There are
+- [x] Refresh attention and selected detail on return to foreground. There are
   no closed-app alerts and no historical completion feed masquerading as attention.
 
 **Files:** native attention/question/permission features; shared decision helper
@@ -581,7 +596,7 @@ push, another transport or broad new product scope.
 - [ ] Verify unknown/unsafe transcript links cannot configure servers or execute
   actions, remote Markdown images do not auto-fetch, content remains capped, and
   diagnostic exports exclude prompt/content/key material.
-- [ ] Add redacted diagnostics: build/SDK/protocol, connection state, runtime,
+- [x] Add redacted diagnostics: build/SDK/protocol, connection state, runtime,
   recent error codes, last sync and storage availability. Keep raw transcripts out.
 - [ ] Complete EAS preview/production profiles, signing, icons/splash, build numbers,
   app privacy metadata and TestFlight installation. EAS Submit handles upload;
@@ -637,7 +652,7 @@ Keep them in one app configuration/module and test admission/overflow behavior.
 | Submitted previews | Existing shared 32-entry / 1 MiB ceiling, confirmed entries evicted first; no persistent prompt cache |
 | Reading hints | 64 bookmarks / 64 KiB; a missing anchor falls back within retained rows, never unbounded fetch |
 | Attention | 64 entries per page, at most four pages; 10-second coalesced foreground refresh plus explicit/event-triggered refresh |
-| Bounded detail reads | Start text inspection at web's 1 MiB cap; retain SDK/server lower limits and cancellation; no attachment-download product scope |
+| Bounded detail reads | 256 KiB in one explicit sheet; retain SDK/server lower limits and cancellation; no attachment-download product scope |
 
 Use these scenarios as the shared functional acceptance matrix:
 
@@ -682,7 +697,7 @@ edit; implementation checks follow the affected boundary.
 | Cross-client product behavior | Isolated fake-provider daemon with web + native client, controlled disconnect/admission/decision fixtures; existing browser fixtures as reference |
 | Release correctness | Install actual EAS artifacts; physical device/network/accessibility checks recorded by build and OS |
 
-Add native scripts during implementation; they do not exist yet. Avoid a new
+Native scripts now exist in the root and mobile package manifests. Avoid a new
 large test framework or copying all browser tests verbatim. Share fixture data or
 daemon setup only where both runners benefit, and keep production-provider runs
 out of deterministic acceptance.

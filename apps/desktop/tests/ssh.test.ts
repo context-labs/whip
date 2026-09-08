@@ -133,6 +133,7 @@ async function fixture(t: TestContext, options: {
   const identity = path.join(directory, 'identity');
   const knownHosts = path.join(directory, 'known_hosts');
   const log = path.join(directory, 'remote.log');
+  const whipcodeHomeLog = path.join(directory, 'whipcode-home.log');
   const state = path.join(directory, 'running');
   const remoteSocket = path.join(directory, options.fragmentedStatus ? 'café-文.sock' : 'remote.sock');
   const inheritedSocket = path.join(directory, 'unrelated.sock');
@@ -160,6 +161,7 @@ setTimeout(() => process.stdout.write(output.subarray(split)), 150);
 `, { mode: 0o600 });
   await writeFile(remoteExecutable, `#!/bin/sh
 printf '%s|%s\\n' "$1 $2" "$WHIP_HOME" >> ${fixtureQuote(log)}
+printf '%s\\n' "$WHIPCODE_HOME" >> ${fixtureQuote(whipcodeHomeLog)}
 case "$1 $2" in
   'daemon status')
     if [ -f ${fixtureQuote(state)} ]; then
@@ -232,7 +234,7 @@ ${options.inheritedForward ? `  LocalForward ${inheritedSocket} ${remoteSocket}\
 shift
 exec ${fixtureQuote(helper)} _desktop-ssh -F ${fixtureQuote(clientConfig)} "$@"
 `, { mode: 0o700 });
-  return { directory, remoteSocket, remoteHome, inheritedSocket, log, marker, password, serverOutput: () => serverOutput,
+  return { directory, remoteSocket, remoteHome, inheritedSocket, log, whipcodeHomeLog, marker, password, serverOutput: () => serverOutput,
     connection(prompt: ConstructorParameters<typeof SSHConnection>[0]['prompt'], controller = new AbortController()) {
       const connection = new SSHConnection({ executable: wrapper, env: { HOME: directory, PATH: '/usr/bin:/bin', USER: username, LOGNAME: username },
         target: { kind: 'ssh', host: '127.0.0.1', user: username, port, identityFile: identity, remoteExecutable, remoteHome },
@@ -269,6 +271,7 @@ test('real SSH forwards an isolated Unix socket, quotes remote paths and preserv
   assert.deepEqual((await readFile(f.log, 'utf8')).trim().split('\n'), [
     `daemon status|${f.remoteHome}`, `daemon start|${f.remoteHome}`, `daemon status|${f.remoteHome}`,
   ]);
+  assert.deepEqual((await readFile(f.whipcodeHomeLog, 'utf8')).trim().split('\n'), Array(3).fill(f.remoteHome));
   await assert.rejects(access(f.marker), { code: 'ENOENT' });
   await assert.rejects(lstat(f.inheritedSocket), { code: 'ENOENT' });
   await connection.dispose();

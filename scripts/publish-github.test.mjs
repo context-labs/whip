@@ -19,11 +19,15 @@ if (args[0] === 'api') {
   if (endpoint === 'repos/context-labs/whip') {
     if (mode === 'repo-auth') fail('gh: Bad credentials (HTTP 401)');
     json({ full_name: 'context-labs/whip' });
+  } else if (endpoint.includes('/commits/')) {
+    json({ sha: process.env.SOURCE_SHA });
   } else if (endpoint.includes('/releases/tags/')) {
     if (mode === 'release-auth') fail('gh: Forbidden (HTTP 403)');
     if (mode === 'release-network') fail('gh: Service unavailable (HTTP 503)');
-    if (!state.release) fail('gh: Not Found (HTTP 404)');
+    if (!state.release || state.release.draft) fail('gh: Not Found (HTTP 404)');
     json(state.release);
+  } else if (endpoint.includes('/releases?per_page=')) {
+    json(state.release ? [state.release] : []);
   } else if (/\\/releases\\/\\d+\\/assets\\?/.test(endpoint)) {
     if (mode === 'list-auth') fail('gh: Forbidden (HTTP 403)');
     const assets = state.assets.map(({ body, ...metadata }) => metadata);
@@ -40,7 +44,7 @@ if (args[0] === 'api') {
   } else fail('Unexpected API endpoint');
 } else if (args[0] === 'release' && args[1] === 'create') {
   if (mode === 'create-auth') fail('gh: Forbidden (HTTP 403)');
-  state.release = { id: 10, tag_name: args[2], name: mode === 'create-race' ? 'Human title' : args[2], body: 'Generated or existing notes', draft: false, prerelease: false };
+  state.release = { id: 10, tag_name: args[2], name: mode === 'create-race' ? 'Human title' : args[2], body: 'Generated or existing notes', draft: args.includes('--draft'), prerelease: args.includes('--prerelease') };
   if (mode === 'create-race') fail('gh: Validation failed (HTTP 422): already_exists');
   save(); console.log('created');
 } else if (args[0] === 'release' && args[1] === 'upload') {
@@ -52,6 +56,9 @@ if (args[0] === 'api') {
   if (mode === 'upload-race-changed') add(name, Buffer.alloc(bytes.length, 88)); else add(name, bytes);
   if (mode.startsWith('upload-race')) fail(mode === 'upload-race-cli' ? 'asset already exists' : 'gh: Validation failed (HTTP 422): already_exists');
   save(); console.log('uploaded');
+} else if (args[0] === 'release' && args[1] === 'edit') {
+  if (mode === 'promote-error') fail('gh: Service unavailable (HTTP 503)');
+  state.release.draft = false; state.release.prerelease = args.includes('--prerelease=true'); save();
 } else fail('Unexpected mutation or gh command');
 `;
 
@@ -66,7 +73,7 @@ async function fixture(t, { existing = {}, release = true, mode = '' } = {}) {
   const stateFile = path.join(root, 'state.json');
   await writeFile(stateFile, JSON.stringify({ release: release ? metadata : null, assets, nextId, mode, calls: [] }));
   const env = { PATH: `${bin}${path.delimiter}${path.dirname(process.execPath)}`, HOME: root, WHIP_GITHUB_TEST_ROOT: root,
-    RELEASE_TAG: 'v1.2.3', GITHUB_REPOSITORY: 'context-labs/whip', GH_TOKEN: 'local-fixture-token' };
+    RELEASE_TAG: 'v1.2.3', GITHUB_REPOSITORY: 'context-labs/whip', GH_TOKEN: 'local-fixture-token', WHIP_DESKTOP_PUBLISH_MODE: 'stage' };
   const local = async (name, bytes = name) => { const file = path.join(root, name); await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, bytes); return file; };
   return { root, env, metadata, local, state: async () => JSON.parse(await readFile(stateFile, 'utf8')) };
 }
@@ -148,4 +155,42 @@ test('invalid names, duplicate names, symlinks and oversized local assets fail b
     await assert.rejects(publishGitHubAssets(files, f.env), /Invalid GitHub asset|Duplicate GitHub asset/);
     assert.deepEqual((await f.state()).calls, []);
   });
+});
+
+test('desktop release stages privately, then promotes the verified draft without rebuilding or uploading', async t => {
+  const f = await fixture(t, { release: false });
+  const env = { ...f.env, RELEASE_TAG: 'desktop-v1.2.3-beta.1', SOURCE_SHA: 'a'.repeat(40) };
+  const files = [await f.local('Whip.zip'), await f.local('Whip.dmg')];
+  await publishGitHubAssets(files, env);
+  const staged = await f.state();
+  assert.equal(staged.release.draft, true);
+  assert.equal(staged.release.prerelease, true);
+  assert(writes(staged).find(call => call[1] === 'create').includes('--draft'));
+  await publishGitHubAssets(files, { ...env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' });
+  const promoted = await f.state();
+  assert.equal(promoted.release.draft, false);
+  assert.equal(promoted.release.prerelease, true);
+  assert.deepEqual(promoted.calls.slice(staged.calls.length).filter(call => call[0] === 'release'),
+    [['release', 'edit', env.RELEASE_TAG, '--repo', 'github.com/context-labs/whip', '--draft=false', '--latest=false', '--prerelease=true']]);
+  await publishGitHubAssets(files, { ...env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' });
+  assert.equal(writes(await f.state()).filter(call => call[1] === 'edit').length, 1);
+});
+
+test('promotion refuses missing assets and failed promotion leaves a complete retryable draft', async t => {
+  const f = await fixture(t, { mode: 'promote-error' });
+  const file = await f.local('Whip.zip');
+  await assert.rejects(publishGitHubAssets([file], { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' }), /Stage all assets/);
+  assert.deepEqual(writes(await f.state()), []);
+  await publishGitHubAssets([file], f.env);
+  await assert.rejects(publishGitHubAssets([file], { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' }), /HTTP 503/);
+  assert.equal((await f.state()).release.draft, true);
+  assert.equal((await f.state()).assets.length, 1);
+});
+
+
+test('standalone stable CLI promotion remains latest while desktop never replaces it', async t => {
+  const f = await fixture(t, { release: false });
+  await publishGitHubAssets([await f.local('whip-linux-x64')], { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'publish' });
+  const edited = (await f.state()).calls.find(args => args[0] === 'release' && args[1] === 'edit');
+  assert(edited.includes('--latest=true'));
 });

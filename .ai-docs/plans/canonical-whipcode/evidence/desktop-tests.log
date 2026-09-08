@@ -1,0 +1,189 @@
+
+> test:desktop
+> node apps/desktop/scripts/test.mjs && node --test scripts/distribution.test.mjs scripts/publish.test.mjs scripts/publish-github.test.mjs scripts/renderer-artifact.test.mjs && node apps/desktop/scripts/startup.mjs --self-test
+
+✔ accepts only the exact desktop origin, without credentials or alternate ports (41.332167ms)
+✔ serves exact artifact bytes, asset MIME/cache headers and the shared CSP (31.531584ms)
+✔ supports SPA deep navigation while missing assets and API paths return 404 (6.439042ms)
+✔ rejects traversal, hidden files, invalid encodings and filesystem separators (2.347875ms)
+✔ allows only GET/HEAD and preserves security headers on errors (2.803792ms)
+✔ refuses changed, missing and symlinked allowlisted files (3.582209ms)
+✔ refuses allowlisted assets reached through a symlinked parent directory (2.785375ms)
+✔ refuses a symlink replacing the renderer directory itself (2.906292ms)
+✔ fails closed for invalid manifest metadata and oversized file claims (3.378333ms)
+✔ session links select only the configured release channel and preserve shared routing (0.858083ms)
+✔ native save commits exact ordered bytes only after completion and removes its temporary file (35.966625ms)
+✔ native disposal invalidates an unresolved save dialog (5.629542ms)
+✔ native disposal closes and removes a save file whose open resolves after disposal (10.431083ms)
+✔ native disposal waits for an in-flight write and revokes permission to finalize it (11.349458ms)
+✔ native disposal cancels a pending final flush before it can replace the selected file (10.968917ms)
+✔ native disposal revokes every save before waiting for the first pending operation (3.856917ms)
+✔ native notification throttling is per session and bounds ownership without close callbacks (1.629458ms)
+✔ native effects reject privileged external schemes and malformed notification routes (0.348333ms)
+✔ test is read-only for missing installations and does not silently use packaged bytes (26.181375ms)
+✔ explicit install publishes verified canonical bytes; test never starts a daemon (1690.597917ms)
+✔ desktop connects through the installed binary and reuses its running daemon (842.5625ms)
+✔ saved selection wins over PATH changes and missing saved binaries do not fall back (692.92025ms)
+✔ explicit choice validates distribution and persists without starting work (674.329791ms)
+✔ cancelling selection before settings publication preserves the previous executable (2949.67325ms)
+✔ refuses corrupt payloads and existing different installations without overwriting (705.216834ms)
+✔ refuses a verified payload whose executable build identity differs from its manifest (250.369417ms)
+✔ installation permission failures offer bounded recovery instructions without raw filesystem details (395.235375ms)
+✔ exclusive publication leaves a concurrently installed executable intact (404.286458ms)
+✔ cancelled copies remove temporary files without creating an installation (466.686916ms)
+✔ existing unhealthy owners require explicit restart; stale unowned sockets recover (1394.068375ms)
+✔ startup port conflicts are actionable and do not expose raw subprocess output (792.113833ms)
+✔ rejects non-executable and symlinked package payloads (1.98675ms)
+✔ manifest validation checks distribution, build identity and file inventory (3.324167ms)
+✔ bounds subprocess output and stops timed out or cancelled children (104.070333ms)
+✔ validates daemon socket and process metadata before transport attachment (0.214375ms)
+✔ quotes remote paths as one literal shell argument without executing metacharacters (72.625334ms)
+✔ passes SSH identity paths literally and enforces noninteractive forwarding controls (8.016416ms)
+✔ rejects cancelled and malformed remote setup before launching SSH (0.721ms)
+✔ preserves Unicode in an authentication request split inside a UTF-8 character (1314.351834ms)
+✔ real SSH forwards an isolated Unix socket, quotes remote paths and preserves remote work on disposal (1913.248208ms)
+✔ real SSH preserves the remote Unix path when status output splits a UTF-8 character (3670.409791ms)
+✔ real SSH asks before trusting a generated unknown host and decrypting its fixture key (1523.631791ms)
+✔ real SSH host-trust cancellation never authenticates or saves the generated host key (435.787334ms)
+✔ real SSH prompt cancellation ends establishment rather than asking for the passphrase again (919.911208ms)
+✔ real SSH cancellation dismisses pending authentication and removes its local resources (543.247875ms)
+✔ a local forwarding socket does not prove the server allows the remote Unix destination (1168.086625ms)
+✔ real SSH recovers a lost owned master without restarting healthy remote work (1375.283375ms)
+✔ real SSH stops automatic reconnect when a lost master needs authentication again (1338.70625ms)
+✔ forwards ordered UTF-8 frames over the real SDK Unix transport and acknowledges sent bytes (10.617583ms)
+✔ closes on out-of-order acknowledgements without acknowledging another connection (11.080458ms)
+✔ bounds unacknowledged frame count, including zero-byte frames (11.218875ms)
+✔ bounds unacknowledged receive bytes independently of frame count (22.165792ms)
+✔ refuses oversized fragmented input before it forms a complete frame (2.577709ms)
+✔ rejects newline injection, wrong sequences and oversized UTF-8 outbound frames (3.764084ms)
+✔ releases only transports owned by the selected connection (2.194916ms)
+✔ bounds the outbound queue when the Unix peer stops consuming data (9.297083ms)
+✔ cancels pending and connected transports exactly once without exhausting handles (2.158917ms)
+✔ an obsolete pending open cannot close or adopt a reused transport handle (1.198ms)
+✔ validates handles before admitting native transport state (0.239ms)
+✔ supports independent native hosts and retains a bounded reconnect allowance (2.773334ms)
+✔ updater accepts only bounded HTTPS release feeds without embedded credentials (0.796958ms)
+✔ updater deduplicates active checks, permits retry after failure, and replays a downloaded update (1.838166ms)
+✔ updater does not install before download or while the close handshake is unresolved (1.833458ms)
+✔ updater ignores an unsolicited quit event and rolls back approval on synchronous install failure (0.205375ms)
+✔ updater revokes quit approval when installation fails asynchronously (0.16525ms)
+✔ updater disposal removes its native listeners without removing unrelated subscribers (0.154125ms)
+ℹ tests 66
+ℹ suites 0
+ℹ pass 66
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 14337.940667
+✔ extracts the exact application and relative framework links, preserving executable bits (19.678417ms)
+▶ full bundle digest detects changed, missing, and additional main/preload/Electron bytes
+  ✔ changed (3.18575ms)
+  ✔ missing (2.78125ms)
+  ✔ extra (2.967583ms)
+✔ full bundle digest detects changed, missing, and additional main/preload/Electron bytes (9.321792ms)
+▶ rejects traversal, absolute paths, foreign apps, duplicate names and special device entries
+  ✔ ../outside (1.684166ms)
+  ✔ /Whip.app/main (1.069167ms)
+  ✔ Whip.app/../outside (1.04325ms)
+  ✔ Whip.app/back\slash (0.834125ms)
+  ✔ Other.app/main (1.238584ms)
+  ✔ Whip.app/main (0.925ms)
+  ✔ Whip.app/device (0.953959ms)
+✔ rejects traversal, absolute paths, foreign apps, duplicate names and special device entries (8.302458ms)
+▶ never writes through escaping symlinks or a symlink used as an archive parent
+  ✔ Whip.app/link (2.500417ms)
+  ✔ Whip.app/link (1.478708ms)
+  ✔ Whip.app/link,Whip.app/link/keep.txt (2.334125ms)
+  ✔ Whip.app/link,Whip.app/link (1.266791ms)
+  ✔ Whip.app/A/link,Whip.app/chain (2.491625ms)
+✔ never writes through escaping symlinks or a symlink used as an archive parent (10.394916ms)
+▶ rejects truncated entries and declared sizes beyond extraction bounds
+  ✔ 7 (1.133916ms)
+  ✔ 1073741825 (0.929084ms)
+✔ rejects truncated entries and declared sizes beyond extraction bounds (2.289584ms)
+✔ bundle digest rejects directory aliases, escaping links and dangling framework links (1.575167ms)
+✔ distribution refuses missing or stale before-make evidence before removing prior output (3.456083ms)
+✔ a substituted DMG application is rejected and its private volume is detached on failure (7591.54975ms)
+GitHub release v1.2.3: verified 2 immutable assets.
+GitHub release v1.2.3: verified 2 immutable assets.
+✔ identical GitHub reruns verify every asset and preserve all existing release metadata (708.29075ms)
+GitHub release v1.2.3: verified 10 immutable assets.
+GitHub release v1.2.3: verified 10 immutable assets.
+✔ uploads only missing artifacts and a retry verifies the previously uploaded bytes (1724.498875ms)
+✔ different existing bytes fail before any missing asset is uploaded (276.219625ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+▶ creates an absent release with the existing notes behavior and safely accepts a create race
+  ✔ created (613.657375ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+  ✔ create-race (483.747ms)
+✔ creates an absent release with the existing notes behavior and safely accepts a create race (1098.10775ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+▶ upload races accept identical bytes, including CLI conflicts, and reject a different winner
+  ✔ upload-race-identical (468.323917ms)
+GitHub release v1.2.3: verified 1 immutable assets.
+  ✔ upload-race-cli (388.868583ms)
+  ✔ upload-race-changed (394.440708ms)
+✔ upload races accept identical bytes, including CLI conflicts, and reject a different winner (1252.049625ms)
+▶ authentication and network errors never become release absence or successful upload races
+  ✔ repo-auth (175.699417ms)
+  ✔ release-auth (256.435208ms)
+  ✔ release-network (194.065542ms)
+  ✔ list-auth (210.3635ms)
+  ✔ download-auth (353.9775ms)
+  ✔ create-auth (300.134167ms)
+  ✔ upload-auth (241.2015ms)
+  ✔ upload-network (342.6085ms)
+✔ authentication and network errors never become release absence or successful upload races (2075.261667ms)
+▶ bounds streamed downloads and rejects truncation or asset replacement after verification
+  ✔ overlong (244.918417ms)
+  ✔ truncated (277.341ms)
+  ✔ replace-after-read (301.323334ms)
+✔ bounds streamed downloads and rejects truncation or asset replacement after verification (824.0165ms)
+▶ invalid names, duplicate names, symlinks and oversized local assets fail before GitHub access
+  ✔ label (1.96575ms)
+  ✔ duplicate (2.298958ms)
+  ✔ symlink (1.392375ms)
+  ✔ oversized (2.055ms)
+✔ invalid names, duplicate names, symlinks and oversized local assets fail before GitHub access (8.124083ms)
+✔ merges authoritative history even when the maker candidate has stale or foreign prior entries (1.154291ms)
+✔ rerunning a release preserves original metadata and refuses URL changes or downgrades (0.741042ms)
+✔ rejects malformed feed versions, foreign paths, duplicate current candidates and missing current history (0.283375ms)
+✔ history retention keeps the latest 100 versions in semantic version order (0.49675ms)
+Published verified Whip 1.2.0; update feed promoted last.
+✔ publishes immutable verified assets first, then conditionally promotes the authoritative ETag (647.761417ms)
+Published verified Whip 1.2.0; update feed promoted last.
+▶ a first feed uses if-none-match and never overwrites an intervening first publisher
+  ✔ no race (354.394042ms)
+  ✔ promote (347.12275ms)
+✔ a first feed uses if-none-match and never overwrites an intervening first publisher (701.879333ms)
+▶ a concurrent feed change during GET or promotion cannot drop the other release
+  ✔ get (200.103333ms)
+  ✔ promote (415.406292ms)
+✔ a concurrent feed change during GET or promotion cannot drop the other release (615.795666ms)
+Published verified Whip 1.2.0; update feed promoted last.
+Published verified Whip 1.2.0; update feed promoted last.
+✔ changed local artifacts stop publication before any writes and identical release reruns remain safe (501.033917ms)
+▶ old or mismatched archive evidence cannot authorize publication
+  ✔ missing archive proof (450.396208ms)
+  ✔ different app tree (258.337417ms)
+  ✔ different renderer (220.299625ms)
+  ✔ unsigned archive (321.251708ms)
+✔ old or mismatched archive evidence cannot authorize publication (1250.720792ms)
+✔ a clean renderer artifact is accepted only for its exact commit and dependency lockfile (182.541167ms)
+▶ a clean producer cannot authorize a dirty CLI or desktop consumer checkout
+  ✔ tracked native source (174.199667ms)
+  ✔ untracked source (161.364583ms)
+✔ a clean producer cannot authorize a dirty CLI or desktop consumer checkout (335.953125ms)
+✔ development artifacts remain usable while release rejects dirty producer provenance (189.446042ms)
+ℹ tests 75
+ℹ suites 0
+ℹ pass 75
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8008.328708
+(node:43566) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+Startup probe self-test passed

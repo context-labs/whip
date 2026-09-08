@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -67,7 +68,7 @@ func desktopSSH(ctx context.Context, args []string, streams desktopSSHStreams) e
 	if err != nil {
 		return err
 	}
-	command := exec.Command("/usr/bin/ssh", args...)
+	command := exec.Command("/usr/bin/ssh", args...) //nolint:noctx,gosec // Supervise cancellation below; the native desktop passes validated SSH options.
 	command.Env = append(os.Environ(), "WHIP_DESKTOP_ASKPASS=1", "SSH_ASKPASS="+executable)
 	command.Stdout, command.Stderr = streams.stdout, streams.stderr
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -153,6 +154,9 @@ func desktopReapUnobserved(process *os.Process) {
 }
 
 func desktopParentEnded(fd int, wait time.Duration) (bool, error) {
+	if fd < 0 || fd > math.MaxInt32 {
+		return false, errors.New("invalid SSH parent descriptor")
+	}
 	poll := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
 	_, err := unix.Poll(poll, int(wait/time.Millisecond))
 	if errors.Is(err, unix.EINTR) {

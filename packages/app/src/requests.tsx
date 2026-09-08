@@ -331,7 +331,7 @@ function QuestionRequest({
     setPending(true);
     try {
       await runtime.run(
-        questions.length > 1
+        question.questions?.length
           ? session.answerQuestions(
               question.question_id,
               nextDrafts.map((item) =>
@@ -353,7 +353,7 @@ function QuestionRequest({
     setPending(true);
     try {
       await runtime.run(
-        questions.length > 1
+        question.questions?.length
           ? session.answerQuestions(
               question.question_id,
               questions.map(() => ({ answer: [], dismissed: true })),
