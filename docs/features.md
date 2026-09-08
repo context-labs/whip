@@ -1070,6 +1070,31 @@ constructed. Combined with `--resume` the replayed history renders first and
 the prompt fires as the next turn, matching `whip run`'s
 prompt-after-resume order.
 
+## Startup resume flags — `whip -c` / `-r` / `--browse`
+
+- **`whip -r <id>`** (or `--resume <id>`) — resume a session by id or unique prefix.
+- **`whip -r`** (or `--resume`, bare) — open the `/resume` picker at startup.
+- **`whip -c`** (or `--continue`) — resume the most-recent ordinary session in
+  the current dir; starts fresh (with a notice) if none.
+- **`whip --browse`** — alias for bare `--resume` (the picker).
+
+Precedence: `-r <id>` > `-c` > `--browse`. With `whip up <prompt>`, the
+resume/continue/picker runs first and the prompt fires as the next turn
+(`-r up …` reads as resume-by-id "up", so use `--browse up …` for
+picker-then-prompt).
+
+Bare `--resume` works despite stdlib `flag` having no optional values:
+`normalizeBareResume` (cmd/whip/main.go) rewrites a trailing bare `-r`/
+`--resume` to `--browse` before `flag.Parse`; `-r <id>` and `-r=<id>` are
+left untouched.
+
+
+Tests: `internal/session/session_test.go` — `TestLatestInDir` (newest per dir,
+`sql.ErrNoRows` when none), `TestLatestInDirExcludesSubagentTranscripts`,
+`TestLatestInDirSkipsEmptySessions`. `internal/tui/resume_browse_test.go` —
+`TestContinueRecentResumesNewestInCwd`, `TestContinueRecentNoSessionInDirStartsFresh`,
+`TestBrowseOpensPickerAndEnterResumes`, `TestBrowseNoSessionsPrintsEmptyState`.
+
 Tests: `internal/tui/up_test.go` — `TestInitialPromptSubmitsFirstTurn` (Init
 kickoff → busy turn, authored user message, history entry, one-shot
 consumption), `TestNoInitialPromptNoKickoff` (bare blink Init, empty msg is
