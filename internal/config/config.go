@@ -172,7 +172,7 @@ type Config struct {
 	TaskModel       string `json:"taskModel,omitempty"`       // model subagents (the task tool) run on; "" = the built-in default
 	TaskProvider    string `json:"taskProvider,omitempty"`    // provider for the subagent model; "" = the model's default routing
 	Theme           string `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
-	UIMode          string `json:"uiMode,omitempty"`          // "" (classic whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo); Default() ships "opencode", so unset-on-first-run boots opencode
+	UIMode          string `json:"uiMode,omitempty"`          // "" (classic whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo)
 	Sidebar         *bool  `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
 	Mouse           *bool  `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
 	Thinking        *bool  `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
@@ -627,13 +627,7 @@ func Default() *Config {
 	return &Config{
 		DefaultModel: "kimi-k3-fast",
 		CompactModel: DefaultCompactModel,
-		// New installs boot in opencode render mode (the full-screen,
-		// sidebar-backed layout). An existing user who switched to the classic
-		// look keeps it: setUIMode persists "" to cfg.UIMode, and "" (not nil)
-		// is what Load returns — so the default only applies on first run.
-		// The literal mirrors tui.opencodeMode; tui owns the name, config owns
-		// the default value.
-		UIMode: "opencode",
+		UIMode:       "opencode",
 		//nolint:gosec // G101: APIKeyEnv holds env var NAMES, not credentials
 		Providers: map[string]Provider{
 			"inference-net": {
