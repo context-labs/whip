@@ -133,7 +133,8 @@ func (f *modelFilter) applyModelList(list []string) {
 		if inner, ok := strings.CutPrefix(name, "default ("); ok {
 			name = strings.TrimSuffix(inner, ")")
 		}
-		return bestTier(name, "", q)
+		name, provider := splitRouteKey(name)
+		return bestTier(name, provider, q)
 	})
 }
 
@@ -193,22 +194,19 @@ func resolveModelFuzzy(cfg *config.Config, name string) (string, bool, []string)
 	return models[0], true, nil
 }
 
-// modelNamesFor lists every selectable model name: cfg.Models sorted
-// alphabetically, then catalog-advertised ids without a config entry (marked
-// "(new)"), sorted by name. The catalog fallback in Resolve makes the extra
-// ids usable without a config entry, so pickers list them alongside.
-func modelNamesFor(cfg *config.Config) []string {
-	names := make([]string, 0, len(cfg.Models))
-	for _, it := range buildModelItems(cfg) {
-		name := it.model
-		if it.fromCatalog {
-			name += dimNew
-		}
-		if len(names) == 0 || names[len(names)-1] != name {
-			names = append(names, name)
-		}
+// routeKey is a palette list row for one model@provider route ("(new)" marks
+// catalog routes); splitRouteKey inverts it.
+func routeKey(it modelItem) string {
+	k := it.model + "@" + it.provider
+	if it.fromCatalog {
+		k += dimNew
 	}
-	return names
+	return k
+}
+
+func splitRouteKey(row string) (model, provider string) {
+	model, provider, _ = strings.Cut(strings.TrimSuffix(row, dimNew), "@")
+	return model, provider
 }
 
 // buildModelItems flattens the config into selectable routes, models sorted

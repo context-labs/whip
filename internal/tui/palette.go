@@ -84,7 +84,7 @@ type ppanel struct {
 
 	prepare string // panelGoal: text submitted when the editor closes
 
-	list []string // panelCompact/panelSubagent: "default (…)" + every known model (config then catalog "(new)"); panelTheme: {"auto","light","dark"}
+	list []string // panelCompact/panelSubagent: "default (…)" + one model@provider route key per row (see routeKey; items[i-1] is the route); panelTheme: {"auto","light","dark"}
 	midx int      // panelCompact/panelSubagent/panelTheme/panelBrowser/panelMCP: selection
 
 	filter modelFilter // panelCompact/panelSubagent: type-to-filter over list
@@ -280,22 +280,7 @@ func (m *model) paletteItems() []paletteItem {
 			},
 			dynHint: func(m *model) string { return "/compact <model>" },
 			panel: func(m *model) *ppanel {
-				names := modelNamesFor(m.cfg)
-				pp := &ppanel{
-					kind:  panelCompact,
-					title: "Compaction model",
-					list:  append([]string{"default (" + config.DefaultCompactModel + ")"}, names...),
-				}
-				for i, name := range pp.list {
-					if name == m.compactModel {
-						pp.midx = i
-						break
-					}
-				}
-				if st := staleCatalogs(m.cfg, config.LoadCatalogs()); len(st) > 0 {
-					pp.note = "catalog stale for " + strings.Join(st, ", ") + " — /model refresh pulls newly announced models"
-				}
-				return pp
+				return m.routePanel(panelCompact, "Compaction model", config.DefaultCompactModel, m.compactModel, m.compactProv)
 			},
 		},
 		{
@@ -334,22 +319,7 @@ func (m *model) paletteItems() []paletteItem {
 			},
 			dynHint: func(m *model) string { return "config taskModel" },
 			panel: func(m *model) *ppanel {
-				names := modelNamesFor(m.cfg)
-				pp := &ppanel{
-					kind:  panelSubagent,
-					title: "Subagent model",
-					list:  append([]string{"default (" + config.DefaultTaskModel + ")"}, names...),
-				}
-				for i, name := range pp.list {
-					if name == m.cfg.TaskModel {
-						pp.midx = i
-						break
-					}
-				}
-				if st := staleCatalogs(m.cfg, config.LoadCatalogs()); len(st) > 0 {
-					pp.note = "catalog stale for " + strings.Join(st, ", ") + " — /model refresh pulls newly announced models"
-				}
-				return pp
+				return m.routePanel(panelSubagent, "Subagent model", config.DefaultTaskModel, m.cfg.TaskModel, m.cfg.TaskProvider)
 			},
 		},
 		{
@@ -703,7 +673,7 @@ func (m *model) panelKey(msg tea.KeyMsg, pp *ppanel) (tea.Model, tea.Cmd) {
 				return
 			}
 			row := view[pp.midx]
-			name := strings.TrimSuffix(pp.list[row], dimNew)
+			name, prov := splitRouteKey(pp.list[row])
 			pp.err = ""
 			if row == 0 { // the "default (…)" row
 				if pp.kind == panelCompact {
@@ -714,12 +684,12 @@ func (m *model) panelKey(msg tea.KeyMsg, pp *ppanel) (tea.Model, tea.Cmd) {
 				return
 			}
 			if pp.kind == panelCompact {
-				m.compactCommand([]string{name})
+				m.compactCommand([]string{name, prov})
 				if m.compactModel != name {
 					pp.err = "couldn't resolve " + name + " — kept previous"
 				}
 			} else {
-				m.subagentModelCommand([]string{name})
+				m.subagentModelCommand([]string{name, prov})
 				if m.cfg.TaskModel != name {
 					pp.err = "couldn't resolve " + name + " — kept previous"
 				}
@@ -1039,19 +1009,27 @@ func (m *model) panelView(pp *ppanel) string {
 		// the filtered rows, then err/note/footer.
 		b.WriteString("  " + botStyle.Render("/") + pp.filter.query + dimStyle.Render("▏") + "\n")
 		view := pp.filter.view(len(pp.list))
+		current, curProv := m.compactModel, m.compactProv
+		if pp.kind == panelSubagent {
+			current, curProv = m.cfg.TaskModel, m.cfg.TaskProvider
+		}
+		width := 0
+		for _, it := range pp.items {
+			width = max(width, len(it.model))
+		}
 		for i, row := range view {
-			name := pp.list[row]
-			cur := ""
-			current := m.compactModel
-			if pp.kind == panelSubagent {
-				current = m.cfg.TaskModel
+			line := pp.list[row]
+			isCur := row == 0 && current == ""
+			if row > 0 {
+				it := pp.items[row-1]
+				isCur = it.model == current && (curProv == "" || it.provider == curProv)
+				line = fmt.Sprintf("%-*s  %-20s  ", width, it.model, it.provider) + dimStyle.Render(it.url)
+				if it.fromCatalog {
+					line = dimStyle.Render(fmt.Sprintf("%-*s  %-20s  ", width, it.model+dimNew, it.provider) + it.url)
+				}
 			}
-			if (row == 0 && current == "") || (row > 0 && name == current) {
-				cur = dimStyle.Render("  (current)")
-			}
-			line := name + cur
-			if strings.HasSuffix(name, dimNew) {
-				line = dimStyle.Render(line)
+			if isCur {
+				line += dimStyle.Render("  (current)")
 			}
 			if i == pp.midx {
 				b.WriteString(botStyle.Render(" → "+line) + "\n")
@@ -1133,4 +1111,24 @@ func (m *model) panelView(pp *ppanel) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// routePanel builds the compact/subagent picker: a "default (…)" row, then
+// every model@provider route the /model picker shows, rendered with the same
+// provider and endpoint columns so two providers advertising one model id
+// are distinguishable.
+func (m *model) routePanel(kind panelKind, title, defaultModel, current, currentProv string) *ppanel {
+	items := buildModelItems(m.cfg)
+	pp := &ppanel{kind: kind, title: title, items: items, list: make([]string, 0, len(items)+1)}
+	pp.list = append(pp.list, "default ("+defaultModel+")")
+	for i, it := range items {
+		pp.list = append(pp.list, routeKey(it))
+		if it.model == current && (currentProv == "" || it.provider == currentProv) && pp.midx == 0 {
+			pp.midx = i + 1
+		}
+	}
+	if st := staleCatalogs(m.cfg, config.LoadCatalogs()); len(st) > 0 {
+		pp.note = "catalog stale for " + strings.Join(st, ", ") + " — /model refresh pulls newly announced models"
+	}
+	return pp
 }

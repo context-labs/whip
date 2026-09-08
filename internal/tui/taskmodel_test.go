@@ -177,7 +177,7 @@ func TestSubagentModelPanel(t *testing.T) {
 
 	m.palette.stack = []*ppanel{pp}
 	for i, name := range pp.list {
-		if name == "m" {
+		if model, _ := splitRouteKey(name); model == "m" {
 			pp.midx = i
 		}
 	}
@@ -310,4 +310,38 @@ func codexHome(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return home
+}
+
+// Two providers advertising the same model id are separate, distinguishable
+// rows in the subagent panel, and picking one persists its provider.
+func TestSubagentModelPanelShowsRoutes(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	m := taskmodelCfgModel(sseTextServer(t, "").URL)
+	m.cfg.Providers["q"] = config.Provider{BaseURL: "http://q.example", APIKey: "k"}
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"p": {FetchedAt: time.Now(), BaseURL: "http://p.example", Models: []config.ModelInfoLite{{ID: "shared"}}},
+		"q": {FetchedAt: time.Now(), BaseURL: "http://q.example", Models: []config.ModelInfoLite{{ID: "shared"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pp := m.routePanel(panelSubagent, "Subagent model", config.DefaultTaskModel, "", "")
+	var shared []int
+	for i, row := range pp.list {
+		if model, _ := splitRouteKey(row); model == "shared" {
+			shared = append(shared, i)
+		}
+	}
+	if len(shared) != 2 {
+		t.Fatalf("both routes for a shared id should be rows: %v", pp.list)
+	}
+	view := m.panelView(pp)
+	if !strings.Contains(view, "http://q.example") || !strings.Contains(view, "shared  (new)") {
+		t.Fatalf("panel should render provider endpoints like /model:\n%s", view)
+	}
+	m.palette = &palette{stack: []*ppanel{pp}}
+	pp.midx = shared[1]
+	m.panelKey(tea.KeyMsg{Type: tea.KeyEnter}, pp)
+	if m.cfg.TaskModel != "shared" || m.cfg.TaskProvider != "q" {
+		t.Fatalf("pick should persist model and provider, got %q@%q", m.cfg.TaskModel, m.cfg.TaskProvider)
+	}
 }
