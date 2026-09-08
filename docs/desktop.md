@@ -163,11 +163,12 @@ WHIPCODE_HOME="$PWD/apps/desktop/.dev/home" apps/desktop/.dev/bin/whipcode daemo
 | `npm run build:desktop` | Stage native binaries, renderer and main/preload |
 | `npm run package:desktop` | Build and verify the `.app` under `apps/desktop/out` |
 | `npm run make:desktop` | Package, make and reopen/verify DMG and ZIP in `out/release` |
-| `npm run check:desktop` | Native TypeScript and bridge contract checks |
+| `npm run check:desktop` | Build SDK declarations, then check native TypeScript and bridge contracts |
 | `npm run test:desktop` | Native lifecycle/transport tests and packaging/publisher tests |
 
 `--renderer-ready` on build/package/make consumes the current verified artifact
-without rebuilding it. Its commit and lockfile must match the checkout. Release
+without rebuilding it; the SDK is still built for the native main process.
+Its commit and lockfile must match the checkout. Release
 mode additionally requires both producer and consumer checkouts to be clean.
 Local commands never publish. Unsigned local builds use ad-hoc native signatures;
 they are not distributable Developer ID releases.

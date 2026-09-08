@@ -75,7 +75,10 @@ Actual release packaging requires a clean tagged commit and configured feed.
    security, mobile, platform builds, and runtime checks; a stale packed-app
    test expected the replaced connection dialog. Its selector now exercises the
    current Execution hosts flow; isolated production/development packed tests
-   pass locally. CI is rerunning with that correction.
+   pass locally and in CI. The first native CI job then exposed a missing SDK
+   build prerequisite on clean runners. Desktop checking now builds declarations,
+   and packaging with a reused renderer also builds the SDK for the main process.
+   Final-source CI is rerunning with that correction.
 4. Run the signed CI candidate, Linux runtime smoke, and actual Squirrel app
    N-to-N+1 installation in an isolated QA channel. Backend handoff integration
    and mock updater tests do not substitute for Squirrel replacing the app.

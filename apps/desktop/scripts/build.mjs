@@ -37,7 +37,7 @@ export async function buildDesktop({ rendererReady = false } = {}) {
     if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/RELEASES.json'))
       throw new Error('WHIP_DESKTOP_UPDATE_URL must be an HTTPS RELEASES.json feed');
   }
-  if (!rendererReady) await command('npm', ['run', 'build:web']);
+  await command('npm', ['run', rendererReady ? 'build' : 'build:web']);
   const renderer = await readRendererManifest(path.join(repositoryRoot, 'apps/web/renderer-manifest.json'));
   await verifyRendererProvenance(renderer, repositoryRoot, process.env.WHIP_DESKTOP_RELEASE === '1');
   await verifyRenderer(path.join(repositoryRoot, 'apps/web/dist'), renderer);
