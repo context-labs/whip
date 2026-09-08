@@ -505,6 +505,13 @@ relay: full device login + key mint, store round-trip, key validation),
   rewiring incl. wrap-split links, end-to-end renderMarkdown, user echo).
 - **Command palette** (ctrl+p) with sub-panels for model/effort/goal/compaction
   and ←/→ steppers for the compaction level — `palette.go`.
+- **UI mode** (`UIMode` config key): `"opencode"` (the default on a fresh
+  install) selects the full-screen, sidebar-backed opencode render mode
+  (`internal/tui/opencode.go`); `""` is the classic inline whip look. The
+  default is seeded by `config.Default()` and only applies on first run — an
+  existing config's `UIMode` (including `""` saved by a user who switched to
+  classic) is honored as-is on reload. Toggle live with ctrl+p → "UI mode"
+  (`setUIMode`, which persists the choice).
 - **Mouse**: `/mouse` toggles capture; with capture off the terminal's native
   selection works, with it on shift-drag selects. `"mouse": false` in config
   disables capture at startup.
