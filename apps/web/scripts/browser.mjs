@@ -281,14 +281,24 @@ try {
       assert.equal(peerObserved.requests.filter(item => item.method === 'permission.decide').length, 0);
       checks.push('two real browser clients share one permission resolution');
       progress('concurrent command identities and independent drafts');
+      // Drafts are shared by runtime/root/recipient. Exercise concurrent recovery
+      // writes with distinct recipients instead of racing edits to one draft.
+      const other = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result({ signal: AbortSignal.timeout(15_000) });
+      assert.equal(other.status, 'succeeded');
+      await peer.goto(origin() + route(other.result.root_id)); await ready(peer);
       for (let index = 0; index < 8; index++) await Promise.all([send(page, `Parallel A ${index}`), send(peer, `Parallel B ${index}`)]);
+      for (const [target, prefix] of [[session, 'Parallel A'], [client.session(other.result.root_id), 'Parallel B']]) {
+        const texts = await eventually(async () => {
+          const messages = (await target.snapshot()).messages ?? [];
+          const sent = messages.filter(message => message.role === 'user' && String(message.content).startsWith(prefix)).map(message => message.content);
+          return sent.length >= 8 ? sent : false;
+        }, { description: `${prefix} messages persist exactly once` });
+        assert.deepEqual(texts, Array.from({ length: 8 }, (_, index) => `${prefix} ${index}`));
+      }
       const identities = await page.evaluate(() => JSON.parse(localStorage.getItem('whip.web.recovery.v1')).map(record => record.commandId));
       const submitted = [...observed.requests, ...peerObserved.requests].filter(item => item.method === 'command.submit').map(item => item.params.command_id);
       assert.ok(submitted.every(id => identities.includes(id)), 'Concurrent tabs lost command recovery identities');
       checks.push('concurrent tabs retain all submitted recovery identities');
-      const other = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result({ signal: AbortSignal.timeout(15_000) });
-      assert.equal(other.status, 'succeeded');
-      await peer.goto(origin() + route(other.result.root_id)); await ready(peer);
       await page.getByLabel('Message WHIP', { exact: true }).fill('Root A draft survives another tab');
       await peer.getByLabel('Message WHIP', { exact: true }).fill('Root B draft survives another tab');
       await eventually(async () => (await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('whip.web.draft.v1:')).map(key => localStorage.getItem(key)))).filter(text => text?.includes('draft survives another tab')).length === 2, { description: 'independent recipient drafts both persist' });

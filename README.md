@@ -93,7 +93,8 @@ whipcode web
 ```
 
 `whipcode update` installs into the invoked executable's directory and restarts
-only its daemon. To choose a destination or pin/roll back to an exact build:
+only its daemon. To choose a destination or pin/roll back to an exact build,
+replace the example tag below with a published whipcode tag:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/context-labs/whip/whip-rlm/install-whipcode.sh \

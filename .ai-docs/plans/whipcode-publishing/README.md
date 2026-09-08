@@ -436,3 +436,13 @@ demonstrate a need for one.
   mobile cancellation and daemon restart recovery. Web types and 166 unit tests,
   28 race-enabled SDK acceptance tests, and the web performance suite passed.
   The shell-job suite passed five instrumented repetitions with GOMAXPROCS=2.
+
+- Second hosted run passed all Go/security gates at 90.1% Linux coverage and
+  Chromium browser acceptance. Firefox exposed concurrent test edits to one
+  intentionally shared recipient draft. Concurrent recovery acceptance now uses
+  distinct recipients and asserts that all sixteen authored messages persist
+  exactly once, while the preceding shared-session permission test remains.
+
+- Revised concurrent-send acceptance passed Chromium and Firefox, plus an
+  additional complete Firefox run with GOMAXPROCS=2. No application behavior
+  changed for this correction.
