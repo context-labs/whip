@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/context-labs/whip/internal/protocol"
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
@@ -17,10 +18,9 @@ import (
 // clients that connect mid-question) and the channel the host call blocks on
 // until a client answers or dismisses it.
 type questionWaiter struct {
-	event     sessionstore.LifecycleEvent
-	done      chan struct{}
-	answer    []string
-	dismissed bool
+	event   sessionstore.LifecycleEvent
+	done    chan struct{}
+	results []sessionstore.QuestionResult
 }
 
 // questionRegistry holds the root's open questions in memory. A question does
@@ -40,16 +40,19 @@ type questionRegistry struct {
 // maxAgentWaitMS cap; with MaxWorkers slots a root waiting minutes on a
 // question starves children's cells. Add a cap (dismiss on timeout) if pools
 // stay small and that shows up.
-func (s *Session) AskUser(ctx context.Context, agentID, question string, options []sessionstore.QuestionOption, multiple bool) ([]string, bool, error) {
+func (s *Session) AskUser(ctx context.Context, agentID string, questions []sessionstore.QuestionSet) ([]sessionstore.QuestionResult, error) {
 	id := "question-" + randomRuntimeSuffix()
-	event := sessionstore.LifecycleEvent{AgentID: agentID, QuestionID: id, Question: question, Options: options, Multiple: multiple}
+	event := sessionstore.LifecycleEvent{AgentID: agentID, QuestionID: id, Questions: questions}
+	if len(questions) > 0 {
+		event.Question, event.Options, event.Multiple = questions[0].Question, questions[0].Options, questions[0].Multiple
+	}
 	waiter := &questionWaiter{event: event, done: make(chan struct{})}
 	registry := &s.questions
 	registry.mu.Lock()
 	for _, open := range registry.pending {
 		if open.event.AgentID == agentID {
 			registry.mu.Unlock()
-			return nil, false, errors.New("a question is already open; wait for its answer before asking again")
+			return nil, errors.New("a question is already open; wait for its answer before asking again")
 		}
 	}
 	if registry.pending == nil {
@@ -59,12 +62,12 @@ func (s *Session) AskUser(ctx context.Context, agentID, question string, options
 	if err := s.emitQuestionEvent(ctx, "question.pending", event); err != nil {
 		delete(registry.pending, id)
 		registry.mu.Unlock()
-		return nil, false, err
+		return nil, err
 	}
 	registry.mu.Unlock()
 	select {
 	case <-waiter.done:
-		return waiter.answer, waiter.dismissed, nil
+		return waiter.results, nil
 	case <-ctx.Done():
 		registry.mu.Lock()
 		_, open := registry.pending[id]
@@ -77,14 +80,15 @@ func (s *Session) AskUser(ctx context.Context, agentID, question string, options
 			})
 		}
 		registry.mu.Unlock()
-		return nil, false, ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
-// answerQuestion is the question.answer client op: it validates the answer
+// answerQuestion is the question.answer client op: it validates the answers
 // against the open question, wakes the blocked host call, and records
-// question.answered.
-func (s *Session) answerQuestion(ctx context.Context, id string, answer []string, dismissed bool) (string, error) {
+// question.answered. A batch answer carries one entry per asked question;
+// the legacy single answer/dismissed pair fills one entry.
+func (s *Session) answerQuestion(ctx context.Context, id string, params protocol.QuestionAnswerParams) (string, error) {
 	registry := &s.questions
 	registry.mu.Lock()
 	waiter := registry.pending[id]
@@ -92,39 +96,66 @@ func (s *Session) answerQuestion(ctx context.Context, id string, answer []string
 		registry.mu.Unlock()
 		return "", rpcFailure(-32009, fmt.Sprintf("question %q is not open", id))
 	}
-	if dismissed {
-		answer = nil
-	} else if err := validateQuestionAnswer(waiter.event, answer); err != nil {
-		registry.mu.Unlock()
-		return "", err
+	results := make([]sessionstore.QuestionResult, len(waiter.event.Questions))
+	if params.Answers != nil {
+		if len(params.Answers) != len(waiter.event.Questions) {
+			registry.mu.Unlock()
+			return "", fmt.Errorf("answers must have one entry per question (%d)", len(waiter.event.Questions))
+		}
+		for i, entry := range params.Answers {
+			results[i] = sessionstore.QuestionResult{Answer: entry.Answer, Dismissed: entry.Dismissed}
+		}
+	} else {
+		results[0] = sessionstore.QuestionResult{Answer: params.Answer, Dismissed: params.Dismissed}
 	}
-	if err := s.emitQuestionEvent(ctx, "question.answered", sessionstore.LifecycleEvent{
-		AgentID: waiter.event.AgentID, QuestionID: id, Answer: answer, Dismissed: dismissed,
-	}); err != nil {
+	for i := range results {
+		if results[i].Dismissed {
+			results[i].Answer = nil
+			continue
+		}
+		if err := validateQuestionAnswer(waiter.event.Questions[i], results[i].Answer); err != nil {
+			registry.mu.Unlock()
+			return "", err
+		}
+	}
+	answered := sessionstore.LifecycleEvent{
+		AgentID: waiter.event.AgentID, QuestionID: id, Answers: results,
+	}
+	answered.Question, answered.Options, answered.Multiple = waiter.event.Question, waiter.event.Options, waiter.event.Multiple
+	answered.Answer, answered.Dismissed = results[0].Answer, results[0].Dismissed
+	if err := s.emitQuestionEvent(ctx, "question.answered", answered); err != nil {
 		registry.mu.Unlock()
 		return "", err
 	}
 	delete(registry.pending, id)
-	waiter.answer, waiter.dismissed = answer, dismissed
+	waiter.results = results
 	close(waiter.done)
 	registry.mu.Unlock()
-	if dismissed {
-		return "dismissed", nil
+	for _, result := range results {
+		if !result.Dismissed {
+			return "answered", nil
+		}
 	}
-	return "answered", nil
+	return "dismissed", nil
 }
 
-func validateQuestionAnswer(question sessionstore.LifecycleEvent, answer []string) error {
+// validateQuestionAnswer checks one question's answer. Free text is always
+// allowed alongside option labels; option labels must be offered and
+// unrepeated, and a single-answer question takes exactly one entry.
+func validateQuestionAnswer(question sessionstore.QuestionSet, answer []string) error {
 	if len(answer) == 0 {
-		return errors.New("an answer must pick at least one option or dismiss the question")
+		return errors.New("an answer must pick at least one option, write a response, or skip the question")
 	}
 	if !question.Multiple && len(answer) != 1 {
 		return errors.New("this question takes exactly one answer")
 	}
 	for index, label := range answer {
+		if strings.TrimSpace(label) == "" || len(label) > maxQuestionBytes {
+			return errors.New("answer entries must be non-empty text")
+		}
 		offered := slices.ContainsFunc(question.Options, func(option sessionstore.QuestionOption) bool { return option.Label == label })
-		if !offered || slices.Contains(answer[:index], label) {
-			return fmt.Errorf("%q is not one of the options", label)
+		if offered && slices.Contains(answer[:index], label) {
+			return fmt.Errorf("%q is picked twice", label)
 		}
 	}
 	return nil
@@ -162,7 +193,9 @@ const (
 	maxOptionLabelBytes = 256
 )
 
-// user is the Starlark user module: user.ask(question, options, multiple).
+// user is the Starlark user module: user.ask(question, options, multiple) for
+// one question, or user.ask(questions=[{question, options, multiple}, ...])
+// for a batch.
 func (host *recursiveHost) user(ctx context.Context, operation string, arguments map[string]any) (any, error) {
 	node := host.session
 	if operation != "ask" {
@@ -171,44 +204,111 @@ func (host *recursiveHost) user(ctx context.Context, operation string, arguments
 	if node.parentID != "" {
 		return nil, errors.New("only the root agent can ask the user; send your parent a message instead")
 	}
-	question, _ := stringArgument(arguments, "question")
+	questions, err := questionSets(arguments)
+	if err != nil {
+		return nil, err
+	}
+	results, err := node.root.AskUser(ctx, node.id, questions)
+	if err != nil {
+		return nil, err
+	}
+	if len(questions) == 1 && arguments["questions"] == nil {
+		answer := results[0].Answer
+		if answer == nil {
+			answer = []string{}
+		}
+		return map[string]any{"answer": answer, "dismissed": results[0].Dismissed}, nil
+	}
+	answers := make([]any, len(results))
+	for i, result := range results {
+		answer := result.Answer
+		if answer == nil {
+			answer = []string{}
+		}
+		answers[i] = map[string]any{"answer": answer, "dismissed": result.Dismissed}
+	}
+	return map[string]any{"answers": answers, "dismissed": allDismissed(results)}, nil
+}
+
+func allDismissed(results []sessionstore.QuestionResult) bool {
+	for _, result := range results {
+		if !result.Dismissed {
+			return false
+		}
+	}
+	return true
+}
+
+// questionSets parses the user.ask arguments into a batch of 1 to 8
+// questions: either the batch form (questions=[...]) or the single form
+// (question, options, multiple).
+func questionSets(arguments map[string]any) ([]sessionstore.QuestionSet, error) {
+	if value, ok := arguments["questions"]; ok && value != nil {
+		items, ok := value.([]any)
+		if !ok || len(items) < 1 || len(items) > 8 {
+			return nil, errors.New("questions must be a list of 1 to 8 {question, options, multiple} entries")
+		}
+		questions := make([]sessionstore.QuestionSet, 0, len(items))
+		for _, item := range items {
+			fields, ok := item.(map[string]any)
+			if !ok {
+				return nil, errors.New("each question must be a {question, options, multiple} entry")
+			}
+			set, err := questionSet(fields)
+			if err != nil {
+				return nil, err
+			}
+			questions = append(questions, set)
+		}
+		return questions, nil
+	}
+	set, err := questionSet(arguments)
+	if err != nil {
+		return nil, err
+	}
+	return []sessionstore.QuestionSet{set}, nil
+}
+
+func questionSet(fields map[string]any) (sessionstore.QuestionSet, error) {
+	question, _ := stringArgument(fields, "question")
 	question = strings.TrimSpace(question)
 	if question == "" || len(question) > maxQuestionBytes {
-		return nil, fmt.Errorf("question must be non-empty text of at most %d bytes", maxQuestionBytes)
+		return sessionstore.QuestionSet{}, fmt.Errorf("question must be non-empty text of at most %d bytes", maxQuestionBytes)
 	}
-	options, err := questionOptions(arguments["options"])
+	options, err := questionOptions(fields["options"])
 	if err != nil {
-		return nil, err
+		return sessionstore.QuestionSet{}, err
 	}
-	multiple, _ := arguments["multiple"].(bool)
-	answer, dismissed, err := node.root.AskUser(ctx, node.id, question, options, multiple)
-	if err != nil {
-		return nil, err
-	}
-	if answer == nil {
-		answer = []string{}
-	}
-	return map[string]any{"answer": answer, "dismissed": dismissed}, nil
+	multiple, _ := fields["multiple"].(bool)
+	return sessionstore.QuestionSet{Question: question, Options: options, Multiple: multiple}, nil
 }
 
 func questionOptions(value any) ([]sessionstore.QuestionOption, error) {
 	items, ok := value.([]any)
 	if !ok || len(items) < 2 || len(items) > 6 {
-		return nil, errors.New("options must be a list of 2 to 6 {label, description} entries")
+		return nil, errors.New("options must be a list of 2 to 6 {label, description, recommended} entries")
 	}
 	options := make([]sessionstore.QuestionOption, 0, len(items))
+	recommended := 0
 	for _, item := range items {
 		fields, ok := item.(map[string]any)
 		label, _ := fields["label"].(string)
 		label = strings.TrimSpace(label)
 		description, _ := fields["description"].(string)
+		flag, _ := fields["recommended"].(bool)
 		if !ok || label == "" || len(label) > maxOptionLabelBytes || len(description) > maxQuestionBytes {
 			return nil, fmt.Errorf("each option needs a non-empty label of at most %d bytes and an optional description", maxOptionLabelBytes)
 		}
 		if slices.ContainsFunc(options, func(option sessionstore.QuestionOption) bool { return option.Label == label }) {
 			return nil, fmt.Errorf("option labels must be unique; %q repeats", label)
 		}
-		options = append(options, sessionstore.QuestionOption{Label: label, Description: description})
+		if flag {
+			recommended++
+		}
+		if recommended > 1 {
+			return nil, errors.New("at most one option per question can be recommended")
+		}
+		options = append(options, sessionstore.QuestionOption{Label: label, Description: description, Recommended: flag})
 	}
 	return options, nil
 }

@@ -89,22 +89,38 @@ List pagination is a live view; individual records carry versions for writes.
 
 ## user.ask
 
-`user.ask(question="...", options=[{"label": "...", "description": "..."}, ...], multiple=False)`
+`user.ask(question="...", options=[{"label": "...", "description": "...", "recommended": bool}, ...], multiple=False)`
 shows the user a floating dialog with 2 to 6 options (unique, non-empty
-labels; descriptions optional) and blocks the cell until they pick, dismiss,
-or the turn is cancelled. Host time is not charged to the cell clock. It
-returns `{"answer": [labels...], "dismissed": bool}`; a dismissed question
-has an empty answer. Only the root agent may ask; a descendant gets the error
+labels; descriptions optional; at most one option marked `recommended`,
+which the clients badge but do not pre-select) and blocks the cell until
+they pick, dismiss, or the turn is cancelled. The user may also answer with
+free text instead of (or, where allowed, alongside) the option labels. Host
+time is not charged to the cell clock. It returns
+`{"answer": [labels...], "dismissed": bool}`; a dismissed question has an
+empty answer.
+
+The batch form
+`user.ask(questions=[{"question": "...", "options": [...], "multiple": bool}, ...])`
+asks 1 to 8 questions in one call: the client pages through them
+(Next/Back/Skip; Skip leaves that question unanswered, X dismisses the
+batch) and the call returns
+`{"answers": [{"answer": [labels], "dismissed": bool}, ...], "dismissed": bool}`,
+one entry per question in order; `dismissed` at the top is true only when
+every question was dismissed.
+
+Only the root agent may ask; a descendant gets the error
 `only the root agent can ask the user; send your parent a message instead`,
 and one question per agent is open at a time. Clients hear about it through
 the `question.pending`, `question.answered`, and `question.closed` events and
-answer with the `question.answer` client op; a client that connects while a
-question is open finds it in the session snapshot. The blocked cell keeps its
+answer with the `question.answer` client op (`answer`/`dismissed` for one
+question, `answers` for a batch); a client that connects while a question is
+open finds it in the session snapshot. The blocked cell keeps its
 kernel pool slot while it waits, so a root waiting on the user holds one of
 the pool's `MaxWorkers` slots. Headless `whip run` prints the
 pending question and leaves it open; under ACP the question appears as a
-permission prompt with one option per label plus Dismiss, so `multiple=True`
-collapses to a single answer there.
+permission prompt with one option per label plus Dismiss (batched questions
+page through one prompt each), so `multiple=True` collapses to a single
+answer there.
 
 ## Choosing between models and agents
 

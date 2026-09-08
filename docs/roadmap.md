@@ -91,6 +91,14 @@ in
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.
 - [ ] Electron desktop packaging (after the web milestone).
+- [x] Mobile connection diagnostics: modal-local errors and explicit HTTPS,
+  WebSocket and session API testing, with cancellation and native error details.
+- [ ] Native mobile beta: Expo companion with manual Tailscale HTTPS setup,
+  shared SDK WebSockets, messages, questions, permissions and session creation.
+  Implementation is in `apps/mobile`; completion requires the physical iOS beta
+  and Android acceptance in the [mobile plan](../.ai-docs/plans/mobile-app/IMPLEMENTATION.md).
+- [ ] Mobile follow-ups: authenticated device pairing/QR and push notifications,
+  after the private-host companion is accepted.
 - [ ] Editing, code review and standalone terminal product surfaces (later work).
 - [ ] Hosted execution, connection authentication and relay infrastructure.
 

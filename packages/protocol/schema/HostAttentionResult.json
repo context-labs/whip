@@ -275,6 +275,9 @@
                       },
                       "description": {
                         "type": "string"
+                      },
+                      "recommended": {
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -285,6 +288,51 @@
                 },
                 "multiple": {
                   "type": "boolean"
+                },
+                "questions": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "question": {
+                        "type": "string"
+                      },
+                      "options": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "recommended": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "label"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "multiple": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "question"
+                    ],
+                    "additionalProperties": false
+                  }
                 },
                 "answer": {
                   "type": [
@@ -297,6 +345,30 @@
                 },
                 "dismissed": {
                   "type": "boolean"
+                },
+                "answers": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "answer": {
+                        "type": [
+                          "null",
+                          "array"
+                        ],
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "dismissed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
                 }
               },
               "additionalProperties": false

@@ -11,10 +11,10 @@ import { Session, Sessions } from './session.js';
 import { Subscription, type SubscriptionOptions } from './subscription.js';
 import { WhipError, RpcError, abortError, asError } from './errors.js';
 import { webSocket, type Transport, type TransportFactory } from './transport.js';
-import { byteLength, frozen, notify, object, withSignal } from './util.js';
+import { byteLength, frozen, notify, object, withSignal, uuid, digestHex } from './util.js';
 
 export type SdkEvent = RootEvent;
-export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'incompatible' | 'closed';
+export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'incompatible' | 'paused' | 'closed';
 export interface ConnectionSnapshot {
   readonly state: ConnectionState;
   readonly info?: Readonly<InitializeResult>;
@@ -33,6 +33,9 @@ export interface ClientOptions {
   heartbeatTimeoutMs?: number;
   commandPollMs?: number;
   recoveryStorage?: RecoveryStorage;
+  /** Native runtimes can supply OS-backed primitives without global polyfills. */
+  randomUUID?: () => string;
+  sha256?: (bytes: Uint8Array<ArrayBuffer>) => Promise<Uint8Array<ArrayBuffer>>;
 }
 export type QueryOutcome<O extends RuntimeOperation> = Omit<QueryResult, 'result'> & { result?: RuntimeOperations[O]['result'] };
 interface Pending {
@@ -87,6 +90,7 @@ export class WhipClient {
   private epoch = 0;
   private nextId = 0;
   private closed = false;
+  private paused = false;
   private runtimeId?: string;
 
   constructor(options: ClientOptions) {
@@ -118,6 +122,7 @@ export class WhipClient {
     options.signal?.throwIfAborted();
     if (this.closed) throw new WhipError('closed', 'Client is closed; create a new client to attach again');
     if (this.snapshot.state === 'incompatible') throw this.snapshot.error;
+    if (this.paused) throw new WhipError('paused', 'Client observation is paused; resume it before connecting');
     if (this.snapshot.state === 'connected') return;
     if (!this.opening) {
       clearTimeout(this.retryTimer);
@@ -176,6 +181,12 @@ export class WhipClient {
     this.lookups.clear();
     for (const stream of [...this.streams.values()]) stream.fail(error);
     if (this.closed) return;
+    if (this.paused) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = undefined;
+      this.setState('paused');
+      return;
+    }
     const incompatible = error instanceof WhipError && ['unsupported_protocol', 'runtime_changed'].includes(error.kind);
     this.setState(incompatible ? 'incompatible' : this.options.reconnect === false ? 'closed' : 'reconnecting', error);
     if (!incompatible && this.options.reconnect !== false) {
@@ -188,6 +199,30 @@ export class WhipClient {
   reconnect(): void {
     this.requireConnected();
     this.disconnected(new WhipError('disconnected', 'Refreshing daemon connection'));
+  }
+  /** Suspend observation without cancelling accepted work or discarding command identities. */
+  pause(): void {
+    if (this.closed || this.paused || this.snapshot.state === 'incompatible') return;
+    this.paused = true;
+    this.disconnected(new WhipError('paused', 'Client observation paused'));
+  }
+  /** Resume the same runtime; commands are reconciled, never resubmitted. */
+  async resume(options: Pick<CallOptions, 'signal'> = {}): Promise<void> {
+    options.signal?.throwIfAborted();
+    this.paused = false;
+    const resuming = (async () => {
+      // A paused initialization may still be unwinding its aborted transport.
+      await this.opening?.catch(() => {});
+      await this.connect();
+    })();
+    return withSignal(resuming, options.signal);
+  }
+  createId(): string { return (this.options.randomUUID ?? uuid)(); }
+  async digestHex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+    if (!this.options.sha256) return digestHex(bytes);
+    const digest = await this.options.sha256(bytes);
+    if (digest.byteLength !== 32) throw new WhipError('invalid_response', 'SHA-256 provider returned an invalid digest');
+    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
   }
   close(): void {
     if (this.closed) return;
@@ -310,6 +345,7 @@ export class WhipClient {
   }
   private scheduleHeartbeat(): void {
     clearTimeout(this.heartbeat);
+    if (this.snapshot.state !== 'connected') return;
     const epoch = this.epoch;
     this.heartbeat = setTimeout(() => {
       if (epoch !== this.epoch || this.closed) return;
@@ -367,6 +403,7 @@ export class WhipClient {
     return outcome;
   }
   waitForCommandTick(signal?: AbortSignal): Promise<void> {
+    if (this.closed) return Promise.reject(new WhipError('closed', 'Client closed'));
     return new Promise((resolve, reject) => {
       const cleanup = () => {
         this.ticks.delete(done); signal?.removeEventListener('abort', abort);
@@ -377,7 +414,7 @@ export class WhipClient {
       this.ticks.add(done);
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) { abort(); return; }
-      this.ticker ??= setTimeout(() => this.wakeCommands(), this.options.commandPollMs ?? 250);
+      if (!this.paused && !this.closed) this.ticker ??= setTimeout(() => this.wakeCommands(), this.options.commandPollMs ?? 250);
     });
   }
   private wakeCommands(): void {

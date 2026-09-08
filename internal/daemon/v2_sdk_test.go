@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,13 +27,21 @@ import (
 	"github.com/context-labs/whip/internal/webassets"
 )
 
-// TestV2SDKBridge runs only as a subprocess of the SDK acceptance scripts. Its
+// TestV2SDKBridge runs only as a subprocess of the shared integration fixture. Its
 // temporary home survives deliberate process kills so the SDK can prove recovery
 // from committed WAL rather than a graceful in-process simulation.
 func TestV2SDKBridge(t *testing.T) {
 	directory := os.Getenv("WHIP_SDK_FIXTURE_DIR")
 	if directory == "" {
 		t.Skip("started by packages/sdk/scripts/fixture.mjs")
+	}
+	lifetime, err := sdkFixtureLifetime(os.Getenv("WHIP_SDK_FIXTURE_LIFETIME"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	externalOrigin, err := sdkFixtureExternalOrigin(os.Getenv("WHIP_SDK_FIXTURE_ORIGIN"))
+	if err != nil {
+		t.Fatal(err)
 	}
 	paths, err := Paths(filepath.Join(directory, "home"))
 	if err != nil {
@@ -74,6 +83,34 @@ func TestV2SDKBridge(t *testing.T) {
 		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history}, services: tools.NewServices()}
 		value.services.SetExternalPermissions(true)
 		value.fakeRunner.turn = func(ctx context.Context, input string, authored bool) (string, error) {
+			if input == "question:single" || input == "question:batch" {
+				questions := []session.QuestionSet{{
+					Question: "Continue with the fixture?",
+					Options: []session.QuestionOption{
+						{Label: "Proceed", Description: "Continue this isolated test.", Recommended: true},
+						{Label: "Wait", Description: "Choose a different fixture answer."},
+					},
+				}}
+				if input == "question:batch" {
+					questions = append(questions,
+						session.QuestionSet{
+							Question: "Which surfaces should be checked? Add custom text if needed.",
+							Multiple: true,
+							Options: []session.QuestionOption{
+								{Label: "Web", Description: "Check the browser client."},
+								{Label: "Mobile", Description: "Check the native client."},
+							},
+						},
+						session.QuestionSet{Question: "Optional note: skip this page to test dismissal."},
+					)
+				}
+				answers, err := value.root.AskUser(ctx, value.root.ID(), questions)
+				if err != nil {
+					return "", err
+				}
+				data, err := json.Marshal(answers)
+				return string(data), err
+			}
 			if strings.HasPrefix(input, "permission:") {
 				arguments, err := json.Marshal(map[string]string{
 					"path": "sdk-permission-" + rand.Text() + ".txt", "content": input,
@@ -96,6 +133,27 @@ func TestV2SDKBridge(t *testing.T) {
 	network := NetworkOptions{Enabled: true, AllowedOrigins: []string{frontend}}
 	if previous.Endpoint != "" {
 		network.Address = strings.TrimSuffix(strings.TrimPrefix(previous.Endpoint, "ws://"), "/api/v3/ws")
+	}
+	if externalOrigin != "" {
+		parsed, err := url.Parse(externalOrigin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// An explicit Host list replaces the production loopback default. Select
+		// the test port first so both exact Hosts are known before Serve starts.
+		// A competing bind fails fixture startup rather than attaching elsewhere.
+		if network.Address == "" {
+			reserved, err := network.listen()
+			if err != nil {
+				t.Fatal(err)
+			}
+			network.Address = reserved.Addr().String()
+			if err := reserved.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		network.AllowedOrigins = append(network.AllowedOrigins, externalOrigin)
+		network.AllowedHosts = []string{network.Address, parsed.Host}
 	}
 	server, err := NewServer(owner, ServerOptions{Generation: previous.Generation + 1, BuildID: "sdk-fixture", RuntimeDir: paths.Runtime, Network: network})
 	if err != nil {
@@ -194,8 +252,81 @@ func TestV2SDKBridge(t *testing.T) {
 	}
 	select {
 	case <-done:
-	case <-time.After(4 * time.Minute):
+	case <-time.After(lifetime):
 		t.Fatal("SDK bridge timed out")
+	}
+}
+
+func sdkFixtureExternalOrigin(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	invalid := errors.New("WHIP_SDK_FIXTURE_ORIGIN must be an exact HTTPS origin " +
+		"without credentials, path, query, fragment or wildcards")
+	parsed, err := url.Parse(value)
+	if err != nil || len(value) > 2048 {
+		return "", invalid
+	}
+	exactOrigin := parsed.Scheme == "https" && parsed.Hostname() != "" && value == "https://"+parsed.Host
+	plainHost := parsed.User == nil && !strings.Contains(parsed.Host, "*")
+	if !exactOrigin || !plainHost {
+		return "", invalid
+	}
+	return value, nil
+}
+
+func TestSDKFixtureExternalOrigin(t *testing.T) {
+	validOrigins := []string{
+		"", "https://whip.example.ts.net", "https://whip.example.ts.net:8443", "https://[::1]:8443",
+	}
+	for _, value := range validOrigins {
+		got, err := sdkFixtureExternalOrigin(value)
+		if err != nil || got != value {
+			t.Fatalf("valid origin %q: got %q, %v", value, got, err)
+		}
+	}
+	for _, value := range []string{
+		"http://whip.example.ts.net", "wss://whip.example.ts.net", "https://", "https://*.example.ts.net",
+		"https://user:password@whip.example.ts.net", "https://whip.example.ts.net/", "https://whip.example.ts.net/api",
+		"https://whip.example.ts.net?", "https://whip.example.ts.net?q=1", "https://whip.example.ts.net#fragment",
+	} {
+		if _, err := sdkFixtureExternalOrigin(value); err == nil {
+			t.Errorf("accepted invalid origin %q", value)
+		}
+	}
+}
+
+func sdkFixtureLifetime(value string) (time.Duration, error) {
+	if value == "" {
+		return 4 * time.Minute, nil
+	}
+	lifetime, err := time.ParseDuration(value)
+	withinBounds := lifetime > 0 && lifetime <= 30*time.Minute
+	if err != nil || !withinBounds {
+		return 0, fmt.Errorf("WHIP_SDK_FIXTURE_LIFETIME must be greater than zero and at most 30m: %q", value)
+	}
+	return lifetime, nil
+}
+
+func TestSDKFixtureLifetime(t *testing.T) {
+	for _, tt := range []struct {
+		value string
+		want  time.Duration
+	}{
+		{value: "", want: 4 * time.Minute},
+		{value: "1s", want: time.Second},
+		{value: "30m", want: 30 * time.Minute},
+		{value: "0"},
+		{value: "-1s"},
+		{value: "30m1ms"},
+		{value: "invalid"},
+	} {
+		t.Run(tt.value, func(t *testing.T) {
+			got, err := sdkFixtureLifetime(tt.value)
+			if got != tt.want || (err != nil) != (tt.want == 0) {
+				t.Fatalf("sdkFixtureLifetime(%q) = %v, %v; want %v", tt.value, got, err, tt.want)
+			}
+		})
 	}
 }
 

@@ -233,6 +233,10 @@ caller's abort signal.
 The [frontend guide](frontend.md) explains why these ownership boundaries exist
 and how app features should use them. This section records their lifecycle rules.
 
+The rules in this section describe the web renderer. The native companion uses
+the same SDK with the narrower [mobile lifetime rules](#native-companion-lifetimes)
+below.
+
 `packages/app/src/runtime.ts` owns the current SDK client, session-list view,
 TanStack Query client, root-view leases and local command waiters. Host attachment
 increments an application epoch. Late connections, acceptance callbacks and
@@ -299,3 +303,36 @@ aborts the owned transfer. Submission tokens prevent late acceptance from cleari
 newer drafts. `ReadingPositions` retains only bounded row/revision/offset/follow
 hints; TanStack Virtual remains the single scrolling authority. Expired closed-tab
 metadata releases associated reading hints, and view eviction never deletes drafts.
+
+## Native companion lifetimes
+
+`apps/mobile/src/runtime/runtime.ts` owns one SDK client, one QueryClient and one
+root view with at most one selected child. Replacing the host synchronously
+increments the epoch, aborts local waits, clears scoped state and closes the old
+client before awaiting cleanup. Old continuations cannot publish into the new
+host. Releasing navigation leases never cancels accepted daemon execution.
+
+The bootstrap owns the native AppState listener outside React. Actual backgrounding
+flushes queued draft writes where possible, cancels Query reads and calls SDK
+`pause()` to stop connection, heartbeat and command-observation timers. A temporary
+inactive state does not detach. Foreground resume validates the same runtime and
+reconciles unresolved identities before enabling actions. `close()` remains
+terminal. Critical storage writes happen before network admission; a final
+background callback is not assumed to run before process death.
+
+The native recovery adapter commits command identity and recipient/draft-revision
+correlation in one SQLCipher transaction before sending. Draft text is a separate
+bounded encrypted record. A failed durable write blocks admission; unresolved
+records are not evicted to admit another send. Restored metadata can check the
+original outcome but cannot recreate or automatically replay a request body.
+Permission decisions use their typed status namespace and retain their own
+decision identity through uncertain replies.
+
+One foreground Attention query observer serves every route and the tab badge.
+Screen focus and explicit refresh join an existing request; hidden screens do
+not create extra polling loops. Background/host cleanup cancels the shared read.
+Catalog polling follows the focused Sessions list, and history remains owned by
+SDK views. See [the frontend guide](frontend.md#native-mobile-companion) for
+package boundaries and [mobile setup](mobile.md) for the private network contract.
+Native runtime, storage, decision and Attention tests live under
+`apps/mobile/src`; device evidence is tracked separately from these unit checks.

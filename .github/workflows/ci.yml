@@ -214,12 +214,15 @@ jobs:
             /tmp/whip-web-browser-results
             packages/ui/ui-test-results
 
+  mobile:
+    uses: ./.github/workflows/mobile.yml
+
   # `go` is a required status check in the repo's ruleset, so the name has to
   # survive the split. It is the aggregate gate: green only when lint, tests,
-  # builds, both runtime platforms, SDK, and the Swift driver all pass. if: always()
+  # builds, both runtime platforms, SDK, mobile, and the Swift driver all pass. if: always()
   # makes a failed dependency report as a failure here rather than a skip.
   go:
-    needs: [lint, test, build, runtime, driver, sdk]
+    needs: [lint, test, build, runtime, driver, sdk, mobile]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -231,12 +234,14 @@ jobs:
           echo "runtime=${{ needs.runtime.result }}"
           echo "driver=${{ needs.driver.result }}"
           echo "sdk=${{ needs.sdk.result }}"
+          echo "mobile=${{ needs.mobile.result }}"
           [ "${{ needs.lint.result }}" = success ] || exit 1
           [ "${{ needs.test.result }}" = success ] || exit 1
           [ "${{ needs.build.result }}" = success ] || exit 1
           [ "${{ needs.runtime.result }}" = success ] || exit 1
           [ "${{ needs.driver.result }}" = success ] || exit 1
           [ "${{ needs.sdk.result }}" = success ] || exit 1
+          [ "${{ needs.mobile.result }}" = success ] || exit 1
 
   # The release pipeline builds the computer-use Swift driver on macOS and
   # go:embeds it — build it here too so a driver-breaking change fails the

@@ -576,8 +576,12 @@ export class SessionListView {
           this.set({ status: 'loading', truncated: false });
         }
         void this.refresh();
+        this.pollLater();
+      } else {
+        clearTimeout(this.timer);
+        this.timer = undefined;
+        this.set({ ...this.current, status: 'stale' });
       }
-      else this.set({ ...this.current, status: 'stale' });
     });
     this.stopCommands = this.client.onCommand(terminalChanges(() => {
       if (this.listeners.size) void this.refresh();
@@ -646,7 +650,7 @@ export class SessionListView {
   }
 
   private pollLater(): void {
-    if (this.lifetime.signal.aborted || !this.started || !this.listeners.size || this.timer) return;
+    if (this.lifetime.signal.aborted || !this.started || !this.listeners.size || this.timer || this.client.getSnapshot().state !== 'connected') return;
     this.timer = setTimeout(async () => {
       this.timer = undefined;
       await this.refresh();

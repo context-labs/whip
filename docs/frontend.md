@@ -91,6 +91,7 @@ Use Node 24. Exact installed versions belong to the package manifests and
 | `@whip/ui` — `packages/ui` | Tokens, themes, fonts, accessible controls, layout primitives, code highlighting, Storybook | No SDK, protocol, router, Query, host access, or product state |
 | `@whip/app` — `packages/app` | Shared React application, routes, feature UI, application state/lifetimes | UI, SDK, protocol types, TanStack tools |
 | `@whip/web` — `apps/web` | Browser bootstrap, platform adapters, Vite configuration, static release build | App and UI bootstrap exports |
+| `@whip/mobile` — `apps/mobile` | Expo/React Native companion, native UI, lifecycle and encrypted device storage | SDK; only `@whip/app/presentation` and `@whip/ui/theme-data` from web-facing packages |
 | `examples/client` | Small SDK usage example | Independent of the product application |
 
 ```mermaid
@@ -141,6 +142,80 @@ Do not add Redux/Zustand, TanStack DB, a second Query client per feature, anothe
 CSS framework, or a frontend provider/agent execution loop without a concrete
 architectural need. Existing tools are choices with defined jobs, not an excuse
 to route every piece of state through a framework.
+
+## Native mobile companion
+
+[`apps/mobile`](../apps/mobile) is a separate Expo Router renderer for iOS and
+Android. It shares daemon truth and portable presentation with the web app, while
+native SwiftUI/Compose controls come from Expo UI. React Native StyleSheet supplies
+layout; FlashList virtualizes conversation/catalog rows; Enriched Markdown renders
+selectable text; keyboard controller and safe-area providers own native insets.
+This is a development implementation; [mobile acceptance evidence](../.ai-docs/plans/mobile-app/EVIDENCE.md)
+records the remaining native and release gates. Setup belongs in [mobile.md](mobile.md).
+
+Native imports must use `@whip/app/presentation` (pure conversation rows,
+submitted-input identity reconciliation and reading targets) and
+`@whip/ui/theme-data` (resolved catalog and portable contrast helpers). Neither
+entry point imports DOM controls, StyleX, web routing or browser providers.
+`timeline.tsx` remains the web renderer of the same projection. Do not import the
+web app/UI barrels into Metro or duplicate SDK stream reducers in mobile.
+
+The native runtime owns one SDK client, one QueryClient, one catalog and the
+selected root/child leases. A saved host pins its persistent runtime ID and stable
+human client ID. Replacement aborts local observations, releases views and clears
+host reads. Actual backgrounding pauses the SDK socket/heartbeat/reconnect and
+command ticks; foreground resume reconciles durable identity before applicable
+actions are enabled. Temporary `inactive` transitions do not detach. `close()` is
+terminal and reserved for disposal/replacement. Work continues on the daemon.
+
+The connection sheet owns its actionable errors so native modal presentation
+cannot hide the root layout's error banner. Its explicit Test Connection uses
+one temporary SDK client for HTTPS discovery, initialization/identity and a
+one-item session read, without saving or replacing the runtime's client. Each
+stage is limited to 15 seconds; discovery is streamed into an 8 KiB buffer through
+Expo fetch. Completion, failure, leaving the sheet or backgrounding closes the
+probe. Native close details are bounded in the shared SDK and remain ephemeral;
+the diagnostic export continues to omit raw errors and addresses.
+
+The native [AttentionProvider](../apps/mobile/src/features/attention.tsx), mounted
+above route navigation inside the runtime QueryClient provider, owns the only
+foreground attention query and 10-second poll. The Attention screen and tab badge
+consume its context without separate query observers. Focus refresh joins an
+in-flight request; runtime reconnect and completed decisions invalidate the same
+query. Backgrounding cancels reads and disables polling; host replacement clears
+the cache. Reads retain at most four 64-entry / 128 KiB pages. The badge counts
+loaded sessions with human requests, qualifies incomplete indexes with `+`, and
+announces stale/unavailable data without implying a current zero count.
+
+Use the private SQLCipher database for four saved hosts, bounded preferences,
+16 revisioned drafts (64 KiB per record, 512 KiB total), 64 reading bookmarks
+(64 KiB total), and 64 recovery/permission records sharing a 64 KiB budget.
+The SecureStore key uses device-only keychain accessibility; the database lives
+in a native backup-excluded directory. Failure to open or write durable storage
+must remain visible and must not silently switch to plaintext or allow an
+unrecorded send. Snapshots, query caches, prompts in recovery records, provider
+credentials and transcripts are not persisted. Draft text is a separate record.
+
+Runtime command metadata and its recipient/request/draft revision are committed
+atomically before sending. Permission decisions retain a separate typed record
+and use `client.permissions.status`; they are not generic runtime commands.
+A status failure is not evidence of non-admission. Retried runtime commands retain
+original bytes/identity and require an explicit action after authoritative missing
+status; restored records contain no payload and cannot replay automatically.
+Creation journals retain the created root across effort/input partial failures.
+
+Only an explicit full-message sheet fetches content, at most 256 KiB through SDK
+scope/hash checks. Recycled transcript rows cannot initiate reads. Native text
+pages contain at most 8,192 UTF-16 units, preserving surrogate pairs. Short messages
+keep Markdown rendering; larger messages use selectable source pages. Collapsed
+tool details use 512-unit previews, and explicit Copy retains the complete loaded
+text. Paging resets on recycled message identity and preserves the selected page
+during live appends. These bounds apply to combined tool arguments/output and
+explicitly inspected bodies as well as ordinary conversation text. Markdown with
+image syntax or raw HTML delimiters uses selectable source presentation so the
+native renderer cannot fetch embedded images; link previews are disabled, and
+links open only after a user tap through an external-scheme allowlist.
+Uploads, QR pairing, application auth and push notifications are deferred.
 
 ## Runtime construction and lifetimes
 
@@ -268,7 +343,10 @@ close/reopen and window restoration preserve the mode. An explicit chat URL
 opens chat. Each duplicate view has an independent mode and selected agent.
 
 `SessionContent` owns connection feedback, agent leases, pending questions and
-permissions, cancellation, and inspectors for both modes. Switching changes
+permissions, cancellation, and inspectors for both modes. A batched
+`user.ask(questions=[...])` renders as a wizard card above the composer (same
+width): one question per page, Back/Skip/Next with Send on the last page,
+free text always allowed, and the agent's `recommended` option badged. Switching changes
 only the reader/composer branch, without starting another root subscription.
 Drafts and attachments remain recipient-scoped; REPL displays no composer.
 

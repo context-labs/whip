@@ -15,6 +15,30 @@
     },
     "dismissed": {
       "type": "boolean"
+    },
+    "answers": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "dismissed": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "$id": "https://whip.dev/protocol/v4/QuestionAnswerParams",

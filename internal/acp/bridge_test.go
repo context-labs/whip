@@ -579,7 +579,7 @@ func TestBridgeQuestionMapsToPermissionPromptAndAnswerOp(t *testing.T) {
 	requests := append([]acpsdk.RequestPermissionRequest(nil), client.perms...)
 	client.answer = optDismiss
 	client.mu.Unlock()
-	if len(requests) != 1 || string(requests[0].ToolCall.ToolCallId) != "question-question-1" || *requests[0].ToolCall.Title != "Which database?" {
+	if len(requests) != 1 || string(requests[0].ToolCall.ToolCallId) != "question-question-1-0" || *requests[0].ToolCall.Title != "Which database?" {
 		t.Fatalf("permission requests = %+v", requests)
 	}
 	options := requests[0].Options

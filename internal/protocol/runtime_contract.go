@@ -38,9 +38,19 @@ type AgentInputParams struct {
 	Attachments []InputAttachment `json:"attachments,omitempty"`
 }
 type QuestionAnswerParams struct {
-	ID        string   `json:"id"`
-	Answer    []string `json:"answer"`
-	Dismissed bool     `json:"dismissed"`
+	ID string `json:"id"`
+	// Answer and Dismissed answer a single-question ask; Answers answers a
+	// batch, one entry per asked question. A null or dismissed entry is a
+	// skipped question.
+	Answer    []string              `json:"answer"`
+	Dismissed bool                  `json:"dismissed"`
+	Answers   []QuestionAnswerEntry `json:"answers,omitempty"`
+}
+
+// QuestionAnswerEntry is the per-question outcome of a batched user.ask.
+type QuestionAnswerEntry struct {
+	Answer    []string `json:"answer,omitempty"`
+	Dismissed bool     `json:"dismissed,omitempty"`
 }
 type TerminalInputParams struct {
 	ID    string `json:"id"`

@@ -1,7 +1,7 @@
-import type { ConfigurationUpdate, HostAttentionParams, HostDirectoryParams, PermissionDecision, ProviderKeySetup, ProviderValidateParams } from '@whip/protocol';
+import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type PermissionDecision, type PermissionDecisionResult, type ProviderKeySetup, type ProviderValidateParams } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
-import { uuid } from './util.js';
+import { WhipError } from './errors.js';
 
 /** Host reads do not construct session actors or change client preferences. */
 export class Host {
@@ -20,11 +20,40 @@ export class Host {
   };
 }
 
+export type PermissionDecisionStatus = Pick<CommandResult, 'command_id' | 'ingress_seq'> & { operation: 'permission.decide' } & (
+  | { status: 'queued' | 'running' | 'waiting'; result?: never; failure?: never }
+  | { status: 'succeeded'; result: PermissionDecisionResult; failure?: never }
+  | { status: 'failed' | 'cancelled' | 'interrupted'; result?: never; failure: NonNullable<CommandResult['failure']> }
+);
+
 export class Permissions {
   constructor(private readonly client: WhipClient) {}
   /** A decision is sent once. After an uncertain reply, inspect pending state before retrying. */
   decide(decision: Omit<PermissionDecision, 'command_id'> & { command_id?: string }, options: CallOptions = {}) {
-    return this.client.call('permission.decide', { decision: { ...decision, command_id: decision.command_id ?? uuid() } }, options);
+    return this.client.call('permission.decide', { decision: { ...decision, command_id: decision.command_id ?? this.client.createId() } }, options);
+  }
+  /** Inspect the original client-scoped decision identity without resending it. */
+  async status(commandId: string, options: CallOptions = {}): Promise<PermissionDecisionStatus> {
+    if (!commandId.trim()) throw new TypeError('commandId must not be empty');
+    const outcome = await this.client.call('command.status', { command_id: commandId }, options);
+    if (outcome.command_id !== commandId || outcome.operation !== 'permission.decide' || outcome.content != null) {
+      throw new WhipError('invalid_response', 'Permission decision status does not match its identity or operation');
+    }
+    switch (outcome.status) {
+      case 'succeeded':
+        if (outcome.failure != null) throw new WhipError('invalid_response', 'Successful permission decision contains a failure');
+        if (!validate('PermissionDecisionResult', outcome.result, 'response')) throw new WhipError('invalid_response', 'Invalid successful permission decision result');
+        break;
+      case 'failed': case 'cancelled': case 'interrupted':
+        if (outcome.result !== undefined || outcome.failure == null) throw new WhipError('invalid_response', 'Failed permission decision is missing its failure outcome');
+        break;
+      case 'queued': case 'running': case 'waiting':
+        if (outcome.result !== undefined || outcome.failure != null) throw new WhipError('invalid_response', 'Pending permission decision contains a terminal outcome');
+        break;
+      default:
+        throw new WhipError('invalid_response', 'Unknown permission decision status');
+    }
+    return outcome as PermissionDecisionStatus;
   }
   setMode(rootId: string, externalPermissions: boolean, options: Pick<CommandOptions, 'commandId'> = {}) {
     return this.client.submit('permission.mode', { external_permissions: externalPermissions }, { ...options, rootId });

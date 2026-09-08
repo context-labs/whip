@@ -27,7 +27,11 @@
     "build:storybook": "npm run build:storybook -w @whip/ui",
     "pack:web": "npm run build:web && node scripts/pack-web.mjs",
     "generate:themes": "go run ./cmd/themegen",
-    "check:themes": "go run ./cmd/themegen -check"
+    "check:themes": "go run ./cmd/themegen -check",
+    "dev:mobile": "npm run build && npm run start -w @whip/mobile",
+    "check:mobile": "npm run build && npm run check -w @whip/mobile",
+    "test:mobile": "npm run test -w @whip/mobile",
+    "export:mobile": "npm run build && npm run export -w @whip/mobile"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

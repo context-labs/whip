@@ -103,7 +103,7 @@ func TestSessionSummariesDoNotOpenRootsAndObserveConcurrentQuestionAnswers(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	question := &questionWaiter{event: session.LifecycleEvent{QuestionID: "summary-question", AgentID: root.AgentID(), Question: "private question", Options: []session.QuestionOption{{Label: "yes"}}}, done: make(chan struct{})}
+	question := &questionWaiter{event: session.LifecycleEvent{QuestionID: "summary-question", AgentID: root.AgentID(), Question: "private question", Options: []session.QuestionOption{{Label: "yes"}}, Questions: []session.QuestionSet{{Question: "private question", Options: []session.QuestionOption{{Label: "yes"}}}}}, done: make(chan struct{})}
 	root.questions.mu.Lock()
 	root.questions.pending = map[string]*questionWaiter{"summary-question": question}
 	root.questions.mu.Unlock()
@@ -122,7 +122,7 @@ func TestSessionSummariesDoNotOpenRootsAndObserveConcurrentQuestionAnswers(t *te
 			}
 		})
 	}
-	if _, err := root.answerQuestion(t.Context(), "summary-question", []string{"yes"}, false); err != nil {
+	if _, err := root.answerQuestion(t.Context(), "summary-question", protocol.QuestionAnswerParams{ID: "summary-question", Answer: []string{"yes"}}); err != nil {
 		t.Fatal(err)
 	}
 	wg.Wait()

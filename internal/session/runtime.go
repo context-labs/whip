@@ -199,18 +199,38 @@ type LifecycleEvent struct {
 	Rule       string `json:"rule,omitempty"`
 	RuleSource string `json:"rule_source,omitempty"`
 	// user.ask (kinds question.pending, question.answered, question.closed).
+	// Question/Options/Multiple carry the first question for single-question
+	// clients; Questions carries the whole batch when the agent asked several.
 	QuestionID string           `json:"question_id,omitempty"`
 	Question   string           `json:"question,omitempty"`
 	Options    []QuestionOption `json:"options,omitempty"`
 	Multiple   bool             `json:"multiple,omitempty"`
+	Questions  []QuestionSet    `json:"questions,omitempty"`
 	Answer     []string         `json:"answer,omitempty"`
 	Dismissed  bool             `json:"dismissed,omitempty"`
+	Answers    []QuestionResult `json:"answers,omitempty"`
 }
 
-// QuestionOption is one choice the user.ask dialog offers.
+// QuestionOption is one choice the user.ask dialog offers. Recommended marks
+// the option the agent prefers; at most one per question.
 type QuestionOption struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
+	Recommended bool   `json:"recommended,omitempty"`
+}
+
+// QuestionSet is one question in a batched user.ask.
+type QuestionSet struct {
+	Question string           `json:"question"`
+	Options  []QuestionOption `json:"options,omitempty"`
+	Multiple bool             `json:"multiple,omitempty"`
+}
+
+// QuestionResult is the per-question outcome of a batched user.ask; a skipped
+// question has Dismissed set and no Answer.
+type QuestionResult struct {
+	Answer    []string `json:"answer,omitempty"`
+	Dismissed bool     `json:"dismissed,omitempty"`
 }
 
 type actorEvent = LifecycleEvent

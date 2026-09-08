@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -101,7 +102,7 @@ func TestUserAskRoundTripsThroughQuestionEvents(t *testing.T) {
 		t.Fatalf("snapshot questions = %+v, %v", snapshot.Questions, err)
 	}
 	for name, payload := range map[string]clientActionPayload{
-		"unknown label":  {ID: pending.QuestionID, Answer: []string{"MySQL"}},
+		"repeated label": {ID: pending.QuestionID, Answer: []string{"SQLite", "SQLite"}},
 		"two for single": {ID: pending.QuestionID, Answer: []string{"SQLite", "Postgres"}},
 		"empty":          {ID: pending.QuestionID},
 		"unknown id":     {ID: "question-missing", Answer: []string{"SQLite"}},
@@ -236,4 +237,104 @@ func TestUserAskIsRootOnlyAndValidatesArguments(t *testing.T) {
 		t.Fatalf("descendant ask err = %v", err)
 	}
 	waitAgentIdle(t, child)
+}
+
+func TestUserAskBatchRoundTrip(t *testing.T) {
+	store, root, runtime := openRecursiveRuntime(t, llm.New("http://127.0.0.1:1", "key"), 1)
+	node := runtime.rootNode
+
+	batch := map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "Which database?",
+				"options": []any{
+					map[string]any{"label": "SQLite", "recommended": true},
+					map[string]any{"label": "Postgres"},
+				},
+			},
+			map[string]any{
+				"question": "Which features?",
+				"options":  []any{map[string]any{"label": "Cache"}, map[string]any{"label": "Queue"}},
+				"multiple": true,
+			},
+			map[string]any{
+				"question": "Anything else?",
+				"options":  []any{map[string]any{"label": "Yes"}, map[string]any{"label": "No"}},
+			},
+		},
+	}
+	results := askUser(node, t.Context(), batch)
+	pending, cursor := waitQuestionEvent(t, store, root.ID(), "question.pending", 0)
+	if len(pending.Questions) != 3 || !pending.Questions[0].Options[0].Recommended {
+		t.Fatalf("question.pending = %+v", pending)
+	}
+	// Legacy flat fields mirror the first question for single-question clients.
+	if pending.Question != "Which database?" || len(pending.Options) != 2 {
+		t.Fatalf("legacy fields = %+v", pending)
+	}
+
+	// Wrong arity is rejected.
+	wrong := clientActionPayload{ID: pending.QuestionID, Answers: []protocol.QuestionAnswerEntry{{Answer: []string{"SQLite"}}}}
+	if result := clientCommand(t, root, "tui", "short", "question.answer", wrong); result.Status != "failed" {
+		t.Fatalf("short answers = %+v", result)
+	}
+
+	// Answer: pick, skip, free text.
+	payload := clientActionPayload{ID: pending.QuestionID, Answers: []protocol.QuestionAnswerEntry{
+		{Answer: []string{"Postgres"}},
+		{Dismissed: true},
+		{Answer: []string{"redis, please"}},
+	}}
+	if result := clientCommand(t, root, "tui", "batch", "question.answer", payload); result.Status != "succeeded" {
+		t.Fatalf("batch answer = %+v", result)
+	}
+	result := waitAsk(t, results)
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	value := result.value.(map[string]any)
+	answers, _ := value["answers"].([]any)
+	if len(answers) != 3 || value["dismissed"] != false {
+		t.Fatalf("batch value = %#v", value)
+	}
+	first := answers[0].(map[string]any)
+	second := answers[1].(map[string]any)
+	third := answers[2].(map[string]any)
+	if a := first["answer"].([]string); len(a) != 1 || a[0] != "Postgres" {
+		t.Fatalf("first = %#v", first)
+	}
+	if second["dismissed"] != true {
+		t.Fatalf("second = %#v", second)
+	}
+	if a := third["answer"].([]string); len(a) != 1 || a[0] != "redis, please" {
+		t.Fatalf("third = %#v", third)
+	}
+
+	answered, _ := waitQuestionEvent(t, store, root.ID(), "question.answered", cursor)
+	if len(answered.Answers) != 3 || answered.Answers[0].Answer[0] != "Postgres" || !answered.Answers[1].Dismissed || answered.Answers[2].Answer[0] != "redis, please" {
+		t.Fatalf("question.answered = %+v", answered)
+	}
+	// Legacy fields mirror the first answer.
+	if len(answered.Answer) != 1 || answered.Answer[0] != "Postgres" {
+		t.Fatalf("legacy answered = %+v", answered)
+	}
+}
+
+func TestUserAskBatchValidatesArguments(t *testing.T) {
+	_, _, runtime := openRecursiveRuntime(t, llm.New("http://127.0.0.1:1", "key"), 1)
+	node := runtime.rootNode
+	for name, batch := range map[string]map[string]any{
+		"empty list": {"questions": []any{}},
+		"two recommended": {"questions": []any{map[string]any{
+			"question": "Pick",
+			"options": []any{
+				map[string]any{"label": "a", "recommended": true},
+				map[string]any{"label": "b", "recommended": true},
+			},
+		}}},
+	} {
+		if _, err := node.host.Call(t.Context(), "user", "ask", batch); err == nil {
+			t.Fatalf("%s: expected error", name)
+		}
+	}
 }

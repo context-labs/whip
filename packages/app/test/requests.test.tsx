@@ -77,3 +77,29 @@ for (const kind of ['permission', 'question'] as const) {
     });
   }
 }
+
+it('skipping the final batched question sends the skipped state instead of its previous answer', async () => {
+  const answerQuestions = vi.fn(() => ({}));
+  const session = { rootId: 'root', answerQuestions } as unknown as Session;
+  const runtime = { run: vi.fn(async () => {}), report: vi.fn() } as unknown as AppRuntime;
+  const question = { question_id: 'batch', questions: [
+    { question: 'First?', options: [{ label: 'A' }] },
+    { question: 'Last?', options: [{ label: 'B' }] },
+  ] };
+  render(<RuntimeContext.Provider value={runtime}><UIProvider><PendingRequests root={{ questions: [question] } as RootSnapshot} session={session} disabled={false} refresh={async () => {}} /></UIProvider></RuntimeContext.Provider>);
+  fireEvent.click(screen.getByRole('radio', { name: /A/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Next', exact: true }));
+  fireEvent.click(screen.getByRole('radio', { name: /B/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Skip', exact: true }));
+  await waitFor(() => expect(answerQuestions).toHaveBeenCalledWith('batch', [{ answer: ['A'] }, null]));
+});
+
+it('a one-item batch retains the batched answer contract', async () => {
+  const answerQuestions = vi.fn(() => ({}));
+  const session = { rootId: 'root', answerQuestions } as unknown as Session;
+  const runtime = { run: vi.fn(async () => {}), report: vi.fn() } as unknown as AppRuntime;
+  render(<RuntimeContext.Provider value={runtime}><UIProvider><PendingRequests root={{ questions: [{ question_id: 'batch', questions: [{ question: 'Continue?', options: [{ label: 'Yes' }] }] }] } as RootSnapshot} session={session} disabled={false} refresh={async () => {}} /></UIProvider></RuntimeContext.Provider>);
+  fireEvent.click(screen.getByRole('radio', { name: /Yes/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send', exact: true }));
+  await waitFor(() => expect(answerQuestions).toHaveBeenCalledWith('batch', [{ answer: ['Yes'] }]));
+});

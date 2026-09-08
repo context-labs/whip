@@ -343,3 +343,158 @@ test('unknown event names cannot resolve inherited schema properties', async t =
   }
   await subscription.dispose();
 });
+
+test('pause closes transport and parks waits until explicit resume without resending work', async t => {
+  const server = harness();
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'mobile', commandPollMs: 1 });
+  t.after(() => client.close());
+  await client.connect();
+  const old = server.current;
+  const pending = client.call('daemon.ping', {});
+  client.pause();
+  await assert.rejects(pending, { kind: 'paused' });
+  assert.equal(client.getSnapshot().state, 'paused');
+  assert.equal(old.closed, true);
+  await assert.rejects(client.connect(), { kind: 'paused' });
+  let ticked = false;
+  const tick = client.waitForCommandTick().then(() => { ticked = true; });
+  await delay(15);
+  assert.equal(ticked, false);
+  assert.equal(server.connections.length, 1);
+  await client.resume();
+  await tick;
+  assert.equal(client.getSnapshot().state, 'connected');
+  assert.equal(server.connections.length, 2);
+  assert.deepEqual(server.current.requests.map(request => request.method), ['initialize']);
+  old.fail();
+  assert.equal(client.getSnapshot().state, 'connected');
+});
+
+test('pause during initialization cannot revive the old transport and close remains terminal', async () => {
+  const server = harness(() => {});
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'mobile' });
+  const opening = client.connect();
+  await delay(0);
+  const old = server.current;
+  client.pause();
+  old.reply(old.requests[0]!, initialize());
+  await assert.rejects(opening);
+  const resumed = client.resume();
+  await delay(0);
+  assert.equal(server.connections.length, 2);
+  server.current.reply(server.current.requests[0]!, initialize());
+  await resumed;
+  client.close();
+  await assert.rejects(client.resume(), { kind: 'closed' });
+  assert.equal(client.getSnapshot().state, 'closed');
+});
+
+test('native crypto providers are scoped to a client and reject malformed SHA-256 output', async t => {
+  const server = harness();
+  let next = 0;
+  const client = new WhipClient({
+    endpoint: server.factory, clientId: 'mobile',
+    randomUUID: () => `native-${++next}`,
+    sha256: async bytes => { assert.deepEqual([...bytes], [1, 2]); return new Uint8Array(32).fill(0xab); },
+  });
+  t.after(() => client.close());
+  await client.connect();
+  assert.equal(client.createId(), 'native-1');
+  assert.equal(await client.digestHex(new Uint8Array([1, 2])), 'ab'.repeat(32));
+  const malformed = new WhipClient({ endpoint: server.factory, clientId: 'other', sha256: async () => new Uint8Array(1) });
+  t.after(() => malformed.close());
+  await assert.rejects(malformed.digestHex(new Uint8Array()), { kind: 'invalid_response' });
+});
+
+test('closing after a running status reply cannot strand a command result waiter', { timeout: 1000 }, async () => {
+  let client: WhipClient;
+  const server = harness((request, connection) => {
+    if (request.method === 'initialize') connection.reply(request, initialize());
+    if (request.method === 'command.status') {
+      connection.reply(request, { command_id: request.params.command_id, operation: 'submit', ingress_seq: '1', status: 'running' });
+      client.close();
+    }
+  });
+  client = new WhipClient({ endpoint: server.factory, clientId: 'client', commandPollMs: 1 });
+  await client.connect();
+  const command = client.recover({ version: 1, runtimeId: 'runtime-fixture', clientId: 'client', commandId: 'running', operation: 'submit', rootId: 'root' });
+  await assert.rejects(command.result(), { kind: 'closed' });
+});
+
+test('an already-aborted resume leaves observation paused', async t => {
+  const server = harness();
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'mobile' });
+  t.after(() => client.close());
+  await client.connect();
+  client.pause();
+  await assert.rejects(client.resume({ signal: AbortSignal.abort() }), { name: 'AbortError' });
+  await assert.rejects(client.connect(), { kind: 'paused' });
+  assert.equal(server.connections.length, 1);
+});
+
+test('aborting resume while initialization unwinds stops only the local waiter', { timeout: 1000 }, async t => {
+  const server = harness();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let attempts = 0;
+  const client = new WhipClient({ endpoint: async (handlers, signal) => {
+    if (++attempts === 1) await held;
+    return server.factory(handlers, signal);
+  }, clientId: 'mobile' });
+  t.after(() => { release(); client.close(); });
+  const opening = client.connect();
+  void opening.catch(() => {});
+  client.pause();
+  const controller = new AbortController();
+  const resuming = client.resume({ signal: controller.signal });
+  controller.abort();
+  await assert.rejects(resuming, { name: 'AbortError' });
+  release();
+  await assert.rejects(opening);
+  await client.whenConnected();
+  assert.equal(attempts, 2);
+  assert.equal(server.connections[0]!.closed, true);
+  assert.deepEqual(server.current.requests.map(request => request.method), ['initialize']);
+});
+
+test('a paused command result reconciles its status after resume without resubmission', { timeout: 1000 }, async t => {
+  let client: WhipClient;
+  let statuses = 0;
+  const server = harness((request, connection) => {
+    if (request.method === 'initialize') connection.reply(request, initialize());
+    if (request.method === 'command.submit') connection.reply(request, {
+      command_id: request.params.command_id, operation: 'submit', ingress_seq: '1', status: 'queued',
+    });
+    if (request.method === 'command.status') {
+      if (++statuses === 1) client.pause();
+      else connection.reply(request, { command_id: request.params.command_id, operation: 'submit', ingress_seq: '1', status: 'succeeded' });
+    }
+  });
+  client = new WhipClient({ endpoint: server.factory, clientId: 'mobile', commandPollMs: 1 });
+  t.after(() => client.close());
+  await client.connect();
+  const command = client.submit('submit', { text: 'run once' }, { rootId: 'root' });
+  await command.accepted();
+  const result = command.result();
+  await delay(0);
+  assert.equal(client.getSnapshot().state, 'paused');
+  await client.resume();
+  assert.equal((await result).status, 'succeeded');
+  assert.equal(server.connections.flatMap(connection => connection.requests).filter(request => request.method === 'command.submit').length, 1);
+});
+
+test('pausing from a connection subscriber cannot leave a heartbeat scheduled', async t => {
+  const server = harness();
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'mobile', heartbeatIntervalMs: 1 });
+  t.after(() => client.close());
+  let paused = 0;
+  client.subscribe(() => {
+    if (client.getSnapshot().state === 'connected') client.pause();
+    else if (client.getSnapshot().state === 'paused') paused++;
+  });
+  await client.connect();
+  await delay(20);
+  assert.equal(paused, 1);
+  assert.equal(client.getSnapshot().state, 'paused');
+  assert.equal(server.connections.length, 1);
+});

@@ -13,7 +13,8 @@
     "./reset.css": "./src/reset.css",
     "./fonts.css": "./src/fonts.css",
     "./tokens.stylex": "./src/tokens.stylex.ts",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./theme-data": "./src/theme-data.ts"
   },
   "files": [
     "src",

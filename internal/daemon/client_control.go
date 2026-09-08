@@ -27,44 +27,45 @@ import (
 )
 
 type clientActionPayload struct {
-	ExpectedRevision    *int64                     `json:"expected_revision,omitempty,string"`
-	TurnID              string                     `json:"turn_id,omitempty"`
-	TargetCommandID     string                     `json:"target_command_id,omitempty"`
-	Title               string                     `json:"title,omitempty"`
-	Path                string                     `json:"path,omitempty"`
-	Effort              string                     `json:"effort,omitempty"`
-	Model               string                     `json:"model,omitempty"`
-	Provider            string                     `json:"provider,omitempty"`
-	Window              int                        `json:"window,omitempty"`
-	Kind                string                     `json:"kind,omitempty"`
-	Limit               int64                      `json:"limit,string,omitempty"`
-	Schedule            string                     `json:"schedule,omitempty"`
-	Prompt              string                     `json:"prompt,omitempty"`
-	ScheduleID          int                        `json:"schedule_id,omitempty"`
-	Name                string                     `json:"name,omitempty"`
-	Source              string                     `json:"source,omitempty"`
-	Enabled             bool                       `json:"enabled,omitempty"`
-	Driver              string                     `json:"driver,omitempty"`
-	App                 string                     `json:"app,omitempty"`
-	Text                string                     `json:"text,omitempty"`
-	Parts               []llm.ContentPart          `json:"parts,omitempty"`
-	Attachments         []protocol.InputAttachment `json:"attachments,omitempty"`
-	Command             string                     `json:"command,omitempty"`
-	Cut                 int                        `json:"cut,omitempty"`
-	ID                  string                     `json:"id,omitempty"`
-	Delivery            string                     `json:"delivery,omitempty"`
-	Answer              []string                   `json:"answer,omitempty"`
-	Dismissed           bool                       `json:"dismissed,omitempty"`
-	Bytes               []byte                     `json:"bytes,omitempty"`
-	System              string                     `json:"system,omitempty"`
-	MaxTurns            int                        `json:"max_turns,omitempty"`
-	Headless            bool                       `json:"headless,omitempty"`
-	CacheKey            string                     `json:"cache_key,omitempty"`
-	Tool                string                     `json:"tool,omitempty"`
-	Arguments           json.RawMessage            `json:"arguments,omitempty"`
-	DenyPermissions     bool                       `json:"deny_permissions,omitempty"`
-	ExternalPermissions bool                       `json:"external_permissions,omitempty"`
-	PersistDefault      bool                       `json:"persist_default,omitempty"`
+	ExpectedRevision    *int64                         `json:"expected_revision,omitempty,string"`
+	TurnID              string                         `json:"turn_id,omitempty"`
+	TargetCommandID     string                         `json:"target_command_id,omitempty"`
+	Title               string                         `json:"title,omitempty"`
+	Path                string                         `json:"path,omitempty"`
+	Effort              string                         `json:"effort,omitempty"`
+	Model               string                         `json:"model,omitempty"`
+	Provider            string                         `json:"provider,omitempty"`
+	Window              int                            `json:"window,omitempty"`
+	Kind                string                         `json:"kind,omitempty"`
+	Limit               int64                          `json:"limit,string,omitempty"`
+	Schedule            string                         `json:"schedule,omitempty"`
+	Prompt              string                         `json:"prompt,omitempty"`
+	ScheduleID          int                            `json:"schedule_id,omitempty"`
+	Name                string                         `json:"name,omitempty"`
+	Source              string                         `json:"source,omitempty"`
+	Enabled             bool                           `json:"enabled,omitempty"`
+	Driver              string                         `json:"driver,omitempty"`
+	App                 string                         `json:"app,omitempty"`
+	Text                string                         `json:"text,omitempty"`
+	Parts               []llm.ContentPart              `json:"parts,omitempty"`
+	Attachments         []protocol.InputAttachment     `json:"attachments,omitempty"`
+	Command             string                         `json:"command,omitempty"`
+	Cut                 int                            `json:"cut,omitempty"`
+	ID                  string                         `json:"id,omitempty"`
+	Delivery            string                         `json:"delivery,omitempty"`
+	Answer              []string                       `json:"answer,omitempty"`
+	Dismissed           bool                           `json:"dismissed,omitempty"`
+	Answers             []protocol.QuestionAnswerEntry `json:"answers,omitempty"`
+	Bytes               []byte                         `json:"bytes,omitempty"`
+	System              string                         `json:"system,omitempty"`
+	MaxTurns            int                            `json:"max_turns,omitempty"`
+	Headless            bool                           `json:"headless,omitempty"`
+	CacheKey            string                         `json:"cache_key,omitempty"`
+	Tool                string                         `json:"tool,omitempty"`
+	Arguments           json.RawMessage                `json:"arguments,omitempty"`
+	DenyPermissions     bool                           `json:"deny_permissions,omitempty"`
+	ExternalPermissions bool                           `json:"external_permissions,omitempty"`
+	PersistDefault      bool                           `json:"persist_default,omitempty"`
 }
 
 type commandStart struct {
@@ -1120,7 +1121,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 		return s.clientAgentTurnCancel(payload.ID)
 	case "question.answer":
-		return s.answerQuestion(ctx, payload.ID, payload.Answer, payload.Dismissed)
+		return s.answerQuestion(ctx, payload.ID, protocol.QuestionAnswerParams{ID: payload.ID, Answer: payload.Answer, Dismissed: payload.Dismissed, Answers: payload.Answers})
 	case "agent.control":
 		return s.clientAgentControl(ctx, payload.ID, "stopped")
 	case "agent.delete":
