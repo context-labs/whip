@@ -178,3 +178,24 @@ func TestResolveUnknownModelErrorTyping(t *testing.T) {
 		t.Error("unknown provider must not be typed as a refreshable miss")
 	}
 }
+
+// A catalog-only model served by a provider other than DefaultProvider still
+// resolves: the catalog scan runs before the default provider applies.
+func TestResolveCatalogModelIgnoresDefaultProviderPin(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	if err := SaveCatalogs(map[string]Catalog{
+		"other": {Models: []ModelInfoLite{{ID: "only-here", ContextLength: 1000}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := cfgWithProviders("openrouter", "other")
+	cfg.DefaultProvider = "openrouter"
+	p, _, id, err := cfg.Resolve("only-here", "")
+	if err != nil || id != "only-here" || p.BaseURL != cfg.Providers["other"].BaseURL {
+		t.Fatalf("catalog-only model on a non-default provider should resolve there: %+v %q %v", p, id, err)
+	}
+	// An explicit provider still pins the scan.
+	if _, _, _, err := cfg.Resolve("only-here", "openrouter"); err == nil {
+		t.Fatal("explicit provider that doesn't advertise the model should fail")
+	}
+}

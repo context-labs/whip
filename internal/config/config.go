@@ -527,18 +527,20 @@ func (c *Config) Resolve(model, provider string) (Provider, Model, string, error
 	if model == "" {
 		model = c.DefaultModel
 	}
-	if provider == "" {
-		provider = c.DefaultProvider
-	}
 	m, ok := c.Models[model]
 	if !ok {
 		// Catalog fallback: a provider-advertised model needs no config entry;
-		// config entries stay authoritative overrides when present.
+		// config entries stay authoritative overrides when present. The scan
+		// runs before DefaultProvider applies so a catalog-only id served by
+		// another provider still resolves.
 		var err error
 		m, provider, err = c.resolveFromCatalog(model, provider)
 		if err != nil {
 			return Provider{}, Model{}, "", err
 		}
+	}
+	if provider == "" {
+		provider = c.DefaultProvider
 	}
 	if provider == "" && len(m.Providers) > 0 {
 		provider = m.Providers[0]
@@ -592,6 +594,15 @@ func (c *Config) resolveFromCatalog(model, provider string) (Model, string, erro
 	}
 	if len(hits) == 0 {
 		return Model{}, "", &UnknownModelError{Model: model, known: keys(c.Models)}
+	}
+	if len(hits) > 1 {
+		// DefaultProvider breaks the tie when it advertises the id too.
+		for _, h := range hits {
+			if h.prov == c.DefaultProvider {
+				hits = []hit{h}
+				break
+			}
+		}
 	}
 	if len(hits) > 1 {
 		names := make([]string, len(hits))
