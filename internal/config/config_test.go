@@ -24,12 +24,16 @@ func TestLoadSaveDefaults(t *testing.T) {
 		t.Fatalf("first-run UIMode = %q, want %q", cfg.UIMode, "opencode")
 	}
 	cfg.DefaultModel = "glm-5.2-fast"
+	cfg.Experimental = []string{"workflows", "future-thing"}
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
 	cfg2, err := Load()
 	if err != nil || cfg2.DefaultModel != "glm-5.2-fast" {
 		t.Fatalf("reload: %+v %v", cfg2, err)
+	}
+	if len(cfg2.Experimental) != 2 || cfg2.Experimental[0] != "workflows" {
+		t.Fatalf("experimental round-trip: %+v", cfg2.Experimental)
 	}
 	if cfg2.UIMode != "opencode" {
 		t.Fatalf("reload UIMode = %q, want %q", cfg2.UIMode, "opencode")

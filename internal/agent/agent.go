@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
+	"github.com/context-labs/whip/internal/workflow"
 )
 
 // Events receives streaming callbacks during a turn. All fields are optional.
@@ -161,6 +163,17 @@ type Agent struct {
 	toolsMu  sync.Mutex
 	mcpTools []tools.Tool
 
+	// wfMu guards wf: the workflow run manager is created lazily on the first
+	// workflow tool call (possibly from a tool worker goroutine).
+	wfMu sync.Mutex
+	wf   *workflow.Manager
+
+	// experimental is the opt-in experimental feature set (mirrors
+	// config.Config.Experimental); set via WithExperimental before tools are
+	// built in New. Default empty = stable-only — tools gated on an
+	// experimental feature are not built.
+	experimental []string
+
 	// BrowserDisabled, when true, keeps browser_exec out of the tool set
 	// (config browser.enabled=false) even when the manager hook exists.
 	BrowserDisabled bool
@@ -178,6 +191,13 @@ type Agent struct {
 
 	usageMu sync.Mutex
 	usage   llm.Usage // this agent's own API calls (PromptTokens = input), incl. its compaction summaries
+	// clientMu guards the Client struct fields Turn writes per call
+	// (OnRetry). newSub shallow-copies *a.Client on a workflow subagent
+	// goroutine that runs concurrently with the parent's Turn — without this
+	// lock that copy-read races the OnRetry write (CI -race catches it on
+	// Linux). The embedded *http.Client is itself concurrency-safe and stays
+	// shared; only the scalar fields need guarding.
+	clientMu sync.Mutex
 	// subUsage is the spend of every subagent under this agent (foreground,
 	// background, follow-ups, and their own nested subs), keyed by the sub's
 	// model label so it can be priced per model. Kept apart from usage so
@@ -390,12 +410,15 @@ func copyUsageMap(m map[string]llm.Usage) map[string]llm.Usage {
 	return out
 }
 
-func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
+func New(client *llm.Client, model string, maxTokens int, systemPrompt string, opts ...Option) *Agent {
 	a := &Agent{
 		Client:    client,
 		Model:     model,
 		MaxTokens: maxTokens,
 		Messages:  []llm.Message{{Role: "system", Content: systemPrompt}},
+	}
+	for _, o := range opts {
+		o(a)
 	}
 	a.Tools = append(tools.All(), tools.QuestionTool())
 	if !a.BrowserDisabled {
@@ -405,12 +428,45 @@ func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *
 		a.Tools = append(a.Tools, tools.ComputerExec())
 	}
 	a.Tools = append(a.Tools, taskTool(a), taskSteerTool(a))
+	if a.experimentalEnabled(FeatureWorkflows) {
+		a.Tools = append(a.Tools, workflowTool(a))
+	}
 	a.Tools = append(a.Tools, todoTool(a))
 	a.Tools = append(a.Tools, waitTool(a))
 	a.Tools = append(a.Tools, memoryTools(a)...)
 	a.files = newFileLocks()
 	a.bg = newTaskRegistry()
 	return a
+}
+
+// Experimental feature names the agent recognizes. Add a constant here as
+// new experimental features ship; gate the build with experimentalEnabled.
+const (
+	// FeatureWorkflows gates the workflow tool (dynamic multi-agent
+	// orchestration). Opt in via "experimental": ["workflows"] in config.
+	FeatureWorkflows = "workflows"
+)
+
+// Option configures an Agent at construction. Applied before tools are
+// built in New, so an option can gate which tools the agent exposes.
+type Option func(*Agent)
+
+// WithExperimental sets the opt-in experimental feature set (mirrors
+// config.Config.Experimental). Tools gated on an experimental feature are
+// only built when their name is present. Default empty = stable-only.
+func WithExperimental(features []string) Option {
+	return func(a *Agent) { a.experimental = features }
+}
+
+// Experimental returns the agent's opt-in experimental feature set, so
+// fork/swap sites that rebuild the agent can inherit the gate
+// (agent.WithExperimental(parent.Experimental())).
+func (a *Agent) Experimental() []string { return a.experimental }
+
+// experimentalEnabled reports whether name is in the agent's experimental
+// opt-in set.
+func (a *Agent) experimentalEnabled(name string) bool {
+	return slices.Contains(a.experimental, name)
 }
 
 // MessagesSnapshot returns a copy of the conversation safe to read while a
@@ -548,8 +604,12 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		}
 		// Surface transient-request retries through the event hook so the UI
 		// shows "retrying" instead of looking hung. Set/restored per call: the
-		// client may outlive this turn's Events.
+		// client may outlive this turn's Events. Guarded: a workflow subagent
+		// goroutine may shallow-copy *a.Client (newSub) concurrently with this
+		// write.
+		a.clientMu.Lock()
 		a.Client.OnRetry = ev.OnRetry
+		a.clientMu.Unlock()
 		msg, usage, err := a.Client.Stream(ctx, llm.Request{
 			Model:           a.Model,
 			Messages:        msgs,
