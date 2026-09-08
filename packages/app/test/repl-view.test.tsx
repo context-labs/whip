@@ -77,3 +77,15 @@ it('distinguishes empty, loading and unavailable agent history, and keeps stale 
   expect(screen.getByText('This agent’s executions are unavailable')).toBeDefined();
   expect(screen.getByRole('status').textContent).toContain('paused');
 });
+
+it('shows failed-cell output and checkpoint warnings together', () => {
+  const f = fixture([
+    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"fail()"}' } }] } },
+    { seq: 2, message: { role: 'tool', name: 'rlm_exec', tool_call_id: 'call', content: 'Error: cell failed\n' + JSON.stringify({ output: 'before failure', value: null, steps: 7, scratch: { warning: 'Scratch checkpoint failed. Do not replay effects.' } }) } },
+  ]);
+  render(f.app());
+  expect(screen.getByText('Failed')).toBeDefined();
+  expect(screen.getByText('cell failed')).toBeDefined();
+  expect(screen.getByLabelText('Scratch checkpoint').textContent).toContain('Do not replay effects.');
+  expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('before failure');
+});

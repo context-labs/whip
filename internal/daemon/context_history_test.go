@@ -272,6 +272,9 @@ func TestCurrentTurnHistorySurvivesCompactionAndCommitsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.EnsureAuthority(t.Context(), fork); err != nil {
+		t.Fatal(err)
+	}
 	forkNode := &AgentSession{id: fork, root: &Session{store: store, meta: sessionstore.Meta{ID: fork}}, agent: runtime.rootNode.agent}
 	forkHost := &recursiveHost{session: forkNode}
 	forkResult := historyCall(t, forkHost, "search", map[string]any{"query": needle})

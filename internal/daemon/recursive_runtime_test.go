@@ -186,16 +186,16 @@ func TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration(t *te
 	parent.Effort = "medium"
 	parent.WorkingDir = t.TempDir()
 	parent.ContextLimit = 4096
-	parent.Prices = llm.TokenPrices{Input: 0.01, Output: 0.02, Known: true}
-	parent.CompactPrices = llm.TokenPrices{Input: 0.001, Output: 0.002, Known: true}
+	parent.Pricing = llm.Pricing{Prompt: "0.01", Completion: "0.02"}
+	parent.CompactPricing = llm.Pricing{Prompt: "0.001", Completion: "0.002"}
 	parent.ResolveModel = func(model, provider string) (agent.ModelRoute, error) {
 		if model != "child-model" || provider != "" {
 			return agent.ModelRoute{}, errors.New("unexpected model override")
 		}
 		return agent.ModelRoute{
 			Client: llm.New("https://child.test", "key"), ModelName: model, Provider: "child-provider",
-			Prices: llm.TokenPrices{Input: 0.003, Output: 0.004, Known: true},
-			Model:  "child-api-model", ContextLimit: 8192, MaxTokens: 1024, Effort: "high",
+			Pricing: llm.Pricing{Prompt: "0.003", Completion: "0.004"},
+			Model:   "child-api-model", ContextLimit: 8192, MaxTokens: 1024, Effort: "high",
 		}, nil
 	}
 
@@ -204,7 +204,7 @@ func TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration(t *te
 		t.Fatal(err)
 	}
 	defer inherited.Services.Close()
-	if inherited.Prices != parent.Prices || inherited.CompactPrices != parent.CompactPrices || inheritedModel != parent.ModelName || inheritedProvider != parent.Provider || inherited.Effort != parent.Effort || inherited.WorkingDir != parent.WorkingDir || inherited.ContextLimit != parent.ContextLimit {
+	if inherited.Pricing != parent.Pricing || inherited.CompactPricing != parent.CompactPricing || inheritedModel != parent.ModelName || inheritedProvider != parent.Provider || inherited.Effort != parent.Effort || inherited.WorkingDir != parent.WorkingDir || inherited.ContextLimit != parent.ContextLimit {
 		t.Fatalf("inherited child = model %q provider %q effort %q cwd %q context %d", inheritedModel, inheritedProvider, inherited.Effort, inherited.WorkingDir, inherited.ContextLimit)
 	}
 
@@ -213,7 +213,7 @@ func TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration(t *te
 		t.Fatal(err)
 	}
 	defer overridden.Services.Close()
-	if overridden.Prices.Input != 0.003 || overridden.Prices.Output != 0.004 || overridden.CompactPrices != parent.CompactPrices || modelName != "child-model" || providerName != "child-provider" || overridden.Model != "child-api-model" || overridden.Effort != "high" || overridden.ContextLimit != 8192 || overridden.MaxTokens != 1024 {
+	if overridden.Pricing.Prompt != "0.003" || overridden.Pricing.Completion != "0.004" || overridden.CompactPricing != parent.CompactPricing || modelName != "child-model" || providerName != "child-provider" || overridden.Model != "child-api-model" || overridden.Effort != "high" || overridden.ContextLimit != 8192 || overridden.MaxTokens != 1024 {
 		t.Fatalf("overridden child = model %q provider %q api %q effort %q context %d output %d", modelName, providerName, overridden.Model, overridden.Effort, overridden.ContextLimit, overridden.MaxTokens)
 	}
 	if _, _, _, err := cloneRuntimeAgent(parent, tools.NewServices(), map[string]any{"provider": "child-provider"}); err == nil {
@@ -757,7 +757,7 @@ func TestSuspendedKernelRestoresScratchWithEphemeralNotice(t *testing.T) {
 		t.Fatalf("first turn err=%v", err)
 	}
 	program, _, err := store.LoadAgentScratch(t.Context(), root.ID(), root.AgentID())
-	if err != nil || !strings.Contains(program, "kids = [1, 2]") || !strings.Contains(program, "def pick(i):") {
+	if err != nil || !json.Valid([]byte(program)) || !strings.Contains(program, "kids") || !strings.Contains(program, "def pick(i):") {
 		t.Fatalf("stored scratch = %q err=%v", program, err)
 	}
 	if err := runtime.rootNode.kernel.Suspend(); err != nil {
@@ -829,7 +829,7 @@ func streamToolCall(w http.ResponseWriter, id, code string) {
 
 func streamText(w http.ResponseWriter, text string) {
 	w.Header().Set("Content-Type", "text/event-stream")
-	event := map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": text}}}}
+	event := map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": text}, "finish_reason": "stop"}}}
 	body, _ := json.Marshal(event)
 	fmt.Fprintf(w, "data: %s\n\n", body)
 }
@@ -919,12 +919,12 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 	}
 	deadline = time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err == nil && strings.Contains(program, `memo = "kept"`) {
+		if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err == nil && (json.Valid([]byte(program)) && strings.Contains(program, `"memo"`)) {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err != nil || !strings.Contains(program, `memo = "kept"`) {
+	if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err != nil || !(json.Valid([]byte(program)) && strings.Contains(program, `"memo"`)) {
 		t.Fatalf("child scratch = %q err=%v", program, err)
 	}
 	waitAgentIdle(t, (*firstRef).agents[childID])

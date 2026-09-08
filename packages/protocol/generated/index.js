@@ -3,7 +3,7 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 4,
-  "minor": 0,
+  "minor": 1,
   "operations": [
     {
       "name": "command.status",
@@ -914,6 +914,10 @@ export const manifest = {
     "message.done": "LifecycleEvent",
     "message.queued": "LifecycleEvent",
     "message.updated": "LifecycleEvent",
+    "model.call.corrected": "LifecycleEvent",
+    "model.call.interrupted": "LifecycleEvent",
+    "model.call.settled": "LifecycleEvent",
+    "model.call.started": "LifecycleEvent",
     "permission.auto_approved": "LifecycleEvent",
     "permission.pending": "LifecycleEvent",
     "question.answered": "LifecycleEvent",
@@ -927,11 +931,13 @@ export const manifest = {
     "session.cwd.updated": "SessionUpdateEvent",
     "session.effort.updated": "SessionUpdateEvent",
     "session.model.updated": "SessionUpdateEvent",
+    "session.permission_mode.updated": "SessionUpdateEvent",
     "session.reload.failed": "LifecycleEvent",
     "session.title.updated": "SessionUpdateEvent",
     "state.private.append": "LifecycleEvent",
     "state.private.cas": "LifecycleEvent",
     "state.private.set": "LifecycleEvent",
+    "stream.accounting": "StreamEvent",
     "stream.cell.host": "StreamEvent",
     "stream.notice": "StreamEvent",
     "stream.reasoning": "StreamEvent",

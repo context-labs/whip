@@ -56,6 +56,19 @@ func TestResolveCatalogFallbackSingleProvider(t *testing.T) {
 	}
 }
 
+func TestResolveRoutePreservesCatalogProviderIdentity(t *testing.T) {
+	catalogFixture(t, "catalog-owner", ModelInfoLite{ID: "catalog-only"})
+	cfg := cfgWithProviders("default", "catalog-owner")
+	cfg.DefaultProvider = "default"
+	name, provider, _, id, err := cfg.ResolveRoute("catalog-only", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "catalog-owner" || provider.BaseURL != "https://catalog-owner" || id != "catalog-only" {
+		t.Fatalf("resolved identity = %q %q %q", name, provider.BaseURL, id)
+	}
+}
+
 // Vision is populated from the catalog's input_modalities.
 func TestResolveCatalogFallbackVision(t *testing.T) {
 	catalogFixture(t, "inference", ModelInfoLite{

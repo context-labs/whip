@@ -18,25 +18,27 @@ vi.mock('@tanstack/react-virtual', () => {
   let options: {
     count: number;
     getScrollElement(): HTMLElement | null;
-    getItemKey(index: number): string;
+    getItemKey(index: number): string | number;
   };
   const virtual = {
-    getTotalSize: () => options.count * 100,
-    getOffsetForIndex: (index: number) => [index * 100, 'start'],
+    // Row zero is the separately measured history control; this layout mock
+    // leaves it at zero height and gives each message a fixed 100px height.
+    getTotalSize: () => (options.count - 1) * 100,
+    getOffsetForIndex: (index: number) => [Math.max(0, index - 1) * 100, 'start'],
     scrollToOffset: (offset: number) => {
       harness.scrolls.push(offset);
       const root = options.getScrollElement();
       if (root)
         root.scrollTop = Math.max(
           0,
-          Math.min(options.count * 100 - 200, offset),
+          Math.min((options.count - 1) * 100 - 200, offset),
         );
     },
     getVirtualItems: () =>
       Array.from({ length: options.count }, (_, index) => ({
         key: options.getItemKey(index),
         index,
-        start: index * 100,
+        start: Math.max(0, index - 1) * 100,
       })),
     measureElement: () => {},
   };
@@ -64,7 +66,7 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
     function (this: HTMLElement) {
       const root = this.closest<HTMLElement>('[aria-label="Conversation"]');
-      const index = Number(this.dataset.index ?? 0);
+      const index = Number(this.dataset.index ?? 0) - 1;
       const top = this.dataset.readingId
         ? 50 + index * 100 - (root?.scrollTop ?? 0)
         : 50;

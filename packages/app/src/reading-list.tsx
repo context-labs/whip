@@ -43,25 +43,27 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   const [atEnd, setAtEnd] = useState(follow.current);
   const [loading, setLoading] = useState(false);
   const loadingRef = useRef(false);
-  const loadingSince = useRef(0);
   const [pinned, setPinned] = useState<string[]>([]);
   const [positionNotice, setPositionNotice] = useState('');
   const appliedRevision = useRef<string | undefined>(undefined);
   const restoring = useRef(false);
   const restoreFrame = useRef(0);
   const virtual = useVirtualizer({
-    count: rows.length,
+    count: rows.length + 1,
     getScrollElement: () => viewport.current,
-    estimateSize: () => 140,
+    estimateSize: (index) => (index === 0 ? 0 : 140),
     overscan: 8,
-    getItemKey: (index) => rows[index]!.id,
+    // The older-history control has a measured row too: removing it when the
+    // final page arrives must preserve the same anchor as any other resize.
+    getItemKey: (index) => (index === 0 ? 0 : rows[index - 1]!.id),
     anchorTo: 'end',
     scrollEndThreshold: 64,
     rangeExtractor: (range) => {
-      const indices = defaultRangeExtractor(range);
+      const indices = [0, ...defaultRangeExtractor(range)];
       const selected = pinned
         .map((id) => rows.findIndex((row) => row.id === id))
-        .filter((index) => index >= 0);
+        .filter((index) => index >= 0)
+        .map((index) => index + 1);
       if (selected.length)
         for (
           let index = Math.min(...selected);
@@ -106,7 +108,6 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
   const loadEarlier = async () => {
     if (loadingRef.current) return;
     loadingRef.current = true;
-    loadingSince.current = Date.now();
     setLoading(true);
     try {
       await loadOlder();
@@ -118,15 +119,16 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     }
   };
   const nearTop = (root: HTMLDivElement) => root.scrollTop < 256;
+  // Auto-loading is user-driven only: explicit scrolls near the top fetch the
+  // next page. Bookmark restoration and follow-the-tail layout passes never
+  // page on their own; prepended rows cannot retrigger while the user holds
+  // position because scrollTop stays beyond the threshold.
   const maybeAutoLoad = (root: HTMLDivElement) => {
-    // Rows arrive async after loadOlder resolves; a recent load may still be
-    // growing the list, so don't immediately request another page.
     if (
       hasMore &&
       canLoadOlder &&
       !loadingRef.current &&
       !restoring.current &&
-      Date.now() - loadingSince.current > 750 &&
       nearTop(root)
     )
       void loadEarlier();
@@ -161,7 +163,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     const id = rows[target.index]!.id;
     restoring.current = true;
     virtual.scrollToOffset(
-      (virtual.getOffsetForIndex(target.index, 'start')?.[0] ?? 0) +
+      (virtual.getOffsetForIndex(target.index + 1, 'start')?.[0] ?? 0) +
         target.offset,
     );
     let attempts = 0;
@@ -182,7 +184,7 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
         virtual.scrollToOffset(root.scrollTop + delta);
       } else
         virtual.scrollToOffset(
-          (virtual.getOffsetForIndex(target.index, 'start')?.[0] ?? 0) +
+          (virtual.getOffsetForIndex(target.index + 1, 'start')?.[0] ?? 0) +
             target.offset,
         );
       // Measurements can settle over several frames. This bounded one-time
@@ -213,8 +215,6 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
     // keep reconciling toward the last row after the user starts reading history.
     if (follow.current && historyReady && !restoring.current)
       virtual.scrollToOffset(viewport.current?.scrollHeight ?? 0);
-    const root = viewport.current;
-    if (root && !follow.current) maybeAutoLoad(root);
   }, [rows, total, virtual, historyReady]);
   useEffect(() => {
     const update = () => {
@@ -283,27 +283,15 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
         }}
       >
         <div {...stylex.props(styles.inner, contentStyle)}>
-          {hasMore && (
-            <Button
-              variant="ghost"
-              loading={loading || loadingHistory}
-              disabled={!canLoadOlder || loading || loadingHistory}
-              onClick={() => {
-                stopRestore();
-                follow.current = false;
-                void loadEarlier();
-              }}
-            >
-              {earlierLabel}
-            </Button>
-          )}
           {!rows.length && empty}
           <div style={{ height: total, position: 'relative' }}>
             {virtual.getVirtualItems().map((item) => (
               <div
                 key={item.key}
                 data-index={item.index}
-                data-reading-id={rows[item.index]!.id}
+                data-reading-id={
+                  item.index === 0 ? undefined : rows[item.index - 1]!.id
+                }
                 ref={virtual.measureElement}
                 style={{
                   position: 'absolute',
@@ -312,7 +300,24 @@ export function ReadingList<Row extends { id: string; seq?: number }>({
                   transform: `translateY(${item.start}px)`,
                 }}
               >
-                {renderRow(rows[item.index]!, item.index)}
+                {item.index === 0 ? (
+                  hasMore && (
+                    <Button
+                      variant="ghost"
+                      loading={loading || loadingHistory}
+                      disabled={!canLoadOlder || loading || loadingHistory}
+                      onClick={() => {
+                        stopRestore();
+                        follow.current = false;
+                        void loadEarlier();
+                      }}
+                    >
+                      {earlierLabel}
+                    </Button>
+                  )
+                ) : (
+                  renderRow(rows[item.index - 1]!, item.index - 1)
+                )}
               </div>
             ))}
           </div>

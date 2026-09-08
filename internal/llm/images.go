@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"image"
+	"math"
 
 	// Register the decoders image.DecodeConfig dispatches on. whip builds and
 	// sends these formats everywhere (paste.go, mentions, browser
@@ -41,8 +42,12 @@ func ImageTokens(w, h int) int {
 	if w <= 0 || h <= 0 {
 		return 1200
 	}
-	patchCeil := func(n int) int { return (n + imagePatch - 1) / imagePatch }
-	t := patchCeil(w) * patchCeil(h)
+	patchCeil := func(n int) int { return (n-1)/imagePatch + 1 }
+	width, height := patchCeil(w), patchCeil(h)
+	if width > math.MaxInt/height {
+		return math.MaxInt
+	}
+	t := width * height
 	if t < ImageTokenFloor {
 		return ImageTokenFloor
 	}

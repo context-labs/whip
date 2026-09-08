@@ -178,6 +178,11 @@ func applyWireTags(schema *jsonschema.Schema, t reflect.Type) {
 	}
 	switch t.Kind() {
 	case reflect.Struct:
+		if t == reflect.TypeFor[llm.Usage]() {
+			// Protocol 4.0 peers omit this additive provenance field. Keep the
+			// JSON tag non-optional so persisted false still means unreported.
+			schema.Required = slices.DeleteFunc(schema.Required, func(name string) bool { return name == "reported" })
+		}
 		if t == reflect.TypeFor[InputAttachment]() {
 			schema.Properties["kind"].Enum = []any{"image", "text"}
 		}

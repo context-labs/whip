@@ -27,6 +27,7 @@ import {
 import { Composer } from './composer';
 import { ReplView } from './repl-view';
 import { SessionModelPicker } from './model-selection';
+import { PermissionModePicker } from './permission-mode';
 import { admittedText, isChatInput } from './input-presentation';
 import { PendingRequests } from './requests';
 import type { InspectorSection } from './navigation';
@@ -349,7 +350,10 @@ export function SessionContent({
         activeTurn={activeTurn}
         runtimeId={expectedRuntimeId}
         viewId={viewId}
-        modelControl={root && <SessionModelPicker view={view} root={root} connected={connected} agentId={agentId} />}
+        modelControl={root && <>
+          <PermissionModePicker view={view} root={root} connected={connected} agentId={agentId} />
+          <SessionModelPicker view={view} root={root} connected={connected} agentId={agentId} />
+        </>}
       />}
       <Sheet
         open={!!panel && focused}
@@ -611,7 +615,3 @@ function StoredMessage({ text }: { text: string }) {
     </div>
   );
 }
-
-const styles = stylex.create({
-  truncationNotice: {
-    borderRadius: 0,

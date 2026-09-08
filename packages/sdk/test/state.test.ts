@@ -426,3 +426,97 @@ test('REPL supplements count against the SessionView byte limit even while publi
   const bytes = new TextEncoder().encode(JSON.stringify({ root: current.root, history: current.history, collections: current.collections, executions: current.executions })).byteLength;
   assert.equal(bytes, current.retainedBytes);
 });
+
+
+function accounting(revision: string, overrides: Partial<NonNullable<RootSnapshot['accounting']>> = {}): NonNullable<RootSnapshot['accounting']> {
+  return { root_id: 'root', agent_id: 'root', scope: 'subtree', revision,
+    reported_cost_micros: '9007199254740993', estimated_cost_micros: '17', reported_cost_calls: '1', estimated_cost_calls: '2',
+    unknown_cost_calls: '3', reported_calls: '4', estimated_calls: '5', pending_calls: '6', ...overrides };
+}
+
+test('accounting replaces tree summaries exactly while stale, duplicate and differently scoped events only advance the cursor', async t => {
+  const host = new Host();
+  host.root.accounting = accounting('10');
+  host.root.active_turns = { child: 'child-turn' };
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  await view.openAgent('child');
+  const childHistory = view.getSnapshot().history.child;
+  const initial = view.getSnapshot();
+  const stream = host.streams[0]!;
+  const updated = accounting('11', { estimated_cost_micros: '9007199254740994' });
+  stream.push('11', 'stream.accounting', { accounting: updated });
+  await until(() => view.getSnapshot().root?.cursor === '11');
+  assert.deepEqual(view.getSnapshot().root?.accounting, updated);
+  assert.equal(initial.root?.accounting?.estimated_cost_micros, '17', 'published summaries remain immutable');
+  stream.push('11', 'stream.accounting', { accounting: accounting('999') });
+  stream.push('12', 'stream.accounting', { accounting: updated });
+  stream.push('13', 'stream.accounting', { accounting: accounting('10') });
+  stream.push('14', 'stream.accounting', { accounting: accounting('14', { scope: 'agent' }) });
+  stream.push('15', 'stream.accounting', { accounting: accounting('15', { root_id: 'other' }) });
+  stream.push('16', 'stream.accounting', { agent_id: 'child', accounting: accounting('16', { agent_id: 'child' }) });
+  stream.push('17', 'stream.accounting', {});
+  await until(() => view.getSnapshot().root?.cursor === '17');
+  assert.deepEqual(view.getSnapshot().root?.accounting, updated, 'neither duplicate nor child totals are added');
+  assert.equal(view.getSnapshot().history.child, childHistory);
+  assert.deepEqual(view.getSnapshot().root?.active_turns, { child: 'child-turn' });
+  assert.deepEqual(view.getSnapshot().root?.presentation, []);
+  assert.deepEqual(view.getSnapshot().root?.agent_presentations, {});
+  assert.deepEqual(executionRows(view.getSnapshot(), 'root'), []);
+  assert.deepEqual(executionRows(view.getSnapshot(), 'child'), []);
+  const free = accounting('18', { reported_cost_micros: '0', reported_cost_calls: '1', estimated_calls: '1' });
+  stream.push('18', 'stream.accounting', { accounting: free });
+  await until(() => view.getSnapshot().root?.cursor === '18');
+  assert.deepEqual(view.getSnapshot().root?.accounting, free, 'reported zero remains known even without token usage');
+  await pause(150);
+  assert.equal(host.calls.filter(call => call.method === 'root.snapshot').length, 1, 'accounting creates no extra snapshots or polls');
+});
+
+test('accounting gap and reconnect recovery use authoritative optional snapshots and exclude summaries from presentation', async t => {
+  const host = new Host();
+  host.root.accounting = accounting('10');
+  host.root.presentation = [{ seq: '10', kind: 'stream.accounting', payload: { accounting: host.root.accounting } }];
+  host.root.agent_presentations = { child: [{ seq: '9', kind: 'stream.accounting', payload: { accounting: accounting('9', { agent_id: 'child', scope: 'agent' }) } }] };
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  assert.deepEqual(view.getSnapshot().root?.presentation, []);
+  assert.deepEqual(view.getSnapshot().root?.agent_presentations?.child, []);
+  const old = host.streams[0]!;
+  old.push('12', 'stream.accounting', { accounting: accounting('12') });
+  await until(() => view.getSnapshot().status === 'stale');
+  assert.equal(view.getSnapshot().root?.accounting?.revision, '10');
+  host.root = { ...snapshot('20'), accounting: accounting('20', { reported_cost_micros: '25' }) };
+  await view.refresh();
+  assert.deepEqual(view.getSnapshot().root?.accounting, host.root.accounting);
+  old.push('21', 'stream.accounting', { accounting: accounting('21') });
+  await pause();
+  assert.equal(view.getSnapshot().root?.accounting?.reported_cost_micros, '25');
+  host.notify('reconnecting');
+  host.streams.at(-1)!.fail();
+  assert.equal(view.getSnapshot().root?.accounting?.reported_cost_micros, '25', 'stale totals remain visible during disconnect');
+  host.root = snapshot('30');
+  host.notify('connected');
+  await until(() => view.getSnapshot().root?.cursor === '30');
+  assert.equal(view.getSnapshot().root?.accounting, undefined, 'an absent summary is unavailable, not stale totals or zero');
+});
+
+test('model attempt lifecycle events use the existing coalesced snapshot refresh for budgets', async t => {
+  const host = new Host();
+  host.root.accounting = accounting('10');
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  const stream = host.streams[0]!;
+  for (const [index, kind] of ['started', 'settled', 'corrected', 'interrupted'].entries()) {
+    stream.push(String(index + 11), `model.call.${kind}`, { id: `call-${index}` });
+  }
+  host.root = { ...snapshot('14'), accounting: accounting('14'), budgets: [{ agent_id: 'root', state: {
+    kind: 'cost', limit: null, remaining: null, used: '42', reserved: '0', uncertain: '12', incomplete: true,
+  } }] };
+  await until(() => view.getSnapshot().root?.budgets?.[0]?.state.used === '42');
+  assert.equal(host.calls.filter(call => call.method === 'root.snapshot').length, 2, 'one refresh handles the burst');
+  assert.equal(host.streams.length, 2);
+  assert.deepEqual(view.getSnapshot().root?.presentation, []);
+});

@@ -166,25 +166,53 @@ fail the turn explicitly instead of applying partial constraints. Existing
 inspection reports the actual applied sources and application time, with file
 and cwd changes identified as taking effect next turn.
 
-Starlark globals persist across cells and survive worker restarts. After
-every cell the kernel snapshots the worker's globals as Starlark source
-(`name = repr(value)` for data, the original text for top-level `def`s and
-lambda assignments, `b = a` for aliases) into the `agent_scratch` table, and
-a fresh worker executes that program before its first cell, whether the old
-worker was evicted by the pool, killed by the cell deadline, or lost to a
-daemon restart. Closures, self-referential values, non-finite floats, values
-over 256 KiB, and anything past a 768 KiB aggregate are skipped by name, and
-the restart notice lists what was not restored. Every restore also appends a
-`scratch.restored` actor event carrying the restored and not-restored names,
-so a worker restart is auditable from the event log rather than from the
-model's account of its ephemeral notice; the TUI renders it as a dim line. Helpers see globals as bound
-when they were defined, so agents mutate containers in place or pass values
-rather than rebinding a name a helper reads. Shared or long-lived information
-still belongs in `state`, `artifacts`, messages, files, or child transcripts.
+Starlark globals persist in a live worker. After each cell the kernel saves a
+structured scratch checkpoint in `agent_scratch`. A fresh worker reconstructs
+supported data directly and compiles validated helper definitions before use.
+Restoration never replays data assignments or host effects.
+
+The supported data subset is `None`, booleans, arbitrary integers, finite
+floats, strings, bytes, lists, tuples, and dictionaries. Types, dictionary order,
+and shared nested list/dictionary references survive. Cycles, unsupported
+runtime objects, and containers containing functions are skipped without losing
+unrelated bindings. Checkpoints are bounded to 256 KiB per binding, 768 KiB
+aggregate, and the complete encoded protocol frame, including escaped strings
+and manifest metadata.
+
+Top-level `def`s and assigned lambdas can survive when they have immutable
+literal defaults, no captured closure state, and supported dependencies.
+Helper-to-helper references and recursion are supported. Source belongs to the
+actual function object, including definitions executed before a later ordinary
+cell error. Helpers with mutable/nonliteral defaults or changed, missing, or
+unsupported global dependencies are reported as skipped. Helpers see globals
+as bound when defined; pass arguments or mutate shared containers rather than
+rebinding a name a helper reads. Restoration must not silently change that
+binding. Tool-calling helper bodies run only when subsequently invoked.
+
+Changed omissions and persistence failures appear in the cell's scratch
+report. A failed checkpoint does not undo a completed cell or justify repeating
+its external effects; the previous durable checkpoint remains available and
+the next cell retries saving. Failed loads stop the replacement worker and
+release its reservation; the next acquisition retries. Corrupt checkpoints fail
+explicitly instead of being overwritten with an empty environment. A cell lost
+with its running worker is outside the last completed checkpoint.
+
+Every restore produces a bounded runtime notice and a `scratch.restored` actor
+event naming restored and omitted bindings. The daemon owns audit delivery;
+there is no detached notification goroutine. Important durable information
+belongs in `state`, `artifacts`, messages, files, or child transcripts. The
+development schema has no migration or legacy scratch replay path.
+
+Model-facing results use one JSON object containing `value`, `output`, `steps`,
+and any `scratch` or `restored` notices. Output and value previews are bounded
+before serialization so the JSON stays valid. Oversized values use `value: null`,
+`value_preview`, and `truncated: true`; the preview is not the full return value.
+Failed cells retain this result after the tool error prefix, preserving printed
+output, step counts, and checkpoint notices in client replay.
 
 Cells are observable while they run. The worker publishes its print output
-so far as `stream.tool.output` (throttled to 100 ms; the result carries the
-complete output), and every host call inside a cell emits `stream.cell.host`
+so far as `stream.tool.output` (throttled to 100 ms; the result carries a
+bounded output preview), and every host call inside a cell emits `stream.cell.host`
 with `module.operation`, a bounded argument summary (identifying keys such as
 `path` and `command` truncated to 80 bytes; payload keys such as `content`,
 `body`, and `code` shown only as their size), the duration, and any error.
@@ -277,8 +305,46 @@ Omitted or zero values use these defaults:
 | `rlm.frameBytes` | 1,048,576 | worker protocol frame |
 | `rlm.maxWorkers` | 4 | daemon-wide live kernels |
 
-These are execution bounds. The durable ledger separately accounts token,
-cost, elapsed, content, record, operation, child, schedule, and depth budgets.
+These are execution bounds. Durable budgets separately account for token,
+cost, elapsed, content, record, operation, child, schedule, and depth limits.
+Root model cost, tokens, and cumulative request time default to unlimited;
+children inherit unless explicitly constrained. Storage and live-capacity
+limits retain their existing defaults.
+
+Model turns, helper calls, batch members, compaction, final answers, titles,
+and every wire retry share durable ancestor budgets. Admission estimates the
+input and clamps the output allowance to fit. Actual usage is always recorded,
+even above the estimate or limit; an overdrawn budget has zero remaining and
+stops further work. Completed responses and requested-but-unexecuted tools
+remain in the transcript when accounting stops a turn.
+
+Each attempt retains compact metadata, its exact ancestor reservations, and
+its settlement identity. These internal records do not consume the agent's
+record or payload allowances; they follow the session's existing retention and
+physical cleanup lifecycle. Record storage grows with the number of attempts.
+There is no automatic pruning or accounting-history cap in this phase.
+
+Missing or interrupted usage keeps the reservation estimate in `uncertain`,
+separate from known `used` amounts. A late outcome corrects only that attempt's
+contribution. Unpriced calls require unlimited monetary budgets; a finite cap
+cannot be imposed on an existing budget with unresolved, unpriced history.
+A newly introduced child cap applies to subsequent calls. Known free rates can
+establish zero cost even when token usage remains unknown.
+
+Elapsed budget means cumulative model request time: concurrent requests each
+consume time, while idle time, ordinary tools, and retry backoff do not. Each
+request gets a deadline bounded by its remaining ancestor allowance and the
+provider timeout. The overall model-call deadline also covers retry backoff.
+
+A dispatched attempt without complete usage uses its reserved allowance as an
+explicit estimate; a pre-dispatch rejection releases the reservation without
+a token or monetary charge. Settlement is durable and idempotent by attempt
+ID. Persistence failures retain the result in the live owner and pause further
+calls until that exact settlement succeeds. Restart settles unresolved calls
+once as interrupted estimates before releasing residual reservations. A late
+result from an interrupted live call corrects its estimate without releasing
+another call's reservation. There is no provider-call replay or billing poller.
+
 
 ## Files and migration boundary
 
@@ -308,7 +374,7 @@ signal only to the PID currently holding that lock.
 
 `WHIP_HOME` replaces `~/.whip`. The pre-runtime-v2 database is not opened or
 migrated automatically; this is an intentional clean break. The current
-development schema is version 6 (`whip-recursive-runtime-v6`). Incompatible
+development schema is version 10 (`whip-recursive-runtime-v10`). Incompatible
 databases are rejected without modification. WHIP does not automatically
 archive or delete them; use a fresh database for this schema.
 

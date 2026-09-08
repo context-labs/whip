@@ -315,7 +315,13 @@ export class SessionView {
       unavailable = true;
       if (!this.unknownSeen) { this.unknownSeen = true; this.scheduleRefresh(); }
     }
-    if (event.kind.startsWith('stream.')) {
+    if (event.kind === 'stream.accounting') {
+      const accounting = (event.payload as StreamEvent).accounting;
+      if (accounting && accounting.root_id === root.root_id && accounting.agent_id === root.root_id
+        && accounting.scope === 'subtree' && (!root.accounting || BigInt(accounting.revision) >= BigInt(root.accounting.revision))) {
+        root.accounting = accounting;
+      }
+    } else if (event.kind.startsWith('stream.')) {
       const item: Presentation = { seq: event.seq, kind: event.kind, payload: event.payload };
       const agentId = typeof payload?.agent_id === 'string' ? payload.agent_id : '';
       if (agentId && agentId !== root.root_id) {
@@ -329,6 +335,7 @@ export class SessionView {
         ...(typeof payload.provider === 'string' ? { provider: payload.provider } : {}),
         ...(payload.effort_changed && typeof payload.effort === 'string' ? { effort: payload.effort } : {}),
         ...(typeof payload.working_directory === 'string' ? { cwd: payload.working_directory } : {}),
+        ...(typeof payload.permission_mode === 'string' ? { permission_mode: payload.permission_mode } : {}),
       };
     } else {
       const lifecycle = payload as LifecycleEvent;
@@ -441,6 +448,7 @@ function mergeMessages(left: Message[], right: Message[]): Message[] {
 }
 
 function appendPresentation(previous: Presentation[], item: Presentation): Presentation[] {
+  if (item.kind === 'stream.accounting') return previous;
   const payload = (item.payload ?? {}) as StreamEvent;
   const cumulative = ['stream.tool.call', 'stream.tool.output'].includes(item.kind);
   const index = cumulative && payload.id ? previous.findIndex(row => {

@@ -279,6 +279,9 @@ type Session struct {
 	autoTitle          bool
 	deferredWake       time.Time
 
+	accountingMu      sync.Mutex
+	pendingAccounting map[string]llm.ModelAttemptResult
+
 	questions questionRegistry // open user.ask prompts, keyed by question id
 }
 
@@ -396,6 +399,7 @@ func (s *Session) Snapshot(ctx context.Context) (sessionstore.RootSnapshot, erro
 		snapshot, err := s.store.SnapshotRoot(actorCtx, s.meta.ID)
 		if err == nil {
 			snapshot.Questions = s.questions.openLocked() // in memory, not in the store: a mid-question client has no question.pending to replay
+			snapshot.PermissionMode = s.PermissionMode()  // runner state, not durable: the store cannot report the consent mode
 		}
 		return snapshot, err
 	})
@@ -577,6 +581,9 @@ func (s *Session) run() {
 	// each side waiting on the other.
 	cleanupErr = errors.Join(cleanupErr, s.flushPendingEvents())
 	cleanupErr = errors.Join(cleanupErr, s.drainWorkers())
+	// Retained provider results get one bounded DB-only settlement retry before
+	// terminal recovery substitutes estimates for unresolved attempts.
+	cleanupErr = errors.Join(cleanupErr, s.flushPendingAccounting())
 	if failed {
 		_, err := s.store.FailRoot(context.Background(), s.meta.ID, actorErr.Error())
 		cleanupErr = errors.Join(cleanupErr, err)

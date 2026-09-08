@@ -77,17 +77,18 @@ type AgentSession struct {
 	name         string
 	capabilities []string
 
-	mu             sync.Mutex
-	running        bool
-	closed         bool
-	failures       int // consecutive failed turns; drives the re-wake backoff
-	cancel         context.CancelFunc
-	turn           turnJournal
-	emit           func(string, StreamEvent)
-	interactive    *daemonInteractiveRunner
-	prompt         rlm.PromptSnapshot
-	promptOverride string
-	report         string // spawn report mode: "" or "notice", "message", "inline"
+	accountingStopped error
+	mu                sync.Mutex
+	running           bool
+	closed            bool
+	failures          int // consecutive failed turns; drives the re-wake backoff
+	cancel            context.CancelFunc
+	turn              turnJournal
+	emit              func(string, StreamEvent)
+	interactive       *daemonInteractiveRunner
+	prompt            rlm.PromptSnapshot
+	promptOverride    string
+	report            string // spawn report mode: "" or "notice", "message", "inline"
 }
 
 type recursiveHost struct {
@@ -150,12 +151,12 @@ func (store scratchStore) Load(ctx context.Context) (string, rlm.SnapshotManifes
 	if node.root == nil || node.id == "" {
 		return "", rlm.SnapshotManifest{}, nil
 	}
-	program, encoded, err := node.root.LoadAgentScratch(ctx, node.id)
+	snapshot, encoded, err := node.root.LoadAgentScratch(ctx, node.id)
 	var manifest rlm.SnapshotManifest
 	if err == nil && len(encoded) > 0 {
-		_ = json.Unmarshal(encoded, &manifest)
+		err = json.Unmarshal(encoded, &manifest)
 	}
-	return program, manifest, err
+	return snapshot, manifest, err
 }
 
 // emitHostCall publishes one host call made inside a cell as a presentation
@@ -179,10 +180,16 @@ func (node *AgentSession) recordScratchRestore(ctx context.Context, report rlm.R
 	if root == nil || id == "" {
 		return
 	}
-	go func() { _ = root.RecordScratchRestore(context.WithoutCancel(ctx), id, report) }()
+	root.supervisor.launchWorker("scratch restore audit", func() {
+		auditCtx, cancel := context.WithTimeout(root.supervisor.ctx, 5*time.Second)
+		defer cancel()
+		if err := root.RecordScratchRestore(auditCtx, id, report); err != nil && auditCtx.Err() == nil {
+			root.supervisor.report("scratch restore audit", err)
+		}
+	})
 }
 
-func (store scratchStore) Save(ctx context.Context, program string, manifest rlm.SnapshotManifest) error {
+func (store scratchStore) Save(ctx context.Context, snapshot string, manifest rlm.SnapshotManifest) error {
 	node := store.node
 	if node.root == nil || node.id == "" {
 		return nil
@@ -191,7 +198,7 @@ func (store scratchStore) Save(ctx context.Context, program string, manifest rlm
 	if err != nil {
 		return err
 	}
-	return node.root.SaveAgentScratch(ctx, node.id, program, encoded)
+	return node.root.SaveAgentScratch(ctx, node.id, snapshot, encoded)
 }
 
 func (runtime *RecursiveRuntime) newNode(value *agent.Agent, parentID, name string, capabilities []string, authority capability.Authority) (*AgentSession, error) {
@@ -425,8 +432,11 @@ func (runtime *RecursiveRuntime) restoreChildren(ctx context.Context) error {
 
 type agentModelBudget struct{ node *AgentSession }
 
-func (budget agentModelBudget) ReserveModelCall(ctx context.Context, estimate llm.CallEstimate) (func(llm.Usage) error, error) {
-	return budget.node.root.ReserveAgentModelCall(ctx, budget.node.id, estimate)
+func (budget agentModelBudget) BeginModelAttempt(ctx context.Context, attempt llm.ModelAttempt) (llm.ModelPermit, error) {
+	if err := budget.node.accountingStopError(); err != nil {
+		return llm.ModelPermit{}, err
+	}
+	return budget.node.root.beginAgentModelAttempt(ctx, budget.node.id, attempt)
 }
 
 func (node *AgentSession) close(closeAgent bool) {
@@ -709,6 +719,18 @@ func (host *recursiveHost) Call(ctx context.Context, module, operation string, a
 	node := host.session
 	if node.root == nil {
 		return nil, errors.New("RLM host is not bound")
+	}
+	if err := node.accountingStopError(); err != nil {
+		return nil, err
+	}
+	node.root.accountingMu.Lock()
+	pending := len(node.root.pendingAccounting) > 0
+	node.root.accountingMu.Unlock()
+	if pending {
+		return nil, errors.New("model accounting is unresolved; further host calls are paused")
+	}
+	if err := node.root.store.CheckModelWork(ctx, node.root.ID(), node.id); err != nil {
+		return nil, fmt.Errorf("model budget stops further host calls: %w", err)
 	}
 	switch module {
 	case "context":
@@ -1137,7 +1159,7 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 
 func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments map[string]any) (*agent.Agent, string, string, error) {
 	client, modelID := parent.Client, parent.Model
-	prices := parent.Prices
+	pricing := parent.Pricing
 	contextLimit, maxTokens, effort, vision := parent.ContextLimit, parent.MaxTokens, parent.Effort, parent.Vision
 	modelName, _ := stringArgument(arguments, "model")
 	providerName, _ := stringArgument(arguments, "provider")
@@ -1155,6 +1177,7 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 			return nil, "", "", err
 		}
 		client, modelID = resolved.Client, resolved.Model
+		pricing = resolved.Pricing
 		effectiveModel, effectiveProvider = resolved.ModelName, resolved.Provider
 		if effectiveModel == "" {
 			effectiveModel = modelName
@@ -1162,7 +1185,7 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 		if effectiveProvider == "" {
 			return nil, "", "", errors.New("model override resolved without a provider")
 		}
-		contextLimit, maxTokens, prices = resolved.ContextLimit, resolved.MaxTokens, resolved.Prices
+		contextLimit, maxTokens = resolved.ContextLimit, resolved.MaxTokens
 		if resolved.Effort != "" {
 			effort = resolved.Effort
 		}
@@ -1174,11 +1197,12 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 	copyClient := *client
 	child := agent.NewRuntime(&copyClient, modelID, maxTokens, "", services)
 	child.ModelName, child.Provider = effectiveModel, effectiveProvider
-	child.Prices, child.CompactPrices = prices, parent.CompactPrices
+	child.Pricing = pricing
 	child.ContextLimit, child.Effort = contextLimit, effort
 	child.Vision = vision
 	child.Temperature, child.TopP = parent.Temperature, parent.TopP
 	child.CompactClient, child.CompactModel, child.CompactThreshold = parent.CompactClient, parent.CompactModel, parent.CompactThreshold
+	child.CompactPricing, child.CompactProvider = parent.CompactPricing, parent.CompactProvider
 	child.WorkingDir = parent.WorkingDir
 	child.ResolveModel = parent.ResolveModel
 	return child, child.ModelName, child.Provider, nil
@@ -1520,31 +1544,47 @@ func (host *recursiveHost) mcp(ctx context.Context, operation string, arguments 
 func (host *recursiveHost) state(ctx context.Context, operation string, arguments map[string]any) (any, error) {
 	node := host.session
 	key, _ := stringArgument(arguments, "key")
-	payload, err := runtimeStatePayload(arguments["value"])
-	if err != nil {
-		return nil, err
+	var payload sessionstore.RuntimePayload
+	if strings.HasSuffix(operation, "_set") || strings.HasSuffix(operation, "_append") || strings.HasSuffix(operation, "_cas") {
+		value, exists := arguments["value"]
+		if !exists {
+			return nil, errors.New("state mutation requires value (use None for JSON null)")
+		}
+		var err error
+		payload, err = runtimeStatePayload(value)
+		if err != nil {
+			return nil, err
+		}
+	}
+	version := int64(0)
+	if strings.HasSuffix(operation, "_cas") {
+		var err error
+		version, err = statePageInteger(arguments, "version", 0)
+		if err != nil || version < 0 {
+			return nil, errors.New("version must be a non-negative integer")
+		}
 	}
 	switch operation {
 	case "private_get":
-		return node.root.GetPrivateState(ctx, node.id, key)
+		return stateResult(node.root.GetPrivateState(ctx, node.id, key))
 	case "private_list":
-		return node.root.ListPrivateState(ctx, node.id)
+		return host.statePage(ctx, operation, arguments)
 	case "private_set":
-		return node.root.SetPrivateState(ctx, node.id, key, payload)
+		return stateResult(node.root.SetPrivateState(ctx, node.id, key, payload))
 	case "private_append":
-		return node.root.AppendPrivateState(ctx, node.id, key, payload)
+		return stateResult(node.root.AppendPrivateState(ctx, node.id, key, payload))
 	case "private_cas":
-		return node.root.CompareAndSwapPrivateState(ctx, node.id, key, int64Argument(arguments, "version", 0), payload)
+		return stateResult(node.root.CompareAndSwapPrivateState(ctx, node.id, key, version, payload))
 	case "blackboard_get":
-		return node.root.GetBlackboard(ctx, node.id, key)
+		return stateResult(node.root.GetBlackboard(ctx, node.id, key))
 	case "blackboard_set":
-		return node.root.SetBlackboard(ctx, node.id, key, payload)
+		return stateResult(node.root.SetBlackboard(ctx, node.id, key, payload))
 	case "blackboard_append":
-		return node.root.AppendBlackboard(ctx, node.id, key, payload)
+		return stateResult(node.root.AppendBlackboard(ctx, node.id, key, payload))
 	case "blackboard_cas":
-		return node.root.CompareAndSwapBlackboard(ctx, node.id, key, int64Argument(arguments, "version", 0), payload)
+		return stateResult(node.root.CompareAndSwapBlackboard(ctx, node.id, key, version, payload))
 	case "blackboard_history":
-		return node.root.BlackboardHistory(ctx, node.id, key)
+		return host.statePage(ctx, operation, arguments)
 	case "subscribe":
 		return node.root.CreateBlackboardSubscription(ctx, node.id, key)
 	case "subscriptions":
@@ -1663,7 +1703,11 @@ func requestedBudgets(value any) ([]sessionstore.BudgetLimit, error) {
 }
 
 func runtimeStatePayload(value any) (sessionstore.RuntimePayload, error) {
-	data, err := json.Marshal(value)
+	normalized, err := normalizeStateJSON(value, 0)
+	if err != nil {
+		return sessionstore.RuntimePayload{}, err
+	}
+	data, err := json.Marshal(normalized)
 	return sessionstore.RuntimePayload{Data: data, MediaType: "application/json", Source: "agent state"}, err
 }
 

@@ -90,6 +90,30 @@ func (s *Store) ListPrivateState(ctx context.Context, rootID, callerAgentID stri
 	return values, tx.Commit()
 }
 
+func (s *Store) ListPrivateStatePage(ctx context.Context, rootID, callerAgentID, afterKey string, limit int) ([]StateValue, error) {
+	if limit < 1 || limit > 101 {
+		return nil, errors.New("state page limit must be between 1 and 101")
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, stateSelect(`FROM agent_state s LEFT JOIN content_references r ON r.id=s.payload_ref
+		WHERE s.root_id=? AND s.agent_id=? AND s.key>? ORDER BY s.key LIMIT ?`), InlineValueLimit+1, rootID, callerAgentID, afterKey, limit)
+	if err != nil {
+		return nil, err
+	}
+	values, err := scanStateRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	return values, tx.Commit()
+}
+
 func (s *Store) SetPrivateState(ctx context.Context, rootID, callerAgentID, key string, payload RuntimePayload) (StateValue, error) {
 	return s.mutatePrivateState(ctx, rootID, callerAgentID, key, "set", 0, payload)
 }
@@ -292,6 +316,33 @@ func (s *Store) BlackboardHistory(ctx context.Context, rootID, callerAgentID, ke
 	}
 	rows, err := tx.QueryContext(ctx, stateSelect(`FROM blackboard_history s LEFT JOIN content_references r ON r.id=s.payload_ref
 		WHERE s.root_id=? AND s.key=? ORDER BY s.version`), InlineValueLimit+1, rootID, key)
+	if err != nil {
+		return nil, err
+	}
+	values, err := scanStateRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	return values, tx.Commit()
+}
+
+func (s *Store) BlackboardHistoryPage(ctx context.Context, rootID, callerAgentID, key string, afterVersion int64, limit int) ([]StateValue, error) {
+	if limit < 1 || limit > 101 || afterVersion < 0 {
+		return nil, errors.New("invalid state history page bounds")
+	}
+	if err := validateStateKey(key); err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := requireActiveAgentTx(ctx, tx, rootID, callerAgentID); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, stateSelect(`FROM blackboard_history s LEFT JOIN content_references r ON r.id=s.payload_ref
+		WHERE s.root_id=? AND s.key=? AND s.version>? ORDER BY s.version LIMIT ?`), InlineValueLimit+1, rootID, key, afterVersion, limit)
 	if err != nil {
 		return nil, err
 	}

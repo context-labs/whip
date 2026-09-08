@@ -29,6 +29,8 @@ export class Session {
   configure(params: RuntimeOperations['run.configure']['params']) { return this.command('run.configure', params); }
   setModel(model: string, provider = '', persistDefault = false) { return this.command('session.model', { model, provider, persist_default: persistDefault }); }
   setEffort(effort: string, persistDefault = false) { return this.command('session.effort', { effort, persist_default: persistDefault }); }
+  /** externalPermissions = prompt connected clients; false = approve automatically. */
+  setPermissionMode(externalPermissions: boolean) { return this.command('permission.mode', { external_permissions: externalPermissions }); }
   cancelTurn(turnId: string) { return this.command('cancel', { turn_id: turnId }); }
   readonly history = {
     page: (params: Partial<Omit<HistoryPageParams, 'root_id'>> = {}, options: CallOptions = {}) => this.client.call('history.page', {

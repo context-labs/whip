@@ -342,10 +342,16 @@ type HostCall struct {
 	Err       string
 }
 
+type ScratchReport struct {
+	Warning string        `json:"warning,omitempty"`
+	Skipped []SkippedName `json:"skipped"`
+}
+
 type Result struct {
-	Value  any    `json:"value"`
-	Output string `json:"output,omitempty"`
-	Steps  uint64 `json:"steps"`
+	Scratch *ScratchReport `json:"scratch,omitempty"`
+	Value   any            `json:"value"`
+	Output  string         `json:"output,omitempty"`
+	Steps   uint64         `json:"steps"`
 	// Restored is set when this cell ran on a worker that was restarted
 	// mid-turn and had its scratch revived first.
 	Restored *RestoreReport `json:"restored,omitempty"`
@@ -375,6 +381,7 @@ type Kernel struct {
 	onRestore    func(context.Context, RestoreReport)
 	onHostCall   func(HostCall)
 	snapshotHash [32]byte
+	skippedHash  [32]byte
 	needsRestore bool // a fresh process has not loaded the stored scratch yet
 }
 
@@ -409,14 +416,29 @@ func NewKernel(options KernelOptions) (*Kernel, error) {
 func (kernel *Kernel) Exec(ctx context.Context, code string) (Result, error) {
 	kernel.execMu.Lock()
 	defer kernel.execMu.Unlock()
+	pinned := false
+	if lease, _ := ctx.Value(kernelLeaseKey{}).(*kernelTurnLease); lease != nil && lease.kernel == kernel {
+		lease.mu.Lock()
+		pinned = lease.active
+		if pinned {
+			defer lease.mu.Unlock()
+		} else {
+			lease.mu.Unlock()
+		}
+	}
 	release := func() {}
 	var restored *RestoreReport
-	if pinned, _ := ctx.Value(kernelLeaseKey{}).(*Kernel); pinned != kernel || !kernel.manager.running(kernel) {
+	if !pinned || !kernel.manager.running(kernel) {
 		start, acquired, err := kernel.acquire(ctx)
 		if err != nil {
 			return Result{}, err
 		}
-		release, restored = acquired, start.Restore
+		restored = start.Restore
+		// A replacement inherits the turn's pin. The turn release owns the
+		// current reservation, including replacements, until the turn ends.
+		if !pinned {
+			release = acquired
+		}
 	}
 	defer release()
 
@@ -429,13 +451,14 @@ func (kernel *Kernel) Exec(ctx context.Context, code string) (Result, error) {
 		return Result{}, err
 	}
 	if report, err := kernel.restoreLocked(ctx); err != nil {
+		kernel.stop()
 		return Result{}, err
 	} else if report != nil {
 		restored = report
 	}
 	result, err := kernel.evalLocked(ctx, code)
 	result.Restored = restored
-	kernel.snapshotLocked(ctx)
+	result.Scratch = kernel.snapshotLocked(ctx)
 	return result, err
 }
 
@@ -530,6 +553,12 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 
 type kernelLeaseKey struct{}
 
+type kernelTurnLease struct {
+	kernel *Kernel
+	mu     sync.Mutex
+	active bool
+}
+
 // AcquireTurn pins one worker for an entire model turn. Every rlm_exec call
 // made with the returned context shares the same Starlark globals.
 func (kernel *Kernel) AcquireTurn(ctx context.Context) (context.Context, TurnStart, func(), error) {
@@ -537,7 +566,13 @@ func (kernel *Kernel) AcquireTurn(ctx context.Context) (context.Context, TurnSta
 	if err != nil {
 		return ctx, TurnStart{}, func() {}, err
 	}
-	return context.WithValue(ctx, kernelLeaseKey{}, kernel), start, release, nil
+	lease := &kernelTurnLease{kernel: kernel, active: true}
+	return context.WithValue(ctx, kernelLeaseKey{}, lease), start, sync.OnceFunc(func() {
+		lease.mu.Lock()
+		defer lease.mu.Unlock()
+		lease.active = false
+		release()
+	}), nil
 }
 
 func (kernel *Kernel) acquire(ctx context.Context) (TurnStart, func(), error) {
@@ -557,6 +592,9 @@ func (kernel *Kernel) acquire(ctx context.Context) (TurnStart, func(), error) {
 		kernel.manager.finishEviction(grant.victim)
 	}
 	if err := ctx.Err(); err != nil {
+		kernel.mu.Lock()
+		kernel.stop()
+		kernel.mu.Unlock()
 		kernel.manager.abandon(kernel)
 		return TurnStart{}, func() {}, err
 	}
@@ -572,12 +610,23 @@ func (kernel *Kernel) acquire(ctx context.Context) (TurnStart, func(), error) {
 		kernel.everStarted = true
 		start.Restore, err = kernel.restoreLocked(ctx)
 	}
+	if err != nil {
+		kernel.stop()
+	}
 	kernel.mu.Unlock()
 	if err != nil {
 		kernel.manager.abandon(kernel)
 		return TurnStart{}, func() {}, err
 	}
-	return start, sync.OnceFunc(func() { kernel.manager.release(kernel) }), nil
+	return start, sync.OnceFunc(func() {
+		kernel.mu.Lock()
+		defer kernel.mu.Unlock()
+		if kernel.worker == nil {
+			kernel.manager.depart(kernel)
+		} else {
+			kernel.manager.release(kernel)
+		}
+	}), nil
 }
 
 // restoreLocked revives stored scratch into a worker process that has not
@@ -587,60 +636,110 @@ func (kernel *Kernel) restoreLocked(ctx context.Context) (*RestoreReport, error)
 	if !kernel.needsRestore {
 		return nil, nil //nolint:nilnil // nil report means nothing to report
 	}
-	kernel.needsRestore = false
 	if kernel.scratch == nil {
+		kernel.needsRestore = false
 		return nil, nil //nolint:nilnil // no store configured
 	}
-	program, manifest, err := kernel.scratch.Load(ctx)
+	loadCtx, cancel := context.WithTimeout(ctx, kernel.limits.Wall)
+	defer cancel()
+	snapshot, manifest, err := kernel.scratch.Load(loadCtx)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(program) == "" {
+	if snapshot == "" && manifest.Saved == nil && manifest.Skipped == nil && manifest.Bytes == 0 {
+		kernel.needsRestore = false
 		return nil, nil //nolint:nilnil // nothing stored yet
 	}
-	response, err := kernel.roundTripLocked(ctx, frame{Type: "restore", Code: program})
+	if strings.TrimSpace(snapshot) == "" {
+		return nil, errors.New("empty stored scratch snapshot")
+	}
+	if manifest.Saved == nil || manifest.Bytes < 0 {
+		return nil, errors.New("invalid stored scratch manifest")
+	}
+	response, err := kernel.roundTripLocked(ctx, frame{Type: "restore", Code: snapshot})
 	if err != nil {
 		return nil, err
 	}
 	var report RestoreReport
+	if response.Value == nil {
+		return nil, errors.New("missing scratch restore report")
+	}
 	if err := decodeFrameValue(response.Value, &report); err != nil {
 		return nil, err
 	}
+	if report.Restored == nil {
+		return nil, errors.New("invalid scratch restore report")
+	}
 	report.Failed = append(report.Failed, manifest.Skipped...)
-	kernel.snapshotHash = sha256.Sum256([]byte(program))
+	kernel.snapshotHash = scratchHash(snapshot, manifest)
+	kernel.skippedHash = scratchSkippedHash(manifest.Skipped)
+	kernel.needsRestore = false
 	if kernel.onRestore != nil {
 		kernel.onRestore(ctx, report)
 	}
 	return &report, nil
 }
 
-// snapshotLocked captures the worker's globals after a cell and persists
-// them when they changed. Failures never fail the cell: the worker is either
-// gone (nothing to capture) or the store is unavailable (retried next cell).
-func (kernel *Kernel) snapshotLocked(ctx context.Context) {
+func scratchHash(snapshot string, manifest SnapshotManifest) [32]byte {
+	data, _ := json.Marshal(struct {
+		Snapshot string
+		Manifest SnapshotManifest
+	}{snapshot, manifest})
+	return sha256.Sum256(data)
+}
+
+func scratchSkippedHash(skipped []SkippedName) [32]byte {
+	data, _ := json.Marshal(skipped)
+	return sha256.Sum256(data)
+}
+
+// snapshotLocked persists changed scratch after a cell. Persistence failures
+// preserve the cell result and are retried after the next cell.
+func (kernel *Kernel) snapshotLocked(ctx context.Context) *ScratchReport {
 	if kernel.scratch == nil || kernel.worker == nil {
-		return
+		return nil
 	}
-	// A cancelled turn still gets its last cell captured; the round trip and
-	// the store call carry their own deadlines.
+	// Capture a completed cell even if its caller was cancelled. Both operations
+	// below have their own deadlines; effects are never replayed to retry a save.
 	ctx = context.WithoutCancel(ctx)
+	warning := func(err error) *ScratchReport {
+		detail := err.Error()
+		if len(detail) > 1024 {
+			detail = detail[:1024]
+		}
+		return &ScratchReport{Warning: "Scratch checkpoint failed; the cell result remains valid. Do not replay effects. A later cell will retry checkpointing: " + detail}
+	}
 	response, err := kernel.roundTripLocked(ctx, frame{Type: "snapshot"})
 	if err != nil {
-		return
+		return warning(err)
+	}
+	if !json.Valid([]byte(response.Code)) || response.Value == nil {
+		return warning(errors.New("invalid scratch snapshot response"))
 	}
 	var manifest SnapshotManifest
 	if err := decodeFrameValue(response.Value, &manifest); err != nil {
-		return
+		return warning(err)
 	}
-	hash := sha256.Sum256([]byte(response.Code))
+	if manifest.Saved == nil {
+		return warning(errors.New("invalid scratch snapshot manifest"))
+	}
+	hash := scratchHash(response.Code, manifest)
 	if hash == kernel.snapshotHash {
-		return
+		return nil
 	}
 	saveCtx, cancel := context.WithTimeout(ctx, kernel.limits.Wall)
 	defer cancel()
-	if err := kernel.scratch.Save(saveCtx, response.Code, manifest); err == nil {
-		kernel.snapshotHash = hash
+	if err := kernel.scratch.Save(saveCtx, response.Code, manifest); err != nil {
+		return warning(err)
 	}
+	kernel.snapshotHash = hash
+	skippedHash := scratchSkippedHash(manifest.Skipped)
+	changed := skippedHash != kernel.skippedHash && (len(manifest.Skipped) > 0 || kernel.skippedHash != [32]byte{})
+	kernel.skippedHash = skippedHash
+	if changed {
+		return &ScratchReport{Skipped: append([]SkippedName{}, manifest.Skipped...)}
+	}
+	return nil
 }
 
 // roundTripLocked exchanges one non-eval frame with the worker under the
@@ -731,7 +830,7 @@ func (kernel *Kernel) startProcess() (err error) {
 	if kernel.worker != nil {
 		select {
 		case <-kernel.worker.done:
-			kernel.stop()
+			kernel.stopProcess(false)
 		default:
 			return nil
 		}
@@ -786,23 +885,29 @@ func (kernel *Kernel) startProcess() (err error) {
 		// an orphan remains alive.
 		_ = killProcessGroup(command.Process.Pid)
 		close(process.done)
-		departed := false
 		kernel.mu.Lock()
 		if kernel.worker == process {
 			kernel.worker = nil
 			_ = os.RemoveAll(process.dir)
-			departed = true
+			// A running reservation may belong to an acquisition waiting on
+			// kernel.mu. Its replacement must keep that slot; release removes
+			// it if no replacement was started.
+			kernel.manager.mu.Lock()
+			if !kernel.manager.resident[kernel].running {
+				delete(kernel.manager.resident, kernel)
+				kernel.manager.scheduleLocked()
+			}
+			kernel.manager.mu.Unlock()
 		}
 		kernel.mu.Unlock()
-		if departed {
-			kernel.manager.depart(kernel)
-		}
 	}()
 	failed = false
 	return nil
 }
 
-func (kernel *Kernel) stop() {
+func (kernel *Kernel) stop() { kernel.stopProcess(true) }
+
+func (kernel *Kernel) stopProcess(depart bool) {
 	process := kernel.worker
 	if process == nil {
 		return
@@ -816,7 +921,9 @@ func (kernel *Kernel) stop() {
 		<-process.done
 	}
 	_ = os.RemoveAll(process.dir)
-	kernel.manager.depart(kernel)
+	if depart {
+		kernel.manager.depart(kernel)
+	}
 }
 
 // Suspend discards an idle subprocess without closing the logical kernel.

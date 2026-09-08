@@ -3,7 +3,9 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +15,9 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tools"
 )
 
 // The browser opts into synthetic recorded executions, including more history
@@ -206,4 +210,55 @@ func TestSDKREPLProbesRecordFixedEventsAndBoundRequests(t *testing.T) {
 	if status := request("start"); status != http.StatusTooManyRequests {
 		t.Fatalf("overflow status = %d", status)
 	}
+}
+
+// This acceptance path exercises an actual subprocess kernel and durable scratch
+// store. Only checkpoint persistence is deliberately failed after restoring.
+type sdkScratchFailure struct {
+	scratchStore
+	fail bool
+}
+
+func (s *sdkScratchFailure) Save(ctx context.Context, snapshot string, manifest rlm.SnapshotManifest) error {
+	if s.fail {
+		return errors.New("injected checkpoint storage failure")
+	}
+	return s.scratchStore.Save(ctx, snapshot, manifest)
+}
+
+func (r *sdkFixtureRunner) scratchResult(ctx context.Context, started func()) (string, error) {
+	started()
+	scratch := &sdkScratchFailure{scratchStore: scratchStore{node: &AgentSession{root: r.root, id: r.root.AgentID()}}}
+	kernel, err := rlm.NewKernel(rlm.KernelOptions{Command: recursiveKernelCommand, Scratch: scratch})
+	if err != nil {
+		return "", err
+	}
+	defer kernel.Close()
+	if _, err := kernel.Exec(ctx, "saved = 42\nunsupported = files.read"); err != nil {
+		return "", err
+	}
+	if err := kernel.Suspend(); err != nil {
+		return "", err
+	}
+	scratch.fail = true
+	code := "saved = 43\nprint(saved)\nfail('cell failed')"
+	args, err := json.Marshal(map[string]string{"code": code})
+	if err != nil {
+		return "", err
+	}
+	const callID = "scratch-result-cell"
+	r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{kind: "stream.tool.started", event: StreamEvent{ID: callID, Name: "rlm_exec", Args: string(args)}}})
+	output := tools.ExecuteWithSuggester(ctx, []tools.Tool{rlm.Tool(kernel)}, "rlm_exec", args, nil)
+	r.root.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{kind: "stream.tool.completed", event: StreamEvent{ID: callID, Name: "rlm_exec", Result: output}}})
+	call := llm.ToolCall{ID: callID, Type: "function"}
+	call.Function.Name, call.Function.Arguments = "rlm_exec", string(args)
+	r.mu.Lock()
+	r.history = append(r.history,
+		llm.Message{Role: "user", Content: "scratch-result", Authored: true},
+		llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{call}},
+		llm.Message{Role: "tool", Name: "rlm_exec", ToolCallID: callID, Content: output},
+		llm.Message{Role: "assistant", Content: "The cell failed after printing; do not replay its effects."},
+	)
+	r.mu.Unlock()
+	return "The cell failed after printing; do not replay its effects.", nil
 }

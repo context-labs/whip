@@ -755,3 +755,33 @@ func TestRecordScratchRestoreAppendsEvent(t *testing.T) {
 		t.Fatalf("event = %s %+v", kind, event)
 	}
 }
+
+func TestLoadAgentScratchRejectsExistingEmptySnapshot(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	rootID, err := store.Create(SessionKindAgent, t.TempDir(), "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := store.EnsureAuthority(t.Context(), rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, snapshot := range []string{"", " \t\n"} {
+		if err := store.SaveAgentScratch(t.Context(), rootID, root.AgentID, snapshot, nil); err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if _, _, err := store.LoadAgentScratch(t.Context(), rootID, root.AgentID); err == nil {
+				t.Fatalf("existing row %q treated as absent", snapshot)
+			}
+		}
+		var stored string
+		if err := store.db.QueryRowContext(t.Context(), `SELECT snapshot FROM agent_scratch WHERE root_id=? AND agent_id=?`, rootID, root.AgentID).Scan(&stored); err != nil || stored != snapshot {
+			t.Fatalf("corrupt row changed: %q %v", stored, err)
+		}
+	}
+}

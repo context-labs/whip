@@ -10,7 +10,7 @@ import (
 )
 
 const Major = 4
-const Minor = 0
+const Minor = 1
 
 type ErrorData struct {
 	Kind string `json:"kind"`
@@ -99,13 +99,14 @@ type ProtocolEvent struct {
 }
 
 type StreamEvent struct {
-	Usage   *UsageEvent `json:"usage,omitempty"`
-	AgentID string      `json:"agent_id,omitempty"`
-	ID      string      `json:"id,omitempty"`
-	Name    string      `json:"name,omitempty"`
-	Text    string      `json:"text,omitempty"`
-	Args    string      `json:"args,omitempty"`
-	Result  string      `json:"result,omitempty"`
+	Accounting *session.ModelAccounting `json:"accounting,omitempty"`
+	Usage      *UsageEvent              `json:"usage,omitempty"`
+	AgentID    string                   `json:"agent_id,omitempty"`
+	ID         string                   `json:"id,omitempty"`
+	Name       string                   `json:"name,omitempty"`
+	Text       string                   `json:"text,omitempty"`
+	Args       string                   `json:"args,omitempty"`
+	Result     string                   `json:"result,omitempty"`
 }
 
 type SubmitPayload struct {
@@ -138,6 +139,7 @@ type PlanEvent struct {
 }
 
 type AgentTranscriptResult struct {
+	Accounting   session.ModelAccounting       `json:"accounting,omitempty"`
 	Cursor       int64                         `json:"cursor,string"`
 	Agent        session.RuntimeAgent          `json:"agent"`
 	Page         session.BoundedTranscriptPage `json:"page"`
@@ -165,6 +167,10 @@ type SessionUpdateEvent struct {
 	Effort        string `json:"effort,omitempty"`
 	EffortChanged bool   `json:"effort_changed,omitempty"`
 	WorkingDir    string `json:"working_directory,omitempty"`
+	// PermissionMode reports automatic approval when the mode changed. A bool
+	// alone could not distinguish "mode now off" from "not part of this
+	// update"; the pointer does.
+	PermissionMode *string `json:"permission_mode,omitempty"`
 }
 
 type ProviderValidateParams struct {

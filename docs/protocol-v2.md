@@ -20,7 +20,7 @@ Protocol **4.0** adds explicit unlimited model budgets: `limit` and `remaining`
 are decimal strings or `null`, with separate `uncertain` and `incomplete` fields.
 This breaks the old finite-only contract, so clients and daemon update together.
 The existing `/api/v3/ws` transport path remains stable; the initialize handshake
-owns protocol compatibility. Fresh runtime stores use schema 8; older stores are
+owns protocol compatibility. Fresh runtime stores use schema 10; older stores are
 rejected without mutation and are not migrated by this change.
 
 Protocol **3.0** removes client enrollment, signing keys and connection nonces.
@@ -374,3 +374,28 @@ Inline runtime values use `inline` for JSON, `text` for UTF-8 textual bodies,
 and `binary` for base64-encoded binary bodies. Exactly one representation may
 be present. Content references omit all three. Existing stored content bytes
 and hashes retain their original representation.
+
+## Model accounting
+
+Protocol v4.1 adds optional `accounting` fields. Root snapshots expose them for
+the whole agent tree; agent transcript
+results expose the selected agent's own totals. `stream.accounting` publishes
+updated tree summaries. Each summary carries an event `revision`; clients
+must ignore summaries older than the one already applied, including summaries
+queued before a newer snapshot.
+
+Provider-reported cost, estimated cost, unknown-cost calls, estimated-usage
+calls, and pending calls are separate fields. Monetary values are microunits
+of USD and all int64 fields use decimal strings. `model.call.started` commits
+with admission, so changes in pending counts advance the summary revision.
+`model.call.settled` commits with the budget changes; interrupted calls also
+emit `model.call.interrupted`.
+A late result replacing an interrupted estimate emits `model.call.corrected`.
+These lifecycle events contain bounded call metadata, never prompts or keys.
+
+Budget limits and remaining amounts remain nullable: `null` means unlimited.
+Missing usage stays in `uncertain`, not `used`; an unknown numeric cost can have
+zero `uncertain` and `incomplete: true`. Reported-cost and token-usage completeness
+are independent. A late correction removes only the matching uncertainty.
+Catalog wire models retain scalar display prices and add optional raw `pricing`
+decimals so clients can round-trip exact rates without repricing old calls.

@@ -237,6 +237,90 @@ func TestRunDaemonAlwaysUsesRLMRuntime(t *testing.T) {
 	}
 }
 
+func TestResolveRuntimeModelUsesSelectedProviderPricing(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	alphaPrice := llm.Pricing{Prompt: "0.000002", Completion: "0.000004"}
+	betaPrice := llm.Pricing{Prompt: "0.000008", Completion: "0.000012", InputCacheRead: "0"}
+	freePrice := llm.Pricing{Prompt: "0", Completion: "0"}
+	cfg := &config.Config{
+		DefaultProvider: "alpha",
+		DefaultModel:    "shared",
+		Providers: map[string]config.Provider{
+			"alpha": {BaseURL: "https://alpha.invalid", APIKey: "test-alpha"},
+			"beta":  {BaseURL: "https://beta.invalid", APIKey: "test-beta"},
+		},
+		Models: map[string]config.Model{
+			"shared": {ID: "shared-api", Providers: []string{"beta"}, Context: 8192},
+			"free":   {ID: "free-api", Providers: []string{"beta"}},
+		},
+	}
+	catalogs := map[string]config.Catalog{
+		"alpha": {BaseURL: "https://alpha.invalid", Models: []config.ModelInfoLite{{ID: "shared-api", Pricing: alphaPrice}}},
+		"beta": {BaseURL: "https://beta.invalid/", Models: []config.ModelInfoLite{
+			{ID: "shared-api", Pricing: betaPrice, ContextLength: 32768, MaxCompletionTokens: 4096, InputModalities: []string{"image"}},
+			{ID: "free-api", Pricing: freePrice},
+			{ID: "catalog-only", Pricing: betaPrice},
+			{ID: "unknown"},
+		}},
+	}
+	if err := config.SaveCatalogs(catalogs); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name, model, provider, wantProvider, wantModel string
+		pricing                                        llm.Pricing
+	}{
+		{name: "configured default", model: "shared", wantProvider: "alpha", wantModel: "shared-api", pricing: alphaPrice},
+		{name: "explicit route", model: "shared", provider: "beta", wantProvider: "beta", wantModel: "shared-api", pricing: betaPrice},
+		{name: "catalog overrides default", model: "catalog-only", wantProvider: "beta", wantModel: "catalog-only", pricing: betaPrice},
+		{name: "free model", model: "free", provider: "beta", wantProvider: "beta", wantModel: "free-api", pricing: freePrice},
+		{name: "unknown price", model: "unknown", wantProvider: "beta", wantModel: "unknown"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			route, _, err := resolveRuntimeModel(cfg, test.model, test.provider)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if route.Provider != test.wantProvider || route.Model != test.wantModel || route.Pricing != test.pricing {
+				t.Fatalf("route = provider %q model %q pricing %+v", route.Provider, route.Model, route.Pricing)
+			}
+			if route.Client.BaseURL != cfg.Providers[test.wantProvider].BaseURL {
+				t.Fatalf("client endpoint does not match pricing provider: %q", route.Client.BaseURL)
+			}
+		})
+	}
+	route, _, err := resolveRuntimeModel(cfg, "shared", "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.ContextLimit != 32768 || route.MaxTokens != 4096 || !route.Vision {
+		t.Fatalf("selected route omitted catalog capabilities: %+v", route)
+	}
+
+	catalogs["beta"].Models[0].Pricing = freePrice
+	if err := config.SaveCatalogs(catalogs); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err := resolveRuntimeModel(cfg, "shared", "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Pricing != freePrice || route.Pricing != betaPrice {
+		t.Fatalf("reload changed an existing route or retained old pricing: old=%+v new=%+v", route.Pricing, reloaded.Pricing)
+	}
+	provider := cfg.Providers["beta"]
+	provider.BaseURL = "https://replacement.invalid"
+	cfg.Providers["beta"] = provider
+	replacement, _, err := resolveRuntimeModel(cfg, "shared", "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement.Pricing != (llm.Pricing{}) {
+		t.Fatalf("new endpoint reused former endpoint's rates: %+v", replacement.Pricing)
+	}
+}
+
 func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)

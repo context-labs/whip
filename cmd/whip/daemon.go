@@ -99,84 +99,42 @@ func runDaemon(ctx context.Context, args []string) error {
 		default:
 			return daemon.Components{}, fmt.Errorf("unsupported session kind %q", meta.Kind)
 		}
-		prov, model, apiID, err := runtimeCfg.Resolve(meta.Model, meta.Provider)
+		route, model, err := resolveRuntimeModel(runtimeCfg, meta.Model, meta.Provider)
 		if err != nil {
 			return daemon.Components{}, err
 		}
-		key, err := prov.ResolveKey()
-		if err != nil || key == "" {
-			return daemon.Components{}, errors.Join(err, fmt.Errorf("no API key for provider %q", meta.Provider))
-		}
-		client := llm.New(prov.BaseURL, key)
-		client.MaxRetries = runtimeCfg.MaxRetries
-		catalogs := config.LoadCatalogs()
-		catalog := catalogs[meta.Provider]
-		contextLimit, maxOutput := catalog.ModelLimits(apiID, model)
-		services := daemonToolServices(runtimeCfg, meta, apiID)
-		ag := agent.NewRuntime(client, apiID, maxOutput, "", services)
-		ag.ModelName, ag.Provider = meta.Model, meta.Provider
-		ag.Prices = catalog.TokenPrices(apiID)
+		services := daemonToolServices(runtimeCfg, meta, route.Model)
+		ag := agent.NewRuntime(route.Client, route.Model, route.MaxTokens, "", services)
+		ag.ModelName, ag.Provider = route.ModelName, route.Provider
+		ag.Pricing = route.Pricing
 		ag.WorkingDir = meta.CWD
-		ag.ContextLimit = contextLimit
+		ag.ContextLimit = route.ContextLimit
 		if model.SamplingParams != nil {
 			ag.Temperature, ag.TopP = model.SamplingParams.Temperature, model.SamplingParams.TopP
 		}
-		vision := model.Vision
-		if catalog, ok := catalogs[meta.Provider]; ok {
-			if advertised, found := catalog.SupportsVision(apiID); found {
-				vision = advertised
-			}
-		}
-		if vision {
+		if route.Vision {
 			services.SetScreenshotSink(func(images [][]byte) {
 				ag.SteerImages("browser/computer screenshots attached:", screenshotParts(images))
 			})
 		}
-		ag.Vision = vision
-		ag.Effort = resolvedRuntimeEffort(catalogs, meta.Provider, apiID, meta.Effort, runtimeCfg.DefaultEffort)
+		ag.Vision = route.Vision
+		ag.Effort = resolvedRuntimeEffort(config.LoadCatalogs(), route.Provider, route.Model, meta.Effort, runtimeCfg.DefaultEffort)
 		ag.ResolveModel = func(model, provider string) (agent.ModelRoute, error) {
 			currentCfg, loadErr := config.Load()
 			if loadErr != nil {
 				return agent.ModelRoute{}, loadErr
 			}
-			resolvedProvider, resolvedModel, apiID, resolveErr := currentCfg.Resolve(model, provider)
-			if resolveErr != nil {
-				return agent.ModelRoute{}, resolveErr
-			}
-			key, keyErr := resolvedProvider.ResolveKey()
-			if keyErr != nil {
-				return agent.ModelRoute{}, keyErr
-			}
-			if key == "" {
-				return agent.ModelRoute{}, fmt.Errorf("no API key for the provider serving %q", model)
-			}
-			childClient := llm.New(resolvedProvider.BaseURL, key)
-			childClient.MaxRetries = currentCfg.MaxRetries
-			resolvedProviderName := provider
-			if resolvedProviderName == "" {
-				resolvedProviderName = currentCfg.DefaultProvider
-			}
-			if resolvedProviderName == "" && len(resolvedModel.Providers) > 0 {
-				resolvedProviderName = resolvedModel.Providers[0]
-			}
-			resolvedVision := resolvedModel.Vision
-			currentCatalog := config.LoadCatalogs()[resolvedProviderName]
-			if advertised, found := currentCatalog.SupportsVision(apiID); found {
-				resolvedVision = advertised
-			}
-			contextLimit, maxOutput := currentCatalog.ModelLimits(apiID, resolvedModel)
-			return agent.ModelRoute{
-				Client: childClient, ModelName: model, Provider: resolvedProviderName, Model: apiID,
-				ContextLimit: contextLimit, MaxTokens: maxOutput, Prices: currentCatalog.TokenPrices(apiID),
-				Vision: resolvedVision,
-			}, nil
+			resolved, _, resolveErr := resolveRuntimeModel(currentCfg, model, provider)
+			return resolved, resolveErr
 		}
 		compactName := runtimeCfg.CompactModel
 		if compactName == "" {
 			compactName = config.DefaultCompactModel
 		}
-		if compactRoute, resolveErr := ag.ResolveModel(compactName, runtimeCfg.CompactProvider); resolveErr == nil {
-			ag.CompactClient, ag.CompactModel, ag.CompactPrices = compactRoute.Client, compactRoute.Model, compactRoute.Prices
+		if compact, _, resolveErr := resolveRuntimeModel(runtimeCfg, compactName, runtimeCfg.CompactProvider); resolveErr == nil {
+			ag.CompactClient = compact.Client
+			ag.CompactModel, ag.CompactProvider = compact.Model, compact.Provider
+			ag.CompactPricing = compact.Pricing
 		}
 		compactPct := runtimeCfg.CompactPct
 		if compactPct == 0 {
@@ -256,6 +214,43 @@ func runDaemon(ctx context.Context, args []string) error {
 		_ = store.SetDaemonStatus(context.Background(), generation, "stopping")
 		return server.Close()
 	}
+}
+
+// resolveRuntimeModel snapshots the actual endpoint and its catalog rates together.
+// All model purposes use this resolver so a default provider cannot accidentally
+// supply another endpoint's price or output limits.
+func resolveRuntimeModel(cfg *config.Config, modelName, providerName string) (agent.ModelRoute, config.Model, error) {
+	if modelName == "" {
+		modelName = cfg.DefaultModel
+	}
+	providerName, provider, model, apiID, err := cfg.ResolveRoute(modelName, providerName)
+	if err != nil {
+		return agent.ModelRoute{}, config.Model{}, err
+	}
+	key, err := provider.ResolveKey()
+	if err != nil {
+		return agent.ModelRoute{}, config.Model{}, err
+	}
+	if key == "" {
+		return agent.ModelRoute{}, config.Model{}, fmt.Errorf("no API key for provider %q", providerName)
+	}
+	catalog := config.LoadCatalogs()[providerName]
+	contextLimit, maxOutput := catalog.ModelLimits(apiID, model)
+	vision := model.Vision
+	if advertised, found := catalog.SupportsVision(apiID); found {
+		vision = advertised
+	}
+	client := llm.New(provider.BaseURL, key)
+	client.MaxRetries = cfg.MaxRetries
+	pricing := llm.Pricing{}
+	if strings.TrimRight(catalog.BaseURL, "/") == client.BaseURL {
+		pricing = catalog.ModelPricing(apiID)
+	}
+	return agent.ModelRoute{
+		Client: client, ModelName: modelName, Provider: providerName, Model: apiID,
+		ContextLimit: contextLimit, MaxTokens: maxOutput, Vision: vision,
+		Pricing: pricing,
+	}, model, nil
 }
 
 func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string) *tools.Services {

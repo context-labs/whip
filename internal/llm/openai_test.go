@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -393,9 +392,8 @@ func TestModelInfoPricingParsed(t *testing.T) {
 	if mi.Pricing == nil {
 		t.Fatal("pricing block should unmarshal")
 	}
-	in, out, cr := mi.Pricing.Rates()
-	if in != 1e-6 || out != 5e-6 || cr != 1e-7 {
-		t.Fatalf("rates: in=%v out=%v cr=%v", in, out, cr)
+	if *mi.Pricing != (Pricing{Prompt: "0.000001000000", Completion: "0.000005000000", InputCacheRead: "0.000000100000"}) {
+		t.Fatalf("rates changed: %+v", mi.Pricing)
 	}
 }
 
@@ -406,34 +404,6 @@ func TestModelInfoPricingOmitted(t *testing.T) {
 	}
 	if mi.Pricing != nil {
 		t.Fatalf("pricing should stay nil when unadvertised: %+v", mi.Pricing)
-	}
-}
-
-func TestSessionCost(t *testing.T) {
-	cached := func(n int) Usage {
-		u := Usage{PromptTokens: 10000, CompletionTokens: 1000}
-		u.PromptTokensDetails = &struct {
-			CachedTokens int `json:"cached_tokens"`
-		}{CachedTokens: n}
-		return u
-	}
-	cases := []struct {
-		name               string
-		u                  Usage
-		in, out, cacheRead float64
-		want               float64
-	}{
-		{"no cache", Usage{PromptTokens: 10000, CompletionTokens: 1000}, 1e-6, 5e-6, 0, 0.015},
-		{"partial cache with cache rate", cached(8000), 1e-6, 5e-6, 1e-7, 0.0078},
-		{"cache billed at input rate when no cache rate", cached(8000), 1e-6, 5e-6, 0, 0.015},
-		{"zero usage", Usage{}, 1e-6, 5e-6, 1e-7, 0},
-	}
-	for _, c := range cases {
-		// float64 multiplication can't hit these decimals exactly; compare
-		// with tolerance rather than ==.
-		if got := SessionCost(c.u, c.in, c.out, c.cacheRead); math.Abs(got-c.want) > 1e-12 {
-			t.Errorf("%s: SessionCost = %v, want %v", c.name, got, c.want)
-		}
 	}
 }
 
@@ -544,11 +514,11 @@ func TestAttemptAccountingPreservesUsageOnFailureAndRetry(t *testing.T) {
 			client := New(server.URL, "test")
 			client.MaxRetries = 2
 			admitted := 0
-			var settled []Usage
-			request := Request{Model: "fixture", BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
+			var settled []ModelAttemptResult
+			request := Request{Model: "fixture", Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
 				admitted++
-				return func(usage Usage) error { settled = append(settled, usage); return nil }, nil
-			}}
+				return func(usage ModelAttemptResult) error { settled = append(settled, usage); return nil }, nil
+			})}
 			var usage Usage
 			var err error
 			if stream {
@@ -559,7 +529,7 @@ func TestAttemptAccountingPreservesUsageOnFailureAndRetry(t *testing.T) {
 			if err == nil || admitted != 2 || len(settled) != 2 || requests != 2 {
 				t.Fatalf("admitted=%d settled=%+v requests=%d err=%v", admitted, settled, requests, err)
 			}
-			if !settled[0].Reported || !settled[0].Dispatched || !settled[1].Reported || usage.PromptTokens != 11 || usage.CompletionTokens != 5 {
+			if !settled[0].Usage.Reported || !settled[0].Dispatched || !settled[1].Usage.Reported || usage.PromptTokens != 11 || usage.CompletionTokens != 5 {
 				t.Fatalf("usage=%+v settled=%+v", usage, settled)
 			}
 		})
@@ -578,11 +548,11 @@ func TestAttemptAccountingDistinguishesUnknownZeroAndLocalFailure(t *testing.T) 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, tc.response) }))
 			defer server.Close()
 			client := New(server.URL, "test")
-			var settled Usage
-			_, _, err := client.Complete(t.Context(), Request{BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
-				return func(u Usage) error { settled = u; return nil }, nil
-			}})
-			if err != nil || !settled.Dispatched || settled.Reported != tc.reported {
+			var settled ModelAttemptResult
+			_, _, err := client.Complete(t.Context(), Request{Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
+				return func(u ModelAttemptResult) error { settled = u; return nil }, nil
+			})})
+			if err != nil || !settled.Dispatched || settled.Usage.Reported != tc.reported {
 				t.Fatalf("settled=%+v err=%v", settled, err)
 			}
 		})
@@ -590,10 +560,10 @@ func TestAttemptAccountingDistinguishesUnknownZeroAndLocalFailure(t *testing.T) 
 	t.Run("before dispatch", func(t *testing.T) {
 		client := New(":invalid", "test")
 		client.MaxRetries = 1
-		var settled Usage
-		_, _, err := client.Complete(t.Context(), Request{BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
-			return func(u Usage) error { settled = u; return nil }, nil
-		}})
+		var settled ModelAttemptResult
+		_, _, err := client.Complete(t.Context(), Request{Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
+			return func(u ModelAttemptResult) error { settled = u; return nil }, nil
+		})})
 		if err == nil || settled.Dispatched {
 			t.Fatalf("settled=%+v err=%v", settled, err)
 		}
@@ -612,13 +582,13 @@ func TestAttemptAdmissionAndSettlementFailuresStopRetry(t *testing.T) {
 			client := New(server.URL, "test")
 			client.MaxRetries = 4
 			sentinel := errors.New("budget failure")
-			_, _, err := client.Complete(t.Context(), Request{BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
+			_, _, err := client.Complete(t.Context(), Request{Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
 				hooks++
 				if admission {
 					return nil, sentinel
 				}
-				return func(Usage) error { return sentinel }, nil
-			}})
+				return func(ModelAttemptResult) error { return sentinel }, nil
+			})})
 			want := 1
 			if admission {
 				want = 0
@@ -643,15 +613,15 @@ func TestCancelledAttemptSettlesUnknownUsageOnce(t *testing.T) {
 			defer server.Close()
 			client := New(server.URL, "fixture")
 			settlements := 0
-			request := Request{BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
-				return func(usage Usage) error {
+			request := Request{Accounting: testCallAccounting(func(context.Context, ModelAttempt) (func(ModelAttemptResult) error, error) {
+				return func(usage ModelAttemptResult) error {
 					settlements++
-					if !usage.Dispatched || usage.Reported {
+					if !usage.Dispatched || usage.Usage.Reported {
 						t.Errorf("cancelled usage=%+v", usage)
 					}
 					return nil
 				}, nil
-			}}
+			})}
 			if stream {
 				_, _, _ = client.Stream(ctx, request, nil, nil, nil)
 			} else {

@@ -122,10 +122,23 @@ to that model; unset params are omitted so the provider applies its defaults.
 
 ## Cost tracking
 
-When the provider advertises `pricing` in `GET /models`, the status line
-shows session spend: `llm.Usage` (prompt/completion/cached) comes off each
-streamed response, cached input is billed at the cache-read rate, and totals
-accumulate per session. Hidden entirely when pricing isn't advertised.
+Each model attempt records its provider-reported `usage.cost` charge first,
+including an explicit zero. When that field is absent, WHIP estimates cost
+from that call's reported input, output, and cached tokens using the saved
+`GET /models` prices for its exact route. Missing prices remain unknown;
+explicitly free input, output, and cache rates remain free. Prices are
+snapshotted per call, so model changes and catalog refreshes cannot reprice
+past work.
+
+Clients show provider-reported charges, estimated charges, and unknown or
+pending calls separately for the entire agent tree. Model cost, tokens, and
+cumulative request time are unlimited by default. Unpriced models are allowed
+with unknown cost only when no finite monetary cap applies. A finite cap
+requires usable pricing before dispatch; reported charges may still exceed
+the reservation, in which case the response is retained and further work stops.
+Known charges use integer millionths of a dollar, rounding each call upward to
+that unit. Missing token usage remains unconfirmed even when a provider reports
+a charge or the route is known to be free.
 
 ## Compaction model
 

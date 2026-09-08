@@ -196,7 +196,7 @@ func (s *Store) readCollectionEntry(ctx context.Context, tx *sql.Tx, rootID, col
 	case "budgets":
 		var value SnapshotBudget
 		var row budgetRow
-		err := tx.QueryRowContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value,uncertain_value,incomplete FROM budgets WHERE root_id=? AND rowid=?`, rootID, key).Scan(&value.AgentID, &row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete)
+		err := tx.QueryRowContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value,uncertain_value,incomplete,model_incomplete FROM budgets WHERE root_id=? AND rowid=?`, rootID, key).Scan(&value.AgentID, &row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete, &row.modelIncomplete)
 		if err != nil {
 			return CollectionEntry{}, err
 		}

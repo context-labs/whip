@@ -256,6 +256,9 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 	if err := s.settleInterruptedOperationReservations(ctx, tx, rootID, targetAgentID); err != nil {
 		return 0, err
 	}
+	if err := s.settleInterruptedModelCallsTx(ctx, tx, rootID, targetAgentID); err != nil {
+		return 0, err
+	}
 	agentWhere := `status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`
 	if status == "deleted" {
 		agentWhere = `status!='deleted'`

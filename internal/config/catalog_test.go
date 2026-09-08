@@ -4,22 +4,41 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/llm"
 )
 
-func TestCatalogPricing(t *testing.T) {
-	cat := Catalog{Models: []ModelInfoLite{
-		{ID: "priced", InPrice: 1e-6, OutPrice: 5e-6, CacheReadPrice: 1e-7},
-		{ID: "unpriced"},
-	}}
-	in, out, cr, ok := cat.Pricing("priced")
-	if !ok || in != 1e-6 || out != 5e-6 || cr != 1e-7 {
-		t.Fatalf("priced model: %v %v %v ok=%v", in, out, cr, ok)
+func TestCatalogModelPricingPreservesPresence(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		pricing llm.Pricing
+	}{
+		{name: "unknown"},
+		{name: "free", pricing: llm.Pricing{Prompt: "0", Completion: "0"}},
+		{name: "free cache", pricing: llm.Pricing{Prompt: "0.000002", Completion: "0.000005", InputCacheRead: "0"}},
+		{name: "absent cache", pricing: llm.Pricing{Prompt: "0.000002", Completion: "0.000005"}},
+		{name: "missing output", pricing: llm.Pricing{Prompt: "0.000002"}},
 	}
-	if _, _, _, ok := cat.Pricing("unpriced"); ok {
-		t.Fatal("model with no prices should report ok=false")
-	}
-	if _, _, _, ok := cat.Pricing("missing"); ok {
-		t.Fatal("unknown model should report ok=false")
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			catalog := Catalog{Models: []ModelInfoLite{
+				{ID: "selected", Pricing: test.pricing},
+				{ID: "other", Pricing: llm.Pricing{Prompt: "1", Completion: "2"}},
+			}}
+			got := catalog.ModelPricing("selected")
+			if got != test.pricing {
+				t.Fatalf("pricing = %+v, want %+v", got, test.pricing)
+			}
+			catalog.Models[0].Pricing.Prompt = "9"
+			if got != test.pricing {
+				t.Fatal("an existing pricing snapshot changed after a catalog update")
+			}
+			if missing := catalog.ModelPricing("missing"); missing != (llm.Pricing{}) {
+				t.Fatalf("missing model pricing = %+v", missing)
+			}
+		})
 	}
 }
 
@@ -39,17 +58,28 @@ func TestCatalogEffortsNormalizesOffAndMissingModels(t *testing.T) {
 }
 
 func TestCatalogPricingRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Setenv("WHIP_HOME", t.TempDir())
+	free := llm.Pricing{Prompt: "0", Completion: "0", InputCacheRead: "0"}
+	paid := llm.Pricing{Prompt: "0.000001", Completion: "0.000005", InputCacheRead: "0.0000001"}
 	cats := map[string]Catalog{
-		"p": {Models: []ModelInfoLite{{ID: "m", InPrice: 1e-6, OutPrice: 5e-6, CacheReadPrice: 1e-7}}},
+		"p": {Models: []ModelInfoLite{
+			{ID: "m", Pricing: paid},
+			{ID: "free", Pricing: free},
+			{ID: "unknown"},
+		}},
 	}
 	if err := SaveCatalogs(cats); err != nil {
 		t.Fatal(err)
 	}
 	got := LoadCatalogs()
-	in, out, cr, ok := got["p"].Pricing("m")
-	if !ok || in != 1e-6 || out != 5e-6 || cr != 1e-7 {
-		t.Fatalf("round-trip: %v %v %v ok=%v", in, out, cr, ok)
+	if pricing := got["p"].ModelPricing("m"); pricing != paid {
+		t.Fatalf("paid rates lost on round-trip: %+v", pricing)
+	}
+	if pricing := got["p"].ModelPricing("free"); pricing != free {
+		t.Fatalf("free rates lost on round-trip: %+v", pricing)
+	}
+	if pricing := got["p"].ModelPricing("unknown"); pricing != (llm.Pricing{}) {
+		t.Fatalf("unknown rates became known on round-trip: %+v", pricing)
 	}
 }
 
@@ -88,7 +118,7 @@ func TestCatalogSupportsVision(t *testing.T) {
 }
 
 func TestCatalogModelLimitsAndFreePrices(t *testing.T) {
-	catalog := Catalog{Models: []ModelInfoLite{{ID: "model", ContextLength: 1048576, MaxCompletionTokens: 1048576, PricingKnown: true, CacheReadPriceKnown: true}}}
+	catalog := Catalog{Models: []ModelInfoLite{{ID: "model", ContextLength: 1048576, MaxCompletionTokens: 1048576, Pricing: llm.Pricing{Prompt: "0", Completion: "0", InputCacheRead: "0"}}}}
 	for _, tc := range []struct {
 		name  string
 		model Model
@@ -107,7 +137,7 @@ func TestCatalogModelLimitsAndFreePrices(t *testing.T) {
 	if _, output := (Catalog{}).ModelLimits("missing", Model{Context: 32768}); output != 32768 {
 		t.Fatalf("fallback output=%d", output)
 	}
-	if prices := catalog.TokenPrices("model"); !prices.Known || !prices.CacheReadKnown || prices.CacheRate() != 0 {
+	if prices := catalog.ModelPricing("model"); !prices.Known() || prices.InputCacheRead != "0" {
 		t.Fatalf("free: %+v", prices)
 	}
 }

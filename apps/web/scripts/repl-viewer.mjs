@@ -74,9 +74,16 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     return value?.id === expected?.id && Math.abs(value.offset - expected.offset) < 4;
   }, { description: 'saved reading anchor' });
   const scrollUp = async region => {
-    await region.evaluate(element => { element.scrollTop = Math.max(100, element.scrollHeight - element.clientHeight - 700); });
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    return anchor(region);
+    await region.hover({ position: { x: 8, y: 8 } });
+    await page.mouse.wheel(0, -700);
+    let previous, stableSince = performance.now();
+    return eventually(async () => {
+      const current = await anchor(region);
+      const away = await region.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight > 64);
+      if (!away || !current || current.id !== previous?.id || Math.abs(current.offset - previous.offset) >= 1) stableSince = performance.now();
+      previous = current;
+      return away && current && performance.now() - stableSince >= 300 ? current : false;
+    }, { description: 'settled reading position after user scroll' });
   };
   const latest = async id => {
     const button = panel(id).getByRole('button', { name: 'Latest', exact: true });
@@ -214,10 +221,13 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
 
     const historyBeforePaging = frames.filter(frame => frame.method === 'history.page').length;
     for (let index = 0; index < 4; index++) {
-      await notebook(moved).evaluate(element => { element.scrollTop = 0; });
-      await panel(moved).getByRole('button', { name: 'Load older executions', exact: true }).click();
+      const older = panel(moved).getByRole('button', { name: 'Load older executions', exact: true });
+      if (!await older.count()) break;
+      // Activate only one loading path: scrolling to the control first would
+      // also request a page through the near-top scroll handler.
+      await older.evaluate(button => button.click());
       await eventually(() => frames.filter(frame => frame.method === 'history.page').length > historyBeforePaging + index, { description: 'explicit bounded history page' });
-      await expect(panel(moved).getByRole('button', { name: 'Load older executions', exact: true })).toBeEnabled();
+      await eventually(async () => !await older.count() || await older.isEnabled(), { description: 'older page completes or exhausts history' });
       const count = Number((await panel(moved).getByText(/^\d+ loaded cells?$/).innerText()).split(' ')[0]);
       assert.ok(count <= 128, `Loaded ${count} cells from more than 512 retained messages`);
     }

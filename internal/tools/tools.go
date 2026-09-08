@@ -790,6 +790,9 @@ func ExecuteWithSuggester(ctx context.Context, ts []Tool, name string, args json
 		if t.Def.Function.Name == name {
 			out, err := t.Run(ctx, args)
 			if err != nil {
+				if out != "" {
+					return "Error: " + err.Error() + "\n" + out
+				}
 				return "Error: " + err.Error()
 			}
 			if out == "" {

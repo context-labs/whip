@@ -2,11 +2,13 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
@@ -70,14 +72,16 @@ func TestModelCallBudgetAccountsPriceElapsedAndActiveOperation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prices := llm.TokenPrices{Input: 0.000002, Output: 0.000005, CacheRead: 0.0000005, Known: true, CacheReadKnown: true}
-	settle, err := root.ReserveModelCall(context.Background(), llm.CallEstimate{PromptTokens: 60, OutputTokens: 40, Prices: prices})
+	permit, err := root.BeginModelAttempt(context.Background(), llm.ModelAttempt{
+		LogicalID: "call", Number: 1, Model: "test", InputTokens: 80, MaxTokens: 20, Timeout: time.Second,
+		Pricing: llm.Pricing{Prompt: "0.000002", Completion: "0.000005", InputCacheRead: "0.0000005"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := settle(llm.Usage{Reported: true, Dispatched: true, PromptTokens: 10, CompletionTokens: 4, PromptTokensDetails: &struct {
+	if err := permit.Settle(llm.ModelAttemptResult{Dispatched: true, Elapsed: time.Millisecond, Usage: llm.Usage{PromptTokens: 10, CompletionTokens: 4, PromptTokensDetails: &struct {
 		CachedTokens int `json:"cached_tokens"`
-	}{CachedTokens: 2}}); err != nil {
+	}{CachedTokens: 2}}}); err != nil {
 		t.Fatal(err)
 	}
 	states, err := root.InspectBudgets(context.Background(), root.AgentID(), root.AgentID())
@@ -91,10 +95,9 @@ func TestModelCallBudgetAccountsPriceElapsedAndActiveOperation(t *testing.T) {
 	if got := byKind[session.BudgetTokens]; got.Used != 14 || got.Reserved != 0 {
 		t.Fatalf("token budget = %+v", got)
 	}
-	usage := llm.Usage{Reported: true, Dispatched: true, PromptTokens: 10, CompletionTokens: 4, PromptTokensDetails: &struct {
-		CachedTokens int `json:"cached_tokens"`
-	}{CachedTokens: 2}}
-	if got := byKind[session.BudgetCost]; got.Used != actualCostMicros(usage, prices) || got.Reserved != 0 {
+	// Eight uncached prompt tokens (16 micros), two cache tokens (1 micro)
+	// and four output tokens (20 micros).
+	if got := byKind[session.BudgetCost]; got.Used != 37 || got.Reserved != 0 {
 		t.Fatalf("cost budget = %+v", got)
 	}
 	if got := byKind[session.BudgetElapsed]; got.Reserved != 0 {
@@ -103,8 +106,119 @@ func TestModelCallBudgetAccountsPriceElapsedAndActiveOperation(t *testing.T) {
 	if got := byKind[session.BudgetActiveOperations]; got.Used != 0 || got.Reserved != 0 {
 		t.Fatalf("active operation budget = %+v", got)
 	}
-	if _, err := root.ReserveModelCall(context.Background(), llm.CallEstimate{OutputTokens: 1, Prices: llm.TokenPrices{Input: -1}}); err == nil {
-		t.Fatal("negative model price was accepted")
+}
+
+func TestModelAccountingFailureRetriesSettlementWithoutProviderReplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	store := openStore(t, path)
+	rootID := createRoot(t, store)
+	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	root, err := owner.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := llm.ModelAttempt{LogicalID: "one", Number: 1, Model: "m", InputTokens: 10, MaxTokens: 10, Timeout: time.Second}
+	permit, err := root.BeginModelAttempt(t.Context(), attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := routeControlOwnedValue(root, t.Context(), func(ctx context.Context) (struct{}, error) {
+		_, err := db.ExecContext(ctx, `CREATE TRIGGER fail_accounting BEFORE UPDATE ON model_calls BEGIN SELECT RAISE(ABORT,'injected settlement failure'); END`)
+		return struct{}{}, err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result := llm.ModelAttemptResult{Dispatched: true, Elapsed: time.Millisecond, Usage: llm.Usage{PromptTokens: 5, CompletionTokens: 3}}
+	if err := permit.Settle(result); err == nil {
+		t.Fatal("injected settlement failure was ignored")
+	}
+	conflicting := result
+	conflicting.Usage.CompletionTokens = 99
+	if err := permit.Settle(conflicting); err == nil {
+		t.Fatal("conflicting callback replaced a result while storage was unavailable")
+	}
+	attempt.LogicalID = "two"
+	if _, err := root.BeginModelAttempt(t.Context(), attempt); err == nil {
+		t.Fatal("unresolved accounting admitted another call")
+	}
+	if _, err := routeControlOwnedValue(root, t.Context(), func(ctx context.Context) (struct{}, error) {
+		_, err := db.ExecContext(ctx, `DROP TRIGGER fail_accounting`)
+		return struct{}{}, err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := root.BeginModelAttempt(t.Context(), attempt)
+	if err != nil {
+		t.Fatalf("admission: %v; root: %v", err, root.Err())
+	}
+	if err := second.Settle(llm.ModelAttemptResult{}); err != nil {
+		t.Fatal(err)
+	}
+	// Repeating the first callback can only return the prior settlement.
+	if err := permit.Settle(result); err != nil {
+		t.Fatal(err)
+	}
+	if err := permit.Settle(conflicting); !errors.Is(err, session.ErrModelCallConflict) {
+		t.Fatalf("conflicting terminal settlement: %v", err)
+	}
+	root.accountingMu.Lock()
+	pending := len(root.pendingAccounting)
+	root.accountingMu.Unlock()
+	if pending != 0 {
+		t.Fatal("conflicting settled callback poisoned future admission")
+	}
+	var calls, tokens int
+	if err := db.QueryRow(`SELECT count(*),sum(tokens) FROM model_calls WHERE root_id=?`, rootID).Scan(&calls, &tokens); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || tokens != 8 {
+		t.Fatalf("calls=%d tokens=%d; settlement repair duplicated spend", calls, tokens)
+	}
+	accounting, err := store.ModelAccounting(t.Context(), rootID, "", true)
+	if err != nil || accounting.PendingCalls != 0 || accounting.ReportedCalls != 1 {
+		t.Fatalf("accounting=%+v error=%v", accounting, err)
+	}
+}
+
+func TestModelAccountingShutdownFlushesRetainedOutcome(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	owner, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+		return Components{Runner: &fakeRunner{}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	root, err := owner.Open(rootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permit, err := root.BeginModelAttempt(t.Context(), llm.ModelAttempt{LogicalID: "shutdown", Number: 1, Model: "m", InputTokens: 100, MaxTokens: 20, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cost := 0.000123
+	// This is the live state after a transient persistence failure. Closing
+	// must retry this exact known outcome before estimating interrupted calls.
+	root.accountingMu.Lock()
+	root.pendingAccounting = map[string]llm.ModelAttemptResult{permit.ID: {Dispatched: true, Elapsed: time.Millisecond, Usage: llm.Usage{PromptTokens: 2, CompletionTokens: 3, Cost: &cost}}}
+	root.accountingMu.Unlock()
+	root.Stop()
+	accounting, err := store.ModelAccounting(t.Context(), rootID, "", true)
+	if err != nil || accounting.ReportedCostMicros != 123 || accounting.ReportedCalls != 1 || accounting.EstimatedCalls != 0 || accounting.PendingCalls != 0 {
+		t.Fatalf("shutdown lost retained outcome: %+v %v", accounting, err)
 	}
 }
 
@@ -128,19 +242,21 @@ func TestUnlimitedModelCallsShareAccountingWithoutDefaultDenial(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	estimate := llm.CallEstimate{PromptTokens: 12929, OutputTokens: 1048576, Prices: llm.TokenPrices{Input: 0.0000045, Output: 0.0000225, Known: true}}
+	attempt := llm.ModelAttempt{Number: 1, Model: "fixture", InputTokens: 12929, MaxTokens: 1048576, Timeout: time.Minute, Pricing: llm.Pricing{Prompt: "0.0000045", Completion: "0.0000225"}}
 	type admission struct {
-		settle func(llm.Usage) error
+		settle func(llm.ModelAttemptResult) error
 		err    error
 	}
 	results := make(chan admission, len(ids))
 	for _, id := range ids {
 		go func() {
-			settle, err := root.ReserveAgentModelCall(t.Context(), id, estimate)
-			results <- admission{settle, err}
+			request := attempt
+			request.LogicalID = id
+			permit, err := root.beginAgentModelAttempt(t.Context(), id, request)
+			results <- admission{permit.Settle, err}
 		}()
 	}
-	var settlements []func(llm.Usage) error
+	var settlements []func(llm.ModelAttemptResult) error
 	for range ids {
 		result := <-results
 		if result.err != nil {
@@ -158,7 +274,7 @@ func TestUnlimitedModelCallsShareAccountingWithoutDefaultDenial(t *testing.T) {
 		}
 	}
 	for _, settle := range settlements {
-		usage := llm.Usage{Reported: true, Dispatched: true, PromptTokens: 100, CompletionTokens: 10}
+		usage := llm.ModelAttemptResult{Dispatched: true, Elapsed: time.Millisecond, Usage: llm.Usage{Reported: true, PromptTokens: 100, CompletionTokens: 10}}
 		if err := settle(usage); err != nil {
 			t.Fatal(err)
 		}
@@ -205,9 +321,7 @@ func TestFiniteModelCapStopsRetryAfterUnknownUsage(t *testing.T) {
 	defer server.Close()
 	client := llm.New(server.URL, "fixture")
 	client.MaxRetries = 2
-	request := llm.Request{MaxTokens: 1, BeforeAttempt: func(ctx context.Context, _ llm.Request) (func(llm.Usage) error, error) {
-		return root.ReserveModelCall(ctx, llm.CallEstimate{OutputTokens: 1, Prices: llm.TokenPrices{Output: 1, Known: true}})
-	}}
+	request := llm.Request{Model: "fixture", MaxTokens: 1, Accounting: &llm.CallAccounting{Budget: root, Purpose: "test", Pricing: llm.Pricing{Prompt: "0", Completion: "1"}}}
 	if _, _, err := client.Complete(t.Context(), request); !errors.Is(err, capability.ErrDenied) {
 		t.Fatalf("retry error: %v", err)
 	}

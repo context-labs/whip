@@ -64,13 +64,14 @@ var defaultRootBudgets = []BudgetLimit{
 }
 
 type budgetRow struct {
-	agentID    string
-	kind       BudgetKind
-	limit      *int64
-	used       int64
-	reserved   int64
-	uncertain  int64
-	incomplete bool
+	agentID         string
+	kind            BudgetKind
+	limit           *int64
+	used            int64
+	reserved        int64
+	uncertain       int64
+	incomplete      bool
+	modelIncomplete int64
 }
 
 func insertDefaultRootBudgets(ctx context.Context, tx *sql.Tx, rootID, stamp string) error {
@@ -111,6 +112,11 @@ func (s *Store) SetBudgetLimit(ctx context.Context, rootID, agentID string, kind
 	}
 	if isChildLiveBudgetKind(kind) {
 		if err := syncChildBudgetReservationsTx(ctx, tx, rootID); err != nil {
+			return err
+		}
+	}
+	if kind == BudgetCost {
+		if err := requireBoundedModelCostTx(ctx, tx, rootID, agentID); err != nil {
 			return err
 		}
 	}
@@ -281,8 +287,8 @@ func (s *Store) CapBudget(ctx context.Context, rootID, callerAgentID, targetAgen
 	var row budgetRow
 	row.agentID, row.kind = rowAgentID, kind
 	insert := false
-	if err := tx.QueryRowContext(ctx, `SELECT limit_value,used_value,reserved_value,uncertain_value,incomplete FROM budgets WHERE root_id=? AND agent_id=? AND kind=?`,
-		rootID, rowAgentID, kind).Scan(&row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT limit_value,used_value,reserved_value,uncertain_value,incomplete,model_incomplete FROM budgets WHERE root_id=? AND agent_id=? AND kind=?`,
+		rootID, rowAgentID, kind).Scan(&row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete, &row.modelIncomplete); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return BudgetState{}, err
 		}
@@ -296,14 +302,28 @@ func (s *Store) CapBudget(ctx context.Context, rootID, callerAgentID, targetAgen
 		row.limit = &limit
 		for _, inherited := range rows {
 			remaining, valid := budgetRemaining(inherited)
-			if !valid || inherited.reserved > 0 || inherited.limit != nil && inherited.used > *inherited.limit {
+			if !valid || inherited.limit != nil && inherited.used > *inherited.limit {
 				return BudgetState{}, capability.ErrDenied
+			}
+			if inherited.reserved > 0 {
+				held, err := heldModelReservationsTx(ctx, tx, rootID, inherited.agentID, kind)
+				if err != nil {
+					return BudgetState{}, err
+				}
+				if held != inherited.reserved {
+					return BudgetState{}, capability.ErrDenied
+				}
 			}
 			if inherited.limit != nil && remaining < limit {
 				limit = remaining
 			}
 		}
 		insert = true
+	}
+	if !insert && kind == BudgetCost {
+		if err := requireBoundedModelCostTx(ctx, tx, rootID, rowAgentID); err != nil {
+			return BudgetState{}, err
+		}
 	}
 	if row.limit != nil && limit > *row.limit || row.used > limit || row.reserved > limit-row.used || row.uncertain > limit-row.used-row.reserved {
 		return BudgetState{}, capability.ErrDenied
@@ -338,7 +358,7 @@ func budgetStateFromRow(row budgetRow) BudgetState {
 	if row.limit != nil {
 		value = &remaining
 	}
-	return BudgetState{Kind: row.kind, Limit: row.limit, Used: row.used, Reserved: row.reserved, Remaining: value, Uncertain: row.uncertain, Incomplete: row.incomplete}
+	return BudgetState{Kind: row.kind, Limit: row.limit, Used: row.used, Reserved: row.reserved, Remaining: value, Uncertain: row.uncertain, Incomplete: row.incomplete || row.modelIncomplete > 0}
 }
 
 func isModelBudgetKind(kind BudgetKind) bool {
@@ -355,14 +375,14 @@ func validBudgetKind(kind BudgetKind) bool {
 }
 
 func budgetRemaining(row budgetRow) (int64, bool) {
-	if !validBudgetKind(row.kind) || row.used < 0 || row.reserved < 0 || row.uncertain < 0 || row.used > math.MaxInt64-row.reserved || row.uncertain > math.MaxInt64-row.used-row.reserved {
+	if !validBudgetKind(row.kind) || row.modelIncomplete < 0 || row.used < 0 || row.reserved < 0 || row.uncertain < 0 || row.used > math.MaxInt64-row.reserved || row.uncertain > math.MaxInt64-row.used-row.reserved {
 		return 0, false
 	}
 	total := row.used + row.reserved + row.uncertain
 	if row.limit == nil {
 		return math.MaxInt64 - total, isModelBudgetKind(row.kind)
 	}
-	if *row.limit < 0 || !isModelBudgetKind(row.kind) && (total > *row.limit || row.uncertain != 0 || row.incomplete) {
+	if *row.limit < 0 || !isModelBudgetKind(row.kind) && (total > *row.limit || row.uncertain != 0 || row.incomplete || row.modelIncomplete != 0) {
 		return 0, false
 	}
 	return max(*row.limit-total, 0), true
@@ -376,7 +396,7 @@ func loadBudgetRowsTx(ctx context.Context, tx *sql.Tx, rootID, agentID string, k
 		SELECT id,parent_id FROM agents WHERE root_id=? AND id=?
 		UNION
 		SELECT a.id,a.parent_id FROM agents a JOIN ancestors p ON a.id=p.parent_id WHERE a.root_id=?
-	) SELECT b.agent_id,b.kind,b.limit_value,b.used_value,b.reserved_value,b.uncertain_value,b.incomplete FROM budgets b
+	) SELECT b.agent_id,b.kind,b.limit_value,b.used_value,b.reserved_value,b.uncertain_value,b.incomplete,b.model_incomplete FROM budgets b
 	WHERE b.root_id=? AND EXISTS(SELECT 1 FROM ancestors)
 	AND (b.agent_id='' OR b.agent_id IN (SELECT id FROM ancestors))`
 	args := []any{rootID, agentID, rootID, rootID}
@@ -393,7 +413,7 @@ func loadBudgetRowsTx(ctx context.Context, tx *sql.Tx, rootID, agentID string, k
 	var budgets []budgetRow
 	for rows.Next() {
 		var row budgetRow
-		if err := rows.Scan(&row.agentID, &row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete); err != nil {
+		if err := rows.Scan(&row.agentID, &row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete, &row.modelIncomplete); err != nil {
 			return nil, err
 		}
 		if _, valid := budgetRemaining(row); !valid {
@@ -422,13 +442,9 @@ func loadBudgetRowsTx(ctx context.Context, tx *sql.Tx, rootID, agentID string, k
 }
 
 func validateBudgetReservations(reservations []capability.Reservation) error {
-	return validateReservations(reservations, false)
-}
-
-func validateReservations(reservations []capability.Reservation, model bool) error {
 	seen := make(map[string]struct{}, len(reservations))
 	for _, reservation := range reservations {
-		if !validBudgetKind(BudgetKind(reservation.Kind)) || reservation.Amount < 0 || reservation.Amount == 0 && (!model || !isModelBudgetKind(BudgetKind(reservation.Kind))) {
+		if !validBudgetKind(BudgetKind(reservation.Kind)) || reservation.Amount <= 0 {
 			return capability.ErrDenied
 		}
 		if _, duplicate := seen[reservation.Kind]; duplicate {
@@ -466,11 +482,7 @@ func validateCapabilityBudgets(ctx context.Context, tx *sql.Tx, rootID, agentID 
 }
 
 func reserveCapabilityBudgets(ctx context.Context, tx *sql.Tx, rootID, agentID string, reservations []capability.Reservation) error {
-	return reserveBudgetRows(ctx, tx, rootID, agentID, reservations, false)
-}
-
-func reserveBudgetRows(ctx context.Context, tx *sql.Tx, rootID, agentID string, reservations []capability.Reservation, model bool) error {
-	if err := validateReservations(reservations, model); err != nil {
+	if err := validateBudgetReservations(reservations); err != nil {
 		return err
 	}
 	stamp := now()
@@ -505,11 +517,7 @@ func reserveBudgetRows(ctx context.Context, tx *sql.Tx, rootID, agentID string, 
 }
 
 func settleCapabilityBudgets(ctx context.Context, tx *sql.Tx, rootID, agentID string, reservations []capability.Reservation, actual []capability.Usage) error {
-	return settleBudgetRows(ctx, tx, rootID, agentID, reservations, actual, false)
-}
-
-func settleBudgetRows(ctx context.Context, tx *sql.Tx, rootID, agentID string, reservations []capability.Reservation, actual []capability.Usage, model bool) error {
-	if err := validateReservations(reservations, model); err != nil {
+	if err := validateBudgetReservations(reservations); err != nil {
 		return err
 	}
 	actualByKind := make(map[string]int64, len(actual))
@@ -525,15 +533,10 @@ func settleBudgetRows(ctx context.Context, tx *sql.Tx, rootID, agentID string, r
 	stamp := now()
 	for _, reservation := range reservations {
 		used, known := actualByKind[reservation.Kind]
-		uncertain := int64(0)
-		incomplete := model && isModelBudgetKind(BudgetKind(reservation.Kind)) && !known
-		if incomplete {
-			uncertain = reservation.Amount
-		}
-		if !known && !incomplete && (reservation.Consume || !isLiveBudgetKind(BudgetKind(reservation.Kind))) {
+		if !known && (reservation.Consume || !isLiveBudgetKind(BudgetKind(reservation.Kind))) {
 			used = reservation.Amount
 		}
-		if known && used > reservation.Amount && (!model || !isModelBudgetKind(BudgetKind(reservation.Kind))) {
+		if known && used > reservation.Amount {
 			return capability.ErrDenied
 		}
 		delete(actualByKind, reservation.Kind)
@@ -542,19 +545,18 @@ func settleBudgetRows(ctx context.Context, tx *sql.Tx, rootID, agentID string, r
 			return err
 		}
 		for _, row := range rows {
-			if row.reserved < reservation.Amount || used > math.MaxInt64-row.used || uncertain > math.MaxInt64-row.uncertain {
+			if row.reserved < reservation.Amount || used > math.MaxInt64-row.used {
 				return capability.ErrDenied
 			}
 			next := row
 			next.reserved -= reservation.Amount
 			next.used += used
-			next.uncertain += uncertain
 			if _, valid := budgetRemaining(next); !valid {
 				return capability.ErrDenied
 			}
-			result, err := tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=?,used_value=?,uncertain_value=?,incomplete=?,updated_at=?
+			result, err := tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=?,used_value=?,updated_at=?
     WHERE root_id=? AND agent_id=? AND kind=?`,
-				next.reserved, next.used, next.uncertain, row.incomplete || incomplete, stamp, rootID, row.agentID, reservation.Kind)
+				next.reserved, next.used, stamp, rootID, row.agentID, reservation.Kind)
 			if err != nil {
 				return err
 			}
@@ -606,56 +608,6 @@ func releaseCapabilityBudgets(ctx context.Context, tx *sql.Tx, rootID, agentID s
 		}
 	}
 	return nil
-}
-
-// ReserveModelBudget admits a transport attempt. Zero model estimates are valid
-// for known-free or unpriced calls; finite monetary caps require known pricing.
-func (s *Store) ReserveModelBudget(ctx context.Context, rootID, agentID string, reservations []capability.Reservation, unpriced bool) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if unpriced {
-		rows, err := loadBudgetRowsTx(ctx, tx, rootID, agentID, BudgetCost)
-		if err != nil {
-			return err
-		}
-		for _, row := range rows {
-			if row.limit != nil {
-				return fmt.Errorf("%w: model pricing is unavailable for a finite cost budget", capability.ErrDenied)
-			}
-		}
-	}
-	if err := reserveBudgetRows(ctx, tx, rootID, agentID, reservations, true); err != nil {
-		return err
-	}
-	if unpriced {
-		rows, err := loadBudgetRowsTx(ctx, tx, rootID, agentID, BudgetCost)
-		if err != nil {
-			return err
-		}
-		for _, row := range rows {
-			if _, err := tx.ExecContext(ctx, `UPDATE budgets SET incomplete=1 WHERE root_id=? AND agent_id=? AND kind=?`, rootID, row.agentID, BudgetCost); err != nil {
-				return err
-			}
-		}
-	}
-	return tx.Commit()
-}
-
-// ReconcileModelBudget records known usage, including estimate overages, and
-// retains unknown usage as conservative exposure rather than known spend.
-func (s *Store) ReconcileModelBudget(ctx context.Context, rootID, agentID string, reservations []capability.Reservation, actual []capability.Usage) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := settleBudgetRows(ctx, tx, rootID, agentID, reservations, actual, true); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 // FormatBudgetAmount gives budget diagnostics units without losing precision.

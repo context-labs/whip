@@ -208,6 +208,22 @@ Expired cursors, sequence gaps, and slow consumers fail explicitly; reacquire a
 snapshot or replay instead of continuing an incomplete stream. Unknown future
 event kinds are marked `unknown: true`.
 
+## Model accounting
+
+Protocol v4.1 adds optional `RootSnapshot.accounting` for the entire session tree.
+`SessionView` updates it from scoped, revision-ordered `stream.accounting` events,
+without adding accounting rows to the conversation or execution evidence. Model
+attempt lifecycle events refresh budgets through the existing coalesced snapshot
+path. Reconnect restores the host snapshot; no separate polling is required.
+
+Cost counters are decimal strings in microdollars. `reported_cost_micros` is the
+provider's charge (including zero); `estimated_cost_micros` uses saved catalog
+rates. `unknown_cost_calls` and `estimated_calls` respectively count unknown
+cost and incomplete token usage, and can overlap. `pending_calls` counts active
+requests. Never treat absent accounting as a known zero or add subtree totals
+to their descendants. `session.agents.inspect(id)` returns optional own-agent
+accounting under `result.accounting`, distinguished by `scope: 'agent'`.
+
 ## Content and human approvals
 
 ```ts

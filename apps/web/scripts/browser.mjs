@@ -26,6 +26,7 @@ const route = rootId => `/h/${fixture.info.runtime_id}/s/${rootId}`;
 
 function observe(page) {
   const requests = [];
+  const replies = new Set();
   const errors = [];
   const inflight = new Map();
   const acceptance = [];
@@ -46,13 +47,14 @@ function observe(page) {
     socket.on('framereceived', ({ payload }) => {
       try {
         const message = JSON.parse(String(payload));
+        if (message.id && !message.method) replies.add(message.id);
         if (message.error) rpcErrors.push({ id: message.id, error: message.error });
         if (message.result?.command_id && message.result?.status) outcomes.push(message.result);
         if (inflight.has(message.id)) { acceptance.push(performance.now() - inflight.get(message.id)); inflight.delete(message.id); }
       } catch { /* See SDK protocol validation. */ }
     });
   });
-  return { requests, errors, acceptance, outcomes, rpcErrors };
+  return { requests, replies, errors, acceptance, outcomes, rpcErrors };
 }
 async function measurePresentation(page) {
   await page.addInitScript(() => {
@@ -382,13 +384,40 @@ try {
       assert.equal(measurements.overflow, false, JSON.stringify(measurements));
       assert.ok(measurements.bottom <= measurements.viewport && measurements.top >= 0, `Composer outside phone viewport: ${JSON.stringify(measurements)}`);
       const conversation = phone.getByLabel('Conversation', { exact: true });
-      await conversation.evaluate(element => { element.scrollTop = 0; element.dispatchEvent(new Event('scroll', { bubbles: true })); });
+      // Reading in the middle isolates incoming output from near-top pagination,
+      // which legitimately changes scrollTop while preserving a message anchor.
+      await conversation.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
       await phone.getByRole('button', { name: 'Latest', exact: true }).waitFor();
-      const before = await conversation.evaluate(element => element.scrollTop);
-      const snapshotsBefore = phoneObserved.requests.filter(item => item.method === 'root.snapshot').length;
+      const stableAnchor = async () => {
+        let previous;
+        let stableSince = performance.now();
+        return eventually(async () => {
+          const current = await conversation.evaluate(element => {
+            const viewport = element.getBoundingClientRect();
+            const row = [...element.querySelectorAll('[data-reading-id]')].find(row => {
+              const rect = row.getBoundingClientRect();
+              return rect.bottom > viewport.top && rect.top < viewport.bottom;
+            });
+            return row ? { id: row.dataset.readingId, offset: row.getBoundingClientRect().top - viewport.top } : null;
+          });
+          // Touch scrolling defers measurement corrections until it settles.
+          // Two adjacent polls can otherwise capture a temporary position.
+          if (current && previous?.id === current.id && Math.abs(previous.offset - current.offset) < 1) {
+            if (performance.now() - stableSince >= 300) return current;
+          } else stableSince = performance.now();
+          previous = current;
+          return false;
+        }, { description: 'stable visible reading anchor' });
+      };
+      const before = await stableAnchor();
+      const requestsBefore = phoneObserved.requests.length;
       await session.submit({ text: 'New output must not steal the reading position.' }).result({ signal: AbortSignal.timeout(15_000) });
-      await eventually(() => phoneObserved.requests.filter(item => item.method === 'root.snapshot').length > snapshotsBefore, { description: 'phone receives completed turn' });
-      assert.ok(Math.abs((await conversation.evaluate(element => element.scrollTop)) - before) < 5, 'New output stole the scroll position');
+      await eventually(() => phoneObserved.requests.slice(requestsBefore).some(item => item.method === 'root.snapshot' && phoneObserved.replies.has(item.id)), { description: 'phone receives completed turn snapshot' });
+      await phone.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const after = await stableAnchor();
+      assert.equal(after.id, before.id, `New output changed the reading anchor: ${JSON.stringify({ before, after })}`);
+      assert.ok(Math.abs(after.offset - before.offset) < 5, `New output moved the reading anchor: ${JSON.stringify({ before, after })}`);
+      assert.equal(phoneObserved.requests.slice(requestsBefore).filter(item => item.method === 'history.page').length, 0, 'Incoming-output check must not also paginate history');
       await phone.getByRole('button', { name: 'Latest', exact: true }).click();
       await eventually(async () => conversation.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 64), { description: 'jump to latest' });
       progress('phone prompt and permission denial');

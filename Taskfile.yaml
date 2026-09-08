@@ -78,6 +78,9 @@ tasks:
       - go test -race ./evals/rlm -run '^TestDeterministicRLMEvaluationReport$'
       - WHIP_SDK_RACE=1 npm run acceptance
       - npm run test:package
+      - go test -race ./internal/rlm ./internal/session ./internal/daemon -run '^(TestScratch|TestWorkerSnapshot|TestWorkerRestore|TestWorkerCrossChunk|TestStructuredState|TestStatePages|TestChildScratchSurvivesDaemonRestart|TestPhaseFourAndFiveStoresAreRejectedWithoutMutation)'
+
+      - go test -race ./internal/llm ./internal/session ./internal/agent ./internal/daemon ./internal/tui -run '^(TestModel|TestPricing|TestUsage|TestStreamPreserves|TestStreamUnterminated|TestCompletePreserves|TestMalformedUsage)'
 
   contract:
     desc: "Validate generated Node 24 contracts and deterministic generation (run npm ci first)"

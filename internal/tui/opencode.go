@@ -213,8 +213,8 @@ func (m *model) paneView(th *theme.Theme, pane, height int, expanded bool) strin
 			p.Count = used
 			body = append(body, ui.ListRow{Label: "used", Right: used, Width: band}.Render(th, bg))
 		}
-		if cost, ok := m.sessionCost(); ok {
-			body = append(body, ui.ListRow{Label: "spent", Right: fmt.Sprintf("$%.2f", cost), Width: band}.Render(th, bg))
+		for _, row := range m.accountingRows() {
+			body = append(body, ui.ListRow{Label: row[0], Right: row[1], Width: band}.Render(th, bg))
 		}
 	case paneLSP:
 		p.Title, p.Count = "LSP", "0"
@@ -739,4 +739,27 @@ func (m *model) applyOpencodeStyles() {
 	st.Cursor = th.Textarea.Cursor
 	m.input.SetStyles(st)
 	m.input.Focus()
+}
+
+// Accounting covers the entire agent tree and keeps the provider's charge
+// separate from estimates and calls whose price is unavailable.
+func (m *model) accountingRows() [][2]string {
+	a := m.clientView.accounting
+	if a.RootID == "" {
+		return nil
+	}
+	rows := [][2]string{{"tree reported", fmt.Sprintf("$%.4f", float64(a.ReportedCostMicros)/1_000_000)}}
+	if a.EstimatedCostCalls > 0 {
+		rows = append(rows, [2]string{"tree estimated", fmt.Sprintf("$%.4f", float64(a.EstimatedCostMicros)/1_000_000)})
+	}
+	if a.UnknownCostCalls > 0 {
+		rows = append(rows, [2]string{"cost unknown", fmt.Sprintf("%d calls", a.UnknownCostCalls)})
+	}
+	if a.EstimatedCalls > 0 {
+		rows = append(rows, [2]string{"usage unreported", fmt.Sprintf("%d calls", a.EstimatedCalls)})
+	}
+	if a.PendingCalls > 0 {
+		rows = append(rows, [2]string{"accounting pending", fmt.Sprintf("%d calls", a.PendingCalls)})
+	}
+	return rows
 }

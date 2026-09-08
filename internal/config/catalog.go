@@ -23,16 +23,12 @@ type Catalog struct {
 
 // ModelInfoLite is the subset of the provider's /models entry whip uses.
 type ModelInfoLite struct {
-	PricingKnown        bool     `json:"pricingKnown,omitempty"`
-	CacheReadPriceKnown bool     `json:"cacheReadPriceKnown,omitempty"`
-	ID                  string   `json:"id"`
-	ContextLength       int      `json:"contextLength,omitempty"`       // model's context window (input), 0 if unadvertised
-	MaxCompletionTokens int      `json:"maxCompletionTokens,omitempty"` // provider's output cap, 0 if unadvertised
-	ReasoningEfforts    []string `json:"reasoningEfforts,omitempty"`
-	InPrice             float64  `json:"inPrice,omitempty"`         // USD per prompt token; PricingKnown distinguishes free from missing
-	OutPrice            float64  `json:"outPrice,omitempty"`        // USD per completion token; see PricingKnown
-	CacheReadPrice      float64  `json:"cacheReadPrice,omitempty"`  // USD per cached prompt token; see CacheReadPriceKnown
-	InputModalities     []string `json:"inputModalities,omitempty"` // provider-advertised input types (["text","image"])
+	Pricing             llm.Pricing `json:"pricing,omitzero"` // Raw rates preserve absent versus explicitly free prices.
+	ID                  string      `json:"id"`
+	ContextLength       int         `json:"contextLength,omitempty"`       // model's context window (input), 0 if unadvertised
+	MaxCompletionTokens int         `json:"maxCompletionTokens,omitempty"` // provider's output cap, 0 if unadvertised
+	ReasoningEfforts    []string    `json:"reasoningEfforts,omitempty"`
+	InputModalities     []string    `json:"inputModalities,omitempty"` // provider-advertised input types (["text","image"])
 }
 
 // SupportsVision reports whether the catalog advertises image input for a model
@@ -75,26 +71,13 @@ func (c Catalog) MaxCompletionTokens(id string) int {
 	return 0
 }
 
-// Pricing reports the advertised per-token USD rates for a model id; ok is
-// false when the catalog has no entry for it or the entry has no prices, in
-// which case callers should hide cost rather than show $0.
-func (c Catalog) Pricing(id string) (in, out, cacheRead float64, ok bool) {
-	prices := c.TokenPrices(id)
-	return prices.Input, prices.Output, prices.CacheRate(), prices.Known
-}
-
-// TokenPrices returns a snapshot; an explicit free rate stays distinct from
-// absent pricing. Older positive cached prices remain usable until refresh.
-func (c Catalog) TokenPrices(id string) llm.TokenPrices {
-	if mi := c.Find(id); mi != nil {
-		prices := llm.TokenPrices{Input: mi.InPrice, Output: mi.OutPrice, CacheRead: mi.CacheReadPrice,
-			Known:          mi.PricingKnown || mi.InPrice > 0 && mi.OutPrice > 0,
-			CacheReadKnown: mi.CacheReadPriceKnown || mi.CacheReadPrice > 0}
-		if prices.Validate() == nil {
-			return prices
-		}
+// ModelPricing returns the provider's advertised rates for this exact model.
+// Empty fields remain unknown; "0" remains an explicitly free rate.
+func (c Catalog) ModelPricing(id string) llm.Pricing {
+	if model := c.Find(id); model != nil {
+		return model.Pricing
 	}
-	return llm.TokenPrices{}
+	return llm.Pricing{}
 }
 
 // ModelLimits resolves the same context and response ceilings for every route.

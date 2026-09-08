@@ -211,9 +211,17 @@ try {
   const anchors = [];
   for (let index = 0; index < 4; index++) {
     await viewport.evaluate((element) => {
-      element.scrollTop = 0;
+      element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
     });
-    await frame();
+    // Stay away from automatic near-top loading and let measured rows settle.
+    let previousOffset;
+    let stableSince = performance.now();
+    await eventually(async () => {
+      const offset = await viewport.evaluate(element => element.scrollTop);
+      if (offset !== previousOffset) stableSince = performance.now();
+      previousOffset = offset;
+      return performance.now() - stableSince >= 300;
+    });
     const before = await viewport.evaluate((element) => {
       const row = [...element.querySelectorAll('[data-message-id]')].find(
         (item) =>
@@ -229,7 +237,8 @@ try {
     const start = performance.now();
     await page
       .getByRole('button', { name: 'Load earlier messages', exact: true })
-      .click();
+      // Playwright's auto-scroll would request one page before this click.
+      .evaluate(button => button.click());
     await eventually(
       async () =>
         !(await page

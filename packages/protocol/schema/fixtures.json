@@ -494,6 +494,20 @@
       "inbox": [],
       "blackboard": [],
       "budgets": [],
+      "accounting": {
+        "root_id": "",
+        "agent_id": "",
+        "scope": "",
+        "revision": "0",
+        "reported_cost_micros": "0",
+        "estimated_cost_micros": "0",
+        "reported_cost_calls": "0",
+        "estimated_cost_calls": "0",
+        "unknown_cost_calls": "0",
+        "reported_calls": "0",
+        "estimated_calls": "0",
+        "pending_calls": "0"
+      },
       "capabilities": [],
       "schedules": [],
       "permissions": [],
@@ -602,6 +616,20 @@
   {
     "type": "AgentTranscriptResult",
     "value": {
+      "accounting": {
+        "root_id": "",
+        "agent_id": "",
+        "scope": "",
+        "revision": "0",
+        "reported_cost_micros": "0",
+        "estimated_cost_micros": "0",
+        "reported_cost_calls": "0",
+        "estimated_cost_calls": "0",
+        "unknown_cost_calls": "0",
+        "reported_calls": "0",
+        "estimated_calls": "0",
+        "pending_calls": "0"
+      },
       "cursor": "0",
       "agent": {
         "id": "",
@@ -764,6 +792,7 @@
     "value": {
       "cutoff": 0,
       "usage": {
+        "reported": false,
         "prompt_tokens": 0,
         "completion_tokens": 0
       }

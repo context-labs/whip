@@ -368,3 +368,39 @@ test('bounded first history cannot prove that an absent closed observed occurren
   assert.equal(rows.find(row => row.id === live.id)!.historyUnmatched, true);
   assert.equal(rows.find(row => row.code === 'future()')!.hosts.length, 0);
 });
+
+
+test('failed structured results preserve output, scratch notices and restore counts through live and recorded replay', () => {
+  const payload = 'Error: Traceback\ncell failed\n' + JSON.stringify({ value: null, output: 'before failure\n', steps: 11,
+    scratch: { warning: 'Scratch checkpoint failed. Do not replay effects.', skipped: [{ name: 'helper', reason: 'closure' }], skipped_omitted: 3 },
+    restored: { restored: ['saved'], restored_omitted: 2, failed: [], failed_omitted: 1 }, truncated: true });
+  const book = new Notebook();
+  book.emit('stream.tool.started', { id: 'a', name: 'rlm_exec', args: '{"code":"fail()"}' });
+  book.emit('stream.tool.output', { id: 'a', text: 'old streamed output' });
+  book.emit('stream.tool.completed', { id: 'a', name: 'rlm_exec', result: payload });
+  const assertResult = (snapshot: SessionViewSnapshot) => {
+    const cell = cells(snapshot)[0]!;
+    assert.equal(cell.status, 'failed');
+    assert.equal(cell.output, 'before failure\n');
+    assert.equal(cell.steps, 11);
+    assert.equal(cell.error, 'Traceback\ncell failed');
+    assert.match(cell.scratch!, /Do not replay effects/);
+    assert.match(cell.scratch!, /helper: closure/);
+    assert.match(cell.scratch!, /3 additional bindings omitted/);
+    assert.equal(cell.truncated, true);
+    assert.ok(executionRows(snapshot, 'root').some(row => row.kind === 'restart' && row.text === 'Restarted · restored 3 · 1 skipped'));
+  };
+  assertResult(book.snapshot());
+  book.histories = history([call(1, 'a', 'fail()'), completed(2, 'a', payload)]);
+  book.evidence = reconcileExecutions(book.evidence, book.histories);
+  assertResult(book.snapshot());
+  assertResult(state(undefined, book.histories));
+});
+
+test('bounded return-value previews remain previews instead of falsely showing null', () => {
+  const snapshot = state(undefined, history([call(1, 'a', 'huge_value'), completed(2, 'a', JSON.stringify({
+    value: null, value_preview: '[1,2,...', steps: 2, truncated: true,
+  }))]));
+  assert.equal(cells(snapshot)[0]!.value, '[1,2,...');
+  assert.equal(cells(snapshot)[0]!.truncated, true);
+});

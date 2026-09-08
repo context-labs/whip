@@ -522,3 +522,60 @@ describe('read-only budget usage', () => {
     expect(f.client.submit).not.toHaveBeenCalled();
   });
 });
+
+
+describe('model accounting provenance', () => {
+  const accounting = (): NonNullable<RootSnapshot['accounting']> => ({
+    root_id: 'root', agent_id: 'root', scope: 'subtree', revision: '11',
+    reported_cost_micros: '9007199254740993', estimated_cost_micros: '1250000',
+    reported_cost_calls: '3', estimated_cost_calls: '2', unknown_cost_calls: '1',
+    reported_calls: '4', estimated_calls: '2', pending_calls: '1',
+  });
+
+  it('separates provider charges, catalog estimates, missing tokens, unknown costs and active requests for the whole tree', () => {
+    const f = fixture();
+    f.root.accounting = accounting();
+    f.root.meta.usage_in = 999;
+    f.props.agentId = 'selected-child';
+    f.root.budgets = [{ agent_id: 'selected-child', state: { kind: 'cost', limit: null, remaining: null, used: '1000000', reserved: '0', uncertain: '0', incomplete: false } }];
+    const rendered = f.render(<Limits {...f.props} />);
+    expect(screen.getByLabelText('Entire session tree accounting')).toBeTruthy();
+    expect(screen.getByText('Provider-reported cost: $9007199254.740993 · 3 calls')).toBeTruthy();
+    expect(screen.getByText('Catalog-estimated cost: $1.250000 · 2 calls')).toBeTruthy();
+    expect(screen.getByText('Unknown cost: 1 call')).toBeTruthy();
+    expect(screen.getByText('Missing token usage: 2 calls')).toBeTruthy();
+    expect(screen.getByText('In-flight requests: 1 call')).toBeTruthy();
+    expect(screen.getByText('$1.000000 used · $0.000000 in flight')).toBeTruthy();
+    expect(screen.queryByText(/9007199255/)).toBeNull();
+    expect(screen.queryByText(/999 input/)).toBeNull();
+    expect(f.props.agentId).toBe('selected-child');
+    expect(f.client.query).not.toHaveBeenCalled();
+    expect(f.client.call).not.toHaveBeenCalled();
+    expect(f.client.submit).not.toHaveBeenCalled();
+    expect(rendered.container.querySelector('input')).toBeNull();
+  });
+
+  it('keeps reported zero distinct from unknown cost and missing tokens', () => {
+    const f = fixture();
+    f.root.accounting = { ...accounting(), reported_cost_micros: '0', reported_cost_calls: '1', estimated_cost_micros: '0', estimated_cost_calls: '0', unknown_cost_calls: '0', reported_calls: '0', estimated_calls: '1', pending_calls: '0' };
+    f.render(<Limits {...f.props} />);
+    expect(screen.getByText('Provider-reported cost: $0.000000 · 1 call')).toBeTruthy();
+    expect(screen.getByText('Unknown cost: 0 calls')).toBeTruthy();
+    expect(screen.getByText('Missing token usage: 1 call')).toBeTruthy();
+    expect(screen.getByText('In-flight requests: 0 calls')).toBeTruthy();
+  });
+
+  for (const invalid of [undefined, { ...accounting(), scope: 'agent' }, { ...accounting(), root_id: 'other' }, { ...accounting(), agent_id: 'child' }]) {
+    it(`keeps unavailable or wrongly scoped accounting separate from budget rows: ${invalid?.scope ?? 'omitted'} ${invalid?.agent_id ?? ''}`, () => {
+      const f = fixture();
+      f.root.accounting = invalid;
+      f.root.budgets = [{ agent_id: '', state: { kind: 'tokens', limit: null, remaining: null, used: '23', reserved: '0', uncertain: '0', incomplete: false } }];
+      f.render(<Limits {...f.props} />);
+      expect(screen.getByText('Model accounting details are unavailable on this snapshot.')).toBeTruthy();
+      expect(screen.getByText('23 tokens used · 0 tokens in flight')).toBeTruthy();
+      expect(screen.getByText('Unlimited')).toBeTruthy();
+      expect(screen.queryByLabelText('Entire session tree accounting')).toBeNull();
+      expect(screen.queryByText(/Provider-reported cost/)).toBeNull();
+    });
+  }
+});

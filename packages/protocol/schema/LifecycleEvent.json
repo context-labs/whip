@@ -57,6 +57,63 @@
     "error": {
       "type": "string"
     },
+    "model_call": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "logical_id": {
+          "type": "string"
+        },
+        "number": {
+          "type": "integer"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "usage_source": {
+          "type": "string"
+        },
+        "cost_source": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "cost_micros": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "elapsed_millis": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "exhausted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "logical_id",
+        "number",
+        "purpose",
+        "usage_source",
+        "cost_source",
+        "tokens",
+        "cost_micros",
+        "elapsed_millis",
+        "exhausted"
+      ],
+      "additionalProperties": false
+    },
     "acknowledged_inbox": {
       "type": "array",
       "items": {

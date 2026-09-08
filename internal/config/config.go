@@ -540,6 +540,14 @@ func marshalConfig(c *Config) ([]byte, error) {
 // Resolve picks the provider and API model id for a model name.
 // provider may be "" to use the config default routing.
 func (c *Config) Resolve(model, provider string) (Provider, Model, string, error) {
+	_, resolvedProvider, resolvedModel, apiID, err := c.ResolveRoute(model, provider)
+	return resolvedProvider, resolvedModel, apiID, err
+}
+
+// ResolveRoute also returns the selected provider's configuration key. Callers
+// use that identity to look up the catalog for the endpoint actually selected,
+// including when a catalog-only model overrides default routing.
+func (c *Config) ResolveRoute(model, provider string) (string, Provider, Model, string, error) {
 	if model == "" {
 		model = c.DefaultModel
 	}
@@ -550,7 +558,7 @@ func (c *Config) Resolve(model, provider string) (Provider, Model, string, error
 		var err error
 		m, provider, err = c.resolveFromCatalog(model, provider)
 		if err != nil {
-			return Provider{}, Model{}, "", err
+			return "", Provider{}, Model{}, "", err
 		}
 	}
 	if provider == "" {
@@ -561,13 +569,13 @@ func (c *Config) Resolve(model, provider string) (Provider, Model, string, error
 	}
 	p, ok := c.Providers[provider]
 	if !ok {
-		return Provider{}, Model{}, "", fmt.Errorf("unknown provider %q (providers: %s)", provider, keys(c.Providers))
+		return "", Provider{}, Model{}, "", fmt.Errorf("unknown provider %q (providers: %s)", provider, keys(c.Providers))
 	}
 	id := m.ID
 	if id == "" {
 		id = model
 	}
-	return p, m, id, nil
+	return provider, p, m, id, nil
 }
 
 // UnknownModelError flags a Resolve miss the caller may recover from by

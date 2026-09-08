@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ func TestFreshStoreUsesOnlyRecursiveSchema(t *testing.T) {
 	if err := store.db.QueryRowContext(t.Context(), `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil || identity != schemaIdentity {
 		t.Fatalf("schema identity=%q err=%v", identity, err)
 	}
-	for _, table := range []string{"sessions", "agents", "turns", "transcript_messages", "agent_messages", "inbox", "commands", "events", "permission_rules"} {
+	for _, table := range []string{"sessions", "agents", "turns", "transcript_messages", "agent_messages", "inbox", "commands", "events", "permission_rules", "model_calls"} {
 		var present int
 		if err := store.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?`, table).Scan(&present); err != nil || present != 1 {
 			t.Fatalf("table %s count=%d err=%v", table, present, err)
@@ -99,6 +100,49 @@ func TestVersionFiveStoreIsRejectedWithoutMutation(t *testing.T) {
 	}
 	if !bytes.Equal(before, after) {
 		t.Fatal("rejected v5 database was modified")
+	}
+}
+
+func TestPhaseFourAndFiveStoresAreRejectedWithoutMutation(t *testing.T) {
+	for _, prior := range []struct {
+		name          string
+		version       int
+		scratchColumn string
+	}{
+		{"primary-v8", 8, "program"}, {"phase4-v8", 8, "snapshot"}, {"phase5-v9", 9, "snapshot"},
+	} {
+		t.Run(prior.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "sessions.db")
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			query := fmt.Sprintf(`CREATE TABLE runtime_schema(id INTEGER PRIMARY KEY, identity TEXT NOT NULL);
+				INSERT INTO runtime_schema VALUES(1,'whip-recursive-runtime-v%d');
+				CREATE TABLE agent_scratch(%s TEXT);
+				INSERT INTO agent_scratch VALUES('preserve this checkpoint'); PRAGMA user_version=%d`, prior.version, prior.scratchColumn, prior.version)
+			if _, err := db.ExecContext(t.Context(), query); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if opened, err := Open(path); err == nil {
+				opened.Close()
+				t.Fatal("incompatible phase schema accepted")
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Fatal("incompatible checkpoint was modified")
+			}
+		})
 	}
 }
 

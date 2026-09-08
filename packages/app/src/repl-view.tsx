@@ -84,13 +84,25 @@ export function outputPreview(output: string, running: boolean, expanded: boolea
   return { text: hidden ? (running ? lines.slice(-6) : lines.slice(0, 6)).join('\n') : output, hidden };
 }
 
+/** Pretty-print a whole JSON payload; mixed prose output stays as-is. */
+export function formatJsonOutput(output: string): string {
+  const trimmed = output.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return output;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return output;
+  }
+}
+
 function Cell({ row, number, view, connected, expanded, onToggle }: {
   row: ExecutionCell; number: number; view: SessionView; connected: boolean; expanded: boolean; onToggle(): void;
 }) {
   const runtime = useRuntime();
   const running = row.status === 'running' || row.status === 'writing';
   const interrupted = row.status === 'interrupted' || row.status === 'cancelled';
-  const output = outputPreview(row.output, running, expanded);
+  const isJson = !running && formatJsonOutput(row.output) !== row.output;
+  const output = outputPreview(isJson ? formatJsonOutput(row.output) : row.output, running, expanded);
   return <article aria-label={`Execution ${number}`} data-repl-cell={row.id}
     {...stylex.props(styles.cell, running && connected && styles.running, row.status === 'failed' && styles.failed, interrupted && styles.interrupted)}>
     <header {...stylex.props(styles.header)}>
@@ -110,11 +122,12 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
       </div>)}
     </div>}
     {row.output && <div {...stylex.props(styles.section)}>
-      <CodeBlock code={output.text} label={output.hidden && running ? `Output · last 6 lines (${output.hidden} earlier)` : 'Output'} xstyle={styles.code}
+      <CodeBlock code={output.text} language={isJson ? 'json' : undefined} label={output.hidden && running ? `Output · last 6 lines (${output.hidden} earlier)` : 'Output'} xstyle={styles.code}
         downloadAction={<CopyButton label="Copy output" text={row.output} copy={runtime.platform.copy} onError={runtime.report} />} />
       {(output.hidden > 0 || expanded) && <Button variant="ghost" size="sm" onClick={onToggle} aria-expanded={expanded}>{expanded ? 'Collapse output' : `Show ${output.hidden} more ${output.hidden === 1 ? 'line' : 'lines'}`}</Button>}
     </div>}
     {row.value !== undefined && <div {...stylex.props(styles.result)}><span {...stylex.props(styles.resultIcon)} aria-hidden="true">⇒</span><div {...stylex.props(styles.resultCode)}><CodeBlock code={row.value} language="json" label="Return value" xstyle={styles.code} /></div></div>}
+    {row.scratch && <p aria-label="Scratch checkpoint" {...stylex.props(styles.meta)}>{row.scratch}</p>}
     {row.error && <p {...stylex.props(styles.error)}>{row.error}</p>}
     {row.truncated && <p {...stylex.props(styles.meta)}>Some details of this execution are unavailable or truncated.</p>}
     {row.body && <ContentRead key={row.body.reference_id} view={view} agentId={row.agentId} value={row.body} label="Execution record" />}

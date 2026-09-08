@@ -48,10 +48,14 @@ type RootSnapshot struct {
 	Inbox              []InboxItem                `json:"inbox"`
 	Blackboard         []StateValue               `json:"blackboard"`
 	Budgets            []SnapshotBudget           `json:"budgets"`
+	Accounting         ModelAccounting            `json:"accounting,omitempty"`
 	Capabilities       []CapabilityRecord         `json:"capabilities"`
 	Schedules          []Schedule                 `json:"schedules"`
 	Permissions        []PermissionSnapshot       `json:"permissions"`
 	Questions          []LifecycleEvent           `json:"questions"` // open user.ask prompts (question.pending payloads); they live in daemon memory, so a client connecting mid-question learns of them only here
+	// PermissionMode names the consent mode ("prompt" or "automatic"); the
+	// daemon fills it from runner state because the mode is not durable.
+	PermissionMode string `json:"permission_mode,omitempty"`
 }
 
 // SnapshotEvent is presentation-only state that has been durably observed but
@@ -240,6 +244,14 @@ func (s *Store) snapshotRoot(ctx context.Context, rootID string, view *SnapshotV
 	if err := readSnapshotBudgets(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
+	if snapshot.Meta.Kind == SessionKindAgent {
+		snapshot.Accounting, err = modelAccountingTx(ctx, tx, rootID, "", true)
+		if err != nil {
+			return RootSnapshot{}, err
+		}
+	} else {
+		snapshot.Accounting = ModelAccounting{RootID: rootID, Scope: "subtree", Revision: snapshot.Cursor}
+	}
 	if err := readSnapshotCapabilities(ctx, tx, rootID, &snapshot); err != nil {
 		return RootSnapshot{}, err
 	}
@@ -413,7 +425,7 @@ func readSnapshotBlackboard(ctx context.Context, tx *sql.Tx, rootID string, snap
 }
 
 func readSnapshotBudgets(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
-	rows, err := tx.QueryContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value,uncertain_value,incomplete
+	rows, err := tx.QueryContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value,uncertain_value,incomplete,model_incomplete
 		FROM budgets WHERE root_id=? ORDER BY agent_id,kind LIMIT ?`, rootID, snapshot.collectionLimit())
 	if err != nil {
 		return err
@@ -422,7 +434,7 @@ func readSnapshotBudgets(ctx context.Context, tx *sql.Tx, rootID string, snapsho
 	for rows.Next() {
 		var agentID string
 		var row budgetRow
-		if err := rows.Scan(&agentID, &row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete); err != nil {
+		if err := rows.Scan(&agentID, &row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete, &row.modelIncomplete); err != nil {
 			return err
 		}
 		if _, valid := budgetRemaining(row); !valid {

@@ -3,7 +3,7 @@ import { after, before, test } from 'node:test';
 import { writeFile } from 'node:fs/promises';
 import { createWhipClient, webSocket } from '../dist/index.js';
 import { unixSocket } from '../dist/node.js';
-import { createSessionView } from '../dist/state.js';
+import { createSessionView, executionRows } from '../dist/state.js';
 import { eventually, startFixture } from '../scripts/fixture.mjs';
 
 let fixture;
@@ -35,6 +35,35 @@ async function createRoot(client) {
 }
 
 for (const transport of ['unix', 'websocket']) {
+  test(`${transport}: model accounting snapshots preserve scope and exact decimal counters`, async () => {
+    const client = await connect(transport);
+    const rootId = await createRoot(client);
+    // The fixture runner makes no provider requests, so its authoritative
+    // accounting is a known empty summary, distinct from an omitted summary.
+    const command = await client.session(rootId).submit({ text: 'Initialize accounting inspection' }).result(deadline());
+    assert.equal(command.status, 'succeeded');
+    const view = createSessionView(client.session(rootId));
+    const stop = view.subscribe(() => {});
+    try {
+      await view.start();
+      const tree = view.getSnapshot().root.accounting;
+      assert.equal(tree.root_id, rootId);
+      assert.equal(tree.agent_id, rootId);
+      assert.equal(tree.scope, 'subtree');
+      for (const key of ['revision', 'reported_cost_micros', 'estimated_cost_micros', 'reported_cost_calls', 'estimated_cost_calls', 'unknown_cost_calls', 'reported_calls', 'estimated_calls', 'pending_calls']) {
+        assert.match(tree[key], /^\d+$/);
+      }
+      assert.equal(tree.reported_cost_calls, '0');
+      assert.equal(tree.unknown_cost_calls, '0');
+      const inspection = await client.session(rootId).agents.inspect(rootId);
+      assert.equal(inspection.result.accounting.root_id, rootId);
+      assert.equal(inspection.result.accounting.agent_id, rootId);
+      assert.equal(inspection.result.accounting.scope, 'agent');
+      assert.equal(inspection.result.accounting.reported_cost_micros, '0');
+      assert.equal(view.getSnapshot().root.accounting.scope, 'subtree', 'explicit agent inspection never replaces the tree summary');
+    } finally { stop(); await view.dispose(); client.close(); }
+  });
+
   test(`${transport}: uploaded attachments resolve on the host without embedding bodies in requests`, async () => {
     const client = await connect(transport);
     const rootId = await createRoot(client);
@@ -155,6 +184,40 @@ for (const transport of ['unix', 'websocket']) {
     assert.equal(result.result.text, `hold:${key}`);
     assert.equal((await fixture.effects()).filter(value => value === `hold:${key}`).length, 1);
     reattached.close();
+  });
+
+  test(`${transport}: real scratch failures retain execution evidence through durable history and replay`, async () => {
+    const client = await connect(transport);
+    const rootId = await createRoot(client);
+    const view = createSessionView(client.session(rootId));
+    const release = view.subscribe(() => {});
+    const assertCell = snapshot => {
+      const rows = executionRows(snapshot, rootId);
+      const cell = rows.find(row => row.kind === 'cell' && row.callId === 'scratch-result-cell');
+      assert.ok(cell);
+      assert.equal(cell.status, 'failed');
+      assert.equal(cell.output, '43\n');
+      assert.ok(cell.steps > 0);
+      assert.match(cell.error, /cell failed/);
+      assert.match(cell.scratch, /Scratch checkpoint failed/);
+      assert.match(cell.scratch, /Do not replay/);
+      assert.ok(rows.some(row => row.kind === 'restart' && row.text === 'Restarted · restored 1 · 1 skipped'));
+    };
+    try {
+      await view.start();
+      const outcome = await client.session(rootId).submit({ text: 'scratch-result' }).result(deadline());
+      assert.equal(outcome.status, 'succeeded');
+      await eventually(() => { assertCell(view.getSnapshot()); return true; });
+      const events = await client.call('events.replay', { root_id: rootId, cursor: '0', limit: 1000 });
+      assert.ok(events.events.some(event => event.kind === 'stream.tool.completed' && event.payload.result.includes('Scratch checkpoint failed')));
+      const replay = createSessionView(client.session(rootId));
+      const stop = replay.subscribe(() => {});
+      try {
+        await replay.start();
+        await eventually(() => { assertCell(replay.getSnapshot()); return true; });
+        assert.ok(replay.getSnapshot().history[rootId].messages.some(item => item.message?.role === 'tool' && item.message.content.includes('Scratch checkpoint failed')));
+      } finally { stop(); await replay.dispose(); }
+    } finally { release(); await view.dispose(); client.close(); }
   });
 
   test(`${transport}: stale cancellation cannot cancel the next turn`, async () => {

@@ -68,6 +68,28 @@
             "items": {
               "type": "object",
               "properties": {
+                "pricing": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "completion": {
+                      "type": "string"
+                    },
+                    "input_cache_read": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "prompt",
+                    "completion"
+                  ],
+                  "additionalProperties": false
+                },
                 "pricing_known": {
                   "type": "boolean"
                 },

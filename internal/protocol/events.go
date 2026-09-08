@@ -11,13 +11,14 @@ func EventPayloads() map[string]reflect.Type {
 	result := map[string]reflect.Type{}
 	for _, kind := range []string{
 		"stream.text", "stream.reasoning", "stream.tool.call", "stream.tool.started", "stream.tool.output", "stream.tool.completed",
-		"stream.notice", "stream.usage", "stream.cell.host", "stream.terminal.started", "stream.terminal.output",
+		"stream.notice", "stream.usage", "stream.accounting", "stream.cell.host", "stream.terminal.started", "stream.terminal.output",
 		"stream.terminal.awaiting", "stream.terminal.completed",
 	} {
 		result[kind] = reflect.TypeFor[StreamEvent]()
 	}
 	for _, kind := range []string{
 		"session.cwd.updated", "session.effort.updated", "session.title.updated", "session.model.updated",
+		"session.permission_mode.updated",
 	} {
 		result[kind] = reflect.TypeFor[SessionUpdateEvent]()
 	}
@@ -36,7 +37,7 @@ func EventPayloads() map[string]reflect.Type {
 		"root.failed", "root.interrupted", "root.stopped", "agent.subtree.stopped", "agent.subtree.deleted",
 		"goal.continued", "state.private.set", "state.private.append", "state.private.cas",
 		"blackboard.set", "blackboard.append", "blackboard.cas", "subscription.created", "subscription.cancelled",
-		"message.updated", "message.queued", "message.done", "message.deferred", "message.delivered", "scratch.restored",
+		"model.call.started", "model.call.settled", "model.call.corrected", "model.call.interrupted", "message.updated", "message.queued", "message.done", "message.deferred", "message.delivered", "scratch.restored",
 	} {
 		result[kind] = reflect.TypeFor[session.LifecycleEvent]()
 	}

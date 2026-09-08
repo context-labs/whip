@@ -146,16 +146,28 @@ export function Limits({ view, root, connected }: InspectorProps) {
     (item) => item.id,
   );
   const agents = root.agents ?? [];
+  const accounting = root.accounting?.root_id === root.root_id && root.accounting.agent_id === root.root_id
+    && root.accounting.scope === 'subtree' ? root.accounting : undefined;
+  const calls = (value: string) => `${BigInt(value).toLocaleString()} ${value === '1' ? 'call' : 'calls'}`;
   return (
     <>
       <Section
         title="Usage"
         description="Usage includes descendants. Ancestor and child totals overlap. Model usage is unlimited unless an agent explicitly caps a child."
       >
-        <p>
+        {accounting ? <div {...stylex.props(layout.column)} aria-label="Entire session tree accounting">
+          <strong>Entire session tree</strong>
+          <span>Provider-reported cost: {formatBudgetAmount('cost', accounting.reported_cost_micros)} · {calls(accounting.reported_cost_calls)}</span>
+          <span>Catalog-estimated cost: {formatBudgetAmount('cost', accounting.estimated_cost_micros)} · {calls(accounting.estimated_cost_calls)}</span>
+          <span>Unknown cost: {calls(accounting.unknown_cost_calls)}</span>
+          <span>Missing token usage: {calls(accounting.estimated_calls)}</span>
+          <span>In-flight requests: {calls(accounting.pending_calls)}</span>
+          <p {...stylex.props(layout.muted)}>Missing token usage and unknown cost are independent; a provider can report a charge without reporting tokens.</p>
+        </div> : <p {...stylex.props(layout.muted)}>Model accounting details are unavailable on this snapshot.</p>}
+        {!accounting && <p>
           {root.meta.usage_in.toLocaleString()} input · {root.meta.usage_out.toLocaleString()}{' '}
           output · {root.meta.usage_cached.toLocaleString()} cached tokens
-        </p>
+        </p>}
         {values.map((item) => (
           <div
             key={`${item.agent_id}:${item.state.kind}`}
@@ -507,12 +519,14 @@ export function Permissions(props: InspectorProps) {
   const query = useDetailQuery(props, 'permission.rules', {});
   const idle = !Object.keys(props.root.active_turns ?? {}).length;
   const [policy, setPolicy] = useState('client');
+  const current = props.root.permission_mode === 'automatic' ? 'host' : props.root.permission_mode === 'prompt' ? 'client' : '';
   return (
     <>
       <Section
         title="Permission policy"
-        description="Every connected client may answer pending requests. Saved rules and delegated authority still apply. The daemon does not currently report the active consent mode."
+        description="Every connected client may answer pending requests. Saved rules and delegated authority still apply."
       >
+        {current && <p {...stylex.props(layout.muted)}>Current policy: {current === 'host' ? 'Use the host’s consent policy' : 'Ask connected clients'}</p>}
         <Field label="Use this policy">
           <Select
             label="Permission policy"

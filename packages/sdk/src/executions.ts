@@ -20,6 +20,8 @@ export interface ExecutionCell {
   readonly output: string;
   readonly value?: string;
   readonly error?: string;
+  /** Bounded checkpoint warning and omitted-binding details. */
+  readonly scratch?: string;
   readonly status: 'writing' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled' | 'unknown';
   readonly hosts: readonly ExecutionHostCall[];
   readonly steps?: number;
@@ -146,29 +148,50 @@ export function executionCode(args: string): string {
   return '';
 }
 
-type Result = Pick<ExecutionCell, 'status' | 'output' | 'value' | 'error' | 'steps' | 'truncated'> & { restart?: string };
+type Result = Pick<ExecutionCell, 'status' | 'output' | 'value' | 'error' | 'scratch' | 'steps' | 'truncated'> & { restart?: string; hasResult?: boolean };
 function result(raw: string): Result {
-  if (raw.startsWith('Error:')) return { status: 'failed', output: '', error: excerpt(raw.slice(6).trim()), ...(raw.length > FIELD_BYTES ? { truncated: true } : {}) };
-  const bounded = excerpt(raw, PARSE_BYTES);
-  if (bounded !== raw) return { status: 'unknown', output: '', truncated: true };
+  const failed = raw.startsWith('Error:');
+  // The dispatcher appends one JSON result after its possibly multiline error.
+  const boundary = failed ? raw.lastIndexOf('\n{') : -1;
+  const payload = failed && boundary >= 0 ? raw.slice(boundary + 1) : raw;
+  const error = failed ? excerpt(raw.slice(6, boundary >= 0 ? boundary : undefined).trim()) : undefined;
+  const fallback: Result = failed ? { status: 'failed', output: '', error, ...(raw.length > FIELD_BYTES ? { truncated: true } : {}) } : { status: 'unknown', output: '' };
+  const bounded = excerpt(payload, PARSE_BYTES);
+  if (bounded !== payload) return { ...fallback, truncated: true };
   let parsed: Record<string, unknown> | undefined;
   try { parsed = record(JSON.parse(bounded)); } catch { /* Incomplete or unavailable result. */ }
   if (!parsed || !('value' in parsed) || typeof parsed.steps !== 'number' || !Number.isInteger(parsed.steps) || parsed.steps < 0
-    || (parsed.output !== undefined && typeof parsed.output !== 'string')) return { status: 'unknown', output: '' };
+    || (parsed.output !== undefined && typeof parsed.output !== 'string')) return fallback;
   const output = text(parsed.output);
-  const value = JSON.stringify(parsed.value);
+  const value = typeof parsed.value_preview === 'string' ? parsed.value_preview : JSON.stringify(parsed.value);
+  const scratch = record(parsed.scratch);
   return {
-    status: 'completed', output: excerpt(output, FIELD_BYTES, true), value: excerpt(value),
+    hasResult: true, status: failed ? 'failed' : 'completed', output: excerpt(output, FIELD_BYTES, true), value: excerpt(value),
+    ...(error ? { error } : {}),
+    ...(scratch ? { scratch: scratchText(scratch) } : {}),
     ...(Number.isSafeInteger(parsed.steps) ? { steps: parsed.steps } : { truncated: true }),
-    ...(output !== excerpt(output, FIELD_BYTES, true) || value !== excerpt(value) ? { truncated: true } : {}),
+    ...(parsed.truncated === true || output !== excerpt(output, FIELD_BYTES, true) || value !== excerpt(value) ? { truncated: true } : {}),
     ...(record(parsed.restored) ? { restart: restartText(record(parsed.restored)!) } : {}),
   };
 }
 
+function scratchText(payload: Record<string, unknown>): string {
+  const lines = text(payload.warning) ? [text(payload.warning)] : [];
+  for (const item of Array.isArray(payload.skipped) ? payload.skipped.slice(0, 30) : []) {
+    const skipped = record(item);
+    if (skipped) lines.push(`${text(skipped.name)}: ${text(skipped.reason)}`);
+  }
+  const omitted = count(payload.skipped_omitted);
+  if (omitted) lines.push(`${omitted} additional bindings omitted`);
+  return excerpt(lines.join('\n'), 8192);
+}
+
+const count = (value: unknown): number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0;
+
 function restartText(payload: Record<string, unknown>): string {
-  const restored = Array.isArray(payload.restored) ? payload.restored.length : 0;
+  const restored = (Array.isArray(payload.restored) ? payload.restored.length : 0) + count(payload.restored_omitted);
   const failed = payload.not_restored ?? payload.failed;
-  const skipped = Array.isArray(failed) ? failed.length : 0;
+  const skipped = (Array.isArray(failed) ? failed.length : 0) + count(payload.failed_omitted);
   return `Restarted · restored ${restored}${skipped ? ` · ${skipped} skipped` : ''}`;
 }
 
@@ -201,7 +224,7 @@ function historyRows(rootId: string, agentId: string, history?: DeepReadonly<His
     const prior = index === undefined ? undefined : rows[index];
     if (prior?.kind !== 'cell' && message.name !== 'rlm_exec') continue;
     const decoded = result(typeof message.content === 'string' ? message.content : '');
-    const { restart, ...fields } = decoded;
+    const { restart, hasResult: _hasResult, ...fields } = decoded;
     const cell: RecordedCell = {
       kind: 'cell', id: key(rootId, agentId, history!.revision, 'history-result', item.seq), callId: message.tool_call_id,
       agentId, seq: item.seq, code: '', hosts: [], ...(prior?.kind === 'cell' ? prior : {}), ...fields, resultSeq: item.seq,
@@ -289,8 +312,8 @@ export function observeExecution(
         break;
       }
       case 'stream.tool.completed': {
-        const { restart, ...fields } = result(text(payload.result));
-        cell = { ...cell, ...fields, closed: true, output: fields.status === 'completed' ? fields.output : cell.output,
+        const { restart, hasResult, ...fields } = result(text(payload.result));
+        cell = { ...cell, ...fields, closed: true, output: hasResult ? fields.output : cell.output,
           ...(observedAt === undefined ? {} : { observedEndedAt: observedAt }) };
         if (restart && !rows.some(row => row.kind === 'restart' && row.agentId === agentId && row.turnId === turnId && row.text === restart && BigInt(row.eventSeq) >= BigInt(cell.eventSeq))) {
           rows.push({ kind: 'restart', id: `${cell.id}:restart`, agentId, text: restart, eventSeq: event.seq, afterSeq, turnId, historyUnknown: !hasHistoryBoundary(history[agentId]) });

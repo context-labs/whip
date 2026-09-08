@@ -41,7 +41,7 @@ func writeFrame(w io.Writer, limit int, value frame) error {
 	return err
 }
 
-func readFrame(r *bufio.Reader, limit int) (frame, error) {
+func readFrame(r *bufio.Reader, limit int, exactValue ...bool) (frame, error) {
 	var data []byte
 	for {
 		fragment, err := r.ReadSlice('\n')
@@ -57,25 +57,25 @@ func readFrame(r *bufio.Reader, limit int) (frame, error) {
 		}
 	}
 	data = bytes.TrimSuffix(data, []byte{'\n'})
+
+	// Inspect routing metadata without first decoding numbers into float64.
+	var route struct {
+		Module    string `json:"module"`
+		Operation string `json:"operation"`
+	}
+	if err := json.Unmarshal(data, &route); err != nil {
+		return frame{}, fmt.Errorf("decode RLM route: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if route.Module == "state" || route.Module == "mcp" && route.Operation == "call" || len(exactValue) > 0 && exactValue[0] {
+		decoder.UseNumber()
+	}
 	var value frame
-	if err := json.Unmarshal(data, &value); err != nil {
+	if err := decoder.Decode(&value); err != nil {
 		return frame{}, fmt.Errorf("decode RLM frame: %w", err)
 	}
 	if value.Version != protocolVersion {
 		return frame{}, fmt.Errorf("unsupported RLM protocol version %d", value.Version)
-	}
-	if value.Module == "mcp" && value.Operation == "call" {
-		// MCP arguments cross another JSON boundary. Preserve integer IDs rather
-		// than round them through float64 before authorization and transmission.
-		var exact struct {
-			Arguments map[string]any `json:"arguments"`
-		}
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.UseNumber()
-		if err := decoder.Decode(&exact); err != nil {
-			return frame{}, fmt.Errorf("decode MCP arguments: %w", err)
-		}
-		value.Arguments = exact.Arguments
 	}
 	return value, nil
 }

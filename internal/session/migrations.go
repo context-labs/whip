@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 8
-	schemaIdentity       = "whip-recursive-runtime-v8"
+	currentSchemaVersion = 10
+	schemaIdentity       = "whip-recursive-runtime-v10"
 )
 
 // MaxInboxRetries bounds how many times a failed turn may return its claimed
@@ -152,7 +152,7 @@ CREATE TABLE agent_state (
 );
 CREATE TABLE agent_scratch (
 	root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL,
-	program TEXT NOT NULL, manifest TEXT NOT NULL DEFAULT '', bytes INTEGER NOT NULL DEFAULT 0,
+	snapshot TEXT NOT NULL, manifest TEXT NOT NULL DEFAULT '', bytes INTEGER NOT NULL DEFAULT 0,
 	updated_at TEXT NOT NULL, PRIMARY KEY(root_id,agent_id),
 	FOREIGN KEY(root_id,agent_id) REFERENCES agents(root_id,id)
 );
@@ -166,6 +166,7 @@ CREATE TABLE budgets (
 	root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL,
 	limit_value INTEGER, used_value INTEGER NOT NULL DEFAULT 0, reserved_value INTEGER NOT NULL DEFAULT 0,
  uncertain_value INTEGER NOT NULL DEFAULT 0, incomplete INTEGER NOT NULL DEFAULT 0,
+ model_incomplete INTEGER NOT NULL DEFAULT 0 CHECK(model_incomplete>=0),
 	updated_at TEXT NOT NULL, PRIMARY KEY(root_id,agent_id,kind),
  CHECK(limit_value IS NOT NULL OR kind IN ('tokens','cost','elapsed'))
 );
@@ -178,6 +179,19 @@ CREATE TABLE operations (
 	CHECK(NOT(result_inline IS NOT NULL AND result_ref IS NOT NULL)),
 	FOREIGN KEY(root_id,agent_id) REFERENCES agents(root_id,id)
 );
+CREATE TABLE model_calls (
+	id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL,
+	logical_id TEXT NOT NULL, attempt_number INTEGER NOT NULL CHECK(attempt_number>0),
+	status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','rejected','interrupted')),
+	attempt BLOB NOT NULL, max_tokens INTEGER NOT NULL CHECK(max_tokens>0), timeout_nanos INTEGER NOT NULL CHECK(timeout_nanos>0),
+	reservations BLOB NOT NULL, contributions BLOB NOT NULL DEFAULT '{}', result BLOB, usage_source TEXT NOT NULL DEFAULT 'none', cost_source TEXT NOT NULL DEFAULT 'none',
+	tokens INTEGER NOT NULL DEFAULT 0 CHECK(tokens>=0), cost_micros INTEGER NOT NULL DEFAULT 0 CHECK(cost_micros>=0),
+	elapsed_millis INTEGER NOT NULL DEFAULT 0 CHECK(elapsed_millis>=0), exhausted INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+	UNIQUE(root_id,agent_id,logical_id,attempt_number),
+	FOREIGN KEY(root_id,agent_id) REFERENCES agents(root_id,id)
+);
+CREATE INDEX model_calls_root_agent ON model_calls(root_id,agent_id,status);
 CREATE TABLE leases (
 	id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL,
 	operation_id TEXT NOT NULL, capability_id TEXT NOT NULL DEFAULT '', trace_id TEXT NOT NULL DEFAULT '',

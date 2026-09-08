@@ -66,6 +66,20 @@ export interface AgentSubmitResult {
 }
 
 export interface AgentTranscriptResult {
+  accounting?: {
+    root_id: string;
+    agent_id: string;
+    scope: string;
+    revision: string;
+    reported_cost_micros: string;
+    estimated_cost_micros: string;
+    reported_cost_calls: string;
+    estimated_cost_calls: string;
+    unknown_cost_calls: string;
+    reported_calls: string;
+    estimated_calls: string;
+    pending_calls: string;
+  };
   cursor: string;
   agent: {
     id: string;
@@ -126,10 +140,15 @@ export interface AgentTranscriptResult {
             authored?: boolean;
             sent_at?: null | string;
             usage?: null | {
+              reported?: boolean;
+              cost?: null | number;
               prompt_tokens: number;
               completion_tokens: number;
               prompt_tokens_details?: null | {
                 cached_tokens: number;
+              };
+              completion_tokens_details?: null | {
+                reasoning_tokens: number;
               };
             };
             model?: string;
@@ -217,10 +236,15 @@ export interface BoundedTranscriptPage {
           authored?: boolean;
           sent_at?: null | string;
           usage?: null | {
+            reported?: boolean;
+            cost?: null | number;
             prompt_tokens: number;
             completion_tokens: number;
             prompt_tokens_details?: null | {
               cached_tokens: number;
+            };
+            completion_tokens_details?: null | {
+              reasoning_tokens: number;
             };
           };
           model?: string;
@@ -372,10 +396,15 @@ export interface CompactionResult {
   cutoff: number;
   model?: string;
   usage: {
+    reported?: boolean;
+    cost?: null | number;
     prompt_tokens: number;
     completion_tokens: number;
     prompt_tokens_details?: null | {
       cached_tokens: number;
+    };
+    completion_tokens_details?: null | {
+      reasoning_tokens: number;
     };
   };
 }
@@ -577,6 +606,18 @@ export interface HostAttentionResult {
               schedule_id?: number;
               slot?: string;
               error?: string;
+              model_call?: null | {
+                id: string;
+                logical_id: string;
+                number: number;
+                purpose: string;
+                usage_source: string;
+                cost_source: string;
+                tokens: string;
+                cost_micros: string;
+                elapsed_millis: string;
+                exhausted: boolean;
+              };
               acknowledged_inbox?: string[];
               subscription_id?: string;
               key?: string;
@@ -725,6 +766,18 @@ export interface LifecycleEvent {
   schedule_id?: number;
   slot?: string;
   error?: string;
+  model_call?: null | {
+    id: string;
+    logical_id: string;
+    number: number;
+    purpose: string;
+    usage_source: string;
+    cost_source: string;
+    tokens: string;
+    cost_micros: string;
+    elapsed_millis: string;
+    exhausted: boolean;
+  };
   acknowledged_inbox?: string[];
   subscription_id?: string;
   key?: string;
@@ -996,6 +1049,11 @@ export interface ProviderCatalogsResult {
       models:
         | null
         | {
+            pricing?: null | {
+              prompt: string;
+              completion: string;
+              input_cache_read?: string;
+            };
             pricing_known?: boolean;
             cache_read_price_known?: boolean;
             id: string;
@@ -1608,10 +1666,15 @@ export interface RootSnapshot {
         authored?: boolean;
         sent_at?: null | string;
         usage?: null | {
+          reported?: boolean;
+          cost?: null | number;
           prompt_tokens: number;
           completion_tokens: number;
           prompt_tokens_details?: null | {
             cached_tokens: number;
+          };
+          completion_tokens_details?: null | {
+            reasoning_tokens: number;
           };
         };
         model?: string;
@@ -1702,6 +1765,20 @@ export interface RootSnapshot {
           incomplete: boolean;
         };
       }[];
+  accounting?: {
+    root_id: string;
+    agent_id: string;
+    scope: string;
+    revision: string;
+    reported_cost_micros: string;
+    estimated_cost_micros: string;
+    reported_cost_calls: string;
+    estimated_cost_calls: string;
+    unknown_cost_calls: string;
+    reported_calls: string;
+    estimated_calls: string;
+    pending_calls: string;
+  };
   capabilities:
     | null
     | {
@@ -1770,6 +1847,18 @@ export interface RootSnapshot {
         schedule_id?: number;
         slot?: string;
         error?: string;
+        model_call?: null | {
+          id: string;
+          logical_id: string;
+          number: number;
+          purpose: string;
+          usage_source: string;
+          cost_source: string;
+          tokens: string;
+          cost_micros: string;
+          elapsed_millis: string;
+          exhausted: boolean;
+        };
         acknowledged_inbox?: string[];
         subscription_id?: string;
         key?: string;
@@ -1809,6 +1898,7 @@ export interface RootSnapshot {
         answer?: null | string[];
         dismissed?: boolean;
       }[];
+  permission_mode?: string;
 }
 
 export interface RunConfigureParams {
@@ -1949,6 +2039,7 @@ export interface SessionUpdateEvent {
   effort?: string;
   effort_changed?: boolean;
   working_directory?: string;
+  permission_mode?: null | string;
 }
 
 export interface ShellParams {
@@ -1960,14 +2051,33 @@ export interface SnapshotParams {
 }
 
 export interface StreamEvent {
+  accounting?: null | {
+    root_id: string;
+    agent_id: string;
+    scope: string;
+    revision: string;
+    reported_cost_micros: string;
+    estimated_cost_micros: string;
+    reported_cost_calls: string;
+    estimated_cost_calls: string;
+    unknown_cost_calls: string;
+    reported_calls: string;
+    estimated_calls: string;
+    pending_calls: string;
+  };
   usage?: null | {
     used: number;
     size: number;
     usage: {
+      reported?: boolean;
+      cost?: null | number;
       prompt_tokens: number;
       completion_tokens: number;
       prompt_tokens_details?: null | {
         cached_tokens: number;
+      };
+      completion_tokens_details?: null | {
+        reasoning_tokens: number;
       };
     };
   };
@@ -2269,6 +2379,10 @@ export interface EventPayloadTypes {
   "message.done": LifecycleEvent | ContentEventPayload;
   "message.queued": LifecycleEvent | ContentEventPayload;
   "message.updated": LifecycleEvent | ContentEventPayload;
+  "model.call.corrected": LifecycleEvent | ContentEventPayload;
+  "model.call.interrupted": LifecycleEvent | ContentEventPayload;
+  "model.call.settled": LifecycleEvent | ContentEventPayload;
+  "model.call.started": LifecycleEvent | ContentEventPayload;
   "permission.auto_approved": LifecycleEvent | ContentEventPayload;
   "permission.pending": LifecycleEvent | ContentEventPayload;
   "question.answered": LifecycleEvent | ContentEventPayload;
@@ -2282,11 +2396,13 @@ export interface EventPayloadTypes {
   "session.cwd.updated": SessionUpdateEvent | ContentEventPayload;
   "session.effort.updated": SessionUpdateEvent | ContentEventPayload;
   "session.model.updated": SessionUpdateEvent | ContentEventPayload;
+  "session.permission_mode.updated": SessionUpdateEvent | ContentEventPayload;
   "session.reload.failed": LifecycleEvent | ContentEventPayload;
   "session.title.updated": SessionUpdateEvent | ContentEventPayload;
   "state.private.append": LifecycleEvent | ContentEventPayload;
   "state.private.cas": LifecycleEvent | ContentEventPayload;
   "state.private.set": LifecycleEvent | ContentEventPayload;
+  "stream.accounting": StreamEvent | ContentEventPayload;
   "stream.cell.host": StreamEvent | ContentEventPayload;
   "stream.notice": StreamEvent | ContentEventPayload;
   "stream.reasoning": StreamEvent | ContentEventPayload;

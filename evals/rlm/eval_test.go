@@ -43,16 +43,18 @@ type comparisonSpec struct {
 }
 
 type evaluationMetrics struct {
-	Correct           bool    `json:"correct"`
-	Error             string  `json:"error,omitempty"`
-	DurationMillis    int64   `json:"duration_ms"`
-	ModelCalls        int     `json:"model_calls"`
-	ModelFanout       int     `json:"model_fan_out"`
-	HostCalls         int     `json:"host_calls"`
-	PromptTokens      int     `json:"prompt_tokens"`
-	CompletionTokens  int     `json:"completion_tokens"`
-	ContextTokensUsed int     `json:"context_tokens_used"`
-	CostUSD           float64 `json:"cost_usd"`
+	Correct            bool    `json:"correct"`
+	Error              string  `json:"error,omitempty"`
+	DurationMillis     int64   `json:"duration_ms"`
+	ModelCalls         int     `json:"model_calls"`
+	ModelFanout        int     `json:"model_fan_out"`
+	HostCalls          int     `json:"host_calls"`
+	PromptTokens       int     `json:"prompt_tokens"`
+	CompletionTokens   int     `json:"completion_tokens"`
+	ContextTokensUsed  int     `json:"context_tokens_used"`
+	CostUSD            float64 `json:"cost_usd"`
+	UnknownCostCalls   int     `json:"unknown_cost_calls"`
+	EstimatedCostCalls int     `json:"estimated_cost_calls"`
 }
 
 type comparisonReport struct {
@@ -65,24 +67,59 @@ type comparisonReport struct {
 }
 
 type evaluationBudget struct {
-	mu              sync.Mutex
-	maxCalls        int
-	maxCallEstimate int64
-	calls           int
+	mu                 sync.Mutex
+	maxCalls           int
+	maxCallEstimate    int64
+	calls              int
+	usage              llm.Usage
+	costMicros         int64
+	unknownCostCalls   int
+	estimatedCostCalls int
 }
 
-func (budget *evaluationBudget) ReserveModelCall(_ context.Context, request llm.CallEstimate) (func(llm.Usage) error, error) {
+func (budget *evaluationBudget) BeginModelAttempt(_ context.Context, attempt llm.ModelAttempt) (llm.ModelPermit, error) {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
-	estimate := request.PromptTokens + request.OutputTokens
 	if budget.calls >= budget.maxCalls {
-		return nil, errors.New("evaluation model-call budget exhausted")
+		return llm.ModelPermit{}, errors.New("evaluation model-call budget exhausted")
 	}
-	if estimate > budget.maxCallEstimate {
-		return nil, fmt.Errorf("evaluation context estimate %d exceeds %d", estimate, budget.maxCallEstimate)
+	if attempt.InputTokens > budget.maxCallEstimate-int64(attempt.MaxTokens) {
+		return llm.ModelPermit{}, fmt.Errorf("evaluation context estimate exceeds %d", budget.maxCallEstimate)
 	}
 	budget.calls++
-	return func(llm.Usage) error { return nil }, nil
+	var once sync.Once
+	var settleErr error
+	return llm.ModelPermit{MaxTokens: attempt.MaxTokens, Timeout: attempt.Timeout, Settle: func(result llm.ModelAttemptResult) error {
+		once.Do(func() {
+			if !result.Dispatched {
+				return
+			}
+			cost, known, err := attempt.Pricing.ActualCost(result.Usage)
+			if err != nil {
+				settleErr = err
+				return
+			}
+			if !known && !result.Usage.HasUsage() && attempt.Pricing.Known() {
+				cost, err = attempt.Pricing.ReserveCost(attempt.InputTokens, int64(attempt.MaxTokens))
+				if err != nil {
+					settleErr = err
+					return
+				}
+				known = true
+			}
+			budget.mu.Lock()
+			defer budget.mu.Unlock()
+			budget.usage.PromptTokens += result.Usage.PromptTokens
+			budget.usage.CompletionTokens += result.Usage.CompletionTokens
+			budget.costMicros += cost
+			if !known {
+				budget.unknownCostCalls++
+			} else if result.Usage.Cost == nil {
+				budget.estimatedCostCalls++
+			}
+		})
+		return settleErr
+	}}, nil
 }
 
 func (budget *evaluationBudget) Calls() int {
@@ -92,17 +129,17 @@ func (budget *evaluationBudget) Calls() int {
 }
 
 type smokeHost struct {
-	corpus       string
-	handle       string
-	client       *llm.Client
-	model        string
-	maxTokens    int
-	budget       *evaluationBudget
-	mu           sync.Mutex
-	calls        []string
-	maxRead      int
-	modelFanout  int
-	submodelUsed llm.Usage
+	corpus      string
+	handle      string
+	client      *llm.Client
+	model       string
+	pricing     llm.Pricing
+	maxTokens   int
+	budget      *evaluationBudget
+	mu          sync.Mutex
+	calls       []string
+	maxRead     int
+	modelFanout int
 }
 
 func (host *smokeHost) contextHandle() string {
@@ -179,34 +216,22 @@ func (host *smokeHost) callModel(ctx context.Context, prompt string) map[string]
 		if maxTokens <= 0 {
 			maxTokens = 256
 		}
-		var settle func(llm.Usage) error
+		var accounting *llm.CallAccounting
 		if host.budget != nil {
-			settle, err = host.budget.ReserveModelCall(ctx, llm.CallEstimate{PromptTokens: int64(agent.EstimateTokens([]llm.Message{{Role: "user", Content: prompt}})), OutputTokens: int64(maxTokens)})
-			if err != nil {
-				return map[string]any{"error": err.Error()}
-			}
+			accounting = &llm.CallAccounting{Budget: host.budget, Purpose: "models.call", Pricing: host.pricing}
 		}
 		output, usage, err = host.client.Complete(ctx, llm.Request{
-			Model: host.model, Messages: []llm.Message{{Role: "user", Content: prompt}}, MaxTokens: maxTokens,
+			Model: host.model, Messages: []llm.Message{{Role: "user", Content: prompt}}, MaxTokens: maxTokens, Accounting: accounting,
 		})
-		if settle != nil {
-			if settleErr := settle(usage); err == nil {
-				err = settleErr
-			}
-		}
 	} else if host.budget != nil {
-		settle, reserveErr := host.budget.ReserveModelCall(ctx, llm.CallEstimate{PromptTokens: int64(agent.EstimateTokens([]llm.Message{{Role: "user", Content: prompt}})), OutputTokens: 256})
+		permit, reserveErr := host.budget.BeginModelAttempt(ctx, llm.ModelAttempt{InputTokens: int64(llm.EstimateTokens([]llm.Message{{Role: "user", Content: prompt}})), MaxTokens: 256, Pricing: host.pricing})
 		if reserveErr != nil {
 			return map[string]any{"error": reserveErr.Error()}
 		}
-		if settleErr := settle(usage); settleErr != nil {
+		if settleErr := permit.Settle(llm.ModelAttemptResult{Usage: usage, Dispatched: true}); settleErr != nil {
 			return map[string]any{"error": settleErr.Error()}
 		}
 	}
-	host.mu.Lock()
-	host.submodelUsed.PromptTokens += usage.PromptTokens
-	host.submodelUsed.CompletionTokens += usage.CompletionTokens
-	host.mu.Unlock()
 	if err != nil {
 		return map[string]any{"error": err.Error()}
 	}
@@ -305,21 +330,22 @@ func evaluateAgent(ctx context.Context, spec comparisonSpec, task string, value 
 	started := time.Now()
 	output, err := value.Turn(ctx, task, agent.Events{})
 	duration := time.Since(started)
-	usage := value.Usage()
+	budget.mu.Lock()
+	usage := budget.usage
+	costUSD, unknown, estimated := float64(budget.costMicros)/1e6, budget.unknownCostCalls, budget.estimatedCostCalls
+	budget.mu.Unlock()
 	hostCalls, modelFanout := 0, 0
 	if host != nil {
 		host.mu.Lock()
 		hostCalls = len(host.calls)
 		modelFanout = host.modelFanout
-		usage.PromptTokens += host.submodelUsed.PromptTokens
-		usage.CompletionTokens += host.submodelUsed.CompletionTokens
 		host.mu.Unlock()
 	}
 	metrics := evaluationMetrics{
 		Correct: strings.Contains(output, spec.Expected), Error: errorString(err), DurationMillis: duration.Milliseconds(),
 		ModelCalls: budget.Calls(), ModelFanout: modelFanout, HostCalls: hostCalls, PromptTokens: usage.PromptTokens,
 		CompletionTokens: usage.CompletionTokens, ContextTokensUsed: usage.PromptTokens + usage.CompletionTokens,
-		CostUSD: float64(usage.PromptTokens)*spec.InputPrice + float64(usage.CompletionTokens)*spec.OutputPrice,
+		CostUSD: costUSD, UnknownCostCalls: unknown, EstimatedCostCalls: estimated,
 	}
 	return metrics, output, err
 }
@@ -391,10 +417,12 @@ func TestDeterministicRLMEvaluationReport(t *testing.T) {
 	defer server.Close()
 
 	rlmBudget := &evaluationBudget{maxCalls: spec.MaxModelCalls, maxCallEstimate: int64(spec.RootContextTokens)}
-	host := &smokeHost{corpus: corpus, handle: "comparison-corpus", budget: rlmBudget}
+	pricing := llm.Pricing{Prompt: strconv.FormatFloat(spec.InputPrice, 'g', -1, 64), Completion: strconv.FormatFloat(spec.OutputPrice, 'g', -1, 64)}
+	host := &smokeHost{corpus: corpus, handle: "comparison-corpus", budget: rlmBudget, pricing: pricing}
 	kernel := smokeKernel(t, host)
 	rlmAgent := agent.NewRuntime(llm.New(server.URL, "scripted"), "scripted", spec.MaxOutputTokens,
 		rlm.BuildPrompt("/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
+	rlmAgent.Pricing = pricing
 	rlmAgent.SetExclusiveTool(rlm.Tool(kernel), "rlm")
 	rlmMetrics, rlmOutput, err := evaluateAgent(t.Context(), spec, task, rlmAgent, rlmBudget, host)
 	if err != nil {
@@ -416,6 +444,33 @@ func TestDeterministicRLMEvaluationReport(t *testing.T) {
 	prompt := rlm.BuildPrompt("/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"})
 	if host.maxRead > 8<<10 || strings.Contains(prompt, spec.Expected) {
 		t.Fatalf("oversized corpus crossed the root boundary: max_read=%d", host.maxRead)
+	}
+}
+
+func TestEvaluationAccountsProviderChargesAndUnknownPrices(t *testing.T) {
+	for _, tc := range []struct {
+		name, usage string
+		pricing     llm.Pricing
+		cost        float64
+		unknown     int
+	}{
+		{"provider charge", `{"prompt_tokens":2,"completion_tokens":1,"cost":0.015}`, llm.Pricing{Prompt: "1", Completion: "1"}, 0.015, 0},
+		{"provider free", `{"prompt_tokens":2,"completion_tokens":1,"cost":0}`, llm.Pricing{Prompt: "1", Completion: "1"}, 0, 0},
+		{"unknown price", `{"prompt_tokens":2,"completion_tokens":1}`, llm.Pricing{}, 0, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}],\"usage\":%s}\n\n", tc.usage)
+			}))
+			defer server.Close()
+			budget := &evaluationBudget{maxCalls: 1, maxCallEstimate: 100_000}
+			value := agent.NewRuntime(llm.New(server.URL, "test"), "test", 10, "answer briefly", tools.NewServices())
+			value.Pricing = tc.pricing
+			metrics, _, err := evaluateAgent(t.Context(), comparisonSpec{RootContextTokens: 100_000, MaxModelCalls: 1, Expected: "answer"}, "question", value, budget, nil)
+			if err != nil || metrics.CostUSD != tc.cost || metrics.UnknownCostCalls != tc.unknown || metrics.ModelCalls != 1 {
+				t.Fatalf("metrics=%+v err=%v", metrics, err)
+			}
+		})
 	}
 }
 
@@ -485,10 +540,9 @@ func TestLiveRLMEvaluation(t *testing.T) {
 	if maxOutput <= 0 || maxOutput > spec.MaxOutputTokens {
 		maxOutput = spec.MaxOutputTokens
 	}
+	var pricing llm.Pricing
 	if catalog, ok := config.LoadCatalogs()[provider.Name]; ok {
-		if input, output, _, priced := catalog.Pricing(apiID); priced {
-			spec.InputPrice, spec.OutputPrice = input, output
-		}
+		pricing = catalog.ModelPricing(apiID)
 	}
 	newClient := func() *llm.Client {
 		client := llm.New(provider.BaseURL, key)
@@ -497,10 +551,11 @@ func TestLiveRLMEvaluation(t *testing.T) {
 	}
 
 	rlmBudget := &evaluationBudget{maxCalls: spec.MaxModelCalls, maxCallEstimate: int64(spec.RootContextTokens)}
-	host := &smokeHost{corpus: corpus, handle: "comparison-corpus", client: newClient(), model: apiID, maxTokens: min(maxOutput, 256), budget: rlmBudget}
+	host := &smokeHost{corpus: corpus, handle: "comparison-corpus", client: newClient(), model: apiID, maxTokens: min(maxOutput, 256), budget: rlmBudget, pricing: pricing}
 	kernel := smokeKernel(t, host)
 	rlmAgent := agent.NewRuntime(newClient(), apiID, maxOutput,
 		rlm.BuildPrompt("/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
+	rlmAgent.Pricing = pricing
 	rlmAgent.SetExclusiveTool(rlm.Tool(kernel), "rlm")
 	rlmMetrics, rlmOutput, err := evaluateAgent(t.Context(), spec, task, rlmAgent, rlmBudget, host)
 	rlmErr := err

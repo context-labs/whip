@@ -2,20 +2,27 @@ package protocol
 
 import (
 	"encoding/json"
-	"github.com/context-labs/whip/internal/config"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/llm"
 )
 
 func TestCatalogWirePreservesCacheSeparately(t *testing.T) {
-	original := ProviderCatalogsResult{Catalogs: map[string]config.Catalog{"test": {BaseURL: "https://example.invalid", Models: []config.ModelInfoLite{{ID: "model", ContextLength: 128, CacheReadPrice: 0.5}}}}}
+	original := ProviderCatalogsResult{Catalogs: map[string]config.Catalog{"test": {BaseURL: "https://example.invalid", Models: []config.ModelInfoLite{{ID: "model", ContextLength: 128, Pricing: llm.Pricing{Prompt: "0.1234567890123456789012345678", Completion: "0.000005", InputCacheRead: "0"}}}}}}
 	raw, err := json.Marshal(original)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(raw), "baseUrl") || !strings.Contains(string(raw), "context_length") {
 		t.Fatal(string(raw))
+	}
+	for _, field := range []string{`"pricing_known":true`, `"in_price":`, `"out_price":`, `"cache_read_price_known":true`} {
+		if !strings.Contains(string(raw), field) {
+			t.Fatalf("catalog lost existing scalar display field %s: %s", field, raw)
+		}
 	}
 	schema, err := SchemaFor(reflect.TypeFor[ProviderCatalogsResult]())
 	if err != nil {

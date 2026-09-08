@@ -106,3 +106,27 @@ test('model budgets preserve explicit unlimited and exact uncertainty', () => {
   assert.equal(validate('BudgetState', { ...state, limit: 0 }), false);
   assert.equal(validate('BudgetState', { ...state, uncertain: 23883863 }), false);
 });
+
+test('protocol 4.0 usage remains valid without the additive reported field', async () => {
+  const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
+  for (const type of ['RootSnapshot', 'AgentTranscriptResult', 'BoundedTranscriptPage', 'CompactionResult', 'StreamEvent']) {
+    const value = structuredClone(fixtures.find(fixture => fixture.type === type)?.value ?? {});
+    const usage = { prompt_tokens: 17, completion_tokens: 3 };
+    const message = { role: 'assistant', content: 'Retained response', usage };
+    if (type === 'AgentTranscriptResult') value.page.messages = [{ seq: 1, role: message.role, message }];
+    else if (type === 'BoundedTranscriptPage') value.messages = [{ seq: 1, role: message.role, message }];
+    else if (type === 'StreamEvent') value.usage = { used: 20, size: 4096, usage };
+    else if (type === 'CompactionResult') value.usage = usage;
+    else value.messages = [message];
+    assertValid(type, value, 'response');
+    assert.equal(Object.hasOwn(usage, 'reported'), false, 'validation must not invent usage provenance');
+    for (const reported of [false, true]) {
+      usage.reported = reported;
+      assertValid(type, value, 'response');
+    }
+    for (const reported of [null, 'true', 0]) {
+      usage.reported = reported;
+      assert.equal(validate(type, value, 'response'), false, `${type} must reject malformed provenance`);
+    }
+  }
+});

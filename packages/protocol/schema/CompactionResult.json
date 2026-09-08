@@ -10,6 +10,15 @@
     "usage": {
       "type": "object",
       "properties": {
+        "reported": {
+          "type": "boolean"
+        },
+        "cost": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
         "prompt_tokens": {
           "type": "integer"
         },
@@ -28,6 +37,21 @@
           },
           "required": [
             "cached_tokens"
+          ],
+          "additionalProperties": false
+        },
+        "completion_tokens_details": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "reasoning_tokens": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "reasoning_tokens"
           ],
           "additionalProperties": false
         }

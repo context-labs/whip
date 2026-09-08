@@ -174,6 +174,7 @@ type LifecycleEvent struct {
 	ScheduleID      int             `json:"schedule_id,omitempty"`
 	Slot            string          `json:"slot,omitempty"`
 	Error           string          `json:"error,omitempty"`
+	ModelCall       *ModelCallEvent `json:"model_call,omitempty"`
 	Acknowledged    DecimalCounters `json:"acknowledged_inbox,omitempty"`
 	SubscriptionID  string          `json:"subscription_id,omitempty"`
 	Key             string          `json:"key,omitempty"`
@@ -854,6 +855,9 @@ func rootAgentIDTx(ctx context.Context, tx *sql.Tx, rootID string) (string, erro
 }
 
 func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string, preserveQueuedInput bool) error {
+	if err := s.settleInterruptedModelCallsTx(ctx, tx, rootID, ""); err != nil {
+		return err
+	}
 	if err := s.cancelPendingPermissionsTx(ctx, tx, rootID, "", "", "interrupted", "", reason); err != nil {
 		return err
 	}
@@ -1548,6 +1552,9 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	stamp := now()
+	if err := s.settleInterruptedModelCallsTx(ctx, tx, "", ""); err != nil {
+		return err
+	}
 	if err := s.cancelPendingPermissionsTx(ctx, tx, "", "", "", "interrupted", "", "interrupted by daemon restart"); err != nil {
 		return err
 	}
@@ -1586,13 +1593,13 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 }
 
 func settleInterruptedBudgetReservations(ctx context.Context, tx *sql.Tx) error {
-	rows, err := tx.QueryContext(ctx, `SELECT kind,limit_value,used_value,reserved_value,uncertain_value,incomplete FROM budgets`)
+	rows, err := tx.QueryContext(ctx, `SELECT kind,limit_value,used_value,reserved_value,uncertain_value,incomplete,model_incomplete FROM budgets`)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
 		var row budgetRow
-		if err := rows.Scan(&row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete); err != nil {
+		if err := rows.Scan(&row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete, &row.modelIncomplete); err != nil {
 			_ = rows.Close()
 			return err
 		}

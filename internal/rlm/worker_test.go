@@ -1,10 +1,13 @@
 package rlm
 
 import (
+	"encoding/json"
+
 	"bufio"
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"runtime/debug"
@@ -78,7 +81,7 @@ func TestWorkerRunFramesAndProtocolFailures(t *testing.T) {
 		t.Fatalf("unexpected frame error = %v", err)
 	}
 	truncated, _ := newUnitWorker("not-json\n")
-	if err := truncated.run(); err == nil || !strings.Contains(err.Error(), "decode RLM frame") {
+	if err := truncated.run(); err == nil || !strings.Contains(err.Error(), "decode RLM route") {
 		t.Fatalf("decode error = %v", err)
 	}
 	writeFailure, _ := newUnitWorker(input.String())
@@ -124,6 +127,31 @@ func TestWorkerMainParsesLimitsAndRunsProtocol(t *testing.T) {
 	}
 	if err := workerMain(nil, strings.NewReader(""), &bytes.Buffer{}, func(uint64) error { return errors.New("limit failed") }); err == nil || !strings.Contains(err.Error(), "limit failed") {
 		t.Fatalf("memory limit error = %v", err)
+	}
+}
+
+func TestWorkerExposesPureStdlibModules(t *testing.T) {
+	w, _ := newUnitWorker("")
+	w.installModules()
+	tests := []struct{ code, want string }{
+		{`json.encode({"a": [1, None], "b": True})`, `{"a":[1,null],"b":true}`},
+		{`json.decode('{"x": 2.5}')["x"] * 2`, `5`},
+		{`math.floor(2.7) + math.ceil(math.sqrt(16.0))`, `6`},
+		{`(time.parse_time("2026-09-07T00:00:00Z") + 48 * time.hour).format("2006-01-02")`, `2026-09-09`},
+		{`time.from_timestamp(0).unix`, `0`},
+	}
+	for _, test := range tests {
+		if got := w.evaluate(test.code); got.Error != "" || fmt.Sprint(got.Value) != test.want {
+			t.Errorf("%s = %+v, want value %s", test.code, got, test.want)
+		}
+	}
+	// Pure modules must not consume the host-request budget.
+	if w.requests != 0 {
+		t.Fatalf("stdlib modules made %d host requests", w.requests)
+	}
+	// Host modules still win no name collisions: json/math/time stay stdlib.
+	if got := w.evaluate(`type(json.encode)`); got.Error != "" || got.Value != "builtin_function_or_method" {
+		t.Fatalf("json module shadowed: %+v", got)
 	}
 }
 
@@ -307,18 +335,31 @@ func TestWorkerSnapshotAndRestoreScratch(t *testing.T) {
 func TestWorkerRestoreIsolatesFailuresAndDeniesHostCalls(t *testing.T) {
 	w, _ := newUnitWorker("")
 	w.installModules()
-	report := w.applySnapshot("good = 1\nbad = undefined_name\ndef f(x=files.read(path=\"a\")):\n    return x\nalso = 2\n")
-	if !slices.Equal(report.Restored, []string{"good", "also"}) {
-		t.Fatalf("restored = %+v", report)
+	w.evaluate("good = 1\nalso = 2")
+	program, _ := w.buildSnapshot()
+	var snapshot scratchSnapshot
+	if err := json.Unmarshal([]byte(program), &snapshot); err != nil {
+		t.Fatal(err)
 	}
-	if len(report.Failed) != 2 || report.Failed[0].Name != "bad" || report.Failed[1].Name != "f" || !strings.Contains(report.Failed[1].Reason, "host calls are unavailable") {
-		t.Fatalf("failed = %+v", report.Failed)
+	snapshot.Helpers = []scratchHelper{{Name: "bad", Source: "def bad():\n    return undefined_name\n"}, {Name: "f", Source: "def f(x=files.read(path='a')):\n    return x\n"}}
+	encoded, _ := json.Marshal(snapshot)
+	fresh, _ := newUnitWorker("")
+	fresh.installModules()
+	report := fresh.applySnapshot(string(encoded))
+	if len(report.Restored) != 2 || len(report.Failed) != 2 {
+		t.Fatalf("report = %+v", report)
 	}
-	if check := w.evaluate("good + also"); check.Error != "" || check.Value != int64(3) {
-		t.Fatalf("surviving bindings = %+v", check)
+	if check := fresh.evaluate("good + also"); check.Error != "" || check.Value != int64(3) {
+		t.Fatalf("surviving data = %+v", check)
 	}
-	if check := w.evaluate("files.read(path='x')"); check.Error == "" || strings.Contains(check.Error, "unavailable while scratch") {
-		t.Fatalf("host calls stayed disabled after restore: %+v", check)
+	if check := fresh.evaluate("files.read(path='x')"); check.Error == "" || strings.Contains(check.Error, "unavailable while scratch") {
+		t.Fatalf("host calls stayed disabled: %+v", check)
+	}
+	if result := fresh.restore("good = 100"); result.Error == "" {
+		t.Fatal("accepted executable source as snapshot")
+	}
+	if check := fresh.evaluate("good"); check.Value != int64(1) {
+		t.Fatalf("corrupt restore modified globals: %+v", check)
 	}
 }
 
@@ -342,8 +383,8 @@ func TestWorkerSnapshotCapsAndNonFiniteFloats(t *testing.T) {
 }
 
 // Each REPL chunk owns its global slots, so a helper keeps the binding it was
-// compiled against. A restore runs one program and unifies them.
-func TestWorkerCrossChunkBindingQuirkUnifiesOnRestore(t *testing.T) {
+// compiled against. A restore must omit a helper with a changed binding.
+func TestWorkerCrossChunkBindingChangeSkipsHelper(t *testing.T) {
 	w, _ := newUnitWorker("")
 	w.installModules()
 	for _, cell := range []string{"n = 42\ndef get_n():\n    return n\n", "n = 50\n"} {
@@ -354,13 +395,16 @@ func TestWorkerCrossChunkBindingQuirkUnifiesOnRestore(t *testing.T) {
 	if live := w.evaluate("get_n()"); live.Value != int64(42) {
 		t.Fatalf("live binding = %+v (quirk changed; update the doctrine)", live)
 	}
-	program, _ := w.buildSnapshot()
+	program, manifest := w.buildSnapshot()
+	if len(manifest.Skipped) != 1 || manifest.Skipped[0].Name != "get_n" {
+		t.Fatalf("manifest=%+v", manifest)
+	}
 	fresh, _ := newUnitWorker("")
 	fresh.installModules()
 	if report := fresh.applySnapshot(program); len(report.Failed) != 0 {
 		t.Fatalf("restore = %+v", report)
 	}
-	if restored := fresh.evaluate("get_n()"); restored.Value != int64(50) {
+	if restored := fresh.evaluate("get_n()"); restored.Error == "" {
 		t.Fatalf("restored binding = %+v", restored)
 	}
 }

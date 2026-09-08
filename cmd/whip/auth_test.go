@@ -72,8 +72,8 @@ func TestAuthOpenRouterGoodKey(t *testing.T) {
 	if got := cat.ContextLength("openai/gpt-5"); got != 400000 {
 		t.Errorf("context length not carried into catalog: %d", got)
 	}
-	if in, _, _, ok := cat.Pricing("openai/gpt-5"); !ok || in == 0 {
-		t.Errorf("pricing not carried into catalog: %v %v", in, ok)
+	if pricing := cat.ModelPricing("openai/gpt-5"); pricing.Prompt != "0.00000125" || pricing.Completion != "0.00001" {
+		t.Errorf("pricing not carried into catalog: %+v", pricing)
 	}
 	if vis, found := cat.SupportsVision("openai/gpt-5"); !found || !vis {
 		t.Errorf("vision modality not carried into catalog: %v %v", vis, found)

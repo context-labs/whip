@@ -40,16 +40,16 @@ func loopServer(t *testing.T) *httptest.Server {
 }
 
 type recordedModelBudget struct {
-	estimates []llm.CallEstimate
-	usages    []llm.Usage
+	estimates []llm.ModelAttempt
+	results   []llm.ModelAttemptResult
 }
 
-func (b *recordedModelBudget) ReserveModelCall(_ context.Context, estimate llm.CallEstimate) (func(llm.Usage) error, error) {
+func (b *recordedModelBudget) BeginModelAttempt(_ context.Context, estimate llm.ModelAttempt) (llm.ModelPermit, error) {
 	b.estimates = append(b.estimates, estimate)
-	return func(usage llm.Usage) error {
-		b.usages = append(b.usages, usage)
+	return llm.ModelPermit{MaxTokens: estimate.MaxTokens, Timeout: estimate.Timeout, Settle: func(result llm.ModelAttemptResult) error {
+		b.results = append(b.results, result)
 		return nil
-	}, nil
+	}}, nil
 }
 
 func TestEveryAgentCallUsesItsRouteBudget(t *testing.T) {
@@ -69,12 +69,12 @@ func TestEveryAgentCallUsesItsRouteBudget(t *testing.T) {
 			}))
 			defer server.Close()
 			ag := newTestAgent(llm.New(server.URL, "fixture"), "root-model", 8192, "system")
-			ag.Prices = llm.TokenPrices{Input: 0.01, Output: 0.02, Known: true}
+			ag.Pricing = llm.Pricing{Prompt: "0.01", Completion: "0.02"}
 			ag.CompactClient, ag.CompactModel = llm.New(server.URL, "fixture"), "compact-model"
-			ag.CompactPrices = llm.TokenPrices{Input: 0.001, Output: 0.002, Known: true}
+			ag.CompactPricing = llm.Pricing{Prompt: "0.001", Completion: "0.002"}
 			budget := &recordedModelBudget{}
 			ag.SetModelCallBudget(budget)
-			wantPrices, wantOutput := ag.Prices, int64(8192)
+			wantPrices, wantOutput := ag.Pricing, 8192
 			var err error
 			switch kind {
 			case "turn":
@@ -86,18 +86,18 @@ func TestEveryAgentCallUsesItsRouteBudget(t *testing.T) {
 					ag.Messages = append(ag.Messages, llm.Message{Role: "user", Content: "question"}, llm.Message{Role: "assistant", Content: "answer"})
 				}
 				err = ag.ManualCompact(t.Context(), Events{})
-				wantPrices, wantOutput = ag.CompactPrices, 4096
+				wantPrices, wantOutput = ag.CompactPricing, 4096
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(budget.estimates) != 1 || len(budget.usages) != 1 {
-				t.Fatalf("admissions=%d settlements=%d", len(budget.estimates), len(budget.usages))
+			if len(budget.estimates) != 1 || len(budget.results) != 1 {
+				t.Fatalf("admissions=%d settlements=%d", len(budget.estimates), len(budget.results))
 			}
-			if estimate := budget.estimates[0]; estimate.Prices != wantPrices || estimate.OutputTokens != wantOutput || estimate.PromptTokens == 0 {
+			if estimate := budget.estimates[0]; estimate.Pricing != wantPrices || estimate.MaxTokens != wantOutput || estimate.InputTokens == 0 {
 				t.Fatalf("route estimate=%+v", estimate)
 			}
-			if usage := budget.usages[0]; !usage.Reported || !usage.Dispatched || usage.PromptTokens != 12 || usage.CompletionTokens != 3 {
+			if usage := budget.results[0].Usage; !usage.Reported || !budget.results[0].Dispatched || usage.PromptTokens != 12 || usage.CompletionTokens != 3 {
 				t.Fatalf("settled usage=%+v", usage)
 			}
 		})

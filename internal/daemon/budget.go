@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
-	"sync"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -33,81 +31,102 @@ func durableReservations(bytes int) []capability.Reservation {
 	return reservations
 }
 
-// ReserveModelCall admits one root transport attempt.
-func (s *Session) ReserveModelCall(ctx context.Context, estimate llm.CallEstimate) (func(llm.Usage) error, error) {
-	return s.ReserveAgentModelCall(ctx, s.authority.AgentID, estimate)
+// BeginModelAttempt implements the root agent's model budget. Every retry has
+// its own durable identity and immutable route snapshot.
+func (s *Session) BeginModelAttempt(ctx context.Context, attempt llm.ModelAttempt) (llm.ModelPermit, error) {
+	return s.beginAgentModelAttempt(ctx, s.authority.AgentID, attempt)
 }
 
-// ReserveAgentModelCall accounts with the immutable prices of this particular
-// model route, including child overrides, compaction and stateless helpers.
-func (s *Session) ReserveAgentModelCall(ctx context.Context, agentID string, estimate llm.CallEstimate) (func(llm.Usage) error, error) {
-	const maxCallElapsed = int64((30 * time.Minute) / time.Millisecond)
-	if estimate.PromptTokens < 0 || estimate.OutputTokens < 1 || estimate.PromptTokens > math.MaxInt64-estimate.OutputTokens {
-		return nil, errors.New("invalid model token estimate")
+func (s *Session) beginAgentModelAttempt(ctx context.Context, agentID string, attempt llm.ModelAttempt) (llm.ModelPermit, error) {
+	reservation, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (sessionstore.ModelCallReservation, error) {
+		// Never hold accountingMu while waiting for the actor: stopping a
+		// child can make that actor wait for a host call using the same lock.
+		s.accountingMu.Lock()
+		defer s.accountingMu.Unlock()
+		// Repair the exact saved result, never by repeating a provider call.
+		if err := s.flushPendingAccountingLocked(); err != nil {
+			return sessionstore.ModelCallReservation{}, errors.New("model accounting is unresolved; further calls are paused")
+		}
+		return s.store.AdmitModelCall(actorCtx, s.meta.ID, agentID, attempt)
+	})
+	if err != nil {
+		return llm.ModelPermit{}, err
 	}
-	pricing := estimate.Prices
-	if err := pricing.Validate(); err != nil {
-		return nil, err
-	}
-	cost := int64(0)
-	if pricing.Known {
-		cost = dollarsToMicros(float64(estimate.PromptTokens)*max(pricing.Input, pricing.CacheRate()) + float64(estimate.OutputTokens)*pricing.Output)
-	}
-	reservation := []capability.Reservation{
-		{Kind: string(sessionstore.BudgetTokens), Amount: estimate.PromptTokens + estimate.OutputTokens},
-		{Kind: string(sessionstore.BudgetCost), Amount: cost},
-		{Kind: string(sessionstore.BudgetElapsed), Amount: maxCallElapsed},
-		{Kind: string(sessionstore.BudgetActiveOperations), Amount: 1},
-	}
-	if _, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (struct{}, error) {
-		return struct{}{}, s.store.ReserveModelBudget(actorCtx, s.meta.ID, agentID, reservation, !pricing.Known)
-	}); err != nil {
-		return nil, fmt.Errorf("reserve model budget: %w", err)
-	}
-	started := time.Now()
-	var settleMu sync.Mutex
-	settled := false
-	return func(usage llm.Usage) error {
-		settleMu.Lock()
-		defer settleMu.Unlock()
-		if settled {
+	s.publishModelAccounting(ctx)
+	return llm.ModelPermit{
+		ID: reservation.ID, MaxTokens: reservation.MaxTokens, Timeout: reservation.Timeout,
+		Settle: func(result llm.ModelAttemptResult) error {
+			s.accountingMu.Lock()
+			defer s.accountingMu.Unlock()
+			// Repair the first retained result before considering another
+			// callback for the same attempt. A conflicting callback must not
+			// replace an outcome merely because its first write failed.
+			if _, pending := s.pendingAccounting[reservation.ID]; pending {
+				if err := s.flushPendingAccountingLocked(); err != nil {
+					return err
+				}
+			}
+			// A cancelled turn still owes accounting. This bounded, independent
+			// lifetime also avoids routing settlement through a stopping actor.
+			settleCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			settled, err := s.store.SettleModelCall(settleCtx, s.meta.ID, reservation.ID, result)
+			if err != nil {
+				if errors.Is(err, sessionstore.ErrModelCallConflict) {
+					return err
+				}
+				if s.pendingAccounting == nil {
+					s.pendingAccounting = make(map[string]llm.ModelAttemptResult)
+				}
+				s.pendingAccounting[reservation.ID] = result
+				s.modelAccountingNotice(agentID, "Model response retained; accounting is unresolved. Further calls are paused.")
+				return err
+			}
+			delete(s.pendingAccounting, reservation.ID)
+			s.publishModelAccounting(settleCtx)
+			if settled.Exhausted {
+				s.modelAccountingNotice(agentID, "Model budget exhausted. The response is retained; further tools and model calls are paused.")
+				return fmt.Errorf("model budget exhausted: %w", capability.ErrDenied)
+			}
 			return nil
-		}
-		actual := []capability.Usage{{Kind: string(sessionstore.BudgetElapsed), Amount: max(time.Since(started).Milliseconds(), 0)}}
-		if usage.Reported || !usage.Dispatched {
-			if usage.PromptTokens < 0 || usage.CompletionTokens < 0 || int64(usage.PromptTokens) > math.MaxInt64-int64(usage.CompletionTokens) {
-				return errors.New("invalid model usage")
-			}
-			actual = append(actual, capability.Usage{Kind: string(sessionstore.BudgetTokens), Amount: int64(usage.PromptTokens) + int64(usage.CompletionTokens)})
-			if pricing.Known || !usage.Dispatched {
-				actual = append(actual, capability.Usage{Kind: string(sessionstore.BudgetCost), Amount: actualCostMicros(usage, pricing)})
-			}
-		}
-		// Settlement must outlive cancellation without routing back through the actor:
-		// shutdown can be waiting for this worker to finish.
-		err := s.store.ReconcileModelBudget(context.Background(), s.meta.ID, agentID, reservation, actual)
-		if err == nil {
-			settled = true
-		}
-		return err
+		},
 	}, nil
 }
 
-func actualCostMicros(usage llm.Usage, pricing llm.TokenPrices) int64 {
-	prompt := max(usage.PromptTokens, 0)
-	cached := min(max(usage.Cached(), 0), prompt)
-	completion := max(usage.CompletionTokens, 0)
-	return dollarsToMicros(float64(prompt-cached)*pricing.Input + float64(cached)*pricing.CacheRate() + float64(completion)*pricing.Output)
+func (s *Session) flushPendingAccounting() error {
+	s.accountingMu.Lock()
+	defer s.accountingMu.Unlock()
+	return s.flushPendingAccountingLocked()
 }
 
-func dollarsToMicros(value float64) int64 {
-	if value <= 0 {
-		return 0
+func (s *Session) flushPendingAccountingLocked() error {
+	if len(s.pendingAccounting) == 0 {
+		return nil
 	}
-	if value >= float64(math.MaxInt64)/1_000_000 {
-		return math.MaxInt64
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for id, result := range s.pendingAccounting {
+		if _, err := s.store.SettleModelCall(ctx, s.meta.ID, id, result); err != nil {
+			return err
+		}
+		delete(s.pendingAccounting, id)
 	}
-	return int64(math.Ceil(value * 1_000_000))
+	return nil
+}
+
+func (s *Session) publishModelAccounting(ctx context.Context) {
+	accounting, err := s.store.ModelAccounting(ctx, s.meta.ID, "", true)
+	if err == nil {
+		s.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+			kind: "stream.accounting", event: StreamEvent{Accounting: &accounting},
+		}})
+	}
+}
+
+func (s *Session) modelAccountingNotice(agentID, text string) {
+	s.supervisor.post(workerEnvelope{kind: workerStream, stream: &streamEnvelope{
+		kind: "stream.notice", event: StreamEvent{AgentID: agentID, Text: text},
+	}})
 }
 
 func (s *Session) InspectBudgets(ctx context.Context, callerAgentID, targetAgentID string) ([]sessionstore.BudgetState, error) {

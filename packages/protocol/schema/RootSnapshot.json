@@ -239,6 +239,15 @@
               "object"
             ],
             "properties": {
+              "reported": {
+                "type": "boolean"
+              },
+              "cost": {
+                "type": [
+                  "null",
+                  "number"
+                ]
+              },
               "prompt_tokens": {
                 "type": "integer"
               },
@@ -257,6 +266,21 @@
                 },
                 "required": [
                   "cached_tokens"
+                ],
+                "additionalProperties": false
+              },
+              "completion_tokens_details": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "reasoning_tokens": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "reasoning_tokens"
                 ],
                 "additionalProperties": false
               }
@@ -641,6 +665,80 @@
         "additionalProperties": false
       }
     },
+    "accounting": {
+      "type": "object",
+      "properties": {
+        "root_id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "reported_cost_micros": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "estimated_cost_micros": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "reported_cost_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "estimated_cost_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "unknown_cost_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "reported_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "estimated_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "pending_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "root_id",
+        "agent_id",
+        "scope",
+        "revision",
+        "reported_cost_micros",
+        "estimated_cost_micros",
+        "reported_cost_calls",
+        "estimated_cost_calls",
+        "unknown_cost_calls",
+        "reported_calls",
+        "estimated_calls",
+        "pending_calls"
+      ],
+      "additionalProperties": false
+    },
     "capabilities": {
       "type": [
         "null",
@@ -902,6 +1000,63 @@
           "error": {
             "type": "string"
           },
+          "model_call": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "logical_id": {
+                "type": "string"
+              },
+              "number": {
+                "type": "integer"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "usage_source": {
+                "type": "string"
+              },
+              "cost_source": {
+                "type": "string"
+              },
+              "tokens": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "cost_micros": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "elapsed_millis": {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)$",
+                "format": "int64"
+              },
+              "exhausted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "logical_id",
+              "number",
+              "purpose",
+              "usage_source",
+              "cost_source",
+              "tokens",
+              "cost_micros",
+              "elapsed_millis",
+              "exhausted"
+            ],
+            "additionalProperties": false
+          },
           "acknowledged_inbox": {
             "type": "array",
             "items": {
@@ -1057,6 +1212,9 @@
         },
         "additionalProperties": false
       }
+    },
+    "permission_mode": {
+      "type": "string"
     }
   },
   "$id": "https://whip.dev/protocol/v4/RootSnapshot",

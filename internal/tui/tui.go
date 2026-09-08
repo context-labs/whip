@@ -1107,17 +1107,6 @@ func (m *model) contextLimitFor(provName, apiID string) int {
 	return 0
 }
 
-// sessionCost uses durable model-specific accounting rather than repricing all
-// prior calls with the currently selected model. Incomplete totals stay hidden.
-func (m *model) sessionCost() (float64, bool) {
-	for _, budget := range m.clientView.budgets {
-		if budget.AgentID == "" && budget.State.Kind == session.BudgetCost {
-			return float64(budget.State.Used) / 1_000_000, !budget.State.Incomplete
-		}
-	}
-	return 0, false
-}
-
 // compactThresholdFor converts the config's compactPct preference into the
 // agent's threshold fraction. Out-of-range values clamp to [10, 90]; 0 (unset)
 // means the built-in default.

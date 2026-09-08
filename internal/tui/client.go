@@ -56,6 +56,7 @@ type clientPresentation struct {
 	effort             string
 	workingDir         string
 	contextLimit       int
+	accounting         session.ModelAccounting
 	usage              llm.Usage
 	messages           []llm.Message
 	agents             []session.RuntimeAgent
@@ -325,6 +326,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 		}{CachedTokens: snapshot.Meta.UsageCached}
 	}
 	m.clientView.usage = usage
+	m.clientView.accounting = snapshot.Accounting
 	m.clientView.messages = m.snapshotHistory(snapshot)
 	m.clientView.agents = append([]session.RuntimeAgent(nil), snapshot.Agents...)
 	m.clientView.inbox = append([]session.InboxItem(nil), snapshot.Inbox...)
@@ -422,6 +424,9 @@ func (m *model) rebuildClientTranscript() {
 		}
 	}
 	for _, event := range presentation {
+		if event.Kind == "stream.accounting" {
+			continue
+		}
 		_, _ = m.applyClientStream(event.Kind, event.Payload)
 	}
 	for i := range m.blocks {
@@ -518,7 +523,7 @@ func (m *model) displayContextLimit() int {
 }
 
 func (m *model) recordClientStream(event daemon.ProtocolEvent) {
-	if !strings.HasPrefix(event.Kind, "stream.") {
+	if !strings.HasPrefix(event.Kind, "stream.") || event.Kind == "stream.accounting" {
 		return
 	}
 	var payload daemon.StreamEvent
@@ -560,6 +565,12 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 	var event daemon.StreamEvent
 	if err := json.Unmarshal(payload, &event); err != nil {
 		m.append(errStyle.Render("daemon stream: " + err.Error()))
+		return true, nil
+	}
+	if kind == "stream.accounting" {
+		if event.Accounting != nil && event.Accounting.Revision >= m.clientView.accounting.Revision {
+			m.clientView.accounting = *event.Accounting
+		}
 		return true, nil
 	}
 	owner := event.AgentID

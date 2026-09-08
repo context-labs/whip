@@ -453,6 +453,7 @@ func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
 		`DELETE FROM permission_rules WHERE root_id=?`,
 		`DELETE FROM subscriptions WHERE root_id=?`,
 		`DELETE FROM operations WHERE root_id=?`,
+		`DELETE FROM model_calls WHERE root_id=?`,
 		`DELETE FROM usage_charges WHERE root_id=?`,
 		`DELETE FROM budgets WHERE root_id=?`,
 		`DELETE FROM capabilities WHERE root_id=?`,

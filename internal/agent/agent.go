@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"slices"
 	"strings"
@@ -74,13 +75,11 @@ type Events struct {
 
 // ModelCallBudget reserves descendant model spend before a provider request
 // and reconciles the provider-reported usage afterward.
-type ModelCallBudget interface {
-	ReserveModelCall(context.Context, llm.CallEstimate) (func(llm.Usage) error, error)
-}
+type ModelCallBudget = llm.ModelCallBudget
 
 // ModelRoute is a resolved model override for a recursively spawned agent.
 type ModelRoute struct {
-	Prices       llm.TokenPrices
+	Pricing      llm.Pricing
 	Client       *llm.Client
 	ModelName    string
 	Provider     string
@@ -103,15 +102,14 @@ type CompactInfo struct {
 
 // Agent holds one conversation.
 type Agent struct {
-	Prices        llm.TokenPrices
-	CompactPrices llm.TokenPrices
-	Client        *llm.Client
-	Model         string // model id sent to the API
-	ModelName     string // config model name (may differ from Model via id mapping)
-	Provider      string // config provider name
-	MaxTokens     int
-	Effort        string // reasoning effort: "" = parameter omitted from requests
-	Vision        bool   // model accepts image content parts
+	Pricing   llm.Pricing
+	Client    *llm.Client
+	Model     string // model id sent to the API
+	ModelName string // config model name (may differ from Model via id mapping)
+	Provider  string // config provider name
+	MaxTokens int
+	Effort    string // reasoning effort: "" = parameter omitted from requests
+	Vision    bool   // model accepts image content parts
 	// Temperature/TopP are optional per-model sampling knobs for outbound
 	// requests. nil omits the field, preserving provider defaults.
 	Temperature *float64
@@ -128,8 +126,10 @@ type Agent struct {
 	ContextLimit int
 	// CompactClient and CompactModel run the compaction summary; nil/"" uses
 	// the conversation's own client and model.
-	CompactClient *llm.Client
-	CompactModel  string
+	CompactClient   *llm.Client
+	CompactModel    string
+	CompactProvider string
+	CompactPricing  llm.Pricing
 	// CompactThreshold is the fraction of ContextLimit at which Turn compacts
 	// proactively; 0 uses defaultCompactThreshold.
 	CompactThreshold float64
@@ -256,7 +256,7 @@ func (a *Agent) drainPending() []pendingSteer {
 // requests (see lastPrompt). Zero (provider reported no usage) is ignored so
 // the previous real value keeps driving the trigger.
 func (a *Agent) notePrompt(u llm.Usage) {
-	if u.PromptTokens <= 0 {
+	if u.PromptTokens <= 0 || u.Validate() != nil {
 		return
 	}
 	a.usageMu.Lock()
@@ -274,6 +274,11 @@ func (a *Agent) AddUsage(u llm.Usage) {
 
 // addUsage accumulates u into dst, including the cached-token detail.
 func addUsage(dst *llm.Usage, u llm.Usage) {
+	// Durable per-attempt accounting records malformed reports conservatively.
+	// Do not let invalid values corrupt the presentation-only token totals.
+	if u.Validate() != nil || u.PromptTokens > math.MaxInt-dst.PromptTokens || u.CompletionTokens > math.MaxInt-dst.CompletionTokens {
+		return
+	}
 	dst.PromptTokens += u.PromptTokens
 	dst.CompletionTokens += u.CompletionTokens
 	if u.PromptTokensDetails != nil {
@@ -487,7 +492,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		}
 		msgs := a.Messages
 		if ev.EphemeralSystem != "" {
-			msgs = append(append([]llm.Message(nil), msgs...), llm.Message{Role: "system", Content: ev.EphemeralSystem})
+			msgs = withEphemeralSystem(msgs, ev.EphemeralSystem)
 		}
 		// Surface transient-request retries through the event hook so the UI
 		// shows "retrying" instead of looking hung. Set/restored per call: the
@@ -502,18 +507,18 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			TopP:            a.TopP,
 			MaxTokens:       a.MaxTokens,
 		}
-		request = a.BudgetRequest(request, a.Prices)
-		a.Client.OnRetry = ev.OnRetry
-		msg, usage, err := a.Client.Stream(ctx, request, ev.OnText, ev.OnThink, ev.OnToolCall)
-		a.Client.OnRetry = nil
-
+		request.Accounting = a.CallAccounting("turn")
+		client := *a.Client
+		client.OnRetry = ev.OnRetry
+		msg, usage, err := client.Stream(ctx, request, ev.OnText, ev.OnThink, ev.OnToolCall)
 		a.AddUsage(usage)
 		a.notePrompt(usage)
 		if ev.OnUsage != nil {
 			ev.OnUsage(usage)
 		}
 		if err != nil {
-			if !a.compacted && llm.IsContextLimit(err) && ctx.Err() == nil {
+			a.preserveModelResponse(ev, msg, usage, err)
+			if !llm.IsAccountingError(err) && !a.compacted && llm.IsContextLimit(err) && ctx.Err() == nil {
 				a.compacted = true
 				before := append([]llm.Message(nil), a.Messages...)
 				took := len(before)
@@ -521,7 +526,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 					ev.OnCompactStart(took, EstimateTokens(before))
 				}
 				sum, cutoff, info, cerr := a.compact(ctx)
-				if cerr != nil {
+				if cerr != nil && !llm.IsCompletedAccountingError(cerr) {
 					// restore the guard on hard errors so a manual /compact
 					// can still attempt a compaction for the next turn
 					a.compacted = false
@@ -536,9 +541,12 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 				if ev.OnCompaction != nil {
 					ev.OnCompaction(sum, cutoff, before)
 				}
+				if cerr != nil {
+					return "", cerr
+				}
 				continue // retry the (now-smaller) request
 			}
-			return "", err
+			return msg.Content, err
 		}
 		msg.Usage = &usage
 		msg.Model = a.Model + " @ " + a.Provider
@@ -611,25 +619,48 @@ func (a *Agent) appendTurnMessages(ev Events, messages ...llm.Message) {
 	}
 }
 
-// BudgetRequest attaches per-attempt accounting without putting runtime policy
-// in the provider payload. The client calls it again before every retry.
-func (a *Agent) BudgetRequest(request llm.Request, prices llm.TokenPrices) llm.Request {
-	budget := a.modelCallBudget()
-	if budget == nil {
-		return request
+// Ephemeral runtime context follows the primary system instructions, leaving
+// the latest user/tool message at the end of the request.
+func withEphemeralSystem(messages []llm.Message, content string) []llm.Message {
+	if content == "" {
+		return messages
 	}
-	request.BeforeAttempt = func(ctx context.Context, prepared llm.Request) (func(llm.Usage) error, error) {
-		definitionBytes, err := json.Marshal(prepared.Tools)
-		if err != nil {
-			return nil, err
-		}
-		estimate := llm.CallEstimate{
-			PromptTokens: int64(EstimateTokens(prepared.Messages)) + int64((len(definitionBytes)+3)/4),
-			OutputTokens: int64(max(prepared.MaxTokens, 1)), Prices: prices,
-		}
-		return budget.ReserveModelCall(ctx, estimate)
+	position := 0
+	if len(messages) > 0 && messages[0].Role == "system" {
+		position = 1
 	}
-	return request
+	return slices.Insert(slices.Clone(messages), position, llm.Message{Role: "system", Content: content})
+}
+
+// CallAccounting snapshots the route used by an ordinary model request.
+func (a *Agent) CallAccounting(purpose string) *llm.CallAccounting {
+	return &llm.CallAccounting{Budget: a.modelCallBudget(), Purpose: purpose, Provider: a.Provider, Pricing: a.Pricing}
+}
+
+// CompactAccounting follows the same fallback as compaction and title calls.
+func (a *Agent) CompactAccounting(purpose string) *llm.CallAccounting {
+	if a.CompactClient == nil || a.CompactModel == "" {
+		return a.CallAccounting(purpose)
+	}
+	return &llm.CallAccounting{Budget: a.modelCallBudget(), Purpose: purpose, Provider: a.CompactProvider, Pricing: a.CompactPricing}
+}
+
+// Preserve a completed or partial provider response when accounting or transport
+// stops the loop. Requested tools get explicit unexecuted results in history.
+func (a *Agent) preserveModelResponse(ev Events, msg llm.Message, usage llm.Usage, err error) {
+	if msg.Content == "" && len(msg.ToolCalls) == 0 {
+		return
+	}
+	msg.Usage = &usage
+	msg.Model = a.Model + " @ " + a.Provider
+	if !llm.IsCompletedAccountingError(err) {
+		msg.Content += "\n[response interrupted]"
+	}
+	a.appendTurnMessages(ev, msg)
+	for _, tc := range msg.ToolCalls {
+		a.appendTurnMessages(ev, llm.Message{Role: "tool", ToolCallID: tc.ID, Name: tc.Function.Name,
+			Content: "Not executed: model accounting stopped this turn."})
+	}
 }
 
 func (a *Agent) finishTurn() {
@@ -771,7 +802,7 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 		ev.OnCompactStart(took, EstimateTokens(before))
 	}
 	sum, cutoff, info, err := a.compact(ctx)
-	if err != nil {
+	if err != nil && !llm.IsCompletedAccountingError(err) {
 		if err.Error() == "not enough history to compact" {
 			return nil // too little history to fold; rely on the reactive retry
 		}
@@ -789,7 +820,7 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 	// Mark that this turn compacted so the final-round check does not fold a
 	// fresh fold again; the reactive error path sets a.compacted itself.
 	a.compacted = true
-	return nil
+	return err
 }
 
 // EstimateTokens approximates the token count of a conversation. No real
@@ -798,19 +829,7 @@ func (a *Agent) maybeCompact(ctx context.Context, ev Events) error {
 // for roles and tool-call framing. It intentionally overestimates slightly:
 // false positives just compact a little early, false negatives cost a
 // rejected request.
-func EstimateTokens(msgs []llm.Message) int {
-	total := 0
-	for _, m := range msgs {
-		total += 4 + (len(m.TextContent())+3)/4
-		for _, p := range m.Parts {
-			total += llm.PartTokens(p) // pixel-true for images (was: flat 1200)
-		}
-		for _, tc := range m.ToolCalls {
-			total += 8 + (len(tc.Function.Name)+len(tc.Function.Arguments)+3)/4
-		}
-	}
-	return total
-}
+func EstimateTokens(msgs []llm.Message) int { return llm.EstimateTokens(msgs) }
 
 // compactTailBudget is the token budget for the kept tail of a compaction:
 // a quarter of the usable window, clamped to [compactTailMinTokens,
@@ -918,15 +937,10 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 			{Role: "user", Content: summaryPrompt},
 		},
 	}
-	prices := a.Prices
-	if dedicated {
-		prices = a.CompactPrices
-	}
-	request = a.BudgetRequest(request, prices)
+	request.Accounting = a.CompactAccounting("compaction")
 	sum, usage, cerr := cli.Complete(ctx, request)
-
 	a.AddUsage(usage) // the summary call is session spend too
-	if cerr != nil {
+	if cerr != nil && !llm.IsCompletedAccountingError(cerr) {
 		return "", 0, CompactInfo{}, fmt.Errorf("compaction summary failed: %w", cerr)
 	}
 	summary = strings.TrimSpace(sum)
@@ -942,7 +956,7 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 	a.usageMu.Lock()
 	a.lastPrompt = 0
 	a.usageMu.Unlock()
-	return summary, tailStart, CompactInfo{Model: label, Usage: usage}, nil
+	return summary, tailStart, CompactInfo{Model: label, Usage: usage}, cerr
 }
 
 // CompactionRawTailStart returns the pre-compaction index where the prior
@@ -1083,7 +1097,7 @@ func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 		ev.OnCompactStart(len(before), EstimateTokens(before))
 	}
 	sum, cutoff, info, err := a.compact(ctx)
-	if err != nil {
+	if err != nil && !llm.IsCompletedAccountingError(err) {
 		return err
 	}
 	if ev.OnCompact != nil {
@@ -1095,33 +1109,35 @@ func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 	if ev.OnCompaction != nil {
 		ev.OnCompaction(sum, cutoff, before)
 	}
-	return nil
+	return err
 }
 
 // finalAnswer makes one last completion with tools disabled, so a run that hit
 // the tool-turn cap still returns the model's best answer instead of an error.
 // A system nudge tells the model to stop calling tools and answer now.
 func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
-	msgs := append(append([]llm.Message(nil), a.Messages...),
+	msgs := append(slices.Clone(withEphemeralSystem(a.Messages, ev.EphemeralSystem)),
 		llm.Message{Role: "system", Content: "You have reached the tool-call limit. Do NOT request any more tools. Give your final answer now using only what you have already gathered."})
-	a.Client.OnRetry = ev.OnRetry
-	msg, usage, err := a.Client.Stream(ctx, a.BudgetRequest(llm.Request{
+	client := *a.Client
+	client.OnRetry = ev.OnRetry
+	msg, usage, err := client.Stream(ctx, llm.Request{
 		Model:           a.Model,
 		Messages:        msgs,
 		Tools:           nil, // no tools — force a text answer
+		MaxTokens:       a.MaxTokens,
+		Accounting:      a.CallAccounting("final"),
 		ReasoningEffort: a.Effort,
 		Temperature:     a.Temperature,
 		TopP:            a.TopP,
-		MaxTokens:       a.MaxTokens,
-	}, a.Prices), ev.OnText, ev.OnThink, ev.OnToolCall)
-	a.Client.OnRetry = nil
+	}, ev.OnText, ev.OnThink, ev.OnToolCall)
 	a.AddUsage(usage)
 	a.notePrompt(usage)
 	if ev.OnUsage != nil {
 		ev.OnUsage(usage)
 	}
 	if err != nil {
-		return "", err
+		a.preserveModelResponse(ev, msg, usage, err)
+		return msg.Content, err
 	}
 	msg.Usage = &usage
 	msg.Model = a.Model + " @ " + a.Provider

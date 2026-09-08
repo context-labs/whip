@@ -402,14 +402,12 @@ func New(baseURL, apiKey string) *Client {
 
 // Request is a chat completions request.
 type Request struct {
-	// BeforeAttempt admits each HTTP attempt, including retries, and returns its
-	// settlement callback. It is local execution policy, never provider payload.
-	BeforeAttempt   func(context.Context, Request) (func(Usage) error, error) `json:"-"`
-	Model           string                                                    `json:"model"`
-	Messages        []Message                                                 `json:"messages"`
-	Tools           []Tool                                                    `json:"tools,omitempty"`
-	MaxTokens       int                                                       `json:"max_tokens,omitempty"`
-	ReasoningEffort string                                                    `json:"reasoning_effort,omitempty"`
+	Accounting      *CallAccounting `json:"-"`
+	Model           string          `json:"model"`
+	Messages        []Message       `json:"messages"`
+	Tools           []Tool          `json:"tools,omitempty"`
+	MaxTokens       int             `json:"max_tokens,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 	// Temperature and TopP are optional per-model sampling knobs. Pointers so
 	// 0.0 (a legitimate value) is distinguishable from unset; nil omits the
 	// field from the request, preserving provider defaults.
@@ -430,17 +428,22 @@ type Request struct {
 
 // Usage is the token accounting the provider reports for one request
 // (prompt = input, completion = output). CachedTokens counts the slice of
-// the prompt served from the provider's prompt cache. Providers that omit
-// usage remain explicitly unknown; zero reported usage is a separate outcome.
+// the prompt served from the provider's prompt cache. Reported distinguishes
+// explicit zero usage from an absent payload, including after persistence.
 type Usage struct {
-	Reported         bool `json:"-"`
-	Dispatched       bool `json:"-"`
-	PromptTokens     int  `json:"prompt_tokens"`
-	CompletionTokens int  `json:"completion_tokens"`
+	decoded          bool
+	aggregated       bool
+	Reported         bool     `json:"reported"`
+	Cost             *float64 `json:"cost,omitempty"`
+	PromptTokens     int      `json:"prompt_tokens"`
+	CompletionTokens int      `json:"completion_tokens"`
 	// PromptTokensDetails nests the cache hit count (OpenAI-compatible).
 	PromptTokensDetails *struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details,omitempty"`
 }
 
 // Cached is the prompt-token count served from cache (0 when unreported).
@@ -473,8 +476,8 @@ type chunk struct {
 		Delta        delta  `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Error *apiError `json:"error"`
-	Usage *Usage    `json:"usage"`
+	Error *apiError       `json:"error"`
+	Usage json.RawMessage `json:"usage"`
 }
 
 type apiError struct {
@@ -627,29 +630,6 @@ type Pricing struct {
 	InputCacheRead string `json:"input_cache_read,omitempty"`
 }
 
-// Rates parses the decimal-string prices into floats (0 for missing or
-// unparseable fields).
-func (p Pricing) Rates() (in, out, cacheRead float64) {
-	in, _ = strconv.ParseFloat(p.Prompt, 64)
-	out, _ = strconv.ParseFloat(p.Completion, 64)
-	cacheRead, _ = strconv.ParseFloat(p.InputCacheRead, 64)
-	return in, out, cacheRead
-}
-
-// SessionCost returns the USD spend for cumulative usage u at per-token
-// rates. Cached prompt tokens are billed at the cache-read rate when
-// advertised, else at the full input rate (pi models.ts calculateCost has
-// the same shape, plus a cache-write term OpenAI-compatible usage lacks).
-func SessionCost(u Usage, in, out, cacheRead float64) float64 {
-	cached := u.Cached()
-	if cacheRead == 0 {
-		cacheRead = in
-	}
-	return float64(u.PromptTokens-cached)*in +
-		float64(cached)*cacheRead +
-		float64(u.CompletionTokens)*out
-}
-
 // Models fetches GET /models from the provider.
 func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/models", nil)
@@ -683,94 +663,86 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 // chunk (stream_options:include_usage).
 //
 // Transient failures (transport errors, 429, 5xx) are retried with backoff —
-// but only until the first visible delta has been handed to onText/onThink.
-// After that point a retry would replay text the caller already rendered, so
+// but only until the first text, reasoning, or tool-call delta is received.
+// After that point a retry would regenerate a partially received response, so
 // the error is surfaced instead. A retry regenerates the whole assistant
 // message server-side; nothing in the request messages is mutated by a failed
-// attempt. Each attempt may incur usage and is accounted separately.
+// attempt. Each attempt may incur usage and is settled independently.
 func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
+	ctx, cancel := c.callContext(ctx)
+	defer cancel()
 	req.Stream = true
 	req.StreamOptions = &struct {
 		IncludeUsage bool `json:"include_usage"`
 	}{IncludeUsage: true}
-	req.Messages = repairToolHistory(stripAuthored(req.Messages))
+	req.Messages = repairToolHistory(req.Messages)
 	if req.PromptCacheKey == "" {
 		req.PromptCacheKey = c.CacheKey
 	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return Message{}, Usage{}, err
-	}
-	var last error
+	logicalID := logicalCallID()
 	var total Usage
-	for attempt := 1; attempt <= c.attempts(); attempt++ {
-		emitted := false // true once any visible delta reached the caller
-		wrapText, wrapThink := onText, onThink
-		if onText != nil {
-			wrapText = func(s string) { emitted = true; onText(s) }
-		}
-		if onThink != nil {
-			wrapThink = func(s string) { emitted = true; onThink(s) }
-		}
-		wrapTool := onToolCall
-		if onToolCall != nil {
-			wrapTool = func(id, name, args string) { emitted = true; onToolCall(id, name, args) }
-		}
-		settle, err := beginAttempt(ctx, req)
-		if err != nil {
-			return Message{}, total, err
-		}
-		msg, usage, err := c.streamOnce(ctx, body, wrapText, wrapThink, wrapTool)
-		total.add(usage)
-		if settle != nil {
-			if settleErr := settle(usage); settleErr != nil {
-				return msg, total, errors.Join(err, settleErr)
+	for attempt := 1; ; attempt++ {
+		emitted := false
+		wrapText := func(s string) {
+			emitted = true
+			if onText != nil {
+				onText(s)
 			}
 		}
-		if err == nil {
-			return msg, total, nil
+		wrapThink := func(s string) {
+			emitted = true
+			if onThink != nil {
+				onThink(s)
+			}
 		}
-		last = err
-		// Retry only transient failures the caller hasn't seen output from.
-		if emitted || !retryable(err) || attempt == c.attempts() {
-			break
+		wrapTool := func(id, name, args string) {
+			emitted = true
+			if onToolCall != nil && id != "" {
+				onToolCall(id, name, args)
+			}
+		}
+		msg, usage, err := c.runAttempt(ctx, req, logicalID, attempt, func(ctx context.Context, body []byte) (Message, Usage, error) {
+			return c.streamOnce(ctx, body, wrapText, wrapThink, wrapTool)
+		})
+		total.add(usage)
+		if err == nil || emitted || IsAccountingError(err) || !retryable(err) || attempt >= c.attempts() {
+			return msg, total, err
 		}
 		delay := backoff(attempt)
 		if c.OnRetry != nil {
 			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
 		}
-		if serr := sleep(ctx, delay); serr != nil {
-			return Message{}, total, serr
+		if err := sleep(ctx, delay); err != nil {
+			return msg, total, err
 		}
 	}
-	return Message{}, total, last
 }
 
 // streamOnce performs a single streaming request attempt; the Stream retry
-// wrapper calls it per attempt and reads its own `emitted` flag (set by the
-// wrapped callbacks) to decide whether a retry would replay visible output.
+// wrapper calls it per attempt and tracks all output, even with nil callbacks.
 func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(body))
+	hr, err := httpRequest(ctx, c.BaseURL, body)
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
 	hr.Header.Set("Content-Type", "application/json")
 	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
-	usage := Usage{Dispatched: true}
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
-		return Message{}, usage, err
+		return Message{}, Usage{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		usage, err := readHTTPFailure(resp)
+		usage, err := responseError(resp)
 		return Message{}, usage, err
 	}
 
 	msg := Message{Role: "assistant"}
+	var usage Usage      // from the terminal chunk (include_usage); zero if omitted
 	var calls []ToolCall // arrival order; providers may use sparse stream indexes
 	callPositions := make(map[int]int)
 	finish := ""
+	done := false
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	for sc.Scan() {
@@ -780,32 +752,27 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
+			done = true
 			break
 		}
 		var ch chunk
 		if err := json.Unmarshal([]byte(data), &ch); err != nil {
-			continue
-		}
-		if ch.Usage != nil {
-			if err := ch.Usage.validate(); err != nil {
-				return Message{}, usage, nonRetryable{err}
+			if json.Valid([]byte(data)) {
+				return msg, usage, nonRetryable{fmt.Errorf("invalid stream chunk: %w", err)}
 			}
-			usage = *ch.Usage
-			usage.Reported, usage.Dispatched = true, true
-		}
-		if ch.Error != nil {
-			// The provider accepted the request (200) then failed mid-stream.
-			// These are provider-logic errors (content filter, model faults),
-			// not transport blips — surface them, don't retry.
-			return Message{}, usage, nonRetryable{fmt.Errorf("api error: %s", ch.Error.Message)}
-		}
-		if len(ch.Choices) == 0 {
 			continue
 		}
-		if fr := ch.Choices[0].FinishReason; fr != "" {
-			finish = fr
+		var usageErr error
+		if len(ch.Usage) > 0 && string(ch.Usage) != "null" {
+			usage, usageErr = decodeUsage(ch.Usage)
 		}
-		d := ch.Choices[0].Delta
+		var d delta
+		if len(ch.Choices) > 0 {
+			d = ch.Choices[0].Delta
+			if fr := ch.Choices[0].FinishReason; fr != "" {
+				finish = fr
+			}
+		}
 		if d.ReasoningContent != "" {
 			if onThink != nil {
 				onThink(d.ReasoningContent)
@@ -832,16 +799,29 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 				cur.Function.Name += tc.Function.Name
 			}
 			cur.Function.Arguments += tc.Function.Arguments
-			// Surface the streaming tool call as soon as it has an id, so the
+			// Surface every tool delta, including one preceding the id, so the
 			// UI can show a pending row before execution (tool_call arguments
 			// stream in fragments, so re-fire each delta with the snapshot).
-			if onToolCall != nil && cur.ID != "" {
+			if onToolCall != nil {
 				onToolCall(cur.ID, cur.Function.Name, cur.Function.Arguments)
 			}
 		}
+		if usageErr != nil {
+			return msg, usage, nonRetryable{usageErr}
+		}
+		if err := usage.Validate(); err != nil {
+			return msg, usage, nonRetryable{err}
+		}
+		if ch.Error != nil {
+			return msg, usage, nonRetryable{fmt.Errorf("api error: %s", ch.Error.Message)}
+		}
+
 	}
 	if err := sc.Err(); err != nil {
-		return Message{}, usage, err
+		return msg, usage, err
+	}
+	if finish == "" && !done {
+		return msg, usage, nonRetryable{errors.New("model stream ended without a completion marker")}
 	}
 	// Never execute tool calls from a max_tokens-truncated response: the
 	// streamed JSON arguments may be silently incomplete.
@@ -883,62 +863,46 @@ func validToolCallArgs(s string) bool {
 // summary call, where streaming would just add UI noise for a one-shot
 // synthesis.
 func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, error) {
+	ctx, cancel := c.callContext(ctx)
+	defer cancel()
 	req.Stream = false
-	req.Messages = stripAuthored(req.Messages)
-	body, err := json.Marshal(req)
-	if err != nil {
-		return "", Usage{}, err
-	}
-	var last error
+	req.StreamOptions = nil
+	logicalID := logicalCallID()
 	var total Usage
-	for attempt := 1; attempt <= c.attempts(); attempt++ {
-		var text string
-		var usage Usage
-		settle, admissionErr := beginAttempt(ctx, req)
-		if admissionErr != nil {
-			return "", total, admissionErr
-		}
-		text, usage, err = c.completeOnce(ctx, body)
+	for attempt := 1; ; attempt++ {
+		msg, usage, err := c.runAttempt(ctx, req, logicalID, attempt, func(ctx context.Context, body []byte) (Message, Usage, error) {
+			text, usage, err := c.completeOnce(ctx, body)
+			return Message{Role: "assistant", Content: text}, usage, err
+		})
 		total.add(usage)
-		if settle != nil {
-			if settleErr := settle(usage); settleErr != nil {
-				return text, total, errors.Join(err, settleErr)
-			}
-		}
-		if err == nil {
-			return text, total, nil
-		}
-		last = err
-		if !retryable(err) || attempt == c.attempts() {
-			break
+		if err == nil || msg.Content != "" || IsAccountingError(err) || !retryable(err) || attempt >= c.attempts() {
+			return msg.Content, total, err
 		}
 		delay := backoff(attempt)
 		if c.OnRetry != nil {
 			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
 		}
-		if serr := sleep(ctx, delay); serr != nil {
-			return "", total, serr
+		if err := sleep(ctx, delay); err != nil {
+			return msg.Content, total, err
 		}
 	}
-	return "", total, last
 }
 
 // completeOnce performs one non-streaming request attempt.
 func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, error) {
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/chat/completions", bytes.NewReader(body))
+	hr, err := httpRequest(ctx, c.BaseURL, body)
 	if err != nil {
 		return "", Usage{}, err
 	}
 	hr.Header.Set("Content-Type", "application/json")
 	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
-	usage := Usage{Dispatched: true}
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
-		return "", usage, err
+		return "", Usage{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		usage, err := readHTTPFailure(resp)
+		usage, err := responseError(resp)
 		return "", usage, err
 	}
 	var out struct {
@@ -947,39 +911,97 @@ func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
-		Usage *Usage `json:"usage"`
+		Usage json.RawMessage `json:"usage"`
+		Error *apiError       `json:"error"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", usage, err
+		return "", Usage{}, nonRetryable{err}
 	}
-	if out.Usage != nil {
-		if err := out.Usage.validate(); err != nil {
-			return "", usage, nonRetryable{err}
-		}
-		usage = *out.Usage
-		usage.Reported, usage.Dispatched = true, true
+	usage, usageErr := decodeUsage(out.Usage)
+	var text string
+	if len(out.Choices) > 0 {
+		text = out.Choices[0].Message.Content
+	}
+	if usageErr != nil {
+		return text, usage, nonRetryable{usageErr}
+	}
+	if err := usage.Validate(); err != nil {
+		return text, usage, nonRetryable{err}
+	}
+	if out.Error != nil {
+		return text, usage, nonRetryable{fmt.Errorf("api error: %s", out.Error.Message)}
 	}
 	if len(out.Choices) == 0 {
 		return "", usage, nonRetryable{errors.New("no choices in completion response")}
 	}
-	return out.Choices[0].Message.Content, usage, nil
+	return text, usage, nil
 }
 
-// A failed HTTP response can still report billable usage. Keep the bounded
-// diagnostic body and admit the next attempt against that settled usage.
-func readHTTPFailure(response *http.Response) (Usage, error) {
+func httpRequest(ctx context.Context, baseURL string, body []byte) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	if (request.URL.Scheme != "http" && request.URL.Scheme != "https") || request.URL.Host == "" {
+		return nil, errors.New("invalid model provider URL")
+	}
+	return request, nil
+}
+
+func responseError(response *http.Response) (Usage, error) {
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 	httpErr := &HTTPError{Status: response.Status, Body: strings.TrimSpace(string(body))}
-	usage := Usage{Dispatched: true}
 	var payload struct {
-		Usage *Usage `json:"usage"`
+		Usage json.RawMessage `json:"usage"`
 	}
-	if json.Unmarshal(body, &payload) == nil && payload.Usage != nil {
-		if err := payload.Usage.validate(); err != nil {
-			return usage, errors.Join(httpErr, nonRetryable{err})
-		}
-		usage = *payload.Usage
-		usage.Reported, usage.Dispatched = true, true
+	if json.Unmarshal(body, &payload) != nil {
+		return Usage{}, httpErr
+	}
+	usage, err := decodeUsage(payload.Usage)
+	if err != nil {
+		return usage, errors.Join(httpErr, nonRetryable{err})
 	}
 	return usage, httpErr
+}
+
+// decodeUsage validates token usage and a provider charge independently. A bad
+// field cannot erase the usable half of the accounting or the model's response.
+func decodeUsage(data json.RawMessage) (Usage, error) {
+	if len(data) == 0 || string(data) == "null" {
+		return Usage{}, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return Usage{}, fmt.Errorf("invalid model usage: %w", err)
+	}
+	charge := fields["cost"]
+	delete(fields, "cost")
+	// reported is WHIP persistence metadata, not a provider token-count claim.
+	delete(fields, "reported")
+	tokens, err := json.Marshal(fields)
+	if err != nil {
+		return Usage{}, fmt.Errorf("invalid model usage: %w", err)
+	}
+	var usage Usage
+	tokenErr := json.Unmarshal(tokens, &usage)
+	if tokenErr == nil {
+		tokenErr = usage.Validate()
+	}
+	if tokenErr != nil {
+		usage = Usage{}
+	}
+	var costErr error
+	if len(charge) != 0 {
+		costErr = json.Unmarshal(charge, &usage.Cost)
+		if costErr == nil && usage.Cost != nil {
+			costErr = (Usage{Cost: usage.Cost}).Validate()
+		}
+		if costErr != nil {
+			usage.Cost = nil
+		}
+	}
+	if err := errors.Join(tokenErr, costErr); err != nil {
+		return usage, fmt.Errorf("invalid model usage: %w", err)
+	}
+	return usage, nil
 }

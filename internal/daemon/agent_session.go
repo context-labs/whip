@@ -34,6 +34,7 @@ func (session *AgentSession) TurnParts(ctx context.Context, input string, parts 
 func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []llm.ContentPart, authored bool, started func(), _ func(string), prepare func(context.Context) (string, []llm.ContentPart, error)) (string, error) {
 	session.mu.Lock()
 	session.turn = turnJournal{}
+	session.accountingStopped = nil
 	session.mu.Unlock()
 	if session.runtime != nil {
 		session.runtime.observeRunTurn(session)
@@ -106,6 +107,13 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	events.OnBoundary = func() ([]llm.Message, error) { return session.pullSteers(ctx, turnID) }
 	if notice := scratchNotice(start); notice != "" {
 		events.EphemeralSystem = notice
+	}
+	if session.root != nil {
+		notice, err := session.modelBudgetNotice(ctx)
+		if err != nil {
+			return "", err
+		}
+		events.EphemeralSystem = strings.TrimSpace(events.EphemeralSystem + "\n" + notice)
 	}
 	if emit := session.emit; emit != nil {
 		events.OnText = func(text string) { emit("stream.text", StreamEvent{Text: text}) }
@@ -385,18 +393,17 @@ func (session *AgentSession) GenerateTitle(ctx context.Context) (string, llm.Usa
 		return "", llm.Usage{}, errors.New("title requires a completed exchange")
 	}
 	client, model := session.agent.CompactClient, session.agent.CompactModel
-	prices := session.agent.CompactPrices
 	if client == nil || model == "" {
 		client, model = session.agent.Client, session.agent.Model
-		prices = session.agent.Prices
 	}
-	output, usage, err := client.Complete(ctx, session.agent.BudgetRequest(llm.Request{
-		Model: model, MaxTokens: 24,
+	output, usage, err := client.Complete(ctx, llm.Request{
+		Model: model, MaxTokens: 24, Accounting: session.agent.CompactAccounting("title"),
 		Messages: []llm.Message{
 			{Role: "system", Content: "Name this coding session. Reply with a plain 3-6 word title: no quotes and no trailing period."},
 			{Role: "user", Content: "Request: " + boundedTitleText(userText, 300) + "\nResponse: " + boundedTitleText(assistantText, 200)},
 		},
-	}, prices))
+	})
+	session.agent.AddUsage(usage)
 	if err != nil {
 		return "", usage, err
 	}
@@ -404,7 +411,6 @@ func (session *AgentSession) GenerateTitle(ctx context.Context) (string, llm.Usa
 	if title == "" || len(title) > 80 {
 		return "", usage, errors.New("model returned an invalid title")
 	}
-	session.agent.AddUsage(usage)
 	return title, usage, nil
 }
 
@@ -478,8 +484,13 @@ func (session *AgentSession) complete(ctx context.Context, prompt string, maxTok
 		Model: session.agent.Model, MaxTokens: maxTokens,
 		Messages: []llm.Message{{Role: "user", Content: prompt}},
 	}
-	request = session.agent.BudgetRequest(request, session.agent.Prices)
+	request.Accounting = session.agent.CallAccounting("helper")
 	output, usage, err := session.agent.Client.Complete(ctx, request)
+	if llm.IsAccountingError(err) {
+		session.mu.Lock()
+		session.accountingStopped = err
+		session.mu.Unlock()
+	}
 	session.agent.AddUsage(usage)
 	return output, usage, err
 }
@@ -523,4 +534,37 @@ func (session *AgentSession) bindPresentation(root *Session) {
 	session.interactive = newDaemonInteractiveRunner(session.emit)
 	session.agent.Services.SetInteractive(session.interactive)
 	session.agent.SetLauncher(root.supervisor.launchWorker)
+}
+
+// modelBudgetNotice describes effective ancestor limits at the turn boundary.
+// Admission still checks them atomically because other agents may be spending.
+func (session *AgentSession) modelBudgetNotice(ctx context.Context) (string, error) {
+	budgets, err := session.root.store.InspectBudgets(ctx, session.root.ID(), session.id)
+	if err != nil {
+		return "", err
+	}
+	var remaining []string
+	incomplete := false
+	for _, budget := range budgets {
+		switch budget.Kind {
+		case sessionstore.BudgetTokens, sessionstore.BudgetElapsed, sessionstore.BudgetCost:
+			amount := "unlimited"
+			if budget.Remaining != nil {
+				amount = sessionstore.FormatBudgetAmount(budget.Kind, *budget.Remaining)
+			}
+			remaining = append(remaining, string(budget.Kind)+": "+amount)
+			incomplete = incomplete || budget.Incomplete
+		}
+	}
+	notice := "Model budget remaining at turn start (shared with ancestors): " + strings.Join(remaining, ", ") + ". Concurrent requests each consume model-call time. Each request has a finite output ceiling and deadline. Provider-reported charges take precedence; missing charges use reported tokens and the call's saved prices. Unpriced calls require an unlimited monetary budget and remain marked unknown. Finite allowances may reduce output or stop further calls."
+	if incomplete {
+		notice += " Some previous usage is unconfirmed; reservation estimates are recorded separately from known usage."
+	}
+	return notice, nil
+}
+
+func (session *AgentSession) accountingStopError() error {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	return session.accountingStopped
 }

@@ -2,14 +2,16 @@ package rlm
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"maps"
 	"math"
-	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
+	"go.starlark.net/resolve"
 	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
 )
 
@@ -40,60 +42,135 @@ type RestoreReport struct {
 }
 
 // ScratchStore persists one kernel's scratch snapshot between worker
-// processes. Load returns an empty program when nothing is stored.
+// processes. The string is a structured JSON snapshot, never executable source.
+// Load returns an empty string when nothing is stored.
 type ScratchStore interface {
-	Load(ctx context.Context) (program string, manifest SnapshotManifest, err error)
-	Save(ctx context.Context, program string, manifest SnapshotManifest) error
+	Load(ctx context.Context) (snapshot string, manifest SnapshotManifest, err error)
+	Save(ctx context.Context, snapshot string, manifest SnapshotManifest) error
 }
-
-// A snapshot is Starlark source: `name = repr(value)` for data, `b = a` for
-// aliases, and the original text of top-level defs and lambda assignments.
-// Restoring is executing it. Closures, self-referential values, and oversized
-// values are skipped by name; host modules are re-installed by the worker.
 
 type scratchSource struct {
-	kind  string // "def" or "lambda"
-	order int
-	text  string
+	name   string
+	text   string
+	deps   []string
+	scopes map[string]resolve.Scope
+	reason string
 }
 
-// recordSources remembers the source of top-level defs and lambda
-// assignments so a snapshot can re-declare them.
+// Sources belong to function objects, not mutable global names. A failed cell
+// can still install definitions, and their source must replace older records.
 func (w *worker) recordSources(code string, stmts []syntax.Stmt) {
+	if w.sources == nil {
+		w.sources = map[*starlark.Function]scratchSource{}
+	}
 	for _, stmt := range stmts {
-		switch stmt := stmt.(type) {
-		case *syntax.DefStmt:
-			w.rememberSource(stmt.Name.Name, "def", spanText(code, stmt))
-		case *syntax.AssignStmt:
-			ident, ok := stmt.LHS.(*syntax.Ident)
-			if !ok || stmt.Op != syntax.EQ {
-				continue
+		name, params, ok := helperStatement(stmt)
+		if !ok {
+			continue
+		}
+		fn, ok := w.globals[name].(*starlark.Function)
+		if !ok || fn.Position().Filename() != fmt.Sprintf("<rlm-cell-%d>", w.nextSource) {
+			continue
+		}
+		pos, _ := stmt.Span()
+		if assignment, ok := stmt.(*syntax.AssignStmt); ok {
+			expr := assignment.RHS
+			for {
+				paren, ok := expr.(*syntax.ParenExpr)
+				if !ok {
+					break
+				}
+				expr = paren.X
 			}
-			rhs := stmt.RHS
-			if paren, ok := rhs.(*syntax.ParenExpr); ok {
-				rhs = paren.X
+			pos, _ = expr.Span()
+		}
+		if fn.Position().Line != pos.Line || fn.Position().Col != pos.Col {
+			continue
+		}
+		source := scratchSource{name: name, text: spanText(code, stmt), scopes: map[string]resolve.Scope{}}
+		if parsed, err := cellFileOptions.Parse("<source>", source.text, 0); err != nil || len(parsed.Stmts) != 1 {
+			source.reason = "function source unavailable"
+		}
+		for _, param := range params {
+			if binary, ok := param.(*syntax.BinaryExpr); ok && binary.Op == syntax.EQ && !literalDefault(binary.Y) {
+				source.reason = "default is not an immutable literal"
 			}
-			if _, ok := rhs.(*syntax.LambdaExpr); ok {
-				w.rememberSource(ident.Name, "lambda", spanText(code, stmt))
+		}
+		seen := map[string]bool{}
+		syntax.Walk(stmt, func(node syntax.Node) bool {
+			if ident, ok := node.(*syntax.Ident); ok {
+				if binding, ok := ident.Binding.(*resolve.Binding); ok && (binding.Scope == resolve.Global || binding.Scope == resolve.Predeclared || binding.Scope == resolve.Universal) && !seen[ident.Name] {
+					source.scopes[ident.Name] = binding.Scope
+					seen[ident.Name] = true
+					source.deps = append(source.deps, ident.Name)
+				}
 			}
+			return true
+		})
+		w.sources[fn] = source
+	}
+	// Retain source only for currently exported helpers.
+	live := map[*starlark.Function]bool{}
+	for _, value := range w.globals {
+		if fn, ok := value.(*starlark.Function); ok {
+			live[fn] = true
+		}
+	}
+	for fn := range w.sources {
+		if !live[fn] {
+			delete(w.sources, fn)
 		}
 	}
 }
 
-// rememberSource keeps a definition's text only when it parses back as one
-// statement, so a snapshot can never carry a truncated def.
-func (w *worker) rememberSource(name, kind, text string) {
-	if text == "" {
-		return
+func helperStatement(stmt syntax.Stmt) (string, []syntax.Expr, bool) {
+	switch stmt := stmt.(type) {
+	case *syntax.DefStmt:
+		return stmt.Name.Name, stmt.Params, true
+	case *syntax.AssignStmt:
+		name, ok := stmt.LHS.(*syntax.Ident)
+		if !ok || stmt.Op != syntax.EQ {
+			return "", nil, false
+		}
+		rhs := stmt.RHS
+		for {
+			paren, ok := rhs.(*syntax.ParenExpr)
+			if !ok {
+				break
+			}
+			rhs = paren.X
+		}
+		if lambda, ok := rhs.(*syntax.LambdaExpr); ok {
+			return name.Name, lambda.Params, true
+		}
 	}
-	if file, err := cellFileOptions.Parse("<source>", text, 0); err != nil || len(file.Stmts) != 1 {
-		return
+	return "", nil, false
+}
+
+func literalDefault(expr syntax.Expr) bool {
+	switch expr := expr.(type) {
+	case *syntax.Literal:
+		if value, ok := expr.Value.(float64); ok {
+			return !math.IsNaN(value) && !math.IsInf(value, 0)
+		}
+		return true
+	case *syntax.Ident:
+		binding, ok := expr.Binding.(*resolve.Binding)
+		return ok && binding.Scope == resolve.Universal && (expr.Name == "None" || expr.Name == "True" || expr.Name == "False")
+	case *syntax.ParenExpr:
+		return literalDefault(expr.X)
+	case *syntax.TupleExpr:
+		for _, item := range expr.List {
+			if !literalDefault(item) {
+				return false
+			}
+		}
+		return true
+	case *syntax.UnaryExpr:
+		_, numeric := expr.X.(*syntax.Literal)
+		return numeric && (expr.Op == syntax.PLUS || expr.Op == syntax.MINUS)
 	}
-	if w.sources == nil {
-		w.sources = map[string]scratchSource{}
-	}
-	w.nextSource++
-	w.sources[name] = scratchSource{kind: kind, order: w.nextSource, text: text}
+	return false
 }
 
 // spanText slices a statement's source out of its cell. Positions count
@@ -147,170 +224,14 @@ func (w *worker) snapshot() frame {
 	return frame{Code: program, Value: manifest}
 }
 
-func (w *worker) buildSnapshot() (string, SnapshotManifest) {
-	limit := min(snapshotTotalBytes, w.frameBytes*3/4)
-	names := make([]string, 0, len(w.globals))
-	for name := range w.globals {
-		if _, module := w.modules[name]; !module {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	var manifest SnapshotManifest
-	var program strings.Builder
-	skip := func(name, reason string) {
-		manifest.Skipped = append(manifest.Skipped, SkippedName{Name: name, Reason: reason})
-	}
-	emit := func(name, text string) {
-		switch {
-		case len(text) > snapshotVariableBytes:
-			skip(name, "exceeds per-variable cap")
-		case program.Len()+len(text) > limit:
-			skip(name, "exceeds aggregate cap")
-		default:
-			program.WriteString(text)
-			manifest.Saved = append(manifest.Saved, name)
-		}
-	}
-	type function struct {
-		order int
-		name  string
-		text  string
-	}
-	var functions []function
-	identities := map[any]string{}
-	for _, name := range names {
-		switch value := w.globals[name].(type) {
-		case *starlark.Builtin, *starlarkstruct.Struct:
-			// Host modules are re-installed by every worker.
-		case *starlark.Function:
-			source, known := w.sources[name]
-			switch {
-			case value.NumFreeVars() > 0:
-				skip(name, "closure")
-			case known && ((source.kind == "def" && value.Name() == name) || (source.kind == "lambda" && value.Name() == "lambda")):
-				functions = append(functions, function{order: source.order, name: name, text: source.text})
-			default:
-				skip(name, "function source unavailable")
-			}
-		case starlark.Float:
-			if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-				skip(name, "non-finite float")
-				continue
-			}
-			emit(name, name+" = "+value.String()+"\n")
-		default:
-			if key := identityKey(value); key != nil {
-				if first, seen := identities[key]; seen {
-					emit(name, name+" = "+first+"\n")
-					continue
-				}
-				identities[key] = name
-			}
-			if hasCycle(value, map[any]bool{}) {
-				skip(name, "self-referential value")
-				continue
-			}
-			emit(name, name+" = "+value.String()+"\n")
-		}
-	}
-	sort.Slice(functions, func(i, j int) bool { return functions[i].order < functions[j].order })
-	for _, fn := range functions {
-		emit(fn.name, fn.text)
-	}
-	manifest.Bytes = program.Len()
-	return program.String(), manifest
-}
-
-// identityKey returns a comparable identity for mutable containers so aliases
-// restore as aliases instead of copies.
-func identityKey(value starlark.Value) any {
-	switch value := value.(type) {
-	case *starlark.List:
-		return value
-	case *starlark.Dict:
-		return value
-	}
-	return nil
-}
-
-func hasCycle(value starlark.Value, path map[any]bool) bool {
-	switch value := value.(type) {
-	case *starlark.List:
-		if path[value] {
-			return true
-		}
-		path[value] = true
-		defer delete(path, value)
-		for index := range value.Len() {
-			if hasCycle(value.Index(index), path) {
-				return true
-			}
-		}
-	case *starlark.Dict:
-		if path[value] {
-			return true
-		}
-		path[value] = true
-		defer delete(path, value)
-		for _, item := range value.Items() {
-			if hasCycle(item[0], path) || hasCycle(item[1], path) {
-				return true
-			}
-		}
-	case starlark.Tuple:
-		for _, item := range value {
-			if hasCycle(item, path) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func (w *worker) restore(program string) frame {
-	return frame{Value: w.applySnapshot(program)}
-}
-
-// applySnapshot executes a snapshot into the current globals. The whole
-// program runs as one chunk first so restored functions share one module;
-// on failure it replays statement by statement so one bad binding is
-// reported by name instead of taking the rest with it.
-func (w *worker) applySnapshot(program string) RestoreReport {
-	maps.Copy(w.globals, w.modules)
-	var report RestoreReport
-	if strings.TrimSpace(program) == "" {
-		return report
-	}
-	file, err := cellFileOptions.Parse("<scratch>", program, 0)
-	if err != nil {
-		report.Failed = append(report.Failed, SkippedName{Name: "<snapshot>", Reason: err.Error()})
-		return report
-	}
-	// Restored functions need their source again for the next snapshot.
-	w.recordSources(program, file.Stmts)
-	w.restoring = true
-	defer func() { w.restoring = false }()
-	if err := w.execChunk(file); err == nil {
-		report.Restored = boundNames(file.Stmts)
-		return report
-	}
-	maps.Copy(w.globals, w.modules)
-	for _, stmt := range file.Stmts {
-		names := boundNames([]syntax.Stmt{stmt})
-		single, err := cellFileOptions.Parse("<scratch>", spanText(program, stmt), 0)
-		if err == nil {
-			err = w.execChunk(single)
+	report := w.applySnapshot(program)
+	for _, failure := range report.Failed {
+		if failure.Name == "<snapshot>" {
+			return frame{Error: failure.Reason, Value: report}
 		}
-		if err != nil {
-			for _, name := range names {
-				report.Failed = append(report.Failed, SkippedName{Name: name, Reason: err.Error()})
-			}
-			continue
-		}
-		report.Restored = append(report.Restored, names...)
 	}
-	return report
+	return frame{Value: report}
 }
 
 func (w *worker) execChunk(file *syntax.File) error {
@@ -319,17 +240,165 @@ func (w *worker) execChunk(file *syntax.File) error {
 	return starlark.ExecREPLChunk(file, thread, w.globals)
 }
 
-func boundNames(stmts []syntax.Stmt) []string {
-	var names []string
-	for _, stmt := range stmts {
-		switch stmt := stmt.(type) {
-		case *syntax.DefStmt:
-			names = append(names, stmt.Name.Name)
-		case *syntax.AssignStmt:
-			if ident, ok := stmt.LHS.(*syntax.Ident); ok {
-				names = append(names, ident.Name)
-			}
+func (w *worker) applySnapshot(program string) RestoreReport {
+	report := RestoreReport{Restored: []string{}}
+	if program == "" {
+		return report
+	}
+	fail := func(err error) RestoreReport {
+		return RestoreReport{Failed: []SkippedName{{Name: "<snapshot>", Reason: err.Error()}}}
+	}
+	if len(program) > snapshotTotalBytes {
+		return fail(fmt.Errorf("scratch snapshot exceeds size limit"))
+	}
+	var snapshot scratchSnapshot
+	if err := json.Unmarshal([]byte(program), &snapshot); err != nil {
+		return fail(fmt.Errorf("invalid scratch snapshot: %w", err))
+	}
+	if snapshot.Version != 1 {
+		return fail(fmt.Errorf("unsupported scratch snapshot version"))
+	}
+	data, err := decodeScratch(snapshot)
+	if err != nil {
+		return fail(err)
+	}
+	for name := range data {
+		if _, module := w.modules[name]; module {
+			return fail(fmt.Errorf("data shadows host module"))
 		}
 	}
-	return names
+	helpers := map[string]scratchHelper{}
+	bad := map[string]string{}
+	for _, helper := range snapshot.Helpers {
+		if !validScratchName(helper.Name) {
+			return fail(fmt.Errorf("invalid helper binding name"))
+		}
+		if _, module := w.modules[helper.Name]; module {
+			return fail(fmt.Errorf("helper shadows host module"))
+		}
+		if _, exists := data[helper.Name]; exists {
+			return fail(fmt.Errorf("duplicate scratch binding %q", helper.Name))
+		}
+		if _, exists := helpers[helper.Name]; exists {
+			return fail(fmt.Errorf("duplicate helper %q", helper.Name))
+		}
+		helpers[helper.Name] = helper
+		if len(helper.Source) > snapshotVariableBytes {
+			bad[helper.Name] = "exceeds per-variable cap"
+			continue
+		}
+		file, err := cellFileOptions.Parse("<scratch-validate>", helper.Source, 0)
+		if err != nil || len(file.Stmts) != 1 {
+			bad[helper.Name] = "invalid helper definition"
+			continue
+		}
+		name, _, ok := helperStatement(file.Stmts[0])
+		if !ok || name != helper.Name {
+			bad[helper.Name] = "invalid helper definition"
+			continue
+		}
+	}
+	// Validate independently against placeholders. This resolves lexical names
+	// without evaluating definitions or defaults, including mutually recursive helpers.
+	available := func(name string) bool {
+		_, a := data[name]
+		_, b := helpers[name]
+		_, c := w.modules[name]
+		return a || b || c
+	}
+	for name, helper := range helpers {
+		if bad[name] != "" {
+			continue
+		}
+		file, err := cellFileOptions.Parse("<scratch-validate>", helper.Source, 0)
+		if err == nil {
+			err = resolve.File(file, available, func(name string) bool { _, ok := starlark.Universe[name]; return ok })
+		}
+		if err != nil {
+			bad[name] = "invalid helper dependencies"
+			continue
+		}
+		// Constant-looking names can be rebound in this Starlark dialect.
+		// Check resolved defaults so True/False/None really mean literals.
+		_, params, _ := helperStatement(file.Stmts[0])
+		for _, param := range params {
+			if binary, ok := param.(*syntax.BinaryExpr); ok && binary.Op == syntax.EQ && !literalDefault(binary.Y) {
+				bad[name] = "default is not an immutable literal"
+			}
+		}
+		deps := []string{}
+		syntax.Walk(file, func(node syntax.Node) bool {
+			if ident, ok := node.(*syntax.Ident); ok {
+				if binding, ok := ident.Binding.(*resolve.Binding); ok && (binding.Scope == resolve.Global || binding.Scope == resolve.Predeclared || binding.Scope == resolve.Universal) {
+					deps = append(deps, ident.Name)
+				}
+			}
+			return true
+		})
+		helper.Deps = deps
+		helpers[name] = helper
+	}
+	propagateHelperFailures(helpers, bad, func(name string) bool {
+		_, a := data[name]
+		_, b := w.modules[name]
+		_, builtin := starlark.Universe[name]
+		return a || b || builtin
+	})
+	var source strings.Builder
+	for _, helper := range snapshot.Helpers {
+		if bad[helper.Name] == "" {
+			source.WriteString(helper.Source)
+			source.WriteByte('\n')
+		} else {
+			report.Failed = append(report.Failed, SkippedName{Name: helper.Name, Reason: bad[helper.Name]})
+		}
+	}
+	// Work in an isolated environment: a corrupt checkpoint cannot erase live data.
+	previous := w.globals
+	w.globals = data
+	maps.Copy(w.globals, w.modules)
+	w.restoring = true
+	defer func() { w.restoring = false }()
+	if source.Len() > 0 {
+		w.nextSource++
+		file, err := cellFileOptions.Parse(fmt.Sprintf("<rlm-cell-%d>", w.nextSource), source.String(), 0)
+		if err == nil {
+			err = w.execChunk(file)
+		}
+		if err != nil {
+			w.globals = previous
+			return fail(fmt.Errorf("restore helpers: %w", err))
+		}
+		w.recordSources(source.String(), file.Stmts)
+	}
+	for _, binding := range snapshot.Bindings {
+		report.Restored = append(report.Restored, binding.Name)
+	}
+	for _, helper := range snapshot.Helpers {
+		if bad[helper.Name] == "" {
+			report.Restored = append(report.Restored, helper.Name)
+		}
+	}
+	return report
+}
+
+func validScratchName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		if r != '_' && !unicode.IsLetter(r) && (i == 0 || !unicode.IsDigit(r)) {
+			return false
+		}
+	}
+	file, err := cellFileOptions.Parse("<binding>", name+" = None", 0)
+	if err != nil || len(file.Stmts) != 1 {
+		return false
+	}
+	assignment, ok := file.Stmts[0].(*syntax.AssignStmt)
+	if !ok {
+		return false
+	}
+	ident, ok := assignment.LHS.(*syntax.Ident)
+	return ok && ident.Name == name
 }

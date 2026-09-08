@@ -784,7 +784,7 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 		}
 		return CommandResult{}, nil
 	}
-	if completion.compact != nil && completion.err == nil {
+	if completion.compact != nil && (completion.err == nil || llm.IsCompletedAccountingError(completion.err)) {
 		compaction := completion.compact
 		var rawCutoff int
 		var err error
@@ -806,7 +806,9 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 			completion.err = err
 		} else {
 			_ = s.store.SetUsage(s.meta.ID, compaction.usage.PromptTokens, compaction.usage.Cached(), compaction.usage.CompletionTokens)
-			completion.output, completion.err = marshalClientOutput(protocol.CompactionResult{Cutoff: rawCutoff, Model: compaction.model, Usage: compaction.usage}, nil)
+			var outputErr error
+			completion.output, outputErr = marshalClientOutput(protocol.CompactionResult{Cutoff: rawCutoff, Model: compaction.model, Usage: compaction.usage}, nil)
+			completion.err = errors.Join(completion.err, outputErr)
 		}
 	}
 	if completion.rewind != nil && completion.err == nil {
@@ -880,6 +882,9 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if runtime, ok := s.runtime.(interface{ SetExternalPermissions(bool) }); ok {
 			runtime.SetExternalPermissions(payload.ExternalPermissions)
 		}
+		s.emitSessionUpdate(ctx, "session.permission_mode.updated", SessionUpdateEvent{
+			PermissionMode: permissionModeLabel(payload.ExternalPermissions),
+		})
 		return "configured", nil
 	case "tool.configure":
 		runner, ok := s.runner.(clientToolRunner)
@@ -1473,6 +1478,27 @@ func compatibleEffort(model, provider, current string) string {
 	return "off"
 }
 
+// permissionModeLabel names the consent mode for protocol events. "prompt"
+// delegates decisions to connected clients; "automatic" approves prompts
+// without asking (the CLI's --yolo mode).
+func permissionModeLabel(externalPermissions bool) *string {
+	mode := "automatic"
+	if externalPermissions {
+		mode = "prompt"
+	}
+	return &mode
+}
+
+// PermissionMode reports the session's consent mode: "prompt" when connected
+// clients answer permission requests, "automatic" when the daemon approves
+// them without prompting. Unknown when the runner does not expose the mode.
+func (s *Session) PermissionMode() string {
+	if runner, ok := s.runner.(clientPermissionRunner); ok {
+		return *permissionModeLabel(runner.ExternalPermissionsEnabled())
+	}
+	return ""
+}
+
 func (s *Session) emitSessionUpdate(ctx context.Context, kind string, event SessionUpdateEvent) {
 	payload, err := json.Marshal(event)
 	if err != nil {
@@ -1560,12 +1586,19 @@ func (s *Session) clientAgentTranscript(ctx context.Context, id string) (string,
 	page, err := s.store.ReadTranscriptPage(ctx, s.meta.ID, id, sessionstore.TranscriptReadOptions{
 		Recent: true, ThroughSeq: -1, Revision: &snapshot.HistoryRevision, Limit: 64, MaxBytes: 256 << 10,
 	})
+	if err != nil {
+		return "", err
+	}
+	accounting, err := s.store.ModelAccounting(ctx, s.meta.ID, id, false)
+	if err != nil {
+		return "", err
+	}
 	presentation := snapshot.AgentPresentations[id]
 	if agentValue.ParentID == "" {
 		presentation = snapshot.Presentation
 	}
 	return marshalClientOutput(AgentTranscriptResult{
-		Cursor: snapshot.Cursor, Agent: agentValue, Page: page, Presentation: presentation, Inbox: inbox,
+		Cursor: snapshot.Cursor, Agent: agentValue, Page: page, Presentation: presentation, Inbox: inbox, Accounting: accounting,
 	}, err)
 }
 
@@ -1690,15 +1723,14 @@ func clientProviderCatalogs(ctx context.Context) (string, error) {
 func modelInfoLites(values []llm.ModelInfo) []config.ModelInfoLite {
 	result := make([]config.ModelInfoLite, 0, len(values))
 	for _, value := range values {
-		var prices llm.TokenPrices
+		var pricing llm.Pricing
 		if value.Pricing != nil {
-			prices = value.Pricing.TokenPrices()
+			pricing = *value.Pricing
 		}
 		result = append(result, config.ModelInfoLite{
 			ID: value.ID, ContextLength: value.ContextLength, MaxCompletionTokens: value.MaxCompletionTokens,
 			ReasoningEfforts: value.ReasoningEfforts, InputModalities: value.InputModalities,
-			InPrice: prices.Input, OutPrice: prices.Output, CacheReadPrice: prices.CacheRead,
-			PricingKnown: prices.Known, CacheReadPriceKnown: prices.CacheReadKnown,
+			Pricing: pricing,
 		})
 	}
 	return result

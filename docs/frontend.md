@@ -289,6 +289,12 @@ REPL bookmarks use a mode suffix within the existing runtime/view/agent namespac
 closing the view forgets both modes. Output previews show six lines, following
 the tail while running and the beginning after completion. Expanded output IDs
 are retained only while mounted, bounded to 128 and pruned with retained cells.
+RLM results contain one structured JSON payload with bounded output, return-value
+previews, and scratch/restore notices. Failed cells retain that payload after the
+tool error prefix; the SDK keeps their failed status and partial execution evidence
+through live observation and history replay. Checkpoint notices do not change a
+completed cell into a failed execution.
+
 Code and scoped large-body reads use existing UI/SDK limits and copy controls.
 
 ## Data fetching and synchronization
@@ -378,11 +384,18 @@ revision checks; display conflicts instead of overwriting newer settings.
 
 The composer is a compact, theme-derived surface with an automatically growing
 textarea (40–220 px), accessible recipient label, attachment/context actions,
-model/effort trigger, and Send. It omits a visible heading and shortcut hints.
-`model-selection.tsx` shares the inspector's explicit model and reasoning actions
-with a composer popover. Catalog reads mount only while the picker is open and
-share the host-scoped provider-catalog query. Root changes require an idle
-session; child composers display their own model without changing the root.
+model/effort trigger, permission-mode toggle, and Send. It omits a visible
+heading and shortcut hints. `model-selection.tsx` shares the inspector's
+explicit model and reasoning actions with a composer popover. Catalog reads
+mount only while the picker is open and share the host-scoped provider-catalog
+query. Root changes require an idle session; child composers display their own
+model without changing the root. `permission-mode.tsx` toggles the root
+session's consent mode (`permission.mode` with `external_permissions`) from a
+composer popover. The mode is runner state, not durable: the daemon reports it
+on the root snapshot as `permission_mode` and publishes
+`session.permission_mode.updated` when it changes; the SDK applies that event
+to the root snapshot. The toggle is root-only and applies while idle, matching
+the daemon's refusal to change mode during an active turn.
 Drafts remain untouched by model selection, and host defaults are not changed.
 Standard text inputs use a single neutral focus border. The composer keeps its
 quiet outer border unchanged on focus and has no separate textarea outline.
@@ -426,6 +439,18 @@ live output. A replaced/evicted anchor should degrade visibly to retained histor
 not fetch unlimited history to recover an exact pixel. Code rendering is lazy,
 bounded, copyable text; do not inject untrusted HTML or treat model output as UI
 instructions. Keep URL/content checks in the existing rendering paths.
+
+`ReadingList` includes its older-history control as a measured leading row,
+kept mounted for keyboard access. When the final page removes the control,
+TanStack compensates for its height change along with the prepended messages;
+the control must not introduce an unmeasured offset outside the virtual list.
+
+Browser reading-position checks must let scrolling and row measurement settle
+before recording an anchor. Touch scrolling can defer a size correction beyond
+two stationary frames; comparing that temporary position with a later snapshot
+misattributes the correction to incoming output. The focused
+[reading-position check](../apps/web/scripts/reading-position.mjs) exercises the
+packaged app against an isolated daemon in Chromium and Firefox.
 
 The URL is authoritative for `/h/$runtimeId/s/$rootId` and validated `agent` /
 `panel` / `view=repl` search state. `session-tab-routing.ts` synchronizes tab metadata with it.
@@ -577,9 +602,26 @@ integer formatting. `incomplete` means some usage or pricing is unknown; an
 estimate reserved for an interrupted call is not known spend. Ancestor totals
 include descendants and must not be summed with them.
 
+The Usage inspector shows the entire session tree's optional `accounting` summary:
+provider-reported cost, catalog-estimated cost, unknown-cost calls, calls missing
+token usage, and in-flight requests. A reported zero charge is known cost even
+when token usage is missing. Missing accounting remains unavailable rather than
+becoming a zero total; existing budgets still render. With accounting available,
+token totals come from budget rows; legacy `meta.usage_*` counters are not shown
+as tree totals. Selecting a child does not
+turn this tree summary into the child's own usage or add either total twice.
+
+The existing SDK `SessionView` replaces `root.accounting` from correctly scoped
+`stream.accounting` summaries whose revision is not older. Ignored summaries
+still advance the event cursor; accounting never enters chat/REPL presentation.
+Model-call lifecycle events use the existing coalesced snapshot refresh for
+budgets, and reconnect uses the authoritative snapshot. There is no new poll or
+attempt-history cache. `session.agents.inspect(id)` exposes optional own-agent
+accounting for explicit consumers; its totals are separate from tree totals.
+
 ## Protocol and build boundaries
 
-The current wire protocol is JSON-RPC major **4**, minor **0**. It retains session
+The current wire protocol is JSON-RPC major **4**, minor **1**. It retains session
 summaries and adds nullable model-budget limits and explicit usage uncertainty. The older filename [`protocol-v2.md`](protocol-v2.md) is retained for
 the reference; it does not mean the app should speak v2. Capabilities and protocol
 compatibility determine availability, not matching build strings. Do not restore

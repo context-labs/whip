@@ -10,6 +10,7 @@ import {
 import { WhipClient } from '../src/client.js';
 import type { RecoveryRecord } from '../src/command.js';
 import type { TransportFactory } from '../src/transport.js';
+import { transportFixture } from './transport-fixture.js';
 
 interface WireRequest {
   id: string;
@@ -39,6 +40,28 @@ function initialization(): InitializeResult {
     },
   };
 }
+
+test('protocol 4.0 session usage does not disconnect the current client', async t => {
+  const snapshot = fixture('RootSnapshot');
+  // Do not type this older wire value as current usage: that would hide a
+  // regression if a future additive field accidentally becomes required.
+  const usage = { prompt_tokens: 17, completion_tokens: 3 };
+  const response = { ...snapshot, root_id: 'root', messages: [{ role: 'assistant', content: 'Retained response', usage }] };
+  delete response.accounting;
+  const server = transportFixture({ request(request, connection) {
+    if (request.method === 'root.snapshot') connection.reply(request, response);
+    else if (request.method === 'daemon.ping') connection.reply(request, { generation: '1', build_id: 'legacy' });
+  } });
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'legacy-reader', reconnect: false });
+  t.after(() => client.close());
+  await client.connect();
+  assert.equal(client.getSnapshot().info?.protocol_minor, 0);
+  const root = await client.session('root').snapshot();
+  assert.deepEqual(root.messages?.[0]?.usage, usage);
+  assert.equal(root.accounting, undefined);
+  await client.call('daemon.ping', {});
+  assert.equal(client.getSnapshot().state, 'connected');
+});
 
 function rpcParams<M extends RpcMethod>(method: M): RpcMethods[M]['params'] {
   const params = fixture(rpcOperations[method].params_type);

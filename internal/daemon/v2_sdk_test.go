@@ -242,6 +242,9 @@ func (r *sdkFixtureRunner) TurnParts(ctx context.Context, input string, parts []
 }
 
 func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool, started func(), accepted func(string)) (string, error) {
+	if input == "scratch-result" {
+		return r.scratchResult(ctx, started)
+	}
 	return r.fakeRunner.Turn(ctx, input, authored, func() {
 		started()
 		for _, text := range []string{input[:len(input)/2], input[len(input)/2:]} {

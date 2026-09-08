@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/llm"
 )
 
 func budgetState(t *testing.T, store *Store, rootID, agentID string, kind BudgetKind) BudgetState {
@@ -59,24 +62,21 @@ func TestDefaultRootBudgetLimits(t *testing.T) {
 
 func TestModelSettlementStorageFailureIsAtomicAndRetryable(t *testing.T) {
 	store, rootID, agentID := newSwarmFixture(t)
-	reservation := []capability.Reservation{
-		{Kind: string(BudgetTokens), Amount: 100},
-		{Kind: string(BudgetCost), Amount: 200},
-		{Kind: string(BudgetActiveOperations), Amount: 1},
-	}
-	if err := store.ReserveModelBudget(t.Context(), rootID, agentID, reservation, false); err != nil {
+	permit, err := store.AdmitModelCall(t.Context(), rootID, agentID, modelAttempt("retryable", 50, 50))
+	if err != nil {
 		t.Fatal(err)
 	}
 	exec(t, store, `CREATE TRIGGER fail_model_settlement BEFORE UPDATE ON budgets WHEN NEW.kind='cost' BEGIN SELECT RAISE(ABORT,'disk failure'); END`)
-	actual := []capability.Usage{{Kind: string(BudgetTokens), Amount: 300}, {Kind: string(BudgetCost), Amount: 400}}
-	if err := store.ReconcileModelBudget(t.Context(), rootID, agentID, reservation, actual); err == nil {
+	cost := 0.000400
+	actual := llm.ModelAttemptResult{Dispatched: true, Usage: llm.Usage{Reported: true, PromptTokens: 300, Cost: &cost}}
+	if _, err := store.SettleModelCall(t.Context(), rootID, permit.ID, actual); err == nil {
 		t.Fatal("settlement ignored a storage failure")
 	}
 	if state := budgetState(t, store, rootID, agentID, BudgetTokens); state.Used != 0 || state.Reserved != 100 {
 		t.Fatalf("partial settlement: %+v", state)
 	}
 	exec(t, store, `DROP TRIGGER fail_model_settlement`)
-	if err := store.ReconcileModelBudget(t.Context(), rootID, agentID, reservation, actual); err != nil {
+	if _, err := store.SettleModelCall(t.Context(), rootID, permit.ID, actual); err != nil {
 		t.Fatal(err)
 	}
 	if state := budgetState(t, store, rootID, agentID, BudgetTokens); state.Used != 300 || state.Reserved != 0 {
@@ -92,11 +92,11 @@ func TestForkStartsWithFreshUnlimitedModelBudgets(t *testing.T) {
 	if err := store.SetBudgetLimit(t.Context(), rootID, "", BudgetCost, 2); err != nil {
 		t.Fatal(err)
 	}
-	reservation := []capability.Reservation{{Kind: string(BudgetCost), Amount: 2}}
-	if err := store.ReserveModelBudget(t.Context(), rootID, agentID, reservation, false); err != nil {
+	permit, err := store.AdmitModelCall(t.Context(), rootID, agentID, modelAttempt("fork-source", 0, 1))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ReconcileModelBudget(t.Context(), rootID, agentID, reservation, nil); err != nil {
+	if _, err := store.SettleModelCall(t.Context(), rootID, permit.ID, llm.ModelAttemptResult{Dispatched: true}); err != nil {
 		t.Fatal(err)
 	}
 	forkID, err := store.Fork(rootID, 0, "fresh accounting")
@@ -741,17 +741,19 @@ func TestUnlimitedModelBudgetsAndExplicitChildCaps(t *testing.T) {
 	store, rootID, rootAgentID := newSwarmFixture(t)
 	ctx := context.Background()
 	admitTestChild(t, store, rootID, rootAgentID, "child")
-	for _, kind := range []BudgetKind{BudgetTokens, BudgetCost, BudgetElapsed} {
-		// Exceed every former cumulative default without time or provider spending.
-		reservation := []capability.Reservation{{Kind: string(kind), Amount: 200_000_000}}
-		for range 2 {
-			if err := store.ReserveModelBudget(ctx, rootID, "child", reservation, false); err != nil {
-				t.Fatal(err)
-			}
-			if err := store.ReconcileModelBudget(ctx, rootID, "child", reservation, []capability.Usage{{Kind: string(kind), Amount: 200_000_001}}); err != nil {
-				t.Fatal(err)
-			}
+	// Exceed all former defaults using synthetic outcomes, with no provider spend.
+	for n := range 2 {
+		permit, err := store.AdmitModelCall(ctx, rootID, "child", modelAttempt("large-"+strconv.Itoa(n), 100_000_000, 100_000_000))
+		if err != nil {
+			t.Fatal(err)
 		}
+		cost := 200.000001
+		actual := llm.ModelAttemptResult{Dispatched: true, Usage: llm.Usage{Reported: true, PromptTokens: 200_000_001, Cost: &cost}, Elapsed: 200_000_001 * time.Millisecond}
+		if _, err := store.SettleModelCall(ctx, rootID, permit.ID, actual); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, kind := range []BudgetKind{BudgetTokens, BudgetCost, BudgetElapsed} {
 		state := budgetState(t, store, rootID, "child", kind)
 		if state.Limit != nil || state.Remaining != nil || state.Used != 400_000_002 || state.Reserved != 0 {
 			t.Fatalf("unlimited %s: %+v", kind, state)
@@ -760,22 +762,23 @@ func TestUnlimitedModelBudgetsAndExplicitChildCaps(t *testing.T) {
 	if _, err := store.CapBudget(ctx, rootID, rootAgentID, "child", BudgetTokens, 2); err != nil {
 		t.Fatal(err)
 	}
-	reservation := []capability.Reservation{{Kind: string(BudgetTokens), Amount: 1}}
-	if err := store.ReserveModelBudget(ctx, rootID, "child", reservation, false); err != nil {
+	attempt := modelAttempt("child-overage", 0, 1)
+	permit, err := store.AdmitModelCall(ctx, rootID, "child", attempt)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ReconcileModelBudget(ctx, rootID, "child", reservation, []capability.Usage{{Kind: string(BudgetTokens), Amount: 3}}); err != nil {
+	if _, err := store.SettleModelCall(ctx, rootID, permit.ID, llm.ModelAttemptResult{Dispatched: true, Usage: llm.Usage{Reported: true, PromptTokens: 3}}); err != nil {
 		t.Fatal(err)
 	}
 	state := budgetState(t, store, rootID, "child", BudgetTokens)
 	if state.Used != 3 || state.Reserved != 0 || state.Remaining == nil || *state.Remaining != 0 {
 		t.Fatalf("overage: %+v", state)
 	}
-	if err := store.ReserveModelBudget(ctx, rootID, "child", reservation, false); !errors.Is(err, capability.ErrDenied) {
+	attempt.LogicalID = "after-overage"
+	if _, err := store.AdmitModelCall(ctx, rootID, "child", attempt); !errors.Is(err, capability.ErrDenied) {
 		t.Fatalf("spent cap: %v", err)
 	}
-	// A child's cap cannot prevent the unlimited parent from continuing.
-	if err := store.ReserveModelBudget(ctx, rootID, rootAgentID, reservation, false); err != nil {
+	if _, err := store.AdmitModelCall(ctx, rootID, rootAgentID, attempt); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -788,16 +791,18 @@ func TestModelBudgetUncertaintyAndKnownZero(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			store, rootID, agentID := newSwarmFixture(t)
-			ctx := context.Background()
-			reservation := []capability.Reservation{{Kind: string(BudgetCost), Amount: 23_883_863}, {Kind: string(BudgetActiveOperations), Amount: 1}}
-			if err := store.ReserveModelBudget(ctx, rootID, agentID, reservation, false); err != nil {
+			attempt := modelAttempt("uncertainty", 1, 1)
+			attempt.Pricing = llm.Pricing{Prompt: "23.883863", Completion: "0"}
+			permit, err := store.AdmitModelCall(t.Context(), rootID, agentID, attempt)
+			if err != nil {
 				t.Fatal(err)
 			}
-			var actual []capability.Usage
+			actual := llm.ModelAttemptResult{Dispatched: true}
 			if known {
-				actual = []capability.Usage{{Kind: string(BudgetCost), Amount: 0}}
+				zero := 0.0
+				actual.Usage.Cost = &zero
 			}
-			if err := store.ReconcileModelBudget(ctx, rootID, agentID, reservation, actual); err != nil {
+			if _, err := store.SettleModelCall(t.Context(), rootID, permit.ID, actual); err != nil {
 				t.Fatal(err)
 			}
 			cost := budgetState(t, store, rootID, agentID, BudgetCost)
@@ -820,25 +825,32 @@ func TestModelBudgetUncertaintyAndKnownZero(t *testing.T) {
 
 func TestUnpricedModelRequiresUnlimitedCost(t *testing.T) {
 	store, rootID, agentID := newSwarmFixture(t)
-	ctx := context.Background()
-	reservation := []capability.Reservation{{Kind: string(BudgetCost), Amount: 0}}
-	if err := store.ReserveModelBudget(ctx, rootID, agentID, reservation, true); err != nil {
+	attempt := modelAttempt("unpriced", 1, 1)
+	attempt.Pricing = llm.Pricing{}
+	permit, err := store.AdmitModelCall(t.Context(), rootID, agentID, attempt)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if state := budgetState(t, store, rootID, agentID, BudgetCost); !state.Incomplete || state.Used != 0 {
+	if _, err := store.SettleModelCall(t.Context(), rootID, permit.ID, llm.ModelAttemptResult{Dispatched: true}); err != nil {
+		t.Fatal(err)
+	}
+	if state := budgetState(t, store, rootID, agentID, BudgetCost); !state.Incomplete || state.Used != 0 || state.Uncertain != 0 {
 		t.Fatalf("unpriced: %+v", state)
 	}
-	if _, err := store.CapBudget(ctx, rootID, agentID, agentID, BudgetCost, 10); err != nil {
+	admitTestChild(t, store, rootID, agentID, "finite-child")
+	if _, err := store.CapBudget(t.Context(), rootID, agentID, "finite-child", BudgetCost, 10); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ReserveModelBudget(ctx, rootID, agentID, reservation, true); !errors.Is(err, capability.ErrDenied) {
+	attempt.LogicalID = "finite-unpriced"
+	if _, err := store.AdmitModelCall(t.Context(), rootID, "finite-child", attempt); !errors.Is(err, capability.ErrDenied) {
 		t.Fatalf("unpriced finite: %v", err)
 	}
-	// Known-free models can run even with an explicit zero cost allowance.
-	if _, err := store.CapBudget(ctx, rootID, agentID, agentID, BudgetCost, 0); err != nil {
+	if _, err := store.CapBudget(t.Context(), rootID, agentID, "finite-child", BudgetCost, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ReserveModelBudget(ctx, rootID, agentID, reservation, false); err != nil {
+	attempt.LogicalID = "known-free"
+	attempt.Pricing = llm.Pricing{Prompt: "0", Completion: "0"}
+	if _, err := store.AdmitModelCall(t.Context(), rootID, "finite-child", attempt); err != nil {
 		t.Fatal(err)
 	}
 }

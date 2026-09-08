@@ -48,8 +48,8 @@ func TestStreamDiscardsIncompleteArgsOnDroppedStream(t *testing.T) {
 	defer srv.Close()
 
 	msg, _, err := New(srv.URL, "test-key").Stream(context.Background(), Request{Model: "m"}, nil, nil, nil)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("interrupted stream must return an error")
 	}
 	if len(msg.ToolCalls) != 0 {
 		t.Fatalf("incomplete tool call from a dropped stream must be discarded, got %+v", msg.ToolCalls)

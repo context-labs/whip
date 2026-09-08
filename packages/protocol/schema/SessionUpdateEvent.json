@@ -18,6 +18,12 @@
     },
     "working_directory": {
       "type": "string"
+    },
+    "permission_mode": {
+      "type": [
+        "null",
+        "string"
+      ]
     }
   },
   "$id": "https://whip.dev/protocol/v4/SessionUpdateEvent",
