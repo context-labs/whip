@@ -1,0 +1,10 @@
+{
+  "purpose": "Staged host integration; not signed/fused installed-app acceptance or a startup benchmark",
+  "recordedAt": "2026-09-08T07:25:39.448Z",
+  "noNetwork": true,
+  "runtimeInstalled": true,
+  "daemonSurvivedGUIExit": true,
+  "relaunchAttachedSameDaemon": true,
+  "settingsReload": true,
+  "rendererErrors": []
+}

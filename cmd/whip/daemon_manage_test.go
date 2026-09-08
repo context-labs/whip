@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,38 @@ import (
 
 	"github.com/context-labs/whip/internal/daemon"
 )
+
+func TestDaemonStatusIdentifiesOnlyUnownedStaleSocket(t *testing.T) {
+	paths, err := daemon.Paths(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: paths.Socket, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.SetUnlinkOnClose(false)
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(paths.Socket) })
+	if err := os.Chmod(paths.Socket, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status, client := probeDaemon(paths, time.Second)
+	if client != nil || status.State != "unhealthy" || !status.StaleSocket {
+		t.Fatalf("unowned stale socket = %+v", status)
+	}
+	owner, err := daemon.AcquireOwner(paths.Lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = owner.Close() }()
+	status, client = probeDaemon(paths, time.Second)
+	if client != nil || status.StaleSocket || status.PID != os.Getpid() {
+		t.Fatalf("owned unhealthy socket must not be recovered: %+v", status)
+	}
+}
 
 func TestDaemonManagementLifecycle(t *testing.T) {
 	home := t.TempDir()

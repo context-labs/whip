@@ -1,0 +1,98 @@
+name: desktop-release
+
+# Called only by the serialized tag-release graph. This workflow never builds
+# renderer assets and never publishes a feed independently of the CLI gate.
+on:
+  workflow_call:
+    inputs:
+      renderer-artifact:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      channel:
+        required: true
+        type: string
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: macos-14
+    timeout-minutes: 60
+    environment: desktop-${{ inputs.channel }}
+    env:
+      WHIP_DESKTOP_VERSION: ${{ inputs.version }}
+      WHIP_DESKTOP_CHANNEL: ${{ inputs.channel }}
+      WHIP_DESKTOP_RELEASE: '1'
+      WHIP_DESKTOP_NOTARIZE: '1'
+      WHIP_DESKTOP_SIGN_IDENTITY: ${{ vars.WHIP_DESKTOP_SIGN_IDENTITY }}
+      WHIP_DESKTOP_TEAM_ID: ${{ vars.WHIP_DESKTOP_TEAM_ID }}
+      WHIP_DESKTOP_UPDATE_URL: ${{ vars.WHIP_DESKTOP_UPDATE_URL }}
+      WHIP_DESKTOP_NOTARY_KEY_ID: ${{ vars.WHIP_DESKTOP_NOTARY_KEY_ID }}
+      WHIP_DESKTOP_NOTARY_ISSUER: ${{ vars.WHIP_DESKTOP_NOTARY_ISSUER }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Require release identity and matching channel
+        run: |
+          node --input-type=module <<'NODE'
+          for (const name of ['WHIP_DESKTOP_SIGN_IDENTITY', 'WHIP_DESKTOP_TEAM_ID', 'WHIP_DESKTOP_UPDATE_URL', 'WHIP_DESKTOP_NOTARY_KEY_ID', 'WHIP_DESKTOP_NOTARY_ISSUER']) {
+            if (!process.env[name]?.trim()) throw new Error(`Missing desktop signing configuration: ${name}`);
+          }
+          if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('Desktop release requires macOS arm64');
+          const version = process.env.WHIP_DESKTOP_VERSION;
+          if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/.test(version ?? '')) throw new Error('Invalid desktop release version');
+          if (process.env.WHIP_DESKTOP_CHANNEL !== (version.includes('-') ? 'beta' : 'stable')) throw new Error('Desktop version and channel differ');
+          NODE
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: node node_modules/electron/install.js
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.renderer-artifact }}
+          path: apps/web
+      - name: Verify the shared release renderer
+        run: node scripts/pack-web.mjs --release
+      - name: Import temporary signing credentials
+        env:
+          WHIP_DESKTOP_CERTIFICATE_P12_BASE64: ${{ secrets.WHIP_DESKTOP_CERTIFICATE_P12_BASE64 }}
+          WHIP_DESKTOP_CERTIFICATE_PASSWORD: ${{ secrets.WHIP_DESKTOP_CERTIFICATE_PASSWORD }}
+          WHIP_DESKTOP_NOTARY_PRIVATE_KEY: ${{ secrets.WHIP_DESKTOP_NOTARY_PRIVATE_KEY }}
+        run: node apps/desktop/scripts/ci-signing.mjs setup
+      - name: Make and verify signed, notarized release artifacts
+        run: npm run make:desktop -- --renderer-ready
+      - name: Require final release evidence
+        run: |
+          node --input-type=module <<'NODE'
+          import { readdir, stat } from 'node:fs/promises';
+          const root = 'apps/desktop/out/release';
+          const names = await readdir(root);
+          for (const suffix of ['.dmg', '.zip']) {
+            if (names.filter(name => name.endsWith(suffix)).length !== 1) throw new Error(`Expected one verified ${suffix} artifact`);
+          }
+          for (const name of ['RELEASES.json', 'evidence.json']) {
+            if (!(await stat(`${root}/${name}`)).size) throw new Error(`Missing final ${name}`);
+          }
+          NODE
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-release-arm64
+          path: apps/desktop/out/release
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Remove signing credentials and restore keychain search list
+        if: always()
+        run: node apps/desktop/scripts/ci-signing.mjs cleanup

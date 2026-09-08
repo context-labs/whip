@@ -1,28 +1,21 @@
 // Copy only the built browser output into go:embed's input. Never reads host data.
-import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, lstat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { readRendererManifest, verifyRenderer, verifyRendererProvenance } from './renderer-artifact.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const source = path.join(root, 'apps/web/dist');
 const target = path.join(root, 'internal/webassets/dist');
-const html = await readFile(path.join(source, 'index.html'), 'utf8').catch(() => {
-  throw new Error('Build the web app first: npm run build:web');
-});
-if (!html.includes('<html') || !html.includes('<script')) throw new Error('The web build is missing its application entry.');
-// Validate before replacing the previous output. Symlinks and source maps do not
-// belong in the released browser bundle.
-async function validate(directory) {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const file = path.join(directory, entry.name);
-    if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())) throw new Error(`Unexpected web artifact: ${file}`);
-    if (entry.isDirectory()) await validate(file);
-    else if (entry.name.endsWith('.map') || (await stat(file)).size > 32 * 1024 * 1024) throw new Error(`Invalid release web artifact: ${file}`);
-  }
-}
-await validate(source);
+const manifest = await readRendererManifest(path.join(root, 'apps/web/renderer-manifest.json'));
+if (process.argv.includes('--release')) await verifyRendererProvenance(manifest, root, true);
+await verifyRenderer(source, manifest);
+const csp = (await readFile(path.join(root, 'internal/webassets/csp.txt'), 'utf8')).trim();
+if (csp !== manifest.csp) throw new Error('Renderer CSP differs from the checked-out server policy');
 await mkdir(target, { recursive: true });
-for (const entry of await readdir(target)) if (entry !== '.gitkeep') await rm(path.join(target, entry), { recursive: true, force: true });
+if ((await lstat(target)).isSymbolicLink()) throw new Error('Web asset target must not be a symlink');
+for (const entry of await readdir(target)) await rm(path.join(target, entry), { recursive: true, force: true });
 await cp(source, target, { recursive: true });
 await writeFile(path.join(target, '.gitkeep'), '');
-console.log('Web assets packaged for go:embed.');
+await verifyRenderer(target, manifest);
+console.log(`Web assets packaged for go:embed: ${manifest.digest}`);

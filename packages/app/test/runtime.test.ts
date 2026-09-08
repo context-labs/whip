@@ -109,7 +109,7 @@ describe('application observation ownership', () => {
     const app = runtime();
     vi.spyOn(app.platform.storage, 'setItem').mockImplementation(() => { throw new Error('Storage denied'); });
     await expect(app.connect()).rejects.toThrow('Storage denied');
-    expect(app.getSnapshot().error).toBe('Storage denied');
+    expect(app.getSnapshot().home?.error).toBe('Storage denied');
     expect(mocks.client.connect).not.toHaveBeenCalled();
     app.dispose();
   });

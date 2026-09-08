@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Dialog, Input, Switch } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { errorMessage } from './platform';
 import type { HostConnection } from './hosts';
 import { layout } from './styles';
+import { SSHFields } from './connection-dialog';
+import { localProfile, type ConnectionProfile, type ConnectionTarget } from './connections';
 
 export function HostDialog({ open, onOpenChange, onSaved }: { open: boolean; onOpenChange(open: boolean): void; onSaved?(id: string): void }) {
-  return <Dialog open={open} onOpenChange={onOpenChange} title="Execution hosts" description="Connect to existing daemons. Saved hosts are shared through Local’s whipcode configuration.">
+  return <Dialog open={open} onOpenChange={onOpenChange} title="Execution hosts" description="Connect to execution hosts. URL profiles are shared through Local’s configuration; SSH settings stay on this device.">
     {open && <HostManager onSaved={id => { onSaved?.(id); onOpenChange(false); }} />}
   </Dialog>;
 }
@@ -16,8 +18,14 @@ function HostManager({ onSaved }: { onSaved(id: string): void }) {
   const runtime = useRuntime();
   const state = useAppState();
   const tabs = useSessionTabs();
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [editing, setEditing] = useState<HostConnection>();
   const [name, setName] = useState('');
+  const [kind, setKind] = useState<'url' | 'ssh' | 'local'>('url');
+  const [ssh, setSSH] = useState<Extract<ConnectionTarget, { kind: 'ssh' }>>({ kind: 'ssh', host: '' });
+  const [legacy, setLegacy] = useState<ConnectionProfile>();
+  const native = runtime.platform.connectionKinds?.includes('ssh');
   const [endpoint, setEndpoint] = useState('');
   const [connectOnLaunch, setConnectOnLaunch] = useState(true);
   const [acceptIdentity, setAcceptIdentity] = useState(false);
@@ -27,11 +35,12 @@ function HostManager({ onSaved }: { onSaved(id: string): void }) {
   useEffect(() => { void runtime.connections.refreshProfiles().catch(() => {}); }, [runtime]);
   const action = async (run: () => Promise<unknown>) => {
     setPending(true); setError('');
-    try { await run(); } catch (error) { setError(errorMessage(error)); }
-    finally { setPending(false); }
+    try { await run(); } catch (error) { if (mounted.current) setError(errorMessage(error)); }
+    finally { if (mounted.current) setPending(false); }
   };
   const edit = (host?: HostConnection) => {
     setEditing(host); setName(host?.name ?? ''); setEndpoint(host?.endpoint ?? '');
+    setKind(host?.profile.target.kind ?? 'url'); setSSH(host?.profile.target.kind === 'ssh' ? host.profile.target : { kind: 'ssh', host: '' }); setLegacy(undefined);
     setConnectOnLaunch(host?.connectOnLaunch ?? true); setAcceptIdentity(false); setError('');
   };
   return <div {...stylex.props(layout.column)}>
@@ -44,13 +53,14 @@ function HostManager({ onSaved }: { onSaved(id: string): void }) {
           </div>
           <div {...stylex.props(layout.row)}>
             <Button variant="ghost" disabled={pending} onClick={() => void action(async () => {
-              if (host.client) runtime.connections.disconnect(host.id); else await runtime.connections.connect(host.id);
-            })}>{host.client ? 'Disconnect' : 'Connect'}</Button>
-            {!host.local && <Button variant="ghost" disabled={pending} onClick={() => edit(host)}>Edit</Button>}
-            {!host.local && <Button variant="ghost" disabled={pending || !canSave} onClick={() => void action(() => runtime.connections.remove(host.id))}>Remove</Button>}
+              if (host.client || host.state === 'connecting') runtime.connections.disconnect(host.id); else { await runtime.connections.connect(host.id); runtime.connections.select(host.id); }
+            })}>{host.client ? 'Disconnect' : host.state === 'connecting' ? 'Cancel connection' : 'Connect'}</Button>
+            {(!host.local || host.device) && <Button variant="ghost" disabled={pending} onClick={() => edit(host)}>Edit</Button>}
+            {!host.local && <Button variant="ghost" disabled={pending || (!host.device && !canSave)} onClick={() => void action(() => runtime.connections.remove(host.id))}>Remove</Button>}
           </div>
         </div>
-        <span {...stylex.props(layout.muted)}>{host.endpoint}</span>
+        <span {...stylex.props(layout.muted)}>{host.profile.target.kind === 'ssh' ? `SSH · ${host.profile.target.host}` : host.endpoint}</span>
+        {host.progress && <p role="status">{host.progress}</p>}
         {host.error && <p role="status" {...stylex.props(layout.muted)}>{host.error}</p>}
       </div>)}
     </div>
@@ -60,25 +70,38 @@ function HostManager({ onSaved }: { onSaved(id: string): void }) {
       event.preventDefault();
       event.stopPropagation();
       void action(async () => {
-        const id = await runtime.connections.save({ id: editing?.id ?? crypto.randomUUID(), name, url: endpoint, runtime_id: editing?.runtimeId, connect_on_launch: connectOnLaunch }, acceptIdentity);
+        const id = kind === 'url'
+          ? await runtime.connections.save({ id: editing?.id ?? crypto.randomUUID(), name, url: endpoint, runtime_id: editing?.runtimeId ?? legacy?.runtimeId, connect_on_launch: connectOnLaunch }, acceptIdentity, legacy?.id)
+          : await runtime.connections.saveNative({ id: editing?.id ?? `ssh:${crypto.randomUUID()}`, label: name || ssh.host, target: ssh, runtimeId: editing?.runtimeId, ...(kind === 'local' ? { ...localProfile, runtimeId: editing?.runtimeId } : {}) }, acceptIdentity);
+        if (legacy) await runtime.connections.forgetLegacyProfile(legacy.id);
+        if (mounted.current) runtime.connections.select(id);
         void runtime.connections.connect(id).catch(() => {});
         if (state.legacyHosts.includes(endpoint)) runtime.forgetLegacyHost(endpoint);
-        onSaved(id);
+        if (mounted.current) onSaved(id);
       });
     }}>
       <strong>{editing ? `Edit ${editing.name}` : 'Add remote host'}</strong>
+      {native && !editing && <div role="group" aria-label="Connection method" {...stylex.props(layout.row)}>{(['url', 'ssh'] as const).map(value => <Button key={value} type="button" variant={kind === value ? 'secondary' : 'ghost'} aria-pressed={kind === value} disabled={pending} onClick={() => { setKind(value); setLegacy(undefined); }}>{value === 'url' ? 'URL' : 'SSH'}</Button>)}</div>}
       <label htmlFor="host-name">Name</label>
       <Input id="host-name" value={name} onChange={event => setName(event.target.value)} placeholder="Kuzco" required />
+      {kind === 'url' && <>
       <label htmlFor="host-endpoint">Daemon address</label>
       <Input id="host-endpoint" value={endpoint} onChange={event => setEndpoint(event.target.value)} placeholder="http://kuzco-4090:8080" required />
       <Switch label="Connect when the app opens" checked={connectOnLaunch} onCheckedChange={setConnectOnLaunch} />
-      {editing && <Switch label="Accept a new daemon identity" description="Use only when this address intentionally points to a replacement daemon. Existing tabs keep their original identity." checked={acceptIdentity} onCheckedChange={setAcceptIdentity} />}
+      </>}
+      {kind === 'ssh' && <SSHFields target={ssh} busy={pending} onChange={setSSH} />}
+      {(editing || legacy?.runtimeId) && <Switch label="Accept a new daemon identity" description="Use only when this address intentionally points to a replacement daemon. Existing tabs keep their original identity." checked={acceptIdentity} onCheckedChange={setAcceptIdentity} />}
       <div {...stylex.props(layout.row)}>
-        <Button type="submit" variant="primary" loading={pending} disabled={!canSave}>Save and connect</Button>
+        <Button type="submit" variant="primary" loading={pending} disabled={kind === 'url' && !canSave}>Save and connect</Button>
         {editing && <Button type="button" variant="ghost" onClick={() => edit()}>Cancel edit</Button>}
       </div>
-      {!canSave && <p {...stylex.props(layout.muted)}>Connect Local to save remote hosts.</p>}
+      {kind === 'url' && !canSave && <p {...stylex.props(layout.muted)}>Connect Local to save remote hosts.</p>}
     </form>
+    {!!runtime.connections.getSnapshot().legacyProfiles?.length && <details>
+      <summary>Import desktop addresses</summary>
+      <div {...stylex.props(layout.column)}>{runtime.connections.getSnapshot().legacyProfiles!.map(profile => <Button key={profile.id} variant="ghost" onClick={() => { edit(); setLegacy(profile); setName(profile.label); setEndpoint(profile.target.kind === 'url' ? profile.target.endpoint : ''); }}>{profile.label}</Button>)}</div>
+      <p {...stylex.props(layout.muted)}>Save to verify the existing daemon identity and move this address into the shared configuration. Your tabs and drafts remain on their original host.</p>
+    </details>}
     {!!tabs.previous.length && <details>
       <summary>Restore previous host tabs</summary>
       <div {...stylex.props(layout.column)}>{tabs.previous.map(entry => <div key={entry.runtimeId} {...stylex.props(layout.column)}><div {...stylex.props(layout.row)}>

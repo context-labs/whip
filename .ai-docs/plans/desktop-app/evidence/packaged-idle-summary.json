@@ -1,0 +1,116 @@
+[
+  {
+    "name": "packaged-idle",
+    "elapsed": 60.95667435450001,
+    "appCPU": 6.037074756733888,
+    "appPersistentCPULowerBound": 6.037074756733888,
+    "appRSS": {
+      "mean": 548.9555288461538,
+      "min": 501.03125,
+      "max": 594.40625
+    },
+    "daemonCPU": 1.0991413279923112,
+    "daemonRSS": {
+      "mean": 80.7295673076923,
+      "min": 79.875,
+      "max": 81.25
+    },
+    "footprintMiB": {
+      "app": 211.00526428222656,
+      "daemon": 43.704246520996094
+    },
+    "system": {
+      "beforeLaunch": {
+        "availableMiB": 2715.375,
+        "compressorMiB": 50712.515625,
+        "swapins": 7611384,
+        "swapouts": 10564119
+      },
+      "afterSampling": {
+        "availableMiB": 1896.203125,
+        "compressorMiB": 50473.203125,
+        "swapins": 7611384,
+        "swapouts": 10564119
+      },
+      "freePlusSpeculativeDeltaMiB": -819.171875,
+      "swapinsDelta": 0,
+      "swapoutsDelta": 0
+    }
+  },
+  {
+    "name": "packaged-idle-repeat",
+    "elapsed": 61.623611229000005,
+    "appCPU": null,
+    "appPersistentCPULowerBound": 7.935270105849902,
+    "appRSS": {
+      "mean": 529.2608173076923,
+      "min": 511.734375,
+      "max": 548.6875
+    },
+    "daemonCPU": 0.9898803199526462,
+    "daemonRSS": {
+      "mean": 77.07091346153847,
+      "min": 71.078125,
+      "max": 80
+    },
+    "footprintMiB": {
+      "app": 450.3333206176758,
+      "daemon": 46.844940185546875
+    },
+    "system": {
+      "beforeLaunch": {
+        "availableMiB": 854.578125,
+        "compressorMiB": 57187.96875,
+        "swapins": 7611387,
+        "swapouts": 10564119
+      },
+      "afterSampling": {
+        "availableMiB": 2036.65625,
+        "compressorMiB": 57353.734375,
+        "swapins": 7611387,
+        "swapouts": 10564119
+      },
+      "freePlusSpeculativeDeltaMiB": 1182.078125,
+      "swapinsDelta": 0,
+      "swapoutsDelta": 0
+    }
+  },
+  {
+    "name": "packaged-idle-attribution",
+    "elapsed": 61.244827479,
+    "appCPU": 0.2285907329039406,
+    "appPersistentCPULowerBound": 0.2285907329039406,
+    "appRSS": {
+      "mean": 352.16947115384613,
+      "min": 341.78125,
+      "max": 393.640625
+    },
+    "daemonCPU": 0.9143629316157618,
+    "daemonRSS": {
+      "mean": 59.40024038461539,
+      "min": 46.625,
+      "max": 66.5625
+    },
+    "footprintMiB": {
+      "app": 137.89584350585938,
+      "daemon": 42.719940185546875
+    },
+    "system": {
+      "beforeLaunch": {
+        "availableMiB": 1182.5625,
+        "compressorMiB": 56076.578125,
+        "swapins": 7611387,
+        "swapouts": 10564119
+      },
+      "afterSampling": {
+        "availableMiB": 237.578125,
+        "compressorMiB": 60048.78125,
+        "swapins": 7611399,
+        "swapouts": 10564119
+      },
+      "freePlusSpeculativeDeltaMiB": -944.984375,
+      "swapinsDelta": 12,
+      "swapoutsDelta": 0
+    }
+  }
+]

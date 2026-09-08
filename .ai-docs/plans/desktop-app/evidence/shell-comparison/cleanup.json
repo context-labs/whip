@@ -1,0 +1,11 @@
+{
+  "recordedAt": "2026-09-08T06:00:02.298Z",
+  "knownProcessIds": 288,
+  "stillPresent": [],
+  "removedApplicationState": [
+    "/Users/samheutmaker/Library/Application Support/dev.whip.shellcomparison.d9vagr",
+    "/Users/samheutmaker/Library/WebKit/dev.whip.shellcomparison.d9vagr"
+  ],
+  "frozenRendererArchive": "/tmp/whip-desktop-shell-comparison-renderer-b1edb2b5.tar.gz",
+  "temporaryAppAndDownloadsRemoved": true
+}

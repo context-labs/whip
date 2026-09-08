@@ -83,6 +83,11 @@ Buttons accept `variant=primary|secondary|ghost|danger`, `size=sm|md|lg`,
 `neutral|success|warning|error|info`. Dialog/Sheet share `open`, `onOpenChange`,
 `title`, optional `description`, `children` and `footer`.
 
+Tooltip accepts `label`, a trigger child, optional `delay`, `disableHoverablePopup`,
+`xstyle`, and Base UI `side`, `align`, `sideOffset`, `collisionPadding`, and
+`collisionAvoidance` placement options. Rich tooltip content
+must bound its dimensions with `--available-width` and `--available-height`.
+
 Select and Combobox use options `{value,label,description?,disabled?,icon?}`,
 string `value`, and `onValueChange(value)`. The label is required. A Combobox also
 accepts loading, emptyMessage, onInputValueChange, and onHighlightedValueChange;

@@ -7,15 +7,19 @@ import { AppRuntime } from './runtime';
 import type { AppPlatform } from './platform';
 import { routeTree } from './routeTree.gen';
 import { bindSessionTabs } from './session-tab-routing';
+import type { ReactNode } from 'react';
+
+export { createHostPrompts, HostPrompts } from './host-prompts';
+export { createSessionNavigator } from './session-tab-routing';
 
 export function createWhipApplication(platform: AppPlatform, history?: RouterHistory) {
   const runtime = new AppRuntime(platform);
   const router = createRouter({ routeTree, context: { runtime }, history, defaultPreload: 'intent', defaultPreloadStaleTime: 0 });
   const unbindTabs = bindSessionTabs(runtime, router);
-  function Application() {
+  function Application({ children }: { children?: ReactNode }) {
     return <RuntimeContext.Provider value={runtime}>
       <ThemeProvider storage={platform.storage} onNotice={message => runtime.report(message)}>
-        <UIProvider><QueryClientProvider client={runtime.queries}><RouterProvider router={router} /></QueryClientProvider></UIProvider>
+        <UIProvider><QueryClientProvider client={runtime.queries}><RouterProvider router={router} />{children}</QueryClientProvider></UIProvider>
       </ThemeProvider>
     </RuntimeContext.Provider>;
   }

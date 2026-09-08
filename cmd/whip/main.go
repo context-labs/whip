@@ -26,6 +26,19 @@ func cwd() string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "_desktop-ssh" {
+		os.Exit(desktopSSHCLI(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "_desktop-runtime-info" {
+		if err := desktopRuntimeInfo(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "whip desktop: could not read runtime build metadata")
+			os.Exit(1)
+		}
+		return
+	}
+	if os.Getenv("WHIP_DESKTOP_ASKPASS") == "1" {
+		os.Exit(desktopAskpassCLI(os.Args[1:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "_kernel" {
 		if err := kernelCLI(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, buildinfo.Text("whip kernel:"), err)

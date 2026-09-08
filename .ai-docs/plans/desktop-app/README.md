@@ -1,11 +1,39 @@
 # Whip desktop app: research and implementation plan
 
-Branch: not created; research and planning only.
+Branch: `desktop-app`, created from `whip-rlm` at `dd7aaa3a7f9b8c00bd4ec095b978def1c9231805`.
 
-Status: product scope confirmed; architecture proposed; implementation not authorized.
+Worktree: `/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app`.
+
+Status: full-plan implementation authorized and in progress. See [progress.md](progress.md) for current evidence and remaining gates.
+The current [phased implementation plan](implementation.md) specifies the single
+renderer artifact, exact web changes, packaging layout, signing/update pipeline,
+and delivery gates. It supersedes the initial separate-renderer build sketch.
 Research date: 2026-09-07. Repository inspected at `dd7aaa3a`, including the
-existing working-tree changes. No implementation, dependency installation,
-benchmark, daemon operation, or release was performed for this research.
+existing working-tree changes. The original research performed no implementation,
+dependency installation, benchmark, daemon operation, or release. Preparation
+progress is recorded below.
+
+## Worktree preparation
+
+- [x] Create the exact requested `desktop-app` branch in a separate worktree.
+- [x] Copy this task's desktop research and plan into the new checkout.
+- [x] Confirm Node 24, npm, Go and Task are available.
+- [x] Install dependencies from the existing npm lockfile (`npm ci --no-audit --no-fund`).
+- [x] Build the SDK (`npm run build`) and pass frontend type checking/production compilation (`npm run check:web`).
+- [x] Pass the existing web tests (`npm run test:web`: 21 files, 166 tests).
+
+Preparation baseline: Node 24.14.1, npm 11.11.0, Go 1.27.0 on darwin/arm64,
+Task available. The frontend build succeeds with Vite's chunk-size warning; its
+largest initial JavaScript chunk is 2,656.95 kB minified / 366.10 kB gzip. Record
+this as a startup-profiling lead, not a measured startup regression. No runtime
+or desktop framework was installed/launched, and no daemon was started or restarted.
+
+The new worktree starts from committed `whip-rlm` HEAD. Source-checkout uncommitted
+application changes and unrelated untracked files were not copied. Some research
+observations included those source changes; verify affected details against this
+checkout before implementing. That preparation preceded implementation; see
+[progress.md](progress.md) for the completed comparison, signed packages,
+local/SSH proofs and remaining gates.
 
 ## Recommendation
 
@@ -21,11 +49,11 @@ from a consistent renderer, established desktop APIs, and a documented upstream
 maintenance policy. Require actual Whip performance measurements before accepting
 Electron's overhead.
 
-After implementation is authorized, timebox an Electron/Electrobun comparison to
-2–3 engineering days. The default remains Electron if it meets the agreed budgets.
-Reconsider if Electrobun provides a material, repeatable improvement and passes the
-same compatibility, lifecycle, and distribution checks. Do not maintain two product
-shells or create a framework-neutral desktop framework.
+The authorized [same-renderer comparison](evidence/shell-comparison/README.md)
+measured 30 launches per shell: Electron's usable p95 was 1.289 s and Electrobun's
+was 2.715 s for the retained-session fixture. The result supports Electron; final
+installed-app performance and distribution gates remain separate. The alternative
+shell scaffolding was disposable and is not a second product implementation.
 
 ## Goal and confirmed scope
 
@@ -172,18 +200,19 @@ flowchart TB
 
 ### Renderer, build and storage
 
-Create `apps/desktop`, importing `createWhipApplication` and implementing
-`AppPlatform`. Preserve the StyleX/TanStack/Vite build contract, package exports,
-code splitting, and early theme initialization. Use npm/Node 24 for build tooling;
-bundle main/preload with the existing esbuild dependency and renderer with Vite.
-Stage explicit production artifacts for Forge rather than copying the monorepo's
-development dependencies into the application.
+Create `apps/desktop` for the native main/preload shell. Build the renderer once
+through `apps/web`; its common bootstrap selects browser services or a browser-safe
+adapter for the versioned preload bridge, then calls `createWhipApplication`.
+Copy that identical renderer artifact into Go embed and Electron ASAR, verifying
+file hashes. Preserve the StyleX/TanStack/Vite contract, package exports, code
+splitting and early theme initialization. Bundle main/preload separately with
+the existing esbuild dependency. Stage explicit production artifacts for Forge.
 
-Web and desktop share the same product components, navigation and in-app menus.
-Only bootstrap, OS effects and local-runtime attachment belong in the desktop
-package. Avoid desktop-specific copies of screens and broad platform conditionals
-in feature components. When a workflow needs a platform capability, expose that
-specific capability through the existing boundary.
+Web and desktop share product components, navigation, state and in-app menus.
+The desktop-specific renderer adapter contains no Electron or Node imports;
+privileged implementations live in `apps/desktop`. See the
+[file-level plan](implementation.md#2-specific-changes-needed-in-the-web-application)
+for connection-profile migration, storage, links, effects and shared bootstrap.
 
 Use Forge for packaging/makers/signing. Its
 [Vite plugin](https://www.electronforge.io/config/plugins/vite) is still documented
@@ -200,7 +229,8 @@ deep-route reloads, asset path confinement, `crypto.randomUUID`, Web Locks, font
 storage and clipboard under the packaged origin in the initial spike.
 
 Use origin-local storage for existing preferences, drafts, and recovery metadata.
-Preserve the current fallback/error behavior and existing key names. Persist a
+Preserve the current fallback/error behavior and draft/client/recovery key names;
+version and migrate the URL-only saved-host records. Persist a
 small, bounded window-layout snapshot for reopening the desktop window: ordinary
 `sessionStorage` alone is not a guarantee of restoration after quitting the app.
 Keep layout separate from persistent drafts and from daemon state. No transcript,
@@ -211,15 +241,17 @@ Query, provider-secret, or attachment-body persistence is added.
 Prefer a bounded IPC transport adapter over the existing SDK Unix transport in
 the main process. The renderer retains its single `WhipClient`; main forwards
 transport messages and lifecycle only. `@whip/sdk/node` stays outside the renderer
-and sandboxed preload. Use a narrow optional endpoint-resolution hook in
-`AppPlatform` so the app can resolve a desktop local-host identity to an SDK
-transport factory. The browser keeps the current HTTP/WS behavior.
+and sandboxed preload. Add a narrow profile-resolution hook in `AppPlatform`
+so local and SSH profiles resolve to SDK transport factories. The browser resolver
+keeps the current HTTP/WS behavior. The detailed plan defines profile identity,
+migration and cancellation before asynchronous connection setup.
 
 The main process chooses the local socket from Whip's reported runtime paths;
 page code cannot request arbitrary socket paths or spawn arbitrary binaries.
 Enforce frame/queue byte bounds, ordering, connection epochs, cancellation and
-backpressure across IPC as well as the socket. Closing a window closes its
-transport, not the daemon. Reuse `kind: 'unix'` for the actual bridged Unix
+backpressure across IPC as well as the socket. Destroying a renderer releases its
+transport, not the daemon; hiding the window can retain it for notifications.
+Reuse `kind: 'unix'` for the actual bridged Unix
 connection so the existing scoped chunked content path remains truthful.
 
 This approach avoids opening a listener or restarting a compatible daemon that
@@ -547,31 +579,23 @@ permission identity survives arbitrary helper relocation.
 
 ## Ordered implementation plan
 
-All unchecked work is deferred until implementation is authorized.
+The [detailed implementation plan](implementation.md#4-phases-file-ownership-and-exit-gates)
+is the delivery sequence. Its phases are:
 
-| Phase | Work and files | Exit criterion | Estimate |
-| --- | --- | --- | --- |
-| 0. Prove the choice | Disposable Electron/Electrobun shells consuming the real app; startup/bridge/storage/signing, SSH socket-forwarding and direct-URL origin spike; record exact artifacts and results in this plan | Recommended framework meets agreed budgets and local/SSH/direct connectivity works, or a documented decision changes it | 2–3 days |
-| 1. Shared desktop shell | New `apps/desktop/{package.json,src/main.ts,src/preload.ts,src/renderer.tsx,vite.config.ts,forge.config.*}`; narrow `packages/app/src/platform.ts` extension; reuse build configuration where actually duplicated | Packaged local UI, native window behavior, stable theme/drafts/layout, no Node in renderer | 2–3 days |
-| 2. Local and remote runtime integration | New desktop daemon/transport modules; `packages/app/src/{runtime,platform}.ts`; shared host-selection UI; `internal/daemon/network.go` and origin-policy tests; reuse existing SDK public transport exports | Automatic local startup, existing-daemon attachment with networking off, remote session/content/permission parity, host isolation, crash/reconnect, executable lifetime safe across app update | 5–8 days |
-| 2a. Managed SSH | Desktop SSH/profile module and shared connection/authentication UI; narrow new desktop helper/askpass modes under `cmd/whip` with bounded support code; system OpenSSH and existing Unix SDK transport | SSH alias/key/agent/jump-host support, host verification, password/challenge prompts, remote discovery/start, tunnel recovery, forced-crash cleanup and streaming/content parity | 4–7 days |
-| 3. Distribution | Desktop release workflow, signing resources, helper build/sign path, updater/feed; review existing `.github/workflows/release.yml` integration | Downloaded signed artifact installs, launches, updates and recovers on a clean machine | 2–4 days |
-| 4. Acceptance and polish | Desktop-specific automation plus shared browser workflows, minimal macOS menu roles, dialogs/notifications/restoration, performance tuning and manual accessibility | Budgets pass, shared UI and local/remote workflows pass, no lost/duplicated work, signed lifecycle matrix passes, release evidence recorded | 3–5 days |
+1. Prove performance and distribution assumptions.
+2. Establish one renderer and the shared platform boundary.
+3. Produce the production package and first local launch.
+4. Complete robust local and direct-remote attachment.
+5. Implement managed SSH, required for v1.
+6. Complete native behavior and restoration.
+7. Automate releases and safe updates.
+8. Pass performance, stability and release acceptance.
 
-Estimate: **18–30 engineering days** for one engineer familiar with the repository,
-including the comparison, local/direct-remote integration and managed SSH. This
-assumes Apple Silicon/macOS 14+, Linux/macOS remote hosts, and a compatible remote
-Whip installation. Automatic remote deployment or a broader authentication/platform
-matrix would require additional scope.
-This is a planning estimate, not a commitment. Signing-account availability,
-physical test machines, upstream problems, unresolved web acceptance, and additional
-OS support can add calendar time. A useful local development build should exist
-before public-release hardening is complete.
-
-Update `docs/frontend.md` only as architectural decisions become implemented;
-document desktop behavior/setup in `docs/desktop.md`, map behavior/code/tests in
-`docs/features.md`, and update the desktop roadmap item when its gates pass. Keep
-web acceptance gaps visible; do not mark them complete because a desktop app builds.
+The estimate remains **18–30 engineering days**, subject to the documented
+Apple Silicon/macOS 14+ and preinstalled-remote-runtime assumptions. Signed
+packaging is proved early; it is not deferred until the product is otherwise done.
+Implementation is in progress; no complete phase exit gate is claimed yet. Update current architecture and feature docs
+alongside implementation, and mark roadmap completion only after acceptance.
 
 ## Validation matrix
 
@@ -634,5 +658,4 @@ shared-UI scope are confirmed. Do not ask those questions again.
 4. Direct signed/notarized download is the distribution default. Resolve release
    identity, signing access and update hosting when distribution work starts.
 
-The user's answers define scope; they do not authorize implementation. All work
-in this task remains research and planning until that instruction changes.
+The user has authorized full implementation in this worktree. Continue the phase gates recorded in [progress.md](progress.md).

@@ -1,12 +1,15 @@
 name: release
 
-# Cut a release by pushing a tag:  git tag v0.1.0 && git push origin v0.1.0
+# One renderer artifact feeds every release consumer. Serialize the complete
+# graph so an older run cannot promote its feed after a newer release.
 on:
   push:
     tags: ["v*"]
-
+concurrency:
+  group: whip-release
+  cancel-in-progress: false
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -18,20 +21,61 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go vet ./...
-      # internal/browser e2e tests need a real Chromium sandbox and
-      # internal/tui tests need a tty — neither exists on hosted runners.
-      # Those stay local (task test); the release gate runs the portable set.
-      - run: go test $(go list ./... | grep -v -e /internal/browser -e /internal/tui)
+      # Browser/TTY tests remain in their platform acceptance lanes.
+      - run: |
+          mapfile -t packages < <(go list ./... | grep -v -e /internal/browser -e /internal/tui)
+          go test -race -shuffle=on "${packages[@]}"
 
-  # Each binary is built on a runner of its OWN platform. darwin-arm64 needs
-  # macOS anyway: the embedded whip-computer Swift helper (computer-use
-  # native tier) is built with `task driver` on the runner and go:embed'd into
-  # the whip binary — never committed. Each job smoke-tests `--version` so a
-  # broken binary fails here instead of shipping.
+  renderer:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Validate release tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          const match = /^v(\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?)$/.exec(process.env.RELEASE_TAG ?? '');
+          if (!match) throw new Error('Release tags must be vMAJOR.MINOR.PATCH with an optional prerelease suffix');
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${match[1]}\nchannel=${match[1].includes('-') ? 'beta' : 'stable'}\n`);
+          NODE
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run check
+      - name: Build and verify the one release renderer
+        run: |
+          go run ./cmd/themegen -check
+          npm run check:web
+          npm run test:web
+          node --test scripts/pack-web.test.mjs
+          node scripts/pack-web.mjs --release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-renderer
+          if-no-files-found: error
+          path: |
+            apps/web/dist
+            apps/web/renderer-manifest.json
+
+  # Retain all existing CLI platforms and their native Swift/Go behavior.
   build:
-    needs: test
+    needs: [test, renderer]
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -49,11 +93,6 @@ jobs:
             goarch: arm64
             asset: whip-darwin-arm64
             driver: true
-          # darwin-x64 is cross-built on ubuntu (macOS Intel hosted runners
-          # are scarce and stall releases — clocked-in hit this too). Pure-Go
-          # cross-compile, no Swift helper on x64: Intel macs get the core
-          # CLI with the osascript fallback tier. Can't run a darwin binary
-          # on linux, so no smoke here; the arm64 mac job proves the mac path.
           - os: ubuntu-latest
             goos: darwin
             goarch: amd64
@@ -64,104 +103,125 @@ jobs:
     env:
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
-      CGO_ENABLED: "0"
+      CGO_ENABLED: '0'
+      RELEASE_TAG: ${{ github.ref_name }}
+      ASSET: ${{ matrix.asset }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
-
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          cache: npm
-      - run: npm ci
-      - name: Build and package the browser application
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-renderer
+          path: apps/web
+      - name: Verify and embed the shared renderer without rebuilding
         run: |
-          # Some binaries are cross-compiled; build-time generators must run
-          # for the runner rather than the eventual Go target.
-          env -u GOOS -u GOARCH npm run build:web
-          node scripts/pack-web.mjs
+          node scripts/pack-web.mjs --release
           test -s internal/webassets/dist/index.html
-
       - name: Build the whip-computer Swift driver (macOS arm64)
         if: ${{ matrix.driver }}
         run: |
-          xcodebuild -version >/dev/null 2>&1 || true # CLT is enough for swift build
           swift build -c release --package-path driver
           cp driver/.build/release/whip-computer internal/computer/bin/whip-computer
-          codesign --sign - --force internal/computer/bin/whip-computer 2>/dev/null || true
+          codesign --sign - --force internal/computer/bin/whip-computer
           test -s internal/computer/bin/whip-computer
-
-      - name: Build ${{ matrix.asset }}
+      - name: Build CLI asset
         run: |
-          # The zero-byte placeholder keeps non-driver builds green: go:embed
-          # reads whatever is at internal/computer/bin/whip-computer.
           mkdir -p dist/release
-          go build -trimpath \
-            -ldflags "-s -w -X main.version=${{ github.ref_name }}" \
-            -o "dist/release/${{ matrix.asset }}" ./cmd/whip
-
+          go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_TAG" -o "dist/release/$ASSET" ./cmd/whip
       - name: Smoke test on a clean directory
         if: ${{ matrix.smoke != false }}
         run: |
-          bin="$RUNNER_TEMP/${{ matrix.asset }}"
-          cp "dist/release/${{ matrix.asset }}" "$bin"
+          bin="$RUNNER_TEMP/$ASSET"
+          cp "dist/release/$ASSET" "$bin"
           chmod +x "$bin"
           cd "$RUNNER_TEMP"
-          "$bin" --version | grep -F "${{ github.ref_name }}"
-          echo "OK: $bin runs and reports ${{ github.ref_name }}"
-
+          "$bin" --version | grep -F "$RELEASE_TAG"
       - name: Smoke test the embedded web app
         if: ${{ matrix.smoke != false }}
         run: |
-          bin="$PWD/dist/release/${{ matrix.asset }}"
+          bin="$PWD/dist/release/$ASSET"
           web_smoke_home=$(mktemp -d)
           export WHIP_HOME="$web_smoke_home"
           trap '"$bin" daemon stop || true' EXIT
           WHIP_NETWORK=1 "$bin" daemon start
           web_url=$("$bin" web --no-open)
           curl --fail --silent "$web_url" | grep -q '<html'
-
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.asset }}
           path: dist/release/${{ matrix.asset }}
           if-no-files-found: error
 
+  desktop:
+    needs: [test, renderer]
+    uses: ./.github/workflows/desktop-release.yml
+    with:
+      renderer-artifact: release-renderer
+      version: ${{ needs.renderer.outputs.version }}
+      channel: ${{ needs.renderer.outputs.channel }}
+    secrets: inherit
+
   release:
-    needs: build
+    needs: [build, desktop, renderer]
     runs-on: ubuntu-latest
+    environment: desktop-${{ needs.renderer.outputs.channel }}
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      WHIP_DESKTOP_UPDATE_URL: ${{ vars.WHIP_DESKTOP_UPDATE_URL }}
+      WHIP_DESKTOP_BUCKET: ${{ vars.WHIP_DESKTOP_BUCKET }}
+      AWS_REGION: ${{ vars.WHIP_DESKTOP_AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.WHIP_DESKTOP_AWS_ROLE_ARN }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - uses: actions/download-artifact@v8
         with:
+          pattern: whip-*
           path: artifacts
           merge-multiple: true
-      - name: Checksums
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-release-arm64
+          path: desktop-release
+      - name: Require publication configuration
+        run: |
+          node --input-type=module <<'NODE'
+          for (const name of ['WHIP_DESKTOP_UPDATE_URL', 'WHIP_DESKTOP_BUCKET', 'AWS_REGION', 'AWS_ROLE_ARN']) {
+            if (!process.env[name]?.trim()) throw new Error(`Missing release configuration: ${name}`);
+          }
+          NODE
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.WHIP_DESKTOP_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.WHIP_DESKTOP_AWS_REGION }}
+          role-session-name: whip-release-${{ github.run_id }}
+          mask-aws-account-id: true
+      - name: CLI checksums
         run: |
           cd artifacts
           sha256sum whip-* > SHA256SUMS
-          cat SHA256SUMS
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Idempotent: a release may already exist for this tag (manually
-          # created ahead of the tag push, or a re-run after a partial
-          # failure). Reuse it and just (re)upload the assets.
-          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
-            gh release upload "${{ github.ref_name }}" \
-              artifacts/whip-* \
-              artifacts/SHA256SUMS \
-              install.sh \
-              --clobber
-          else
-            gh release create "${{ github.ref_name }}" \
-              artifacts/whip-* \
-              artifacts/SHA256SUMS \
-              install.sh \
-              --title "${{ github.ref_name }}" \
-              --generate-notes
-          fi
+          node apps/desktop/scripts/publish-github.mjs artifacts/whip-* artifacts/SHA256SUMS install.sh \
+            desktop-release/*.dmg desktop-release/*.zip desktop-release/RELEASES.json desktop-release/evidence.json
+      - name: Publish verified desktop assets and promote feed last
+        run: node apps/desktop/scripts/publish.mjs desktop-release

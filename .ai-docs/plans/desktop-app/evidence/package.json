@@ -1,0 +1,67 @@
+{
+  "recordedAt": "2026-09-08T07:36:40.707Z",
+  "bundle": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/desktop/out/Whip-darwin-arm64/Whip.app",
+  "version": "0.1.0",
+  "rendererDigest": "fb6474fdaed31a31ef48de7115708a0af2003f251a28daf2196724eb63f0108b",
+  "nativeFiles": {
+    "whip": {
+      "bytes": 40952784,
+      "sha256": "d74411f83503b1db3cd986e0ad28ea3149a9681e9981ca990570c58a6de8209f"
+    },
+    "whip-computer": {
+      "bytes": 431824,
+      "sha256": "af7e42525239c1407bc5d9fba96849bbe90da903231943d8b5c4ad120537315c"
+    }
+  },
+  "source": {
+    "commit": "dd7aaa3a7f9b8c00bd4ec095b978def1c9231805",
+    "dirty": true,
+    "lockfile": "f2600c94e7ca7ced68a33ba9e933b8b4dbce18800fe6d5f2e765c6d191470f85"
+  },
+  "compatibility": {
+    "protocolMajor": 4,
+    "protocolMinor": 1,
+    "schemaVersion": 10
+  },
+  "teamId": "JAPWPV5JY2",
+  "fuses": {
+    "0": 48,
+    "1": 49,
+    "2": 48,
+    "3": 48,
+    "4": 49,
+    "5": 49,
+    "6": 48,
+    "7": 48,
+    "8": 49,
+    "version": "1"
+  },
+  "signed": true,
+  "notarized": true,
+  "bundleDigest": "4b116f632a2e3a22ca6ff130aa3234462c791bb5390b3ba78c64bcee46d540bc",
+  "dmgNotary": "da8864c0-c5a0-4982-bfd8-831a7458d496",
+  "applications": {
+    "Whip-0.1.0-arm64.dmg": {
+      "bundleDigest": "4b116f632a2e3a22ca6ff130aa3234462c791bb5390b3ba78c64bcee46d540bc",
+      "rendererDigest": "fb6474fdaed31a31ef48de7115708a0af2003f251a28daf2196724eb63f0108b",
+      "signed": true,
+      "notarized": true
+    },
+    "Whip-darwin-arm64-0.1.0.zip": {
+      "bundleDigest": "4b116f632a2e3a22ca6ff130aa3234462c791bb5390b3ba78c64bcee46d540bc",
+      "rendererDigest": "fb6474fdaed31a31ef48de7115708a0af2003f251a28daf2196724eb63f0108b",
+      "signed": true,
+      "notarized": true
+    }
+  },
+  "files": {
+    "Whip-0.1.0-arm64.dmg": {
+      "bytes": 144576572,
+      "sha256": "1c2af68c727b159b37994358e963d9adcd210263fca41cf04a3b46089011dfe7"
+    },
+    "Whip-darwin-arm64-0.1.0.zip": {
+      "bytes": 145114134,
+      "sha256": "d862f69301c6ca0976e10d7ae316ab62c7b650308621d8e7a7e3800a423dd93e"
+    }
+  }
+}

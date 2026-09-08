@@ -11,6 +11,10 @@ const (
 	schemaIdentity       = "whip-recursive-runtime-v10"
 )
 
+// SchemaVersion is the database schema supported by this executable. Reading it
+// does not open or migrate a database.
+func SchemaVersion() int { return currentSchemaVersion }
+
 // MaxInboxRetries bounds how many times a failed turn may return its claimed
 // inbox input to the queue before the input is marked interrupted.
 const MaxInboxRetries = 3

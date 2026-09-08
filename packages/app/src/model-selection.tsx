@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Button, Combobox, Field, Input, Popover, Select } from '@whip/ui';
+import { Button, Combobox, Field, Input, Popover, Select, Tooltip } from '@whip/ui';
 import { Check, ChevronDown, Search, SlidersHorizontal, Sparkles } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface } from '@whip/ui/tokens.stylex';
@@ -83,16 +83,16 @@ export function EffortPicker({ view, root, connected }: ModelProps) {
   </Popover>;
 }
 
-/** Detail card for the hovered/highlighted catalog model, mirroring the mock. */
-function ModelCard({ model, top }: { model: CatalogModel & { providers: string[] }; top: number }) {
+/** Details for the hovered or keyboard-focused catalog model. */
+function ModelCard({ model }: { model: CatalogModel & { providers: string[] } }) {
   const modalities = model.input_modalities?.filter(item => item !== 'text') ?? [];
-  return <div {...stylex.props(styles.card)} style={{ top }}>
+  return <>
     <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Model</span><span {...stylex.props(styles.cardValue)} title={model.id}>{model.id}</span></div>
     <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Provider</span><span {...stylex.props(styles.cardValue)}>{model.providers.join(', ')}</span></div>
     <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Inputs</span><span {...stylex.props(styles.cardValue)}>{['text', ...modalities].join(', ')}</span></div>
     <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Reasoning</span><span {...stylex.props(styles.cardValue)}>{model.reasoning_efforts?.length ? 'Yes' : 'No'}</span></div>
     {!!model.context_length && <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Context</span><span {...stylex.props(styles.cardValue)}>{model.context_length.toLocaleString()}</span></div>}
-  </div>;
+  </>;
 }
 
 export function ModelPicker({ view, root, connected }: ModelProps) {
@@ -100,9 +100,6 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(root.meta.model);
-  const [hovered, setHovered] = useState(false);
-  const [anchorTop, setAnchorTop] = useState(0);
-  const row = useRef<HTMLDivElement>(null);
   const idle = !Object.keys(root.active_turns ?? {}).length;
   const catalog = useCatalog(view, connected);
   const models = useMemo(() => catalogModels(catalog.data?.result), [catalog.data]);
@@ -114,8 +111,6 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
   const ordered = searching || !names.includes(root.meta.model)
     ? filtered
     : [root.meta.model, ...filtered.filter(name => name !== root.meta.model)];
-  const selected = models.get(root.meta.model);
-  const detail = models.get(highlighted) ?? selected;
   const pick = (name: string) => {
     setOpen(false);
     if (!name || name === root.meta.model) return;
@@ -130,42 +125,34 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
       <span {...stylex.props(layout.ellipsis)}>{root.meta.model || 'Choose model'}</span>
       <ChevronDown size={14} {...stylex.props(styles.chevron)} />
     </Button>}>
-    {open && <div ref={row} {...stylex.props(styles.pickerRow)}>
-      <div {...stylex.props(layout.column, styles.pickerList)}>
-        <div {...stylex.props(styles.searchBox)}>
-          <Search size={14} {...stylex.props(styles.searchIcon)} />
-          <input aria-label="Search models" placeholder="Search models" value={query} autoFocus
-            {...stylex.props(styles.searchInput)}
-            onChange={event => setQuery(event.target.value)} />
-        </div>
-        <div role="listbox" aria-label="Models" aria-activedescendant={root.meta.model} {...stylex.props(styles.list)}>
-          {catalog.isLoading && <p role="status" {...stylex.props(styles.listMeta)}>Loading models…</p>}
-          {!catalog.isLoading && !filtered.length && <p {...stylex.props(styles.listMeta)}>No matching models</p>}
-          {ordered.slice(0, 200).map(name => <button key={name} id={name} role="option" aria-selected={name === root.meta.model}
+    {open && <div {...stylex.props(layout.column, styles.pickerList)}>
+      <div {...stylex.props(styles.searchBox)}>
+        <Search size={14} {...stylex.props(styles.searchIcon)} />
+        <input aria-label="Search models" placeholder="Search models" value={query} autoFocus
+          {...stylex.props(styles.searchInput)}
+          onChange={event => setQuery(event.target.value)} />
+      </div>
+      <div role="listbox" aria-label="Models" aria-activedescendant={root.meta.model} {...stylex.props(styles.list)}>
+        {catalog.isLoading && <p role="status" {...stylex.props(styles.listMeta)}>Loading models…</p>}
+        {!catalog.isLoading && !filtered.length && <p {...stylex.props(styles.listMeta)}>No matching models</p>}
+        {ordered.slice(0, 200).map(name => <Tooltip key={name} label={<ModelCard model={models.get(name)!} />}
+          side="right" align="start" sideOffset={8} collisionPadding={8} delay={0} disableHoverablePopup xstyle={styles.card}
+          collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'end' }}>
+          <button id={name} role="option" aria-selected={name === root.meta.model}
             disabled={!connected || !idle}
             {...stylex.props(styles.option, name === highlighted && styles.optionActive)}
-            onMouseEnter={event => {
-              setHighlighted(name);
-              setHovered(true);
-              const container = row.current;
-              if (container) {
-                const rect = event.currentTarget.getBoundingClientRect();
-                setAnchorTop(rect.top - container.getBoundingClientRect().top);
-              }
-            }}
-            onMouseLeave={() => setHovered(false)}
+            onMouseEnter={() => setHighlighted(name)}
+            onFocus={() => setHighlighted(name)}
             onClick={() => pick(name)}>
             <span {...stylex.props(layout.ellipsis, layout.grow)}>{name}</span>
             {name === root.meta.model && <Check size={14} {...stylex.props(styles.check)} />}
-          </button>)}
-        </div>
-        <div {...stylex.props(styles.footer)}>
-          <Link to="/settings" search={{ section: 'providers' }} {...stylex.props(styles.manage)} onClick={() => setOpen(false)}>
-            <SlidersHorizontal size={14} /> Manage models
-          </Link>
-        </div>
+        </button></Tooltip>)}
       </div>
-      {detail && hovered && <ModelCard model={detail} top={anchorTop} />}
+      <div {...stylex.props(styles.footer)}>
+        <Link to="/settings" search={{ section: 'providers' }} {...stylex.props(styles.manage)} onClick={() => setOpen(false)}>
+          <SlidersHorizontal size={14} /> Manage models
+        </Link>
+      </div>
     </div>}
   </Popover>;
 }
@@ -223,10 +210,9 @@ const styles = stylex.create({
   popup: { padding: 4, maxHeight: 'min(320px, var(--available-height))', overflow: 'auto' },
   menu: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 140 },
   menuItem: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', paddingBlock: 5, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: 13, textAlign: 'start', cursor: 'default', minHeight: 26 },
-  popupWide: { padding: 4, maxHeight: 'min(420px, var(--available-height))', overflow: 'visible' },
-  pickerRow: { position: 'relative' },
-  pickerList: { width: 'min(300px, calc(100vw - 48px))' },
-  searchBox: { display: 'flex', alignItems: 'center', gap: 8, paddingInline: 8, paddingBlock: 6, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, marginBottom: 4 },
+  popupWide: { display: 'flex', padding: 4, maxHeight: 'min(420px, var(--available-height))', overflow: 'hidden' },
+  pickerList: { width: 'min(300px, calc(100vw - 48px))', minHeight: 0 },
+  searchBox: { display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, paddingInline: 8, paddingBlock: 6, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, marginBottom: 4 },
   searchIcon: { color: surface.secondaryText, flexShrink: 0 },
   searchInput: { borderWidth: 0, outline: 'none', backgroundColor: 'transparent', color: colors.foreground, font: 'inherit', fontSize: 13, width: '100%', padding: 0 },
   list: { overflowY: 'auto', maxHeight: 320, minHeight: 0, paddingBottom: 12, maskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent)', WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent)' },
@@ -234,10 +220,10 @@ const styles = stylex.create({
   option: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', paddingBlock: 7, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: 13, textAlign: 'start', cursor: 'default', minHeight: 30 },
   optionActive: { backgroundColor: colors.hover },
   check: { color: surface.secondaryText, flexShrink: 0 },
-  footer: { borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, boxShadow: '0 -6px 10px -6px rgb(0 0 0 / 0.12)' },
+  footer: { flexShrink: 0, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, boxShadow: '0 -6px 10px -6px rgb(0 0 0 / 0.12)' },
   manage: { display: 'flex', alignItems: 'center', gap: 8, paddingBlock: 7, paddingInline: 8, borderRadius: 6, color: colors.foreground, fontSize: 13, textDecoration: 'none', backgroundColor: { default: 'transparent', ':hover': colors.hover } },
-  card: { position: 'absolute', left: 'calc(100% + 8px)', width: 232, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, backgroundColor: colors.panel, boxShadow: '0 4px 16px rgb(0 0 0 / 0.10)' },
-  cardRow: { display: 'flex', justifyContent: 'space-between', gap: 10, minWidth: 0 },
+  card: { width: 232, maxWidth: 'var(--available-width)', maxHeight: 'var(--available-height)', overflow: 'auto', borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: colors.foreground, backgroundColor: colors.panel, boxShadow: '0 4px 16px rgb(0 0 0 / 0.10)' },
+  cardRow: { display: 'flex', flexShrink: 0, justifyContent: 'space-between', gap: 10, minWidth: 0 },
   cardLabel: { color: surface.secondaryText, flexShrink: 0, fontSize: 11 },
   cardValue: { textAlign: 'end', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 },
 });

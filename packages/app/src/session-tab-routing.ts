@@ -13,6 +13,37 @@ export function sessionDestination(pathname: string): { runtimeId: string; rootI
   catch { return; }
 }
 
+/** A native link can select an already saved host, but cannot create one. */
+export function createSessionNavigator(runtime: AppRuntime, navigate: (path: string) => void, currentLocation?: () => unknown) {
+  let epoch = 0; let disposed = false;
+  return {
+    async open(path: string) {
+      if (disposed) return;
+      const current = ++epoch;
+      const location = currentLocation?.();
+      try {
+        const url = new URL(path, 'https://whip.invalid');
+        const destination = sessionDestination(url.pathname);
+        if (!path.startsWith('/h/') || url.origin !== 'https://whip.invalid' || !destination || url.hash)
+          throw new Error('Invalid session link');
+        const state = runtime.getSnapshot();
+        const profile = state.hosts.find(host => host.runtimeId === destination.runtimeId);
+        if (!profile) throw new Error('This session belongs to an unknown execution host. Connect to that host first, then open this link again.');
+        const connection = profile.client?.getSnapshot();
+        if (connection?.state !== 'connected' || connection.info?.runtime_id !== destination.runtimeId) {
+          // connect owns its error state and suppresses failures from a retired
+          // host attempt. Reporting that rejection here would undo its guard.
+          try { await runtime.connections.connect(profile.id); } catch { return; }
+        }
+        const latest = runtime.connections.host(destination.runtimeId); const attached = latest?.client?.getSnapshot();
+        if (current !== epoch || currentLocation?.() !== location || latest?.id !== profile.id || attached?.state !== 'connected' || attached.info?.runtime_id !== destination.runtimeId) return;
+        navigate(url.pathname + url.search);
+      } catch (error) { if (current === epoch) runtime.report(error); }
+    },
+    dispose() { disposed = true; ++epoch; },
+  };
+}
+
 /** The router is the active-tab authority; saved selection is only a boot hint. */
 export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
   const initial = router.state.location;

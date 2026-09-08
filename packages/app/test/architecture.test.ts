@@ -24,7 +24,7 @@ it('keeps the UI domain-free and the shared application browser-compatible', () 
   for (const file of files('packages/app/src')) {
     const source = readFileSync(file, 'utf8');
     expect(source, file).not.toMatch(
-      /from\s*['"](?:node:|@base-ui\/|@whip\/sdk\/node)/,
+      /(?:from\s*|import\s*\()\s*['"](?:electron(?:\/|['"])|node:|@base-ui\/|@whip\/sdk\/node)/,
     );
     expect(source, file).not.toMatch(
       /new\s+(?:WebSocket|Worker)\s*\(|\bfetch\s*\(/,

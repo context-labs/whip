@@ -111,6 +111,7 @@ or GOPATH/bin. These local builds report `dev` unless `WHIPCODE_VERSION` is set.
 - [Manual](docs/README.md)
 - [Architecture](docs/architecture.md)
 - [Frontend architecture and design guide](docs/frontend.md) — start here for frontend work
+- [macOS desktop build and packaging](docs/desktop.md) — shared renderer, daemon lifetime and release setup
 - [Recursive runtime](docs/rlm-runtime.md)
 - [Tools and modules](docs/tools.md)
 - [Agent loop](docs/agent-loop.md)

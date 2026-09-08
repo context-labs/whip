@@ -14,6 +14,10 @@ packages/sdk/dist/
 packages/sdk/build/
 examples/*/dist/
 apps/*/dist/
+apps/desktop/out/
+apps/desktop/.stage/
+apps/desktop/.dev/
+apps/web/renderer-manifest.json
 packages/ui/storybook-static/
 test-results/
 playwright-report/

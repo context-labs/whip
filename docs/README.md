@@ -10,6 +10,8 @@ and troubleshooting.
 For frontend work, start with [frontend.md](frontend.md): the canonical coding-agent
 guide to design philosophy, packages, components, data fetching, state ownership,
 and validation. [web-app.md](web-app.md) covers running the application.
+[desktop.md](desktop.md) covers the macOS host, shared renderer, retained daemon,
+signing and release setup, with the current acceptance limits.
 
 ## Install
 

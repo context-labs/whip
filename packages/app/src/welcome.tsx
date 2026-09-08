@@ -15,12 +15,12 @@ import { sessionSearch } from './session-tabs';
 
 export function Welcome() {
   const runtime = useRuntime();
-  const { hosts } = useAppState();
+  const { hosts, selectedHostId } = useAppState();
   const search = useSearch({ from: '/' });
   const locationKey = useLocation({ select: location => location.state.__TSR_key });
-  const [selected, setSelected] = useState(search.runtimeId ?? 'local');
+  const [selected, setSelected] = useState(search.runtimeId ?? selectedHostId ?? 'local');
   const [adding, setAdding] = useState(false);
-  useEffect(() => setSelected(search.runtimeId ?? 'local'), [search.runtimeId, locationKey]);
+  useEffect(() => setSelected(search.runtimeId ?? selectedHostId ?? 'local'), [search.runtimeId, locationKey]);
   const host = hosts.find(host => host.id === selected || host.runtimeId === selected);
   const remote = selected !== 'local' && !host?.local;
   const remotes = hosts.filter(host => !host.local);
@@ -48,7 +48,7 @@ export function Welcome() {
           : <p>Select or add a remote host to begin.</p>}
         {host?.error && <p role="status">{host.error}</p>}
       </div>
-      <HostDialog open={adding} onOpenChange={setAdding} onSaved={setSelected} />
+      <HostDialog open={adding} onOpenChange={setAdding} onSaved={id => { runtime.connections.select(id); setSelected(id); }} />
     </div>
   );
 }
@@ -143,8 +143,10 @@ function NewSession({ client, host }: { client: WhipClient; host: HostConnection
         required
       />
       <DirectoryPicker
+        key={creationLocation}
         client={client}
         native={host.local}
+        pickDirectory={host.profile?.target.kind === 'local' ? runtime.platform.pickDirectory : undefined}
         value={cwd}
         onSelect={setCwd}
         disabled={!enabled}

@@ -20,14 +20,20 @@
     "test:package": "npm run build && node packages/sdk/scripts/package-smoke.mjs",
     "test:example": "npm run build && node examples/client/smoke.mjs",
     "dev:web": "npm run dev -w @whip/web",
-    "build:web": "npm run build -w @whip/sdk && npm run build -w @whip/web",
+    "build:web": "npm run build -w @whip/sdk && npm run build -w @whip/web && node scripts/renderer-artifact.mjs",
     "check:web": "tsc -p packages/app/tsconfig.json --noEmit && npm run build:web",
     "test:web": "vitest run --config apps/web/vitest.config.ts",
     "storybook": "npm run storybook -w @whip/ui",
     "build:storybook": "npm run build:storybook -w @whip/ui",
     "pack:web": "npm run build:web && node scripts/pack-web.mjs",
     "generate:themes": "go run ./cmd/themegen",
-    "check:themes": "go run ./cmd/themegen -check"
+    "check:themes": "go run ./cmd/themegen -check",
+    "build:desktop": "node apps/desktop/scripts/build.mjs",
+    "package:desktop": "node apps/desktop/scripts/package.mjs",
+    "make:desktop": "node apps/desktop/scripts/package.mjs --make",
+    "check:desktop": "tsc -p apps/desktop/tsconfig.json --noEmit",
+    "test:desktop": "node apps/desktop/scripts/test.mjs && node --test scripts/distribution.test.mjs scripts/publish.test.mjs scripts/publish-github.test.mjs scripts/renderer-artifact.test.mjs && node apps/desktop/scripts/startup.mjs --self-test",
+    "dev:desktop": "node apps/desktop/scripts/dev.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

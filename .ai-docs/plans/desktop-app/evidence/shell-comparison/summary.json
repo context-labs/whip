@@ -1,0 +1,107 @@
+{
+  "recordedAt": "2026-09-08T05:59:34.131Z",
+  "window": {
+    "start": "2026-09-08T05:56:52.151Z",
+    "end": "2026-09-08T05:59:17.469Z"
+  },
+  "engines": {
+    "electron": {
+      "attempts": 30,
+      "warmups": 2,
+      "failures": [],
+      "usableMs": {
+        "count": 30,
+        "min": 779.6831670000029,
+        "median": 1001.1239790000018,
+        "p95": 1288.6526250000024,
+        "max": 1562.3523339999956
+      },
+      "shellReadyMs": {
+        "count": 30,
+        "min": 656.7388750000027,
+        "median": 872.9769790000028,
+        "p95": 1160.1072920000006,
+        "max": 1436.1785419999942
+      },
+      "steadyTreeMiB": {
+        "count": 3,
+        "min": 467.828125,
+        "median": 469.03125,
+        "p95": 469.578125,
+        "max": 469.578125
+      },
+      "steadyNewWebKitOutsideTreeMiB": {
+        "count": 3,
+        "min": 0,
+        "median": 0,
+        "p95": 0,
+        "max": 0
+      },
+      "steadyTreePlusCandidateMiB": {
+        "count": 3,
+        "min": 467.828125,
+        "median": 469.03125,
+        "p95": 469.578125,
+        "max": 469.578125
+      },
+      "steadyDaemonMiB": {
+        "count": 3,
+        "min": 63.703125,
+        "median": 63.71875,
+        "p95": 63.734375,
+        "max": 63.734375
+      },
+      "allPassedFeatures": true,
+      "errorEvents": []
+    },
+    "electrobun": {
+      "attempts": 30,
+      "warmups": 2,
+      "failures": [],
+      "usableMs": {
+        "count": 30,
+        "min": 1419.8940000000002,
+        "median": 1682.1574789999977,
+        "p95": 2715.314624999999,
+        "max": 3372.928500000009
+      },
+      "shellReadyMs": {
+        "count": 30,
+        "min": 1321.8853750000126,
+        "median": 1579.9160624999968,
+        "p95": 2544.7992080000004,
+        "max": 3198.7862910000113
+      },
+      "steadyTreeMiB": {
+        "count": 3,
+        "min": 402.84375,
+        "median": 403.15625,
+        "p95": 412.03125,
+        "max": 412.03125
+      },
+      "steadyNewWebKitOutsideTreeMiB": {
+        "count": 3,
+        "min": 175.734375,
+        "median": 177.25,
+        "p95": 179.703125,
+        "max": 179.703125
+      },
+      "steadyTreePlusCandidateMiB": {
+        "count": 3,
+        "min": 578.890625,
+        "median": 580.09375,
+        "p95": 591.734375,
+        "max": 591.734375
+      },
+      "steadyDaemonMiB": {
+        "count": 3,
+        "min": 63.703125,
+        "median": 63.71875,
+        "p95": 63.734375,
+        "max": 63.734375
+      },
+      "allPassedFeatures": true,
+      "errorEvents": []
+    }
+  }
+}

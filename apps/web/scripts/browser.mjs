@@ -202,11 +202,13 @@ try {
       await effortTrigger.click();
       await page.getByRole('option', { name: 'Medium', exact: true }).click();
       await eventually(async () => (await session.snapshot()).meta.effort === 'medium');
+      await page.getByRole('listbox', { name: 'Reasoning effort', exact: true }).waitFor({ state: 'hidden' });
       await page.screenshot({ path: join(resultsDirectory, `${name}-model-picker.png`) });
       assert.equal(await composer.inputValue(), 'Keep this draft while changing the model');
       assert.equal((await session.snapshot()).messages?.length ?? 0, 0, 'Changing models submitted the message draft');
       await page.reload(); await ready(page);
       assert.ok((await modelTrigger.innerText()).includes('replacement'));
+      assert.equal(await effortTrigger.innerText(), 'Medium');
       assert.equal(await composer.inputValue(), 'Keep this draft while changing the model');
       checks.push('composer grows and shrinks, model/effort selections apply, and draft/model survive reload');
 

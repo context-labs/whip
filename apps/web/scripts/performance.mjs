@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 import { createWhipClient } from '../../../packages/sdk/dist/index.js';
 import { createSessionView } from '../../../packages/sdk/dist/state.js';
@@ -8,12 +8,17 @@ import {
   eventually,
   startFixture,
 } from '../../../packages/sdk/scripts/fixture.mjs';
+import { isolateDesktopPerformance, launchDesktopPerformance, exerciseDesktopTabs,
+  exerciseDesktopTransfer, finishDesktopPerformance } from './performance-desktop.mjs';
 
 // Opt-in, isolated production-store seed; never connects to a user's daemon.
 process.env.WHIP_WEB_PERF_FIXTURE = '1';
-const directory =
-  process.env.WHIP_WEB_BROWSER_RESULTS ?? '/tmp/whip-web-browser-results';
-await mkdir(directory, { recursive: true });
+const desktop = process.env.WHIP_WEB_PERFORMANCE_HOST === 'desktop';
+const requestedDirectory = resolve(process.env.WHIP_WEB_BROWSER_RESULTS ??
+  (desktop ? '/tmp/whip-desktop-performance-results' : '/tmp/whip-web-browser-results'));
+await mkdir(requestedDirectory, { recursive: true });
+const directory = desktop ? await mkdtemp(join(requestedDirectory, 'run-')) : requestedDirectory;
+console.log(`Performance results: ${directory}`);
 const summarize = (samples) => {
   const values = samples.slice().sort((a, b) => a - b);
   return {
@@ -23,30 +28,41 @@ const summarize = (samples) => {
     max: values.at(-1),
   };
 };
-const fixture = await startFixture();
-const client = createWhipClient({
+let isolation, host, fixture, client, browser, context, page, view;
+let succeeded = false;
+const errors = [];
+const metrics = { recordedAt: new Date().toISOString(), platform: process.platform, checks: [] };
+try {
+if (desktop) isolation = await isolateDesktopPerformance();
+fixture = await startFixture({ retainOnFailure: desktop });
+console.log(`Fixture ready: ${fixture.directory}`);
+client = createWhipClient({
   endpoint: fixture.info.endpoint,
   clientId: `web-performance-${crypto.randomUUID()}`,
   clientKind: 'human',
 });
-const browser = await chromium.launch({ headless: true });
-const context = await browser.newContext({
-  viewport: { width: 1360, height: 960 },
-});
-const page = await context.newPage();
-const view = createSessionView(client.session(fixture.info.root_id));
-const metrics = {
-  browser: await browser.version(),
-  platform: process.platform,
+if (desktop) {
+  host = await launchDesktopPerformance(fixture, isolation);
+  ({ page, context } = host);
+  await page.setViewportSize({ width: 1360, height: 960 });
+} else {
+  browser = await chromium.launch({ headless: true });
+  context = await browser.newContext({ viewport: { width: 1360, height: 960 } });
+  page = await context.newPage();
+}
+view = createSessionView(client.session(fixture.info.root_id));
+Object.assign(metrics, {
+  browser: desktop ? host.version : await browser.version(),
+  host: desktop ? { kind: 'staged-electron-ipc', rendererDigest: host.rendererDigest,
+    limitation: 'Stock Playwright Electron runs staged main/preload and production renderer with the isolated synthetic Go runner. Not signed-package, actual RLM worker, SSH/WAN or startup/idle acceptance. The controller SDK measurements use a separate fixture WebSocket connection.' } : { kind: 'browser-websocket' },
   fixture: {
     rootMessages: 10_000,
     retainedChildren: 100,
     messagesPerChild: 100,
     largeToolBodyBytes: 1_400_000,
   },
-  checks: [],
-};
-const origin = fixture.info.endpoint
+});
+const origin = desktop ? host.origin : fixture.info.endpoint
   .replace(/^ws/, 'http')
   .replace('/api/v3/ws', '');
 // A test-only frontend clock probe crosses Playwright's binding, not a product
@@ -72,20 +88,24 @@ const calibrateClock = () =>
     }
     return samples;
   });
-await page.addInitScript(() => {
+await page.addInitScript(({ desktop, rootId }) => {
   window.__performanceEventLatency = [];
   window.__performanceCommitDOM = [];
   window.__performanceProbeOverflow = false;
+  window.__performanceIPCFrames = 0;
+  window.__performanceContentHandles = [];
   const pending = [];
-  const NativeWebSocket = window.WebSocket;
-  window.WebSocket = class extends NativeWebSocket {
-    constructor(...args) {
-      super(...args);
-      this.addEventListener('message', (message) => {
+  const receive = data => {
         try {
-          const event = JSON.parse(message.data).params?.event;
+          const message = JSON.parse(data);
+          const handle = message.result?.content ?? (message.result?.reference_id ? message.result : undefined);
+          if (handle?.digest && !window.__performanceContentHandles.some(item => item.reference_id === handle.reference_id)) {
+            if (window.__performanceContentHandles.length >= 16) window.__performanceProbeOverflow = true;
+            else window.__performanceContentHandles.push({ reference_id: handle.reference_id, digest: handle.digest, size: handle.size });
+          }
+          const event = message.params?.event;
           if (
-            event?.kind !== 'stream.text' ||
+            event?.kind !== 'stream.text' || event.root_id !== rootId ||
             !(
               event.payload?.text?.includes('delta-') ||
               event.payload?.text?.includes('commit-probe-')
@@ -102,9 +122,19 @@ await page.addInitScript(() => {
             start: performance.now(),
           });
         } catch {}
-      });
-    }
   };
+  if (desktop) {
+    if (!window.whipDesktop) throw new Error('Desktop performance probe requires the real preload bridge');
+    const stop = window.whipDesktop.onEvent(event => {
+      if (event.kind === 'frame') { window.__performanceIPCFrames++; receive(event.frame); }
+    });
+    window.addEventListener('pagehide', stop, { once: true });
+  } else {
+    const NativeWebSocket = window.WebSocket;
+    window.WebSocket = class extends NativeWebSocket {
+      constructor(...args) { super(...args); this.addEventListener('message', message => receive(message.data)); }
+    };
+  }
   new MutationObserver(() => {
     const live = [...document.querySelectorAll('[data-message-id^=\"live:\"]')]
       .map((element) => element.textContent)
@@ -128,10 +158,9 @@ await page.addInitScript(() => {
       pending.splice(index, 1);
     }
   }).observe(document, { subtree: true, childList: true, characterData: true });
-});
+}, { desktop, rootId: fixture.info.root_id });
 const rootRoute = `/h/${fixture.info.runtime_id}/s/${fixture.info.root_id}`;
 const requests = [];
-const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
 page.on('websocket', (socket) =>
   socket.on('framesent', ({ payload }) => {
@@ -155,8 +184,8 @@ const frame = () =>
         requestAnimationFrame(() => requestAnimationFrame(resolve)),
       ),
   );
-try {
   await client.connect();
+  console.log('Checking retained history and child views');
   await view.start();
   const root = view.getSnapshot();
   assert.equal(root.status, 'live');
@@ -204,6 +233,12 @@ try {
 
   await page.goto(origin + rootRoute);
   await ready();
+  if (desktop) {
+    assert.equal(await page.evaluate(() => location.origin), 'whip-app://bundle');
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('whip.hosts.v2') || '[]').find(host => host.id === 'local')?.runtimeId), fixture.info.runtime_id);
+    assert((await host.traffic()).requests.some(request => request.method === 'initialize'), 'Renderer did not attach through desktop IPC');
+    assert(await page.evaluate(() => window.__performanceIPCFrames > 0), 'Desktop receipt probe saw no real frames');
+  }
   await frame();
   metrics.initialRenderedRows = await page.locator('[data-message-id]').count();
   assert.ok(metrics.initialRenderedRows < 80);
@@ -337,7 +372,16 @@ try {
     );
   };
   await frame();
-  const rootAnchor = await captureAnchor();
+  const stableAnchor = async () => {
+    let previous, stableSince = performance.now();
+    return eventually(async () => {
+      const current = await captureAnchor();
+      if (!previous || previous.id !== current.id || Math.abs(previous.offset - current.offset) >= 1) stableSince = performance.now();
+      previous = current;
+      return performance.now() - stableSince >= 300 ? current : false;
+    }, { description: 'settled pre-switch reading anchor' });
+  };
+  const rootAnchor = await stableAnchor();
   await page.locator(`[data-workspace-tab="${fixture.info.root_id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
   await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
   await page.getByRole('link', { name: 'perf-child-000', exact: true }).click();
@@ -347,7 +391,9 @@ try {
     element.scrollTop = 300;
   });
   await frame();
-  const childAnchor = await captureAnchor();
+  const childAnchor = await stableAnchor();
+  metrics.cachedAnchors = { root: rootAnchor, child: childAnchor, observations: [] };
+  console.log('Checking cached root/child switches');
   const switches = [];
   for (let index = 0; index < 20; index++) {
     const start = performance.now();
@@ -359,7 +405,8 @@ try {
         .querySelector('[aria-label="Conversation"]')
         ?.textContent.includes('Root message'),
     );
-    await assertAnchor(rootAnchor);
+    try { await assertAnchor(rootAnchor); }
+    finally { metrics.cachedAnchors.observations.push({ index, recipient: 'root', observed: await captureAnchor() }); }
     switches.push(performance.now() - start);
     assert.equal(await viewport.getByText(/perf-child-000 message/).count(), 0);
     if (index < 19) {
@@ -372,7 +419,8 @@ try {
           .querySelector('[aria-label="Conversation"]')
           ?.textContent.includes('perf-child-000 message'),
       );
-      await assertAnchor(childAnchor);
+      try { await assertAnchor(childAnchor); }
+      finally { metrics.cachedAnchors.observations.push({ index, recipient: 'child', observed: await captureAnchor() }); }
       assert.equal(await viewport.getByText(/Root message/).count(), 0);
     }
   }
@@ -380,6 +428,9 @@ try {
   metrics.checks.push(
     '20 cached child-to-root switches restore independent reading anchors and never mix transcript content',
   );
+
+  console.log(desktop ? 'Checking 32 desktop tabs and retained memory' : 'Checking 32 drafts and 16 streams');
+  const desktopRoots = desktop ? await exerciseDesktopTabs({ host, fixture, client, ready, frame, summarize, metrics }) : undefined;
 
   // Near the aggregate draft ceiling, with a near-per-draft-ceiling active value.
   const draft = await page.evaluate(
@@ -413,9 +464,10 @@ try {
   const textarea = page.getByLabel('Message WHIP', { exact: true });
   assert.equal((await textarea.inputValue()).length, draft.activeBytes);
   const clockBefore = await calibrateClock();
+  console.log('Measuring typing and committed events under 16 streams');
   const concurrent = [];
   for (let index = 0; index < 15; index++) {
-    const created = await client.sessions
+    const created = desktopRoots ? { status: 'succeeded', result: { root_id: desktopRoots[index + 1] } } : await client.sessions
       .create({ cwd: fixture.directory, model: 'model', provider: 'provider' })
       .result();
     assert.equal(created.status, 'succeeded');
@@ -691,6 +743,7 @@ try {
   metrics.checks.push(
     '40 post-COMMIT-return stream probes reached the real SDK/app DOM under 16 concurrent agents, with bounded monotonic-clock calibration error',
   );
+  if (desktop) { console.log('Measuring chunked desktop upload and native download'); await exerciseDesktopTransfer({ host, fixture, metrics, directory, summarize }); }
   for (const { root: id } of concurrent) {
     const snapshot = await client.session(id).snapshot();
     const turn = snapshot.active_turns[id];
@@ -709,6 +762,12 @@ try {
     ...(await cdp.send('Memory.getDOMCounters')),
     currentTranscriptRows: await page.locator('[data-message-id]').count(),
   };
+  if (desktop) {
+    const traffic = await host.traffic();
+    assert.equal(traffic.overflow, false); assert(traffic.maximumSubscriptions <= 4);
+    requests.push(...traffic.requests);
+    metrics.desktopAfterWork = await host.processMemory('after-streams-and-transfer');
+  }
   metrics.requestCounts = Object.fromEntries(
     [...new Set(requests.map((request) => request.method))].map((method) => [
       method,
@@ -724,9 +783,9 @@ try {
     join(directory, 'performance.json'),
     JSON.stringify(metrics, null, 2),
   );
+  succeeded = true;
 } catch (error) {
-  await page
-    .screenshot({
+  await page?.screenshot({
       path: join(directory, 'performance-failure.png'),
       fullPage: true,
     })
@@ -735,12 +794,11 @@ try {
     join(directory, 'performance-failure.json'),
     JSON.stringify(
       {
-        error: String(error),
+        error: String(error), stack: error.stack, fixtureDirectory: fixture?.directory, isolatedDirectory: isolation?.directory,
         metrics,
         errors,
-        commitDOM: await page.evaluate(() => window.__performanceCommitDOM),
-        html: await page
-          .locator('body')
+        commitDOM: await page?.evaluate(() => window.__performanceCommitDOM),
+        html: await page?.locator('body')
           .innerText()
           .catch(() => ''),
       },
@@ -750,8 +808,13 @@ try {
   );
   throw error;
 } finally {
-  await view.dispose();
-  client.close();
-  await browser.close();
-  await fixture.close();
+  const cleanupErrors = [];
+  await view?.dispose().catch(error => cleanupErrors.push(error));
+  client?.close();
+  if (desktop && isolation) await finishDesktopPerformance(isolation, host, fixture, succeeded, cleanupErrors);
+  else {
+    await browser?.close().catch(error => cleanupErrors.push(error));
+    await fixture?.close().catch(error => cleanupErrors.push(error));
+    if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'Performance fixture cleanup failed');
+  }
 }

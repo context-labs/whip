@@ -36,6 +36,9 @@ func (s *server) retireLocked() *sdkmcp.ClientSession {
 	if s.connectionStop != nil {
 		s.connectionStop()
 	}
+	if s.transportStop != nil {
+		s.transportStop()
+	}
 	old := s.sess
 	s.sess, s.defs, s.instr = nil, nil, ""
 	return old

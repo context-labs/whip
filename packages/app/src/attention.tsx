@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQueries } from '@tanstack/react-query';
-import { WhipError } from '@whip/sdk';
+import { useQueries, useQuery } from '@tanstack/react-query';
+import { WhipError, type WhipClient } from '@whip/sdk';
+import { useWhipConnection } from '@whip/sdk/react';
+import { AttentionNotifications, scanAttention } from './attention-notifications';
 import { Badge, Button, Select, Sheet } from '@whip/ui';
 import { Bell } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -90,4 +92,41 @@ export function Attention() {
       </div>
     </Sheet>
   </>;
+}
+
+export function DesktopAttention({ client }: { client: WhipClient }) {
+  const runtime = useRuntime();
+  const connection = useWhipConnection(client);
+  const runtimeId = connection.info?.runtime_id ?? '';
+  const identity = `${runtimeId}:${connection.info?.connection_id ?? ''}`;
+  const enabled = connection.state === 'connected' && !!runtimeId;
+  const notifications = useRef(new AttentionNotifications());
+  const observed = useRef({ identity: '', updatedAt: 0 });
+  const index = useQuery({
+    queryKey: ['desktop-attention', runtimeId, connection.info?.connection_id],
+    queryFn: ({ signal }) => scanAttention(client, runtime.queries, runtimeId, signal),
+    enabled,
+    refetchInterval: enabled ? 3000 : false,
+    refetchIntervalInBackground: true,
+    staleTime: 0,
+  });
+  useEffect(() => {
+    if (observed.current.identity !== identity) {
+      notifications.current.reset(); observed.current = { identity, updatedAt: 0 };
+    }
+    const current = client.getSnapshot();
+    if (!enabled || index.isError || !runtime.connections.isAttached(client) || current.state !== 'connected'
+      || current.info?.connection_id !== connection.info?.connection_id) {
+      notifications.current.reset(); observed.current.updatedAt = index.dataUpdatedAt; return;
+    }
+    if (!index.data || index.isFetching || observed.current.updatedAt === index.dataUpdatedAt) return;
+    observed.current.updatedAt = index.dataUpdatedAt;
+    const messages = notifications.current.observe(runtimeId, index.data);
+    let cancelled = false;
+    for (const message of messages) void runtime.platform.notify?.(message).catch(error => {
+      if (!cancelled && runtime.connections.isAttached(client)) runtime.report(error);
+    });
+    return () => { cancelled = true; };
+  }, [client, runtime, runtimeId, identity, connection.info?.connection_id, enabled, index.data, index.dataUpdatedAt, index.isFetching, index.isError]);
+  return null;
 }

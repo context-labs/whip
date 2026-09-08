@@ -1,0 +1,39 @@
+{
+  "recordedAt": "2026-09-08T05:57:00.635Z",
+  "version": "0.1.0",
+  "rendererDigest": "6a400e7240ceb060b2813bad32ae2d0b80716a7bdf5508a8f38410e93f2f04f2",
+  "launch": "macOS LaunchServices, signed production app with production fuses, isolated fixture home and minimal PATH",
+  "checks": {
+    "localSessionCreated": true,
+    "localNetworkDisabled": true,
+    "draftSurvivedTabCloseReopen": true,
+    "cmdWHidesWithoutQuitting": true,
+    "finderReopensSameWindow": true,
+    "settingsAndNativeDeviceControls": true,
+    "daemonUsesRetainedExecutable": true,
+    "daemonSurvivedQuitMenu": true,
+    "guiProcessExitedAfterQuitMenu": true
+  },
+  "limits": [
+    "Not notarized or downloaded/quarantined",
+    "No completed provider turn or post-update worker tested",
+    "No startup timing claim"
+  ],
+  "retainedExecutable": "/tmp/whip-installed-qrGSJ6/user-data/runtimes/0.1.0-85cb71108435443fb579c3e0bf6f0a9d19220849d549142a33d022385339d6f8/whip",
+  "quitVerification": {
+    "guiPid": 38820,
+    "daemonPid": 38994,
+    "action": "CUA click Whip menu → Quit Whip, followed by ps proving the GUI PID absent and daemon status retaining its PID",
+    "note": "Earlier keyboard-only attempts did not establish process exit; their Cmd-Q claim was withdrawn."
+  },
+  "cleanup": {
+    "recordedAt": "2026-09-08T06:59:28.777Z",
+    "daemonPid": 38994,
+    "gracefulStop": false,
+    "issue": "Preexisting MCP standalone SSE/DELETE cancellation stall while Manager.Close joined its connection worker. The older fixture inherited HOME and discovered ambient MCP; later fixtures use an isolated HOME.",
+    "action": "Verified exact owned executable and captured its Go stack using SIGQUIT after the 10-second graceful shutdown timed out.",
+    "verifiedProcessAbsent": true,
+    "removedFixture": true,
+    "developmentUserDataPreserved": true
+  }
+}

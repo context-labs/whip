@@ -55,11 +55,13 @@ export interface DevicePreferences {
   commandShortcut: (typeof commandShortcuts)[number];
   composerShortcut: (typeof composerShortcuts)[number];
   attentionAnnouncements: boolean;
+  desktopNotifications: boolean;
 }
 const defaultPreferences: DevicePreferences = {
   commandShortcut: 'Mod+K',
   composerShortcut: 'Mod+Shift+L',
   attentionAnnouncements: true,
+  desktopNotifications: false,
 };
 interface RuntimeSnapshot {
   preferences: DevicePreferences;
@@ -68,6 +70,7 @@ interface RuntimeSnapshot {
   legacyHosts: readonly string[];
   profilesReady: boolean;
   profileError?: string;
+  selectedHostId?: string;
   error?: string;
   commands: readonly CommandNotice[];
 }
@@ -99,6 +102,7 @@ export class AppRuntime {
   private readonly draftListeners = new Map<string, Set<() => void>>();
   private readonly agentReaders = new WeakMap<SessionView, Map<string, { users: number }>>();
   private readonly draftIdentities = new Set<string>();
+  private readonly durableDrafts = new Set<string>();
   private readonly pending = new Map<string, PendingCommand>();
   private draftTimer?: ReturnType<typeof setTimeout>;
   private readonly dirtyDrafts = new Set<string>();
@@ -138,6 +142,7 @@ export class AppRuntime {
           ? preferences!.composerShortcut!
           : defaultPreferences.composerShortcut,
         attentionAnnouncements: preferences?.attentionAnnouncements !== false,
+        desktopNotifications: preferences?.desktopNotifications === true,
       },
     };
     this.tabs = new SessionTabs(platform.windowStorage, message => this.report(message), this.lastSession()?.runtimeId);
@@ -162,8 +167,8 @@ export class AppRuntime {
       },
     });
     const updateHosts = () => {
-      const { hosts, profilesReady, profileError } = this.connections.getSnapshot();
-      this.update({ hosts, home: hosts.find(host => host.local), profilesReady, profileError });
+      const { hosts, profilesReady, profileError, selectedId } = this.connections.getSnapshot();
+      this.update({ hosts, home: hosts.find(host => host.local), profilesReady, profileError, selectedHostId: selectedId });
     };
     this.connections.subscribe(updateHosts);
     updateHosts();
@@ -226,6 +231,9 @@ export class AppRuntime {
     if (!this.dirtyDrafts.has(key)) {
       try {
         const text = this.platform.storage.getItem(draftStoragePrefix + key);
+        if (this.platform.storage.persistent !== false) {
+          if (text) this.durableDrafts.add(key); else this.durableDrafts.delete(key);
+        }
         if (text) {
           this.validateDrafts(new Map([[key, text]]));
           return text;
@@ -262,8 +270,14 @@ export class AppRuntime {
       if (!key.startsWith(draftStoragePrefix)) continue;
       const text = this.platform.storage.getItem(key);
       if (text) saved.set(key.slice(draftStoragePrefix.length), text);
+      if (text && this.platform.storage.persistent !== false)
+        this.durableDrafts.add(key.slice(draftStoragePrefix.length));
       // Stop reading oversized storage before retaining unbounded values.
       this.validateDrafts(saved);
+    }
+    if (this.platform.storage.persistent !== false) {
+      this.durableDrafts.clear();
+      for (const key of saved.keys()) this.durableDrafts.add(key);
     }
     return saved;
   }
@@ -282,6 +296,7 @@ export class AppRuntime {
       next.set(key, text);
       this.validateDrafts(next);
     }
+    const wasUnsaved = this.hasUnsavedDrafts();
     if (text) this.drafts.set(key, text); else this.drafts.delete(key);
     const hadDraft = this.draftIdentities.has(key);
     if (text) this.draftIdentities.add(key); else this.draftIdentities.delete(key);
@@ -289,33 +304,51 @@ export class AppRuntime {
     for (const listener of this.draftListeners.get(key) ?? []) listener();
     clearTimeout(this.draftTimer);
     this.draftTimer = setTimeout(() => this.flushDrafts(), 150);
-    if (hadDraft !== !!text) this.update({});
+    if (hadDraft !== !!text || wasUnsaved !== this.hasUnsavedDrafts()) this.update({});
   }
-  flushDrafts() {
+  hasUnsavedDrafts() {
+    return this.dirtyDrafts.size > 0 || (this.platform.storage.persistent === false && this.draftIdentities.size > 0);
+  }
+  /** Flush text synchronously and tell the host whether closing could lose changes. */
+  flushDrafts(): { saved: boolean; error?: string } {
     clearTimeout(this.draftTimer);
     this.draftTimer = undefined;
-    if (!this.dirtyDrafts.size) return;
+    const wasUnsaved = this.hasUnsavedDrafts();
     try {
       // Explicit deletion must remain possible even when externally written
       // drafts already exceed the aggregate admission bound.
       for (const key of this.dirtyDrafts) {
         if (this.drafts.has(key)) continue;
+        if (this.platform.storage.persistent !== false && this.platform.storage.getItem(draftStoragePrefix + key))
+          this.durableDrafts.add(key);
         this.platform.storage.removeItem(draftStoragePrefix + key);
+        // A fallback-only deletion cannot remove the old disk entry. Keep its
+        // tombstone dirty so a close never claims that change was saved.
+        if (this.platform.storage.persistent === false && this.durableDrafts.has(key)) continue;
+        this.durableDrafts.delete(key);
         this.dirtyDrafts.delete(key);
       }
-      if (!this.dirtyDrafts.size) return;
-      this.validateDrafts(this.mergedDrafts());
+      if (this.dirtyDrafts.size) this.validateDrafts(this.mergedDrafts());
       // Each recipient has its own atomic Storage entry. Synchronous pagehide
       // writes never replace another tab's unrelated drafts or need a lock.
       for (const key of this.dirtyDrafts) {
         const text = this.drafts.get(key);
-        this.platform.storage.setItem(draftStoragePrefix + key, text!);
+        if (!text) continue;
+        this.platform.storage.setItem(draftStoragePrefix + key, text);
+        if (this.platform.storage.persistent !== false) this.durableDrafts.add(key);
         this.drafts.delete(key);
         this.dirtyDrafts.delete(key);
       }
     } catch (error) {
-      this.report(new Error('Drafts could not be saved; keep this page open to retain them.', { cause: error }));
+      const message = 'Drafts could not be saved; keep this page open to retain them.';
+      this.report(new Error(message, { cause: error }));
+      return { saved: false, error: message };
     }
+    const unsaved = this.hasUnsavedDrafts();
+    if (wasUnsaved !== unsaved) this.update({});
+    return unsaved
+      ? { saved: false, error: 'Device storage is unavailable. Closing or reloading may lose draft changes; keep this page open to retain them.' }
+      : { saved: true };
   }
   /** Explicitly forget unsent draft text without touching command identities. */
   discardDrafts() {
@@ -326,15 +359,16 @@ export class AppRuntime {
       ...[...this.drafts.keys(), ...this.dirtyDrafts].map(key => draftStoragePrefix + key),
     ]);
     for (const key of keys) {
-      this.platform.storage.removeItem(key);
       const recipient = key.slice(draftStoragePrefix.length);
       this.drafts.delete(recipient);
       this.draftIdentities.delete(recipient);
-      this.dirtyDrafts.delete(recipient);
+      this.dirtyDrafts.add(recipient);
       for (const listener of this.draftListeners.get(recipient) ?? []) listener();
     }
+    const flushed = this.flushDrafts();
     this.compositions.clearAll();
     this.update({});
+    if (!flushed.saved) throw new Error(flushed.error);
   }
   private recoveryStorage(): RecoveryStorage {
     const key = 'whip.web.recovery.v1';

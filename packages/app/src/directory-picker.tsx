@@ -12,12 +12,14 @@ export function DirectoryPicker({
   onSelect,
   disabled,
   native = true,
+  pickDirectory,
 }: {
   client: WhipClient;
   value: string;
   onSelect(path: string): void;
   disabled: boolean;
   native?: boolean;
+  pickDirectory?(): Promise<string | undefined>;
 }) {
   const request = useRef<symbol | undefined>(undefined);
   useLayoutEffect(() => { setPicking(false); return () => { request.current = undefined; }; }, [client]);
@@ -45,7 +47,7 @@ export function DirectoryPicker({
     request.current = id;
     setPicking(true);
     try {
-      const result = await client.host.pickDirectory({ start: value || undefined });
+      const result = pickDirectory ? { path: await pickDirectory() } : await client.host.pickDirectory({ start: value || undefined });
       if (request.current !== id) return;
       if (result.path) {
         onSelect(result.path);

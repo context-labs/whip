@@ -1,0 +1,57 @@
+{
+  "recordedAt": "2026-09-08T05:55:35.477Z",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "release": "25.3.0",
+    "cpus": "Apple M4 Max",
+    "totalMemoryBytes": 137438953472,
+    "macOS": "ProductName:\t\tmacOS\nProductVersion:\t\t26.3.1\nProductVersionExtra:\t(a)\nBuildVersion:\t\t25D771280a",
+    "power": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=22216803)\t100%; charged; 0:00 remaining present: true"
+  },
+  "renderer": {
+    "digest": "b1edb2b5e8ba2eb7724790dcc78199d5281d671248c871932fe0f39578a1ddad",
+    "files": 23,
+    "bytes": 3636689,
+    "source": {
+      "commit": "dd7aaa3a7f9b8c00bd4ec095b978def1c9231805",
+      "dirty": true
+    },
+    "lockfile": "1995b3103b7dc1c2a97fdf8ecac55e3235b5ffaaba9da40a29def92c53d6cbbd"
+  },
+  "electron": {
+    "version": "44.2.0",
+    "runtime": {
+      "bytes": 301231912,
+      "files": 256
+    }
+  },
+  "electrobun": {
+    "version": "2.0.1",
+    "hutch": "0.24.3",
+    "cottontail": "0.5.0",
+    "renderer": "native",
+    "build": {
+      "mainProcess": "cottontail",
+      "electrobunVersion": "2.0.1",
+      "runtimeVersions": {
+        "cottontail": "0.5.0"
+      },
+      "defaultRenderer": "native",
+      "availableRenderers": [
+        "native"
+      ],
+      "buildEnvironment": "stable",
+      "runtime": {
+        "exitOnLastWindowClosed": true
+      }
+    },
+    "installedBundle": {
+      "bytes": 67512242,
+      "files": 38
+    },
+    "updateArchive": {
+      "bytes": 17793582
+    }
+  }
+}

@@ -71,6 +71,11 @@ root prompt (`evals/rlm`).
 - Provider tool catalogs remain stable at one tool while MCP servers change.
 - Connections have startup/call deadlines, per-server serialization,
   reconnect generation guards, and bounded structured/media flattening.
+- Remote HTTP requests remain tied to the transport lifetime through SSE body
+  reads, including startup before a session is published. Retirement cancels
+  stalled streams and permits a one-second best-effort session DELETE. Healthy
+  notification streams survive startup completion and catalog refresh
+  (`internal/mcp/http_transport.go`, `http_transport_test.go`).
 - `whip mcp serve` is a daemon protocol tool host, not a model agent.
 - Secrets stay references: `$VAR`/`${VAR}`/`!cmd` in env and headers resolve
   at connect time (`config.ResolveSecret`/`ResolveEnvMap`/`ExpandTemplate`)
@@ -162,6 +167,23 @@ root prompt (`evals/rlm`).
   strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed
   package installation. See [SDK usage](../packages/sdk/README.md).
 
+## macOS desktop application
+
+The Electron host packages the same production renderer as the web application.
+The [desktop guide](desktop.md) documents local builds, native runtime retention,
+signing and release configuration. [Desktop acceptance](../.ai-docs/plans/desktop-app/progress.md)
+is still open for notarized distribution, actual updates and manual device checks.
+
+| Behavior | Implementation | Validation |
+| --- | --- | --- |
+| One bootstrap and UI in browser and desktop, with independent SDK clients per host; native effects behind an adapter | `apps/web/src/{main,bootstrap}.tsx`, `apps/web/src/platform/`, `packages/app/src/{platform,desktop-bridge}.ts` | App architecture/bootstrap/desktop-adapter tests; packed app/UI consumer and production renderer native-import guard |
+| Exact shared renderer in Go embed and Electron ASAR, verified native companions and full DMG/ZIP contents | `scripts/{renderer-artifact,pack-web}.mjs`, `apps/desktop/scripts/{build,package,verify,distribution}.mjs`, `apps/desktop/forge.config.cjs` | Renderer/provenance/distribution tests, actual signed archive extraction/mount and signature/fuse checks |
+| Stable local/URL/SSH profiles, safe migration, explicit replacement identity and stale connection disposal | `packages/app/src/{connections,hosts,runtime}.ts`, `packages/app/src/{host-dialog,connection-dialog}.tsx`, `packages/sdk/src/client.ts` | App connections/runtime/replacement-runtime/session-navigator tests; SDK changed-runtime regression |
+| Retained immutable Go/Swift runtime, attach-before-start, owner-proven stale socket recovery, no daemon shutdown on GUI exit | `apps/desktop/src/{runtime,transport}.ts`, `cmd/whip/daemon_manage.go`, `cmd/whip/desktop_runtime.go` | Native runtime/transport tests, Go owner/socket tests, staged lifecycle smoke and signed real-worker continuity fixture |
+| System SSH configuration, private Unix forwarding, in-app prompts and owned helper cleanup on GUI death | `apps/desktop/src/ssh.ts`, `cmd/whip/desktop_{ssh,askpass,wait_darwin,wait_linux}.go`, `packages/app/src/host-prompts.tsx` | Real isolated sshd native tests, Go race/integration process-group and askpass tests, shared prompt stale/cancel tests |
+| Native save/copy/folder/link effects, opt-in attention notifications, restored tabs and draft-aware close | `apps/desktop/src/{main,native,links}.ts`, `packages/app/src/{attention-notifications,session-tab-routing,session-tab-strip,settings}.ts*` | Native save/disposal tests, app attention/close-tab/settings tests, signed Finder launch and tab/draft checks |
+| Deferred updater, safe restart, single-renderer release graph and conditional immutable feed publication | `apps/desktop/src/updates.ts`, `apps/desktop/scripts/{ci-signing,publish}.mjs`, `.github/workflows/{release,desktop-release}.yml` | Updater listener/handshake/retry tests; publisher archive-proof and conditional-write races; actual notarized N-to-N+1 remains a release gate |
+
 ## React web application
 
 The private web application is implemented as a thin consumer of the same SDK.
@@ -179,7 +201,7 @@ behavior to its owning code and repeatable validation.
 | Nested split views, draggable tabs between panes, duplicate chats with independent agents/scroll, shared drafts, and responsive layout restoration | `packages/app/src/{session-tabs,session-tab-strip,session-tab-routing,workspace-views,runtime,conversation,composer}.ts*`, `packages/ui/src/workspace-layout.tsx` | App model/routing/runtime/workspace/composer tests; `apps/web/scripts/workspace-layout.mjs`; UI layout Chromium/Firefox, Axe and strict-CSP fixture |
 | Read-only session REPL, in-place Open REPL/Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
-| Compact growing composer, shared model/reasoning picker for idle root sessions, and neutral input focus borders | `packages/app/src/{composer,model-selection}.tsx`, shared UI form styles | Composer tests; `apps/web/scripts/browser.mjs` (growth/shrink, explicit model/effort changes, busy state, draft/reload preservation); split workspace browser fixture |
+| Compact growing composer, shared model/reasoning picker for idle root sessions, and neutral input focus borders | `packages/app/src/{composer,model-selection}.tsx`, shared UI form styles | Composer tests; `apps/web/scripts/browser.mjs` (growth/shrink, explicit model/effort changes, busy state, draft/reload preservation); `apps/web/scripts/model-picker.mjs` (detail-card bounds, side flipping, scrolling, keyboard and resize in Chromium/Firefox); split workspace browser fixture |
 | Right-aligned user bubbles, hover/focus timestamps and controls, immediate submission previews, queued/running inbox messages | `packages/app/src/{input-presentation,runtime}.ts`, `packages/app/src/{conversation,timeline,composer}.tsx` | `packages/app/test/input-presentation.test.tsx`, composer/runtime tests, `apps/web/scripts/user-messages.mjs` (Chromium/Firefox delayed request, running turn, reload, duplicate text, hover/focus and responsive themes) |
 | Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
 | Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |

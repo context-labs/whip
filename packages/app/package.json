@@ -6,7 +6,8 @@
   "exports": {
     "./package.json": "./package.json",
     ".": "./src/index.tsx",
-    "./platform": "./src/platform.ts"
+    "./platform": "./src/platform.ts",
+    "./desktop-bridge": "./src/desktop-bridge.ts"
   },
   "dependencies": {
     "@whip/sdk": "0.1.0",

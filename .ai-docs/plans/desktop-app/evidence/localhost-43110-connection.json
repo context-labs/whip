@@ -1,0 +1,88 @@
+{
+  "recordedAt": "2026-09-08T14:36:14.920Z",
+  "endpoint": "http://localhost:43110",
+  "rootCause": "The running whipcode variant lacks both an explicit desktop origin and the validation change permitting that custom origin. The current desktop worktree already includes the exact-origin support.",
+  "remediation": [
+    "Apply the desktop-origin validation change to the current whipcode source while preserving its other development changes.",
+    "Rebuild that variant and arrange an explicit restart with WHIPCODE_ALLOWED_ORIGINS=whip-app://bundle, preserving its existing home/listener/host settings."
+  ],
+  "beforeRemediation": {
+    "daemon": {
+      "pid": 72812,
+      "executable": "/tmp/whipcode-multihost-local",
+      "buildId": "multihost-dev",
+      "sourceCommit": "a7e1a2e6156dd57d731a4ded93f206d823765756",
+      "dirty": true,
+      "environmentPrefix": "WHIPCODE_",
+      "home": "/tmp/whipcode-multihost-local-home",
+      "listen": "127.0.0.1:43110",
+      "allowedHosts": [
+        "127.0.0.1:43110",
+        "localhost:43110"
+      ],
+      "extraAllowedOrigins": []
+    },
+    "checks": {
+      "metadataStatus": 200,
+      "protocolMajor": 4,
+      "protocolMinor": 1,
+      "nodeSDKInitialized": true,
+      "websocketUpgrades": {
+        "desktopOrigin": {
+          "origin": "whip-app://bundle",
+          "status": 403,
+          "body": "origin is not allowed"
+        },
+        "sameOrigin": {
+          "origin": "http://localhost:43110",
+          "status": 101
+        },
+        "withoutOrigin": {
+          "status": 101
+        }
+      },
+      "isolatedCurrentBinaryWithDesktopOrigin": {
+        "exitCode": 1,
+        "error": "whipcode daemon: browser origins must be exact HTTP origins"
+      }
+    },
+    "scope": {
+      "liveDaemonRestarted": false,
+      "liveDaemonConfigChanged": false,
+      "originalCheckoutModified": false,
+      "performanceTestsRun": false
+    }
+  },
+  "remediationResult": {
+    "recordedAt": "2026-09-08T14:43:02.025Z",
+    "oldPID": 72812,
+    "newPID": 59869,
+    "executable": "/tmp/whipcode-multihost-local-desktop-origin",
+    "home": "/tmp/whipcode-multihost-local-home",
+    "endpoint": "http://127.0.0.1:43110",
+    "allowedOrigins": [
+      "whip-app://bundle"
+    ],
+    "backup": "/tmp/whipcode-origin-restart-lHvjA5",
+    "desktopWebSocketStatus": 101,
+    "unrelatedCustomOriginStatus": 403,
+    "originalEnvironmentPreserved": true,
+    "focusedNetworkRaceTests": "passed: go test -race ./internal/daemon -run ^TestNetwork -count=1",
+    "desktopUI": {
+      "verified": true,
+      "app": "/Applications/Whip.app",
+      "url": "whip-app://bundle/",
+      "selectedEndpoint": "http://localhost:43110",
+      "reconnectedAutomatically": true,
+      "connectionErrorAbsent": true,
+      "savedSessionsLoaded": true,
+      "browseHostEnabled": true
+    }
+  },
+  "scope": {
+    "liveDaemonRestarted": true,
+    "liveDaemonConfigChanged": true,
+    "originalCheckoutModified": true,
+    "performanceTestsRun": false
+  }
+}

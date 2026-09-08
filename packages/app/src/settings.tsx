@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useForm } from '@tanstack/react-form';
@@ -27,6 +27,7 @@ import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime } from './context';
 import { commandShortcuts, composerShortcuts } from './runtime';
 import { layout } from './styles';
+import type { AppUpdates } from './platform';
 
 export function Settings({ section = 'appearance' }: { section?: string }) {
   const runtime = useRuntime();
@@ -122,13 +123,51 @@ function DeviceSettings() {
           update({ attentionAnnouncements })
         }
       />
+      {runtime.platform.notify && <Switch label="Desktop notifications"
+        description="Notify me about new permission requests and questions while Whip is open, including when its window is hidden. Checks up to 256 active sessions per connected host. Notifications stop when Whip quits."
+        checked={preferences.desktopNotifications}
+        onCheckedChange={desktopNotifications => update({ desktopNotifications })} />}
       <p>
         Enter sends a message. Shift + Enter inserts a line. Escape closes a
         menu or dialog. Tool output and Starlark are read-only; interactive
         terminals are available in the TUI.
       </p>
+      {runtime.platform.updates && <UpdateSettings updates={runtime.platform.updates} />}
     </div>
   );
+}
+
+function UpdateSettings({ updates }: { updates: AppUpdates }) {
+  const snapshot = useSyncExternalStore(updates.subscribe, updates.getSnapshot, updates.getSnapshot);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => setError(''), [snapshot]);
+  async function perform(install: boolean) {
+    if (busy || (install && updates.getSnapshot().state !== 'downloaded')) return;
+    setBusy(true); setError('');
+    try { if (install) await updates.install(); else await updates.check(); }
+    catch (value) { if (mounted.current) setError(value instanceof Error ? value.message : String(value)); }
+    finally { if (mounted.current) setBusy(false); }
+  }
+  const working = busy || snapshot.state === 'checking' || snapshot.state === 'available';
+  const version = snapshot.version ? ` ${snapshot.version}` : '';
+  return <section {...stylex.props(layout.column)} aria-label="Application updates">
+    <h2>Application updates</h2>
+    <p {...stylex.props(layout.muted)}>Whip {updates.currentVersion}</p>
+    {snapshot.state !== 'idle' && snapshot.state !== 'error' && <p role="status">{
+      snapshot.state === 'checking' ? 'Checking for updates…'
+      : snapshot.state === 'available' ? `Downloading Whip${version}…`
+      : snapshot.state === 'downloaded' ? `Whip${version} is ready. Restart the app to install it.`
+      : 'Whip is up to date.'
+    }</p>}
+    {(error || snapshot.state === 'error') && <p role="alert">{error || snapshot.error || 'Updates could not be checked. Try again.'}</p>}
+    <div {...stylex.props(layout.row, layout.wrap)}>
+      <Button variant="secondary" disabled={working || snapshot.state === 'downloaded'} onClick={() => void perform(false)}>Check for updates</Button>
+      {snapshot.state === 'downloaded' && <Button variant="primary" loading={busy} onClick={() => void perform(true)}>Restart to update</Button>}
+    </div>
+  </section>;
 }
 
 export function themeFromHost(value: Resolved, namespace: string) {
@@ -615,7 +654,7 @@ function LoginFlow({
           <Button
             variant="secondary"
             onClick={() =>
-              runtime.platform.openExternal(flow.verification_url!)
+              void runtime.platform.openExternal(flow.verification_url!).catch(error => runtime.report(error))
             }
           >
             Open verification page

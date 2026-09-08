@@ -50,6 +50,7 @@ type daemonStatus struct {
 	Database        string `json:"database"`
 	Log             string `json:"log"`
 	Error           string `json:"error,omitempty"`
+	StaleSocket     bool   `json:"stale_socket,omitempty"`
 }
 
 func daemonManageCLI(args []string) error {
@@ -234,6 +235,10 @@ func probeDaemon(paths daemon.RuntimePaths, timeout time.Duration) (daemonStatus
 			}
 		} else if _, statErr := os.Lstat(paths.Socket); statErr == nil {
 			status.State, status.Error = "unhealthy", err.Error()
+			// DialClient already checked socket ownership and mode. A refused
+			// socket with a free owner lock can be recovered by normal start;
+			// startup must still acquire that lock again before touching data.
+			status.StaleSocket = errors.Is(err, syscall.ECONNREFUSED)
 		}
 		return status, nil
 	}

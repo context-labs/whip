@@ -18,8 +18,11 @@ export function Button({variant = 'secondary', size = 'md', loading, xstyle, chi
 export function IconButton({label, children, xstyle, ...props}: ButtonProps & {label: string}) {
   return <Tooltip label={label}><Button {...props} aria-label={label} xstyle={[styles.icon, xstyle]}>{children}</Button></Tooltip>;
 }
-export function Tooltip({label, children}: {label: ReactNode; children: ReactElement}) {
-  return <BaseTooltip.Root><BaseTooltip.Trigger render={children}/><BaseTooltip.Portal><BaseTooltip.Positioner sideOffset={7} {...stylex.props(styles.positioner)}><BaseTooltip.Popup {...stylex.props(styles.tooltip)}>{label}</BaseTooltip.Popup></BaseTooltip.Positioner></BaseTooltip.Portal></BaseTooltip.Root>;
+type TooltipProps = {label: ReactNode; children: ReactElement; delay?: number} & Styled &
+  Pick<BaseTooltip.Root.Props, 'disableHoverablePopup'> &
+  Pick<BaseTooltip.Positioner.Props, 'side' | 'align' | 'sideOffset' | 'collisionPadding' | 'collisionAvoidance'>;
+export function Tooltip({label, children, delay, disableHoverablePopup, xstyle, ...position}: TooltipProps) {
+  return <BaseTooltip.Root disableHoverablePopup={disableHoverablePopup}><BaseTooltip.Trigger render={children} delay={delay}/><BaseTooltip.Portal><BaseTooltip.Positioner sideOffset={7} {...position} {...stylex.props(styles.positioner)}><BaseTooltip.Popup {...stylex.props(styles.tooltip, xstyle)}>{label}</BaseTooltip.Popup></BaseTooltip.Positioner></BaseTooltip.Portal></BaseTooltip.Root>;
 }
 const spin = stylex.keyframes({from: {transform: 'rotate(0deg)'}, to: {transform: 'rotate(360deg)'}});
 const spinnerStyles = stylex.create({spin: {animationName: spin, animationDuration: '1s', animationTimingFunction: 'linear', animationIterationCount: 'infinite'}});

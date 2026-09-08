@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
-import { Attention } from './attention';
+import { Attention, DesktopAttention } from './attention';
 import { SessionSearchDialog } from './session-search-dialog';
 import { SessionSidebar } from './session-sidebar';
 import { SidebarResize, useSidebarLayout } from './sidebar-layout';
@@ -59,6 +59,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [connection, setConnection] = useState(false);
   const [commands, setCommands] = useState(false);
   const tabActions = useRef<SessionTabActions>(null);
+  useEffect(() => runtime.platform.onCloseTab?.(() => {
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+    if (!tabActions.current?.close()) runtime.platform.hideWindow?.();
+  }), [runtime]);
+  useEffect(() => {
+    runtime.platform.setNotificationsEnabled?.(state.preferences.desktopNotifications);
+    return () => runtime.platform.setNotificationsEnabled?.(false);
+  }, [runtime, state.preferences.desktopNotifications]);
   const focusComposer = () => {
     const tab = selectedSessionTab(runtime.tabs.workspace());
     const container = tab ? document.getElementById(workspacePanelId(tab.id)) : undefined;
@@ -75,6 +83,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [runtime]);
   const notices = <>
 {client && <ConnectionNotice client={client} />}
+{focusedHost?.progress && <p role="status" {...stylex.props(layout.notice)}>{focusedHost.progress}</p>}
+{runtime.connections.getSnapshot().notice && <div role="status" {...stylex.props(layout.notice)}>{runtime.connections.getSnapshot().notice} <Button variant="ghost" onClick={() => setConnection(true)}>Manage execution hosts</Button></div>}
         {state.error && (
           <div role="alert" {...stylex.props(layout.row, layout.notice)}>
             <span {...stylex.props(layout.grow)}>{state.error}</span>
@@ -89,6 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   </>;
   return (
     <div {...stylex.props(layout.shell)}>
+      {runtime.platform.notify && state.preferences.desktopNotifications && state.hosts.filter(host => host.client).map(host => <DesktopAttention key={`${host.id}:${host.runtimeId}`} client={host.client!} />)}
       {!compact && !sidebar.state.hidden && <aside id="whip-session-navigation" {...stylex.props(layout.sidebar)} style={{ width: sidebar.width }} aria-label="Session navigation">
         <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch} headerAction={navigationToggle}
           onConnect={() => setConnection(true)} onNavigate={() => {}} />

@@ -25,6 +25,8 @@ export interface ClientOptions {
   endpoint: string | TransportFactory;
   clientId: string;
   clientKind?: 'human' | 'automation';
+  /** Refuse attachment to another installation before exposing connected state. */
+  expectedRuntimeId?: string;
   buildId?: string;
   reconnect?: boolean;
   queryTimeoutMs?: number;
@@ -145,7 +147,8 @@ export class WhipClient {
       }, { signal: controller.signal }, true);
       if (epoch !== this.epoch || this.closed || controller.signal.aborted) throw abortError(controller.signal);
       if (info.protocol_major !== manifest.major) throw new WhipError('unsupported_protocol', 'Daemon protocol major is incompatible');
-      if (this.runtimeId && this.runtimeId !== info.runtime_id) throw new WhipError('runtime_changed', 'The endpoint now serves a different runtime; create a new client explicitly');
+      const expectedRuntime = this.runtimeId ?? this.options.expectedRuntimeId;
+      if (expectedRuntime && expectedRuntime !== info.runtime_id) throw new WhipError('runtime_changed', 'The endpoint now serves a different runtime; create a new client explicitly');
       if (!info.runtime_id || info.limits.frame_bytes < 1 || info.limits.in_flight_requests < 1 || BigInt(info.limits.outbound_bytes) < 1n || info.limits.root_subscriptions < 1 || info.limits.content_chunk_bytes < 1 || BigInt(info.limits.upload_bytes) < 0n) {
         throw new WhipError('invalid_response', 'Daemon reported invalid identity or limits');
       }

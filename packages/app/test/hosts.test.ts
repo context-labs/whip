@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { HostConnections, daemonEndpoint, type HostProfile } from '../src/hosts';
+import { localProfile, urlProfile, type ConnectionProfile, type ConnectionOptions, type ResolvedConnection } from '../src/connections';
+import type { AppPlatform } from '../src/platform';
 
 const mocks = vi.hoisted(() => {
   const configurations = { revision: '1', remote_hosts: [] as HostProfile[] };
@@ -51,8 +53,7 @@ function deferred<T>() {
   const promise = new Promise<T>((success, failure) => { resolve = success; reject = failure; });
   return { promise, resolve, reject };
 }
-function fixture(profiles = [remote('a'), remote('b')]) {
-  const values = new Map<string, string>();
+function fixture(profiles = [remote('a'), remote('b')], platform: Partial<AppPlatform> = {}, values = new Map<string, string>()) {
   const effects = { connected: vi.fn(), detached: vi.fn() };
   mocks.configurations.remote_hosts = profiles;
   for (const profile of profiles) mocks.identities.set(profile.url, profile.runtime_id);
@@ -60,9 +61,9 @@ function fixture(profiles = [remote('a'), remote('b')]) {
   const hosts = new HostConnections({ defaultEndpoint: 'http://local.test', storage: {
     keys: () => [...values.keys()], getItem: key => values.get(key) ?? null,
     setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); },
-  }, openExternal: () => {}, copy: async () => {}, download: () => {} }, { list: async () => [], put: async () => {}, delete: async () => {} }, effects);
+  }, openExternal: async () => {}, copy: async () => {}, download: async () => {}, ...platform }, { list: async () => [], put: async () => {}, delete: async () => {} }, effects);
   stores.push(hosts);
-  return { hosts, effects };
+  return { hosts, effects, values };
 }
 async function start(hosts: HostConnections) { await hosts.connect(); await hosts.refreshProfiles(); }
 beforeEach(() => { mocks.clients.length = 0; mocks.lists.length = 0; mocks.identities.clear(); mocks.connecting.clear(); mocks.configurations.revision = '1'; });
@@ -323,4 +324,108 @@ it('normalizes supported endpoints and refuses credentials and path prefixes', (
   expect(daemonEndpoint('http://[::1]:8080/')).toBe('http://[::1]:8080');
   for (const value of ['javascript:alert(1)', 'https://user:secret@host', 'https://host?token=x', 'https://host/proxy'])
     expect(() => daemonEndpoint(value)).toThrow();
+});
+
+function nativeFixture(profiles = [remote('a')], saved: ConnectionProfile[] = []) {
+  const values = new Map<string, string>();
+  if (saved.length) { values.set('whip.hosts.v2', JSON.stringify(saved)); values.set('whip.selectedHost.v2', JSON.stringify(saved.at(-1)!.id)); }
+  const disposals = new Map<string, ReturnType<typeof vi.fn>>();
+  const resolveConnection = vi.fn(async (profile: ConnectionProfile, _options: ConnectionOptions): Promise<ResolvedConnection> => {
+    const dispose = vi.fn(); disposals.set(profile.id, dispose);
+    return { endpoint: profile.target.kind === 'local' ? 'http://local.test' : profile.target.kind === 'url' ? profile.target.endpoint : `http://${profile.target.host}.test`, dispose };
+  });
+  return { ...fixture(profiles, { defaultConnection: localProfile, connectionKinds: ['local', 'url', 'ssh'], resolveConnection }, values), resolveConnection, disposals };
+}
+const sshProfile = (id = 'server'): ConnectionProfile => ({ id: `ssh:${id}`, label: id, target: { kind: 'ssh', host: id } });
+
+it('keeps local, URL and SSH transports independently attached through refresh and native disconnect', async () => {
+  const f = nativeFixture(); await start(f.hosts);
+  await f.hosts.saveNative(sshProfile());
+  expect(f.hosts.getSnapshot().hosts).toHaveLength(3);
+  await f.hosts.refreshProfiles(); expect(f.hosts.getSnapshot().hosts).toHaveLength(3);
+  const local = f.hosts.home().client; const url = f.hosts.host('a')!.client;
+  f.hosts.disconnect('ssh:server');
+  expect(f.disposals.get('ssh:server')).toHaveBeenCalledOnce();
+  expect(f.hosts.home().client).toBe(local); expect(f.hosts.host('a')!.client).toBe(url);
+  expect(f.disposals.get('local')).not.toHaveBeenCalled(); expect(f.disposals.get('a')).not.toHaveBeenCalled();
+  expect(mocks.configurations.remote_hosts.map(profile => profile.id)).toEqual(['a']);
+  expect(JSON.parse(f.values.get('whip.hosts.v2')!).some((profile: ConnectionProfile) => profile.id === 'ssh:server')).toBe(true);
+});
+it('deduplicates setup per host and disposes late transports after cancellation', async () => {
+  const saved = { ...sshProfile(), runtimeId: 'remote' }; const f = nativeFixture([], [localProfile, saved]); await start(f.hosts);
+  const setup = deferred<ResolvedConnection>(); let signal!: AbortSignal;
+  f.resolveConnection.mockImplementationOnce(async (_profile, options) => { signal = options.signal; options.onProgress('Checking host key'); return setup.promise; });
+  const connection = f.hosts.connect(saved.id); expect(f.hosts.connect(saved.id)).toBe(connection);
+  expect(f.hosts.getSnapshot().hosts.find(host => host.id === saved.id)?.progress).toBe('Checking host key');
+  const local = f.hosts.home().client; f.hosts.disconnect(saved.id); expect(signal.aborted).toBe(true);
+  const dispose = vi.fn(); setup.resolve({ endpoint: 'http://retired.test', dispose });
+  await expect(connection).rejects.toThrow(); expect(dispose).toHaveBeenCalledOnce();
+  expect(mocks.clients.some(client => client.endpoint === 'http://retired.test')).toBe(false);
+  expect(f.hosts.home().client).toBe(local);
+});
+it('requires explicit native replacement consent and keeps remembered identity after rejection', async () => {
+  const saved = { ...sshProfile(), runtimeId: 'old' }; const f = nativeFixture([], [localProfile, saved]); await start(f.hosts);
+  mocks.identities.set('http://server.test', 'replacement');
+  await expect(f.hosts.saveNative(sshProfile())).rejects.toThrow('different daemon');
+  expect(f.hosts.host('old')?.profile.runtimeId).toBe('old'); expect(f.hosts.host('replacement')).toBeUndefined();
+  expect(JSON.parse(f.values.get('whip.hosts.v2')!).find((profile: ConnectionProfile) => profile.id === saved.id).runtimeId).toBe('old');
+  await f.hosts.saveNative(saved, true); expect(f.hosts.host('replacement')?.client).toBeDefined();
+  expect(f.hosts.home().client).toBeDefined();
+});
+it('does not bypass a saved SSH identity by retyping its target with a new profile ID', async () => {
+  const saved = { ...sshProfile(), runtimeId: 'old' }; const f = nativeFixture([], [localProfile, saved]); await start(f.hosts);
+  mocks.identities.set('http://server.test', 'replacement');
+  await expect(f.hosts.saveNative({ ...sshProfile(), id: 'ssh:new' })).rejects.toThrow('different daemon');
+  expect(f.hosts.host('old')?.id).toBe(saved.id); expect(f.hosts.getSnapshot().hosts).toHaveLength(2);
+});
+it('preserves old desktop addresses until verified import and retains their identity', async () => {
+  const legacy = { ...urlProfile('http://a.test'), runtimeId: 'old' }; const f = nativeFixture([], [localProfile, legacy]); await start(f.hosts);
+  expect(f.hosts.getSnapshot().legacyProfiles).toEqual([legacy]);
+  mocks.identities.set('http://a.test', 'replacement');
+  const profile = { ...remote('a'), runtime_id: legacy.runtimeId };
+  await expect(f.hosts.save(profile, false, legacy.id)).rejects.toThrow('Accept the new daemon identity');
+  expect(f.hosts.getSnapshot().legacyProfiles).toEqual([legacy]);
+  mocks.identities.set('http://a.test', 'old'); await f.hosts.save(profile, false, legacy.id);
+  await f.hosts.forgetLegacyProfile(legacy.id);
+  expect(f.hosts.getSnapshot().legacyProfiles).toEqual([]);
+  expect(mocks.configurations.remote_hosts[0]?.runtime_id).toBe('old');
+});
+it('does not let native profiles be overwritten by a shared configuration collision', async () => {
+  const f = nativeFixture([], [localProfile, sshProfile()]); await start(f.hosts);
+  mocks.configurations.remote_hosts = [{ ...remote('a'), id: 'ssh:server' }];
+  await expect(f.hosts.refreshProfiles()).rejects.toThrow('conflicts with a native host ID');
+  expect(f.hosts.getSnapshot().hosts.find(host => host.id === 'ssh:server')?.profile.target.kind).toBe('ssh');
+});
+it('disposes native setup when the window closes without disconnecting accepted daemon work itself', async () => {
+  const f = nativeFixture([], [localProfile, sshProfile()]); await start(f.hosts);
+  const setup = deferred<ResolvedConnection>(); f.resolveConnection.mockReturnValueOnce(setup.promise);
+  const pending = f.hosts.connect('ssh:server'); f.hosts.dispose(); const dispose = vi.fn(); setup.resolve({ endpoint: 'http://server.test', dispose });
+  await expect(pending).rejects.toThrow(); expect(dispose).toHaveBeenCalledOnce(); expect(f.disposals.get('local')).toHaveBeenCalledOnce();
+});
+it('does not lose the freshly verified local identity when saving or selecting SSH', async () => {
+  const f = nativeFixture([]); await start(f.hosts); await f.hosts.saveNative(sshProfile()); f.hosts.select('ssh:server');
+  const saved = JSON.parse(f.values.get('whip.hosts.v2')!) as ConnectionProfile[];
+  expect(saved.find(profile => profile.id === 'local')?.runtimeId).toBe('home');
+  expect(saved.find(profile => profile.id === 'ssh:server')?.runtimeId).toBe('http://server.test');
+});
+it('keeps corrupt device records intact during automatic managed-local attachment', async () => {
+  const values = new Map([['whip.hosts.v2', '{broken']]);
+  const { hosts } = fixture([], { defaultConnection: localProfile, connectionKinds: ['local'], resolveConnection: async () => ({ endpoint: 'http://local.test', dispose() {} }) }, values);
+  await start(hosts); expect(values.get('whip.hosts.v2')).toBe('{broken');
+  expect(hosts.home().error).toContain('preserved'); expect(hosts.home().client).toBeDefined();
+});
+it('restores a focused shared URL ID without copying its profile back into device storage', async () => {
+  const f = nativeFixture(); await start(f.hosts); f.hosts.select('a');
+  expect(f.values.get('whip.selectedHost.v3')).toBe('"a"');
+  expect(JSON.parse(f.values.get('whip.hosts.v2')!).every((profile: ConnectionProfile) => profile.target.kind !== 'url')).toBe(true);
+  const restored = fixture([remote('a')], { defaultConnection: localProfile, connectionKinds: ['local', 'url', 'ssh'], resolveConnection: f.resolveConnection }, f.values);
+  expect(restored.hosts.getSnapshot().selectedId).toBe('a');
+  await start(restored.hosts); expect(restored.hosts.host('a')?.client).toBeDefined();
+});
+it('does not evict old desktop addresses to persist the managed-local profile', async () => {
+  const saved = Array.from({ length: 16 }, (_, index) => urlProfile(`http://legacy-${index}.test`));
+  const f = nativeFixture([], saved); await start(f.hosts);
+  expect(JSON.parse(f.values.get('whip.hosts.v2')!)).toEqual(saved);
+  expect(f.hosts.getSnapshot().legacyProfiles).toHaveLength(16);
+  expect(f.hosts.home().error).toContain('storage is full');
 });

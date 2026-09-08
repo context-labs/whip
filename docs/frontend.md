@@ -72,8 +72,8 @@ Design from these principles:
   hover-only or hiding pending human requests.
 
 Current scope is a React web application with basic mobile support, designed to
-share its renderer with a future macOS-first Electron app. File editing, code
-review, interactive terminal UI, Electron packaging, hosted authentication, and
+share its renderer with the macOS Electron host in `apps/desktop`. File editing,
+code review, interactive terminal UI, hosted authentication, and
 custom-agent authoring are separate milestones. Read-only code/tool output is
 in scope. The session REPL viewer and Executions inspector show retained and live
 execution evidence; neither executes user-entered code or inspects raw VM globals.
@@ -91,6 +91,7 @@ Use Node 24. Exact installed versions belong to the package manifests and
 | `@whip/ui` — `packages/ui` | Tokens, themes, fonts, accessible controls, layout primitives, code highlighting, Storybook | No SDK, protocol, router, Query, host access, or product state |
 | `@whip/app` — `packages/app` | Shared React application, routes, feature UI, application state/lifetimes | UI, SDK, protocol types, TanStack tools |
 | `@whip/web` — `apps/web` | Browser bootstrap, platform adapters, Vite configuration, static release build | App and UI bootstrap exports |
+| `@whip/desktop` — `apps/desktop` | Electron main/preload, packaged runtimes, SSH, native effects and distribution | Consumes the web renderer artifact; native SDK imports stay outside the renderer |
 | `examples/client` | Small SDK usage example | Independent of the product application |
 
 ```mermaid
@@ -115,10 +116,15 @@ Timeline, and agent inspectors belong in app. A UI button receives props and a
 callback; it does not know how to submit a daemon command. Avoid creating a
 package for every feature or a parallel set of app-specific base controls.
 
-A future Electron shell should consume `@whip/app` and implement the existing
-`AppPlatform` boundary. Node APIs, Electron IPC, filesystem access, and
-`@whip/sdk/node` must not enter the shared renderer. Add platform methods only for
-real shell effects; do not create a general platform plugin system in advance.
+Electron consumes the exact `apps/web` production build through `AppPlatform`.
+There is one Vite build, StyleX extraction and route tree. The sorted renderer
+manifest verifies the copied files in Go's embed input and Electron's staging
+directory. Desktop packaging must preserve those bytes in ASAR.
+Node APIs, Electron IPC, filesystem access, and `@whip/sdk/node` stay in
+`apps/desktop`; the Vite import-graph guard rejects them in the renderer.
+`@whip/app/desktop-bridge` exports only the serialized host contract. The desktop
+adapter calls that versioned bridge without importing Electron. Ordinary DOM,
+focus, layout, styling and file-input behavior remain shared.
 
 ## Stack decisions and reasons
 
@@ -144,11 +150,47 @@ to route every piece of state through a framework.
 
 ## Runtime construction and lifetimes
 
-[`apps/web/src/main.tsx`](../apps/web/src/main.tsx) adapts localStorage,
-sessionStorage, Web Locks, clipboard, external links, and downloads. It applies
-the saved theme before first render and creates one `createWhipApplication`
-instance outside React rendering. That factory wires the router, runtime,
-ThemeProvider, UIProvider, QueryClientProvider, and runtime context.
+[`apps/web/src/main.tsx`](../apps/web/src/main.tsx) selects the browser adapter or
+the versioned desktop bridge adapter. The packaged `whip-app://bundle` origin
+requires a compatible bridge; it cannot become a daemon endpoint by fallback.
+[`bootstrap.tsx`](../apps/web/src/bootstrap.tsx) applies the saved theme before
+first render and creates one `createWhipApplication` instance outside React.
+That factory wires the router, runtime, ThemeProvider, UIProvider,
+QueryClientProvider, and runtime context. Both hosts share bootstrap/disposal.
+
+The adapters under `apps/web/src/platform` supply storage, Web Locks, clipboard,
+external links and awaitable downloads. `AppStorage` remains synchronous, with
+an optional `persistent` status; the visible memory fallback reports false after
+a persistent operation fails. Desktop `windowStorage` uses a namespaced
+localStorage record for relaunch restoration; browser window state uses
+sessionStorage. Native save operations transfer bounded chunks after selection;
+cancel returns a distinct outcome and does not claim that a file was saved.
+
+Optional [`AppPlatform`](../packages/app/src/platform.ts) capabilities supply
+typed native effects without exposing Electron objects or filesystem handles to
+components. New session uses `pickDirectory` only for a selected local profile;
+URL and SSH hosts retain the host-owned directory browser. The browser’s Local
+can use the daemon picker RPC. Picker requests retire when their client or route
+changes. Cancellation preserves the directory; unavailable native choosers fall
+back to browsing directories on the original host.
+Bootstrap calls `platform.dispose()` after the shared application unmounts.
+
+[`HostPrompts`](../packages/app/src/host-prompts.tsx) uses the shared Application
+child slot and its existing theme/UI/Query providers. Bootstrap observes prompts
+before starting a connection, so SSH challenges cannot race the first render.
+One dialog presents a bounded queue of four prompts; host-key fingerprints are
+plain selectable text and require explicit confirmation. Answers are ephemeral:
+clear inputs on submission, dismissal and unmount, and never put them in drafts,
+preferences or logs. Queue identities reject stale answer completions, failures
+remain visible, and final teardown declines outstanding challenges. Subscription
+cleanup permits React StrictMode's immediate effect replay before disposal.
+
+The desktop adapter owns one disposable update listener and a referentially
+stable, immutable snapshot plus the installed GUI version. Device settings reads
+the optional `updates` capability with `useSyncExternalStore`; mounting settings
+does not trigger an update check. Checking and installation call the native host.
+Only a downloaded update offers Restart to update, which still uses the normal
+draft/attachment close handshake. Browser adapters omit this capability.
 
 [`AppRuntime`](../packages/app/src/runtime.ts) owns one window's connections,
 Query client, root-view leases, command observations, drafts, and tab/composition/
@@ -157,7 +199,8 @@ SDK client and `SessionListView` for each attached daemon. Components subscribe
 using `useSyncExternalStore` through app hooks or `@whip/sdk/react`. Store
 snapshots remain immutable and referentially stable between changes.
 
-Local is the daemon supplied by the launch platform's endpoint. Its configuration
+Local is the daemon supplied by the browser launch endpoint, or the managed
+This Mac runtime in Electron. Its configuration
 owns the `remote_hosts` registry, shared by browsers using that local daemon:
 profile ID, display name, normalized URL, verified runtime ID, and connect-on-launch
 preference. These are attachment profiles, not copied sessions or credentials.
@@ -165,6 +208,20 @@ The existing revision-checked configuration update persists the whole registry.
 Host management refreshes it on open, browser focus, and Local reconnect; conflicts
 surface rather than overwriting another browser's changes. Legacy browser-only
 addresses remain available for explicit import.
+
+Desktop connection profiles represent URL, local or SSH targets. Each host record
+owns asynchronous setup cancellation, progress, the resolved transport and its
+cleanup. Local/SSH resolution yields a bounded IPC `TransportFactory`; URL
+connections use ordinary SDK network transport. Selecting work never detaches
+other hosts. Native profiles and their verified identities remain in device
+storage (`whip.hosts.v2`); old desktop URL profiles remain available for explicit
+verified import into Local’s registry before their device copy is removed.
+The saved native selection reconnects on launch alongside This Mac. The focused
+profile ID is stored separately in `whip.selectedHost.v3`, so selecting a shared
+URL host does not create a second authoritative copy of its profile. A legacy URL
+selection produces an import notice and preserves its original identity and tabs.
+The native bridge admits at most 16 prepared connections and 32 transport handles,
+including overlap during reconnect; existing per-transport byte bounds still apply.
 
 Each client verifies its handshake runtime ID before exposing session reads or
 views. Duplicate runtime aliases are rejected. Rebinding an address to a replacement
@@ -175,6 +232,26 @@ invalidates its attachment references. Healthy hosts, their panes, drafts and
 accepted work remain independent. Losing Local prevents registry edits while
 already attached remote hosts remain usable. Late reads and configuration replies
 must match their source connection and revision before changing current state.
+
+`flushDrafts()` returns `{ saved, error? }`; memory fallback is not durability.
+Bootstrap uses this result and in-memory attachment state for browser unload and
+desktop close/reload/update replies. A storage failure must keep a visible loss
+warning even for text-only drafts. Closing a native window can hide it while
+preserving its renderer; full quit uses the close handshake.
+Clearing a previously persisted draft remains unsaved if deleting its durable
+record fails; an in-memory tombstone does not authorize a successful close.
+
+Desktop Cmd-W invokes the existing focused-tab close action, preserving drafts
+and daemon work. Closing the final session tab returns to New session; Cmd-W on
+a page with no active session tab hides the window. It does not disconnect any
+SDK client. Stable and beta hosts format `whip://` and `whip-beta://` links
+respectively through the preload's channel capability; both use the same renderer.
+Native session links use
+[`createSessionNavigator`](../packages/app/src/session-tab-routing.ts) to select
+an already saved, verified runtime identity. A link cannot create a connection
+profile. Newer links, manual navigation, a changed host/profile, or disposal invalidate
+pending navigation; attachment must still be connected to the expected runtime before
+the shared router moves.
 
 `runtime.acquireView(runtimeId, rootId)` returns `{ view, release }`; release
 is idempotent and belongs in effect cleanup. Leases use both runtime and root
@@ -192,6 +269,9 @@ at 16 per connection; do not open extra connections to bypass that limit.
 | State | Owner | Persistence / lifetime |
 | --- | --- | --- |
 | Execution, commands, sessions, provider credentials, permissions, model context, scheduling | Daemon | Durable host truth; clients cannot replace it |
+| Native local/SSH profiles | Device storage | Bounded v2 profiles; URL profiles move to the shared registry only after verified import |
+| Native notification deduplication | One app observer per attached runtime | Up to four pages / 256 roots, transient counts and question IDs; no transcript subscriptions |
+| Desktop updates and authentication prompts | Platform adapter / bootstrap | Native update snapshot and bounded ephemeral prompt queue |
 | Saved execution hosts | Local daemon configuration `remote_hosts` | Revision-checked file shared by browsers; remote daemon credentials stay remote |
 | Connection, request correlation, replay, command delivery/status | One SDK `WhipClient` per host / `CommandHandle` | Independent connections and runtime/client/command-scoped recovery |
 | Root snapshot, history, live presentation, agents, requests, history revision, root collections | SDK `SessionView` | Reconstructible bounded memory; app leases it |
@@ -199,7 +279,7 @@ at 16 per connection; do not open extra connections to bypass that limit.
 | Host catalogs/settings, search, attention, tab summaries, explicit detail reads | TanStack Query via SDK | Runtime-scoped keys; only the detached host’s data is cleared |
 | Focused root, child and shareable inspector section | TanStack Router | Validated URL/search; history carries a local view-ID hint |
 | Sidebar width, visibility and directory collapse | App shell | Window storage with memory fallback; host-scoped collapse |
-| Split tree, pane focus/selection, open/closed view order and locations | App `SessionTabs` | One window-local sessionStorage v3 workspace spanning hosts; v1/v2 recovery and memory fallback |
+| Split tree, pane focus/selection, open/closed view order and locations | App `SessionTabs` | One v3 workspace spanning hosts: browser sessionStorage or desktop namespaced localStorage; v1/v2 recovery and memory fallback |
 | Draft text | App runtime | Device storage, keyed by runtime/root/recipient |
 | Files, upload progress and submission locks | App `CompositionStore` | Window memory shared by runtime/root/recipient |
 | Composer caret selection | App `CompositionStore` | Window memory scoped by runtime/view/agent |
