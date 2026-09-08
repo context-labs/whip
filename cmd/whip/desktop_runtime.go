@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/context-labs/whip/internal/buildinfo"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -16,9 +17,10 @@ func desktopRuntimeInfo(args []string, output io.Writer) error {
 		return errors.New("runtime build metadata accepts no arguments")
 	}
 	return json.NewEncoder(output).Encode(struct {
+		Distribution  string `json:"distribution"`
 		BuildID       string `json:"buildId"`
 		ProtocolMajor int    `json:"protocolMajor"`
 		ProtocolMinor int    `json:"protocolMinor"`
 		SchemaVersion int    `json:"schemaVersion"`
-	}{BuildID: version, ProtocolMajor: protocol.Major, ProtocolMinor: protocol.Minor, SchemaVersion: session.SchemaVersion()})
+	}{Distribution: buildinfo.Name, BuildID: version, ProtocolMajor: protocol.Major, ProtocolMinor: protocol.Minor, SchemaVersion: session.SchemaVersion()})
 }

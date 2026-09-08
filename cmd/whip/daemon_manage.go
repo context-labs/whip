@@ -81,6 +81,34 @@ func daemonRuntimePaths() (daemon.RuntimePaths, error) {
 	return daemon.Paths(dir)
 }
 
+func daemonStatusPaths() (daemon.RuntimePaths, error) {
+	home := os.Getenv(buildinfo.Env("HOME"))
+	if home == "" {
+		userHome, err := os.UserHomeDir()
+		if err != nil {
+			return daemon.RuntimePaths{}, err
+		}
+		home = buildinfo.Home(userHome)
+	}
+	paths, err := daemon.ResolvePaths(home)
+	if err != nil {
+		return daemon.RuntimePaths{}, err
+	}
+	for _, dir := range []string{paths.Home, paths.Runtime} {
+		info, err := os.Stat(dir)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return daemon.RuntimePaths{}, err
+		}
+		if !info.IsDir() {
+			return daemon.RuntimePaths{}, fmt.Errorf("daemon runtime path is not a directory: %s", dir)
+		}
+	}
+	return paths, nil
+}
+
 func daemonStatusCLI(args []string) error {
 	flags := flag.NewFlagSet(buildinfo.Text("whip daemon status"), flag.ContinueOnError)
 	jsonOutput := flags.Bool("json", false, "print machine-readable status")
@@ -90,7 +118,7 @@ func daemonStatusCLI(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New(buildinfo.Text("usage: whip daemon status [--json]"))
 	}
-	paths, err := daemonRuntimePaths()
+	paths, err := daemonStatusPaths()
 	if err != nil {
 		return err
 	}

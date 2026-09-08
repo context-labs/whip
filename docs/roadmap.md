@@ -93,6 +93,11 @@ in
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.
 - [ ] Electron desktop release acceptance — implementation and signed local packages are available; notarized installation, real updates and manual device gates remain. See [desktop guide](desktop.md) and [verified progress](../.ai-docs/plans/desktop-app/progress.md).
+- [x] Canonical desktop whipcode integration: one selected installed executable,
+  a shared default `~/.whipcode` home, verified installation payload and explicit
+  local connection diagnostics, installation and restart controls. Focused UI
+  tests pass; machine cleanup and installed-runtime acceptance remain in progress
+  in the [canonical installation plan](../.ai-docs/plans/canonical-whipcode-installation.md).
 - [x] Mobile connection diagnostics: modal-local errors and explicit HTTPS,
   WebSocket and session API testing, with cancellation and native error details.
 - [ ] Native mobile beta: Expo companion with manual Tailscale HTTPS setup,

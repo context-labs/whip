@@ -1,4 +1,6 @@
 import type { ConnectionProfile, ConnectionTarget } from './connections';
+import type { LocalRuntimeStatus } from './platform';
+export type { LocalRuntimeStatus } from './platform';
 
 /** Serialized contract only. Electron implementation and IPC objects stay in the host. */
 export interface HostPrompt {
@@ -38,6 +40,10 @@ export interface DesktopBridge {
   copy(text: string): Promise<void>;
   openExternal(url: string): Promise<void>;
   pickDirectory(): Promise<string | undefined>;
+  testLocalRuntime(): Promise<LocalRuntimeStatus>;
+  chooseLocalRuntime(): Promise<LocalRuntimeStatus>;
+  installLocalRuntime(): Promise<LocalRuntimeStatus>;
+  restartLocalRuntime(): Promise<LocalRuntimeStatus>;
   beginSave(filename: string, mediaType: string, bytes: number): Promise<string | undefined>;
   writeSave(id: string, offset: number, bytes: Uint8Array): Promise<void>;
   finishSave(id: string): Promise<void>;

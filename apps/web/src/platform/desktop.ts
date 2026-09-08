@@ -129,6 +129,24 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
     openExternal: url => bridge.openExternal(url),
     copy: text => bridge.copy(text),
     pickDirectory: () => bridge.pickDirectory(),
+    localRuntime: {
+      async test() {
+        if (disposed) throw new Error('The desktop application has closed');
+        return bridge.testLocalRuntime();
+      },
+      async choose() {
+        if (disposed) throw new Error('The desktop application has closed');
+        return bridge.chooseLocalRuntime();
+      },
+      async install() {
+        if (disposed) throw new Error('The desktop application has closed');
+        return bridge.installLocalRuntime();
+      },
+      async restart() {
+        if (disposed) throw new Error('The desktop application has closed');
+        return bridge.restartLocalRuntime();
+      },
+    },
     async notify(notification) {
       if (disposed) return;
       await bridge.notify(notification);

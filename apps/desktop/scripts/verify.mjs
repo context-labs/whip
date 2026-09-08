@@ -35,7 +35,7 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
       'LICENSES.chromium.html': path.join(repositoryRoot, 'node_modules/electron/dist/LICENSES.chromium.html') }))
       assert((await readFile(path.join(directory, 'licenses', name))).equals(await readFile(source)), `Missing or changed distribution license: ${name}`);
     const helperBytes = await readFile(path.join(contents, 'Helpers/whip-computer'));
-    const runtimeBytes = await readFile(path.join(contents, 'Helpers/whip'));
+    const runtimeBytes = await readFile(path.join(contents, 'Helpers/whipcode'));
     assert(runtimeBytes.indexOf(helperBytes) >= 0, 'The packaged signed helper differs from the Go embed');
     for (const [name, expected] of Object.entries(runtime.files)) {
       const filename = path.join(contents, 'Helpers', name);
@@ -50,6 +50,13 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
           `=anchor apple generic and certificate leaf[subject.OU] = "${runtime.teamId}"`, filename]);
       }
     }
+    const metadata = JSON.parse((await exec(path.join(contents, 'Helpers/whipcode'), ['_desktop-runtime-info'],
+      { timeout: 5000, maxBuffer: 16 << 10, encoding: 'utf8' })).stdout);
+    assert.equal(metadata.distribution, 'whipcode', 'Packaged backend is not the whipcode distribution');
+    assert.equal(metadata.distribution, runtime.distribution);
+    assert.equal(metadata.buildId, runtime.buildId);
+    for (const key of ['protocolMajor', 'protocolMinor', 'schemaVersion'])
+      assert.equal(metadata[key], runtime.compatibility[key], `Runtime ${key} differs from its manifest`);
     // Go embeds the same untransformed renderer. Match every file's complete bytes.
     for (const name of Object.keys(renderer.files)) {
       const bytes = await readFile(path.join(directory, 'renderer', name));
@@ -67,7 +74,7 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
       await exec('/usr/bin/xcrun', ['stapler', 'validate', bundle]);
       await exec('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=2', bundle]);
     }
-    return { bundle, version: runtime.version, rendererDigest: renderer.digest, nativeFiles: runtime.files,
+    return { bundle, version: runtime.version, distribution: runtime.distribution, buildId: runtime.buildId, rendererDigest: renderer.digest, nativeFiles: runtime.files,
       source: runtime.source, compatibility: runtime.compatibility, teamId: runtime.teamId, fuses, signed, notarized };
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

@@ -261,7 +261,7 @@ jobs:
           npm run package:desktop -- --renderer-ready
           node apps/desktop/scripts/verify.mjs 'apps/desktop/out/Whip-darwin-arm64/Whip.app'
       - name: Native tests including isolated real SSH authentication and forwarding
-        run: WHIP_DESKTOP_SSH_TEST_EXECUTABLE="$PWD/apps/desktop/.stage/native/whip" npm run test:desktop
+        run: WHIP_DESKTOP_SSH_TEST_EXECUTABLE="$PWD/apps/desktop/.stage/native/whipcode" npm run test:desktop
       - name: Staged desktop lifecycle smoke
         run: node apps/desktop/scripts/smoke.mjs
       - name: Desktop package and lifecycle evidence

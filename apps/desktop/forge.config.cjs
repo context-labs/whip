@@ -29,12 +29,12 @@ module.exports = {
       void (async () => {
         const helpers = path.resolve(buildPath, '../../Helpers');
         await mkdir(helpers, { recursive: true });
-        for (const name of ['whip', 'whip-computer']) await copyFile(path.join(__dirname, '.stage/native', name), path.join(helpers, name));
+        for (const name of ['whipcode', 'whip-computer']) await copyFile(path.join(__dirname, '.stage/native', name), path.join(helpers, name));
       })().then(() => callback(), callback);
     }],
     ...(identity ? { osxSign: { identity, hardenedRuntime: true,
       // Native files were signed before Go embed and manifest hashing. Preserve them.
-      ignore: file => /\/Helpers\/whip(?:-computer)?$/.test(file),
+      ignore: file => /\/Helpers\/(?:whipcode|whip-computer)$/.test(file),
       optionsForFile: () => ({ entitlements: path.join(__dirname, 'resources/electron.entitlements.plist') }) } } : {}),
     ...(notarize ? { osxNotarize: notarize } : {}),
   },

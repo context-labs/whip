@@ -38,24 +38,63 @@ ASAR integrity, ASAR-only loading and cookie encryption are enabled.
 
 ## Connections and lifetime
 
-- **This Mac:** verify bundled binaries, resolve Finder's limited PATH, then
-  attach to a healthy daemon. If none is running, install the bundled runtime
-  outside the `.app` and start it there. A proven unowned stale socket goes through
-  normal owner-locked daemon startup. An unhealthy live owner requires attention.
+- **This Mac:** resolve the saved canonical `whipcode` executable, validate its
+  distribution and compatibility, and attach to its healthy daemon. Connect starts
+  that same executable if stopped; concurrent CLI and desktop starts share its
+  owner lock. A proven unowned stale socket goes through normal daemon startup.
+  An unhealthy live owner requires explicit attention. Discovery and reconnect
+  never install another runtime or fall back to legacy `whip`.
 - **SSH:** use macOS `/usr/bin/ssh`, including configured aliases, keys, agents and
   jump hosts. The remote machine must already have a compatible Whip installed;
-  optional executable/home overrides support other layouts. Whip may start a
+  optional executable/home overrides support other layouts. Remote `whip` and
+  `whipcode` use their own home environment variables. Whip may start a
   stopped remote daemon but never installs or upgrades one remotely. A private
   control connection forwards its Unix socket without exposing a remote web port.
 - **URL:** connect to an explicitly configured reachable daemon. Its network
   configuration must allow the exact `whip-app://bundle` origin; an ordinary
   browser connection retains its existing same-origin rules. See [web setup](web-app.md).
 
+Open **Execution hosts → This Mac** to configure the local installation. On this
+Mac, select `/usr/local/bin/whipcode`; the standard home is `~/.whipcode`.
+When no executable is selected, discovery checks the resolved login PATH and
+known install locations. A successful choice or connection saves the absolute
+path in `native-local-runtime.json` under Electron user data (normally
+`~/Library/Application Support/Whip`). Finder and terminal launches then reuse
+that selection even if their PATH differs. `WHIPCODE_HOME` explicitly overrides
+the home; it is not a legacy `WHIP_HOME` migration or a setting in that JSON file.
+
+**Choose executable** validates an existing installation. **Install whipcode**
+lets you choose a writable destination, verifies the bundled payload, and copies
+its exact bytes there atomically. It does not overwrite an existing backend.
+Neither action starts the daemon; use **Connect** afterward. A missing saved
+executable remains an actionable setup error rather than silently selecting a
+replacement. **Test Connection** checks the executable, build compatibility and
+daemon status without starting, restarting, installing, writing configuration or
+creating an absent runtime home. Expand diagnostics to see the executable, home,
+client build and daemon build. **Restart daemon** is a separate confirmed action
+because it interrupts work shared with CLI and web clients.
+
+Desktop supplies `WHIPCODE_LISTEN=127.0.0.1:8080` when starting a local daemon,
+unless explicitly overridden. To make a CLI-first start use the same fixed web
+endpoint, set it in that invocation as well:
+
+```sh
+WHIPCODE_LISTEN=127.0.0.1:8080 /usr/local/bin/whipcode daemon start
+```
+
+The browser can then open `http://127.0.0.1:8080`, while desktop still uses the
+private Unix socket. Attaching to an already running daemon does not change its
+network settings. If it was started without the desired listener, restart it
+explicitly with that setting after accounting for active work. Tests and local
+development use `WHIPCODE_NETWORK=0` with isolated homes.
+
 If a URL works in a browser but the desktop app reports a WebSocket connection
 failure, check the daemon's origin allowlist. The desktop renderer sends
 `Origin: whip-app://bundle`; the browser sends the daemon URL as its origin.
-Set `WHIP_ALLOWED_ORIGINS=whip-app://bundle` when starting a daemon that includes
-the desktop-origin validation change, preserving other required origins. A
+Set `WHIPCODE_ALLOWED_ORIGINS=whip-app://bundle` for a whipcode daemon, or
+`WHIP_ALLOWED_ORIGINS=whip-app://bundle` for a legacy remote whip daemon, when
+starting a build that includes desktop-origin validation. Preserve other required
+origins. A
 separately built daemon may still reject every non-HTTP origin even when listed;
 update that daemon's origin validation before restarting it. Protocol 4.1
 compatibility alone does not establish that this origin is supported. Network
@@ -69,13 +108,13 @@ SSH settings and key paths stay on this device. Previously saved desktop address
 remain available under **Execution hosts → Import desktop addresses** until you
 verify and import them. Editing a host offers **Accept a new daemon identity**;
 ordinary reconnects preserve the saved identity.
-A replaced daemon requires explicit confirmation before adopting its identity;
+A changed daemon identity requires explicit confirmation before adopting it;
 old drafts, tabs and command recovery remain scoped to the old runtime. Unknown
 deep-link hosts are never created automatically.
 
 SSH host verification and authentication use shared in-app prompts. Secrets are
 ephemeral, bounded and never saved in profiles or passed as process arguments.
-The bundled Go supervisor owns the SSH process group and closes it when the main
+The canonical local whipcode executable supervises the SSH process group and closes it when the main
 process dies or its lifetime pipe closes. Disconnecting never stops remote work.
 
 The daemon owns accepted work. Closing tabs, hiding/reloading a window, quitting
@@ -107,12 +146,14 @@ npm run dev:desktop
 Development starts the one Vite server at `http://127.0.0.1:3001`, watches
 main/preload and restarts their window on changes. The development URL is ignored
 by a packaged app. The fixture home and user data are in `apps/desktop/.dev`, not
-the normal Whip home. Closing development leaves that fixture daemon running.
-Restart the command after Go/Swift changes; they are built once per invocation.
-To stop that fixture explicitly, after its work has finished:
+the normal whipcode home. Its canonical executable is `.dev/bin/whipcode`, outside
+the disposable staging tree. Closing development leaves that fixture daemon
+running. Go/Swift are built once per invocation. Before restarting development
+with changed native code, stop the previous fixture; the dev script refuses to
+replace a live backend. After its work has finished:
 
 ```sh
-WHIP_HOME="$PWD/apps/desktop/.dev/home" apps/desktop/.stage/native/whip daemon stop
+WHIPCODE_HOME="$PWD/apps/desktop/.dev/home" apps/desktop/.dev/bin/whipcode daemon stop
 ```
 
 | Command | Result |
@@ -131,13 +172,13 @@ mode additionally requires both producer and consumer checkouts to be clean.
 Local commands never publish. Unsigned local builds use ad-hoc native signatures;
 they are not distributable Developer ID releases.
 
-## Package, signing and retained runtime
+## Package, signing and canonical installation
 
 ```text
 Whip.app/Contents/
   MacOS/Whip
   Frameworks/                 Electron and its helpers
-  Helpers/whip                signed Go executable
+  Helpers/whipcode            signed Go installation payload
   Helpers/whip-computer       signed Swift helper
   Resources/app.asar/
     main.cjs, preload.cjs
@@ -151,22 +192,39 @@ The Swift helper is signed first. A Go build overlay embeds those exact signed
 bytes without changing the tracked helper placeholder. Go is then signed, final
 native hashes are recorded, and Forge seals/signs the ASAR and outer app while
 preserving the native signatures. Only Electron receives its JIT entitlement.
-The runtime manifest records build version, arm64 architecture, signing team,
-renderer digest, source/lockfile provenance and protocol/schema compatibility.
+The runtime manifest records `distribution: "whipcode"`, the app `version`, a
+separate backend `buildId`, arm64 architecture, signing team, renderer digest,
+source/lockfile provenance and protocol/schema compatibility. The backend is
+built with the link-time distribution name `whipcode`; renaming a legacy binary
+is insufficient. `WHIPCODE_VERSION` sets its build ID independently of
+`WHIP_DESKTOP_VERSION`; it defaults to the app version when omitted. Packaging
+executes `_desktop-runtime-info` and verifies those fields against the manifest.
 
-Before daemon startup, native files are copied into an owner-only immutable
-`runtimes/<version>-<manifest-hash>` directory under Electron user data. Both the
-source and installed files are verified. The daemon launches from that retained
-absolute path with its matching computer helper. This is necessary because new
-RLM workers use `os.Executable()` after the original `.app` may have been replaced.
-Healthy compatible CLI daemons are reused even if their build differs.
+`Helpers/whipcode` is an installation payload. Explicit installation copies those
+verified signed bytes to the chosen canonical path; the daemon and new RLM
+workers use that path via `os.Executable()`. The exact signed computer helper is
+embedded in the executable and extracted under `~/.whipcode/bin` when needed.
+Normal connections do not run the payload inside the `.app` or create private
+Electron `runtimes/` installations. Replacing the GUI application therefore leaves
+the canonical backend available to accepted work and future workers. A healthy
+compatible CLI daemon is reused even when its build differs; diagnostics report
+both builds instead of silently restarting it.
 
-The GUI updater never calls `whip update` or restarts a daemon. Runtime versions
-are retained conservatively: automatic garbage collection is not implemented.
-Do not remove retained directories while a daemon or worker might use them.
-Restarting/upgrading a daemon is an explicit separate operation; GUI rollback
-does not downgrade its database. Stable uses the existing Whip home. Beta has a
-separate bundle ID/user data and a separate default runtime home.
+The GUI updater never calls `whipcode update`, replaces the canonical executable,
+or restarts a daemon. Backend upgrades require an explicit stop, verified binary
+replacement, and start. Keep the canonical executable present while its daemon
+or workers are running. Obsolete retained runtime directories can be removed
+only after their old owners stop; the new app does not use or recreate them.
+GUI rollback does not downgrade the daemon database. Source-managed local builds
+should omit `WHIP_DESKTOP_UPDATE_URL` and use rebuilds from their chosen checkout;
+a published-release updater is not that installation's upgrade path.
+
+Stable and beta keep separate app bundle IDs, GUI user data and executable
+selection files, but both default to the canonical `whipcode` distribution and
+`~/.whipcode` home. A beta GUI does not implicitly create another daemon home.
+Development and acceptance fixtures choose isolated executables and homes with
+`WHIP_DESKTOP_FIXTURE=1`, `WHIP_DESKTOP_EXECUTABLE`, `WHIPCODE_HOME` and
+`WHIP_DESKTOP_USER_DATA`.
 Stable registers `whip://` session links; beta registers `whip-beta://`, so
 installing a beta does not take over stable session links.
 
@@ -239,14 +297,20 @@ suites, browser/packed-package consumer checks, and desktop tests. Set
 `WHIP_DESKTOP_SSH_TEST_EXECUTABLE` to the built Go executable to run the real
 isolated SSH server tests; no user SSH configuration or system Remote Login is
 required. `scripts/smoke.mjs` under `apps/desktop` exercises staged local lifecycle;
-`scripts/continuity.mjs` verifies real signed retained workers using a loopback
-fake provider. The staged smoke does not establish production-fuse acceptance.
+`scripts/continuity.mjs` explicitly installs a canonical fixture executable and
+verifies real signed workers using a loopback fake provider. It removes only a
+disposable copy of the source application payload, then verifies recovered work
+and new workers from the unchanged canonical installation. This models payload
+replacement, not an actual Squirrel update. The staged smoke checks canonical
+installation, absence of legacy homes/retained copies, and client lifecycle; it
+does not establish production-fuse acceptance.
 `node apps/desktop/scripts/startup.mjs` measures the verified signed app through
 LaunchServices with 30 warm attachments and 30 retained daemon starts. It uses
 private fixture homes, real retained messages, a fixed read-only native DOM probe
 and the production fuses. It records polling/paint overhead and failed attempts.
-Its three first-install samples are reported separately; they do not establish
-a cold-cache p95. Use `--self-test` to check probe isolation without launching.
+Its three first-launch samples use an explicitly preinstalled canonical fixture
+executable and are reported separately. They measure neither installation time
+nor a cold-cache p95. Use `--self-test` to check probe isolation without launching.
 `--idle` disables that probe after fixture preparation and samples the actual
 desktop and detached daemon process trees separately with macOS CPU/RSS counters.
 It also records de-duplicated physical footprint after the CPU window. The

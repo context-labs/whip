@@ -63,6 +63,101 @@ func TestRuntimePathsAndOwnerLock(t *testing.T) {
 	_ = lock.Close()
 }
 
+func TestResolvePathsDoesNotCreateRuntime(t *testing.T) {
+	t.Parallel()
+	root, err := os.MkdirTemp("/tmp", "whip-paths-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	for _, test := range []struct {
+		name     string
+		home     string
+		fallback bool
+	}{
+		{name: "short path", home: filepath.Join(root, "home")},
+		{name: "long path", home: filepath.Join(root, strings.Repeat("long", 40)), fallback: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			paths, err := ResolvePaths(test.home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (paths.Runtime != paths.Home) != test.fallback {
+				t.Fatalf("runtime fallback = %+v", paths)
+			}
+			for _, path := range []string{test.home, paths.Home, paths.Runtime} {
+				if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("resolving paths touched %s: %v", path, err)
+				}
+			}
+			created, err := Paths(test.home)
+			if test.fallback {
+				t.Cleanup(func() { _ = os.RemoveAll(paths.Runtime) })
+			}
+			if err != nil || created != paths {
+				t.Fatalf("startup and discovery resolved different paths: %+v, %+v, %v", paths, created, err)
+			}
+		})
+	}
+}
+
+func TestActiveOwnerPIDDoesNotCreateOrModifyLock(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		present bool
+	}{
+		{name: "missing parent"},
+		{name: "stale PID", present: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "runtime", "daemon.lock")
+			if test.present {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("12345\n"), 0o400); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if pid, owned, err := ActiveOwnerPID(path); err != nil || owned || pid != 0 {
+				t.Fatalf("unowned lock = pid %d, owned %t, err %v", pid, owned, err)
+			}
+			if !test.present {
+				if _, err := os.Stat(filepath.Dir(path)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("owner inspection created runtime files: %v", err)
+				}
+				return
+			}
+			info, err := os.Stat(path)
+			if err != nil || info.Mode().Perm() != 0o400 {
+				t.Fatalf("owner inspection changed lock permissions: %v, %v", info, err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != "12345\n" {
+				t.Fatalf("owner inspection changed lock metadata: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestActiveOwnerPIDRejectsMissingOwnerMetadata(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "daemon.lock")
+	owner, err := AcquireOwner(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close() })
+	if err := os.WriteFile(path, []byte("invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if pid, owned, err := ActiveOwnerPID(path); err == nil || !owned || pid != 0 {
+		t.Fatalf("invalid owned lock = pid %d, owned %t, err %v", pid, owned, err)
+	}
+}
+
 func TestOwnerOnlySocketRefusesUnsafeState(t *testing.T) {
 	paths, err := Paths(t.TempDir())
 	if err != nil {

@@ -250,6 +250,42 @@ changes. Cancellation preserves the directory; unavailable native choosers fall
 back to browsing directories on the original host.
 Bootstrap calls `platform.dispose()` after the shared application unmounts.
 
+Desktop's optional `localRuntime` capability provides `test`, `choose`, `install`
+and `restart`. Electron main owns executable discovery, compatibility checks,
+installation and process effects through [`LocalRuntime`](../apps/desktop/src/runtime.ts).
+Its native `native-local-runtime.json` settings record contains the selected
+absolute executable path; React does not store another copy or derive sockets.
+The first connection discovers and validates `whipcode`, then persists the path
+so Finder and terminal launches use the same installation. A missing saved path
+does not fall back to another executable. Packaged backend bytes are an explicit
+installation payload; ordinary connections use the selected installed executable.
+Normal stable and beta desktop channels share the default `~/.whipcode` runtime
+home. An explicit `WHIPCODE_HOME` can isolate a fixture; legacy `WHIP_HOME` never
+redirects local work. The canonical installation on the development Mac is
+`/usr/local/bin/whipcode`.
+
+[`HostDialog`](../packages/app/src/host-dialog.tsx) exposes **This Mac** diagnostics
+even before the first successful connection. Opening the dialog and changes to
+the host's connection state refresh a read-only diagnostic snapshot; **Test
+Connection** repeats that check without starting a daemon, installing a binary,
+creating the runtime home or rewriting its configuration. Only the bounded
+`LocalRuntimeStatus` crosses the bridge: state, selected executable, home, client
+and daemon builds, an actionable message and installation availability. Paths
+and builds live in expandable diagnostics; raw logs and environment values do
+not enter the renderer. The panel owns its temporary busy/error/confirmation
+state and retires late results on close; it is not another SDK connection owner.
+
+**Choose executable** uses a native picker and validates the selected distribution.
+**Install whipcode** requires an explicit action and installs verified packaged
+bytes without overwriting a different existing installation. Neither action starts
+work. The existing host **Connect** action attaches to a healthy daemon or starts
+the selected installation when stopped, with bounded progress through the existing
+connection resolver. **Restart daemon** explains the interruption to CLI, web and
+desktop work and requires a separate explicit confirmation. SDK reconnect and
+runtime-identity acceptance remain unchanged. Disconnecting, switching hosts and
+quitting the GUI do not stop accepted work. Browser adapters omit `localRuntime`;
+URL and SSH connections retain their existing transport paths.
+
 [`HostPrompts`](../packages/app/src/host-prompts.tsx) uses the shared Application
 child slot and its existing theme/UI/Query providers. Bootstrap observes prompts
 before starting a connection, so SSH challenges cannot race the first render.
@@ -345,6 +381,8 @@ at 16 per connection; do not open extra connections to bypass that limit.
 | --- | --- | --- |
 | Execution, commands, sessions, provider credentials, permissions, model context, scheduling | Daemon | Durable host truth; clients cannot replace it |
 | Native local/SSH profiles | Device storage | Bounded v2 profiles; URL profiles move to the shared registry only after verified import |
+| Canonical local executable selection | Electron main `LocalRuntime` | Native settings hold one absolute installed path; default home is `~/.whipcode` in both desktop channels |
+| Local runtime diagnostics and repair UI | Native probe / host dialog | Bounded serialized diagnostic snapshot and transient busy/error/confirmation state; no daemon state duplication |
 | Native notification deduplication | One app observer per attached runtime | Up to four pages / 256 roots, transient counts and question IDs; no transcript subscriptions |
 | Desktop updates and authentication prompts | Platform adapter / bootstrap | Native update snapshot and bounded ephemeral prompt queue |
 | Saved execution hosts | Local daemon configuration `remote_hosts` | Revision-checked file shared by browsers; remote daemon credentials stay remote |

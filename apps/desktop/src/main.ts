@@ -5,7 +5,7 @@ import path from 'node:path';
 import { validateProfile } from '@whip/app/platform';
 import type { DesktopEvent, HostPrompt } from '@whip/app/desktop-bridge';
 import { createAssetHandler, desktopScheme, desktopURL, isDesktopURL, type RendererManifest } from './assets';
-import { installRuntime, prepareLocal, readRuntimeManifest, runtimeEnvironment } from './runtime';
+import { LocalRuntime, readRuntimeManifest, runtimeEnvironment } from './runtime';
 import { DesktopTransports, validHandle } from './transport';
 import { NativeEffects } from './native';
 import { SSHConnection } from './ssh';
@@ -15,11 +15,11 @@ import { attachStartupProbe } from './startup-probe';
 
 protocol.registerSchemesAsPrivileged([{ scheme: desktopScheme,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
-// Fixtures must opt in explicitly; never silently attach dev scripts to ~/.whip.
+// Fixtures must opt in explicitly; never silently attach dev scripts to ~/.whipcode.
 if (!app.isPackaged || process.env.WHIP_DESKTOP_FIXTURE) {
-  if (!process.env.WHIP_DESKTOP_FIXTURE || !process.env.WHIP_HOME || !process.env.WHIP_DESKTOP_USER_DATA)
-    throw new Error('Development requires an isolated WHIP_HOME and WHIP_DESKTOP_USER_DATA');
-  if (!path.isAbsolute(process.env.WHIP_HOME) || !path.isAbsolute(process.env.WHIP_DESKTOP_USER_DATA))
+  if (!process.env.WHIP_DESKTOP_FIXTURE || !process.env.WHIPCODE_HOME || !process.env.WHIP_DESKTOP_USER_DATA || !process.env.WHIP_DESKTOP_EXECUTABLE)
+    throw new Error('Development requires isolated WHIPCODE_HOME, WHIP_DESKTOP_USER_DATA and WHIP_DESKTOP_EXECUTABLE paths');
+  if (!path.isAbsolute(process.env.WHIPCODE_HOME) || !path.isAbsolute(process.env.WHIP_DESKTOP_USER_DATA) || !path.isAbsolute(process.env.WHIP_DESKTOP_EXECUTABLE))
     throw new Error('Fixture data paths must be absolute');
   app.setPath('userData', process.env.WHIP_DESKTOP_USER_DATA);
 }
@@ -59,10 +59,13 @@ async function start() {
   const renderer = JSON.parse(await readFile(path.join(root, 'renderer-manifest.json'), 'utf8')) as RendererManifest;
   const manifest = await readRuntimeManifest(path.join(root, 'runtime-manifest.json'));
   const config = readDesktopConfig(JSON.parse(await readFile(path.join(root, 'desktop-config.json'), 'utf8')));
-  if (config.channel === 'beta' && !process.env.WHIP_HOME) process.env.WHIP_HOME = path.join(app.getPath('userData'), 'runtime-home');
   if (manifest.rendererDigest !== renderer.digest) throw new Error('The renderer and runtime belong to different builds');
   const source = app.isPackaged ? path.join(process.resourcesPath, '..', 'Helpers') : path.join(root, '..', 'native');
-  const retainedRoot = path.join(app.getPath('userData'), 'runtimes');
+  const localRuntime = new LocalRuntime({ source, manifest,
+    settingsFile: path.join(app.getPath('userData'), 'native-local-runtime.json'),
+    defaultExecutable: process.env.WHIP_DESKTOP_FIXTURE ? process.env.WHIP_DESKTOP_EXECUTABLE : undefined });
+  let runtimeLifetime = new AbortController();
+  const cancelRuntimeActions = () => { runtimeLifetime.abort(); runtimeLifetime = new AbortController(); };
   protocol.handle(desktopScheme, createAssetHandler(path.join(root, 'renderer'), renderer));
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, respond) => respond(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
@@ -119,6 +122,29 @@ async function start() {
       catch { void disposeConnections(); }
     });
   };
+  let runtimeActionPending = false;
+  const runtimeAction = (name: string, action: (signal: AbortSignal) => Promise<unknown>) => handle(name, async (...args: unknown[]) => {
+    if (args.length) throw new Error('Local runtime actions do not accept arguments.');
+    if (runtimeActionPending) throw new Error('A local runtime action is already in progress.');
+    runtimeActionPending = true;
+    try { return await action(AbortSignal.any([runtimeLifetime.signal, AbortSignal.timeout(45_000)])); }
+    finally { runtimeActionPending = false; }
+  });
+  runtimeAction('testLocalRuntime', signal => localRuntime.test(signal));
+  runtimeAction('chooseLocalRuntime', async signal => {
+    const choice = await dialog.showOpenDialog(window, { title: 'Choose whipcode executable', properties: ['openFile'], buttonLabel: 'Use whipcode' });
+    signal.throwIfAborted();
+    return choice.canceled || !choice.filePaths[0] ? localRuntime.test(signal) : localRuntime.choose(choice.filePaths[0], signal);
+  });
+  runtimeAction('installLocalRuntime', async signal => {
+    const current = await localRuntime.test(signal);
+    if (!current.canInstall) throw new Error('whipcode is already installed. Desktop will not overwrite an existing backend.');
+    const choice = await dialog.showSaveDialog(window, { title: 'Install whipcode', buttonLabel: 'Install whipcode',
+      defaultPath: current.executable || '/usr/local/bin/whipcode', message: 'Choose the executable location used by both the desktop app and terminal. The existing backend will never be overwritten.' });
+    signal.throwIfAborted();
+    return choice.canceled || !choice.filePath ? current : localRuntime.install(choice.filePath, signal);
+  });
+  runtimeAction('restartLocalRuntime', signal => localRuntime.restart(signal));
   handle('prepareConnection', async (id: string, input: unknown) => {
     validHandle(id);
     const profile = validateProfile(input);
@@ -131,12 +157,12 @@ async function start() {
       const signal = connection.controller.signal;
       if (profile.target.kind === 'ssh') {
         progress('Preparing SSH…');
-        const installed = await installRuntime(source, retainedRoot, manifest, signal);
+        const executable = await localRuntime.executable(signal);
         const env = await runtimeEnvironment(signal);
-        connection.ssh = new SSHConnection({ target: profile.target, executable: installed.executable, env, signal, progress,
+        connection.ssh = new SSHConnection({ target: profile.target, executable, env, signal, progress,
           prompt: (value, lifetime) => prompt(id, value, lifetime) });
         connection.socket = await connection.ssh.getSocket();
-      } else connection.socket = await prepareLocal({ source, retainedRoot, manifest, signal, progress });
+      } else connection.socket = await localRuntime.prepare(signal, progress);
       connection.controller.signal.throwIfAborted();
     } catch (error) { if (connections.get(id) === connection) await release(id); throw error; }
   });
@@ -219,6 +245,7 @@ async function start() {
         return;
       }
       await disposeConnections(); await native.dispose();
+      cancelRuntimeActions();
       if (reason === 'quit') { quitApproved = true; app.quit(); }
       else { rendererReady = false; window.webContents.setBackgroundThrottling(true); window.webContents.reload(); }
     } catch (error) {
@@ -228,7 +255,7 @@ async function start() {
   };
   const updates = new DesktopUpdates(config, emit, () => requestClose('update'), quitting => { quitApproved = quitting; });
   app.on('before-quit', event => { if (!quitApproved) { event.preventDefault(); void requestClose('quit'); } });
-  app.on('will-quit', () => { updates.dispose(); void disposeConnections(); void native.dispose(); transports.dispose(); });
+  app.on('will-quit', () => { runtimeLifetime.abort(); updates.dispose(); void disposeConnections(); void native.dispose(); transports.dispose(); });
   app.on('second-instance', () => { window.show(); window.focus(); });
   app.on('activate', () => { window.show(); window.focus(); });
   window.on('close', event => {
@@ -243,6 +270,7 @@ async function start() {
   window.webContents.on('will-redirect', (event, url) => { if (!rendererURL(url)) event.preventDefault(); });
   window.webContents.on('will-attach-webview', event => event.preventDefault());
   window.webContents.on('render-process-gone', () => {
+    cancelRuntimeActions();
     window.webContents.setBackgroundThrottling(true);
     rendererReady = false; void disposeConnections(); void native.dispose();
     void dialog.showMessageBox(window, { type: 'error', message: 'The Whip window stopped responding',

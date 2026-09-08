@@ -66,14 +66,14 @@ export async function attachStartupProbe(window: BrowserWindow, options: Startup
   const expectedPath = process.env.WHIP_DESKTOP_STARTUP_ROUTE ?? '/';
   if (process.platform !== 'darwin' || !/^[a-f0-9]{32}$/.test(runId) || !/^\d{1,20}$/.test(started) ||
       !/^[a-f0-9]{64}$/.test(options.rendererDigest) || options.userData !== process.env.WHIP_DESKTOP_USER_DATA ||
-      !process.env.WHIP_HOME || !/^(?:\/|\/h\/[a-zA-Z0-9_-]{1,128}\/s\/[a-zA-Z0-9_-]{1,128})$/.test(expectedPath))
+      !process.env.WHIPCODE_HOME || !/^(?:\/|\/h\/[a-zA-Z0-9_-]{1,128}\/s\/[a-zA-Z0-9_-]{1,128})$/.test(expectedPath))
     throw new Error('Invalid startup fixture options');
   const parentStart = BigInt(started);
   const attached = process.hrtime.bigint();
   if (parentStart <= 0 || attached < parentStart || attached - parentStart > 60_000_000_000n)
     throw new Error('Invalid startup fixture clock');
   await privateDirectory(options.userData);
-  await privateDirectory(process.env.WHIP_HOME);
+  await privateDirectory(process.env.WHIPCODE_HOME);
   // Exclusive creation refuses stale files and symlinks. Keep the same descriptor
   // for the initial PID record and final bounded report; never follow a later path.
   const file = await open(path.join(options.userData, 'startup.json'), 'wx', 0o600);

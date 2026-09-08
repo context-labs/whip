@@ -34,6 +34,25 @@ type RuntimePaths struct {
 type OwnerLock struct{ file *os.File }
 
 func Paths(home string) (RuntimePaths, error) {
+	paths, err := ResolvePaths(home)
+	if err != nil {
+		return RuntimePaths{}, err
+	}
+	for _, dir := range []string{paths.Home, paths.Runtime} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return RuntimePaths{}, err
+		}
+		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // directories require execute permission and remain owner-only.
+			return RuntimePaths{}, err
+		}
+	}
+	return paths, nil
+}
+
+// ResolvePaths computes daemon locations without creating or modifying them.
+// Discovery must use this instead of Paths so inspecting a stopped installation
+// does not initialize a runtime or change existing directory permissions.
+func ResolvePaths(home string) (RuntimePaths, error) {
 	if home == "" {
 		return RuntimePaths{}, errors.New("runtime home is required")
 	}
@@ -41,23 +60,11 @@ func Paths(home string) (RuntimePaths, error) {
 	if err != nil {
 		return RuntimePaths{}, err
 	}
-	if err := os.MkdirAll(abs, 0o700); err != nil {
-		return RuntimePaths{}, err
-	}
-	if err := os.Chmod(abs, 0o700); err != nil { //nolint:gosec // directories require execute permission and remain owner-only.
-		return RuntimePaths{}, err
-	}
 	runtimeDir := abs
 	socket := filepath.Join(runtimeDir, "daemon.sock")
 	if len(socket) >= maxUnixSocketPath {
 		digest := sha256.Sum256([]byte(abs))
 		runtimeDir = filepath.Join(os.TempDir(), fmt.Sprintf("whip-%d-%s", os.Getuid(), hex.EncodeToString(digest[:8])))
-		if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
-			return RuntimePaths{}, err
-		}
-		if err := os.Chmod(runtimeDir, 0o700); err != nil { //nolint:gosec // directories require execute permission and remain owner-only.
-			return RuntimePaths{}, err
-		}
 		socket = filepath.Join(runtimeDir, "daemon.sock")
 	}
 	return RuntimePaths{Home: abs, Runtime: runtimeDir, Socket: socket, Lock: filepath.Join(runtimeDir, "daemon.lock")}, nil
@@ -99,14 +106,18 @@ func AcquireOwner(path string) (*OwnerLock, error) {
 }
 
 // ActiveOwnerPID returns the PID recorded by the process currently holding
-// the daemon owner lock. Stale PID text is ignored once the lock is free.
+// the daemon owner lock without creating or modifying the lock file. A missing
+// lock is unowned; stale PID text is ignored once the lock is free.
 func ActiveOwnerPID(path string) (int, bool, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // path comes from validated RuntimePaths.
+	file, err := os.Open(path) //nolint:gosec // path comes from validated RuntimePaths.
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, false, nil
+	}
 	if err != nil {
 		return 0, false, err
 	}
 	defer func() { _ = file.Close() }()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err == nil {
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err == nil {
 		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
 		return 0, false, nil
 	} else if !errors.Is(err, unix.EWOULDBLOCK) {
