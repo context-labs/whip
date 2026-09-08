@@ -5230,18 +5230,29 @@ func (m *model) statusView() string {
 	// Instead give the cwd only the space left after the fixed segments —
 	// truncating it to its tail, then dropping it entirely — so the spend
 	// survives whenever the fixed segments fit at all.
+	//
+	// Width math must be display-width aware (lipgloss.Width), not byte len:
+	// the "…" ellipsis is 3 bytes but 1 column, so a byte budget leaks cols
+	// and the final truncLine then clips the spend's tail (e.g. "300 …"
+	// instead of "300 tok"). ansi.TruncateLeft keeps the recognizable tail.
 	right := fmt.Sprintf("   %s   %s   %s", model, m.provName, spend)
 	dir := shortCWD()
-	switch budget := max(m.width, 0) - len(" ") - len(right); {
-	case len(dir) <= budget:
+	const lead = " "
+	budget := max(m.width, 0) - lipgloss.Width(lead) - lipgloss.Width(right)
+	switch {
+	case lipgloss.Width(dir) <= budget:
 		// fits as-is
 	case budget > 1:
-		dir = "…" + dir[len(dir)-budget+1:] // keep the tail, the recognizable part
+		// keep the tail (the recognizable part), prefix "…" which costs 1 col
+		keep := budget - 1
+		if drop := lipgloss.Width(dir) - keep; drop > 0 {
+			dir = "…" + ansi.TruncateLeft(dir, drop, "")
+		}
 	default:
 		dir = "" // no room for the path at all; show only the fixed segments
 	}
-	line := fmt.Sprintf(" %s%s", dir, right)
-	return dimStyle.Render(truncLine(line, max(m.width, 0)))
+	line := lead + dir + right
+	return dimStyle.Render(ansi.Truncate(line, max(m.width, 0), ""))
 }
 
 // shortCWD renders the working directory compactly for the status line: the
