@@ -51,22 +51,26 @@ func chdir(t *testing.T, dir string) {
 }
 
 // captureStdout runs fn with os.Stdout redirected and returns what it printed.
+// A file avoids filling a pipe before fn returns and the reader starts.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
-	r, w, err := os.Pipe()
+	out, err := os.CreateTemp(t.TempDir(), "stdout-*")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer out.Close()
 	origOut := os.Stdout
-	os.Stdout = w
+	os.Stdout = out
 	defer func() { os.Stdout = origOut }()
 	fn()
-	w.Close()
-	out, err := io.ReadAll(r)
+	if _, err := out.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	printed, err := io.ReadAll(out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(out)
+	return string(printed)
 }
 
 func TestMCPImportDryRunWritesNothing(t *testing.T) {

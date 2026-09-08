@@ -25,12 +25,13 @@ try {
   await writeFile(resolve(consumer, 'index.html'), '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Packed WHIP consumer</title></head><body><div id="root"></div><script type="module" src="/main.tsx"></script></body></html>');
   await writeFile(resolve(consumer, 'main.tsx'), `import {createRoot} from 'react-dom/client';
 import {createWhipApplication} from '@whip/app';
+import {urlProfile, resolveURLConnection} from '@whip/app/platform';
 import {ThemeProvider, UIProvider, Button, CodeBlock, Input, Textarea, Combobox, NumberField, Link} from '@whip/ui';
 import {WorkspaceTabs,workspaceTabId} from '@whip/ui/workspace-tabs';
 import '@whip/ui/reset.css';
 import '@whip/ui/fonts.css';
 const values = new Map();
-const application = createWhipApplication({storage:{keys:()=>[...values.keys()],getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)},defaultEndpoint:'http://127.0.0.1:1',openExternal(){},async copy(){},download(){}});
+const application = createWhipApplication({storage:{keys:()=>[...values.keys()],getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)},defaultConnection:urlProfile('http://127.0.0.1:1'),connectionKinds:['url'],resolveConnection:resolveURLConnection,sessionLink:path=>path,async openExternal(){},async copy(){},async download(){return 'saved'}});
 createRoot(document.getElementById('root')).render(new URLSearchParams(location.search).has('app') ? <application.Application/> : <ThemeProvider initialTheme="dark"><UIProvider><main><h1>Packed UI consumer</h1><WorkspaceTabs value="packed" items={[{value:'packed',label:'Packed tab',render:<a href="#packed-panel"/>}]} onClose={()=>{}} panelId="packed-panel"/><section id="packed-panel" role="tabpanel" aria-labelledby={workspaceTabId('packed')}><Button>Package button</Button><Input aria-label="Package input"/><Textarea aria-label="Package textarea"/><Combobox label="Package combobox" options={[]}/><NumberField label="Package number"/><Link href="#packed-panel">Package link</Link><CodeBlock language="starlark" code="return True"/></section></main></UIProvider></ThemeProvider>);
 window.addEventListener('pagehide',()=>application.dispose());
 `);

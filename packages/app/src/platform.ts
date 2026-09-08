@@ -1,19 +1,54 @@
+import type { ConnectionOptions, ConnectionProfile, ConnectionTarget, ResolvedConnection } from './connections';
+export { localProfile, urlProfile, validateProfile, resolveURLConnection } from './connections';
+export type { ConnectionOptions, ConnectionProfile, ConnectionTarget, ResolvedConnection } from './connections';
+
 /** Platform effects belong to the web/Electron shell, never the runtime SDK. */
 export interface AppStorage {
+  /** False when successful writes are retained only for this renderer's lifetime. */
+  readonly persistent?: boolean;
   keys(): string[];
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
   transaction?<T>(key: string, update: () => T): Promise<T>;
 }
+export type AppUpdateSnapshot = Readonly<{
+  state: 'idle' | 'checking' | 'available' | 'downloaded' | 'current' | 'error';
+  version?: string;
+  error?: string;
+}>;
+export interface AppUpdates {
+  readonly currentVersion: string;
+  getSnapshot(): AppUpdateSnapshot;
+  subscribe(listener: () => void): () => void;
+  check(): Promise<void>;
+  install(): Promise<void>;
+}
+export interface AppNotification {
+  id: string;
+  title: string;
+  body: string;
+  path: string;
+}
 export interface AppPlatform {
   storage: AppStorage;
   /** Independent per-window layout storage; omitted shells retain tabs in memory. */
   windowStorage?: AppStorage;
-  defaultEndpoint: string;
-  openExternal(url: string): void;
+  defaultConnection: ConnectionProfile;
+  connectionKinds: readonly ConnectionTarget['kind'][];
+  resolveConnection(profile: ConnectionProfile, options: ConnectionOptions): Promise<ResolvedConnection>;
+  openExternal(url: string): Promise<void>;
   copy(text: string): Promise<void>;
-  download(bytes: Uint8Array<ArrayBuffer>, filename: string, mediaType: string): void;
+  download(bytes: Uint8Array<ArrayBuffer>, filename: string, mediaType: string): Promise<'saved' | 'cancelled'>;
+  sessionLink(path: string, profile: ConnectionProfile): string;
+  pickDirectory?(): Promise<string | undefined>;
+  updates?: AppUpdates;
+  notify?(notification: AppNotification): Promise<void>;
+  setNotificationsEnabled?(enabled: boolean): void;
+  onCloseTab?(listener: () => void): () => void;
+  hideWindow?(): void;
+  /** Release shell-owned observations after the shared application unmounts. */
+  dispose?(): void;
 }
 
 /** Keep the app usable when browser policy or quota denies persistent storage. */
@@ -28,6 +63,7 @@ export function createFallbackStorage(getStorage: () => AppStorage, onUnavailabl
   try { storage = getStorage(); }
   catch { unavailable(); }
   return {
+    get persistent() { return storage !== undefined && storage.persistent !== false; },
     transaction(key, update) {
       // A private in-memory fallback cannot race another browser tab. Persistent
       // read-modify-write must acquire the origin's browser lock first.

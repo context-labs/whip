@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useWhipConnection } from '@whip/sdk/react';
@@ -9,6 +9,49 @@ import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime } from './context';
 import { sessionSearch } from './session-tabs';
 import { layout } from './styles';
+import { attentionQuery, AttentionNotifications, scanAttention } from './attention-notifications';
+
+/** Mounted once by the desktop shell, independently of sidebar/window visibility. */
+export function DesktopAttention({ client }: { client: WhipClient }) {
+  const runtime = useRuntime();
+  const connection = useWhipConnection(client);
+  const runtimeId = connection.info?.runtime_id ?? '';
+  const identity = `${runtimeId}:${connection.info?.connection_id ?? ''}`;
+  const enabled = connection.state === 'connected' && !!runtimeId;
+  const notifications = useRef(new AttentionNotifications());
+  const observed = useRef({ identity: '', updatedAt: 0 });
+  useEffect(() => {
+    runtime.platform.setNotificationsEnabled?.(true);
+    return () => runtime.platform.setNotificationsEnabled?.(false);
+  }, [runtime]);
+  const index = useQuery({
+    queryKey: ['desktop-attention', runtimeId, connection.info?.connection_id],
+    queryFn: ({ signal }) => scanAttention(client, runtime.queries, runtimeId, signal),
+    enabled,
+    refetchInterval: enabled ? 3000 : false,
+    refetchIntervalInBackground: true,
+    staleTime: 0,
+  });
+  useEffect(() => {
+    if (observed.current.identity !== identity) {
+      notifications.current.reset(); observed.current = { identity, updatedAt: 0 };
+    }
+    const current = client.getSnapshot();
+    if (!enabled || index.isError || runtime.getSnapshot().client !== client || current.state !== 'connected'
+      || current.info?.connection_id !== connection.info?.connection_id) {
+      notifications.current.reset(); observed.current.updatedAt = index.dataUpdatedAt; return;
+    }
+    if (!index.data || index.isFetching || observed.current.updatedAt === index.dataUpdatedAt) return;
+    observed.current.updatedAt = index.dataUpdatedAt;
+    const messages = notifications.current.observe(runtimeId, index.data);
+    let cancelled = false;
+    for (const message of messages) void runtime.platform.notify?.(message).catch(error => {
+      if (!cancelled && runtime.getSnapshot().client === client) runtime.report(error);
+    });
+    return () => { cancelled = true; };
+  }, [client, runtime, runtimeId, identity, connection.info?.connection_id, enabled, index.data, index.dataUpdatedAt, index.isFetching, index.isError]);
+  return null;
+}
 
 export function Attention({ client }: { client: WhipClient }) {
   const { preferences } = useAppState();
@@ -22,9 +65,7 @@ export function Attention({ client }: { client: WhipClient }) {
   const [after, setAfter] = useState<string>();
   const enabled = connection.state === 'connected';
   const index = useQuery({
-    queryKey: ['host-attention', connection.info?.runtime_id, after],
-    queryFn: ({ signal }) =>
-      client.host.attention({ after_id: after }, { signal }),
+    ...attentionQuery(client, connection.info?.runtime_id, after),
     enabled,
     refetchInterval: enabled ? 3000 : false,
   });

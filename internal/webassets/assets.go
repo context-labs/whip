@@ -11,13 +11,11 @@ import (
 	"strings"
 )
 
-// ContentSecurityPolicy is shared by production asset responses and browser
-// acceptance tests. No runtime code generation or inline scripts/styles are needed.
-// Explicit host connections use the normal HTTP/WebSocket schemes; content images
-// are read through the SDK and displayed as scoped blob/data references.
-const ContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'none'; " +
-	"img-src 'self' data: blob:; font-src 'self'; connect-src 'self' http: https: ws: wss:; " +
-	"worker-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; object-src 'none'"
+//go:embed csp.txt
+var contentSecurityPolicy string
+
+// ContentSecurityPolicy is shared by Go responses, desktop packaging and acceptance tests.
+var ContentSecurityPolicy = strings.TrimSpace(contentSecurityPolicy)
 
 //go:embed all:dist
 var embedded embed.FS

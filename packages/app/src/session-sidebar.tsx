@@ -27,7 +27,7 @@ interface SidebarProps {
 }
 export function SessionSidebar(props: SidebarProps) {
   const app = useAppState();
-  return app.client && app.list ? <ConnectedSidebar key={app.endpoint} {...props} client={app.client} list={app.list} /> : <>
+  return app.client && app.list ? <ConnectedSidebar key={app.connection.id} {...props} client={app.client} list={app.list} /> : <>
     <SidebarDestinations onNavigate={props.onNavigate} onSearch={props.onConnect} headerAction={props.headerAction} />
     <div {...stylex.props(layout.grow)}><Button onClick={props.onConnect}>Connect to host</Button></div>
     <SidebarFooter onConnect={props.onConnect} />
@@ -44,7 +44,8 @@ function SidebarDestinations({ onNavigate, onSearch, headerAction }: { onNavigat
   </>;
 }
 function SidebarFooter({ onConnect }: { onConnect(): void }) {
-  const { endpoint } = useAppState();
+  const { connection } = useAppState();
+  const endpoint = connection.label;
   return <div {...stylex.props(styles.footer)}>
     <button {...stylex.props(styles.destination, layout.grow)} onClick={onConnect} title={endpoint} aria-label={`Change execution host: ${endpoint}`}>
       <Plug size={16} /><span {...stylex.props(layout.ellipsis, layout.grow)}>{endpoint}</span><ArrowUpRight size={13} />

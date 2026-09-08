@@ -50,9 +50,9 @@ func newNetworkHandler(
 		if err != nil || parsed.Host == "" || parsed.User != nil {
 			return nil, errors.New("invalid allowed browser origin")
 		}
-		validScheme := parsed.Scheme == "http" || parsed.Scheme == "https"
+		validScheme := parsed.Scheme == "http" || parsed.Scheme == "https" || origin == "whip-app://bundle"
 		if !validScheme || origin != parsed.Scheme+"://"+parsed.Host {
-			return nil, errors.New("browser origins must be exact HTTP origins")
+			return nil, errors.New("browser origins must be exact HTTP origins or whip-app://bundle")
 		}
 	}
 	mux := http.NewServeMux()

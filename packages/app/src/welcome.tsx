@@ -33,6 +33,7 @@ export function Welcome() {
 }
 function NewSession({ client }: { client: WhipClient }) {
   const runtime = useRuntime();
+  const { connection: profile } = useAppState();
   const connection = useWhipConnection(client);
   const navigate = useNavigate();
   const router = useRouter();
@@ -44,6 +45,29 @@ function NewSession({ client }: { client: WhipClient }) {
   const [cwd, setCwd] = useState(prefill);
   useEffect(() => setCwd(prefill), [prefill, connection.info?.runtime_id, creationLocation]);
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const pickerRequest = useRef(0);
+  useEffect(() => {
+    ++pickerRequest.current; setPicking(false);
+    return () => { ++pickerRequest.current; };
+  }, [client, profile.id, connection.info?.runtime_id, creationLocation]);
+  async function pickLocalDirectory() {
+    if (!runtime.platform.pickDirectory || picking || profile.target.kind !== 'local') return;
+    const request = ++pickerRequest.current;
+    const startingLocation = router.state.location;
+    const runtimeId = connection.info?.runtime_id;
+    const active = () => mounted.current && request === pickerRequest.current;
+    const current = () => active()
+      && router.state.location === startingLocation && runtime.getSnapshot().client === client
+      && client.getSnapshot().info?.runtime_id === runtimeId
+      && runtime.getSnapshot().connection.id === profile.id && runtime.getSnapshot().connection.target.kind === 'local';
+    setPicking(true);
+    try {
+      const path = await runtime.platform.pickDirectory();
+      if (path !== undefined && current()) setCwd(path);
+    } catch (error) { if (current()) runtime.report(error); }
+    finally { if (active()) setPicking(false); }
+  }
   const [model, setModel] = useState('');
   const previous = runtime.lastSession();
   const previousView = previous ? runtime.tabs.preferred(previous.runtimeId, previous.rootId) : undefined;
@@ -121,12 +145,15 @@ function NewSession({ client }: { client: WhipClient }) {
         placeholder="/path/to/your/project"
         required
       />
-      <DirectoryPicker
+      {profile.target.kind === 'local' && runtime.platform.pickDirectory ? <Button variant="secondary"
+        disabled={!enabled || busy} loading={picking} onClick={() => void pickLocalDirectory()}>
+        <FolderOpen size={14} /> Browse this Mac
+      </Button> : <DirectoryPicker
         client={client}
         value={cwd}
         onSelect={setCwd}
         disabled={!enabled}
-      />
+      />}
       {!!models.length && (
         <Combobox
           label="Model for new session"

@@ -1,0 +1,14 @@
+{
+  "ownedDaemonPids": [
+    70976,
+    71046,
+    71103,
+    71172,
+    71224,
+    71308,
+    71477,
+    71548
+  ],
+  "stillPresentAfterStop": [],
+  "isolatedTemporaryHomesRemoved": true
+}

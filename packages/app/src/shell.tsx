@@ -4,8 +4,6 @@ import { useHotkey } from '@tanstack/react-hotkeys';
 import {
   Button,
   IconButton,
-  Input,
-  Dialog,
   Sheet,
   CommandPicker,
 } from '@whip/ui';
@@ -23,7 +21,9 @@ import { SidebarResize, useSidebarLayout } from './sidebar-layout';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { inspectorSections, isInspectorSection } from './navigation';
 import { ConnectionNotice } from './connection-notice';
+import { ConnectionDialog } from './connection-dialog';
 import { SessionTabStrip, type SessionTabActions } from './session-tab-strip';
+import { DesktopAttention } from './attention';
 
 export function AppShell({ children }: { children: ReactNode }) {
   const runtime = useRuntime();
@@ -56,9 +56,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     onClick={toggleNavigation}><PanelLeft size={18} /></IconButton>;
   const [connection, setConnection] = useState(false);
   const [commands, setCommands] = useState(false);
-  const [endpoint, setEndpoint] = useState(state.endpoint);
-  const [connecting, setConnecting] = useState(false);
   const tabActions = useRef<SessionTabActions>(null);
+  useEffect(() => runtime.platform.onCloseTab?.(() => {
+    // Let the shared tab command preserve its draft/attachment confirmation.
+    if (!tabActions.current?.close()) runtime.platform.hideWindow?.();
+  }), [runtime]);
   const focusComposer = () => {
     const id = state.client?.getSnapshot().info?.runtime_id;
     const tab = id ? selectedSessionTab(runtime.tabs.workspace(id)) : undefined;
@@ -69,9 +71,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     setCommands((value) => !value),
   );
   useHotkey(state.preferences.composerShortcut, focusComposer);
-  useEffect(() => setEndpoint(state.endpoint), [state.endpoint]);
   const notices = <>
 {state.client && <ConnectionNotice client={state.client} />}
+{state.connectionProgress && <p role="status" {...stylex.props(layout.notice)}>{state.connectionProgress}</p>}
         {state.error && (
           <div role="alert" {...stylex.props(layout.row, layout.notice)}>
             <span {...stylex.props(layout.grow)}>{state.error}</span>
@@ -86,6 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   </>;
   return (
     <div {...stylex.props(layout.shell)}>
+      {state.client && runtime.platform.notify && state.preferences.desktopNotifications && <DesktopAttention key={state.connection.id} client={state.client} />}
       {!compact && !sidebar.state.hidden && <aside id="whip-session-navigation" {...stylex.props(layout.sidebar)} style={{ width: sidebar.width }} aria-label="Session navigation">
         <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch} headerAction={navigationToggle}
           onConnect={() => setConnection(true)} onNavigate={() => {}} />
@@ -109,76 +112,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           />
         </div>
       </Sheet>
-      <Dialog
-        open={connection}
-        onOpenChange={setConnection}
-        title="Connect to an execution host"
-        description="Your sessions and work run on this host."
-      >
-        <form
-          {...stylex.props(layout.column)}
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setConnecting(true);
-            try {
-              await runtime.connect(endpoint);
-              setConnection(false);
-            } catch {
-              // Setup and connection errors are displayed by their owners.
-            } finally {
-              setConnecting(false);
-            }
-          }}
-        >
-          {state.hosts.length > 0 && (
-            <div
-              {...stylex.props(layout.column)}
-              aria-label="Saved execution hosts"
-            >
-              {state.hosts.map((host) => (
-                <div key={host} {...stylex.props(layout.row)}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setEndpoint(host)}
-                  >
-                    {host}
-                  </Button>
-                  <IconButton
-                    label={`Forget ${host}`}
-                    onClick={() => {
-                      try {
-                        runtime.forgetHost(host);
-                      } catch (error) {
-                        runtime.report(error);
-                      }
-                    }}
-                  >
-                    <X size={13} />
-                  </IconButton>
-                </div>
-              ))}
-            </div>
-          )}
-          <label htmlFor="host-endpoint">Daemon address</label>
-          <Input
-            id="host-endpoint"
-            value={endpoint}
-            onChange={(event) => setEndpoint(event.target.value)}
-            placeholder="http://localhost:8080"
-            required
-            autoFocus
-          />
-          <p {...stylex.props(layout.muted)}>
-            Use the endpoint shown by <code>whip daemon status</code>. A phone
-            or remote browser needs the host’s HTTPS address.
-          </p>
-          <Button type="submit" variant="primary" loading={connecting}>
-            Connect
-          </Button>
-        </form>
-      </Dialog>
-      {state.client && state.list && <SessionSearchDialog key={state.endpoint} client={state.client} list={state.list}
+      <ConnectionDialog open={connection} onOpenChange={setConnection} />
+      {state.client && state.list && <SessionSearchDialog key={state.connection.id} client={state.client} list={state.list}
         open={searchOpen} onOpenChange={setSearchOpen}
         finalFocus={() => searchOpener.current?.isConnected ? searchOpener.current : toggleRef.current} />}
       <CommandPicker

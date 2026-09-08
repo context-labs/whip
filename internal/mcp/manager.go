@@ -88,6 +88,7 @@ type server struct {
 	generation     string
 	connectionCtx  context.Context
 	connectionStop context.CancelFunc
+	transportStop  context.CancelFunc // survives catalog/admission generation changes
 	stderr         *ringBuffer
 
 	// ready closes exactly once when the FIRST connect attempt settles
@@ -496,9 +497,19 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 	timeout := cfg.StartupTimeoutDuration()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	transportCtx, transportStop := context.WithCancel(m.runCtx)
+	connected := false
+	defer func() {
+		if !connected {
+			transportStop()
+		}
+	}()
+	stopStartup := context.AfterFunc(ctx, transportStop)
+	defer stopStartup()
 
 	transport, err := m.connectTransport(ctx, cfg, s.stderr)
 	if err == nil {
+		transport = bindHTTPContext(transportCtx, transport)
 		client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "whip", Title: "whip"}, &sdkmcp.ClientOptions{
 			ToolListChangedHandler: func(_ context.Context, request *sdkmcp.ToolListChangedRequest) {
 				s.refreshCatalog(m, request.Session)
@@ -526,6 +537,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 					m.mu.Unlock()
 					// Manager closing, or this server was removed mid-connect
 					// (import source toggled off): don't store the session.
+					transportStop()
 					_ = sess.Close()
 					return
 				}
@@ -535,6 +547,14 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 					s.mu.Unlock()
 					m.mu.Unlock()
 					continue
+				}
+				// Transfer the connection out of startup only if its deadline
+				// has not fired. A successful SSE stream must survive cancel().
+				if !stopStartup() {
+					err = ctx.Err()
+					s.mu.Unlock()
+					m.mu.Unlock()
+					break
 				}
 				var instr string
 				if ir := sess.InitializeResult(); ir != nil {
@@ -546,6 +566,8 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				s.gen++
 				s.generation = rand.Text()
 				s.connectionCtx, s.connectionStop = context.WithCancel(m.runCtx)
+				s.transportStop = transportStop
+				connected = true
 				s.setStateLocked(StatusReady, "")
 				s.autoTries = 0
 				gen := s.gen
@@ -576,6 +598,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				})
 				return
 			}
+			transportStop()
 			_ = sess.Close()
 		}
 	}

@@ -102,9 +102,10 @@ jobs:
 
       - name: go test (portable set, with coverage)
         run: |
-          PKGS=$(go list ./... | grep -v -e /internal/browser -e /internal/tui)
+          mapfile -t packages < <(go list ./... | grep -v -e /internal/browser -e /internal/tui)
+          printf -v cover_packages '%s,' "${packages[@]}"
           go test -race -shuffle=on \
-            -coverprofile=cover.out -coverpkg="$(echo $PKGS | tr ' ' ',')" $PKGS
+            -coverprofile=cover.out -coverpkg="${cover_packages%,}" "${packages[@]}"
 
       # Self-contained coverage floor — no external service or token, so it
       # works identically on fork PRs. Baseline today is ~93.6%; the gate fails
@@ -178,7 +179,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -194,6 +195,14 @@ jobs:
           node --test scripts/pack-web.test.mjs
           node scripts/pack-web.mjs
           npm run build:storybook -w @whip/ui
+      - name: Shared renderer for native acceptance
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-renderer
+          if-no-files-found: error
+          path: |
+            apps/web/dist
+            apps/web/renderer-manifest.json
       - run: WHIP_SDK_RACE=1 npm run acceptance
       - run: npm run test:package
       - run: npx playwright install --with-deps chromium firefox
@@ -214,12 +223,56 @@ jobs:
             /tmp/whip-web-browser-results
             packages/ui/ui-test-results
 
+  desktop:
+    needs: sdk
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: node node_modules/electron/install.js
+      - uses: actions/download-artifact@v8
+        with:
+          name: ci-renderer
+          path: apps/web
+      - name: Verify shared renderer provenance and package input
+        run: node scripts/pack-web.mjs --release
+      - run: npm run check:desktop
+      - name: Native helper races and parent-lifetime acceptance
+        run: go test -race -shuffle=on -count=1 ./cmd/whip -run '^TestDesktop'
+      - name: Package and verify the arm64 desktop without rebuilding the renderer
+        run: |
+          mkdir -p .ai-docs/plans/desktop-app/evidence
+          npm run package:desktop -- --renderer-ready
+          node apps/desktop/scripts/verify.mjs 'apps/desktop/out/Whip-darwin-arm64/Whip.app'
+      - name: Native tests including isolated real SSH authentication and forwarding
+        run: WHIP_DESKTOP_SSH_TEST_EXECUTABLE="$PWD/apps/desktop/.stage/native/whip" npm run test:desktop
+      - name: Staged desktop lifecycle smoke
+        run: node apps/desktop/scripts/smoke.mjs
+      - name: Desktop package and lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-ci-evidence
+          if-no-files-found: warn
+          path: .ai-docs/plans/desktop-app/evidence
+
   # `go` is a required status check in the repo's ruleset, so the name has to
   # survive the split. It is the aggregate gate: green only when lint, tests,
-  # builds, both runtime platforms, SDK, and the Swift driver all pass. if: always()
+  # builds, both runtime platforms, SDK, desktop, and Swift driver all pass. if: always()
   # makes a failed dependency report as a failure here rather than a skip.
   go:
-    needs: [lint, test, build, runtime, driver, sdk]
+    needs: [lint, test, build, runtime, driver, sdk, desktop]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -231,12 +284,14 @@ jobs:
           echo "runtime=${{ needs.runtime.result }}"
           echo "driver=${{ needs.driver.result }}"
           echo "sdk=${{ needs.sdk.result }}"
+          echo "desktop=${{ needs.desktop.result }}"
           [ "${{ needs.lint.result }}" = success ] || exit 1
           [ "${{ needs.test.result }}" = success ] || exit 1
           [ "${{ needs.build.result }}" = success ] || exit 1
           [ "${{ needs.runtime.result }}" = success ] || exit 1
           [ "${{ needs.driver.result }}" = success ] || exit 1
           [ "${{ needs.sdk.result }}" = success ] || exit 1
+          [ "${{ needs.desktop.result }}" = success ] || exit 1
 
   # The release pipeline builds the computer-use Swift driver on macOS and
   # go:embeds it — build it here too so a driver-breaking change fails the

@@ -17,7 +17,7 @@ import { useAppState, useRuntime, useSessionTabs } from './context';
 import { sessionDestination } from './session-tab-routing';
 import { layout } from './styles';
 
-export interface SessionTabActions { next(offset: -1 | 1): void; close(): void; reopen(): void; showPicker(): void }
+export interface SessionTabActions { next(offset: -1 | 1): void; close(): boolean; reopen(): void; showPicker(): void }
 type SessionNavigationSummary = SessionSummariesResult['items'][number];
 export function summaryDescription(item?: SessionNavigationSummary, stale = false) {
   if (!item || stale) return 'Activity unavailable';
@@ -167,7 +167,7 @@ export function SessionTabStrip({ client, compact, utilities, children, notices,
   const actions = (tab: SessionTab): MenuItem[] => {
     const pane = sessionViewPane(workspace, tab.id)!;
     const index = pane.tabs.findIndex(item => item.id === tab.id);
-    const href = new URL(`/h/${encodeURIComponent(runtimeId)}/s/${encodeURIComponent(tab.rootId)}`, window.location.href);
+    const href = new URL(`/h/${encodeURIComponent(runtimeId)}/s/${encodeURIComponent(tab.rootId)}`, 'https://whip.invalid');
     for (const [key, value] of Object.entries(sessionSearch(tab))) if (value) href.searchParams.set(key, value);
     return [
       { id: 'view', label: tab.kind === 'repl' ? 'Open chat' : 'Open REPL', onSelect: () => {
@@ -190,12 +190,12 @@ export function SessionTabStrip({ client, compact, utilities, children, notices,
       ...(['right', 'bottom'] as const).map(edge => ({ id: `move-new-${edge}`, label: `Move to new split ${edge === 'bottom' ? 'below' : 'right'}`, disabled: pane.tabs.length < 2 || !canSplit(pane.id, edge), onSelect: () => transfer({ viewId: tab.id, paneId: pane.id, edge }) })),
       { id: 'left', label: 'Move left', disabled: index <= 0, onSelect: () => runtime.tabs.move(runtimeId, tab.id, -1) },
       { id: 'move-right', label: 'Move right', disabled: index >= pane.tabs.length - 1, onSelect: () => runtime.tabs.move(runtimeId, tab.id, 1) },
-      { id: 'link', label: 'Copy session link', onSelect: () => void runtime.platform.copy(href.href).catch(error => runtime.report(error)) },
+      { id: 'link', label: 'Copy session link', onSelect: () => void runtime.platform.copy(runtime.platform.sessionLink(href.pathname + href.search, runtime.getSnapshot().connection)).catch(error => runtime.report(error)) },
     ];
   };
   useImperativeHandle(ref, () => ({
     next(offset) { const list = focusedPane.tabs; if (!list.length) return; const index = list.findIndex(t => t.id === active?.id); go(list[index < 0 ? offset === 1 ? 0 : list.length - 1 : (index + offset + list.length) % list.length]!.id); },
-    close() { if (active) close([active.id]); }, reopen,
+    close() { if (!matched || !active) return false; close([active.id]); return true; }, reopen,
     showPicker() { setPicker(true); setSearch(''); },
   }));
   const add = <IconButton variant="ghost" label="New session tab" onClick={() => void navigate({ to: '/' })}><Plus size={17} /></IconButton>;

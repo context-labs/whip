@@ -1,0 +1,44 @@
+{
+  "first-install": {
+    "count": 4,
+    "totalMs": {
+      "median": 802.4983124999999,
+      "min": 787.8167910000002,
+      "max": 855.4260419999999
+    },
+    "cumulativeHashMs": 70.17166649999996,
+    "cumulativeCodesignMs": 141.44891800000022,
+    "loginEnvironmentMs": 26.403082999999697,
+    "statusMs": 37.1129374999997,
+    "installRuntimeMs": 154.44000000000008,
+    "daemonStartMs": 513.4099585000001
+  },
+  "warm-attach": {
+    "count": 8,
+    "totalMs": {
+      "median": 109.50147900000013,
+      "min": 105.27537500000017,
+      "max": 129.46033400000033
+    },
+    "cumulativeHashMs": 20.620166499999982,
+    "cumulativeCodesignMs": 45.99752049999995,
+    "loginEnvironmentMs": 24.209000000000287,
+    "statusMs": 17.925791499999832,
+    "installRuntimeMs": 0.0,
+    "daemonStartMs": 0.0
+  },
+  "retained-restart": {
+    "count": 4,
+    "totalMs": {
+      "median": 275.6402915,
+      "min": 266.5385839999999,
+      "max": 280.01950000000033
+    },
+    "cumulativeHashMs": 43.56991649999975,
+    "cumulativeCodesignMs": 93.60433250000051,
+    "loginEnvironmentMs": 27.7485415000001,
+    "statusMs": 35.693229499999575,
+    "installRuntimeMs": 69.30539600000009,
+    "daemonStartMs": 72.1053750000001
+  }
+}

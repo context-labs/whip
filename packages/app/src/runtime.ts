@@ -18,6 +18,7 @@ import {
 import type { CommandOperation } from '@whip/protocol';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { SessionTabs } from './session-tabs';
+import { readConnections, saveConnections, hostsStorageKey, urlProfile, validateProfile, type ConnectionProfile, type ResolvedConnection } from './connections';
 import { CompositionStore } from './compositions';
 import { ReadingPositions } from './reading-positions';
 import { SubmittedInputs } from './input-presentation';
@@ -52,18 +53,22 @@ export interface DevicePreferences {
   commandShortcut: (typeof commandShortcuts)[number];
   composerShortcut: (typeof composerShortcuts)[number];
   attentionAnnouncements: boolean;
+  desktopNotifications: boolean;
 }
 const defaultPreferences: DevicePreferences = {
   commandShortcut: 'Mod+K',
   composerShortcut: 'Mod+Shift+L',
   attentionAnnouncements: true,
+  desktopNotifications: false,
 };
 interface RuntimeSnapshot {
   preferences: DevicePreferences;
-  hosts: readonly string[];
+  hosts: readonly ConnectionProfile[];
   client?: WhipClient;
   list?: SessionListView;
-  endpoint: string;
+  connection: ConnectionProfile;
+  connectionProgress?: string;
+  needsConnectionSelection?: boolean;
   error?: string;
   commands: readonly CommandNotice[];
 }
@@ -94,6 +99,7 @@ export class AppRuntime {
   private readonly draftListeners = new Map<string, Set<() => void>>();
   private readonly agentReaders = new WeakMap<SessionView, Map<string, { users: number }>>();
   private readonly draftIdentities = new Set<string>();
+  private readonly durableDrafts = new Set<string>();
   private readonly pending = new Map<string, PendingCommand>();
   private draftTimer?: ReturnType<typeof setTimeout>;
   private readonly dirtyDrafts = new Set<string>();
@@ -101,34 +107,22 @@ export class AppRuntime {
   private waits = new AbortController();
   private epoch = 0;
   private closed = false;
+  private resolving?: AbortController;
+  private resolved?: ResolvedConnection;
 
   constructor(readonly platform: AppPlatform) {
-    const saved = readPreference<unknown>(
-      platform.storage,
-      'whip.web.endpoint',
-      platform.defaultEndpoint,
-    );
+    const connections = readConnections(platform.storage, platform.defaultConnection, platform.connectionKinds);
     const preferences = readPreference<Partial<DevicePreferences> | null>(
       platform.storage,
       'whip.web.preferences.v1',
       null,
     );
-    const hosts = readPreference<unknown>(
-      platform.storage,
-      'whip.web.hosts.v1',
-      [],
-    );
     this.state = {
-      endpoint: typeof saved === 'string' ? saved : platform.defaultEndpoint,
+      connection: connections.selected,
+      hosts: connections.hosts,
+      error: connections.notice,
+      needsConnectionSelection: connections.needsSelection,
       commands: [],
-      hosts: Array.isArray(hosts)
-        ? hosts
-            .filter(
-              (host): host is string =>
-                typeof host === 'string' && host.length <= 2048,
-            )
-            .slice(0, 16)
-        : [],
       preferences: {
         commandShortcut: commandShortcuts.includes(
           preferences?.commandShortcut as never,
@@ -141,6 +135,7 @@ export class AppRuntime {
           ? preferences!.composerShortcut!
           : defaultPreferences.composerShortcut,
         attentionAnnouncements: preferences?.attentionAnnouncements !== false,
+        desktopNotifications: preferences?.desktopNotifications === true,
       },
     };
     this.tabs = new SessionTabs(platform.windowStorage, message => this.report(message));
@@ -177,10 +172,22 @@ export class AppRuntime {
     );
     this.update({ preferences });
   }
-  forgetHost(endpoint: string) {
-    const hosts = this.state.hosts.filter((host) => host !== endpoint);
-    this.platform.storage.setItem('whip.web.hosts.v1', JSON.stringify(hosts));
+  forgetHost(id: string) {
+    const hosts = this.state.hosts.filter(host => host.id !== id);
+    this.platform.storage.setItem(hostsStorageKey, JSON.stringify(hosts));
     this.update({ hosts });
+  }
+  cancelConnection() {
+    if (!this.resolving || this.state.connectionProgress === undefined) return;
+    ++this.epoch;
+    this.detach();
+    this.update({ client: undefined, list: undefined, connectionProgress: undefined });
+  }
+  private rememberConnectedRuntime(profileId: string, runtimeId: string) {
+    if (this.state.connection.id !== profileId || this.state.connection.runtimeId === runtimeId) return;
+    const connection = { ...this.state.connection, runtimeId };
+    const hosts = saveConnections(this.platform.storage, this.state.hosts, connection);
+    this.update({ connection, hosts });
   }
   rememberSession(runtimeId: string, rootId: string) {
     this.platform.storage.setItem(
@@ -214,6 +221,9 @@ export class AppRuntime {
     if (!this.dirtyDrafts.has(key)) {
       try {
         const text = this.platform.storage.getItem(draftStoragePrefix + key);
+        if (this.platform.storage.persistent !== false) {
+          if (text) this.durableDrafts.add(key); else this.durableDrafts.delete(key);
+        }
         if (text) {
           this.validateDrafts(new Map([[key, text]]));
           return text;
@@ -250,8 +260,14 @@ export class AppRuntime {
       if (!key.startsWith(draftStoragePrefix)) continue;
       const text = this.platform.storage.getItem(key);
       if (text) saved.set(key.slice(draftStoragePrefix.length), text);
+      if (text && this.platform.storage.persistent !== false)
+        this.durableDrafts.add(key.slice(draftStoragePrefix.length));
       // Stop reading oversized storage before retaining unbounded values.
       this.validateDrafts(saved);
+    }
+    if (this.platform.storage.persistent !== false) {
+      this.durableDrafts.clear();
+      for (const key of saved.keys()) this.durableDrafts.add(key);
     }
     return saved;
   }
@@ -270,6 +286,7 @@ export class AppRuntime {
       next.set(key, text);
       this.validateDrafts(next);
     }
+    const wasUnsaved = this.hasUnsavedDrafts();
     if (text) this.drafts.set(key, text); else this.drafts.delete(key);
     const hadDraft = this.draftIdentities.has(key);
     if (text) this.draftIdentities.add(key); else this.draftIdentities.delete(key);
@@ -277,33 +294,51 @@ export class AppRuntime {
     for (const listener of this.draftListeners.get(key) ?? []) listener();
     clearTimeout(this.draftTimer);
     this.draftTimer = setTimeout(() => this.flushDrafts(), 150);
-    if (hadDraft !== !!text) this.update({});
+    if (hadDraft !== !!text || wasUnsaved !== this.hasUnsavedDrafts()) this.update({});
   }
-  flushDrafts() {
+  hasUnsavedDrafts() {
+    return this.dirtyDrafts.size > 0 || (this.platform.storage.persistent === false && this.draftIdentities.size > 0);
+  }
+  /** Flush text synchronously and tell the host whether closing could lose changes. */
+  flushDrafts(): { saved: boolean; error?: string } {
     clearTimeout(this.draftTimer);
     this.draftTimer = undefined;
-    if (!this.dirtyDrafts.size) return;
+    const wasUnsaved = this.hasUnsavedDrafts();
     try {
       // Explicit deletion must remain possible even when externally written
       // drafts already exceed the aggregate admission bound.
       for (const key of this.dirtyDrafts) {
         if (this.drafts.has(key)) continue;
+        if (this.platform.storage.persistent !== false && this.platform.storage.getItem(draftStoragePrefix + key))
+          this.durableDrafts.add(key);
         this.platform.storage.removeItem(draftStoragePrefix + key);
+        // A fallback-only deletion cannot remove the old disk entry. Keep its
+        // tombstone dirty so a close never claims that change was saved.
+        if (this.platform.storage.persistent === false && this.durableDrafts.has(key)) continue;
+        this.durableDrafts.delete(key);
         this.dirtyDrafts.delete(key);
       }
-      if (!this.dirtyDrafts.size) return;
-      this.validateDrafts(this.mergedDrafts());
+      if (this.dirtyDrafts.size) this.validateDrafts(this.mergedDrafts());
       // Each recipient has its own atomic Storage entry. Synchronous pagehide
       // writes never replace another tab's unrelated drafts or need a lock.
       for (const key of this.dirtyDrafts) {
         const text = this.drafts.get(key);
-        this.platform.storage.setItem(draftStoragePrefix + key, text!);
+        if (!text) continue;
+        this.platform.storage.setItem(draftStoragePrefix + key, text);
+        if (this.platform.storage.persistent !== false) this.durableDrafts.add(key);
         this.drafts.delete(key);
         this.dirtyDrafts.delete(key);
       }
     } catch (error) {
-      this.report(new Error('Drafts could not be saved; keep this page open to retain them.', { cause: error }));
+      const message = 'Drafts could not be saved; keep this page open to retain them.';
+      this.report(new Error(message, { cause: error }));
+      return { saved: false, error: message };
     }
+    const unsaved = this.hasUnsavedDrafts();
+    if (wasUnsaved !== unsaved) this.update({});
+    return unsaved
+      ? { saved: false, error: 'Device storage is unavailable. Closing or reloading may lose draft changes; keep this page open to retain them.' }
+      : { saved: true };
   }
   /** Explicitly forget unsent draft text without touching command identities. */
   discardDrafts() {
@@ -314,15 +349,16 @@ export class AppRuntime {
       ...[...this.drafts.keys(), ...this.dirtyDrafts].map(key => draftStoragePrefix + key),
     ]);
     for (const key of keys) {
-      this.platform.storage.removeItem(key);
       const recipient = key.slice(draftStoragePrefix.length);
       this.drafts.delete(recipient);
       this.draftIdentities.delete(recipient);
-      this.dirtyDrafts.delete(recipient);
+      this.dirtyDrafts.add(recipient);
       for (const listener of this.draftListeners.get(recipient) ?? []) listener();
     }
+    const flushed = this.flushDrafts();
     this.compositions.clearAll();
     this.update({});
+    if (!flushed.saved) throw new Error(flushed.error);
   }
   private recoveryStorage(): RecoveryStorage {
     const key = 'whip.web.recovery.v1';
@@ -370,64 +406,72 @@ export class AppRuntime {
         ),
     };
   }
-  async connect(endpoint = this.state.endpoint): Promise<void> {
+  async connect(target: ConnectionProfile | string = this.state.connection): Promise<void> {
     let epoch = this.epoch;
     try {
       if (this.closed) throw new Error('Application has been disposed');
-      const url = new URL(endpoint);
-      if (
-        !['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol) ||
-        url.username ||
-        url.password
-      )
-        throw new Error(
-          'Enter an HTTP or WebSocket daemon endpoint without credentials',
-        );
+      const profile = typeof target === 'string' ? urlProfile(target) : validateProfile(target);
+      if (!this.platform.connectionKinds.includes(profile.target.kind))
+        throw new Error('This connection method is unavailable in this app');
       let clientId = this.platform.storage.getItem('whip.web.client.v1');
       if (!clientId) {
         if (!globalThis.crypto?.randomUUID)
-          throw new Error(
-            'This browser needs HTTPS (or localhost) to connect to WHIP. Open the host’s HTTPS address.',
-          );
+          throw new Error('This browser needs HTTPS (or localhost) to connect to WHIP. Open the host’s HTTPS address.');
         clientId = crypto.randomUUID();
         this.platform.storage.setItem('whip.web.client.v1', clientId);
       }
-      this.platform.storage.setItem(
-        'whip.web.endpoint',
-        JSON.stringify(endpoint),
-      );
+      // Validate and persist before retiring a healthy client. Start the epoch
+      // before any asynchronous host discovery/authentication can complete.
+      const hosts = saveConnections(this.platform.storage, this.state.hosts, profile);
+      epoch = ++this.epoch;
+      this.detach();
+      const controller = new AbortController();
+      this.resolving = controller;
+      this.update({ client: undefined, list: undefined, connection: profile, hosts,
+        error: undefined, commands: [], connectionProgress: 'Connecting…', needsConnectionSelection: false });
+      const resolved = await this.platform.resolveConnection(profile, {
+        signal: controller.signal,
+        onProgress: message => {
+          if (!this.closed && epoch === this.epoch) this.update({ connectionProgress: message });
+        },
+      });
+      if (this.closed || epoch !== this.epoch || controller.signal.aborted) {
+        resolved.dispose();
+        throw new Error('Host changed while connecting');
+      }
+      this.resolved = resolved;
       const client = createWhipClient({
-        endpoint,
-        clientId,
-        clientKind: 'human',
+        endpoint: resolved.endpoint, clientId, clientKind: 'human',
+        expectedRuntimeId: profile.runtimeId,
         recoveryStorage: this.recoveryStorage(),
       });
       const list = createSessionListView(client);
-      epoch = ++this.epoch;
-      this.detach();
       let previousConnection: string | undefined;
       this.unsubscribe = client.subscribe(() => {
-        const info = client.getSnapshot().info;
-        if (info?.connection_id && info.connection_id !== previousConnection) {
+        if (this.closed || epoch !== this.epoch) return;
+        const snapshot = client.getSnapshot();
+        const info = snapshot.info;
+        if (snapshot.state === 'connected' && info?.connection_id && info.connection_id !== previousConnection) {
           previousConnection = info.connection_id;
+          try { this.rememberConnectedRuntime(profile.id, info.runtime_id); }
+          catch (error) { this.report(error); }
           void this.queries.invalidateQueries();
         }
       });
-      this.update({ client, list, endpoint, error: undefined, commands: [] });
+      this.update({ client, list });
       await list.start();
-      if (epoch !== this.epoch)
-        throw new Error('Host changed while connecting');
+      if (epoch !== this.epoch) throw new Error('Host changed while connecting');
       await client.connect();
       if (epoch !== this.epoch) throw new Error('Host changed while connecting');
-      const hosts = [
-        endpoint,
-        ...this.state.hosts.filter((host) => host !== endpoint),
-      ].slice(0, 16);
-      this.platform.storage.setItem('whip.web.hosts.v1', JSON.stringify(hosts));
-      this.update({ hosts });
+      const runtimeId = client.getSnapshot().info?.runtime_id;
+      if (runtimeId) this.rememberConnectedRuntime(profile.id, runtimeId);
+      this.update({ connectionProgress: undefined });
     } catch (error) {
-      // Connection failures already belong to the SDK's recoverable state.
-      if (!this.closed && epoch === this.epoch && this.state.client?.getSnapshot().error !== error) this.report(error);
+      // SDK connection failures remain recoverable; setup errors belong to the app.
+      if (!this.closed && epoch === this.epoch) {
+        this.update({ connectionProgress: undefined });
+        if (this.state.client?.getSnapshot().error !== error) this.report(error);
+      }
       throw error;
     }
   }
@@ -665,6 +709,8 @@ export class AppRuntime {
     return start('initial');
   }
   private detach() {
+    this.resolving?.abort();
+    this.resolving = undefined;
     this.compositions.invalidateRuntime(this.state.client?.getSnapshot().info?.runtime_id);
     this.submittedInputs.clear();
     this.waits.abort();
@@ -675,6 +721,8 @@ export class AppRuntime {
     for (const [id, lease] of this.views) this.dropView(id, lease);
     void this.state.list?.dispose();
     this.state.client?.close();
+    this.resolved?.dispose();
+    this.resolved = undefined;
     this.queries.clear();
   }
   dispose() {

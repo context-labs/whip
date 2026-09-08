@@ -90,7 +90,7 @@ in
 - [ ] Complete the web application's release acceptance: full workflow/recovery
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.
-- [ ] Electron desktop packaging (after the web milestone).
+- [ ] Electron desktop release acceptance — implementation and signed local packages are available; notarized installation, real updates and manual device gates remain. See [desktop guide](desktop.md) and [verified progress](../.ai-docs/plans/desktop-app/progress.md).
 - [ ] Editing, code review and standalone terminal product surfaces (later work).
 - [ ] Hosted execution, connection authentication and relay infrastructure.
 

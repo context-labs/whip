@@ -546,7 +546,7 @@ export function SessionContent({
             onClick={async () => {
               const current = stored;
               try {
-                runtime.platform.download(
+                await runtime.platform.download(
                   await session.client
                     .content(current.body!, {
                       rootId: session.rootId,

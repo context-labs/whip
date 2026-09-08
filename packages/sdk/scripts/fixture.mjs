@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,7 +29,7 @@ export async function eventually(check, { timeout = 15_000, interval = 25, descr
 // Every daemon launched here owns an isolated home and is attach-only from the
 // SDK's perspective. Keeping the binary lets restart tests bypass the Go runner
 // and kill the actual daemon process, including all outstanding execution.
-export async function startFixture() {
+export async function startFixture({ retainOnFailure = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'whip-sdk-'));
   const binary = join(directory, 'daemon.test');
   await mkdir(join(directory, 'public'));
@@ -48,6 +48,7 @@ export async function startFixture() {
     child.stdout.on('data', data => { output += data; });
     child.stderr.on('data', data => { output += data; });
     exit = once(child, 'exit');
+    if (retainOnFailure) await writeFile(join(directory, 'fixture-process.json'), JSON.stringify({ pid: child.pid, binary, generation, home: join(directory, 'home') }, null, 2));
     info = await eventually(async () => {
       if (child.exitCode !== null) throw new Error(`Fixture exited: ${output}`);
       const candidate = JSON.parse(await readFile(join(directory, 'bridge.json'), 'utf8'));
@@ -58,6 +59,7 @@ export async function startFixture() {
   const close = async () => {
     if (finished) return;
     finished = true;
+    let failed = false;
     try {
       if (child && child.exitCode === null && child.signalCode === null) {
         await fetch(info.frontend + '/done', { method: 'POST', signal: AbortSignal.timeout(3_000) }).catch(() => {});
@@ -67,8 +69,12 @@ export async function startFixture() {
       }
       const [code, signal] = await exit;
       if (code !== 0 || output.includes('WARNING: DATA RACE')) throw new Error(`SDK fixture failed (${code ?? signal}): ${output}`);
+    } catch (error) {
+      failed = true;
+      if (retainOnFailure) await writeFile(join(directory, 'fixture-failure.log'), `${error.stack ?? error}\n${output}`).catch(() => {});
+      throw error;
     } finally {
-      if (process.env.WHIP_SDK_KEEP_FIXTURE) console.log(`SDK fixture retained: ${directory}`);
+      if (process.env.WHIP_SDK_KEEP_FIXTURE || (failed && retainOnFailure)) console.log(`SDK fixture retained: ${directory}`);
       else await rm(directory, { recursive: true, force: true });
     }
   };
@@ -77,12 +83,16 @@ export async function startFixture() {
     await start();
   } catch (error) {
     if (child) child.kill('SIGKILL');
-    await rm(directory, { recursive: true, force: true });
+    if (retainOnFailure) {
+      await writeFile(join(directory, 'fixture-failure.log'), `${error.stack ?? error}\n${output}`).catch(() => {});
+      console.error(`SDK fixture retained: ${directory}`);
+    } else await rm(directory, { recursive: true, force: true });
     throw new Error(`Cannot start SDK fixture: ${output}`, { cause: error });
   }
   return {
     get info() { return info; },
     directory,
+    get pid() { return child?.pid; },
     get output() { return output; },
     async crashAndRestart() {
       child.kill('SIGKILL');

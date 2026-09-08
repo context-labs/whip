@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeliveryUncertainError, RpcError, type CommandHandle, type ConnectionSnapshot, type RecoveryStorage } from '@whip/sdk';
 import { AppRuntime } from '../src/runtime';
-import { createFallbackStorage, type AppStorage } from '../src/platform';
+import { createFallbackStorage, urlProfile, resolveURLConnection, type AppStorage } from '../src/platform';
 
 const mocks = vi.hoisted(() => {
   const client = { connect: vi.fn(async () => {}), whenConnected: vi.fn(async () => {}), close: vi.fn(), subscribe: vi.fn((_listener: () => void) => vi.fn()), getSnapshot: vi.fn((): Pick<ConnectionSnapshot, 'state' | 'error'> & { info?: { runtime_id: string; connection_id: string } } => ({ state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection' } })), session: vi.fn((rootId: string) => ({ rootId })) };
@@ -12,7 +12,7 @@ vi.mock('@whip/sdk/state', () => ({ createSessionView: mocks.createView, createS
 
 function runtime(storage?: AppStorage) {
   const values = new Map<string, string>();
-  return new AppRuntime({ defaultEndpoint: 'http://localhost:8080', storage: storage ?? { keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } }, copy: async () => {}, download: () => {}, openExternal: () => {} });
+  return new AppRuntime({ defaultConnection: urlProfile('http://localhost:8080'), connectionKinds: ['url'], resolveConnection: resolveURLConnection, sessionLink: path => path, storage: storage ?? { keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } }, copy: async () => {}, download: async () => 'saved', openExternal: async () => {} });
 }
 beforeEach(() => { vi.clearAllMocks(); mocks.options.length = 0; });
 afterEach(() => { vi.useRealTimers(); });
@@ -95,6 +95,58 @@ describe('application observation ownership', () => {
     snapshot.mockReturnValue({ state: 'connected', info: { runtime_id: 'runtime', connection_id: 'recovered' } });
     for (const [listener] of mocks.client.subscribe.mock.calls) listener();
     expect(app.getSnapshot().error).toBe('Drafts could not be saved');
+    app.dispose();
+  });
+});
+
+describe('asynchronous host resolution', () => {
+  it('remembers identity when the first connection fails and automatic recovery later succeeds', async () => {
+    const error = new Error('Initially offline');
+    const snapshot = vi.spyOn(mocks.client, 'getSnapshot').mockReturnValue({ state: 'reconnecting', error });
+    mocks.client.connect.mockRejectedValueOnce(error);
+    const app = runtime();
+    await expect(app.connect()).rejects.toBe(error);
+    expect(app.getSnapshot().connection.runtimeId).toBeUndefined();
+    snapshot.mockReturnValue({ state: 'connected', info: { runtime_id: 'recovered-runtime', connection_id: 'later' } });
+    for (const [listener] of mocks.client.subscribe.mock.calls) listener();
+    const reloaded = runtime(app.platform.storage);
+    expect(reloaded.getSnapshot().connection.runtimeId).toBe('recovered-runtime');
+    app.dispose(); reloaded.dispose();
+  });
+  it('disposes stale resolution instead of replacing a newly selected host', async () => {
+    const app = runtime();
+    let finish!: (value: { endpoint: string; dispose(): void }) => void;
+    let obsoleteSignal!: AbortSignal;
+    const dispose = vi.fn();
+    app.platform.resolveConnection = vi.fn((profile, options) => {
+      if (profile.target.kind === 'url' && profile.target.endpoint.includes('old.example')) {
+        obsoleteSignal = options.signal;
+        return new Promise(resolve => { finish = resolve; });
+      }
+      return resolveURLConnection(profile, options);
+    });
+    const old = app.connect('https://old.example');
+    await app.connect('https://current.example');
+    expect(obsoleteSignal.aborted).toBe(true);
+    finish({ endpoint: 'https://old.example', dispose });
+    await expect(old).rejects.toThrow('Host changed');
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(app.getSnapshot().connection.target).toEqual({ kind: 'url', endpoint: 'https://current.example/' });
+    expect(mocks.options).toHaveLength(1);
+    app.dispose();
+  });
+  it('cancels setup without stopping accepted daemon work', async () => {
+    const app = runtime();
+    let finish!: (value: { endpoint: string; dispose(): void }) => void;
+    const dispose = vi.fn();
+    app.platform.resolveConnection = () => new Promise(resolve => { finish = resolve; });
+    const pending = app.connect();
+    app.cancelConnection();
+    finish({ endpoint: 'https://old.example', dispose });
+    await expect(pending).rejects.toThrow('Host changed');
+    expect(app.getSnapshot().client).toBeUndefined();
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(mocks.options).toHaveLength(0);
     app.dispose();
   });
 });
@@ -221,22 +273,97 @@ describe('draft persistence and bounded storage', () => {
     const app = runtime();
     app.setDraft('runtime:root:agent', 'keep this');
     vi.spyOn(app.platform.storage, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
-    app.flushDrafts();
+    expect(app.flushDrafts()).toEqual({ saved: false, error: expect.stringContaining('Drafts could not be saved') });
+    expect(app.hasUnsavedDrafts()).toBe(true);
     expect(app.draft('runtime:root:agent')).toBe('keep this');
     expect(app.getSnapshot().error).toContain('Drafts could not be saved');
+    app.dispose();
+  });
+  it('reports memory-only drafts after their debounce and clears the warning after explicit removal', () => {
+    vi.useFakeTimers();
+    const storage = createFallbackStorage(() => { throw new Error('Denied'); }, vi.fn());
+    const app = runtime(storage);
+    app.setDraft('runtime:root:agent', 'keep this');
+    vi.advanceTimersByTime(150);
+    expect(app.draft('runtime:root:agent')).toBe('keep this');
+    expect(app.flushDrafts()).toEqual({ saved: false, error: expect.stringContaining('Device storage is unavailable') });
+    expect(app.hasUnsavedDrafts()).toBe(true);
+    app.setDraft('runtime:root:agent', '');
+    expect(app.flushDrafts()).toEqual({ saved: true });
+    expect(app.hasUnsavedDrafts()).toBe(false);
+    app.dispose();
+  });
+  it('notifies lifecycle observers when a saved draft becomes dirty and becomes safe again', () => {
+    const app = runtime();
+    app.setDraft('runtime:root:agent', 'saved');
+    expect(app.flushDrafts()).toEqual({ saved: true });
+    const status: boolean[] = [];
+    app.subscribe(() => status.push(app.hasUnsavedDrafts()));
+    app.setDraft('runtime:root:agent', 'updated');
+    expect(status).toEqual([true]);
+    expect(app.flushDrafts()).toEqual({ saved: true });
+    expect(status).toEqual([true, false]);
+    app.dispose();
+  });
+  it.each(['clear', 'discard'] as const)('keeps a denied durable draft deletion unsaved when using %s', method => {
+    const disk = new Map([['whip.web.draft.v1:runtime:root:agent', 'Existing durable draft']]);
+    const source = { keys: () => [...disk.keys()], getItem: (key: string) => disk.get(key) ?? null,
+      setItem: (key: string, value: string) => { disk.set(key, value); }, removeItem: vi.fn(() => { throw new Error('Denied'); }) };
+    const app = runtime(createFallbackStorage(() => source, vi.fn()));
+    if (method === 'clear') app.setDraft('runtime:root:agent', '');
+    else expect(() => app.discardDrafts()).toThrow('Device storage is unavailable');
+    for (let index = 0; index < 2; index++) {
+      expect(app.flushDrafts()).toEqual({ saved: false, error: expect.stringContaining('Device storage is unavailable') });
+      expect(app.hasUnsavedDrafts()).toBe(true); expect(app.draft('runtime:root:agent')).toBe('');
+    }
+    expect(disk.get('whip.web.draft.v1:runtime:root:agent')).toBe('Existing durable draft');
+    app.dispose();
+  });
+  it('remembers an existing disk draft when a failed edit causes fallback before clearing', () => {
+    const disk = new Map<string, string>();
+    const source = { keys: () => [...disk.keys()], getItem: (key: string) => disk.get(key) ?? null,
+      setItem: (key: string, value: string) => { disk.set(key, value); }, removeItem: (key: string) => { disk.delete(key); } };
+    const app = runtime(createFallbackStorage(() => source, vi.fn()));
+    app.setDraft('runtime:root:agent', 'Saved in this window'); app.flushDrafts();
+    app.setDraft('runtime:root:agent', 'Failed edit');
+    vi.spyOn(source, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
+    app.flushDrafts(); app.setDraft('runtime:root:agent', '');
+    expect(app.flushDrafts().saved).toBe(false); expect(app.hasUnsavedDrafts()).toBe(true);
+    expect(disk.get('whip.web.draft.v1:runtime:root:agent')).toBe('Saved in this window');
+    app.dispose();
+  });
+  it('allows clearing a newly failed write that never reached disk', () => {
+    const source = { keys: () => [], getItem: () => null, setItem: () => { throw new Error('Quota'); }, removeItem: () => {} };
+    const app = runtime(createFallbackStorage(() => source, vi.fn()));
+    app.setDraft('runtime:root:agent', 'Only memory'); app.flushDrafts();
+    app.setDraft('runtime:root:agent', '');
+    expect(app.flushDrafts()).toEqual({ saved: true }); expect(app.hasUnsavedDrafts()).toBe(false);
+    app.dispose();
+  });
+  it('retains a durable identity when a later read triggers the storage fallback', () => {
+    const key = 'whip.web.draft.v1:runtime:root:agent';
+    const source = { keys: () => [key, 'whip.web.draft.v1:runtime:other:agent'],
+      getItem: (candidate: string) => { if (candidate === key) return 'Durable draft'; if (candidate.includes('runtime:other')) throw new Error('Denied'); return null; },
+      setItem: () => {}, removeItem: () => {} };
+    const app = runtime(createFallbackStorage(() => source, vi.fn()));
+    app.setDraft('runtime:root:agent', '');
+    expect(app.flushDrafts().saved).toBe(false); expect(app.hasUnsavedDrafts()).toBe(true);
     app.dispose();
   });
   it('falls back on denied storage access and later quota failures, with one notice', () => {
     const notice = vi.fn();
     const denied = createFallbackStorage(() => { throw new Error('Denied'); }, notice);
+    expect(denied.persistent).toBe(false);
     denied.setItem('key', 'value'); expect(denied.getItem('key')).toBe('value');
     denied.removeItem('key'); expect(denied.getItem('key')).toBeNull();
     expect(notice).toHaveBeenCalledTimes(1);
     notice.mockClear();
     const source = { keys: () => ['previous'], getItem: () => 'existing', setItem: () => { throw new Error('Quota'); }, removeItem: () => {} };
     const quota = createFallbackStorage(() => source, notice);
+    expect(quota.persistent).toBe(true);
     expect(quota.getItem('previous')).toBe('existing');
     quota.setItem('next', 'new');
+    expect(quota.persistent).toBe(false);
     expect(quota.getItem('previous')).toBe('existing');
     expect(quota.getItem('next')).toBe('new');
     expect(notice).toHaveBeenCalledTimes(1);

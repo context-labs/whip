@@ -64,6 +64,19 @@ test('an already-aborted connect does not create a transport', async t => {
   assert.equal(client.getSnapshot().state, 'closed');
 });
 
+test('a remembered runtime identity is checked before any connected state or host query', async t => {
+  const server = harness();
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'client', expectedRuntimeId: 'previous-installation' });
+  t.after(() => client.close());
+  const observed: string[] = [];
+  client.subscribe(() => observed.push(client.getSnapshot().state));
+  await assert.rejects(client.connect(), { kind: 'runtime_changed' });
+  assert.equal(client.getSnapshot().state, 'incompatible');
+  assert.equal(observed.includes('connected'), false);
+  assert.equal(server.current.closed, true);
+  assert.deepEqual(server.current.requests.map(request => request.method), ['initialize']);
+});
+
 test('already-aborted recovered waits and retries do not query or submit work', async t => {
   const server = harness();
   const client = new WhipClient({ endpoint: server.factory, clientId: 'client', reconnect: false });

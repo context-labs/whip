@@ -96,3 +96,69 @@ func TestNetworkWebDiscoveryAndHostGuard(t *testing.T) {
 		t.Fatalf("discovery: %d %s", response.Code, response.Body.String())
 	}
 }
+
+func TestNetworkDesktopOriginIsExplicitAndExact(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		origin  string
+		allowed bool
+	}{
+		{name: "desktop", origin: "whip-app://bundle", allowed: true},
+		{name: "foreign host", origin: "whip-app://evil"},
+		{name: "suffix", origin: "whip-app://bundle.evil"},
+		{name: "port", origin: "whip-app://bundle:80"},
+		{name: "path", origin: "whip-app://bundle/"},
+		{name: "null", origin: "null"},
+		{name: "wildcard", origin: "*"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			options := NetworkOptions{
+				Enabled: true, AllowedHosts: []string{"localhost"},
+				AllowedOrigins: []string{tc.origin},
+			}
+			_, err := newNetworkHandler(
+				options,
+				func(messageTransport) {},
+				func() bool { return true },
+				func() {},
+				nil,
+			)
+			if (err == nil) != tc.allowed {
+				t.Fatalf("allowed=%v, error=%v", tc.allowed, err)
+			}
+		})
+	}
+	for _, configured := range []bool{false, true} {
+		name := "unconfigured"
+		origins := []string{}
+		if configured {
+			name = "configured"
+			origins = append(origins, "whip-app://bundle")
+		}
+		t.Run(name, func(t *testing.T) {
+			handler, err := newNetworkHandler(
+				NetworkOptions{Enabled: true, AllowedHosts: []string{"localhost"}, AllowedOrigins: origins},
+				func(messageTransport) {},
+				func() bool { return true },
+				func() {},
+				nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, method := range []string{http.MethodGet, http.MethodOptions} {
+				request := httptest.NewRequest(method, "http://localhost/api/v3/web", nil)
+				request.Header.Set("Origin", "whip-app://bundle")
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+				if !configured && response.Code != http.StatusForbidden {
+					t.Fatalf("unconfigured origin accepted: %d", response.Code)
+				}
+				if configured && response.Header().Get("Access-Control-Allow-Origin") != "whip-app://bundle" {
+					t.Fatalf("missing exact origin for %s: %d", method, response.Code)
+				}
+			}
+		})
+	}
+}

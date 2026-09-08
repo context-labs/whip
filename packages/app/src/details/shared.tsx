@@ -286,7 +286,7 @@ export function ContentRead({
           ).content;
       const content = view.session.client.content(handle, scope);
       if (download)
-        runtime.platform.download(
+        await runtime.platform.download(
           await content.readBytes({ maxBytes: 64 << 20, signal }),
           'whip-content',
           handle.media_type ?? 'application/octet-stream',

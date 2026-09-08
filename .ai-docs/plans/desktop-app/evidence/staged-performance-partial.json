@@ -1,0 +1,3812 @@
+{
+  "error": "TimeoutError: locator.evaluate: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /^Read stored message · /, includeHidden: true }).first()\u001b[22m\n",
+  "stack": "locator.evaluate: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /^Read stored message · /, includeHidden: true }).first()\u001b[22m\n\n    at exerciseDesktopTransfer (/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/web/scripts/performance-desktop.mjs:209:26)\n    at async file:///Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/apps/web/scripts/performance.mjs:746:87",
+  "fixtureDirectory": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r",
+  "isolatedDirectory": "/tmp/whip-desktop-performance-jstrZV",
+  "metrics": {
+    "recordedAt": "2026-09-08T07:04:19.121Z",
+    "platform": "darwin",
+    "checks": [
+      "10,000 stored root messages page into at most 512 retained messages; 100 child transcripts inspected and released",
+      "Four real history prepends preserve scroll anchors; virtualized selection survives an 8,000px scroll",
+      "20 cached child-to-root switches restore independent reading anchors and never mix transcript content",
+      "Staged IPC: 1/8/32 restored metadata tabs, <=4 root subscriptions, one shared summary poll, 20 cached switches",
+      "40 post-COMMIT-return stream probes reached the real SDK/app DOM under 16 concurrent agents, with bounded monotonic-clock calibration error"
+    ],
+    "browser": {
+      "electron": "44.2.0",
+      "chromium": "152.0.7977.76"
+    },
+    "host": {
+      "kind": "staged-electron-ipc",
+      "rendererDigest": "fb6474fdaed31a31ef48de7115708a0af2003f251a28daf2196724eb63f0108b",
+      "limitation": "Stock Playwright Electron runs staged main/preload and production renderer with the isolated synthetic Go runner. Not signed-package, actual RLM worker, SSH/WAN or startup/idle acceptance. The controller SDK measurements use a separate fixture WebSocket connection."
+    },
+    "fixture": {
+      "rootMessages": 10000,
+      "retainedChildren": 100,
+      "messagesPerChild": 100,
+      "largeToolBodyBytes": 1400000
+    },
+    "sdk": {
+      "childOpenMilliseconds": {
+        "count": 100,
+        "median": 8.165666999999303,
+        "p95": 12.324375000000146,
+        "max": 34.33245899999929
+      },
+      "maximumRetainedPayloadBytes": 345525,
+      "maximumRetainedMessages": 612,
+      "finalRetainedMessages": 512
+    },
+    "initialRenderedRows": 9,
+    "anchorOffsets": [
+      {
+        "before": -138.5,
+        "after": -138.5
+      },
+      {
+        "before": -155,
+        "after": -155
+      },
+      {
+        "before": -93.5,
+        "after": -93.5
+      },
+      {
+        "before": -104,
+        "after": -104
+      }
+    ],
+    "prependMilliseconds": {
+      "count": 4,
+      "median": 68.00454100000024,
+      "p95": 119.62683299999935,
+      "max": 119.62683299999935
+    },
+    "maximumVisibleRowsAfterPaging": 21,
+    "cachedAnchors": {
+      "root": {
+        "id": "h:0:9867",
+        "offset": -82
+      },
+      "child": {
+        "id": "h:0:3",
+        "offset": -86
+      },
+      "observations": [
+        {
+          "index": 0,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 0,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 1,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 1,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 2,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 2,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 3,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 3,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 4,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 4,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 5,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 5,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 6,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 6,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 7,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 7,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 8,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 8,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 9,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 9,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 10,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 10,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 11,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 11,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 12,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 12,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 13,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 13,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 14,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 14,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 15,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 15,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 16,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 16,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 17,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 17,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 18,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        },
+        {
+          "index": 18,
+          "recipient": "child",
+          "observed": {
+            "id": "h:0:3",
+            "offset": -86
+          }
+        },
+        {
+          "index": 19,
+          "recipient": "root",
+          "observed": {
+            "id": "h:0:9867",
+            "offset": -82
+          }
+        }
+      ]
+    },
+    "cachedRootSwitchMilliseconds": {
+      "count": 20,
+      "median": 76.49145800000042,
+      "p95": 130.08004100000107,
+      "max": 137.10750000000007
+    },
+    "desktopTabs": {
+      "snapshots": [
+        {
+          "tabs": 1,
+          "heap": {
+            "usedSize": 18616648,
+            "totalSize": 20004864,
+            "embedderHeapUsedSize": 3066120,
+            "backingStorageSize": 3270186
+          },
+          "activeSubscriptions": 1,
+          "memory": {
+            "phase": "tabs-1",
+            "at": 11410.112958,
+            "application": [
+              {
+                "pid": 42108,
+                "ppid": 41939,
+                "rssKiB": 233296,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+              },
+              {
+                "pid": 42134,
+                "ppid": 42108,
+                "rssKiB": 107024,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+              },
+              {
+                "pid": 42135,
+                "ppid": 42108,
+                "rssKiB": 49184,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+              },
+              {
+                "pid": 42139,
+                "ppid": 42108,
+                "rssKiB": 248256,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 42055,
+                "ppid": 41939,
+                "rssKiB": 70864,
+                "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+              }
+            ],
+            "applicationRSSKiB": 637760,
+            "daemonRSSKiB": 70864
+          },
+          "metadataBytes": 357
+        },
+        {
+          "tabs": 8,
+          "heap": {
+            "usedSize": 19318112,
+            "totalSize": 21839872,
+            "embedderHeapUsedSize": 3151336,
+            "backingStorageSize": 3271923
+          },
+          "activeSubscriptions": 4,
+          "memory": {
+            "phase": "tabs-8",
+            "at": 12294.686166,
+            "application": [
+              {
+                "pid": 42108,
+                "ppid": 41939,
+                "rssKiB": 237904,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+              },
+              {
+                "pid": 42134,
+                "ppid": 42108,
+                "rssKiB": 108064,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+              },
+              {
+                "pid": 42135,
+                "ppid": 42108,
+                "rssKiB": 49184,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+              },
+              {
+                "pid": 42139,
+                "ppid": 42108,
+                "rssKiB": 249072,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 42055,
+                "ppid": 41939,
+                "rssKiB": 70944,
+                "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+              }
+            ],
+            "applicationRSSKiB": 644224,
+            "daemonRSSKiB": 70944
+          },
+          "metadataBytes": 1260
+        },
+        {
+          "tabs": 32,
+          "heap": {
+            "usedSize": 25715784,
+            "totalSize": 28917760,
+            "embedderHeapUsedSize": 4427376,
+            "backingStorageSize": 3277786
+          },
+          "activeSubscriptions": 4,
+          "memory": {
+            "phase": "tabs-32",
+            "at": 13506.66125,
+            "application": [
+              {
+                "pid": 42108,
+                "ppid": 41939,
+                "rssKiB": 239344,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+              },
+              {
+                "pid": 42134,
+                "ppid": 42108,
+                "rssKiB": 107200,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+              },
+              {
+                "pid": 42135,
+                "ppid": 42108,
+                "rssKiB": 49184,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+              },
+              {
+                "pid": 42139,
+                "ppid": 42108,
+                "rssKiB": 259888,
+                "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+              }
+            ],
+            "daemon": [
+              {
+                "pid": 42055,
+                "ppid": 41939,
+                "rssKiB": 70976,
+                "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+              }
+            ],
+            "applicationRSSKiB": 655616,
+            "daemonRSSKiB": 70976
+          },
+          "metadataBytes": 4356
+        }
+      ],
+      "cachedSwitchMilliseconds": {
+        "count": 20,
+        "median": 167.2592500000028,
+        "p95": 184.17599999999948,
+        "max": 184.22912499999984
+      },
+      "maximumSubscriptions": 4,
+      "summaryPollsIn6100ms": 3,
+      "boundary": "Playwright click through ready and two animation frames; includes automation overhead."
+    },
+    "drafts": {
+      "count": 32,
+      "bytes": 1046528,
+      "activeBytes": 257085,
+      "concurrentAgents": 16,
+      "inputToAnimationFrameMilliseconds": {
+        "count": 40,
+        "median": 33.799999952316284,
+        "p95": 40.10000002384186,
+        "max": 57.10000002384186,
+        "boundary": "Input handler to next requestAnimationFrame callback; responsiveness proxy, excludes rendering and paint."
+      },
+      "streamingMutations": 66,
+      "keyboardToNextPaintMilliseconds": {
+        "count": 40,
+        "trustedKeydowns": 40,
+        "browserEventCount": 40,
+        "reportedCount": 40,
+        "censoredCount": 0,
+        "p95Rounded": 72,
+        "medianBounds": {
+          "lower": 68,
+          "upper": 76
+        },
+        "p95Bounds": {
+          "lower": 68,
+          "upper": 76
+        },
+        "maxBounds": {
+          "lower": 100,
+          "upper": 108
+        },
+        "observed": {
+          "count": 40,
+          "median": 72,
+          "p95": 72,
+          "max": 104
+        },
+        "reportingThresholdMilliseconds": 16,
+        "durationQuantizationMilliseconds": 8,
+        "censoredUpperBoundMilliseconds": 20,
+        "droppedEntries": 0,
+        "boundary": "Native PerformanceEventTiming duration from trusted keyboard keydown timestamp through the next browser rendering completion, rounded to 8ms; a browser next-paint estimate, not physical display timing.",
+        "censoring": "All 40 keydowns are retained. Entries below the 16ms reporting threshold are absent; each absent value is conservatively bounded to 0–20ms including the 4ms rounding allowance. Percentile bounds include both reported and censored events. A rounded p95 is supplied only when its rank is represented by reported entries.",
+        "deliveryCheck": "Observer installed before typing at the minimum threshold; trusted capture count and browser eventCounts both equal 40. After each keyup two animation frames elapse; final frames, 250ms observer drainage, takeRecords and dropped-entry/identity checks guard against silently losing slow entries.",
+        "reference": "https://www.w3.org/TR/event-timing/"
+      }
+    },
+    "eventReceivedToDOMMilliseconds": {
+      "count": 168,
+      "median": 19.5,
+      "p95": 95,
+      "max": 108.79999995231628
+    },
+    "commitReturnToDOMMilliseconds": {
+      "count": 40,
+      "median": 99.29108353576157,
+      "p95": 114.21537553576127,
+      "max": 157.80587546423703,
+      "clockErrorBoundMilliseconds": 0.4997085119230178,
+      "boundary": "Timestamp immediately after successful Store.AppendRootEvent COMMIT return to MutationObserver observation of its marker in a mounted live transcript row; excludes physical paint."
+    },
+    "commitClockCalibration": {
+      "method": "Go time.Since and browser performance.now; intersect 20 request-response brackets before and 20 after the loaded interval, without assuming symmetric latency.",
+      "sampleCount": 40,
+      "measuredIntervalMilliseconds": 4843.199999928474,
+      "roundTripMilliseconds": {
+        "count": 40,
+        "median": 1.100000023841858,
+        "p95": 2.600000023841858,
+        "max": 5.5
+      },
+      "browserMinusDaemonOffsetMilliseconds": {
+        "lower": -19937.91883397616,
+        "upper": -19936.919416952314
+      },
+      "timerQuantizationAllowanceMilliseconds": 0.2,
+      "assumption": "Both monotonic clocks have negligible relative drift during this short same-machine run; disjoint before/after bounds fail the measurement."
+    },
+    "desktopTransfer": {
+      "uploadedBytes": 8388662,
+      "uploadSHA256": "e5bd1dcf01aee7b102c181f737cc5cd7aa31dccdeefc69c4d7a0925674c0f136",
+      "memorySamples": [
+        {
+          "phase": "transfer",
+          "at": 28944.66675,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 204928,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96016,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 542160,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 66992,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 886368,
+          "daemonRSSKiB": 66992
+        },
+        {
+          "phase": "transfer",
+          "at": 29192.051583,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 225520,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95856,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 577232,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 66992,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 941872,
+          "daemonRSSKiB": 66992
+        },
+        {
+          "phase": "transfer",
+          "at": 29409.169375,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 229360,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96160,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 556032,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 66992,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 924816,
+          "daemonRSSKiB": 66992
+        },
+        {
+          "phase": "transfer",
+          "at": 29631.503625,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 226720,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96496,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 556272,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 66992,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 922752,
+          "daemonRSSKiB": 66992
+        },
+        {
+          "phase": "transfer",
+          "at": 29849.439625,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 224832,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96304,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 663632,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 66992,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 1028032,
+          "daemonRSSKiB": 66992
+        },
+        {
+          "phase": "transfer",
+          "at": 30060.14425,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 223712,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96032,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 760224,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 66992,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 1123232,
+          "daemonRSSKiB": 66992
+        },
+        {
+          "phase": "transfer",
+          "at": 30275.301875,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 219456,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95408,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 714192,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 67904,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 1072320,
+          "daemonRSSKiB": 67904
+        },
+        {
+          "phase": "transfer",
+          "at": 30482.821708,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 221280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96480,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 758064,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 73856,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 1119088,
+          "daemonRSSKiB": 73856
+        },
+        {
+          "phase": "transfer",
+          "at": 30709.713416,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 222720,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96256,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 633264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 74176,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 995504,
+          "daemonRSSKiB": 74176
+        },
+        {
+          "phase": "transfer",
+          "at": 30950.816708,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 222016,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96832,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 611840,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 75104,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 973952,
+          "daemonRSSKiB": 75104
+        },
+        {
+          "phase": "transfer",
+          "at": 31189.105,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 222656,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96016,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 653328,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 75088,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 1015264,
+          "daemonRSSKiB": 75088
+        },
+        {
+          "phase": "transfer",
+          "at": 31412.576375,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 220112,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96768,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 605120,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 75088,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 965264,
+          "daemonRSSKiB": 75088
+        },
+        {
+          "phase": "transfer",
+          "at": 31623.359458,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 222592,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95792,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 629488,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 75120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 991136,
+          "daemonRSSKiB": 75120
+        },
+        {
+          "phase": "transfer",
+          "at": 31848.303625,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 223344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95952,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 632496,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 75264,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 995056,
+          "daemonRSSKiB": 75264
+        },
+        {
+          "phase": "transfer",
+          "at": 32093.647958,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 222592,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96128,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 628000,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83136,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 990000,
+          "daemonRSSKiB": 83136
+        },
+        {
+          "phase": "transfer",
+          "at": 32346.510291,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 222992,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 98384,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 628816,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83168,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 993472,
+          "daemonRSSKiB": 83168
+        },
+        {
+          "phase": "transfer",
+          "at": 32584.880125,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 223168,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 98592,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 640080,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83296,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 1005120,
+          "daemonRSSKiB": 83296
+        },
+        {
+          "phase": "transfer",
+          "at": 32864.545791,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 223760,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97952,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 659264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83392,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 1024256,
+          "daemonRSSKiB": 83392
+        },
+        {
+          "phase": "transfer",
+          "at": 33113.2745,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 216496,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 98432,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 608640,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83408,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 966848,
+          "daemonRSSKiB": 83408
+        },
+        {
+          "phase": "transfer",
+          "at": 33376.453041,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 216512,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 98416,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 608704,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83408,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 966912,
+          "daemonRSSKiB": 83408
+        },
+        {
+          "phase": "transfer",
+          "at": 33615.540375,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 216560,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 98480,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 608736,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83408,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 967056,
+          "daemonRSSKiB": 83408
+        },
+        {
+          "phase": "transfer",
+          "at": 33904.072416,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 217232,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 98144,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 608560,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 967216,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 34191.204666,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 208720,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 98032,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 608112,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 958160,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 34569.193208,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 208720,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97856,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 607824,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 957696,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 34902.63125,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 208160,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97920,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 588816,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 938192,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 35149.271083,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 208160,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97888,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 577040,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 926384,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 35377.685,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 206128,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 93504,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 566944,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 909872,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 35604.749083,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 206128,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 93312,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 566752,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 909488,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 35877.287375,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 206128,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 93312,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 566768,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 909504,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 36112.772083,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 206128,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 92400,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 566768,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 908592,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 36386.466083,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 206128,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 92336,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 566768,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 908528,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 36638.149625,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 206128,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 92336,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 566768,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 908528,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 37188.600416,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 206128,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 92336,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43296,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 566768,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 908528,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 37728.066208,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 202288,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 92000,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 559648,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 897200,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 38092.692625,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201824,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 92000,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 529136,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 866224,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 38780.472041,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201824,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 92000,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 528544,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 865632,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 39110.477166,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201168,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 90528,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 527616,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 862576,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 39357.61125,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201168,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 90528,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 527632,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 862592,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 39786.238666,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201168,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 90528,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 527440,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83424,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 862400,
+          "daemonRSSKiB": 83424
+        },
+        {
+          "phase": "transfer",
+          "at": 40123.079916,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201104,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 90528,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 468832,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83104,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 803728,
+          "daemonRSSKiB": 83104
+        },
+        {
+          "phase": "transfer",
+          "at": 40380.396041,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201104,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95440,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 432768,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83104,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772576,
+          "daemonRSSKiB": 83104
+        },
+        {
+          "phase": "transfer",
+          "at": 40594.523541,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201104,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96080,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431200,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 771648,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 40801.763083,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201120,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96384,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772112,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 41002.890625,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201584,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95984,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 430944,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 771776,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 41201.232916,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201584,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96112,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431232,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772192,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 41391.048583,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201584,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96432,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431232,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772512,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 41586.112166,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201584,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96448,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431232,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772528,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 41778.143541,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201936,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97072,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431872,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 774144,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 41965.790791,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201936,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97056,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 432080,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 774336,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 42174.141958,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201936,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97056,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 432080,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 774336,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 42360.752125,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201936,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96976,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 432144,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 774320,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 42547.920458,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201888,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97040,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 432192,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 774384,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 42739.008333,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97072,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 432224,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 773824,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 42925.865666,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97072,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 432288,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 773888,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 43118.22525,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 97072,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 432288,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 773888,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 43306.9065,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96592,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431584,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772704,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 43494.755041,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96592,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431584,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772704,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 43691.340833,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96576,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431584,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772688,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 43918.405,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96576,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431600,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772720,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 44115.66025,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96688,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431664,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772896,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 44315.191541,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201280,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96688,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431696,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772928,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 44521.817,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201312,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96688,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 431696,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 772960,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 44717.702375,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201312,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96672,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390720,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 731968,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 44920.276916,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201328,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96672,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390576,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 731840,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 45117.246875,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 96768,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390640,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 732016,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 45317.622416,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95904,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390672,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 731184,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 45523.635708,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95888,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390672,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 731168,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 45721.714125,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95888,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390672,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 731168,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 45911.659708,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95888,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390672,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 731168,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 46098.454,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95888,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390672,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 731168,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 46285.8345,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 91344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390576,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 726528,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 46486.083208,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201392,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 91344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390576,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 726576,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 46672.018416,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201392,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 91344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390576,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 726576,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 46869.609958,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201392,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 91344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390576,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 726576,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 47083.025083,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201408,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 91344,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 390576,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 726592,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 47271.571333,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201360,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95216,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 389632,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 729472,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 47465.346041,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201360,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95200,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 389632,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 729456,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 47655.968416,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201376,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95200,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 389632,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 729472,
+          "daemonRSSKiB": 83120
+        },
+        {
+          "phase": "transfer",
+          "at": 47855.660041,
+          "application": [
+            {
+              "pid": 42108,
+              "ppid": 41939,
+              "rssKiB": 201376,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+            },
+            {
+              "pid": 42134,
+              "ppid": 42108,
+              "rssKiB": 95200,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42135,
+              "ppid": 42108,
+              "rssKiB": 43264,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper"
+            },
+            {
+              "pid": 42139,
+              "ppid": 42108,
+              "rssKiB": 389616,
+              "executable": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip-desktop-app/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper (Renderer).app/Contents/MacOS/Electron Helper (Renderer)"
+            }
+          ],
+          "daemon": [
+            {
+              "pid": 42055,
+              "ppid": 41939,
+              "rssKiB": 83120,
+              "executable": "/tmp/whip-desktop-performance-jstrZV/tmp/whip-sdk-KBfJ3r/daemon.test"
+            }
+          ],
+          "applicationRSSKiB": 729456,
+          "daemonRSSKiB": 83120
+        }
+      ]
+    }
+  },
+  "errors": [],
+  "html": "WHIP\nNew session\nSearch sessions\nSettings\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nUntitled session\nRoot message 00001. **Retained history** with selectable text. …\nThis Mac\nRoot message 00001. **Retained history** with selectable text. …\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nUntitled session\nwhip-sdk-KBfJ3r\nLoad earlier messages\n\nRoot message 07809. Retained history with selectable text.\n\nBounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host.\n\nRoot message 07810. Retained history with selectable text.\n\nBounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host.\n\nRoot message 07811. Retained history with selectable text.\n\nBounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host.\n\nRoot message 07812. Retained history with selectable text.\n\nBounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host.\n\nRoot message 07813. Retained history with selectable text.\n\nBounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host.\n\nRoot message 07814. Retained history with selectable text.\n\nBounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host.\n\nRoot message 07815. Retained history with selectable text.\n\nBounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host. Bounded history stays on the execution host.\n\nhold:performance-stream\n\nhold:performance-stream delta-000 delta-001 delta-002 commit-probe-001 delta-003 delta-004 delta-005 delta-006 delta-007 commit-probe-002 delta-008 delta-009 delta-010 commit-probe-003 delta-011 delta-012 delta-013 commit-probe-004 delta-014 delta-015 delta-016 commit-probe-005 delta-017 delta-018 delta-019 delta-020 commit-probe-006 delta-021 delta-022 delta-023 commit-probe-007 delta-024 delta-025 delta-026 commit-probe-008 delta-027 delta-028 delta-029 delta-030 commit-probe-009 delta-031 delta-032 delta-033 delta-034 commit-probe-010 delta-035 delta-036 delta-037 delta-038 commit-probe-011 delta-039 delta-040 delta-041 commit-probe-012 delta-042 delta-043 delta-044 delta-045 commit-probe-013 delta-046 delta-047 delta-048 delta-049 commit-probe-014 delta-050 delta-051 delta-052 delta-053 commit-probe-015 delta-054 delta-055 delta-056 delta-057 commit-probe-016 delta-058 delta-059 delta-060 delta-061 commit-probe-017 delta-062 delta-063 delta-064 delta-065 commit-probe-018 delta-066 delta-067 delta-068 commit-probe-019 delta-069 delta-070 delta-071 delta-072 commit-probe-020 delta-073 delta-074 delta-075 delta-076 commit-probe-021 delta-077 delta-078 delta-079 delta-080 commit-probe-022 delta-081 delta-082 delta-083 delta-084 commit-probe-023 delta-085 delta-086 delta-087 delta-088 commit-probe-024 delta-089 delta-090 delta-091 delta-092 commit-probe-025 delta-093 delta-094 delta-095 delta-096 commit-probe-026 delta-097 delta-098 delta-099 commit-probe-027 delta-100 delta-101 delta-102 commit-probe-028 delta-103 delta-104 delta-105 delta-106 commit-probe-029 delta-107 delta-108 delta-109 delta-110 commit-probe-030 delta-111 delta-112 delta-113 commit-probe-031 delta-114 delta-115 delta-116 delta-117 delta-118 commit-probe-032 delta-119 delta-120 delta-121 delta-122 commit-probe-033 delta-123 delta-124 delta-125 delta-126 delta-127 delta-128 commit-probe-034 delta-129 delta-130 delta-131 delta-132 commit-probe-035 delta-133 delta-134 delta-135 commit-probe-036 delta-136 delta-137 delta-138 delta-139 commit-probe-037 delta-140 delta-141 delta-142 delta-143 commit-probe-038 delta-144 delta-145 delta-146 delta-147 commit-probe-039 delta-148 delta-149 delta-150 delta-151 delta-152 commit-probe-040 delta-153 delta-154 delta-155 delta-156 delta-157 delta-158 delta-159 delta-160 delta-161 delta-162 delta-163 delta-164 delta-165 delta-166 delta-167 delta-168 delta-169 delta-170 delta-171 delta-172 delta-173 delta-174 delta-175 delta-176 delta-177 delta-178 delta-179 delta-180 delta-181 delta-182 delta-183 delta-184 delta-185 delta-186 delta-187 delta-188 delta-189 delta-190 delta-191 delta-192 delta-193 delta-194 delta-195 delta-196 delta-197 delta-198 delta-199 delta-200 delta-201 delta-202 delta-203 delta-204 delta-205 delta-206 delta-207 delta-208 delta-209 delta-210 delta-211 delta-212 delta-213 delta-214 delta-215 delta-216 delta-217 delta-218 delta-219 delta-220 delta-221 delta-222 delta-223 delta-224 delta-225 delta-226 delta-227 delta-228 delta-229 delta-230 delta-231 delta-232 delta-233 delta-234 delta-235 delta-236 delta-237 delta-238 delta-239 delta-240 delta-241 delta-242 delta-243 delta-244 delta-245 delta-246 delta-247 delta-248 delta-249 delta-250 delta-251 delta-252 delta-253 delta-254 delta-255 delta-256 delta-257 delta-258 delta-259 delta-260 delta-261 delta-262 delta-263 delta-264 delta-265 delta-266 delta-267 delta-268 delta-269 delta-270 delta-271 delta-272 delta-273 delta-274 delta-275 delta-276 delta-277 delta-278 delta-279 delta-280 delta-281 delta-282 delta-283 delta-284 delta-285 delta-286 delta-287 delta-288 delta-289 delta-290 delta-291 delta-292 delta-293 delta-294 delta-295 delta-296 delta-297 delta-298 delta-299\n\nWriting…\nQueue message\nAsk for approval\nmodel\nDefault"
+}

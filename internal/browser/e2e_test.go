@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
 )
 
 var chromiumCandidates = []string{
@@ -192,7 +192,7 @@ func TestE2EDedicated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open dedicated: %v", err)
 	}
-	defer b.Close()
+	cleanupTestBrowser(t, b)
 	if err := b.Navigate(ctx, url); err != nil {
 		t.Fatal(err)
 	}
@@ -217,26 +217,26 @@ func TestE2EDedicated(t *testing.T) {
 // attached via WHIP_CDP_URL. Real cookies, and Close must NOT kill it.
 func TestE2ELiveAttach(t *testing.T) {
 	bin := chromiumPath(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("WHIP_CDP_WS", "") // the fixture URL must win over any ambient endpoint
 	url := testPage(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	// Launch a "user's Chrome" with remote debugging on a fixed port.
-	portLn, _ := net.Listen("tcp", "127.0.0.1:0")
+	portLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
 	port := portLn.Addr().(*net.TCPAddr).Port
 	portLn.Close()
 	profile := t.TempDir()
-	cmd := exec.Command(bin,
-		fmt.Sprintf("--remote-debugging-port=%d", port),
-		"--user-data-dir="+profile,
-		"--no-first-run", "--no-default-browser-check", "--headless=new", // CI box has no display; live-mode discovery is display-agnostic
-		"about:blank",
-	)
-	cmd.Stderr = nil
-	if err := cmd.Start(); err != nil {
+	l := launcher.New().Bin(bin).UserDataDir(profile).
+		RemoteDebuggingPort(port).HeadlessNew(true).Leakless(true)
+	if _, err := l.Launch(); err != nil {
 		t.Fatal(err)
 	}
-	defer cmd.Process.Kill()
+	t.Cleanup(func() { stopTestChrome(t, l) })
 
 	// Seed a cookie INSIDE that browser (simulating the user's session):
 	// attach, navigate to /set-cookie, detach — then the test browser must
@@ -244,7 +244,6 @@ func TestE2ELiveAttach(t *testing.T) {
 	t.Setenv("WHIP_CDP_URL", fmt.Sprintf("http://127.0.0.1:%d", port))
 	deadline := time.Now().Add(30 * time.Second)
 	var b Backend
-	var err error
 	for time.Now().Before(deadline) {
 		b, err = Open(ctx, ModeLive)
 		if err == nil {
@@ -254,6 +253,10 @@ func TestE2ELiveAttach(t *testing.T) {
 	}
 	if err != nil {
 		t.Fatalf("attach to live chrome: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	if b.Obtained() != ObtainedLive {
+		t.Fatalf("expected the fixture's live browser, got %v", b.Obtained())
 	}
 	if err := b.Navigate(ctx, url+"/set-cookie"); err != nil {
 		t.Fatal(err)
@@ -336,7 +339,7 @@ func TestE2ELiveFallsBackToLaunched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("live fallback must not error: %v", err)
 	}
-	defer b.Close()
+	cleanupTestBrowser(t, b)
 	if b.Obtained() != ObtainedLaunched {
 		t.Fatalf("fallback should have launched, got obtained=%v", b.Obtained())
 	}
@@ -369,14 +372,9 @@ func TestE2EDedicatedReattach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("launch dedicated: %v", err)
 	}
-	// Teardown first: any t.Fatal below must not leak a (headed) Chrome.
-	// Fresh context — the test's ctx may be expired by cleanup time.
+	// Keep the first launcher's ownership through all detach/reattach cycles.
+	cleanupTestBrowser(t, b1)
 	prof := dedicatedProfileDir(home, "default")
-	t.Cleanup(func() {
-		cctx, ccancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer ccancel()
-		killProfileChrome(cctx, t, prof)
-	})
 	if b1.Obtained() != ObtainedLaunched {
 		t.Fatalf("first open should launch, got %v", b1.Obtained())
 	}
@@ -398,6 +396,7 @@ func TestE2EDedicatedReattach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reattach: %v", err)
 	}
+	t.Cleanup(func() { _ = b2.Close() })
 	if b2.Obtained() != ObtainedReattached {
 		t.Fatalf("second open should reattach, got %v", b2.Obtained())
 	}
@@ -425,6 +424,7 @@ func TestE2EDedicatedReattach(t *testing.T) {
 	if err != nil {
 		t.Fatalf("third open: %v", err)
 	}
+	t.Cleanup(func() { _ = b3.Close() })
 	if b3.Obtained() != ObtainedReattached {
 		t.Fatalf("third open should reattach the surviving Chrome, got %v", b3.Obtained())
 	}
@@ -432,18 +432,22 @@ func TestE2EDedicatedReattach(t *testing.T) {
 	// Chrome is killed by the t.Cleanup registered after the first Open.
 }
 
-// killProfileChrome terminates the Chrome behind a profile dir by closing
-// the launcher-owned process — used at test teardown after detach-style
-// Closes left it running.
-func killProfileChrome(ctx context.Context, t *testing.T, prof string) {
+// Dedicated Close intentionally leaves Chrome alive for reattach. The test
+// still owns its launch and must join shutdown before TempDir removes profiles.
+func cleanupTestBrowser(t *testing.T, b Backend) {
 	t.Helper()
-	ws, ok := DiscoverWSForProfile(ctx, prof)
-	if !ok {
-		return
+	t.Cleanup(func() {
+		_ = b.Close()
+		if owned, ok := b.(*Browser); ok && owned.launcher != nil {
+			stopTestChrome(t, owned.launcher)
+		}
+	})
+}
+
+func stopTestChrome(t *testing.T, l *launcher.Launcher) {
+	t.Helper()
+	if err := stopLauncher(l); err != nil {
+		t.Error(err)
 	}
-	// proto.BrowserClose over the WS shuts Chrome down cleanly.
-	if b := rod.New().ControlURL(ws); b.Connect() == nil {
-		_ = b.Close() // this one kills — intended at teardown
-	}
-	time.Sleep(500 * time.Millisecond)
+	l.Cleanup() // joins the launcher's Wait before removing the owned profile
 }
