@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -336,7 +337,7 @@ var (
 // config.Load creates it) and triggers the one-time setup wizard.
 // initialPrompt (`whip up <words>`) is submitted as the first turn once the
 // UI is up — after any resume replay, matching `whip run`'s order.
-func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool, initialPrompt string) (string, error) {
+func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, cautious, firstRun bool, initialPrompt string, continueMode, browseMode bool) (string, error) {
 	// One shared stdin reader for the pre-TUI prompts: a bufio.Reader reads
 	// ahead, so separate readers for the trust gate and the setup wizard would
 	// lose buffered answers (a pasted "y\n2\n…\n" answers both).
@@ -460,12 +461,25 @@ func Run(cfg *config.Config, modelName, provName, sysPrompt, resumeID string, ca
 			m.append(errStyle.Render("sessions disabled: " + serr.Error()))
 		}
 	}
-	if resumeID != "" {
+	// Startup resume: explicit id wins, then -c (most-recent in this dir),
+	// then --browse (interactive picker). initialPrompt (`whip up`) submits as
+	// the first turn after the replay, since it's dispatched into the event
+	// loop after Run returns.
+	if resumeID != "" || continueMode || browseMode {
 		if m.store == nil {
 			return "", errors.New("cannot resume: session store unavailable")
 		}
-		if err := m.resume(resumeID); err != nil {
-			return "", err
+		switch {
+		case resumeID != "":
+			if err := m.resume(resumeID); err != nil {
+				return "", err
+			}
+		case continueMode:
+			if err := m.continueRecent(); err != nil {
+				return "", err
+			}
+		case browseMode:
+			m.openPicker()
 		}
 	}
 	// Pick up whatever the update check recorded: a notice from an earlier
@@ -913,7 +927,7 @@ func (m *model) resume(id string) error {
 	if ag, mn, pn, err := buildAgent(m.cfg, meta.Model, meta.Provider, m.sysPrompt); err == nil {
 		m.agent, m.modelName, m.provName = ag, mn, pn
 	} else {
-		m.agent = agent.New(m.agent.Client, m.agent.Model, m.agent.MaxTokens, m.sysPrompt)
+		m.agent = agent.New(m.agent.Client, m.agent.Model, m.agent.MaxTokens, m.sysPrompt, agent.WithExperimental(m.agent.Experimental()))
 		m.agent.ModelName, m.agent.Provider = m.modelName, m.provName
 		m.agent.ContextLimit = m.contextLimitFor(m.provName, m.agent.Model)
 	}
@@ -1013,6 +1027,22 @@ func (m *model) resume(id string) error {
 	}
 	m.seedTranscript(msgs, 1)
 	return nil
+}
+
+// continueRecent resumes the most recently updated ordinary session in the
+// current directory — the `whip -c`/`--continue` path. Starts fresh (with a
+// notice) when none exists in this dir. Subagent transcripts are excluded by
+// LatestInDir.
+func (m *model) continueRecent() error {
+	meta, err := m.store.LatestInDir(cwd())
+	if errors.Is(err, sql.ErrNoRows) {
+		m.append(dimStyle.Render("(no previous session in this directory — starting fresh)"))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return m.resume(meta.ID)
 }
 
 // seedTranscript re-renders stored messages into the viewport. Blocks are
@@ -1238,7 +1268,7 @@ func buildAgent(cfg *config.Config, modelName, provName, sysPrompt string) (*age
 	}
 	client := llm.New(prov.BaseURL, key)
 	client.MaxRetries = cfg.MaxRetries
-	ag := agent.New(client, apiID, maxOut, sysPrompt)
+	ag := agent.New(client, apiID, maxOut, sysPrompt, agent.WithExperimental(cfg.Experimental))
 	ag.ModelName, ag.Provider = modelName, provName
 	ag.ContextLimit = ctxLimit
 	ag.WorktreeSubagents = cfg.WorktreeSubagents != nil && *cfg.WorktreeSubagents
@@ -5230,18 +5260,29 @@ func (m *model) statusView() string {
 	// Instead give the cwd only the space left after the fixed segments —
 	// truncating it to its tail, then dropping it entirely — so the spend
 	// survives whenever the fixed segments fit at all.
+	//
+	// Width math must be display-width aware (lipgloss.Width), not byte len:
+	// the "…" ellipsis is 3 bytes but 1 column, so a byte budget leaks cols
+	// and the final truncLine then clips the spend's tail (e.g. "300 …"
+	// instead of "300 tok"). ansi.TruncateLeft keeps the recognizable tail.
 	right := fmt.Sprintf("   %s   %s   %s", model, m.provName, spend)
 	dir := shortCWD()
-	switch budget := max(m.width, 0) - len(" ") - len(right); {
-	case len(dir) <= budget:
+	const lead = " "
+	budget := max(m.width, 0) - lipgloss.Width(lead) - lipgloss.Width(right)
+	switch {
+	case lipgloss.Width(dir) <= budget:
 		// fits as-is
 	case budget > 1:
-		dir = "…" + dir[len(dir)-budget+1:] // keep the tail, the recognizable part
+		// keep the tail (the recognizable part), prefix "…" which costs 1 col
+		keep := budget - 1
+		if drop := lipgloss.Width(dir) - keep; drop > 0 {
+			dir = "…" + ansi.TruncateLeft(dir, drop, "")
+		}
 	default:
 		dir = "" // no room for the path at all; show only the fixed segments
 	}
-	line := fmt.Sprintf(" %s%s", dir, right)
-	return dimStyle.Render(truncLine(line, max(m.width, 0)))
+	line := lead + dir + right
+	return dimStyle.Render(ansi.Truncate(line, max(m.width, 0), ""))
 }
 
 // shortCWD renders the working directory compactly for the status line: the
