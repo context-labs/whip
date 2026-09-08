@@ -43,6 +43,7 @@ func daemonCLI(args []string) error {
 
 func runDaemon(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("_daemon", flag.ContinueOnError)
+	maintenanceFD := fs.Int("maintenance-fd", 0, "inherited backend maintenance descriptor")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -61,7 +62,12 @@ func runDaemon(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	startup, err := daemon.AcquireStartup(paths, *maintenanceFD)
+	if err != nil {
+		return err
+	}
 	owner, err := daemon.AcquireOwner(paths.Lock)
+	_ = startup.Close()
 	if err != nil {
 		return err
 	}

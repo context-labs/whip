@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, protocol, screen, session } from 'electron';
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { validateProfile } from '@whip/app/platform';
@@ -63,6 +64,9 @@ async function start() {
   const source = app.isPackaged ? path.join(process.resourcesPath, '..', 'Helpers') : path.join(root, '..', 'native');
   const localRuntime = new LocalRuntime({ source, manifest,
     settingsFile: path.join(app.getPath('userData'), 'native-local-runtime.json'),
+    confirmUpdate: async detail => (await dialog.showMessageBox(window, { type: 'warning',
+      message: 'Restart and update the local Whip backend?', detail,
+      buttons: ['Later', 'Restart and update'], defaultId: 0, cancelId: 0 })).response === 1,
     defaultExecutable: process.env.WHIP_DESKTOP_FIXTURE ? process.env.WHIP_DESKTOP_EXECUTABLE : undefined });
   let runtimeLifetime = new AbortController();
   const cancelRuntimeActions = () => { runtimeLifetime.abort(); runtimeLifetime = new AbortController(); };
@@ -140,7 +144,7 @@ async function start() {
     const current = await localRuntime.test(signal);
     if (!current.canInstall) throw new Error('whipcode is already installed. Desktop will not overwrite an existing backend.');
     const choice = await dialog.showSaveDialog(window, { title: 'Install whipcode', buttonLabel: 'Install whipcode',
-      defaultPath: current.executable || '/usr/local/bin/whipcode', message: 'Choose the executable location used by both the desktop app and terminal. The existing backend will never be overwritten.' });
+      defaultPath: current.executable || path.join(homedir(), '.local/bin/whipcode'), message: 'Desktop and terminal will share this executable. Desktop will keep the binary updated with the app.' });
     signal.throwIfAborted();
     return choice.canceled || !choice.filePath ? current : localRuntime.install(choice.filePath, signal);
   });
@@ -199,12 +203,20 @@ async function start() {
   handle('checkForUpdates', () => updates.check());
   handle('installUpdate', () => updates.install());
   let rendererReady = false;
+  let checkedLocalUpdate = false;
   openSession = path => {
     window.show(); window.focus();
     if (rendererReady) emit({ kind: 'navigate', path }); else pendingSessionPath = path;
   };
   listen('ready', () => {
     rendererReady = true; updates.ready(); if (!window.isVisible()) window.show();
+    if (!checkedLocalUpdate) {
+      checkedLocalUpdate = true;
+      const signal = runtimeLifetime.signal;
+      void localRuntime.synchronize(signal).catch(error => {
+        if (!signal.aborted && !(error instanceof Error && error.name === 'AbortError')) dialog.showErrorBox('Local backend update needs attention', error instanceof Error ? error.message : 'Connect This Mac to retry the update.');
+      });
+    }
     if (pendingSessionPath) { const path = pendingSessionPath; pendingSessionPath = undefined; openSession?.(path); }
   });
   let quitApproved = false;
@@ -220,7 +232,7 @@ async function start() {
     const temporary = `${boundsFile}.tmp`;
     await writeFile(temporary, JSON.stringify(window.getNormalBounds()), { mode: 0o600 }); await rename(temporary, boundsFile);
   };
-  const requestClose = async (reason: 'quit' | 'reload' | 'update') => {
+  const requestClose = async (reason: 'quit' | 'reload' | 'update', updateVersion?: string) => {
     if (closeInProgress) return;
     closeInProgress = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -231,17 +243,21 @@ async function start() {
         if (rendererReady && !window.webContents.isCrashed()) emit({ kind: 'close-request', id, reason });
       });
       clearTimeout(timer);
-      if (result.attachments || result.error) {
+      if (result.attachments || result.error || reason === 'update') {
         const choice = await dialog.showMessageBox(window, { type: 'warning', buttons: ['Cancel', reason === 'quit' ? 'Quit Whip' : reason === 'update' ? 'Restart to update' : 'Reload'],
-          defaultId: 0, cancelId: 0, message: 'Some work is only stored in this window',
-          detail: [result.error, result.attachments ? 'Unsent file attachments will be lost.' : undefined].filter(Boolean).join('\n') });
+          defaultId: 0, cancelId: 0, message: reason === 'update' ? 'Restart and update Whip?' : 'Some work is only stored in this window',
+          detail: [reason === 'update' ? 'The app and its managed local backend will update together. Restarting the backend interrupts work from all connected clients; sessions and configuration remain on disk.' : undefined,
+            result.error, result.attachments ? 'Unsent file attachments will be lost.' : undefined].filter(Boolean).join('\n') });
         if (choice.response !== 1) return;
       }
       await saveBounds().catch(() => {});
       if (reason === 'update') {
+        await localRuntime.approveUpdate(updateVersion, runtimeLifetime.signal);
         // Leave observations alive if Squirrel fails before it can quit.
         quitApproved = true;
-        try { updates.quitAndInstall(); } catch (error) { quitApproved = false; throw error; }
+        try { updates.quitAndInstall(); } catch (error) {
+          quitApproved = false; await localRuntime.approveUpdate(undefined, runtimeLifetime.signal); throw error;
+        }
         return;
       }
       await disposeConnections(); await native.dispose();
@@ -253,7 +269,10 @@ async function start() {
       dialog.showErrorBox('Whip could not complete this action', error instanceof Error ? error.message : 'Please try again.');
     } finally { clearTimeout(timer); pendingClose = undefined; closeInProgress = false; }
   };
-  const updates = new DesktopUpdates(config, emit, () => requestClose('update'), quitting => { quitApproved = quitting; });
+  const updates = new DesktopUpdates(config, emit, version => requestClose('update', version), quitting => {
+    quitApproved = quitting;
+    if (!quitting) void localRuntime.approveUpdate(undefined, runtimeLifetime.signal).catch(() => {});
+  });
   app.on('before-quit', event => { if (!quitApproved) { event.preventDefault(); void requestClose('quit'); } });
   app.on('will-quit', () => { runtimeLifetime.abort(); updates.dispose(); void disposeConnections(); void native.dispose(); transports.dispose(); });
   app.on('second-instance', () => { window.show(); window.focus(); });

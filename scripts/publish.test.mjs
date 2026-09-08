@@ -158,3 +158,28 @@ test('old or mismatched archive evidence cannot authorize publication', async t 
     assert.equal((await f.state()).calls.filter(args => args[1] === 'put-object').length, 0);
   });
 });
+
+test('staging leaves the live feed unchanged and promotion only writes the feed', async t => {
+  const f = await fixture(t);
+  const before = (await f.state()).objects[prefix + 'RELEASES.json'];
+  await publish(f.directory, { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'stage' });
+  const staged = await f.state();
+  assert.deepEqual(staged.objects[prefix + 'RELEASES.json'], before);
+  await publish(f.directory, { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' });
+  const writes = (await f.state()).calls.slice(staged.calls.length).filter(args => args[1] === 'put-object');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0][writes[0].indexOf('--key') + 1], prefix + 'RELEASES.json');
+});
+
+test('promotion cannot advertise objects that have not been staged', async t => {
+  const f = await fixture(t);
+  await assert.rejects(publish(f.directory, { ...f.env, WHIP_DESKTOP_PUBLISH_MODE: 'promote' }), /Published bytes differ/);
+  assert.equal((await f.state()).calls.filter(args => args[1] === 'put-object').length, 0);
+});
+
+test('R2 rejects foreign endpoints and requires explicit scoped credentials before storage access', async t => {
+  const f = await fixture(t);
+  await assert.rejects(publish(f.directory, { ...f.env, WHIP_DESKTOP_R2_ENDPOINT: 'https://example.com' }), /Invalid R2 account endpoint/);
+  await assert.rejects(publish(f.directory, { ...f.env, WHIP_DESKTOP_R2_ENDPOINT: `https://${'a'.repeat(32)}.r2.cloudflarestorage.com` }), /Configure scoped R2 credentials/);
+  assert.equal((await f.state()).calls.length, 0);
+});

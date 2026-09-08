@@ -5,7 +5,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
+
+func TestDesktopUpdateDoesNotRunStandaloneInstaller(t *testing.T) {
+	argsFile := stubShell(t, "99")
+	previous := buildinfo.UpdateOwner
+	buildinfo.UpdateOwner = "desktop"
+	t.Cleanup(func() { buildinfo.UpdateOwner = previous })
+	var updateErr error
+	output := captureStdout(t, func() { updateErr = updateCLI() })
+	if updateErr != nil || !strings.Contains(output, "updated by Whip desktop") {
+		t.Fatalf("desktop update: %q, %v", output, updateErr)
+	}
+	if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+		t.Fatalf("desktop update invoked standalone installer: %v", err)
+	}
+}
 
 // stubShell puts a fake `sh` first (and only) in PATH so updateCLI can never
 // reach the network or run the real installer. The stub records its args and

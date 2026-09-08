@@ -100,7 +100,11 @@ type LocalRuntimeOptions = {
   settingsFile: string;
   defaultExecutable?: string;
   env?: NodeJS.ProcessEnv;
+  confirmUpdate?: (message: string) => Promise<boolean>;
 };
+
+type ManagedRuntime = { sha256: string; channel: 'stable' | 'beta'; approvedVersion?: string };
+type RuntimeSettings = { executable: string; managed?: ManagedRuntime };
 
 function absolutePath(value: unknown): string {
   if (typeof value !== 'string' || !path.isAbsolute(value) || Buffer.byteLength(value) > 2048 || /[\u0000-\u001f\u007f]/.test(value))
@@ -111,6 +115,8 @@ function absolutePath(value: unknown): string {
 /** One installed executable owns local work. Packaged bytes are an explicit install payload. */
 export class LocalRuntime {
   private busy = false;
+  private mutationDone?: Promise<void>;
+  private synchronizing?: Promise<void>;
   private readonly options: LocalRuntimeOptions;
   constructor(options: LocalRuntimeOptions) { this.options = options; }
 
@@ -125,14 +131,24 @@ export class LocalRuntime {
     return env;
   }
 
-  private async selected(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+  private async settings(): Promise<RuntimeSettings | undefined> {
     try {
       const info = await lstat(this.options.settingsFile);
       if (!info.isFile() || info.size > 4096) throw new Error('Invalid local runtime settings. Choose the executable again.');
-      return absolutePath(JSON.parse(await readFile(this.options.settingsFile, 'utf8')).executable);
+      const value = JSON.parse(await readFile(this.options.settingsFile, 'utf8')) as RuntimeSettings;
+      value.executable = absolutePath(value.executable);
+      if (value.managed && (!/^[a-f0-9]{64}$/.test(value.managed.sha256) || !['stable', 'beta'].includes(value.managed.channel) ||
+          (value.managed.approvedVersion !== undefined && !/^[a-zA-Z0-9.+-]{1,128}$/.test(value.managed.approvedVersion))))
+        throw new Error('Invalid managed backend settings. Choose or reinstall whipcode.');
+      return value;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
+  }
+
+  private async selected(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+    const saved = await this.settings();
+    if (saved) return saved.executable;
     if (this.options.defaultExecutable) return absolutePath(this.options.defaultExecutable);
     const dirs = [...new Set([...(env.PATH || '').split(':'), '/usr/local/bin', '/opt/homebrew/bin', path.join(env.HOME || homedir(), '.local/bin')])];
     for (const dir of dirs.filter(dir => path.isAbsolute(dir))) {
@@ -142,14 +158,18 @@ export class LocalRuntime {
     return undefined;
   }
 
-  private async save(executable: string, signal: AbortSignal) {
+  private async save(executable: string, signal: AbortSignal, managed?: ManagedRuntime | null) {
     signal.throwIfAborted();
+    if (managed === undefined) {
+      const previous = await this.settings();
+      if (previous?.executable === executable) managed = previous.managed;
+    }
     const directory = path.dirname(this.options.settingsFile);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const temporary = await mkdtemp(path.join(directory, '.local-runtime-'));
     try {
       const filename = path.join(temporary, 'settings.json');
-      await writeFile(filename, JSON.stringify({ executable }) + '\n', { mode: 0o600, flag: 'wx' });
+      await writeFile(filename, JSON.stringify({ executable, ...(managed ? { managed } : {}) }) + '\n', { mode: 0o600, flag: 'wx' });
       signal.throwIfAborted();
       await rename(filename, this.options.settingsFile);
     } finally { await rm(temporary, { recursive: true, force: true }); }
@@ -207,7 +227,9 @@ export class LocalRuntime {
   private async mutation<T>(action: () => Promise<T>): Promise<T> {
     if (this.busy) throw new Error('Another local runtime operation is in progress. Wait for it to finish, then retry.');
     this.busy = true;
-    try { return await action(); } finally { this.busy = false; }
+    let done!: () => void;
+    this.mutationDone = new Promise(resolve => { done = resolve; });
+    try { return await action(); } finally { this.busy = false; this.mutationDone = undefined; done(); }
   }
 
   async choose(executable: string, signal: AbortSignal): Promise<LocalRuntimeStatus> {
@@ -216,7 +238,7 @@ export class LocalRuntime {
       executable = absolutePath(executable);
       await this.metadata(executable, env, signal);
       signal.throwIfAborted();
-      await this.save(executable, signal);
+      await this.save(executable, signal, null);
       return this.test(signal);
     });
   }
@@ -258,7 +280,7 @@ export class LocalRuntime {
           await link(target, executable);
         } finally { await rm(temporary, { recursive: true, force: true }); }
       }
-      await this.save(executable, signal);
+      await this.save(executable, signal, { sha256: expected.sha256, channel: this.channel });
       return this.test(signal);
     }).catch(error => {
       if (['EACCES', 'EPERM'].includes((error as NodeJS.ErrnoException).code || ''))
@@ -267,7 +289,75 @@ export class LocalRuntime {
     });
   }
 
+  private get channel(): 'stable' | 'beta' { return this.options.manifest.version.includes('-') ? 'beta' : 'stable'; }
+
+  async approveUpdate(version: string | undefined, signal: AbortSignal) {
+    if (version !== undefined && !/^[a-zA-Z0-9.+-]{1,128}$/.test(version)) throw new Error('Invalid update version');
+    if (this.synchronizing) await this.synchronizing;
+    return this.mutation(async () => {
+      const saved = await this.settings();
+      if (saved?.managed) await this.save(saved.executable, signal, { ...saved.managed, approvedVersion: version });
+    });
+  }
+
+  async synchronize(signal: AbortSignal, progress: (message: string) => void = () => {}) {
+    if (this.synchronizing) return this.synchronizing;
+    this.synchronizing = (async () => {
+      // Startup and host restoration may request synchronization together, or
+      // restoration may already be starting the verified executable. Wait for
+      // that mutation instead of turning routine startup into an error dialog.
+      while (this.mutationDone) await this.mutationDone;
+      signal.throwIfAborted();
+      return this.mutation(async () => {
+        const saved = await this.settings();
+        if (!saved?.managed) return;
+        if (saved.managed.channel !== this.channel) throw new Error('This backend belongs to another Whip release channel. Switch its installation explicitly before connecting.');
+        const expected = this.options.manifest.files.whipcode.sha256;
+        const actual = await fileDigest(saved.executable, signal).catch(error => {
+          if (error.code === 'ENOENT') throw new Error('whipcode is not installed at the saved path. Install it again before connecting.');
+          throw error;
+        });
+        if (actual !== saved.managed.sha256 && actual !== expected)
+          throw new Error('whipcode was changed outside desktop. Choose that executable to manage it externally, or explicitly reinstall Whip.');
+        const env = await this.environment(signal);
+        const completed = { sha256: expected, channel: this.channel,
+          ...(saved.managed.approvedVersion !== this.options.manifest.version ? { approvedVersion: saved.managed.approvedVersion } : {}) };
+        if (actual === expected) {
+          const status = await this.probe(env, saved.executable, signal);
+          if (status.state === 'stopped' || status.stale || (status.state === 'running' && status.daemonBuild === this.options.manifest.buildId)) {
+            await this.save(saved.executable, signal, completed);
+            return;
+          }
+        }
+        progress('Verifying the Whip backend update…');
+        await verifyRuntime(this.options.source, this.options.manifest, signal);
+        const source = path.join(this.options.source, 'whipcode');
+        const args = ['_desktop-runtime-sync', '--executable', saved.executable, '--expected-sha256', saved.managed.sha256, '--sha256', expected];
+        const apply = async (interrupt: boolean) => {
+          const result = JSON.parse(await run(source, [...args, ...(interrupt ? ['--interrupt'] : [])], env, signal, 45_000));
+          if (!['ready', 'approval-required'].includes(result.state) || result.buildId !== this.options.manifest.buildId || result.executable !== saved.executable)
+            throw new Error('The backend updater returned an invalid result. Retry the update.');
+          return result.state as 'ready' | 'approval-required';
+        };
+        let result = await apply(saved.managed.approvedVersion === this.options.manifest.version);
+        if (result === 'approval-required') {
+          const approved = await this.options.confirmUpdate?.(`Whip ${this.options.manifest.version} needs to update its local backend. Restarting interrupts work running through desktop, terminal, web, or mobile. Sessions and configuration remain on disk.`);
+          signal.throwIfAborted();
+          if (!approved) throw new Error('Backend update deferred. Running work continues. Connect This Mac again when you are ready to restart and update.');
+          await this.save(saved.executable, signal, { ...saved.managed, approvedVersion: this.options.manifest.version });
+          progress('Updating and restarting the local Whip backend…');
+          result = await apply(true);
+        }
+        if (result !== 'ready') throw new Error('The backend update still requires approval. Retry the update.');
+        await this.save(saved.executable, signal, completed);
+        progress('The Whip app and backend are up to date.');
+      });
+    })();
+    try { await this.synchronizing; } finally { this.synchronizing = undefined; }
+  }
+
   async prepare(signal: AbortSignal, progress: (message: string) => void): Promise<string> {
+    await this.synchronize(signal, progress);
     return this.mutation(async () => {
       progress('Locating the canonical whipcode executable…');
       const env = await this.environment(signal);

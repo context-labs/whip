@@ -666,13 +666,14 @@ func (s *Server) commandRecordResult(ctx context.Context, record session.Command
 	output, resolveErr := s.daemon.store.ResolveRuntimeValue(ctx, record.RootID, record.Outcome)
 	result := CommandResult{CommandID: record.CommandID, Operation: record.Operation, IngressSeq: record.IngressSeq, Status: record.Status}
 	if record.Operation == "permission.decide" && len(output) > 0 && resolveErr == nil {
-		if record.Status == "succeeded" {
+		switch record.Status {
+		case "succeeded":
 			var ticket capability.Ticket
 			if err := json.Unmarshal(output, &ticket); err != nil {
 				return result, err
 			}
 			output, resolveErr = json.Marshal(PermissionDecisionResult{OperationID: ticket.OperationID, LeaseID: ticket.LeaseID})
-		} else if record.Status == "failed" {
+		case "failed":
 			output = encodeCommandOutcome(record.Operation, "", permissionDecisionFailure(output))
 		}
 	}

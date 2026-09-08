@@ -33,7 +33,7 @@ const modules = (async () => {
   finally { loader._load = original; }
 })();
 
-async function fixture(t: TestContext, requestInstall: () => Promise<void> = async () => {}) {
+async function fixture(t: TestContext, requestInstall: (version: string) => Promise<void> = async () => {}) {
   const { DesktopUpdates } = await modules;
   updater.removeAllListeners(); updater.checks = 0; updater.installs = 0;
   delete updater.checkFailure; delete updater.installFailure;
@@ -44,7 +44,18 @@ async function fixture(t: TestContext, requestInstall: () => Promise<void> = asy
   t.after(() => { updates.dispose(); updater.removeAllListeners(); });
   return { updates, events, quitting };
 }
-function downloaded() { updater.emit('update-downloaded', {}, 'Fixture notes', '2.0.0'); }
+function downloaded() { updater.emit('update-downloaded', {}, 'Fixture notes', 'Whip v2.0.0'); }
+
+test('Forge release names authorize the exact version and reject malformed or cross-channel names', async t => {
+  const versions: string[] = [];
+  const f = await fixture(t, async version => { versions.push(version); });
+  for (const name of ['2.0.0', 'Whip Beta v2.0.0-beta.1', 'Whip v2.0.0-beta.1', 'Whip v2.0.0\n']) {
+    updater.emit('update-downloaded', {}, '', name);
+    await assert.rejects(f.updates.install(), /No update/);
+  }
+  downloaded(); await f.updates.install();
+  assert.deepEqual(versions, ['2.0.0']);
+});
 
 test('updater accepts only bounded HTTPS release feeds without embedded credentials', async () => {
   const { readDesktopConfig } = await modules;

@@ -73,6 +73,17 @@ async function publishedFeed(bucket, key, directory, env) {
   return { feed: JSON.parse(bytes), etag: head.ETag };
 }
 export async function publish(directory, env = process.env) {
+  const mode = env.WHIP_DESKTOP_PUBLISH_MODE || 'publish';
+  assert(['stage', 'promote', 'publish'].includes(mode), 'Invalid publication mode');
+  if (env.WHIP_DESKTOP_R2_ENDPOINT) {
+    const endpoint = new URL(env.WHIP_DESKTOP_R2_ENDPOINT);
+    assert(endpoint.protocol === 'https:' && /^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/.test(endpoint.hostname) &&
+      endpoint.pathname === '/' && !endpoint.port && !endpoint.username && !endpoint.password && !endpoint.search && !endpoint.hash, 'Invalid R2 account endpoint');
+    assert(env.WHIP_DESKTOP_R2_ACCESS_KEY_ID && env.WHIP_DESKTOP_R2_SECRET_ACCESS_KEY, 'Configure scoped R2 credentials');
+    env = { ...env, AWS_ENDPOINT_URL: endpoint.origin, AWS_REGION: 'auto', AWS_DEFAULT_REGION: 'auto',
+      AWS_ACCESS_KEY_ID: env.WHIP_DESKTOP_R2_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: env.WHIP_DESKTOP_R2_SECRET_ACCESS_KEY };
+    delete env.AWS_SESSION_TOKEN;
+  }
   const url = feedURL(env.WHIP_DESKTOP_UPDATE_URL);
   const bucket = env.WHIP_DESKTOP_BUCKET;
   assert(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket ?? ''), 'Configure WHIP_DESKTOP_BUCKET');
@@ -102,9 +113,10 @@ export async function publish(directory, env = process.env) {
   assert(names.filter(name => name.endsWith('.zip')).some(name => new URL(encodeURIComponent(name), base).href === selected.updateTo.url), 'Feed does not identify the verified ZIP');
   for (const name of names.filter(name => name !== 'RELEASES.json')) {
     const expected = evidence.files[name];
-    try {
+    if (mode !== 'promote') try {
       await exec('aws', ['s3api', 'put-object', '--bucket', bucket, '--key', prefix + name, '--body', path.join(directory, name),
-        '--if-none-match', '*', '--metadata', `sha256=${expected.sha256}`, '--cache-control', 'public,max-age=31536000,immutable'], { env, timeout: 10 * 60_000 });
+        '--if-none-match', '*', '--metadata', `sha256=${expected.sha256}`, '--content-type', name.endsWith('.zip') ? 'application/zip' : 'application/x-apple-diskimage',
+        '--cache-control', 'public,max-age=31536000,immutable'], { env, timeout: 10 * 60_000 });
     } catch (error) {
       // A retried release may reuse identical bytes; never overwrite a version.
       if (!/PreconditionFailed|ConditionalRequestConflict/.test(String(error.stderr))) throw error;
@@ -112,6 +124,7 @@ export async function publish(directory, env = process.env) {
     const remote = await response(new URL(encodeURIComponent(name), base), expected.bytes);
     assert(remote && remote.length === expected.bytes && createHash('sha256').update(remote).digest('hex') === expected.sha256, `Published bytes differ: ${name}`);
   }
+  if (mode === 'stage') { console.log(`Staged verified Whip ${evidence.version}; live update feed unchanged.`); return; }
   // Conditional promotion also protects against a writer outside our serialized
   // workflow. On conflict, retry from its new history; never overwrite blindly.
   const feedFile = path.join(directory, 'RELEASES.promote.json');

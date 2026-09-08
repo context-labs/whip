@@ -1,0 +1,54 @@
+name: desktop check
+on:
+  workflow_call:
+    inputs:
+      renderer-artifact:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: node node_modules/electron/install.js
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ inputs.renderer-artifact }}
+          path: apps/web
+      - name: Verify shared renderer provenance and package input
+        run: node scripts/pack-web.mjs --release
+      - run: npm run check:desktop
+      - name: Native helper races and parent-lifetime acceptance
+        run: |
+          go test -race -shuffle=on -count=1 ./cmd/whip ./internal/daemon -run '^Test(Desktop|Maintenance)'
+          go test -race -tags=integration ./cmd/whip -run '^TestDesktopCompiledUpdate$' -v
+      - name: Package and verify the arm64 desktop without rebuilding the renderer
+        run: |
+          mkdir -p .ai-docs/plans/desktop-app/evidence
+          npm run package:desktop -- --renderer-ready
+          node apps/desktop/scripts/verify.mjs 'apps/desktop/out/Whip-darwin-arm64/Whip.app'
+      - name: Native tests including isolated real SSH authentication and forwarding
+        run: WHIP_DESKTOP_SSH_TEST_EXECUTABLE="$PWD/apps/desktop/.stage/native/whipcode" npm run test:desktop
+      - name: Staged desktop lifecycle smoke
+        run: node apps/desktop/scripts/smoke.mjs
+      - name: Desktop package and lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-ci-evidence
+          if-no-files-found: warn
+          path: .ai-docs/plans/desktop-app/evidence

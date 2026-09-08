@@ -360,3 +360,27 @@ SDK views. See [the frontend guide](frontend.md#native-mobile-companion) for
 package boundaries and [mobile setup](mobile.md) for the private network contract.
 Native runtime, storage, decision and Attention tests live under
 `apps/mobile/src`; device evidence is tracked separately from these unit checks.
+
+## Desktop backend replacement
+
+`LocalRuntime` coalesces backend synchronization and queues it behind an in-flight
+local preparation. Installation, ownership selection, and approval writes use the
+same mutation guard. A release-specific restart approval is persisted before the
+GUI updater exits and consumed only after the new backend reports matching
+readiness; failed handoff preserves it for retry. A later release's approval is
+not consumed by an older app's connection attempt.
+
+The Go handoff verifies and fsyncs staged bytes before stopping work, then holds
+an exclusive `maintenance.lock` through owner inspection, graceful SIGTERM,
+atomic replacement, child launch, and readiness. Ordinary daemon startup takes a
+nonblocking shared lock before the owner lock, so an old executable cannot wait
+through replacement and later become the owner. The replacement inherits the
+held descriptor; it must identify the same inode and retain exclusive ownership.
+Closing that inherited descriptor never explicitly unlocks the parent's lock.
+
+Any existing daemon owner requires explicit interruption approval, even if a
+status snapshot looks idle. Cancellation is checked before signaling, replacement,
+and launch. Shutdown never escalates to SIGKILL; a timeout leaves an actionable
+retry instead of replacing a still-running backend. These guarantees are covered
+by maintenance-lock tests, native runtime tests, and the two-build compiled
+update integration test. Remote daemons are outside this local update lifetime.

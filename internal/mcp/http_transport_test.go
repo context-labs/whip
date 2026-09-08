@@ -282,7 +282,11 @@ func TestConnectionHTTPTransportPreservesRequestDeadline(t *testing.T) {
 	if err := lifetime.Err(); err != nil {
 		t.Fatalf("one request cancelled the connection: %v", err)
 	}
-	response, err := client.Get(server.URL + "/healthy")
+	healthyRequest, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/healthy", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Do(healthyRequest)
 	if err != nil {
 		t.Fatalf("connection did not survive a request deadline: %v", err)
 	}

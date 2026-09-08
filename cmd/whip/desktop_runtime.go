@@ -19,8 +19,12 @@ func desktopRuntimeInfo(args []string, output io.Writer) error {
 	return json.NewEncoder(output).Encode(struct {
 		Distribution  string `json:"distribution"`
 		BuildID       string `json:"buildId"`
+		UpdateOwner   string `json:"updateOwner"`
 		ProtocolMajor int    `json:"protocolMajor"`
 		ProtocolMinor int    `json:"protocolMinor"`
 		SchemaVersion int    `json:"schemaVersion"`
-	}{Distribution: buildinfo.Name, BuildID: version, ProtocolMajor: protocol.Major, ProtocolMinor: protocol.Minor, SchemaVersion: session.SchemaVersion()})
+	}{
+		Distribution: buildinfo.Name, BuildID: version, UpdateOwner: buildinfo.UpdateOwner,
+		ProtocolMajor: protocol.Major, ProtocolMinor: protocol.Minor, SchemaVersion: session.SchemaVersion(),
+	})
 }

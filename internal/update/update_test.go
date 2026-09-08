@@ -9,7 +9,24 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/buildinfo"
 )
+
+func TestDesktopUpdateChecksDoNotReadStateOrFetchBranchReleases(t *testing.T) {
+	previousOwner, previousFetch := buildinfo.UpdateOwner, fetchLatest
+	buildinfo.UpdateOwner = "desktop"
+	fetchLatest = func() (string, error) { t.Fatal("desktop queried standalone releases"); return "", nil }
+	t.Cleanup(func() { buildinfo.UpdateOwner, fetchLatest = previousOwner, previousFetch })
+	home := filepath.Join(t.TempDir(), "absent")
+	t.Setenv("WHIP_HOME", home)
+	if Check("v1.0.0") != "" || Pending("v1.0.0") != "" {
+		t.Fatal("desktop offered a standalone update")
+	}
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Fatalf("desktop update check initialized state: %v", err)
+	}
+}
 
 func fetchOK(tag string) func() (string, error) {
 	return func() (string, error) { return tag, nil }

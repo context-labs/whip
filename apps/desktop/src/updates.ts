@@ -21,13 +21,14 @@ export function readDesktopConfig(value: unknown): DesktopConfig {
 export class DesktopUpdates {
   private state?: UpdateEvent;
   private downloaded = false;
+  private downloadedVersion?: string;
   private checking = false;
   private timer?: ReturnType<typeof setTimeout>;
   private scheduled = false;
   private installing = false;
   private listeners: { name: string; listener: (...args: any[]) => void }[] = [];
   constructor(private config: DesktopConfig, private emit: (event: DesktopEvent) => void,
-    private requestInstall: () => Promise<void>, private installationState: (quitting: boolean) => void = () => {}) {
+    private requestInstall: (version: string) => Promise<void>, private installationState: (quitting: boolean) => void = () => {}) {
     if (config.updateURL) autoUpdater.setFeedURL({ url: config.updateURL, serverType: 'json' });
     this.on('checking-for-update', () => this.publish({ kind: 'update', state: 'checking' }));
     this.on('update-available', () => this.publish({ kind: 'update', state: 'available' }));
@@ -37,7 +38,20 @@ export class DesktopUpdates {
       this.downloaded = false;
       this.checking = false; this.publish({ kind: 'update', state: 'error', error: error.message.slice(0, 2048) });
     });
-    this.on('update-downloaded', (_event, _notes, version) => {
+    this.on('update-downloaded', (_event, _notes, releaseName) => {
+      // Electron supplies updateTo.name, which Forge formats as the product
+      // name followed by vVERSION. Persist only the matching channel's version.
+      const prefix = config.channel === 'beta' ? 'Whip Beta v' : 'Whip v';
+      const version = typeof releaseName === 'string' && releaseName.startsWith(prefix) ? releaseName.slice(prefix.length) : undefined;
+      if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(version) || version.length > 128) {
+        this.checking = false; this.downloaded = false;
+        this.publish({ kind: 'update', state: 'error', error: 'The update reported an invalid version.' }); return;
+      }
+      if (version.includes('-') !== (config.channel === 'beta')) {
+        this.checking = false; this.downloaded = false;
+        this.publish({ kind: 'update', state: 'error', error: 'The update belongs to a different release channel.' }); return;
+      }
+      this.downloadedVersion = version;
       this.checking = false; this.downloaded = true;
       this.publish({ kind: 'update', state: 'downloaded', version: String(version).slice(0, 128) });
     });
@@ -73,7 +87,7 @@ export class DesktopUpdates {
   }
   async install() {
     if (!this.downloaded) throw new Error('No update has finished downloading');
-    await this.requestInstall();
+    await this.requestInstall(this.downloadedVersion!);
   }
   quitAndInstall() {
     if (!this.downloaded) throw new Error('No update has finished downloading');

@@ -20,8 +20,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -31,7 +31,7 @@ jobs:
       # time. Key on the sources too, with a prefix restore-key, so each run
       # starts from the nearest previous compile and saves an updated cache.
       - name: Go build cache (lint)
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
           key: gobuild-lint-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -56,7 +56,7 @@ jobs:
         run: go run ./cmd/whipvet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           # Pinned: "latest" is a moving target and older releases can't parse
           # Go 1.27 export data. Bump deliberately alongside the Go toolchain.
@@ -71,8 +71,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -87,7 +87,7 @@ jobs:
       # expensive part of this job and setup-go's go.sum-keyed cache never
       # refreshes to hold them.
       - name: Go build cache (race + coverage objects)
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
           key: gobuild-test-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -120,8 +120,8 @@ jobs:
       matrix:
         target: [linux/amd64, linux/arm64, darwin/amd64, darwin/arm64]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -129,7 +129,7 @@ jobs:
       # Per-target: each GOOS/GOARCH has its own standard-library objects, so
       # they get their own cache rather than evicting each other.
       - name: Go build cache (${{ matrix.target }})
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
           key: gobuild-${{ matrix.target }}-${{ runner.os }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -153,8 +153,8 @@ jobs:
         os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -168,16 +168,17 @@ jobs:
   sdk:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run check
       - name: Web application and component checks
         run: |
@@ -200,9 +201,17 @@ jobs:
       - run: node apps/web/scripts/snapshot-refresh.mjs
       - run: node apps/web/scripts/performance.mjs
       - run: npm run test:example
+      - name: Shared verified renderer for desktop and release consumers
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: whipcode-ci-renderer
+          if-no-files-found: error
+          path: |
+            apps/web/dist
+            apps/web/renderer-manifest.json
       - name: Browser acceptance evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: whipcode-web-browser-evidence
           if-no-files-found: ignore
@@ -215,8 +224,14 @@ jobs:
   # survive the split. It is the aggregate gate: green only when lint, tests,
   # builds, both runtime platforms, SDK, and the Swift driver all pass. if: always()
   # makes a failed dependency report as a failure here rather than a skip.
+  desktop:
+    needs: sdk
+    uses: ./.github/workflows/desktop-check.yml
+    with:
+      renderer-artifact: whipcode-ci-renderer
+
   go:
-    needs: [lint, test, build, runtime, driver, sdk, distribution]
+    needs: [lint, test, build, runtime, driver, sdk, distribution, desktop]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -235,6 +250,7 @@ jobs:
           [ "${{ needs.driver.result }}" = success ] || exit 1
           [ "${{ needs.sdk.result }}" = success ] || exit 1
           [ "${{ needs.distribution.result }}" = success ] || exit 1
+          [ "${{ needs.desktop.result }}" = success ] || exit 1
 
   # The release pipeline builds the computer-use Swift driver on macOS and
   # go:embeds it — build it here too so a driver-breaking change fails the
@@ -242,14 +258,14 @@ jobs:
   driver:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build the whip-computer Swift driver
         run: |
           swift build -c release --package-path driver
           test -s driver/.build/release/whip-computer
 
       - name: Full build with the helper embedded
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -264,8 +280,8 @@ jobs:
         os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true

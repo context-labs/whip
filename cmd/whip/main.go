@@ -26,6 +26,13 @@ func cwd() string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "_desktop-runtime-sync" {
+		if err := desktopRuntimeSyncCLI(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "whip desktop:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "_desktop-ssh" {
 		os.Exit(desktopSSHCLI(os.Args[2:]))
 	}

@@ -27,11 +27,22 @@ async function fixture(t: TestContext, options: { distribution?: string; initial
   const script = `#!/bin/sh
 case "$1 $2" in
   '_desktop-runtime-info ') printf '%s\\n' '${JSON.stringify(info)}' ;;
+  '_desktop-runtime-sync --executable')
+    printf 'sync:%s\\n' "$*" >> ${quote(log)}
+    case " $* " in *' --interrupt '*) approved=1 ;; *) approved=0 ;; esac
+    if { [ -f ${quote(state)} ] || [ ${quote(String((options.initial as { pid?: number } | undefined)?.pid ?? ''))} != '' ]; } && [ "$approved" = 0 ]; then
+      printf '%s\\n' '${JSON.stringify({ state: 'approval-required', buildId: info.buildId, executable })}'
+    else
+      if [ -f ${quote(path.join(directory, "fail-sync"))} ]; then echo "fixture shutdown timeout" >&2; exit 1; fi
+      cp "$0" "$3"; mkdir -p ${quote(home)}; : > ${quote(state)}
+      printf '%s\\n' '${JSON.stringify({ state: 'ready', buildId: info.buildId, executable })}'
+    fi ;;
   'daemon status')
     printf 'status:%s\\n' "$0" >> ${quote(log)}
     if [ -f ${quote(state)} ]; then printf '%s\\n' '${JSON.stringify(running)}'
     else printf '%s\\n' '${JSON.stringify({ state: 'stopped', socket, ...options.initial })}'; fi ;;
   'daemon start'|'daemon restart')
+    while [ -f ${quote(path.join(directory, 'hold-start'))} ]; do sleep 0.02; done
     printf 'start:%s:%s:%s\\n' "$0" "$WHIPCODE_HOME" "$WHIPCODE_LISTEN" >> ${quote(log)}
     ${options.startError ? `printf '%s\\n' ${quote(options.startError)} >&2; exit 1` : `mkdir -p ${quote(home)}; : > ${quote(state)}`} ;;
   *) exit 2 ;;
@@ -195,7 +206,7 @@ test('cancelled copies remove temporary files without creating an installation',
 test('existing unhealthy owners require explicit restart; stale unowned sockets recover', async t => {
   const f = await fixture(t, { initial: { state: 'unhealthy', pid: 123 } });
   await f.runtime.install(f.executable, signal());
-  await assert.rejects(f.runtime.prepare(signal(), () => {}), /unhealthy/);
+  await assert.rejects(f.runtime.prepare(signal(), () => {}), /update deferred/);
   assert.doesNotMatch(await readFile(f.log, 'utf8'), /start:/);
   assert.equal((await f.runtime.restart(signal())).state, 'running');
   const stale = await fixture(t, { initial: { state: 'unhealthy', stale_socket: true } });
@@ -249,4 +260,90 @@ test('validates daemon socket and process metadata before transport attachment',
   assert.equal(parseDaemonStatus(JSON.stringify({ state: 'stopped', socket: '/tmp/test.sock' })).state, 'stopped');
   for (const value of [{ state: 'oops', socket: '/tmp/x' }, { state: 'running', socket: 'relative' }, { state: 'running', socket: '/tmp/x', pid: -1 }])
     assert.throws(() => parseDaemonStatus(JSON.stringify(value)), /invalid runtime status/);
+});
+
+async function upgradeFixture(t: TestContext) {
+  const f = await fixture(t);
+  await f.runtime.install(f.executable, signal());
+  await f.runtime.prepare(signal(), () => {});
+  const original = await readFile(path.join(f.source, 'whipcode'), 'utf8');
+  await writeFile(path.join(f.source, 'whipcode'), original + '\n# next release\n', { mode: 0o700 });
+  const bytes = await readFile(path.join(f.source, 'whipcode'));
+  const manifest = { ...f.manifest, version: '1.2.4', files: { ...f.manifest.files, whipcode: { bytes: bytes.length, sha256: hash(bytes) } } };
+  return { ...f, next: { ...f.opts, manifest } };
+}
+
+test('one desktop update approval synchronizes the canonical backend and is consumed after readiness', async t => {
+  const f = await upgradeFixture(t);
+  await f.runtime.approveUpdate('1.2.4', signal());
+  const next = new LocalRuntime({ ...f.next, confirmUpdate: async () => { assert.fail('asked twice for the same update'); } });
+  await next.synchronize(signal());
+  assert.equal(await fileDigest(f.executable), f.next.manifest.files.whipcode.sha256);
+  const saved = JSON.parse(await readFile(f.settingsFile, 'utf8'));
+  assert.equal(saved.managed.sha256, f.next.manifest.files.whipcode.sha256);
+  assert.equal(saved.managed.approvedVersion, undefined);
+  const calls = await readFile(f.log, 'utf8');
+  assert.equal(calls.split('\n').filter(line => line.startsWith('sync:')).length, 1);
+  assert.match(calls, /--interrupt/);
+  await next.synchronize(signal());
+  assert.equal(await readFile(f.log, 'utf8').then(log => log.split('\n').filter(line => line.startsWith('sync:')).length), 1);
+});
+
+test('manual app replacement defers running work then applies on explicit retry', async t => {
+  const f = await upgradeFixture(t);
+  let approve = false; let prompts = 0;
+  const next = new LocalRuntime({ ...f.next, confirmUpdate: async () => { prompts++; return approve; } });
+  await assert.rejects(next.synchronize(signal()), /update deferred/);
+  assert.equal(await fileDigest(f.executable), f.manifest.files.whipcode.sha256);
+  assert.equal(prompts, 1);
+  approve = true;
+  await next.synchronize(signal());
+  assert.equal(await fileDigest(f.executable), f.next.manifest.files.whipcode.sha256);
+  assert.equal(prompts, 2);
+});
+
+test('synchronization rejects external replacement and never adopts a chosen external executable', async t => {
+  const f = await upgradeFixture(t);
+  const next = new LocalRuntime(f.next);
+  await writeFile(f.executable, 'external replacement');
+  await assert.rejects(next.synchronize(signal()), /changed outside desktop/);
+  assert.equal(await readFile(f.executable, 'utf8'), 'external replacement');
+  await next.choose(path.join(f.source, 'whipcode'), signal());
+  await next.synchronize(signal());
+  assert.equal(JSON.parse(await readFile(f.settingsFile, 'utf8')).managed, undefined);
+});
+
+
+test('manual restart approval survives a failed handoff and future update approval survives a no-op sync', async t => {
+  const f = await upgradeFixture(t);
+  let prompts = 0;
+  const next = new LocalRuntime({ ...f.next, confirmUpdate: async () => { prompts++; return true; } });
+  await writeFile(path.join(f.directory, 'fail-sync'), 'fail');
+  await assert.rejects(next.synchronize(signal()), /fixture shutdown timeout/);
+  assert.equal(JSON.parse(await readFile(f.settingsFile, 'utf8')).managed.approvedVersion, '1.2.4');
+  await rm(path.join(f.directory, 'fail-sync'));
+  await next.synchronize(signal());
+  assert.equal(prompts, 1);
+  await next.approveUpdate('1.2.5', signal());
+  await next.synchronize(signal());
+  assert.equal(JSON.parse(await readFile(f.settingsFile, 'utf8')).managed.approvedVersion, '1.2.5');
+});
+
+
+test('startup synchronization waits for an overlapping local connection', async t => {
+  const f = await fixture(t);
+  await f.runtime.install(f.executable, signal());
+  const hold = path.join(f.directory, 'hold-start');
+  await writeFile(hold, 'hold');
+  const connection = f.runtime.prepare(signal(), () => {});
+  // Let prepare finish its initial synchronization and enter startup.
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const log = await readFile(f.log, 'utf8');
+    if (log.split('status:').length >= 4) break;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  const sync = f.runtime.synchronize(signal());
+  await rm(hold);
+  assert.equal(await connection, f.socket);
+  await sync;
 });

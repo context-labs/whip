@@ -254,11 +254,17 @@ Desktop's optional `localRuntime` capability provides `test`, `choose`, `install
 and `restart`. Electron main owns executable discovery, compatibility checks,
 installation and process effects through [`LocalRuntime`](../apps/desktop/src/runtime.ts).
 Its native `native-local-runtime.json` settings record contains the selected
-absolute executable path; React does not store another copy or derive sockets.
+absolute executable path, optional management hash/channel, and a release-specific
+restart approval. React does not store another copy or derive sockets.
 The first connection discovers and validates `whipcode`, then persists the path
 so Finder and terminal launches use the same installation. A missing saved path
 does not fall back to another executable. Packaged backend bytes are an explicit
-installation payload; ordinary connections use the selected installed executable.
+installation/update payload; ordinary daemon execution uses the selected installed
+executable. A main-process synchronization gate verifies managed installations
+before local connection, coordinates restart with the Go maintenance lock, and
+consumes the existing update approval after matching readiness. Any running daemon
+requires explicit interruption approval; a UI status snapshot is not an idle fence.
+An explicitly chosen external binary is never automatically adopted or replaced.
 Normal stable and beta desktop channels share the default `~/.whipcode` runtime
 home. An explicit `WHIPCODE_HOME` can isolate a fixture; legacy `WHIP_HOME` never
 redirects local work. The canonical installation on the development Mac is

@@ -93,6 +93,10 @@ in
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.
 - [ ] Electron desktop release acceptance — implementation and signed local packages are available; notarized installation, real updates and manual device gates remain. See [desktop guide](desktop.md) and [verified progress](../.ai-docs/plans/desktop-app/progress.md).
+- [ ] Desktop publishing CI: explicit desktop releases, CI signing/notarization,
+  verified downloads and update feeds, clean-machine installation and actual
+  update acceptance. See the
+  [research and phased release plan](../.ai-docs/plans/desktop-release/README.md).
 - [x] Canonical desktop whipcode integration: one selected installed executable,
   a shared default `~/.whipcode` home, verified installation payload and explicit
   local connection diagnostics, installation and restart controls. Machine cleanup,

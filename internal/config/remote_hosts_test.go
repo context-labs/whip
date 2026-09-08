@@ -27,6 +27,7 @@ func TestNormalizeRemoteHosts(t *testing.T) {
 		{"missing hostname", func(h *RemoteHost) { h.URL = "http://:8080" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			host := valid
 			test.edit(&host)
 			if _, err := NormalizeRemoteHosts([]RemoteHost{host}); err == nil {
@@ -43,6 +44,7 @@ func TestNormalizeRemoteHosts(t *testing.T) {
 		{"runtime alias", func(h *RemoteHost) { h.RuntimeID = valid.RuntimeID }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			other := RemoteHost{ID: "other", Name: "Other", URL: "http://other", RuntimeID: "other"}
 			test.edit(&other)
 			if _, err := NormalizeRemoteHosts([]RemoteHost{valid, other}); err == nil {

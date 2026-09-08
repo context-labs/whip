@@ -229,7 +229,7 @@ async function selfTest() {
   }
 }
 
-async function seedSession(fixture, executable, env) {
+async function seedSession(fixture, executable, env, scheme) {
   let requests = 0; let providerFailure;
   const provider = createServer((request, response) => {
     void (async () => {
@@ -283,7 +283,7 @@ async function seedSession(fixture, executable, env) {
     assert(snapshot.messages.some(message => message.role === 'assistant' && message.content === answer));
     assert.equal(requests, 2);
     const runtimeId = client.getSnapshot().info.runtime_id;
-    return { route: `/h/${runtimeId}/s/${rootId}`, link: `whip://session/${runtimeId}/${rootId}`, providerRequests: requests };
+    return { route: `/h/${runtimeId}/s/${rootId}`, link: `${scheme}://session/${runtimeId}/${rootId}`, providerRequests: requests };
   } finally {
     client?.close(); provider.closeAllConnections(); await new Promise(resolve => provider.close(resolve));
   }
@@ -369,6 +369,7 @@ async function main() {
           const filename = path.join(f.userData, 'startup.json'); const stat = await lstat(filename);
           assert(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid() && (stat.mode & 0o077) === 0 && stat.size <= 8192);
           const value = JSON.parse(await readFile(filename, 'utf8'));
+          captured = value;
           assert.equal(value.runId, runId); assert.equal(value.rendererDigest, evidence.rendererDigest);
           assert(Number.isSafeInteger(value.pid) && value.pid > 0); pid = value.pid; ownedPids.add(pid);
           assert(!interrupted, 'Startup measurement interrupted');
@@ -393,7 +394,8 @@ async function main() {
       assert.equal(status.state, 'running'); assert(Number.isSafeInteger(status.pid) && status.pid > 0); ownedDaemonPids.add(status.pid);
       console.log(`${scenario}${warmup ? ' warmup' : ''}: shell ≤${record.shell.upperMs.toFixed(1)} ms, usable ≤${record.usable.upperMs.toFixed(1)} ms`);
     } catch (error) {
-      if (!captured) results.push({ scenario, warmup, runId, pid, state: 'runner-failed', unidentifiedApp: !pid && !launchExit });
+      if (!idle) results.push({ scenario, warmup, runId, pid, state: 'runner-failed',
+        unidentifiedApp: !pid && !launchExit, ...(captured ? { lastReport: captured } : {}), launchError, launchExit });
       throw error;
     } finally {
       if (pid) {
@@ -427,7 +429,7 @@ async function main() {
       await run(executable, ['daemon', 'stop'], f.env); await rm(f.directory, { recursive: true, force: true });
     }
     const retained = await createFixture('retained'); await launch(retained, 'prepare', { warmup: true });
-    seeded = await seedSession(fixture, executable, retained.env);
+    seeded = await seedSession(fixture, executable, retained.env, packageInfo.productName === 'Whip Beta' ? 'whip-beta' : 'whip');
     await launch(retained, 'prepare-session', { route: seeded.route, link: seeded.link, warmup: true });
     if (values.idle) {
       await launch(retained, 'idle', { idle: true });

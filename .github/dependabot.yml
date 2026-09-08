@@ -1,7 +1,7 @@
-# Keep Go modules and GitHub Actions up to date.
+# Keep Go, npm workspace dependencies and GitHub Actions up to date.
 # Minor/patch updates are grouped into one PR; major updates get their own PR
 # (they may carry breaking changes). Actions are pinned to major versions
-# elsewhere, so Dependabot tracks new majors.
+# in older workflows; release workflows pin full commit identities.
 version: 2
 
 updates:
@@ -28,5 +28,17 @@ updates:
     open-pull-requests-limit: 5
     groups:
       actions:
+        applies-to: version-updates
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
         applies-to: version-updates
         update-types: ["minor", "patch"]

@@ -53,6 +53,7 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
     const metadata = JSON.parse((await exec(path.join(contents, 'Helpers/whipcode'), ['_desktop-runtime-info'],
       { timeout: 5000, maxBuffer: 16 << 10, encoding: 'utf8' })).stdout);
     assert.equal(metadata.distribution, 'whipcode', 'Packaged backend is not the whipcode distribution');
+    assert.equal(metadata.updateOwner, 'desktop', 'The packaged backend must update through desktop');
     assert.equal(metadata.distribution, runtime.distribution);
     assert.equal(metadata.buildId, runtime.buildId);
     for (const key of ['protocolMajor', 'protocolMinor', 'schemaVersion'])

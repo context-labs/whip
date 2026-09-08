@@ -230,47 +230,9 @@ jobs:
 
   desktop:
     needs: sdk
-    runs-on: macos-14
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      - run: node node_modules/electron/install.js
-      - uses: actions/download-artifact@v8
-        with:
-          name: ci-renderer
-          path: apps/web
-      - name: Verify shared renderer provenance and package input
-        run: node scripts/pack-web.mjs --release
-      - run: npm run check:desktop
-      - name: Native helper races and parent-lifetime acceptance
-        run: go test -race -shuffle=on -count=1 ./cmd/whip -run '^TestDesktop'
-      - name: Package and verify the arm64 desktop without rebuilding the renderer
-        run: |
-          mkdir -p .ai-docs/plans/desktop-app/evidence
-          npm run package:desktop -- --renderer-ready
-          node apps/desktop/scripts/verify.mjs 'apps/desktop/out/Whip-darwin-arm64/Whip.app'
-      - name: Native tests including isolated real SSH authentication and forwarding
-        run: WHIP_DESKTOP_SSH_TEST_EXECUTABLE="$PWD/apps/desktop/.stage/native/whipcode" npm run test:desktop
-      - name: Staged desktop lifecycle smoke
-        run: node apps/desktop/scripts/smoke.mjs
-      - name: Desktop package and lifecycle evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-ci-evidence
-          if-no-files-found: warn
-          path: .ai-docs/plans/desktop-app/evidence
+    uses: ./.github/workflows/desktop-check.yml
+    with:
+      renderer-artifact: ci-renderer
 
   mobile:
     uses: ./.github/workflows/mobile.yml

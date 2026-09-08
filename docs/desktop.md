@@ -64,7 +64,7 @@ that selection even if their PATH differs. `WHIPCODE_HOME` explicitly overrides
 the home; it is not a legacy `WHIP_HOME` migration or a setting in that JSON file.
 
 **Choose executable** validates an existing installation. **Install whipcode**
-lets you choose a writable destination, verifies the bundled payload, and copies
+defaults to `~/.local/bin/whipcode`, verifies the bundled payload, and copies
 its exact bytes there atomically. It does not overwrite an existing backend.
 Neither action starts the daemon; use **Connect** afterward. A missing saved
 executable remains an actionable setup error rather than silently selecting a
@@ -204,20 +204,30 @@ executes `_desktop-runtime-info` and verifies those fields against the manifest.
 verified signed bytes to the chosen canonical path; the daemon and new RLM
 workers use that path via `os.Executable()`. The exact signed computer helper is
 embedded in the executable and extracted under `~/.whipcode/bin` when needed.
-Normal connections do not run the payload inside the `.app` or create private
-Electron `runtimes/` installations. Replacing the GUI application therefore leaves
-the canonical backend available to accepted work and future workers. A healthy
-compatible CLI daemon is reused even when its build differs; diagnostics report
-both builds instead of silently restarting it.
+Normal daemon/worker execution uses the selected installed executable. Desktop invokes
+the verified bundled payload only as the updater for a desktop-managed installation;
+it does not create a private Electron runtime directory.
 
-The GUI updater never calls `whipcode update`, replaces the canonical executable,
-or restarts a daemon. Backend upgrades require an explicit stop, verified binary
-replacement, and start. Keep the canonical executable present while its daemon
-or workers are running. Obsolete retained runtime directories can be removed
-only after their old owners stop; the new app does not use or recreate them.
-GUI rollback does not downgrade the daemon database. Source-managed local builds
-should omit `WHIP_DESKTOP_UPDATE_URL` and use rebuilds from their chosen checkout;
-a published-release updater is not that installation's upgrade path.
+An explicit **Install whipcode** records the installed hash and owning channel.
+**Choose executable** keeps an external installation under the user's control.
+On launch and before local attachment, a managed installation must match both the
+bundled payload and the running daemon build. A changed external file or channel
+conflict requires explicit remediation rather than an automatic overwrite.
+
+A desktop update downloads while work continues. **Restart and update** saves one
+release-specific interruption approval before Squirrel relaunches the app. The new
+app stages and verifies the backend beside its canonical path, takes a shared
+maintenance lock against other starters/updaters, gracefully stops its owner,
+atomically replaces the file, and starts/verifies the new daemon. Without an
+existing approval, any running daemon requires a restart/defer choice; desktop
+never guesses that it is idle. Deferring leaves work running. Retrying after a
+partial update inspects actual bytes/process state and reuses the saved approval.
+
+Sessions and configuration remain in place. A failed local update keeps diagnostics
+and remote connections available. Desktop-supplied `whipcode update` directs the
+user to desktop updates and suppresses unrelated standalone update notices.
+Source-managed or explicitly chosen external binaries retain their own update
+procedure. GUI replacement does not imply permission to delete or migrate state.
 
 Stable and beta keep separate app bundle IDs, GUI user data and executable
 selection files, but both default to the canonical `whipcode` distribution and
@@ -236,45 +246,14 @@ and stapling. `out/release/evidence.json` and `SHA256SUMS` describe those bytes.
 
 ## Releases and updates
 
-The tag-release workflow builds one renderer artifact. CLI target jobs and the
-macOS desktop job download it; neither regenerates the renderer. Publication
-waits for both products. The desktop job uses a temporary keychain and removes
-its credentials afterward. A required desktop gate cannot silently be skipped.
-The macOS arm64 job uses GitHub's standard `macos-14` runner
-([runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)).
-
-Configure GitHub environments `desktop-stable` and `desktop-beta` separately.
-All names in the table use the `WHIP_DESKTOP_` prefix:
-
-| Kind | Names |
-| --- | --- |
-| Variables | `SIGN_IDENTITY`, `TEAM_ID`, `UPDATE_URL`, `NOTARY_KEY_ID`, `NOTARY_ISSUER`, `BUCKET`, `AWS_REGION`, `AWS_ROLE_ARN` |
-| Secrets | `CERTIFICATE_P12_BASE64`, `CERTIFICATE_PASSWORD`, `NOTARY_PRIVATE_KEY` (raw API private key PEM) |
-
-`UPDATE_URL` is an owned HTTPS `/RELEASES.json` URL without credentials, query or
-fragment. Use separate stable/beta and macOS/arm64 paths, with the same path in
-the configured S3 bucket. The AWS role uses GitHub OIDC with permission to read
-and conditionally write only that release prefix. Local signing may instead use
-`WHIP_DESKTOP_NOTARY_PROFILE`, an existing notarytool keychain profile, alongside
-`SIGN_IDENTITY`, `TEAM_ID`, `NOTARIZE=1` and the intended feed. Credentials are
-not stored in the app or repository.
-
-HALO's [desktop release workflow](https://github.com/context-labs/HALO/blob/main/.github/workflows/app--release.yml)
-is an existing source of Apple signing and notarization credentials. Its
-`APPLE_DEVELOPER_ID_CERTIFICATE_BASE64` and certificate password map to Whip's
-certificate secrets. Decode `APPLE_API_KEY_P8_BASE64` to the raw PEM expected by
-`WHIP_DESKTOP_NOTARY_PRIVATE_KEY`; its API key ID and issuer map to Whip's notary
-variables. Local Apple ID app-specific credentials can instead be stored with
-`notarytool store-credentials` and used through `WHIP_DESKTOP_NOTARY_PROFILE`.
-Keep actual values in the Keychain or GitHub secret store.
-
-HALO publishes to Cloudflare R2, using an S3-compatible endpoint and static access
-keys rather than the AWS role configured in Whip's current workflow. Reusing
-that infrastructure requires endpoint/authentication configuration in CI and a
-separate Whip route, artifact prefix and Electron update feed. HALO's existing
-Electrobun feed must remain separate. The
-[credential discovery record](../.ai-docs/plans/desktop-app/evidence/release-credentials.json)
-tracks which local credentials and repository permissions were verified.
+The protected `desktop-v<semver>` release graph runs Whipcode CI/security and
+native desktop checks, consumes one renderer artifact, and produces a signed,
+notarized Apple Silicon application plus the matching Linux x64 backend. Candidate
+checksums, dependency notices/inventory, package/startup evidence, and attestations
+are retained. Separate staging and reviewed promotion steps reuse the same bytes;
+the live R2 feed advances last. Desktop releases do not replace standalone CLI
+latest-release discovery. See the [release runbook](desktop-releases.md) for exact
+GitHub environments, secrets, hosting, acceptance, and retry procedures.
 
 Squirrel.Mac verifies and downloads updates from the HTTPS static JSON feed.
 Checking is deferred until after the renderer is ready; the Device settings page

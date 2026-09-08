@@ -59,6 +59,9 @@ var fetchLatest = fetchLatestGitHub
 // say (up to date, dev build, already noted, checked recently, or the check
 // failed). Never errors.
 func Check(current string) string {
+	if buildinfo.UpdateOwner == "desktop" {
+		return ""
+	}
 	dir, err := config.Dir()
 	if err != nil {
 		return ""
@@ -69,6 +72,9 @@ func Check(current string) string {
 // Pending reads a recorded notice: the latest tag if a newer-than-current
 // release is waiting to be acknowledged, else "".
 func Pending(current string) string {
+	if buildinfo.UpdateOwner == "desktop" {
+		return ""
+	}
 	dir, err := config.Dir()
 	if err != nil {
 		return ""

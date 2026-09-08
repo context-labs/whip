@@ -65,7 +65,7 @@ func TestRuntimePathsAndOwnerLock(t *testing.T) {
 
 func TestResolvePathsDoesNotCreateRuntime(t *testing.T) {
 	t.Parallel()
-	root, err := os.MkdirTemp("/tmp", "whip-paths-")
+	root, err := os.MkdirTemp("/tmp", "whip-paths-") //nolint:usetesting // Exercise both short and hashed Unix socket paths on macOS.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +79,7 @@ func TestResolvePathsDoesNotCreateRuntime(t *testing.T) {
 		{name: "long path", home: filepath.Join(root, strings.Repeat("long", 40)), fallback: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			paths, err := ResolvePaths(test.home)
 			if err != nil {
 				t.Fatal(err)
@@ -112,6 +113,7 @@ func TestActiveOwnerPIDDoesNotCreateOrModifyLock(t *testing.T) {
 		{name: "stale PID", present: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			path := filepath.Join(t.TempDir(), "runtime", "daemon.lock")
 			if test.present {
 				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

@@ -32,7 +32,7 @@
     "package:desktop": "node apps/desktop/scripts/package.mjs",
     "make:desktop": "node apps/desktop/scripts/package.mjs --make",
     "check:desktop": "tsc -p apps/desktop/tsconfig.json --noEmit",
-    "test:desktop": "node apps/desktop/scripts/test.mjs && node --test scripts/distribution.test.mjs scripts/publish.test.mjs scripts/publish-github.test.mjs scripts/renderer-artifact.test.mjs && node apps/desktop/scripts/startup.mjs --self-test",
+    "test:desktop": "node apps/desktop/scripts/test.mjs && node --test scripts/distribution.test.mjs scripts/release-candidate.test.mjs scripts/publish.test.mjs scripts/publish-github.test.mjs scripts/renderer-artifact.test.mjs && node apps/desktop/scripts/startup.mjs --self-test",
     "dev:desktop": "node apps/desktop/scripts/dev.mjs",
     "dev:mobile": "npm run build && npm run start -w @whip/mobile",
     "check:mobile": "npm run build && npm run check -w @whip/mobile",
@@ -59,5 +59,6 @@
     "typescript": "5.9.3",
     "vite": "8.2.2",
     "vitest": "5.0.0"
-  }
+  },
+  "version": "0.0.0"
 }
