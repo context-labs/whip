@@ -338,95 +338,80 @@ TUI: `taskmodel_test.go` — `TestTaskDefaultForResolvesDefault`,
 
 `internal/workflow/` + `internal/agent/workflowtool.go` — a `workflow` tool
 that runs **deterministic multi-agent orchestration scripts**: the model
-writes a small JavaScript program that fans work out to subagents
-(`agent()`), pipelines it (`pipeline()`), barriers on it (`parallel()`), and
-returns a structured result. This is the Go port of the pi `better-workflows`
-extension (github.com/anishthite/better-workflows), itself faithful to Claude
-Code's `Workflow` tool.
+writes a JavaScript program that fans out to subagents (`agent()`), pipelines
+(`pipeline()`), or barriers (`parallel()`) and returns a structured result.
+Go port of the pi `better-workflows` extension
+(github.com/anishthite/better-workflows), faithful to Claude Code's `Workflow`
+tool. "Dynamic" = the graph is built at runtime (loops, conditionals,
+data-dependent fan-out), not a static DAG declared up front.
 
-"Dynamic" = the orchestration graph is decided by the script at runtime
-(loops, conditionals, data-dependent fan-out), not a static DAG declared up
-front.
-
-- **Script contract** (`parse.go`, port of `parse.ts`). Every script starts
-  with `export const meta = { name, description, phases? }` — a PURE LITERAL
-  (no variables, calls, spreads, or template interpolation: the literal is
-  brace-matched — strings/comments aware — and evaluated in an empty goja
-  realm, so a non-literal throws). The body then runs in an async context
-  with globals `agent`/`pipeline`/`parallel`/`phase`/`log`/`args`/`budget`/
-  `cwd`/`console.log`. `Date.now()`/`Math.random()`/argless `new Date()` are
-  blocked twice: a parse-time regex (fast feedback) and a runtime prelude
-  that neuters them inside the VM (they break resume).
-- **The sandbox is single-goroutine** (`runtime.go`). goja's VM is not
-  goroutine-safe, so every VM touch — the script body, each JS callback, and
-  every promise resolve/reject — is a job on one `scheduler` goroutine fed by
-  an unbuffered `jobs` channel. Worker goroutines (agent runs, fan-out
-  wrappers) never touch the VM; they hand results back through `enqueue`. A
-  no-op `vm.RunString("0")` after each job pumps goja's promise queue, so a
-  script parked on `await agent(...)` wakes when the agent finishes (without
-  it the continuation never fires — goja only runs microtasks while the VM
-  executes). The promise-rejection tracker fires synchronously from goja's
-  async runner ON the scheduler, so it must not `enqueue` (self-deadlock).
-- **`agent()`** resolves model/effort (per-call opts → phase override → meta
-  default), assigns a lexical `callIndex` (the resume key) and reserves an
-  agent slot atomically (a fan-out can't overshoot the cap), then runs a
-  fresh whip subagent via `Options.Run` (the agent wiring: `newSub` + `Turn`,
-  usage rolled into the parent session). Failures resolve to `null` — scripts
-  `.filter(Boolean)` — and are NOT journaled, so a resume retries them. With
-  `opts.schema` the subagent must end with a `structured_output` tool call
-  whose args ARE the return value (one repair re-prompt).
-- **`pipeline(items, ...stages)`** flows each item through all stages
-  independently — NO barrier (item A can be in stage 3 while B is in stage
-  1). **`parallel(thunks)`** is a barrier: awaits all, a throwing thunk
-  resolves to `null` so the call never rejects. Both spawn a goroutine per
-  item; each JS stage call is a `scheduler` job whose (possibly thenable)
-  result is delivered back on a channel (`callJS`).
-- **Caps** (mirrored from `runtime.ts`): concurrency `min(16, NumCPU-2)` per
-  run (a buffered-channel semaphore — capacity IS the cap), 1000 agents/run,
-  4096 items per fan-out call.
-- **Resume** (`persistence.go`). Every run persists its script + journal
-  under `~/.whip/workflows/{scripts,runs}/`. `resumeFromRunId` replays the
-  longest unchanged prefix of `agent()` calls instantly — the cache key is a
-  djb2 hash (`HashString`) of `{prompt, model, effort, phase, schema}`,
-  computed IDENTICALLY to the TS so journals are cross-compatible. The first
-  edited/new call and everything after it run live. Failed agents aren't
-  journaled, so they re-run on resume.
-- **Background by default + fan-in** (`manager.go` + the tool's `Run`).
-  `Manager.Start` returns a run id immediately; a goroutine runs the script,
-  persists the journal incrementally (each settled `agent()` appends), and on
-  settle `OnSettle` steers the result back into the parent conversation —
-  the same close-`Done`-to-broadcast + `Steer` shape background subagents
-  use, no new plumbing. Truncated inline results point at
+- **Script contract** (`parse.go`). Starts with `export const meta =
+  { name, description, phases? }` — a pure literal (brace-matched,
+  strings/comments aware, evaluated in an empty goja realm; non-literals
+  throw). Body runs async with globals `agent`/`pipeline`/`parallel`/`phase`/
+  `log`/`args`/`budget`/`cwd`/`console.log`. `Date.now()`/`Math.random()`/
+  argless `new Date()` are blocked at parse time (regex) and runtime (VM
+  prelude) — they break resume.
+- **Single-goroutine sandbox** (`runtime.go`). goja isn't goroutine-safe, so
+  every VM touch — script body, JS callback, promise resolve/reject — is a
+  job on one `scheduler` goroutine (unbuffered `jobs` channel). Workers
+  (agent runs, fan-out) never touch the VM; they hand results back via
+  `enqueue`. A no-op `vm.RunString("0")` after each job pumps goja's promise
+  queue so an `await agent(...)` wakes on completion (goja only runs
+  microtasks while executing). The rejection tracker fires on the scheduler,
+  so it must not `enqueue` (self-deadlock).
+- **`agent()`** resolves model/effort (per-call → phase → meta default), takes
+  a lexical `callIndex` (resume key) + agent slot atomically (fan-out can't
+  overshoot the cap), and runs a fresh subagent via `Options.Run` (`newSub` +
+  `Turn`, usage rolled into the parent). Failures → `null`
+  (`.filter(Boolean)`) and aren't journaled, so resume retries them. With
+  `opts.schema` the subagent ends with a `structured_output` tool call whose
+  args are the return value (one repair re-prompt).
+- **`pipeline(items, …stages)`** flows each item through all stages with no
+  barrier (A in stage 3 while B in stage 1). **`parallel(thunks)`** is a
+  barrier; a throwing thunk → `null` so it never rejects. Both spawn a
+  goroutine per item; each JS stage call is a `scheduler` job delivered back
+  on a channel.
+- **Caps**: concurrency `min(16, NumCPU-2)` per run (buffered-channel
+  semaphore — capacity is the cap), 1000 agents/run, 4096 items/fan-out.
+- **Resume** (`persistence.go`). Runs persist script + journal under
+  `~/.whip/workflows/{scripts,runs}/`. `resumeFromRunId` replays the longest
+  unchanged prefix of `agent()` calls instantly — cache key is a djb2 hash
+  (`HashString`) of `{prompt, model, effort, phase, schema}`, computed
+  identically to the TS for cross-compatible journals. First edited/new call
+  onward runs live; failed agents re-run.
+- **Background by default + fan-in** (`manager.go`). `Manager.Start` returns
+  a run id immediately; a goroutine runs the script, appends to the journal
+  per settled `agent()`, and on settle `OnSettle` steers the result back into
+  the parent — the same close-`Done` + `Steer` shape background subagents
+  use. Truncated inline results point at
   `jq '.result' ~/.whip/workflows/runs/<runId>.json`.
-- **Nested `workflow({scriptPath}, args)`** runs one child as a sub-step,
-  one level deep, sharing the parent's limiter/counter/budget via a
-  pointer-shared `sharedState` (only `depth` is per-level).
-- **Stop/cancel.** `Manager.Stop(id)` cancels the run's context; in-flight
-  agents' `ctx` dies with it. A parked script can't be interrupted (goja's
-  async runner isn't executing instructions), so on cancel the run settles
-  as `stopped` without waiting for the promise — worker goroutines drain on
+- **Nested `workflow({scriptPath}, args)`** runs one child, one level deep,
+  sharing the parent's limiter/counter/budget via a pointer-shared
+  `sharedState` (only `depth` is per-level).
+- **Stop/cancel.** `Manager.Stop(id)` cancels the run ctx; in-flight agents
+  die with it. A parked script can't be interrupted (goja isn't executing), so
+  the run settles `stopped` without waiting on the promise; workers drain on
   their own.
 
-New dependency: `github.com/dop251/goja` — the pure-Go ES5.1+ engine (no cgo,
-no stdlib alternative). `goja_nodejs` is deliberately NOT imported (no
-`require`/`process` — the sandbox is a determinism/footgun guard, not a
-runtime).
+New dependency: `github.com/dop251/goja` — pure-Go ES5.1+ engine (no cgo, no
+stdlib alternative). `goja_nodejs` is intentionally not imported (no
+`require`/`process` — the sandbox is a determinism guard, not a runtime).
 
 Tests: `parse_test.go` (meta extraction, pure-literal rejection, determinism
-blocklist, brace-matching through strings, phase validation);
-`persistence_test.go` (`TestHashStringMatchesTS` pins djb2 against the TS
-values, run/script round-trip); `runtime_test.go` (`TestRunSimpleAgent`,
-`TestRunRequiresAgent`, `TestPipelineNoBarrier` — proves no-barrier ordering,
-`TestParallelBarrierCollects`, `TestParallelNullOnThrow`, `TestAgentCap`,
-`TestFanoutCap`, `TestDeterminismThrows`, `TestResumeReplaysPrefix` — same
-script + args → 0 live calls, `TestResumeRunsFromFirstMiss` — an edited call
-re-runs from the first miss, `TestNestedWorkflowSharesCaps`,
+blocklist, brace-matching, phase validation); `persistence_test.go`
+(`TestHashStringMatchesTS` pins djb2 against the TS values, run/script
+round-trip); `runtime_test.go` (`TestRunSimpleAgent`, `TestRunRequiresAgent`,
+`TestPipelineNoBarrier` — no-barrier ordering, `TestParallelBarrierCollects`,
+`TestParallelNullOnThrow`, `TestAgentCap`, `TestFanoutCap`,
+`TestDeterminismThrows`, `TestResumeReplaysPrefix` — same script+args → 0
+live calls, `TestResumeRunsFromFirstMiss`, `TestNestedWorkflowSharesCaps`,
 `TestNestedWorkflowDepthLimit`, `TestStopCancelsRun`,
 `TestConcurrencyCapEnforced`), all race-clean;
 `internal/agent/workflowtool_test.go` `TestWorkflowToolEndToEnd` drives the
-whole path against the streaming fake provider — the `workflow` tool call
-starts a background run, two `agent()` calls hit the fake, and the completion
-steers back into the parent.
+full path against a fake provider — the `workflow` call starts a background
+run, two `agent()` calls hit the fake, and the completion steers back into
+the parent.
 
 ## Models & providers
 
