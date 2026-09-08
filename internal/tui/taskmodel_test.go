@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -343,5 +344,36 @@ func TestSubagentModelPanelShowsRoutes(t *testing.T) {
 	m.panelKey(tea.KeyMsg{Type: tea.KeyEnter}, pp)
 	if m.cfg.TaskModel != "shared" || m.cfg.TaskProvider != "q" {
 		t.Fatalf("pick should persist model and provider, got %q@%q", m.cfg.TaskModel, m.cfg.TaskProvider)
+	}
+}
+
+// A long route list is windowed to the terminal height with the query line
+// and footer still visible and the selection inside the window.
+func TestSubagentModelPanelWindowsToHeight(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	m := taskmodelCfgModel(sseTextServer(t, "").URL)
+	var many []config.ModelInfoLite
+	for i := range 300 {
+		many = append(many, config.ModelInfoLite{ID: fmt.Sprintf("vendor/model-%03d", i)})
+	}
+	if err := config.SaveCatalogs(map[string]config.Catalog{"p": {FetchedAt: time.Now(), Models: many}}); err != nil {
+		t.Fatal(err)
+	}
+	m.height = 30
+	pp := m.routePanel(panelSubagent, "Subagent model", config.DefaultTaskModel, "", "")
+	view := m.panelView(pp)
+	lines := strings.Split(view, "\n")
+	if len(lines) > 30 {
+		t.Fatalf("panel should fit the terminal, got %d lines", len(lines))
+	}
+	if !strings.Contains(lines[0], "/") || !strings.Contains(view, "type to filter") || !strings.Contains(view, "more") {
+		t.Fatalf("query line, footer and overflow marker should render:\n%s", view)
+	}
+	if !strings.Contains(view, "default (") {
+		t.Fatal("selection (row 0) should be in the window")
+	}
+	pp.midx = 250
+	if view = m.panelView(pp); !strings.Contains(view, "vendor/model-249") {
+		t.Fatalf("selected row should be visible:\n%s", view)
 	}
 }

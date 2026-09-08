@@ -1017,7 +1017,18 @@ func (m *model) panelView(pp *ppanel) string {
 		for _, it := range pp.items {
 			width = max(width, len(it.model))
 		}
-		for i, row := range view {
+		// Window the rows to the terminal so a 400-model catalog doesn't push
+		// the query line and footer off screen; keep the selection in view.
+		lo, hi := 0, len(view)
+		if avail := m.height - 9; avail > 0 && len(view) > avail {
+			lo = max(min(pp.midx-avail/2, len(view)-avail), 0)
+			hi = lo + avail
+		}
+		if lo > 0 {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("   ↑ %d more", lo)) + "\n")
+		}
+		for i := lo; i < hi; i++ {
+			row := view[i]
 			line := pp.list[row]
 			isCur := row == 0 && current == ""
 			if row > 0 {
@@ -1037,6 +1048,9 @@ func (m *model) panelView(pp *ppanel) string {
 				b.WriteString("   " + line + "\n")
 			}
 		}
+		if hi < len(view) {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("   ↓ %d more", len(view)-hi)) + "\n")
+		}
 		if len(view) == 0 {
 			b.WriteString(dimStyle.Render("  no models match "+strconv.Quote(pp.filter.query)) + "\n")
 		}
@@ -1046,7 +1060,7 @@ func (m *model) panelView(pp *ppanel) string {
 		if pp.note != "" {
 			b.WriteString(dimStyle.Render("  "+pp.note) + "\n")
 		}
-		b.WriteString("\n" + dimStyle.Render("  type to filter · ↑/↓ select · enter/←/→ apply · esc back"))
+		b.WriteString("\n" + dimStyle.Render(fmt.Sprintf("  (%d/%d) type to filter · ↑/↓ select · enter/←/→ apply · esc back", pp.midx+1, len(view))))
 
 	case panelTheme:
 		cur := m.cfg.Theme
