@@ -34,36 +34,32 @@ func (c *Codex) SetCacheKey(k string)           { c.CacheKey = k }
 func (c *Codex) Endpoint() string               { return c.BaseURL }
 func (c *Codex) SetOnRetry(fn func(RetryEvent)) { c.OnRetry = fn }
 
-func (c *Codex) attempts() int {
-	if c.MaxRetries > 0 {
-		return c.MaxRetries
-	}
-	return DefaultMaxAttempts
+func (c *Codex) policy() retryPolicy { return newRetryPolicy(c.MaxRetries, c.OnRetry) }
+
+// UsageLimitError is the subscription's quota exhausted for the current
+// window: a permanent failure until ResetIn elapses. /usage shows the same
+// windows.
+type UsageLimitError struct {
+	Kind    string // usage_limit_reached | usage_not_included
+	Plan    string
+	ResetIn time.Duration
+	Message string
 }
 
-// retry runs one attempt per loop until it succeeds, fails non-retryably, or
-// exhausts attempts. stop is consulted after a failure: true means a retry
-// would replay output the caller already saw, so the error surfaces instead.
-func (c *Codex) retry(ctx context.Context, once func() error, stop func() bool) error {
-	var last error
-	for attempt := 1; attempt <= c.attempts(); attempt++ {
-		err := once()
-		if err == nil {
-			return nil
-		}
-		last = err
-		if stop() || !retryable(err) || attempt == c.attempts() {
-			break
-		}
-		delay := backoff(attempt)
-		if c.OnRetry != nil {
-			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
-		}
-		if serr := sleep(ctx, delay); serr != nil {
-			return serr
-		}
+func (e *UsageLimitError) Error() string {
+	var sb strings.Builder
+	sb.WriteString("Codex subscription limit reached")
+	if e.Plan != "" {
+		sb.WriteString(" (plan: " + e.Plan + ")")
 	}
-	return last
+	if e.ResetIn > 0 {
+		sb.WriteString(" — resets in " + e.ResetIn.Round(time.Minute).String())
+	}
+	if e.Message != "" {
+		sb.WriteString(": " + e.Message)
+	}
+	sb.WriteString(" · /usage shows the windows")
+	return sb.String()
 }
 
 // codexModelsClientVersion is required by the subscription catalog endpoint.
@@ -154,7 +150,7 @@ func (c *Codex) Stream(ctx context.Context, req Request, onText, onThink func(st
 	if onThink != nil {
 		wrapThink = func(s string) { emitted = true; onThink(s) }
 	}
-	err = c.retry(ctx, func() (err error) {
+	err = c.policy().run(ctx, func() (err error) {
 		msg, usage, err = c.streamOnce(ctx, body, wrapText, wrapThink, onToolCall)
 		return err
 	}, func() bool { return emitted })
@@ -193,12 +189,17 @@ func (c *Codex) streamOnce(ctx context.Context, body []byte, onText, onThink fun
 			continue
 		}
 		if event.Type == "error" || event.Type == "response.failed" {
-			// The backend accepted the request then failed mid-stream: a
-			// provider-logic error, not a transport blip — don't retry.
+			err := errors.New("codex response failed")
 			if m := event.errorMessage(); m != "" {
-				return Message{}, usage, nonRetryable{fmt.Errorf("api error: %s", m)}
+				err = fmt.Errorf("api error: %s", m)
 			}
-			return Message{}, usage, nonRetryable{errors.New("codex response failed")}
+			// A server_error mid-stream is the backend's own fault and worth a
+			// retry (the policy still refuses once output was shown); anything
+			// else is a provider-logic failure the caller must see.
+			if event.errorCode() == "server_error" {
+				return Message{}, usage, err
+			}
+			return Message{}, usage, nonRetryable{err}
 		}
 		switch event.Type {
 		case "response.output_text.delta":
@@ -263,10 +264,10 @@ func (c *Codex) Complete(ctx context.Context, req Request) (string, Usage, error
 	}
 	var text string
 	var usage Usage
-	err = c.retry(ctx, func() (err error) {
+	err = c.policy().run(ctx, func() (err error) {
 		text, usage, err = c.completeOnce(ctx, body)
 		return err
-	}, func() bool { return false })
+	}, nil)
 	return text, usage, err
 }
 
@@ -315,7 +316,25 @@ func (c *Codex) post(ctx context.Context, body []byte, stream bool) (*http.Respo
 	if stream {
 		hr.Header.Set("Accept", "text/event-stream")
 	}
-	return c.httpClient().Do(hr)
+	resp, err := c.httpClient().Do(hr)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		return resp, err
+	}
+	// 401 with a token we thought was valid: it was revoked or rotated under
+	// us (the Codex CLI shares the file). Refresh once and resend; a second
+	// 401 is a real login problem and surfaces as such.
+	_ = resp.Body.Close()
+	if rerr := c.Source.ForceRefresh(ctx); rerr != nil {
+		return nil, nonRetryable{rerr}
+	}
+	creds, err = c.Source.Credentials(ctx)
+	if err != nil {
+		return nil, nonRetryable{err}
+	}
+	hr2 := hr.Clone(ctx)
+	hr2.Body = io.NopCloser(bytes.NewReader(body))
+	setCodexHeaders(hr2, creds)
+	return c.httpClient().Do(hr2)
 }
 
 func setCodexHeaders(hr *http.Request, creds codexauth.Credentials) {
@@ -333,7 +352,25 @@ func (c *Codex) httpClient() *http.Client {
 
 func httpError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return &HTTPError{Status: resp.Status, Body: strings.TrimSpace(string(body))}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		var out struct {
+			Error struct {
+				Type           string          `json:"type"`
+				Message        string          `json:"message"`
+				PlanType       string          `json:"plan_type"`
+				ResetsInSecond json.RawMessage `json:"resets_in_seconds"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(body, &out) == nil {
+			switch out.Error.Type {
+			case "usage_limit_reached", "usage_not_included":
+				var secs float64
+				_ = json.Unmarshal(out.Error.ResetsInSecond, &secs)
+				return nonRetryable{&UsageLimitError{Kind: out.Error.Type, Plan: out.Error.PlanType, ResetIn: time.Duration(secs) * time.Second, Message: out.Error.Message}}
+			}
+		}
+	}
+	return newHTTPError(resp, string(body))
 }
 
 type codexRequestBody struct {
@@ -575,24 +612,42 @@ type responseEvent struct {
 	Arguments string       `json:"arguments"`
 	Item      responseItem `json:"item"`
 	Response  response     `json:"response"`
-	// Error events arrive either nested ({"type":"error","error":{...}}) or
-	// flat ({"type":"error","message":...}); read both.
+	// Error events arrive nested ({"type":"error","error":{...}}), flat
+	// ({"type":"error","code":...,"message":...}), or on the response
+	// ({"type":"response.failed","response":{"error":{...}}}); read all three.
+	Code    string `json:"code"`
 	Message string `json:"message"`
 	Error   struct {
+		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
 }
 
 func (e responseEvent) errorMessage() string {
-	if e.Error.Message != "" {
-		return e.Error.Message
+	for _, m := range []string{e.Error.Message, e.Response.Error.Message, e.Message} {
+		if m != "" {
+			return m
+		}
 	}
-	return e.Message
+	return ""
+}
+
+func (e responseEvent) errorCode() string {
+	for _, c := range []string{e.Error.Code, e.Response.Error.Code, e.Code} {
+		if c != "" {
+			return c
+		}
+	}
+	return ""
 }
 
 type response struct {
 	Output []responseItem `json:"output"`
 	Usage  responseUsage  `json:"usage"`
+	Error  struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
 type responseItem struct {

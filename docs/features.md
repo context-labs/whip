@@ -536,10 +536,23 @@ existing provider contract. Codex subscription requests omit
 `max_output_tokens`, which that endpoint rejects; its backend owns the output
 limit. Catalog context, vision, and supported reasoning efforts flow through
 the same picker and resolver as OpenRouter. OAuth credentials are accepted
-only for `https://chatgpt.com/backend-api`. Transient failures (429, 5xx,
-transport) retry with the same backoff as the OpenAI client and stop once
-output has been shown; a stream that dies mid tool-call drops that call rather
-than persisting malformed arguments. Tests: `codexauth/auth_test.go`,
+only for `https://chatgpt.com/backend-api`.
+
+Retries are one policy for every provider (`internal/llm/retry.go`,
+`retryPolicy`): transient failures (transport errors, 429, 5xx) back off
+exponentially, honour `Retry-After` (a header past 60s marks the error
+permanent — that's a quota, not congestion), report each retry through
+`SetOnRetry`, and stop once output has been shown so nothing replays. Codex adds
+three provider-specific rules on top: a 401 forces one token refresh
+(`codexauth.Source.ForceRefresh`) and resends before any retry budget is spent
+(the Codex CLI shares the auth file and may rotate tokens under us); a 429
+whose body says `usage_limit_reached`/`usage_not_included` becomes a permanent
+`llm.UsageLimitError` carrying the plan and reset time instead of a pointless
+backoff loop; and a mid-stream `server_error` event is retried while other
+failure codes surface. A stream that dies mid tool-call drops that call rather
+than persisting malformed arguments. `codex_live_test.go` (gated by
+`WHIP_LIVE_CODEX=1`) exercises all of this against the real backend through a
+fault-injecting proxy. Tests: `codexauth/auth_test.go`, `llm/retry_test.go`,
 `cmd/whip/auth_codex_test.go`, `llm/codex_test.go`, and `tui/model_cmd_test.go`
 (`TestBuildAgentCodexAuth*`).
 

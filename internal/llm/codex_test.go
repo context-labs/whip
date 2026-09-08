@@ -599,7 +599,8 @@ func TestCodexCompleteErrors(t *testing.T) {
 		body   string
 		want   string
 	}{
-		{name: "HTTP error", status: http.StatusUnauthorized, body: "sign in", want: "401 Unauthorized"},
+		{name: "HTTP error", status: http.StatusForbidden, body: "forbidden", want: "403 Forbidden"},
+		{name: "unauthorized and refresh fails", status: http.StatusUnauthorized, body: "sign in", want: "whip auth codex"},
 		{name: "invalid JSON", status: http.StatusOK, body: "not json", want: "invalid character"},
 		{name: "no text", status: http.StatusOK, body: `{"output":[{"type":"message","content":[{"type":"refusal","text":"no"}]}]}`, want: "no text"},
 	} {
@@ -610,7 +611,11 @@ func TestCodexCompleteErrors(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			_, _, err := NewCodex(srv.URL, codexSource(t)).Complete(context.Background(), Request{Model: "gpt-5.5"})
+			src := codexSource(t)
+			down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusBadGateway) }))
+			defer down.Close()
+			src.TokenURL, src.HTTP = down.URL, down.Client() // a 401's forced refresh must not reach the network
+			_, _, err := NewCodex(srv.URL, src).Complete(context.Background(), Request{Model: "gpt-5.5"})
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Complete error = %v, want %q", err, tc.want)
 			}
@@ -794,5 +799,246 @@ func TestCodexStreamReadsFlatErrorEvent(t *testing.T) {
 	_, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "slow down") {
 		t.Fatalf("flat error event should surface its message, got %v", err)
+	}
+}
+
+// ---- Codex-specific retry semantics ---------------------------------------
+
+// codexRefreshingSource is a Source whose token endpoint is a fake that hands
+// out a fresh access token; the auth file starts with a token the API will
+// reject.
+func codexRefreshingSource(t *testing.T, refreshes *int) *codexauth.Source {
+	t.Helper()
+	src := codexSource(t)
+	tok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*refreshes++
+		fmt.Fprint(w, `{"access_token":"fresh","refresh_token":"refresh2","expires_in":3600}`)
+	}))
+	t.Cleanup(tok.Close)
+	src.TokenURL = tok.URL
+	src.HTTP = tok.Client()
+	return src
+}
+
+// A 401 on a token we hold triggers exactly one forced refresh and a resend
+// with the new token; the retry budget isn't spent on it.
+func TestCodexRefreshesOnUnauthorized(t *testing.T) {
+	noSleep(t)
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		seen = append(seen, auth)
+		if auth != "Bearer fresh" {
+			http.Error(w, `{"error":{"message":"token expired"}}`, http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	refreshes := 0
+	client := NewCodex(srv.URL, codexRefreshingSource(t, &refreshes))
+	client.MaxRetries = 1 // no transport retries: the 401 path must not need them
+	msg, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err != nil || msg.Content != "ok" {
+		t.Fatalf("msg=%+v err=%v", msg, err)
+	}
+	if refreshes != 1 || len(seen) != 2 || seen[0] != "Bearer access" || seen[1] != "Bearer fresh" {
+		t.Fatalf("refreshes=%d auth headers=%v", refreshes, seen)
+	}
+	// Complete takes the same path.
+	seen = nil
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		if len(seen) == 1 {
+			http.Error(w, "expired", http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, `{"output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}],"usage":{}}`)
+	}))
+	defer srv2.Close()
+	client = NewCodex(srv2.URL, codexRefreshingSource(t, &refreshes))
+	client.MaxRetries = 1
+	if text, _, err := client.Complete(context.Background(), Request{Model: "gpt-5.5"}); err != nil || text != "done" {
+		t.Fatalf("text=%q err=%v", text, err)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("Complete should resend once after refresh, got %v", seen)
+	}
+}
+
+// A second 401 after a successful refresh is a real login problem: it
+// surfaces without further retries, and a failed refresh is reported as such.
+func TestCodexUnauthorizedTwiceIsPermanent(t *testing.T) {
+	noSleep(t)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, "nope", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	refreshes := 0
+	client := NewCodex(srv.URL, codexRefreshingSource(t, &refreshes))
+	client.MaxRetries = 5
+	_, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "401") || calls != 2 || refreshes != 1 {
+		t.Fatalf("err=%v calls=%d refreshes=%d", err, calls, refreshes)
+	}
+
+	// Refresh endpoint down: the login error surfaces, no resend, no retries.
+	calls = 0
+	src := codexSource(t)
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusBadGateway) }))
+	defer down.Close()
+	src.TokenURL, src.HTTP = down.URL, down.Client()
+	client = NewCodex(srv.URL, src)
+	client.MaxRetries = 5
+	_, _, err = client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "whip auth codex") || calls != 1 {
+		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+}
+
+// An exhausted subscription window is a UsageLimitError: permanent, carrying
+// the reset time, and never retried against the backend.
+func TestCodexUsageLimitIsPermanentWithReset(t *testing.T) {
+	noSleep(t)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"error":{"type":"usage_limit_reached","message":"You've hit your usage limit.","plan_type":"plus","resets_in_seconds":5400}}`)
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 5
+	var retries int
+	client.SetOnRetry(func(RetryEvent) { retries++ })
+	_, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	ul, ok := errors.AsType[*UsageLimitError](err)
+	if !ok || ul.Kind != "usage_limit_reached" || ul.Plan != "plus" || ul.ResetIn != 90*time.Minute {
+		t.Fatalf("err=%v (%T)", err, err)
+	}
+	for _, want := range []string{"limit reached", "plan: plus", "resets in 1h30m", "/usage"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("message %q lacks %q", err.Error(), want)
+		}
+	}
+	if calls != 1 || retries != 0 {
+		t.Fatalf("usage limit must not be retried: calls=%d retries=%d", calls, retries)
+	}
+	if _, _, err := client.Complete(context.Background(), Request{Model: "gpt-5.5"}); !errors.As(err, &ul) {
+		t.Fatalf("Complete should classify the same way: %v", err)
+	}
+	// usage_not_included (model outside the plan) is the same class.
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"error":{"type":"usage_not_included","message":"not in plan"}}`)
+	}))
+	defer srv2.Close()
+	_, _, err = NewCodex(srv2.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if ul, ok := errors.AsType[*UsageLimitError](err); !ok || ul.Kind != "usage_not_included" || ul.ResetIn != 0 {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// A plain 429 (no usage-limit body) is ordinary rate limiting: retried,
+// honouring Retry-After.
+func TestCodexPlainRateLimitRetriesWithRetryAfter(t *testing.T) {
+	var slept []time.Duration
+	orig := sleep
+	sleep = func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
+	defer func() { sleep = orig }()
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "9")
+			http.Error(w, `{"error":{"type":"rate_limit_exceeded","message":"slow down"}}`, http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 3
+	if msg, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil); err != nil || msg.Content != "ok" {
+		t.Fatalf("msg=%+v err=%v", msg, err)
+	}
+	if calls != 2 || len(slept) != 1 || slept[0] != 9*time.Second {
+		t.Fatalf("calls=%d slept=%v", calls, slept)
+	}
+}
+
+// Mid-stream failures: server_error retries (before any output); other codes
+// and the flat/nested/response-level shapes all surface without retry.
+func TestCodexMidStreamFailureClassification(t *testing.T) {
+	noSleep(t)
+	stream := func(events ...string) *httptest.Server {
+		calls := 0
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			w.Header().Set("Content-Type", "text/event-stream")
+			if calls == 1 {
+				for _, e := range events {
+					fmt.Fprint(w, "data: "+e+"\n\n")
+				}
+				return
+			}
+			fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"recovered\"}\n\ndata: [DONE]\n\n")
+		}))
+	}
+	run := func(srv *httptest.Server) (Message, error) {
+		defer srv.Close()
+		client := NewCodex(srv.URL, codexSource(t))
+		client.MaxRetries = 3
+		msg, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, func(string) {}, nil, nil)
+		return msg, err
+	}
+	// response.failed with server_error → retried → recovered on attempt 2
+	if msg, err := run(stream(`{"type":"response.failed","response":{"error":{"code":"server_error","message":"internal"}}}`)); err != nil || msg.Content != "recovered" {
+		t.Fatalf("server_error should retry: msg=%+v err=%v", msg, err)
+	}
+	// flat error event with server_error → retried too
+	if msg, err := run(stream(`{"type":"error","code":"server_error","message":"oops"}`)); err != nil || msg.Content != "recovered" {
+		t.Fatalf("flat server_error should retry: msg=%+v err=%v", msg, err)
+	}
+	// server_error AFTER output was shown → surfaces (no replay)
+	if _, err := run(stream(`{"type":"response.output_text.delta","delta":"partial"}`, `{"type":"response.failed","response":{"error":{"code":"server_error","message":"late"}}}`)); err == nil || !strings.Contains(err.Error(), "late") {
+		t.Fatalf("post-output server_error must surface: %v", err)
+	}
+	// non-server codes are permanent
+	for _, ev := range []string{
+		`{"type":"response.failed","response":{"error":{"code":"invalid_prompt","message":"bad prompt"}}}`,
+		`{"type":"error","error":{"code":"context_length_exceeded","message":"too long"}}`,
+		`{"type":"error","message":"no code at all"}`,
+	} {
+		if _, err := run(stream(ev)); err == nil || strings.Contains(err.Error(), "recovered") {
+			t.Fatalf("%s should be permanent, got %v", ev, err)
+		}
+	}
+}
+
+// Every Codex error path goes through the shared policy: OnRetry reports
+// attempt/max exactly like the OpenAI client.
+func TestCodexRetryEventsMatchOpenAIShape(t *testing.T) {
+	noSleep(t)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 3
+	var evs []RetryEvent
+	client.SetOnRetry(func(ev RetryEvent) { evs = append(evs, ev) })
+	if _, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil); err == nil {
+		t.Fatal("expected failure after budget")
+	}
+	if calls != 3 || len(evs) != 2 || evs[0].Attempt != 1 || evs[0].Max != 3 || evs[1].Attempt != 2 || evs[0].Delay <= 0 {
+		t.Fatalf("calls=%d evs=%+v", calls, evs)
 	}
 }

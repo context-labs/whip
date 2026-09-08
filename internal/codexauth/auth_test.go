@@ -524,3 +524,33 @@ func TestRefreshSaveMergesConcurrentWrites(t *testing.T) {
 		t.Fatalf("tokens = %s", stored["tokens"])
 	}
 }
+
+// ForceRefresh exchanges the refresh token even when the access token still
+// looks valid, and reports login-required when there is nothing to exchange.
+func TestForceRefresh(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, time.August, 25, 12, 0, 0, 0, time.UTC)
+	path := filepath.Join(home, ".codex", "auth.json")
+	writeAuth(t, path, `{"tokens":{"access_token":"`+jwt(t, now.Add(2*time.Hour), "account")+`","refresh_token":"r1"}}`)
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Write([]byte(`{"access_token":"` + jwt(t, now.Add(3*time.Hour), "account") + `","refresh_token":"r2"}`))
+	}))
+	defer srv.Close()
+	source := Source{HomeDir: home, HTTP: srv.Client(), TokenURL: srv.URL, now: func() time.Time { return now }}
+	if _, err := source.Credentials(context.Background()); err != nil || hits != 0 {
+		t.Fatalf("a valid token must not refresh on its own: hits=%d err=%v", hits, err)
+	}
+	if err := source.ForceRefresh(context.Background()); err != nil || hits != 1 {
+		t.Fatalf("ForceRefresh: hits=%d err=%v", hits, err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), `"r2"`) {
+		t.Fatalf("rotated refresh token should be persisted: %s", data)
+	}
+	writeAuth(t, path, `{"tokens":{"access_token":"x","account_id":"account"}}`)
+	if err := source.ForceRefresh(context.Background()); !errors.Is(err, ErrLoginRequired) {
+		t.Fatalf("no refresh token: err=%v", err)
+	}
+}

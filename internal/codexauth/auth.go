@@ -89,6 +89,21 @@ func (s *Source) Credentials(ctx context.Context) (Credentials, error) {
 	return c.credentials(), nil
 }
 
+// ForceRefresh exchanges the refresh token now, regardless of the access
+// token's apparent expiry — for a 401 on a token the server no longer honours.
+func (s *Source) ForceRefresh(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.load()
+	if err != nil {
+		return err
+	}
+	if c.refresh == "" {
+		return ErrLoginRequired
+	}
+	return s.refresh(ctx, c)
+}
+
 type candidate struct {
 	path string
 	root map[string]json.RawMessage

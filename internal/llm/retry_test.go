@@ -265,3 +265,128 @@ func TestRetryRespectsCancellation(t *testing.T) {
 		t.Fatalf("cancellation took %v; backoff should have been interrupted", elapsed)
 	}
 }
+
+// ---- shared policy -------------------------------------------------------
+
+// The policy stops on: success, a permanent error, the stop() guard, or the
+// exhausted budget — and reports each retry with the delay it will sleep.
+func TestRetryPolicyRun(t *testing.T) {
+	noSleep(t)
+	transient := &HTTPError{Status: "503 Service Unavailable"}
+	permanent := &HTTPError{Status: "400 Bad Request"}
+
+	t.Run("succeeds after transient failures", func(t *testing.T) {
+		calls := 0
+		var evs []RetryEvent
+		p := newRetryPolicy(4, func(ev RetryEvent) { evs = append(evs, ev) })
+		err := p.run(context.Background(), func() error {
+			calls++
+			if calls < 3 {
+				return transient
+			}
+			return nil
+		}, nil)
+		if err != nil || calls != 3 || len(evs) != 2 || evs[0].Max != 4 || evs[1].Attempt != 2 {
+			t.Fatalf("err=%v calls=%d evs=%+v", err, calls, evs)
+		}
+	})
+	t.Run("permanent error surfaces at once", func(t *testing.T) {
+		calls := 0
+		err := newRetryPolicy(4, nil).run(context.Background(), func() error { calls++; return permanent }, nil)
+		if !errors.Is(err, permanent) || calls != 1 {
+			t.Fatalf("err=%v calls=%d", err, calls)
+		}
+	})
+	t.Run("nonRetryable wrapper is permanent but unwraps", func(t *testing.T) {
+		inner := errors.New("model fault")
+		calls := 0
+		err := newRetryPolicy(4, nil).run(context.Background(), func() error { calls++; return nonRetryable{inner} }, nil)
+		if !errors.Is(err, inner) || calls != 1 {
+			t.Fatalf("err=%v calls=%d", err, calls)
+		}
+	})
+	t.Run("stop guard blocks the retry", func(t *testing.T) {
+		calls := 0
+		err := newRetryPolicy(4, nil).run(context.Background(), func() error { calls++; return transient }, func() bool { return true })
+		if !errors.Is(err, transient) || calls != 1 {
+			t.Fatalf("err=%v calls=%d", err, calls)
+		}
+	})
+	t.Run("budget exhausted returns the last error", func(t *testing.T) {
+		calls := 0
+		err := newRetryPolicy(3, nil).run(context.Background(), func() error { calls++; return transient }, nil)
+		if !errors.Is(err, transient) || calls != 3 {
+			t.Fatalf("err=%v calls=%d", err, calls)
+		}
+	})
+	t.Run("zero budget means the default", func(t *testing.T) {
+		if got := newRetryPolicy(0, nil).attempts; got != DefaultMaxAttempts {
+			t.Fatalf("attempts = %d", got)
+		}
+	})
+	t.Run("cancellation during backoff wins", func(t *testing.T) {
+		orig := sleep
+		sleep = func(ctx context.Context, d time.Duration) error { return context.Canceled }
+		defer func() { sleep = orig }()
+		err := newRetryPolicy(3, nil).run(context.Background(), func() error { return transient }, nil)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+}
+
+// Retry-After raises the delay above the backoff schedule, and a header past
+// the cap makes the error permanent (a quota, not congestion).
+func TestRetryAfter(t *testing.T) {
+	if d := parseRetryAfter("7"); d != 7*time.Second {
+		t.Fatalf("seconds: %v", d)
+	}
+	if d := parseRetryAfter(time.Now().Add(30 * time.Second).UTC().Format(http.TimeFormat)); d < 25*time.Second || d > 31*time.Second {
+		t.Fatalf("http-date: %v", d)
+	}
+	if d := parseRetryAfter("garbage"); d != 0 {
+		t.Fatalf("garbage: %v", d)
+	}
+	if d := parseRetryAfter("-5"); d != 0 {
+		t.Fatalf("negative: %v", d)
+	}
+	he := &HTTPError{Status: "429 Too Many Requests", RetryAfter: 30 * time.Second}
+	if d := retryDelay(1, he); d != 30*time.Second {
+		t.Fatalf("delay should honour Retry-After, got %v", d)
+	}
+	if d := retryDelay(1, &HTTPError{Status: "429", RetryAfter: 0}); d < time.Second || d > 2*time.Second {
+		t.Fatalf("default backoff for attempt 1 should be ~1s, got %v", d)
+	}
+	if !retryable(he) {
+		t.Fatal("a short Retry-After 429 is retryable")
+	}
+	if retryable(&HTTPError{Status: "429 Too Many Requests", RetryAfter: 5 * time.Minute}) {
+		t.Fatal("a Retry-After beyond the cap must be permanent")
+	}
+}
+
+// Both clients surface Retry-After through the same policy: the OpenAI
+// client sleeps for the header's duration before its second attempt.
+func TestStreamHonoursRetryAfterHeader(t *testing.T) {
+	var slept []time.Duration
+	orig := sleep
+	sleep = func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
+	defer func() { sleep = orig }()
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", "12")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	if _, _, err := New(srv.URL, "k").Stream(context.Background(), Request{Model: "m"}, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(slept) != 1 || slept[0] != 12*time.Second {
+		t.Fatalf("slept %v, want [12s]", slept)
+	}
+}

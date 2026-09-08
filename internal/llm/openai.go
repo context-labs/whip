@@ -434,13 +434,7 @@ func (c *OpenAI) Clone() Client        { cp := *c; return &cp }
 func (c *OpenAI) SetCacheKey(k string) { c.CacheKey = k }
 func (c *OpenAI) Endpoint() string     { return c.BaseURL }
 
-// attempts returns the total try count (initial + retries) for this client.
-func (c *OpenAI) attempts() int {
-	if c.MaxRetries > 0 {
-		return c.MaxRetries
-	}
-	return DefaultMaxAttempts
-}
+func (c *OpenAI) policy() retryPolicy { return newRetryPolicy(c.MaxRetries, c.OnRetry) }
 
 func New(baseURL, apiKey string) *OpenAI {
 	return &OpenAI{
@@ -540,6 +534,9 @@ type apiError struct {
 type HTTPError struct {
 	Status string
 	Body   string
+	// RetryAfter is the server's Retry-After hint (0 = none). The retry loop
+	// waits at least this long; past maxRetryAfter the error is permanent.
+	RetryAfter time.Duration
 }
 
 func (e *HTTPError) Error() string { return e.Status + ": " + e.Body }
@@ -585,6 +582,9 @@ func retryable(err error) bool {
 		return false
 	}
 	if he, ok := errors.AsType[*HTTPError](err); ok {
+		if he.RetryAfter > maxRetryAfter {
+			return false // the server asked us to wait minutes: a quota, not a blip
+		}
 		code, _ := strconv.Atoi(strings.Fields(he.Status)[0])
 		return retryableStatus(code)
 	}
@@ -716,7 +716,7 @@ func (c *OpenAI) Models(ctx context.Context) ([]ModelInfo, error) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, &HTTPError{Status: resp.Status, Body: strings.TrimSpace(string(b))}
+		return nil, newHTTPError(resp, string(b))
 	}
 	var list struct {
 		Data []ModelInfo `json:"data"`
@@ -753,34 +753,24 @@ func (c *OpenAI) Stream(ctx context.Context, req Request, onText, onThink func(s
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
-	var last error
-	for attempt := 1; attempt <= c.attempts(); attempt++ {
-		emitted := false // true once any visible delta reached the caller
-		wrapText, wrapThink := onText, onThink
-		if onText != nil {
-			wrapText = func(s string) { emitted = true; onText(s) }
-		}
-		if onThink != nil {
-			wrapThink = func(s string) { emitted = true; onThink(s) }
-		}
-		msg, usage, err := c.streamOnce(ctx, body, wrapText, wrapThink, onToolCall)
-		if err == nil {
-			return msg, usage, nil
-		}
-		last = err
-		// Retry only transient failures the caller hasn't seen output from.
-		if emitted || !retryable(err) || attempt == c.attempts() {
-			break
-		}
-		delay := backoff(attempt)
-		if c.OnRetry != nil {
-			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
-		}
-		if serr := sleep(ctx, delay); serr != nil {
-			return Message{}, Usage{}, serr
-		}
+	var msg Message
+	var usage Usage
+	emitted := false // true once any visible delta reached the caller
+	wrapText, wrapThink := onText, onThink
+	if onText != nil {
+		wrapText = func(s string) { emitted = true; onText(s) }
 	}
-	return Message{}, Usage{}, last
+	if onThink != nil {
+		wrapThink = func(s string) { emitted = true; onThink(s) }
+	}
+	err = c.policy().run(ctx, func() (err error) {
+		msg, usage, err = c.streamOnce(ctx, body, wrapText, wrapThink, onToolCall)
+		return err
+	}, func() bool { return emitted })
+	if err != nil {
+		return Message{}, Usage{}, err
+	}
+	return msg, usage, nil
 }
 
 // streamOnce performs a single streaming request attempt; the Stream retry
@@ -800,7 +790,7 @@ func (c *OpenAI) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return Message{}, Usage{}, &HTTPError{Status: resp.Status, Body: strings.TrimSpace(string(b))}
+		return Message{}, Usage{}, newHTTPError(resp, string(b))
 	}
 
 	msg := Message{Role: "assistant"}
@@ -922,27 +912,16 @@ func (c *OpenAI) Complete(ctx context.Context, req Request) (string, Usage, erro
 	if err != nil {
 		return "", Usage{}, err
 	}
-	var last error
-	for attempt := 1; attempt <= c.attempts(); attempt++ {
-		var text string
-		var usage Usage
+	var text string
+	var usage Usage
+	err = c.policy().run(ctx, func() (err error) {
 		text, usage, err = c.completeOnce(ctx, body)
-		if err == nil {
-			return text, usage, nil
-		}
-		last = err
-		if !retryable(err) || attempt == c.attempts() {
-			break
-		}
-		delay := backoff(attempt)
-		if c.OnRetry != nil {
-			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
-		}
-		if serr := sleep(ctx, delay); serr != nil {
-			return "", Usage{}, serr
-		}
+		return err
+	}, nil)
+	if err != nil {
+		return "", Usage{}, err
 	}
-	return "", Usage{}, last
+	return text, usage, nil
 }
 
 // completeOnce performs one non-streaming request attempt.
@@ -960,7 +939,7 @@ func (c *OpenAI) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", Usage{}, &HTTPError{Status: resp.Status, Body: strings.TrimSpace(string(b))}
+		return "", Usage{}, newHTTPError(resp, string(b))
 	}
 	var out struct {
 		Choices []struct {
