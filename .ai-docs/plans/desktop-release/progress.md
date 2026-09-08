@@ -43,7 +43,8 @@ and `/usr/local/bin/whipcode` remain unchanged.
   found no high/critical findings; moderate findings were in the mobile/Expo tree.
 - Final `task check`, golangci-lint v2.13.1 (zero findings), and workflow syntax
   validation passed. The two-build race test passed again after the maintenance
-  validator extraction. Portable race coverage is undergoing its final run.
+  validator extraction. The final portable race/shuffle suite passed; `go tool
+  cover` reports **90.0%**, satisfying the existing CI floor without changing it.
 - [Local validation evidence](evidence/local-validation.json) records signed
   archive/native hashes and all 61 successful launch measurements.
 
