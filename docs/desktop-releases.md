@@ -47,8 +47,9 @@ only to the relevant verified publication step, never to `npm ci` lifecycle scri
 Promotion currently permits the release initiator to review: Sam is the configured
 reviewer. Add another maintainer and disable self-review when that operating model
 is available. Tag rules prohibit moving/deleting `desktop-v*` tags and restrict
-their creation to repository administrators. The source branch must require the
-actual CI aggregate checks before releasing; do not lower the existing coverage
+their creation to repository administrators. `whip-rlm` requires the `go`,
+`govulncheck`, and `codeql` checks from GitHub Actions, with strict current-base
+validation and no deletion or force pushes. Do not lower the existing coverage
 floor to make a release pass.
 
 Set these in `desktop-signing`:

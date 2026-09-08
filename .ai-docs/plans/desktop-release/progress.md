@@ -23,6 +23,8 @@ and `/usr/local/bin/whipcode` remain unchanged.
   environments, restricted to `desktop-v*` tags.
 - Promotion requires Sam's review. Self-review is currently permitted.
 - Release-tag rules prevent update/deletion and restrict creation to admins.
+- `whip-rlm` requires the GitHub Actions `go`, `govulncheck`, and `codeql` checks
+  with strict current-base validation and no deletion/force pushes.
 - Public signing identity, team, notary key ID, and issuer variables are set.
   Private credentials and download URLs are not configured.
 
@@ -65,7 +67,12 @@ Actual release packaging requires a clean tagged commit and configured feed.
    public TLS, byte/range delivery, caching, and conditional writes on real R2.
 3. Land the implementation through green CI on the actual source. The checkout
    also contains earlier mobile/canonical-install commits not yet on remote
-   `whip-rlm`. Require the actual aggregate checks on that branch before tagging.
+   `whip-rlm`. [Draft PR #138](https://github.com/context-labs/whip/pull/138)
+   contains the implementation. Initial CI passed Linux coverage (90.0%), lint,
+   security, mobile, platform builds, and runtime checks; a stale packed-app
+   test expected the replaced connection dialog. Its selector now exercises the
+   current Execution hosts flow; isolated production/development packed tests
+   pass locally. CI is rerunning with that correction.
 4. Run the signed CI candidate, Linux runtime smoke, and actual Squirrel app
    N-to-N+1 installation in an isolated QA channel. Backend handoff integration
    and mock updater tests do not substitute for Squirrel replacing the app.
