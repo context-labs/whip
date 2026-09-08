@@ -59,6 +59,7 @@ it('renders a read-only cell, expands output, copies exact text and does not inv
   fireEvent.click(screen.getByRole('button', { name: 'Copy output' }));
   await waitFor(() => expect(f.copy).toHaveBeenCalledWith(output));
   expect(screen.getByRole('region', { name: 'Return value' }).textContent).toBe('42');
+  expect(screen.queryByText('⇒')).toBeNull();
   expect(screen.queryByText(/Observed \d/)).toBeNull();
   expect(screen.queryByRole('textbox')).toBeNull();
   expect(f.view.loadOlder).not.toHaveBeenCalled();
@@ -78,6 +79,16 @@ it('distinguishes empty, loading and unavailable agent history, and keeps stale 
   expect(screen.getByRole('status').textContent).toContain('paused');
 });
 
+it('does not render a panel for a null return value', () => {
+  const f = fixture([
+    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"print(42)"}' } }] } },
+    { seq: 2, message: { role: 'tool', name: 'rlm_exec', tool_call_id: 'call', content: JSON.stringify({ output: '42\n', value: null, steps: 7 }) } },
+  ]);
+  render(f.app());
+  expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('42\n');
+  expect(screen.queryByRole('region', { name: 'Return value' })).toBeNull();
+});
+
 it('shows failed-cell output and checkpoint warnings together', () => {
   const f = fixture([
     { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"fail()"}' } }] } },
@@ -88,4 +99,5 @@ it('shows failed-cell output and checkpoint warnings together', () => {
   expect(screen.getByText('cell failed')).toBeDefined();
   expect(screen.getByLabelText('Scratch checkpoint').textContent).toContain('Do not replay effects.');
   expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('before failure');
+  expect(screen.queryByRole('region', { name: 'Return value' })).toBeNull();
 });

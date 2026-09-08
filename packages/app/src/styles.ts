@@ -14,7 +14,7 @@ export const layout = stylex.create({
     borderWidth: 0,
   },
   requestDock: {
-    maxHeight: 'min(36dvh, 360px)',
+    maxHeight: 'min(72dvh, 760px)',
     overflowY: 'auto',
     flexShrink: 0,
   },

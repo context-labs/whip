@@ -24,9 +24,7 @@ export const styles = stylex.create({
   duration: { color: surface.secondaryText, marginLeft: 'auto', whiteSpace: 'nowrap' },
   error: { color: colors.error, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: typography.mono, fontSize: 12, lineHeight: 1.65, marginBlock: 8 },
   section: { marginTop: 10, minWidth: 0 },
-  result: { display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 10, minWidth: 0 },
-  resultCode: { flex: 1, minWidth: 0 },
-  resultIcon: { color: colors.accent, fontFamily: typography.mono, fontSize: 14 },
+  result: { marginTop: 10, minWidth: 0 },
   restart: { display: 'flex', alignItems: 'center', gap: 8, color: surface.secondaryText, fontSize: 12, lineHeight: 1.6, paddingBlock: 16, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
   empty: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 180, padding: 24, textAlign: 'center', gap: 8, color: surface.secondaryText, fontSize: 13 },
 });

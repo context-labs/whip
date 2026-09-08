@@ -225,6 +225,17 @@ func TestV3CrossTransportPermissionModesWithoutSetup(t *testing.T) {
 			if err != nil || record.Status != "succeeded" || record.Operation != "permission.mode" {
 				t.Fatalf("durable mode command = %+v, %v", record, err)
 			}
+			snapshot, err := client.Snapshot(ctx, fixture.rootID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "automatic"
+			if external {
+				want = "prompt"
+			}
+			if snapshot.PermissionMode != want {
+				t.Fatalf("%s snapshot permission mode = %q, want %q", transport, snapshot.PermissionMode, want)
+			}
 		}
 	}
 }

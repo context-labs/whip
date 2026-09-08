@@ -26,7 +26,7 @@ it('single-choice questions use named radios, retain descriptions and submit onl
   fireEvent.click(implement);
   expect(inspect.getAttribute('aria-checked')).toBe('false');
   expect(implement.getAttribute('aria-checked')).toBe('true');
-  fireEvent.click(screen.getByRole('button', {name: 'Respond'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Send'}));
   await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith('question', ['Implement'], false));
 });
 it('multiple-choice questions retain independently selectable checkboxes', async () => {
@@ -34,7 +34,7 @@ it('multiple-choice questions retain independently selectable checkboxes', async
   expect(screen.queryByRole('radio')).toBeNull();
   fireEvent.click(screen.getByRole('checkbox', {name: /Inspect/}));
   fireEvent.click(screen.getByRole('checkbox', {name: /Implement/}));
-  fireEvent.click(screen.getByRole('button', {name: 'Respond'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Send'}));
   await waitFor(() => expect(answerQuestion).toHaveBeenCalledWith('question', ['Inspect', 'Implement'], false));
 });
 
@@ -57,7 +57,7 @@ for (const kind of ['permission', 'question'] as const) {
       </UIProvider></RuntimeContext.Provider>;
       const {rerender} = render(ui(0));
       if (kind === 'permission') expect(screen.getByRole('combobox', {name: 'Permission scope'}).textContent).toContain('This request only');
-      const button = screen.getByRole('button', {name: kind === 'permission' ? 'Deny' : 'Dismiss', exact: true});
+      const button = screen.getByRole('button', {name: kind === 'permission' ? 'Deny' : 'Dismiss question', exact: true});
       button.focus();
       fireEvent.click(button);
       if (next === 'resolved card') {

@@ -126,7 +126,7 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
         downloadAction={<CopyButton label="Copy output" text={row.output} copy={runtime.platform.copy} onError={runtime.report} />} />
       {(output.hidden > 0 || expanded) && <Button variant="ghost" size="sm" onClick={onToggle} aria-expanded={expanded}>{expanded ? 'Collapse output' : `Show ${output.hidden} more ${output.hidden === 1 ? 'line' : 'lines'}`}</Button>}
     </div>}
-    {row.value !== undefined && <div {...stylex.props(styles.result)}><span {...stylex.props(styles.resultIcon)} aria-hidden="true">⇒</span><div {...stylex.props(styles.resultCode)}><CodeBlock code={row.value} language="json" label="Return value" xstyle={styles.code} /></div></div>}
+    {row.value !== undefined && row.value !== 'null' && <div {...stylex.props(styles.result)}><CodeBlock code={row.value} language="json" label="Return value" xstyle={styles.code} /></div>}
     {row.scratch && <p aria-label="Scratch checkpoint" {...stylex.props(styles.meta)}>{row.scratch}</p>}
     {row.error && <p {...stylex.props(styles.error)}>{row.error}</p>}
     {row.truncated && <p {...stylex.props(styles.meta)}>Some details of this execution are unavailable or truncated.</p>}

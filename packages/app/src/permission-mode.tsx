@@ -26,7 +26,7 @@ const modes: Mode[] = [
   },
   {
     value: 'automatic',
-    label: 'Approve automatically',
+    label: 'Full Access',
     description: 'Every permission prompt is approved without asking',
     icon: ShieldAlert,
     danger: true,
@@ -76,7 +76,7 @@ export function PermissionModePicker({ view, root, connected, agentId }: Props) 
     runtime
       .run(
         view.session.setPermissionMode(mode.value === 'prompt'),
-        mode.value === 'automatic' ? 'Enable automatic approvals' : 'Require approval prompts',
+        mode.value === 'automatic' ? 'Enable Full Access' : 'Require approval prompts',
       )
       .catch((error) => runtime.report(error));
   };

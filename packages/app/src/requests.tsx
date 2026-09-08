@@ -2,8 +2,10 @@ import { useState } from 'react';
 import type { Session } from '@whip/sdk';
 import type { DeepReadonly } from '@whip/sdk/state';
 import type { LifecycleEvent, RootSnapshot } from '@whip/protocol';
-import { Badge, Button, Checkbox, Field, Input, RadioGroup, Select } from '@whip/ui';
+import { Badge, Button, IconButton, Input, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
+import { CircleHelp, PenLine, X } from 'lucide-react';
+import { colors, surface, scale } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
 
@@ -154,6 +156,109 @@ function PermissionRequest({
     </div>
   );
 }
+const questionStyles = stylex.create({
+  region: {
+    width: '100%',
+    maxWidth: 864,
+    alignSelf: 'center',
+    paddingInline: { default: 24, [scale.phone]: 12 },
+    flexShrink: 0,
+  },
+  card: {
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: surface.quietBorder,
+    borderRadius: 20,
+    padding: 16,
+    backgroundColor: colors.element,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    color: surface.secondaryText,
+  },
+  headerLabel: { fontSize: 13, fontWeight: 500 },
+  question: { fontSize: 13.5, fontWeight: 600, lineHeight: 1.4 },
+  options: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    borderWidth: 0,
+    padding: 0,
+    margin: 0,
+  },
+  option: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 14,
+    padding: '8px 10px',
+    marginInline: -10,
+    borderWidth: 0,
+    borderRadius: 12,
+    backgroundColor: { default: 'transparent', ':hover': colors.hover },
+    color: 'inherit',
+    font: 'inherit',
+    fontSize: 13.5,
+    textAlign: 'start',
+    cursor: 'pointer',
+  },
+  number: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 24,
+    height: 24,
+    flexShrink: 0,
+    borderRadius: '50%',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: surface.quietBorder,
+    color: surface.secondaryText,
+    fontSize: 12,
+    marginTop: 1,
+  },
+  numberSelected: {
+    backgroundColor: colors.foreground,
+    borderColor: colors.foreground,
+    color: colors.background,
+  },
+  optionText: {
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  optionDescription: {
+    color: surface.secondaryText,
+    fontSize: 12,
+    lineHeight: 1.4,
+  },
+  footer: { display: 'flex', alignItems: 'center', gap: 14 },
+  custom: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    flex: 1,
+    minWidth: 0,
+    color: surface.secondaryText,
+  },
+  customInput: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 0,
+    boxShadow: 'none',
+    padding: 4,
+    fontSize: 13.5,
+    backgroundColor: { default: 'transparent', ':hover': 'transparent' },
+    outline: { default: 'none', ':focus-visible': 'none' },
+  },
+  action: { borderRadius: 999 },
+});
+
 function QuestionRequest({
   question,
   session,
@@ -186,53 +291,110 @@ function QuestionRequest({
       setPending(false);
     }
   }
+  function toggle(label: string) {
+    setSelected((previous) =>
+      question.multiple
+        ? previous.includes(label)
+          ? previous.filter((value) => value !== label)
+          : [...previous, label]
+        : [label],
+    );
+  }
+  const canSend = !disabled && !pending && (!!selected.length || !!text.trim());
   return (
-    <div {...stylex.props(layout.notice, layout.column)}>
-      <Badge tone="info">Question</Badge>
-      <strong>{question.question}</strong>
-      {question.multiple ? question.options?.map((option) => (
-        <Checkbox
-          key={option.label}
-          label={option.label}
-          description={option.description}
-          checked={selected.includes(option.label)}
-          onCheckedChange={(checked) =>
-            setSelected((previous) =>
-              checked
-                ? [...previous, option.label]
-                : previous.filter((value) => value !== option.label),
-            )
-          }
-        />
-      )) : !!question.options?.length && (
-        <RadioGroup
-          label={question.question || 'Choose one answer'}
-          options={question.options.map(option => ({value: option.label, label: option.label, description: option.description}))}
-          value={selected[0] ?? ''}
-          onValueChange={value => setSelected([value])}
-        />
-      )}
-      <Field label="Your answer">
-        <Input
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder="Add a response…"
-        />
-      </Field>
-      <div {...stylex.props(layout.row)}>
-        <Button
-          disabled={disabled || pending || (!selected.length && !text.trim())}
-          onClick={() => void answer()}
-        >
-          Respond
-        </Button>
-        <Button
-          variant="ghost"
-          disabled={disabled || pending}
-          onClick={() => void answer(true)}
-        >
-          Dismiss
-        </Button>
+    <div {...stylex.props(questionStyles.region)}>
+      <div {...stylex.props(questionStyles.card)}>
+        <div {...stylex.props(questionStyles.header)}>
+          <CircleHelp size={14} />
+          <span {...stylex.props(questionStyles.headerLabel)}>Question</span>
+          <span {...stylex.props(layout.grow)} />
+          <IconButton
+            label="Dismiss question"
+            variant="ghost"
+            disabled={disabled || pending}
+            onClick={() => void answer(true)}
+          >
+            <X size={14} />
+          </IconButton>
+        </div>
+        <div {...stylex.props(questionStyles.question)}>{question.question}</div>
+        {!!question.options?.length && (
+          <div
+            role={question.multiple ? 'group' : 'radiogroup'}
+            aria-label={question.question || 'Answer choices'}
+            {...stylex.props(questionStyles.options)}
+          >
+            {question.options.map((option, index) => {
+              const active = selected.includes(option.label);
+              const descriptionId = option.description ? `${question.question_id}-option-${index}-description` : undefined;
+              return (
+                <button
+                  key={option.label}
+                  type="button"
+                  role={question.multiple ? 'checkbox' : 'radio'}
+                  aria-checked={active}
+                  aria-describedby={descriptionId}
+                  disabled={disabled || pending}
+                  {...stylex.props(questionStyles.option)}
+                  onClick={() => toggle(option.label)}
+                >
+                  <span
+                    {...stylex.props(
+                      questionStyles.number,
+                      active && questionStyles.numberSelected,
+                    )}
+                  >
+                    {index + 1}
+                  </span>
+                  <span {...stylex.props(questionStyles.optionText)}>
+                    <span>{option.label}</span>
+                    {option.description && (
+                      <span id={descriptionId} {...stylex.props(questionStyles.optionDescription)}>
+                        {option.description}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div {...stylex.props(questionStyles.footer)}>
+          <label {...stylex.props(questionStyles.custom)}>
+            <PenLine size={14} />
+            <Input
+              aria-label="Write your own response"
+              xstyle={questionStyles.customInput}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              placeholder="Or write your own response"
+              disabled={disabled || pending}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && canSend) {
+                  event.preventDefault();
+                  void answer();
+                }
+              }}
+            />
+          </label>
+          <Button
+            variant="ghost"
+            xstyle={questionStyles.action}
+            disabled={disabled || pending}
+            onClick={() => void answer(true)}
+          >
+            Skip
+          </Button>
+          <Button
+            variant="primary"
+            xstyle={questionStyles.action}
+            disabled={!canSend}
+            loading={pending}
+            onClick={() => void answer()}
+          >
+            Send
+          </Button>
+        </div>
       </div>
     </div>
   );

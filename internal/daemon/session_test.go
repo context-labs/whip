@@ -207,6 +207,48 @@ func TestAutomaticTitlePublishesUpdateAndCannotOverwriteRename(t *testing.T) {
 		}
 	})
 
+	t.Run("long Unicode placeholder is replaced", func(t *testing.T) {
+		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+		rootID := createRoot(t, store)
+		runner := &titleRunner{fakeRunner: &fakeRunner{}, title: "Unicode Session Title", finished: make(chan struct{})}
+		value, err := New(store, func(context.Context, session.Meta, []llm.Message) (Components, error) {
+			return Components{Runner: runner}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = value.Close() })
+		root, err := value.Open(rootID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result := clientCommand(t, root, "tui", "autotitle", "session.autotitle", protocol.EmptyParams{}); result.Status != "succeeded" {
+			t.Fatalf("enable automatic title=%+v", result)
+		}
+		receipt, err := root.Submit(t.Context(), strings.Repeat("界", 65))
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitReceipt(t, receipt)
+		select {
+		case <-runner.finished:
+		case <-time.After(time.Second):
+			t.Fatal("automatic title did not run for a long Unicode placeholder")
+		}
+		var meta session.Meta
+		deadline := time.Now().Add(time.Second)
+		for meta.Title != runner.title && time.Now().Before(deadline) {
+			meta, _, err = store.Load(rootID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(time.Millisecond)
+		}
+		if meta.Title != runner.title {
+			t.Fatalf("automatic title=%q", meta.Title)
+		}
+	})
+
 	t.Run("explicit rename wins", func(t *testing.T) {
 		store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 		rootID := createRoot(t, store)

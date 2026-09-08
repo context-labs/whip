@@ -320,10 +320,6 @@ func TestStoreEdgeCases(t *testing.T) {
 	if _, err := Open("/nonexistent-dir/x.db"); err == nil {
 		t.Fatal("expected open error")
 	}
-	if truncate(strings.Repeat("a", 100), 10) != strings.Repeat("a", 9)+"…" {
-		t.Fatal("truncate long")
-	}
-
 	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
 	if err != nil {
 		t.Fatal(err)

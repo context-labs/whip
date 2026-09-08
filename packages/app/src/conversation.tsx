@@ -13,7 +13,7 @@ import {
   Menu,
   Sheet,
 } from '@whip/ui';
-import { GitBranch, MoreHorizontal, Square } from 'lucide-react';
+import { GitBranch, MoreHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { layout } from './styles';
@@ -318,29 +318,6 @@ export function SessionContent({
           disabled={!connected}
           refresh={() => view.refresh()}
         />
-      )}
-      {activeTurn && (
-        <div {...stylex.props(layout.row, layout.notice)}>
-          <Badge tone="info">{agent?.lifecycle_phase || 'Working'}</Badge>
-          <span {...stylex.props(layout.grow)} />
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!connected}
-            onClick={() =>
-              void runtime
-                .run(
-                  agentId === session.rootId
-                    ? session.cancelTurn(activeTurn)
-                    : session.agents.cancelTurn(agentId, activeTurn),
-                  'Stop turn',
-                )
-                .catch(() => {})
-            }
-          >
-            <Square size={12} /> Stop this turn
-          </Button>
-        </div>
       )}
       {kind === 'chat' && <Composer
         key={`composer:${expectedRuntimeId}:${session.rootId}:${agentId}`}

@@ -46,17 +46,17 @@ describe('PermissionModePicker', () => {
     const f = fixture('prompt');
     render(f.ui);
     fireEvent.click(screen.getByRole('button', { name: 'Permission approval mode' }));
-    const option = await screen.findByRole('option', { name: /Approve automatically/ });
+    const option = await screen.findByRole('option', { name: /Full Access/ });
     expect(screen.getByRole('option', { name: /Ask for approval/ }).getAttribute('aria-selected')).toBe('true');
     fireEvent.click(option);
     expect(f.setPermissionMode).toHaveBeenCalledWith(false);
-    expect(f.run).toHaveBeenCalledWith(expect.anything(), 'Enable automatic approvals');
+    expect(f.run).toHaveBeenCalledWith(expect.anything(), 'Enable Full Access');
   });
 
   it('labels automatic mode in the trigger and can return to prompts', async () => {
     const f = fixture('automatic');
     render(f.ui);
-    expect(screen.getByRole('button', { name: 'Permission approval mode' }).textContent).toContain('Approve automatically');
+    expect(screen.getByRole('button', { name: 'Permission approval mode' }).textContent).toContain('Full Access');
     fireEvent.click(screen.getByRole('button', { name: 'Permission approval mode' }));
     fireEvent.click(await screen.findByRole('option', { name: /Ask for approval/ }));
     expect(f.setPermissionMode).toHaveBeenCalledWith(true);

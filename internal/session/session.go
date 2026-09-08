@@ -222,13 +222,7 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 			return err
 		}
 	}
-	title := ""
-	for _, m := range msgs {
-		if m.Role == "user" {
-			title = truncate(strings.Join(strings.Fields(m.TextContent()), " "), 64)
-			break
-		}
-	}
+	title := ProvisionalTitle(msgs)
 	if _, err := tx.ExecContext(context.Background(), `UPDATE sessions SET updated_at=?, model=?, provider=?, title=CASE WHEN title='' THEN ? ELSE title END WHERE id=?`,
 		now(), model, provider, title, id); err != nil {
 		return err
@@ -1038,11 +1032,4 @@ func scanMetas(rows *sql.Rows) ([]Meta, error) {
 		out = append(out, m)
 	}
 	return out, rows.Err()
-}
-
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n-1] + "…"
-	}
-	return s
 }

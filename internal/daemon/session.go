@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"runtime/debug"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -979,16 +978,7 @@ func (s *Session) maybeGenerateTitle() {
 	if err != nil {
 		return
 	}
-	placeholder := ""
-	for _, message := range history {
-		if message.Role == "user" && message.Authored {
-			placeholder = strings.Join(strings.Fields(message.TextContent()), " ")
-			if runes := []rune(placeholder); len(runes) > 64 {
-				placeholder = string(runes[:64])
-			}
-			break
-		}
-	}
+	placeholder := sessionstore.ProvisionalTitle(history)
 	if placeholder == "" || meta.Title != placeholder {
 		s.titleAttempted = true
 		return

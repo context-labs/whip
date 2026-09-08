@@ -8,7 +8,7 @@ import {
 } from 'react';
 import type { Session } from '@whip/sdk';
 import { Button, IconButton, Select, Textarea } from '@whip/ui';
-import { ArrowUp, AtSign, Paperclip, X } from 'lucide-react';
+import { ArrowUp, AtSign, Paperclip, Square, X } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface, scale } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
@@ -380,22 +380,45 @@ export function Composer({
           </IconButton>
           <span {...stylex.props(layout.grow)} />
           {modelControl}
-          <Button
-            type="submit"
-            variant="primary"
-            xstyle={styles.send}
-            aria-label="Send message"
-            disabled={
-              !connected ||
-              (!draft.trim() && !attachments.length) ||
-              sending ||
-              !!unresolved ||
-              attachments.some((item) => !item.value)
-            }
-            loading={sending}
-          >
-            <ArrowUp size={16} />
-          </Button>
+          {activeTurn ? (
+            <Button
+              type="button"
+              variant="primary"
+              xstyle={styles.send}
+              aria-label="Pause this turn"
+              title="Pause this turn"
+              disabled={!connected}
+              onClick={() =>
+                void runtime
+                  .run(
+                    agentId === session.rootId
+                      ? session.cancelTurn(activeTurn)
+                      : session.agents.cancelTurn(agentId, activeTurn),
+                    'Stop turn',
+                  )
+                  .catch(() => {})
+              }
+            >
+              <Square size={14} fill="currentColor" strokeWidth={0} />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              variant="primary"
+              xstyle={styles.send}
+              aria-label="Send message"
+              disabled={
+                !connected ||
+                (!draft.trim() && !attachments.length) ||
+                sending ||
+                !!unresolved ||
+                attachments.some((item) => !item.value)
+              }
+              loading={sending}
+            >
+              <ArrowUp size={16} />
+            </Button>
+          )}
         </div>
       </div>
       {completion && (

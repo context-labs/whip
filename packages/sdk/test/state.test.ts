@@ -111,6 +111,27 @@ test('snapshot plus pre-ack events preserves cursor precision and immutable snap
   await view.dispose();
 });
 
+test('permission mode updates survive snapshot refreshes without changing session metadata', async () => {
+  const host = new Host();
+  host.root.permission_mode = 'automatic';
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  await view.start();
+  try {
+    assert.equal(view.getSnapshot().root?.permission_mode, 'automatic');
+    for (const mode of ['prompt', 'automatic']) {
+      const before = view.getSnapshot().root!;
+      host.root.permission_mode = mode;
+      host.root.cursor = String(BigInt(host.root.cursor) + 1n);
+      host.streams.at(-1)!.push(host.root.cursor, 'session.permission_mode.updated', { permission_mode: mode });
+      await until(() => view.getSnapshot().root?.permission_mode === mode);
+      assert.notEqual(before.permission_mode, mode, 'Previously published snapshots stay immutable');
+      assert.equal('permission_mode' in view.getSnapshot().root!.meta, false);
+      await view.refresh();
+      assert.equal(view.getSnapshot().root?.permission_mode, mode);
+    }
+  } finally { await view.dispose(); }
+});
+
 for (const agentId of ['root', 'child']) {
   test(`${agentId}: streaming rows append deltas, replace cumulative values and survive snapshot recovery`, async t => {
     const host = new Host();

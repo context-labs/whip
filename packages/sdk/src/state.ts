@@ -335,8 +335,9 @@ export class SessionView {
         ...(typeof payload.provider === 'string' ? { provider: payload.provider } : {}),
         ...(payload.effort_changed && typeof payload.effort === 'string' ? { effort: payload.effort } : {}),
         ...(typeof payload.working_directory === 'string' ? { cwd: payload.working_directory } : {}),
-        ...(typeof payload.permission_mode === 'string' ? { permission_mode: payload.permission_mode } : {}),
       };
+      // permission_mode is a top-level RootSnapshot field, not session meta.
+      if (typeof payload.permission_mode === 'string') root = { ...root, permission_mode: payload.permission_mode };
     } else {
       const lifecycle = payload as LifecycleEvent;
       if (/^(agent\.)?turn\./.test(event.kind)) {

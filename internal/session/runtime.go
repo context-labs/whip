@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -618,13 +617,7 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 			return err
 		}
 	}
-	title := ""
-	for _, message := range commit.Messages {
-		if message.Role == "user" {
-			title = truncate(strings.Join(strings.Fields(message.TextContent()), " "), 64)
-			break
-		}
-	}
+	title := ProvisionalTitle(commit.Messages)
 	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at=?,model=?,provider=?,title=CASE WHEN title='' THEN ? ELSE title END WHERE id=?`,
 		stamp, commit.Model, commit.Provider, title, commit.RootID); err != nil {
 		return err
