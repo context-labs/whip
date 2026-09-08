@@ -183,3 +183,39 @@ func TestRenderMarkdownTableNarrow(t *testing.T) {
 		t.Errorf("wrapped table lost content:\n%s", plain)
 	}
 }
+
+// sanitizeInputView closes every styled line (the input box is written raw
+// into the frame — an un-closed SGR piece from bubbles' cursor-line render
+// bleeds its style into the status line below, seen as "colors go wrong"
+// after a large paste + ctrl+j). Unlike sanitizeView it never trims trailing
+// padding: opencode's prompt box and the drag-selection highlight live there.
+func TestSanitizeInputView(t *testing.T) {
+	// an unterminated styled line gets a reset appended
+	in := "\x1b[31mred text"
+	got := sanitizeInputView(in)
+	if !strings.HasSuffix(got, "\x1b[0m") {
+		t.Fatalf("unterminated line must gain a reset, got %q", got)
+	}
+	// already-closed lines are untouched
+	in = "\x1b[31mred\x1b[0m"
+	if got := sanitizeInputView(in); got != in {
+		t.Fatalf("closed line changed: %q", got)
+	}
+	// multi-line: every line handled independently
+	in = "\x1b[7mrow1\x1b[0m\n\x1b[32mrow2"
+	got = sanitizeInputView(in)
+	want := "\x1b[7mrow1\x1b[0m\n\x1b[32mrow2\x1b[0m"
+	if got != want {
+		t.Fatalf("multi-line sanitize = %q, want %q", got, want)
+	}
+	// trailing styled padding survives (sanitizeView would strip it — that
+	// breaks opencode's panel fill)
+	in = "\x1b[48;5;236mtext   \x1b[0m"
+	if got := sanitizeInputView(in); got != in {
+		t.Fatalf("styled padding must survive input sanitize, got %q", got)
+	}
+	// plain text passes through unchanged
+	if got := sanitizeInputView("hello"); got != "hello" {
+		t.Fatalf("plain text changed: %q", got)
+	}
+}

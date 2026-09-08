@@ -61,12 +61,20 @@ type Message struct {
 // as an array of these parts rather than a plain string when images are
 // attached. The wire shape is {"type":"text","text":...} and
 // {"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}.
+//
+// W and H record the pixel dimensions of an image part, measured once at
+// ingest. They ride along in the persisted session (so token estimates stay
+// honest across resumes) and are stripped before any provider request — the
+// wire shape is unchanged. Zero means "unmeasured": estimators decode the
+// data URL lazily in that case.
 type ContentPart struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
 	ImageURL *struct {
 		URL string `json:"url"`
 	} `json:"image_url,omitempty"`
+	W int `json:"w,omitempty"`
+	H int `json:"h,omitempty"`
 }
 
 // TextContent returns the message's text, whether it was set directly
@@ -94,13 +102,40 @@ func imageDataURL(ext string, data []byte) string {
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 }
 
-// ImagePart builds an image ContentPart from raw bytes and a format extension.
+// ImagePart builds an image ContentPart from raw bytes and a format
+// extension, recording the pixel dimensions for token estimation.
 func ImagePart(ext string, data []byte) ContentPart {
 	p := ContentPart{Type: "image_url"}
 	p.ImageURL = &struct {
 		URL string `json:"url"`
 	}{URL: imageDataURL(ext, data)}
+	p.W, p.H, _ = DecodeImageSize(data)
 	return p
+}
+
+// DecodeDimensions measures the image carried by the part's data URL. Used
+// when W/H are zero (session rows written before the fields existed).
+func (p ContentPart) DecodeDimensions() (w, h int, ok bool) {
+	if p.ImageURL == nil {
+		return 0, 0, false
+	}
+	const prefix = ";base64,"
+	i := strings.Index(p.ImageURL.URL, prefix)
+	if i < 0 {
+		return 0, 0, false
+	}
+	// Decode only the head: 64KB of base64 (a multiple of 4, so the cut is
+	// a clean quantum boundary) covers every format's config, including
+	// JPEGs that front-load a large ICC profile before the size marker.
+	b64 := p.ImageURL.URL[i+len(prefix):]
+	if len(b64) > 65536 {
+		b64 = b64[:65536]
+	}
+	head, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return DecodeImageSize(head)
 }
 
 // messageWire is the JSON shape of a Message. Content is `any` so it can be a
@@ -204,6 +239,19 @@ func stripAuthored(msgs []Message) []Message {
 		for j := range out[i].ToolCalls {
 			out[i].ToolCalls[j].DurationMs = 0
 			out[i].ToolCalls[j].ExitCode = 0
+		}
+		// W/H are whip-local estimation bookkeeping; the provider's wire shape
+		// for image parts is just the data URL. Copy the Parts slice first —
+		// a shallow struct copy shares it, so zeroing here would otherwise
+		// mutate the caller's history (and its persisted dims).
+		if len(out[i].Parts) > 0 {
+			parts := make([]ContentPart, len(out[i].Parts))
+			copy(parts, out[i].Parts)
+			for j := range parts {
+				parts[j].W = 0
+				parts[j].H = 0
+			}
+			out[i].Parts = parts
 		}
 	}
 	// Backfill tool-message Name from the owning call (older sessions predate
@@ -697,7 +745,8 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 
 	msg := Message{Role: "assistant"}
 	var usage Usage      // from the terminal chunk (include_usage); zero if omitted
-	var calls []ToolCall // indexed by stream tool_call index
+	var calls []ToolCall // arrival order; providers may use sparse stream indexes
+	callPositions := make(map[int]int)
 	finish := ""
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
@@ -742,10 +791,13 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 			}
 		}
 		for _, tc := range d.ToolCalls {
-			for len(calls) <= tc.Index {
+			pos, ok := callPositions[tc.Index]
+			if !ok {
+				pos = len(calls)
+				callPositions[tc.Index] = pos
 				calls = append(calls, ToolCall{Type: "function"})
 			}
-			cur := &calls[tc.Index]
+			cur := &calls[pos]
 			if tc.ID != "" {
 				cur.ID = tc.ID
 			}
@@ -770,8 +822,33 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 		calls = nil
 		msg.Content += "\n[response truncated by max_tokens; tool calls discarded]"
 	}
+	// Discard tool calls whose accumulated function.arguments never closed
+	// into a JSON object — a provider that emitted malformed arguments, or a
+	// stream that ended mid-call (a proxy closed the connection, no
+	// finish_reason). Strict providers validate incoming history and reject
+	// the whole request before the first token when an assistant tool_call
+	// carries malformed arguments, so persisting the call poisons the next
+	// turn. Drop just the malformed calls so valid siblings still execute,
+	// and note what was dropped — mirrors the max_tokens guard above.
+	kept := make([]ToolCall, 0, len(calls))
+	for _, tc := range calls {
+		if tc.Function.Arguments != "" && !validToolCallArgs(tc.Function.Arguments) {
+			msg.Content += fmt.Sprintf("\n[tool call %q discarded: arguments are invalid JSON]", tc.Function.Name)
+			continue
+		}
+		kept = append(kept, tc)
+	}
+	calls = kept
 	msg.ToolCalls = calls
 	return msg, usage, nil
+}
+
+// validToolCallArgs reports whether s is a JSON object — the shape providers
+// require for function.arguments. Empty arguments are treated as valid (a
+// no-argument call) and left for the tool layer to handle.
+func validToolCallArgs(s string) bool {
+	var obj map[string]any
+	return json.Unmarshal([]byte(s), &obj) == nil
 }
 
 // Complete sends a non-streaming chat request and returns the assistant text

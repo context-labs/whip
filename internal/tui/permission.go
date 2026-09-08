@@ -114,11 +114,8 @@ func (m *model) permKey(msg tea.KeyMsg) bool {
 			if len(d.rejectIn) > 0 {
 				d.rejectIn = d.rejectIn[:len(d.rejectIn)-1]
 			}
-		case tea.KeyRunes, tea.KeySpace:
+		case tea.KeyRunes, tea.KeySpace: // KeySpace arrives with Runes == " "
 			d.rejectIn += string(msg.Runes)
-			if msg.Type == tea.KeySpace {
-				d.rejectIn += " "
-			}
 		}
 		return true
 	}

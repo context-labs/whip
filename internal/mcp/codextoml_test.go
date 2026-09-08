@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/config"
 )
 
 // TestParseTOMLValue pins the value grammar directly: escapes, literal vs
@@ -134,6 +136,88 @@ func TestParseCodexTypeErrors(t *testing.T) {
 	}
 }
 
+// TestParseCodexToolApprovalTables: [mcp_servers.x.tools.y] is codex per-tool
+// approval config, not a server. It must not produce a bogus server entry
+// named "x.tools.y" (regression: incident_io.tools.ask_telemetry showed up in
+// the startup report as a failed server with neither command nor url).
+func TestParseCodexToolApprovalTables(t *testing.T) {
+	cfgs, err := ParseCodex([]byte(`
+[mcp_servers.incident_io]
+url = "https://mcp.incident.io/mcp"
+
+[mcp_servers.incident_io.tools.ask_telemetry]
+approval_mode = "approve"
+
+[mcp_servers.inf-memory]
+url = "http://office/api/mcp"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfgs) != 2 {
+		t.Fatalf("got %d servers %v, want 2", len(cfgs), keys(cfgs))
+	}
+	if cfgs["incident_io"].URL != "https://mcp.incident.io/mcp" {
+		t.Errorf("incident_io url = %q", cfgs["incident_io"].URL)
+	}
+	for name := range cfgs {
+		if strings.Contains(name, ".") {
+			t.Errorf("bogus sub-table server leaked into configs: %q", name)
+		}
+	}
+}
+
+// TestParseCodexServerNamedTools: a server genuinely named "x.tools" must
+// still load — the sub-table skip is keyed on the parent being a server.
+func TestParseCodexServerNamedTools(t *testing.T) {
+	cfgs, err := ParseCodex([]byte("[mcp_servers.x.tools]\ncommand = \"srv\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfgs["x.tools"].Command, []string{"srv"}) {
+		t.Errorf("x.tools command = %v", cfgs["x.tools"].Command)
+	}
+}
+
+// TestParseCodexHTTPHeadersAndBearer: codex's http_headers inline table lands
+// as literal header values, and bearer_token_env_var lands as a lazy $VAR
+// reference (resolved at connect, never baked or persisted). A literal
+// http_headers Authorization beats the env-ref on collision.
+func TestParseCodexHTTPHeadersAndBearer(t *testing.T) {
+	cfgs, err := ParseCodex([]byte(`
+[mcp_servers.a]
+url = "https://a.example/mcp"
+http_headers = { "X-Team" = "eng" }
+bearer_token_env_var = "WHIP_TEST_TOKEN"
+
+[mcp_servers.b]
+url = "https://b.example/mcp"
+headers = { "Authorization" = "Bearer explicit" }
+bearer_token_env_var = "WHIP_TEST_TOKEN"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The bearer var is stored as a lazy reference, not resolved at parse time.
+	if got := cfgs["a"].Headers["Authorization"]; got != "Bearer $WHIP_TEST_TOKEN" {
+		t.Errorf("a Authorization = %q, want the lazy $VAR reference", got)
+	}
+	if got := cfgs["a"].Headers["X-Team"]; got != "eng" {
+		t.Errorf("a X-Team = %q", got)
+	}
+	if got := cfgs["b"].Headers["Authorization"]; got != "Bearer explicit" {
+		t.Errorf("b Authorization = %q, explicit literal header must win", got)
+	}
+}
+
+func keys(m map[string]ServerConfig) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 func TestLoadCodex(t *testing.T) {
 	// An unset path is the "no codex config" signal in the discovery flow.
 	if _, err := LoadCodex(""); !errors.Is(err, os.ErrNotExist) {
@@ -152,5 +236,199 @@ func TestLoadCodex(t *testing.T) {
 	}
 	if _, err := LoadCodex(filepath.Join(t.TempDir(), "missing.toml")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("missing file = %v, want os.ErrNotExist", err)
+	}
+}
+
+// TestParseCodexAuthFields pins the codex auth-key mappings: bearer_token_env_var
+// becomes an Authorization header holding a $VAR REFERENCE (resolved at
+// connect, never baked at import — the customer.io failure), http_headers
+// carries literals, env_http_headers maps header names to $VAR references.
+func TestParseCodexAuthFields(t *testing.T) {
+	t.Setenv("CIO_TEST_TOKEN", "cio-live-token")
+	cfgs, err := ParseCodex([]byte(`
+[mcp_servers.customerio]
+url = "https://mcp.customer.io/mcp"
+bearer_token_env_var = "CIO_TEST_TOKEN"
+
+[mcp_servers.mixed]
+url = "https://mcp.example.com/mcp"
+http_headers = { X-Team = "eng" }
+env_http_headers = { X-Api-Key = "CIO_TEST_TOKEN" }
+
+[mcp_servers.mixedsub]
+url = "https://sub.example.com/mcp"
+[mcp_servers.mixedsub.http_headers]
+X-Region = "us"
+[mcp_servers.mixedsub.env_http_headers]
+Authorization = "CIO_TEST_TOKEN"
+
+[mcp_servers.collide_inline]
+url = "https://ci.example.com/mcp"
+http_headers = { Authorization = "Bearer literal" }
+env_http_headers = { Authorization = "CIO_TEST_TOKEN" }
+
+[mcp_servers.collide_sub]
+url = "https://cs.example.com/mcp"
+[mcp_servers.collide_sub.http_headers]
+Authorization = "Bearer literal"
+[mcp_servers.collide_sub.env_http_headers]
+Authorization = "CIO_TEST_TOKEN"
+
+[mcp_servers.collide_bearer]
+url = "https://cb.example.com/mcp"
+http_headers = { Authorization = "Bearer literal" }
+bearer_token_env_var = "CIO_TEST_TOKEN"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cio := cfgs["customerio"]
+	if got := cio.Headers["Authorization"]; got != "Bearer $CIO_TEST_TOKEN" {
+		t.Fatalf("bearer_token_env_var should import as a reference, got %q", got)
+	}
+	// and the reference resolves at connect time
+	hv, err := config.ResolveHeader(cio.Headers["Authorization"])
+	if err != nil || hv != "Bearer cio-live-token" {
+		t.Errorf("connect-time resolution = %q, %v", hv, err)
+	}
+	mixed := cfgs["mixed"]
+	if mixed.Headers["X-Team"] != "eng" || mixed.Headers["X-Api-Key"] != "$CIO_TEST_TOKEN" {
+		t.Errorf("inline http_headers/env_http_headers = %v", mixed.Headers)
+	}
+	sub := cfgs["mixedsub"]
+	if sub.Headers["X-Region"] != "us" || sub.Headers["Authorization"] != "$CIO_TEST_TOKEN" {
+		t.Errorf("sub-table http_headers/env_http_headers = %v", sub.Headers)
+	}
+	// deterministic precedence: a literal key wins on collision for BOTH the
+	// inline and sub-table spellings, and over bearer_token_env_var.
+	for _, name := range []string{"collide_inline", "collide_sub", "collide_bearer"} {
+		if got := cfgs[name].Headers["Authorization"]; got != "Bearer literal" {
+			t.Errorf("%s: literal should win on collision, got %q", name, got)
+		}
+	}
+}
+
+// TestParseCodexHeaderPrecedence pins the deterministic http_headers vs
+// env_http_headers precedence: the literal wins on key collision (it is the
+// fallback codex uses when the env ref can't resolve), the env ref maps to a
+// $VAR reference, bearer_token_env_var becomes a Bearer $VAR reference, and
+// the inline and sub-table spellings produce identical headers.
+func TestParseCodexHeaderPrecedence(t *testing.T) {
+	doc := []byte(`
+[mcp_servers.inline]
+url = "https://i.example.com/mcp"
+http_headers = { Authorization = "Bearer lit", X-Literal = "v" }
+env_http_headers = { Authorization = "AUTH_VAR", X-Env = "ENV_VAR" }
+bearer_token_env_var = "BEARER_VAR"
+
+[mcp_servers.sub]
+url = "https://s.example.com/mcp"
+[mcp_servers.sub.http_headers]
+Authorization = "Bearer lit"
+X-Literal = "v"
+[mcp_servers.sub.env_http_headers]
+Authorization = "AUTH_VAR"
+X-Env = "ENV_VAR"
+`)
+	cfgs, err := ParseCodex(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"Authorization": "Bearer lit", // literal wins on collision
+		"X-Literal":     "v",
+		"X-Env":         "$ENV_VAR", // env ref maps to $VAR
+	}
+	for _, name := range []string{"inline", "sub"} {
+		got := cfgs[name].Headers
+		if len(got) != len(want) {
+			t.Errorf("%s: header count = %d, want %d (%v)", name, len(got), len(want), got)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s: header %s = %q, want %q", name, k, got[k], v)
+			}
+		}
+		// inline and sub-table spellings must be byte-for-byte identical
+		if got["X-Literal"] != "v" {
+			t.Errorf("%s: literal lost %v", name, got)
+		}
+	}
+	// (c) bearer_token_env_var still produces 'Bearer $VAR' when there is no
+	// Authorization collision
+	bcfgs, err := ParseCodex([]byte(`
+[mcp_servers.bearer]
+url = "https://b.example.com/mcp"
+bearer_token_env_var = "BEARER_VAR"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bcfgs["bearer"].Headers["Authorization"]; got != "Bearer $BEARER_VAR" {
+		t.Errorf("bearer_token_env_var = %q, want %q", got, "Bearer $BEARER_VAR")
+	}
+	// (d) inline and sub-table spellings produce identical results
+	inline := cfgs["inline"].Headers
+	sub := cfgs["sub"].Headers
+	if len(inline) != len(sub) {
+		t.Fatalf("inline/sub header counts differ: %v vs %v", inline, sub)
+	}
+	for k, v := range inline {
+		if sub[k] != v {
+			t.Errorf("inline/sub mismatch on %s: %q vs %q", k, v, sub[k])
+		}
+	}
+}
+
+// TestParseCodexPreservesReferences is the regression test for "customerio
+// MCP failed to auth after importing from codex": references must NOT be
+// expanded at parse time, so a var that's unset during import (but set when
+// the server actually runs) still resolves — and `whip mcp import` persists
+// the reference, not a resolved/empty literal.
+func TestParseCodexPreservesReferences(t *testing.T) {
+	os.Unsetenv("WHIP_IMPORT_LATE_VAR")
+	doc := []byte(`
+[mcp_servers.stdio]
+command = "srv"
+env = { API_KEY = "$WHIP_IMPORT_LATE_VAR", REGION = "us1" }
+
+[mcp_servers.remote]
+url = "https://mcp.example.com/mcp"
+headers = { Authorization = "Bearer ${WHIP_IMPORT_LATE_VAR:-none}" }
+`)
+	cfgs, err := ParseCodex(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfgs["stdio"].Env["API_KEY"] != "$WHIP_IMPORT_LATE_VAR" {
+		t.Errorf("env ref baked at parse: %q", cfgs["stdio"].Env["API_KEY"])
+	}
+	if cfgs["remote"].Headers["Authorization"] != "Bearer ${WHIP_IMPORT_LATE_VAR:-none}" {
+		t.Errorf("header ref baked at parse: %q", cfgs["remote"].Headers["Authorization"])
+	}
+	// spawn-time: still unset → entry dropped (child inherits any ambient var
+	// instead of a masking empty value)
+	env, err := config.ResolveEnvMap(cfgs["stdio"].Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := env["API_KEY"]; ok || env["REGION"] != "us1" {
+		t.Errorf("spawn env = %v", env)
+	}
+	// once the var exists (exported after import), resolution works
+	t.Setenv("WHIP_IMPORT_LATE_VAR", "late-value")
+	env, err = config.ResolveEnvMap(cfgs["stdio"].Env)
+	if err != nil || env["API_KEY"] != "late-value" {
+		t.Errorf("late resolution = %v, %v", env, err)
+	}
+	if hv, err := config.ResolveHeader(cfgs["remote"].Headers["Authorization"]); err != nil || hv != "Bearer late-value" {
+		t.Errorf("header resolution = %q, %v", hv, err)
+	}
+}
+
+// TestParseCodexBearerTokenEnvVarInvalid pins the type error.
+func TestParseCodexBearerTokenEnvVarInvalid(t *testing.T) {
+	if _, err := ParseCodex([]byte("[mcp_servers.x]\nurl = \"http://x\"\nbearer_token_env_var = 42\n")); err == nil {
+		t.Error("non-string bearer_token_env_var should error")
 	}
 }

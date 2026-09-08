@@ -220,6 +220,7 @@ func (m *model) switchToForked(id string) {
 		}
 		m.agent.SetUsage(u)
 	}
+	m.agent.SetSubUsage(meta.SubUsage)
 	m.sessionID = meta.ID
 	bashrun.SetMarkers(meta.ID, m.agent.Model)
 	m.agent.Messages = append(m.agent.Messages, msgs...)

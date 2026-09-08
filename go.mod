@@ -16,13 +16,14 @@ require (
 	github.com/dop251/goja v0.0.0-20260901132549-43234fa61381
 	github.com/go-rod/rod v0.116.2
 	github.com/gobwas/ws v1.4.0
-	github.com/mattn/go-runewidth v0.0.28
+	github.com/mattn/go-runewidth v0.0.29
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/termenv v0.16.0
+	golang.org/x/image v0.45.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.45.0
 	golang.org/x/tools v0.49.0
-	modernc.org/sqlite v1.57.0
+	modernc.org/sqlite v1.58.0
 )
 
 require (
@@ -74,7 +75,7 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	modernc.org/libc v1.74.4 // indirect
+	modernc.org/libc v1.75.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.11.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )

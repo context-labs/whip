@@ -107,6 +107,16 @@ func main() {
 		return
 	}
 
+	// `whip skills ...` — list and import SKILL.md skills (incl. from other
+	// harnesses' dirs, deduped against what whip already loads).
+	if flag.NArg() > 0 && flag.Arg(0) == "skills" {
+		if err := skillsCLI(flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, "whip:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// `whip run ...` — non-interactive one-turn mode for scripting; no TTY or
 	// trust prompt required (headless use implies trusted automation).
 	// `whip acp` — ACP agent over stdio for editors (Zed et al.).
