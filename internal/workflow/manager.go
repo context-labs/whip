@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 )
@@ -122,6 +123,16 @@ func (m *Manager) Start(script string, args any, resumeFromRunID string) (RunSum
 		// runID is model-supplied and used directly in runs/<runID>.json; reject
 		// anything that could escape the runs dir (../, separators, empties).
 		return RunSummary{}, fmt.Errorf("invalid resumeFromRunId %q: must match ^[A-Za-z0-9._-]+$ with no '..'", runID)
+	} else if r := m.get(runID); r != nil {
+		// A second workflow call reusing an id that's still running would
+		// replace m.runs[id], leave the original goroutine writing the same
+		// journal, and let OnSettle fire twice. Refuse until it settles.
+		r.mu.Lock()
+		running := r.Status == RunRunning
+		r.mu.Unlock()
+		if running {
+			return RunSummary{}, fmt.Errorf("resumeFromRunId %q is still running — wait for it to settle before resuming", runID)
+		}
 	}
 	scriptPath := PersistScript(meta.Name, runID, script)
 
@@ -194,6 +205,13 @@ func (m *Manager) execute(run *ManagedRun, script string, args any, persisted *P
 			run.mu.Unlock()
 		},
 		OnJournal: func(e JournalEntry) {
+			// Guarded under run.mu: the settle block below also mutates
+			// persisted and calls SaveRun on the execute goroutine. Without
+			// this lock the two race on persisted and can tear the journal
+			// file. SaveRun stays inside the lock so it never serializes a
+			// half-written persisted.
+			run.mu.Lock()
+			defer run.mu.Unlock()
 			persisted.Journal = append(persisted.Journal, e)
 			SaveRun(persisted) // incremental: resume sees completed calls so far
 		},
@@ -220,6 +238,11 @@ func (m *Manager) execute(run *ManagedRun, script string, args any, persisted *P
 		run.snap.Duration = result.Duration
 		run.snap.Phases = result.Phases
 		persisted.Status, persisted.Result = string(RunComplete), result.Value
+		// Persist the FULL journal (replayed prefix + live entries). OnJournal
+		// above fires only for live completions, so a resume would otherwise
+		// save a journal missing its replayed prefix — and the next
+		// resumeFromRunId would re-run every previously cached call.
+		persisted.Journal = result.Journal
 	}
 	persisted.FinishedAt = time.Now().UnixMilli()
 	run.mu.Unlock()
@@ -302,10 +325,5 @@ func phasesOf(agents []AgentSnapshot) []string {
 }
 
 func contains(ss []string, s string) bool {
-	for _, x := range ss {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ss, s)
 }

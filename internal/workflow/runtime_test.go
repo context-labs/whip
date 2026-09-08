@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -77,9 +78,8 @@ return await pipeline(['a', 'b'],
 	if !ok || len(vals) != 2 {
 		t.Fatalf("value: %#v", res.Value)
 	}
-	if vals[0] != "s1:a" && vals[1] != "s1:b" {
-		// stage2 returns its own label (the runner ignores the prompt)
-	}
+	// stage2 returns its own label (the runner ignores the prompt); the
+	// no-barrier ordering is asserted by the timing gate above, not the labels.
 	// s2:b must have started before s1:a finished — i.e. order is
 	// s1:a, s1:b, s2:b, s2:a (or s1:b first). With a barrier we'd get
 	// s1:a, s1:b, s2:a, s2:b — s2:a before s2:b despite a's slowness.
@@ -116,7 +116,7 @@ return r.filter(Boolean).sort().join(',')
 func TestParallelNullOnThrow(t *testing.T) {
 	runner := func(ctx context.Context, req AgentRequest) (any, Usage, error) {
 		if req.Index == 1 {
-			return nil, Usage{}, fmt.Errorf("boom")
+			return nil, Usage{}, errors.New("boom")
 		}
 		return fmt.Sprintf("ok:%d", req.Index), Usage{}, nil
 	}
@@ -156,7 +156,7 @@ func TestPipelineDropsFailedItem(t *testing.T) {
 	// to drop it is a throwing filter stage, which is what this tests.)
 	runner := func(ctx context.Context, req AgentRequest) (any, Usage, error) {
 		if strings.Contains(req.Prompt, "stage bad") {
-			return nil, Usage{}, fmt.Errorf("nope")
+			return nil, Usage{}, errors.New("nope")
 		}
 		if strings.HasPrefix(req.Prompt, "stage ") {
 			return req.Prompt[len("stage "):], Usage{}, nil // pass the item through
@@ -256,6 +256,22 @@ func TestParseRejectsBracketNotationNondeterminism(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "deterministic") {
 			t.Errorf("%s: expected determinism error, got %v", snippet, err)
 		}
+	}
+}
+
+// TestSafeDateConstructorNowThrows pins N5: the determinism prelude must
+// give SafeDate its own prototype with constructor = SafeDate, not share
+// RealDate.prototype. Otherwise new Date(1).constructor.now() reaches
+// RealDate.now and returns live wall-clock time, silently breaking the
+// journal-hash/resume determinism contract.
+func TestSafeDateConstructorNowThrows(t *testing.T) {
+	_, err := Run(context.Background(), metaHeader+`
+const d = new Date(1)
+const n = d.constructor.now()
+return n
+`, Options{Run: echoRunner(nil)})
+	if err == nil {
+		t.Fatal("d.constructor.now() should have thrown (SafeDate), got nil error")
 	}
 }
 

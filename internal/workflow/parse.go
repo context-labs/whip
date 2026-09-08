@@ -118,11 +118,23 @@ func Parse(script string) (Meta, string, error) {
 	}
 	v, err := vm.RunString("(" + objText + ")")
 	if err != nil {
-		return Meta{}, "", fmt.Errorf("meta must be a PURE LITERAL — no variables, function calls, spreads, or template interpolation (%v)", err)
+		return Meta{}, "", fmt.Errorf("meta must be a PURE LITERAL — no variables, function calls, spreads, or template interpolation (%w)", err)
 	}
+	// ExportTo invokes JS property getters, and goja turns a getter-thrown
+	// exception into a Go panic — a model-authored `get whenToUse() { throw ... }`
+	// in the meta literal would crash the whole process (no recover on the
+	// Manager.Start/Run path). Recover and surface it as an error instead.
 	var meta Meta
-	if err := vm.ExportTo(v, &meta); err != nil {
-		return Meta{}, "", fmt.Errorf("meta must be a PURE LITERAL object (%v)", err)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("meta must be a PURE LITERAL object (getter threw: %v)", r)
+			}
+		}()
+		err = vm.ExportTo(v, &meta)
+	}()
+	if err != nil {
+		return Meta{}, "", fmt.Errorf("meta must be a PURE LITERAL object (%w)", err)
 	}
 	if err := validateMeta(&meta); err != nil {
 		return Meta{}, "", err
@@ -150,9 +162,10 @@ func matchBrace(s string, open int) int {
 	for i := open; i < len(s); i++ {
 		c := s[i]
 		if inStr != 0 {
-			if c == '\\' {
+			switch c {
+			case '\\':
 				i++
-			} else if c == inStr {
+			case inStr:
 				inStr = 0
 			}
 			continue

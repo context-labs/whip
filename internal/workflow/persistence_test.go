@@ -31,8 +31,8 @@ func TestHashStringMatchesTS(t *testing.T) {
 // the golden values in this test — it must agree with HashString.
 func tsHash(s string) string {
 	h := int32(5381)
-	for i := 0; i < len(s); i++ {
-		h = ((h << 5) + h + int32(s[i])) | 0
+	for i := range len(s) {
+		h = (h << 5) + h + int32(s[i])
 	}
 	u := uint32(h)
 	if u == 0 {
@@ -100,7 +100,7 @@ func TestPersistScript(t *testing.T) {
 
 func TestGenerateRunIDUnique(t *testing.T) {
 	seen := map[string]bool{}
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		id := GenerateRunID()
 		if seen[id] {
 			t.Fatalf("duplicate run id %q", id)

@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -51,6 +53,85 @@ func TestManagerResumeLoadsJournalBeforeSave(t *testing.T) {
 	if calls.Load() != 0 {
 		t.Fatalf("resume re-ran %d agent calls; journal should have replayed them", calls.Load())
 	}
+}
+
+// TestManagerResumePersistsFullJournal pins N2: after a resume, the on-disk
+// journal must contain the replayed prefix + live entries (not just the live
+// ones), so a SECOND resume of the same runID still gets a 100% cache hit.
+// Without copying result.Journal into persisted on settle, OnJournal fires
+// only for live completions and the replayed prefix is lost on save.
+func TestManagerResumePersistsFullJournal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	m := NewManager(echoRunner(nil), "")
+
+	script := metaHeader + `
+const a = await agent('first')
+const b = await agent('second')
+return [a, b].join('|')
+`
+	r1, err := m.Start(script, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, m, r1.ID)
+
+	// First resume with the same runID — replays both calls (0 live).
+	var calls atomic.Int64
+	m.runner = echoRunner(&calls)
+	_, err = m.Start(script, nil, r1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wait for the resume to settle, then check the persisted journal has
+	// BOTH entries (the prefix wasn't dropped on save).
+	waitSettled(t, m, r1.ID)
+	if calls.Load() != 0 {
+		t.Fatalf("first resume re-ran %d calls, want 0", calls.Load())
+	}
+	persisted := LoadRun(r1.ID)
+	if len(persisted.Journal) != 2 {
+		t.Fatalf("after resume, persisted journal has %d entries, want 2 (replayed prefix + live)", len(persisted.Journal))
+	}
+
+	// Second resume of the SAME runID — the persisted journal must still
+	// hold both entries, so this resume is also a 100% cache hit.
+	calls.Store(0)
+	_, err = m.Start(script, nil, r1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitSettled(t, m, r1.ID)
+	if calls.Load() != 0 {
+		t.Fatalf("second resume re-ran %d calls; the persisted prefix was dropped", calls.Load())
+	}
+}
+
+// TestManagerRejectsResumeOfRunningRun pins N3: a second workflow call reusing
+// a runID that's still running must be rejected — otherwise it replaces
+// m.runs[id], leaves the original goroutine writing the same journal, and
+// lets OnSettle fire twice.
+func TestManagerRejectsResumeOfRunningRun(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	release := make(chan struct{})
+	// A runner that blocks until released: keeps the run in RunRunning.
+	m := NewManager(func(_ context.Context, _ AgentRequest) (any, Usage, error) {
+		<-release
+		return "ok", Usage{}, nil
+	}, "")
+	r, err := m.Start(metaHeader+"return await agent('x')", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The run is in-flight (blocked on the runner). Resuming its own id must
+	// be refused, not overwrite it.
+	if _, err := m.Start(metaHeader+"return await agent('x')", nil, r.ID); err == nil ||
+		!strings.Contains(err.Error(), "still running") {
+		t.Fatalf("expected 'still running' error, got %v", err)
+	}
+	close(release)
+	waitSettled(t, m, r.ID)
 }
 
 // TestManagerListReturnsSnapshots pins C1: List returns RunSummary values

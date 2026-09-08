@@ -26,9 +26,11 @@ func homeDir() (string, error) {
 		dir = filepath.Join(home, ".whip")
 	}
 	dir = filepath.Join(dir, "workflows")
+	//nolint:gosec // G703: dir is whip-owned (WHIP_HOME/.whip/workflows), not user-supplied.
 	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o700); err != nil {
 		return "", err
 	}
+	//nolint:gosec // G703: dir is whip-owned (WHIP_HOME/.whip/workflows), not user-supplied.
 	if err := os.MkdirAll(filepath.Join(dir, "runs"), 0o700); err != nil {
 		return "", err
 	}
@@ -142,6 +144,7 @@ func LoadRun(runID string) *PersistedRun {
 	if err != nil {
 		return nil
 	}
+	//nolint:gosec // G304: runID is validated (validRunID) before reaching here; dir is whip-owned.
 	data, err := os.ReadFile(filepath.Join(dir, "runs", runID+".json"))
 	if err != nil {
 		return nil
@@ -174,7 +177,7 @@ func JournalMap(run *PersistedRun) map[int]JournalEntry {
 func HashString(s string) string {
 	h := int32(5381)
 	for _, u := range utf16.Encode([]rune(s)) {
-		h = ((h << 5) + h + int32(u)) | 0
+		h = (h << 5) + h + int32(u)
 	}
 	return strconvUint32Base36(uint32(h))
 }

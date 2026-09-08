@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -190,6 +191,13 @@ type Agent struct {
 
 	usageMu sync.Mutex
 	usage   llm.Usage // this agent's own API calls (PromptTokens = input), incl. its compaction summaries
+	// clientMu guards the Client struct fields Turn writes per call
+	// (OnRetry). newSub shallow-copies *a.Client on a workflow subagent
+	// goroutine that runs concurrently with the parent's Turn — without this
+	// lock that copy-read races the OnRetry write (CI -race catches it on
+	// Linux). The embedded *http.Client is itself concurrency-safe and stays
+	// shared; only the scalar fields need guarding.
+	clientMu sync.Mutex
 	// subUsage is the spend of every subagent under this agent (foreground,
 	// background, follow-ups, and their own nested subs), keyed by the sub's
 	// model label so it can be priced per model. Kept apart from usage so
@@ -458,12 +466,7 @@ func (a *Agent) Experimental() []string { return a.experimental }
 // experimentalEnabled reports whether name is in the agent's experimental
 // opt-in set.
 func (a *Agent) experimentalEnabled(name string) bool {
-	for _, e := range a.experimental {
-		if e == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(a.experimental, name)
 }
 
 // MessagesSnapshot returns a copy of the conversation safe to read while a
@@ -601,8 +604,12 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		}
 		// Surface transient-request retries through the event hook so the UI
 		// shows "retrying" instead of looking hung. Set/restored per call: the
-		// client may outlive this turn's Events.
+		// client may outlive this turn's Events. Guarded: a workflow subagent
+		// goroutine may shallow-copy *a.Client (newSub) concurrently with this
+		// write.
+		a.clientMu.Lock()
 		a.Client.OnRetry = ev.OnRetry
+		a.clientMu.Unlock()
 		msg, usage, err := a.Client.Stream(ctx, llm.Request{
 			Model:           a.Model,
 			Messages:        msgs,

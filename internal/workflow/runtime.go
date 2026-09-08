@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -124,14 +126,14 @@ type sharedState struct {
 // reserveAgent atomically checks the cap and takes a slot. The cap is the
 // shared root maxAgents (nested children inherit it), so a fan-out can't
 // overshoot the parent's limit by resolving its own default.
-func (s *sharedRuntime) reserveAgent(max int) (n int, ok bool) {
+func (s *sharedRuntime) reserveAgent(callMax int) (n int, ok bool) {
 	s.state.mu.Lock()
 	defer s.state.mu.Unlock()
-	cap := s.state.maxAgents
-	if cap <= 0 || max < cap {
-		cap = max // root with no shared cap, or a child whose own cap is tighter
+	limit := s.state.maxAgents
+	if limit <= 0 || callMax < limit {
+		limit = callMax // root with no shared cap, or a child whose own cap is tighter
 	}
-	if s.state.agentCount >= cap {
+	if s.state.agentCount >= limit {
 		return 0, false
 	}
 	s.state.agentCount++
@@ -186,7 +188,12 @@ Math.random = function() { throw new Error("Math.random() is unavailable in a wo
   SafeDate.UTC = RealDate.UTC;
   SafeDate.parse = RealDate.parse;
   SafeDate.now = function() { fail("Date.now()"); };
-  SafeDate.prototype = RealDate.prototype;
+  // Own prototype inheriting from RealDate.prototype, with constructor back
+  // to SafeDate. Without this, Date.prototype.constructor === RealDate, so
+  // new Date(1).constructor.now() returns live wall-clock time and silently
+  // breaks the journal-hash/resume determinism contract.
+  SafeDate.prototype = Object.create(RealDate.prototype);
+  SafeDate.prototype.constructor = SafeDate;
   g.Date = SafeDate;
 })(this);`
 
@@ -302,7 +309,7 @@ func Run(ctx context.Context, script string, opts Options) (*Result, error) {
 			}
 			promise = p
 		}); exc != nil {
-			runErr = fmt.Errorf("%v", exc)
+			runErr = fmt.Errorf("%w", exc)
 			close(finished)
 			return
 		}
@@ -404,13 +411,11 @@ func (s *scheduler) log(onLog func(string), msg string) {
 
 func (s *scheduler) setPhase(st *runState, title string, onPhase func(string)) {
 	st.phase = title
-	for _, p := range st.phases {
-		if p == title {
-			if onPhase != nil {
-				onPhase(title)
-			}
-			return
+	if slices.Contains(st.phases, title) {
+		if onPhase != nil {
+			onPhase(title)
 		}
+		return
 	}
 	st.phases = append(st.phases, title)
 	if onPhase != nil {
@@ -717,7 +722,7 @@ func (s *scheduler) pipelineFunc(st *runState, onLog func(string)) func(goja.Fun
 		if len(items) > MaxFanoutItems {
 			panic(vm.ToValue(fmt.Sprintf("pipeline() accepts at most %d items (got %d)", MaxFanoutItems, len(items))))
 		}
-		var stages []func(reserveIdx int, args ...any) (any, error)
+		stages := make([]func(reserveIdx int, args ...any) (any, error), 0, len(call.Arguments)-1)
 		for _, arg := range call.Arguments[1:] {
 			fn, ok := goja.AssertFunction(arg)
 			if !ok {
@@ -776,8 +781,8 @@ func (s *scheduler) thunks(v goja.Value, name string, st *runState) ([]func() (a
 	start := st.callSeq
 	st.callSeq += n // reserve n indexes in array order for resume reproducibility
 	thunks := make([]func() (any, error), 0, n)
-	for i := 0; i < n; i++ {
-		fn, ok := goja.AssertFunction(obj.Get(fmt.Sprint(i)))
+	for i := range n {
+		fn, ok := goja.AssertFunction(obj.Get(strconv.Itoa(i)))
 		if !ok {
 			return nil, fmt.Errorf("%s() expects functions, not promises — wrap each call: () => agent(...)", name)
 		}
@@ -799,21 +804,17 @@ func (s *scheduler) stage(fn goja.Callable, st *runState) func(reserveIdx int, a
 	}
 }
 
-// callJS invokes a JS function from a worker goroutine: the invocation is a
-// scheduler job and the (possibly thenable) result is delivered on a
+// callJSWith invokes a JS function from a worker goroutine: the invocation
+// is a scheduler job and the (possibly thenable) result is delivered on a
 // channel. This is THE bridge between the goroutine fan-out and the
-// single-goroutine VM.
-func (s *scheduler) callJS(fn goja.Callable, args ...any) (any, error) {
-	return s.callJSWith(-1, nil, fn, args...)
-}
-
-// callJSWith is callJS with a pre-reserved agent() call index (for fan-out
-// reproducibility). If reserveIdx >= 0, it is set on the runState before the
-// JS function runs (on the scheduler) so the first agent() inside the thunk
-// consumes it; it is cleared after fn returns, so an unconsumed reservation
-// (the thunk didn't call agent) can't leak into a later call. For the
-// documented `() => agent(...)` thunk, agent() runs synchronously when fn()
-// is called and consumes the reservation before fn returns.
+// single-goroutine VM. reserveIdx (-1 = none) pre-assigns the first
+// agent() call's index for fan-out reproducibility: it is set on the
+// runState before the JS function runs (on the scheduler) so the first
+// agent() inside the thunk consumes it; it is cleared after fn returns, so
+// an unconsumed reservation (the thunk didn't call agent) can't leak into a
+// later call. For the documented `() => agent(...)` thunk, agent() runs
+// synchronously when fn() is called and consumes the reservation before fn
+// returns.
 func (s *scheduler) callJSWith(reserveIdx int, st *runState, fn goja.Callable, args ...any) (any, error) {
 	vm := s.vm
 	type out struct {
@@ -822,16 +823,16 @@ func (s *scheduler) callJSWith(reserveIdx int, st *runState, fn goja.Callable, a
 	}
 	done := make(chan out, 1)
 	s.enqueue(func() {
-		if st != nil && reserveIdx >= 0 {
+		reserve := st != nil && reserveIdx >= 0
+		if reserve {
 			st.reservedIndex = reserveIdx
 		}
-		clear := st != nil && reserveIdx >= 0
 		vals := make([]goja.Value, len(args))
 		for i, a := range args {
 			vals[i] = vm.ToValue(a)
 		}
 		v, err := fn(goja.Undefined(), vals...)
-		if clear {
+		if reserve {
 			st.reservedIndex = -1 // consumed by agent() already, or reclaim it
 		}
 		if err != nil {

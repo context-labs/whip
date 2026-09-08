@@ -44,6 +44,7 @@ func workflowTool(parent *Agent) tools.Tool {
 			var scriptArgs any
 			if len(a.Args) > 0 {
 				if err := json.Unmarshal(a.Args, &scriptArgs); err != nil {
+					//nolint:nilerr // tool contract: failures are tool output the model reads, never loop aborts
 					return "Error: args must be a JSON value: " + err.Error(), nil
 				}
 			}
@@ -51,6 +52,7 @@ func workflowTool(parent *Agent) tools.Tool {
 			mgr := parent.Workflows()
 			run, err := mgr.Start(script, scriptArgs, a.ResumeFromRunID)
 			if err != nil {
+				//nolint:nilerr // tool contract: failures are tool output the model reads, never loop aborts
 				return "Error: " + err.Error(), nil
 			}
 			return fmt.Sprintf(`Workflow started in the background. Run ID: %s
@@ -78,6 +80,7 @@ func resolveWorkflowScript(script, scriptPath string) (string, error) {
 		return s, nil
 	}
 	if p := strings.TrimSpace(scriptPath); p != "" {
+		//nolint:gosec // G304: reading a workflow script the model points at is the tool's purpose; paths are workflow-scoped persisted scripts.
 		data, err := os.ReadFile(p)
 		if err != nil {
 			return "", fmt.Errorf("could not read scriptPath %q: %w", p, err)
