@@ -33,7 +33,11 @@
     "make:desktop": "node apps/desktop/scripts/package.mjs --make",
     "check:desktop": "tsc -p apps/desktop/tsconfig.json --noEmit",
     "test:desktop": "node apps/desktop/scripts/test.mjs && node --test scripts/distribution.test.mjs scripts/publish.test.mjs scripts/publish-github.test.mjs scripts/renderer-artifact.test.mjs && node apps/desktop/scripts/startup.mjs --self-test",
-    "dev:desktop": "node apps/desktop/scripts/dev.mjs"
+    "dev:desktop": "node apps/desktop/scripts/dev.mjs",
+    "dev:mobile": "npm run build && npm run start -w @whip/mobile",
+    "check:mobile": "npm run build && npm run check -w @whip/mobile",
+    "test:mobile": "npm run test -w @whip/mobile",
+    "export:mobile": "npm run build && npm run export -w @whip/mobile"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

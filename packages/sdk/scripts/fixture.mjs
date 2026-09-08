@@ -7,6 +7,18 @@ import { fileURLToPath } from 'node:url';
 
 export const repository = fileURLToPath(new URL('../../../', import.meta.url));
 
+export function fixtureExternalOrigin(value) {
+  if (value === undefined) return undefined;
+  try {
+    if (typeof value !== 'string' || value.length > 2048) throw new TypeError();
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' || value !== parsed.origin || parsed.hostname.includes('*')) throw new TypeError();
+    return value;
+  } catch {
+    throw new TypeError('externalOrigin must be an exact HTTPS origin without credentials, path, query, fragment or wildcards');
+  }
+}
+
 export async function run(command, args, options = {}) {
   const child = spawn(command, args, { cwd: repository, stdio: 'inherit', ...options });
   const [code, signal] = await once(child, 'exit');
@@ -29,7 +41,12 @@ export async function eventually(check, { timeout = 15_000, interval = 25, descr
 // Every daemon launched here owns an isolated home and is attach-only from the
 // SDK's perspective. Keeping the binary lets restart tests bypass the Go runner
 // and kill the actual daemon process, including all outstanding execution.
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false } = {}) {
+// Manual native acceptance may extend the four-minute default, up to 30 minutes.
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 4 * 60_000, externalOrigin } = {}) {
+  if (!Number.isInteger(lifetimeMs) || lifetimeMs <= 0 || lifetimeMs > 30 * 60_000) {
+    throw new RangeError('Fixture lifetimeMs must be a positive integer no greater than 1800000 (30 minutes)');
+  }
+  externalOrigin = fixtureExternalOrigin(externalOrigin);
   const directory = await mkdtemp(join(tmpdir(), 'whip-sdk-'));
   const binary = join(directory, 'daemon.test');
   await mkdir(join(directory, 'public'));
@@ -40,10 +57,16 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
   let finished = false;
   const start = async () => {
     const generation = (info?.generation ?? 0) + 1;
-    child = spawn(binary, ['-test.run=^TestV2SDKBridge$', '-test.timeout=5m', '-test.v'], {
+    child = spawn(binary, ['-test.run=^TestV2SDKBridge$', `-test.timeout=${lifetimeMs + 60_000}ms`, '-test.v'], {
       cwd: repository,
-      env: { ...process.env, WHIP_HOME: join(directory, 'home'), WHIP_SDK_FIXTURE_DIR: directory,
-        WHIP_SDK_FIXTURE_ALLOWED_ORIGINS: JSON.stringify(allowedOrigins) },
+      env: {
+        ...process.env,
+        WHIP_HOME: join(directory, 'home'),
+        WHIP_SDK_FIXTURE_DIR: directory,
+        WHIP_SDK_FIXTURE_LIFETIME: `${lifetimeMs}ms`,
+        WHIP_SDK_FIXTURE_ORIGIN: externalOrigin ?? '',
+        WHIP_SDK_FIXTURE_ALLOWED_ORIGINS: JSON.stringify(allowedOrigins),
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     child.stdout.on('data', data => { output += data; });
@@ -92,6 +115,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
   }
   return {
     get info() { return info; },
+    get exited() { return exit; },
     directory,
     get pid() { return child?.pid; },
     get output() { return output; },

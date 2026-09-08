@@ -11,3 +11,5 @@ export { webSocket } from './transport.js';
 export type { Transport, TransportFactory, TransportHandlers } from './transport.js';
 export { WhipError, RpcError, DeliveryUncertainError } from './errors.js';
 export type { RpcMethods, RuntimeOperations, RpcMethod, RuntimeOperation, CommandOperation, QueryOperation, EphemeralOperation } from '@whip/protocol';
+
+export type { PermissionDecisionStatus } from './services.js';

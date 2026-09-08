@@ -1,13 +1,13 @@
 import { assertValid } from '@whip/protocol';
 import type { CallOptions, SdkEvent, WhipClient } from './client.js';
 import { asError, WhipError, abortError } from './errors.js';
-import { byteLength, uuid, withSignal } from './util.js';
+import { byteLength, withSignal } from './util.js';
 
 export interface SubscriptionOptions extends Pick<CallOptions, 'signal'> { maxMessages?: number; maxBytes?: number }
 
 /** One ordered, bounded consumer. Fan out UI components through a SessionView. */
 export class Subscription implements AsyncIterableIterator<SdkEvent> {
-  readonly id = uuid();
+  readonly id: string;
   private queue: { event: SdkEvent; bytes: number }[] = [];
   private bytes = 0;
   private waiter?: { resolve(value: IteratorResult<SdkEvent>): void; reject(error: Error): void };
@@ -16,6 +16,7 @@ export class Subscription implements AsyncIterableIterator<SdkEvent> {
   private lastReceived: bigint;
   private abortListener?: () => void;
   constructor(private readonly client: WhipClient, readonly rootId: string, public cursor: string, private readonly options: SubscriptionOptions) {
+    this.id = client.createId();
     assertValid('SubscribeParams', { root_id: rootId, subscription_id: this.id, cursor });
     this.lastReceived = BigInt(cursor);
     if (cursor.startsWith('-')) throw new TypeError('Subscription cursor cannot be negative');

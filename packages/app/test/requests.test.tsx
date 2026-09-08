@@ -108,3 +108,13 @@ it('batched questions preserve earlier answers and submit a skipped last page ex
   fireEvent.click(screen.getByRole('button', {name: 'Skip', exact: true}));
   await waitFor(() => expect(answerQuestions).toHaveBeenCalledExactlyOnceWith('batch', [{answer: ['Inspect']}, null]));
 });
+
+it('a one-item batch retains the batched answer contract', async () => {
+  const answerQuestions = vi.fn(() => ({}));
+  const session = { rootId: 'root', answerQuestions } as unknown as Session;
+  const runtime = { run: vi.fn(async () => {}), report: vi.fn() } as unknown as AppRuntime;
+  render(<RuntimeContext.Provider value={runtime}><UIProvider><PendingRequests root={{ questions: [{ question_id: 'batch', questions: [{ question: 'Continue?', options: [{ label: 'Yes' }] }] }] } as RootSnapshot} session={session} disabled={false} refresh={async () => {}} /></UIProvider></RuntimeContext.Provider>);
+  fireEvent.click(screen.getByRole('radio', { name: /Yes/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Send', exact: true }));
+  await waitFor(() => expect(answerQuestions).toHaveBeenCalledWith('batch', [{ answer: ['Yes'] }]));
+});

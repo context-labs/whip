@@ -1,7 +1,7 @@
 import { assertValid, runtimeOperations, type CommandOperation, type CommandResult, type RuntimeOperations } from '@whip/protocol';
 import type { WhipClient, CallOptions } from './client.js';
 import { DeliveryUncertainError, RpcError, WhipError } from './errors.js';
-import { frozen, uuid, withSignal } from './util.js';
+import { frozen, withSignal } from './util.js';
 
 export type CommandStatus = 'queued' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 export type CommandOutcome<O extends CommandOperation = CommandOperation> = Omit<CommandResult, 'result' | 'status'> & {
@@ -44,7 +44,7 @@ export class CommandHandle<O extends CommandOperation = CommandOperation> {
     }
   }
   static submit<O extends CommandOperation>(client: WhipClient, runtimeId: string, operation: O, payload: RuntimeOperations[O]['params'], options: CommandOptions, beforeSend?: () => Promise<unknown>): CommandHandle<O> {
-    const record = frozen({ version: 1 as const, runtimeId, clientId: client.clientId, commandId: options.commandId ?? uuid(), operation, ...(options.rootId ? { rootId: options.rootId } : {}) });
+    const record = frozen({ version: 1 as const, runtimeId, clientId: client.clientId, commandId: options.commandId ?? client.createId(), operation, ...(options.rootId ? { rootId: options.rootId } : {}) });
     if (!record.commandId) throw new TypeError('commandId must not be empty');
     const handle = new CommandHandle(client, record, payload, beforeSend);
     handle.initial = handle.send();
@@ -103,7 +103,7 @@ export class CommandHandle<O extends CommandOperation = CommandOperation> {
         if (!options.signal?.aborted && error instanceof WhipError && error.kind === 'resource_limit') {
           await this.client.waitForCommandTick(options.signal); continue;
         }
-        if (options.signal?.aborted || error instanceof RpcError || this.client.getSnapshot().state !== 'reconnecting') throw error;
+        if (options.signal?.aborted || error instanceof RpcError || !['reconnecting', 'paused'].includes(this.client.getSnapshot().state)) throw error;
         await this.client.whenConnected(options.signal);
         continue;
       }

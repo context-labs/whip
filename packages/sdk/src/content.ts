@@ -1,7 +1,7 @@
 import { assertValid, type ContentHandle, type SubmitPayload } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import { WhipError } from './errors.js';
-import { decodeBase64, digestHex, encodeBase64, frozen, uuid } from './util.js';
+import { decodeBase64, encodeBase64, frozen } from './util.js';
 
 export interface ContentScope { rootId: string; agentId?: string }
 export type InputAttachment = NonNullable<SubmitPayload['attachments']>[number];
@@ -64,7 +64,7 @@ export class ContentReference {
         bytes.set(chunk, offset); offset += chunk.byteLength;
       }
     }
-    if (await digestHex(bytes) !== this.handle.digest) throw new WhipError('invalid_response', 'Content digest mismatch');
+    if (await this.client.digestHex(bytes) !== this.handle.digest) throw new WhipError('invalid_response', 'Content digest mismatch');
     return bytes;
   }
   async readText(options: ReadContentOptions): Promise<string> {
@@ -87,7 +87,7 @@ export async function upload(client: WhipClient, input: Uint8Array<ArrayBuffer>,
   const signal = transferSignal(client, options);
   // Snapshot once: the digest and transmitted bytes must describe the same input.
   const bytes = input.slice();
-  const digest = await digestHex(bytes);
+  const digest = await client.digestHex(bytes);
   signal.throwIfAborted();
   let handle: ContentHandle;
   if (client.transportKind === 'websocket') {
@@ -112,7 +112,7 @@ export async function upload(client: WhipClient, input: Uint8Array<ArrayBuffer>,
     const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(data));
     assertValid('ContentHandle', value, 'response'); handle = value;
   } else {
-    const id = uuid();
+    const id = client.createId();
     const epoch = info.connection_id;
     const check = () => { signal.throwIfAborted(); if (client.requireConnected().connection_id !== epoch) throw new WhipError('disconnected', 'Upload connection changed; begin a new upload explicitly'); };
     check();

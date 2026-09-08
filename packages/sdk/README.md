@@ -5,7 +5,7 @@ For product frontend work, read the canonical
 the app combines SDK views with TanStack Query and local state. This README owns
 the SDK's public usage contract.
 
-Private, ESM client package for Node 24, browsers and future Electron clients.
+Private, ESM client package for Node 24, browsers, React Native and future Electron clients.
 The SDK attaches to an existing WHIP v4 daemon. Execution, credentials, SQLite,
 model context, permissions and schedules remain on the execution host.
 
@@ -138,6 +138,58 @@ terminal input is persisted by this interface.
 A new generation with the same runtime ID recovers normally. A different runtime
 ID stops recovery and requires an explicit new client. Do not move a recovery
 record between client namespaces or execution hosts.
+
+## Native suspension and platform primitives
+
+`client.pause()` reversibly parks local observation: it closes the current socket,
+clears heartbeat/reconnect/command timers, and publishes `state: 'paused'`.
+It never cancels admitted daemon work. `await client.resume({ signal })` reconnects
+and preserves the client namespace and runtime continuity check. An already
+aborted resume leaves the client paused; aborting an ongoing resume stops only
+that caller's wait. New commands are rejected while paused. `close()` remains
+terminal; create another client after closing. Browser/Node callers that never
+pause retain their previous behavior.
+
+Native apps can supply `randomUUID: () => string` and
+`sha256: (bytes) => Promise<Uint8Array<ArrayBuffer>>` in client options. The digest
+must contain exactly 32 bytes. These instance-scoped adapters cover command,
+permission, subscription and upload identities/content integrity; the SDK does
+not import Expo or install global polyfills. The native shell supplies compatible
+WebSocket, streaming fetch, encoders and abort primitives.
+
+Initialize those globals before creating a client. Cancellation requires
+`AbortSignal.any`, `AbortSignal.timeout`, `signal.throwIfAborted()` and a controller
+that publishes `signal.reason` **before** abort listeners run. React Native 0.86's
+base controller lacks reason support; Expo 57 adds composition/timeout but does
+not complete that contract. The [mobile compatibility entry point](../../apps/mobile/src/runtime/polyfills.ts)
+adds the missing reason/checkpoint behavior without replacing supported methods.
+Expo 57's default fetch supplies streaming bodies; opting into
+`EXPO_PUBLIC_USE_RN_FETCH` requires another compatible implementation for content
+transfer. Scoped reads and uploads require `Response.body.getReader()` and do not
+fall back to downloading an unbounded `arrayBuffer()`.
+
+The built-in transport passes a string URL to native WebSocket constructors.
+React Native 0.86 does not report `bufferedAmount`, so the adapter uses zero when
+that property is absent; browser queue measurements are retained. Frame-size and
+in-flight-request limits still apply, but the native socket's queued bytes cannot
+be capped from that missing measurement. A timeout/abort releases a local waiter,
+not necessarily queued native bytes. Applications needing strict outbound queue
+accounting must supply a transport with a reliable `bufferedAmount`.
+
+Permission decisions are one-shot RPCs with a distinct status namespace:
+
+```ts
+const id = client.createId();
+// Application persists this ID and request association before the RPC.
+await client.permissions.decide({ command_id: id, root_id: rootId, permission_id: requestId, allow: true });
+const outcome = await client.permissions.status(id, { signal });
+```
+
+`PermissionDecisionStatus` validates command identity, the `permission.decide`
+operation, lifecycle and typed success/failure result. A missing status remains
+`command_not_found`; unavailable or malformed status is not absence. The helper
+never resends a decision. Applications own durable decision metadata and should
+refresh authoritative pending requests after deciding.
 
 ## Optional synchronized state and React
 

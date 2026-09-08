@@ -646,6 +646,25 @@ test('catalog polling is observed, revision-based, and never opens roots', async
   await list.dispose();
 });
 
+test('an observed catalog stops its timer while paused and resumes polling on reconnect', async t => {
+  const host = new Host();
+  const list = createSessionListView(host as unknown as WhipClient, { pollIntervalMs: 10 });
+  const stop = list.subscribe(() => {});
+  t.after(async () => { stop(); await list.dispose(); });
+  await list.start();
+  const refresh = t.mock.method(list, 'refresh');
+  host.notify('paused');
+  await pause(35);
+  assert.equal(refresh.mock.callCount(), 0, 'paused observers must not keep waking a timer');
+  assert.equal(list.getSnapshot().status, 'stale');
+  host.catalogRevision = '2';
+  host.notify('connected');
+  await until(() => list.getSnapshot().page?.revision === '2');
+  const resumed = refresh.mock.callCount();
+  await until(() => refresh.mock.callCount() > resumed);
+  assert.equal(list.getSnapshot().status, 'live');
+});
+
 
 test('REPL evidence shares the root subscription and survives commit and reconnect', async t => {
   const host = new Host();

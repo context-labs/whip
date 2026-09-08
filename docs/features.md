@@ -523,3 +523,44 @@ Tests: `TestDistribution*` in the affected Go packages, `TestFetchWhipcodePages`
 `TestWhipcodeVersionComparison`, `scripts/test-install-whipcode.py`, and
 `scripts/test-distributions.py` (both compiled binaries, independent sockets,
 restart, and self-update).
+## Native mobile companion (development)
+
+The Expo workspace in `apps/mobile` provides manual private-host setup, themed
+Sessions/Attention/Settings, root and child conversations, queued/steering input,
+turn-specific Stop, question forms and one-shot permission decisions. It consumes
+the existing SDK WebSocket protocol; execution stays on the host. Application auth,
+QR pairing and push notifications remain outside this release.
+
+- Connection diagnostics: `apps/mobile/src/runtime/connection-test.ts` and
+  `app/server.tsx`; transient HTTPS/WSS/session probes, per-step deadlines,
+  identity checks and modal-local actionable errors. `connection-test.test.ts`
+  and `server-screen.test.tsx` cover HTTP/protocol failures, headless hosts,
+  response bounds, cancellation and late results. SDK transport tests preserve
+  React Native close reasons without leaking callbacks after disposal.
+- Native runtime and lifecycle: `apps/mobile/src/runtime/runtime.ts`, SDK
+  `client.pause/resume` and synchronized views; covered by SDK client/state tests
+  and mobile runtime tests.
+- Durable local identity, revisioned drafts and atomic correlation:
+  `apps/mobile/src/runtime/storage.ts`, local `WhipStorage` native module;
+  `storage.test.ts` and `storage.native.test.ts` cover SQLite atomicity, quotas,
+  key/database mismatch and native setup boundaries.
+- Partial creation recovery: `apps/mobile/src/features/creation.ts` and
+  `creation.test.ts`; separate create/effort/input identities preserve the created
+  root without automatic continuation after restart.
+- Foreground Attention and its qualified tab badge:
+  `apps/mobile/src/features/attention.tsx` and `attention.test.tsx`; one observer
+  handles polling, bounded pagination, focus refresh and stale/partial counts.
+- Bounded native text: `apps/mobile/src/components/paged-text.tsx` and
+  `conversation.tsx`; paging, recycling, full-copy and explicit body-read tests
+  cover the rendering boundary. `markdown.test.tsx` covers source fallback for
+  images/HTML and the external-link allowlist.
+- Permission recovery: SDK `permissions.status`, daemon permission outcome
+  normalization/legacy decoding; SDK services and daemon server tests cover both
+  transports, failed outcomes and original decision identity.
+- Pure reuse: `@whip/app/presentation` and `@whip/ui/theme-data`; web retains its
+  own renderer. See [frontend.md](frontend.md) for package boundaries.
+
+Native device validation and distribution are not implied by this entry.
+[Mobile setup](mobile.md) and the
+[implementation evidence](../.ai-docs/plans/mobile-app/EVIDENCE.md) track the actual
+build/device/release state.

@@ -26,7 +26,7 @@ export function webSocket(endpoint: string): TransportFactory {
   base.pathname = '/'; base.search = '';
   return (handlers, signal) => new Promise((resolve, reject) => {
     signal.throwIfAborted();
-    const socket = new WebSocket(url);
+    const socket = new WebSocket(url.href);
     let opened = false;
     let closed = false;
     const finish = (error: Error) => {
@@ -44,7 +44,8 @@ export function webSocket(endpoint: string): TransportFactory {
       opened = true;
       resolve({
         kind: 'websocket', httpEndpoint: base.origin,
-        get bufferedAmount() { return socket.bufferedAmount; },
+        // React Native declares this property but does not expose queue bytes.
+        get bufferedAmount() { return socket.bufferedAmount ?? 0; },
         send(message) {
           if (closed || socket.readyState !== WebSocket.OPEN) throw new WhipError('disconnected', 'WebSocket is disconnected');
           socket.send(message);
@@ -56,7 +57,15 @@ export function webSocket(endpoint: string): TransportFactory {
       if (typeof event.data !== 'string') { finish(new WhipError('invalid_response', 'Expected a WebSocket text message')); return; }
       handlers.message(event.data);
     };
-    socket.onerror = () => finish(new WhipError('disconnected', 'WebSocket connection failed'));
-    socket.onclose = () => finish(new WhipError('disconnected', 'WebSocket closed'));
+    // React Native emits a bare error before a synchronous close carrying the
+    // native failure reason. Give that close priority without leaving other
+    // implementations that emit only error waiting for initialization timeout.
+    socket.onerror = () => queueMicrotask(() => finish(new WhipError('disconnected', 'WebSocket connection failed')));
+    socket.onclose = event => {
+      const code = Number.isInteger(event.code) && event.code >= 1000 && event.code <= 4999 ? ` (${event.code})` : '';
+      const reason = typeof event.reason === 'string' ? event.reason.slice(0, 256)
+        .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').replace(/\s+/g, ' ').trim().replace(/[\uD800-\uDBFF]$/u, '') : '';
+      finish(new WhipError('disconnected', `WebSocket closed${code}${reason ? `: ${reason}` : ''}`));
+    };
   });
 }
