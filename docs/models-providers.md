@@ -111,7 +111,10 @@ vision, or sampling params for a specific id.
 The response is cached in `~/.whip/models.json`, so `/model` immediately lists
 every model the signed-in account may use. As with OpenRouter, catalog entries
 need no individual config entry: select one from `/model`, or use
-`/model <id> codex` directly.
+`/model <id> codex-subscription` directly. Pickers label the endpoint
+"ChatGPT Codex subscription" rather than its raw `chatgpt.com/backend-api`
+URL; that host is where ChatGPT-account Codex traffic goes, not
+`api.openai.com`, and OAuth credentials are sent nowhere else.
 
 The Codex backend is the source of truth for subscription availability. That
 means a model appears only when the account is entitled to it, and changes in
@@ -127,6 +130,26 @@ Codex subscription requests intentionally omit `max_output_tokens`: despite
 the public Responses API accepting that field, the ChatGPT subscription
 endpoint rejects it. The backend enforces the output limit for the selected
 subscription model.
+
+### Limits, retries, and signing out
+
+A subscription is metered by rolling windows, not tokens. `/usage` fetches the
+current windows (used %, reset countdown) from the backend. When a window is
+exhausted the backend answers 429 with `usage_limit_reached`; whip surfaces
+that immediately as "Codex subscription limit reached … resets in …" instead
+of retrying, and points at `/usage`. Ordinary transient failures (transport
+errors, plain 429s, 5xx, mid-stream `server_error`) retry with the same
+backoff policy every provider uses, honouring `Retry-After`, and stop once any
+output has been shown. A 401 on a token whip believed valid — the Codex CLI
+shares `~/.codex/auth.json` and may rotate tokens — triggers one forced
+refresh and a resend before anything is reported. See
+[features.md › Codex subscription provider](features.md#codex-subscription-provider).
+
+`whip auth codex logout` removes the provider, its routes, any default /
+compact / task pin naming it, and the cached catalog. `~/.codex/auth.json` is
+left in place for the Codex CLI; `codex logout` revokes it. Configs from the
+pre-release build that named the provider `codex` are migrated to
+`codex-subscription` on load.
 
 ## Token bookkeeping
 
