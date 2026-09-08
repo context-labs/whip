@@ -44,9 +44,13 @@ func (a *Agent) newSub(o SubModel) *Agent {
 	}
 	// Own client copy, never a shared pointer (parent's or TaskDefault's):
 	// Turn writes Client.OnRetry per call, so a shared struct races when two
-	// agents stream concurrently. Shallow copy is safe — the embedded
-	// *http.Client is concurrency-safe and stays shared.
+	// agents stream concurrently — a workflow subagent runs on its own
+	// goroutine while the parent's Turn keeps writing the retry hook. Clone
+	// under the parent's clientMu so the copy can't race that write. The
+	// embedded *http.Client is concurrency-safe and stays shared.
+	a.clientMu.Lock()
 	o.Client = o.Client.Clone()
+	a.clientMu.Unlock()
 	sub := New(o.Client, o.Model, o.MaxTokens, subagentPrompt())
 	// A per-task effort override wins; otherwise inherit the parent's effort.
 	if effort != "" {

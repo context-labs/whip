@@ -339,6 +339,102 @@ TUI: `taskmodel_test.go` — `TestTaskDefaultForResolvesDefault`,
 `TestTaskCommandSpawns`, `TestTaskViewChat`, `TestTaskViewRestoredReadOnly`,
 `TestTaskViewCtrlXCancels`.
 
+### Dynamic workflows
+
+`internal/workflow/` + `internal/agent/workflowtool.go` — a `workflow` tool
+that runs **deterministic multi-agent orchestration scripts**: the model
+writes a JavaScript program that fans out to subagents (`agent()`), pipelines
+(`pipeline()`), or barriers (`parallel()`) and returns a structured result.
+Go port of the pi `better-workflows` extension
+(github.com/anishthite/better-workflows), faithful to Claude Code's `Workflow`
+tool. "Dynamic" = the graph is built at runtime (loops, conditionals,
+data-dependent fan-out), not a static DAG declared up front.
+
+**Experimental — opt-in required.** The tool is gated behind the
+`experimental` config list (`internal/config`): absent an entry the tool is
+not built into the agent's tool set — the model never sees the schema. Opt in
+via `~/.whip/config.json`:
+```json
+"experimental": ["workflows"]
+```
+The agent carries the whole `experimental` set (mirroring the config field)
+and each gated feature checks its own name — one general mechanism, not a
+per-feature flag. `agent.WithExperimental([]string)` threads it into
+`agent.New` before the tool set is built; fork/swap sites inherit the
+parent's set via `agent.Experimental()`. Add the next experimental feature
+with a `const FeatureX` + one `experimentalEnabled(FeatureX)` guard at its
+build site.
+
+- **Script contract** (`parse.go`). Starts with `export const meta =
+  { name, description, phases? }` — a pure literal (brace-matched,
+  strings/comments aware, evaluated in an empty goja realm; non-literals
+  throw). Body runs async with globals `agent`/`pipeline`/`parallel`/`phase`/
+  `log`/`args`/`budget`/`cwd`/`console.log`. `Date.now()`/`Math.random()`/
+  argless `new Date()` are blocked at parse time (regex) and runtime (VM
+  prelude) — they break resume.
+- **Single-goroutine sandbox** (`runtime.go`). goja isn't goroutine-safe, so
+  every VM touch — script body, JS callback, promise resolve/reject — is a
+  job on one `scheduler` goroutine (unbuffered `jobs` channel). Workers
+  (agent runs, fan-out) never touch the VM; they hand results back via
+  `enqueue`. A no-op `vm.RunString("0")` after each job pumps goja's promise
+  queue so an `await agent(...)` wakes on completion (goja only runs
+  microtasks while executing). The rejection tracker fires on the scheduler,
+  so it must not `enqueue` (self-deadlock).
+- **`agent()`** resolves model/effort (per-call → phase → meta default), takes
+  a lexical `callIndex` (resume key) + agent slot atomically (fan-out can't
+  overshoot the cap), and runs a fresh subagent via `Options.Run` (`newSub` +
+  `Turn`, usage rolled into the parent). Failures → `null`
+  (`.filter(Boolean)`) and aren't journaled, so resume retries them. With
+  `opts.schema` the subagent ends with a `structured_output` tool call whose
+  args are the return value (one repair re-prompt).
+- **`pipeline(items, …stages)`** flows each item through all stages with no
+  barrier (A in stage 3 while B in stage 1). **`parallel(thunks)`** is a
+  barrier; a throwing thunk → `null` so it never rejects. Both spawn a
+  goroutine per item; each JS stage call is a `scheduler` job delivered back
+  on a channel.
+- **Caps**: concurrency `min(16, NumCPU-2)` per run (buffered-channel
+  semaphore — capacity is the cap), 1000 agents/run, 4096 items/fan-out.
+- **Resume** (`persistence.go`). Runs persist script + journal under
+  `~/.whip/workflows/{scripts,runs}/`. `resumeFromRunId` replays the longest
+  unchanged prefix of `agent()` calls instantly — cache key is a djb2 hash
+  (`HashString`) of `{prompt, model, effort, phase, schema}`, computed
+  identically to the TS for cross-compatible journals. First edited/new call
+  onward runs live; failed agents re-run.
+- **Background by default + fan-in** (`manager.go`). `Manager.Start` returns
+  a run id immediately; a goroutine runs the script, appends to the journal
+  per settled `agent()`, and on settle `OnSettle` steers the result back into
+  the parent — the same close-`Done` + `Steer` shape background subagents
+  use. Truncated inline results point at
+  `jq '.result' ~/.whip/workflows/runs/<runId>.json`.
+- **Nested `workflow({scriptPath}, args)`** runs one child, one level deep,
+  sharing the parent's limiter/counter/budget via a pointer-shared
+  `sharedState` (only `depth` is per-level).
+- **Stop/cancel.** `Manager.Stop(id)` cancels the run ctx; in-flight agents
+  die with it. A parked script can't be interrupted (goja isn't executing), so
+  the run settles `stopped` without waiting on the promise; workers drain on
+  their own.
+
+New dependency: `github.com/dop251/goja` — pure-Go ES5.1+ engine (no cgo, no
+stdlib alternative). `goja_nodejs` is intentionally not imported (no
+`require`/`process` — the sandbox is a determinism guard, not a runtime).
+
+Tests: `parse_test.go` (meta extraction, pure-literal rejection, determinism
+blocklist, brace-matching, phase validation); `persistence_test.go`
+(`TestHashStringMatchesTS` pins djb2 against the TS values, run/script
+round-trip); `runtime_test.go` (`TestRunSimpleAgent`, `TestRunRequiresAgent`,
+`TestPipelineNoBarrier` — no-barrier ordering, `TestParallelBarrierCollects`,
+`TestParallelNullOnThrow`, `TestAgentCap`, `TestFanoutCap`,
+`TestDeterminismThrows`, `TestResumeReplaysPrefix` — same script+args → 0
+live calls, `TestResumeRunsFromFirstMiss`, `TestNestedWorkflowSharesCaps`,
+`TestNestedWorkflowDepthLimit`, `TestStopCancelsRun`,
+`TestConcurrencyCapEnforced`), all race-clean;
+`internal/agent/workflowtool_test.go` `TestWorkflowToolEndToEnd` drives the
+full path against a fake provider — the `workflow` call starts a background
+run, two `agent()` calls hit the fake, and the completion steers back into
+the parent. `TestWorkflowToolGatedByExperimental` pins the opt-in posture:
+the tool is absent by default, present with `"workflows"`, and absent for an
+unrelated experimental name.
+
 ## Models & providers
 
 `internal/config/config.go`, `internal/config/catalog.go` — models route to
@@ -539,6 +635,13 @@ relay: full device login + key mint, store round-trip, key validation),
   rewiring incl. wrap-split links, end-to-end renderMarkdown, user echo).
 - **Command palette** (ctrl+p) with sub-panels for model/effort/goal/compaction
   and ←/→ steppers for the compaction level — `palette.go`.
+- **UI mode** (`UIMode` config key): `"opencode"` (the default on a fresh
+  install) selects the full-screen, sidebar-backed opencode render mode
+  (`internal/tui/opencode.go`); `""` is the classic inline whip look. The
+  default is seeded by `config.Default()` and only applies on first run — an
+  existing config's `UIMode` (including `""` saved by a user who switched to
+  classic) is honored as-is on reload. Toggle live with ctrl+p → "UI mode"
+  (`setUIMode`, which persists the choice).
 - **Mouse**: `/mouse` toggles capture; with capture off the terminal's native
   selection works, with it on shift-drag selects. `"mouse": false` in config
   disables capture at startup.
@@ -1096,6 +1199,31 @@ callbacks `p.Send` through `m.prog`, which only exists once the program is
 constructed. Combined with `--resume` the replayed history renders first and
 the prompt fires as the next turn, matching `whip run`'s
 prompt-after-resume order.
+
+## Startup resume flags — `whip -c` / `-r` / `--browse`
+
+- **`whip -r <id>`** (or `--resume <id>`) — resume a session by id or unique prefix.
+- **`whip -r`** (or `--resume`, bare) — open the `/resume` picker at startup.
+- **`whip -c`** (or `--continue`) — resume the most-recent ordinary session in
+  the current dir; starts fresh (with a notice) if none.
+- **`whip --browse`** — alias for bare `--resume` (the picker).
+
+Precedence: `-r <id>` > `-c` > `--browse`. With `whip up <prompt>`, the
+resume/continue/picker runs first and the prompt fires as the next turn
+(`-r up …` reads as resume-by-id "up", so use `--browse up …` for
+picker-then-prompt).
+
+Bare `--resume` works despite stdlib `flag` having no optional values:
+`normalizeBareResume` (cmd/whip/main.go) rewrites a trailing bare `-r`/
+`--resume` to `--browse` before `flag.Parse`; `-r <id>` and `-r=<id>` are
+left untouched.
+
+
+Tests: `internal/session/session_test.go` — `TestLatestInDir` (newest per dir,
+`sql.ErrNoRows` when none), `TestLatestInDirExcludesSubagentTranscripts`,
+`TestLatestInDirSkipsEmptySessions`. `internal/tui/resume_browse_test.go` —
+`TestContinueRecentResumesNewestInCwd`, `TestContinueRecentNoSessionInDirStartsFresh`,
+`TestBrowseOpensPickerAndEnterResumes`, `TestBrowseNoSessionsPrintsEmptyState`.
 
 Tests: `internal/tui/up_test.go` — `TestInitialPromptSubmitsFirstTurn` (Init
 kickoff → busy turn, authored user message, history entry, one-shot

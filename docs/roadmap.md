@@ -50,6 +50,7 @@ parallel tool calls and background subagents).
 ## Sessions
 
 - [x] SQLite session store with `--resume` / `/resume` picker
+- [x] Startup resume flags: `-c`/`--continue` (most-recent session in the current dir), `-r`/`--resume <id>` (shorthand, resume by id/prefix) and bare `--resume`/`-r` opens the `/resume` picker at startup (claude-code/pi `--resume` = picker; pi `-r` help = "browse and select session"), `--browse` is an explicit alias for the bare form — a pre-scan (`normalizeBareResume`) rewrites trailing bare `-r`/`--resume` to `--browse` before `flag.Parse` since stdlib `flag` has no optional values
 - [x] Session titles: auto-generate a short title from the first exchange
 - [x] `/rename` a session (opencode: ctrl+r prompt dialog) — `/rename [title]`, bare opens an inline prompt prefilled with the current title, draft preserved
 - [x] `/fork` a session (pi: tree-structured JSONL entries with `parentId` — `docs/session-format.md`; opencode forks from any message via a per-message action menu) — `/fork [name]` copies the conversation to a new session with an auto-suggested `(fork #N)` name; `f` in the rewind picker forks from any message

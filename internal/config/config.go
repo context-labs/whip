@@ -173,7 +173,7 @@ type Config struct {
 	TaskModel       string `json:"taskModel,omitempty"`       // model subagents (the task tool) run on; "" = the built-in default
 	TaskProvider    string `json:"taskProvider,omitempty"`    // provider for the subagent model; "" = the model's default routing
 	Theme           string `json:"theme,omitempty"`           // "light", "dark", or "" (auto-detect at startup)
-	UIMode          string `json:"uiMode,omitempty"`          // "" (default whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo)
+	UIMode          string `json:"uiMode,omitempty"`          // "" (classic whip look) or "opencode" (reproduces opencode's TUI palette/glyphs/logo)
 	Sidebar         *bool  `json:"sidebar,omitempty"`         // opencode-mode sidebar; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
 	Mouse           *bool  `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
 	Thinking        *bool  `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
@@ -182,9 +182,14 @@ type Config struct {
 	// WorktreeSubagents defaults background subagents to run in their own git
 	// worktree so their file edits stay isolated from the parent's tree and
 	// from each other. The subagent tool's per-call `worktree` arg overrides this.
-	WorktreeSubagents *bool               `json:"worktreeSubagents,omitempty"`
-	MaxRetries        int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
-	Providers         map[string]Provider `json:"providers"`
+	WorktreeSubagents *bool `json:"worktreeSubagents,omitempty"`
+	MaxRetries        int   `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
+	// Experimental opts into not-yet-stable features by name. Today the only
+	// entry is "workflows" (the dynamic multi-agent workflow tool). Absent or
+	// empty = stable-only. The agent reads this slice wholesale (see
+	// agent.WithExperimental) — no per-feature config block.
+	Experimental []string            `json:"experimental,omitempty"`
+	Providers    map[string]Provider `json:"providers"`
 	// allowEmptySave lets Save write a config with no providers/models — only
 	// RemoveProvider sets it, when the last provider is deliberately removed.
 	allowEmptySave bool
@@ -639,6 +644,7 @@ func Default() *Config {
 	return &Config{
 		DefaultModel: "kimi-k3-fast",
 		CompactModel: DefaultCompactModel,
+		UIMode:       "opencode",
 		//nolint:gosec // G101: APIKeyEnv holds env var NAMES, not credentials
 		Providers: map[string]Provider{
 			"inference-net": {

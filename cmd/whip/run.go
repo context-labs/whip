@@ -135,7 +135,7 @@ func runCLI(args []string) error {
 	if maxOut == 0 {
 		maxOut = mdl.ContextWindow()
 	}
-	ag := agent.New(client, apiID, maxOut, sys)
+	ag := agent.New(client, apiID, maxOut, sys, agent.WithExperimental(cfg.Experimental))
 	ag.ModelName, ag.Provider = modelName, provName
 	// Headless runs have no one to answer a consent prompt: computer_exec
 	// stays disabled (no interactive approver is ever installed).
