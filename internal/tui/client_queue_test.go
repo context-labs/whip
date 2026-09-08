@@ -253,6 +253,24 @@ func TestTerminalAgentViewRetainsDraftReadOnly(t *testing.T) {
 	}
 }
 
+func TestRootAgentUsageShowsUnlimitedAndUncertainty(t *testing.T) {
+	m := &model{
+		agentOpen: "root-agent",
+		clientView: clientPresentation{
+			agents: []session.RuntimeAgent{{ID: "root-agent", Name: "root"}},
+			budgets: []session.SnapshotBudget{{State: session.BudgetState{
+				Kind: session.BudgetCost, Used: 1_142_228, Uncertain: 23_883_863, Incomplete: true,
+			}}},
+		},
+	}
+	details := m.agentDetails()
+	for _, text := range []string{"$1.142228 used", "unlimited", "$23.883863 unconfirmed"} {
+		if !strings.Contains(details, text) {
+			t.Fatalf("missing %q in %q", text, details)
+		}
+	}
+}
+
 func TestEscapeLeavesRunningAgentViewWithoutCancellingIt(t *testing.T) {
 	m, _ := liveQueueModel(t)
 	m.agentOpen = "child"

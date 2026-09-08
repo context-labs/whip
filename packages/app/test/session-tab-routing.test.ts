@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from '../src/runtime';
 import { bindSessionTabs } from '../src/session-tab-routing';
-import { SessionTabs } from '../src/session-tabs';
+import { SessionTabs, selectedSessionTab } from '../src/session-tabs';
 import type { AppStorage } from '../src/platform';
 
 function fixture(path = '/', key = 'initial', storage?: AppStorage) {
@@ -11,25 +11,34 @@ function fixture(path = '/', key = 'initial', storage?: AppStorage) {
   const connectionEvents = new Set<() => void>(), routeEvents = new Set<() => void>();
   let connection = { state: 'connecting', info: undefined as { runtime_id: string } | undefined };
   const client = { getSnapshot: () => connection, subscribe: (fn: () => void) => { connectionEvents.add(fn); return () => connectionEvents.delete(fn); } };
-  const runtime = { tabs, getSnapshot: () => ({ client }), subscribe: (fn: () => void) => { runtimeEvents.add(fn); return () => runtimeEvents.delete(fn); }, report: vi.fn(() => runtimeEvents.forEach(fn => fn())) } as unknown as AppRuntime;
+  const runtime = { tabs, rememberSession: vi.fn(), getSnapshot: () => ({ client }), subscribe: (fn: () => void) => { runtimeEvents.add(fn); return () => runtimeEvents.delete(fn); }, report: vi.fn(() => runtimeEvents.forEach(fn => fn())) } as unknown as AppRuntime;
   const router = {
-    state: { location: { pathname: path, href: path, search: {} as Record<string, unknown>, state: { __TSR_key: key } } },
+    state: { location: { pathname: path, href: path, search: {} as Record<string, unknown>, state: { __TSR_key: key, whipViewId: undefined as string | undefined } } },
     subscribe: (_kind: string, fn: () => void) => { routeEvents.add(fn); return () => routeEvents.delete(fn); },
     navigate: vi.fn(async () => {}),
   };
   return { tabs, runtime, router,
     start: () => bindSessionTabs(runtime, router as unknown as AnyRouter),
     connect(runtimeId = 'mac') { connection = { state: 'connected', info: { runtime_id: runtimeId } }; connectionEvents.forEach(fn => fn()); },
-    route(pathname: string, search: Record<string, unknown> = {}) { router.state.location = { pathname, href: pathname, search, state: { __TSR_key: crypto.randomUUID() } }; routeEvents.forEach(fn => fn()); },
+    route(pathname: string, search: Record<string, unknown> = {}, whipViewId?: string) { router.state.location = { pathname, href: pathname, search, state: { __TSR_key: crypto.randomUUID(), whipViewId } }; routeEvents.forEach(fn => fn()); },
   };
 }
 describe('tab route authority', () => {
   it('restores bare-home only once after host identity and preserves child/inspector', () => {
     const f = fixture(); f.tabs.visit('mac', 'root', { agent: 'child', panel: 'execution' }); const dispose = f.start();
     expect(f.router.navigate).not.toHaveBeenCalled(); f.connect();
-    expect(f.router.navigate).toHaveBeenCalledExactlyOnceWith({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'mac', rootId: 'root' }, search: { agent: 'child', panel: 'execution' }, replace: true });
+    expect(f.router.navigate).toHaveBeenCalledExactlyOnceWith({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'mac', rootId: 'root' }, search: { agent: 'child', panel: 'execution' }, state: { whipViewId: 'root' }, replace: true });
     f.route('/h/mac/s/root', { agent: 'child' }); f.route('/'); f.connect();
     expect(f.router.navigate).toHaveBeenCalledTimes(1); expect(f.tabs.workspace('mac').lastActiveRootId).toBeUndefined(); dispose();
+  });
+  it('does not restore a saved tab over an explicit directory creation URL', () => {
+    const f = fixture();
+    f.router.state.location.search = { cwd: '/repo', runtimeId: 'mac' };
+    f.tabs.visit('mac', 'saved', {});
+    const dispose = f.start(); f.connect();
+    expect(f.router.navigate).not.toHaveBeenCalled();
+    expect(f.tabs.workspace('mac').lastActiveRootId).toBeUndefined();
+    dispose();
   });
   it('deep links beat saved selection and browser back reopens a closed session', () => {
     const f = fixture('/h/mac/s/linked'); f.tabs.visit('mac', 'saved', {}); const dispose = f.start(); f.connect();
@@ -63,4 +72,63 @@ describe('tab route authority', () => {
   it('does not replace a navigation made while initial connection was pending', () => {
     const f = fixture(); f.tabs.visit('mac', 'saved', {}); const dispose = f.start(); f.route('/settings'); f.connect(); expect(f.router.navigate).not.toHaveBeenCalled(); dispose();
   });
+});
+
+it('history view IDs target the intended duplicate without overwriting sibling locations', () => {
+  const f = fixture('/h/mac/s/root'); f.tabs.visit('mac', 'root', { agent: 'first' });
+  const duplicate = f.tabs.split('mac', 'root', 'right');
+  const dispose = f.start(); f.connect();
+  f.route('/h/mac/s/root', { agent: 'second', panel: 'execution' }, duplicate);
+  f.route('/h/mac/s/root', { agent: 'first', panel: 'context' }, 'root');
+  expect(f.tabs.workspace('mac').tabs.find(tab => tab.id === duplicate)?.location).toEqual({ agent: 'second', panel: 'execution' });
+  expect(f.tabs.workspace('mac').tabs.find(tab => tab.id === 'root')?.location).toEqual({ agent: 'first', panel: 'context' });
+  f.route('/h/mac/s/other', {}, duplicate);
+  expect(f.tabs.workspace('mac').tabs.find(tab => tab.id === duplicate)?.rootId).toBe('root');
+  expect(f.tabs.workspace('mac').lastActiveRootId).toBe('other');
+  dispose();
+});
+
+it('restores REPL mode at startup with the saved view and agent', () => {
+  const f = fixture();
+  f.tabs.visit('mac', 'root', { view: 'repl', agent: 'child', panel: 'execution' });
+  const dispose = f.start(); f.connect();
+  expect(f.router.navigate).toHaveBeenCalledExactlyOnceWith({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'mac', rootId: 'root' }, search: { view: 'repl', agent: 'child', panel: 'execution' }, state: { whipViewId: 'root' }, replace: true });
+  dispose();
+});
+
+it('browser history switches modes on the intended view without adding tabs or changing duplicates', () => {
+  const f = fixture('/h/mac/s/root');
+  f.tabs.visit('mac', 'root', {});
+  const duplicate = f.tabs.split('mac', 'root', 'right');
+  const dispose = f.start(); f.connect();
+  const chat = { agent: 'first' }, repl = { view: 'repl', agent: 'second' };
+  f.route('/h/mac/s/root', chat, 'root');
+  f.route('/h/mac/s/root', repl, duplicate);
+  expect(selectedSessionTab(f.tabs.workspace('mac'))).toMatchObject({ id: duplicate, kind: 'repl' });
+  // Back to the first view, then forward to its REPL sibling.
+  f.route('/h/mac/s/root', chat, 'root');
+  expect(selectedSessionTab(f.tabs.workspace('mac'))).toMatchObject({ id: 'root', kind: 'chat' });
+  expect(f.tabs.workspace('mac').tabs.find(tab => tab.id === duplicate)).toMatchObject({ kind: 'repl', location: { agent: 'second' } });
+  f.route('/h/mac/s/root', repl, duplicate);
+  // Mode changes also participate in history when the view ID stays the same.
+  f.route('/h/mac/s/root', { agent: 'second' }, duplicate);
+  expect(selectedSessionTab(f.tabs.workspace('mac'))?.kind).toBe('chat');
+  f.route('/h/mac/s/root', repl, duplicate);
+  expect(selectedSessionTab(f.tabs.workspace('mac'))?.kind).toBe('repl');
+  expect(f.tabs.workspace('mac').tabs).toHaveLength(2);
+  dispose();
+});
+
+it('an explicit URL controls mode over saved preferences and malformed modes default to chat', () => {
+  const f = fixture('/h/mac/s/root');
+  f.tabs.visit('mac', 'root', { view: 'repl', agent: 'child' });
+  const dispose = f.start(); f.connect();
+  expect(selectedSessionTab(f.tabs.workspace('mac'))).toMatchObject({ kind: 'chat', location: {} });
+  f.route('/h/mac/s/root', { view: 'repl' });
+  expect(selectedSessionTab(f.tabs.workspace('mac'))?.kind).toBe('repl');
+  f.route('/h/mac/s/root', { view: ['repl'], agent: '\n', panel: 'invalid' });
+  expect(selectedSessionTab(f.tabs.workspace('mac'))).toMatchObject({ kind: 'chat', location: {} });
+  f.route('/h/mac/s/direct-repl', { view: 'repl', agent: 'child' });
+  expect(selectedSessionTab(f.tabs.workspace('mac'))).toMatchObject({ rootId: 'direct-repl', kind: 'repl', location: { agent: 'child' } });
+  dispose();
 });

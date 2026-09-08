@@ -9,6 +9,7 @@
     "./tokens": "./src/tokens.stylex.ts",
     "./themes": "./src/themes.tsx",
     "./workspace-tabs": "./src/workspace-tabs.tsx",
+    "./workspace-layout": "./src/workspace-layout.tsx",
     "./reset.css": "./src/reset.css",
     "./fonts.css": "./src/fonts.css",
     "./tokens.stylex": "./src/tokens.stylex.ts",
@@ -25,6 +26,7 @@
     "test": "node --test tests/*.test.ts",
     "test:browser": "node tests/browser.mjs",
     "test:tabs": "node tests/workspace-tabs.mjs",
+    "test:layout": "node tests/workspace-layout.mjs",
     "test:csp": "node tests/csp.mjs",
     "test:packed": "node tests/packed.mjs",
     "test:visual": "node tests/visual.mjs",
@@ -39,6 +41,7 @@
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@stylexjs/stylex": "0.19.0",
     "lucide-react": "1.41.0",
+    "react-resizable-panels": "4.12.4",
     "refractor": "5.0.0"
   },
   "peerDependencies": {

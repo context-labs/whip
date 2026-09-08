@@ -5,40 +5,53 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
 import type { Session } from '@whip/sdk';
 import { Composer } from '../src/composer';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 import { CompositionStore } from '../src/compositions';
+import { SubmittedInputs } from '../src/input-presentation';
+import { SessionTabs } from '../src/session-tabs';
+
+beforeEach(() => vi.stubGlobal('ResizeObserver', class {
+  observe() {}
+  disconnect() {}
+}));
+afterEach(() => vi.unstubAllGlobals());
 
 function fixture() {
   const drafts = new Map<string, string>([
     ['runtime:root:a', 'same draft'],
     ['runtime:root:b', 'same draft'],
   ]);
+  const draftListeners = new Map<string, Set<() => void>>();
   const waits: { accepted(): void; finish(): void }[] = [];
   const snapshot = { commands: [], endpoint: 'http://localhost' };
   const runtime = {
     compositions: new CompositionStore(),
+    submittedInputs: new SubmittedInputs(),
+    tabs: new SessionTabs(),
     getSnapshot: () => snapshot,
     subscribe: () => () => {},
     draft: (key: string) => drafts.get(key) ?? '',
-    setDraft: (key: string, text: string) => drafts.set(key, text),
+    setDraft: (key: string, text: string) => { drafts.set(key, text); draftListeners.get(key)?.forEach(fn => fn()); },
+    subscribeDraft: (key: string, fn: () => void) => { const listeners = draftListeners.get(key) ?? new Set(); listeners.add(fn); draftListeners.set(key, listeners); return () => { listeners.delete(fn); }; },
     report: vi.fn(),
     run: (_handle: unknown, _label: string, accepted: () => void) =>
-      new Promise<void>((finish) => waits.push({ accepted, finish })),
+      new Promise((resolve) => waits.push({ accepted, finish: () => resolve({ result: { inbox_seq: String(waits.length) } }) })),
   } as unknown as AppRuntime;
   const session = {
     rootId: 'root',
-    agents: { submit: vi.fn(() => ({})) },
+    command: vi.fn(() => ({})),
   } as unknown as Session;
-  const app = (agentId: string) => (
+  const app = (agentId: string, viewId?: string) => (
     <RuntimeContext.Provider value={runtime}>
       <UIProvider>
         <Composer
-          key={agentId}
+          key={viewId ?? agentId}
+          viewId={viewId}
           session={session}
           agentId={agentId}
           connected
@@ -54,6 +67,10 @@ it('a late acceptance for one recipient cannot clear another recipient’s ident
   const rendered = render(f.app('a'));
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   expect(f.waits).toHaveLength(1);
+  // The message is available to every view before the host acknowledges it.
+  expect(f.runtime.submittedInputs.getSnapshot()).toMatchObject([
+    { runtimeId: 'runtime', rootId: 'root', agentId: 'a', text: 'same draft', accepted: false },
+  ]);
   rendered.rerender(f.app('b'));
   act(() => f.waits[0]!.accepted());
   expect(
@@ -137,4 +154,34 @@ it('clears an unchanged reopened composer when its detached submission is accept
     (screen.getByLabelText('Message this agent') as HTMLTextAreaElement).value,
   ).toBe('');
   await act(async () => f.waits[0]!.finish());
+});
+
+it('shares recipient text and submission lock across views without stealing focus on late acceptance', async () => {
+  const f = fixture();
+  f.runtime.tabs.visit('runtime', 'root', { agent: 'a' });
+  const duplicate = f.runtime.tabs.split('runtime', 'root', 'right');
+  render(<>{f.app('a', 'root')}{f.app('a', duplicate)}</>);
+  const inputs = screen.getAllByLabelText('Message this agent') as HTMLTextAreaElement[];
+  fireEvent.change(inputs[0]!, { target: { value: 'Shared recipient draft' } });
+  expect(inputs[1]!.value).toBe('Shared recipient draft');
+  fireEvent.click(screen.getAllByRole('button', { name: 'Send message' })[0]!);
+  expect(f.waits).toHaveLength(1);
+  expect(screen.getAllByRole('button', { name: 'Send message' }).every(button => (button as HTMLButtonElement).disabled)).toBe(true);
+  inputs[1]!.focus();
+  act(() => f.waits[0]!.accepted());
+  expect(inputs.map(input => input.value)).toEqual(['', '']);
+  expect(document.activeElement).toBe(inputs[1]);
+  await act(async () => f.waits[0]!.finish());
+});
+
+it('restores independent caret positions for two views of the same recipient', () => {
+  const f = fixture();
+  const app = <>{f.app('a', 'one')}{f.app('a', 'two')}</>;
+  const first = render(app);
+  const inputs = screen.getAllByLabelText('Message this agent') as HTMLTextAreaElement[];
+  inputs[0]!.setSelectionRange(1, 3); fireEvent.select(inputs[0]!);
+  inputs[1]!.setSelectionRange(6, 8); fireEvent.select(inputs[1]!);
+  first.unmount(); render(app);
+  const restored = screen.getAllByLabelText('Message this agent') as HTMLTextAreaElement[];
+  expect(restored.map(input => [input.selectionStart, input.selectionEnd])).toEqual([[1, 3], [6, 8]]);
 });

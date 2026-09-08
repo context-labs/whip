@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 7
-	schemaIdentity       = "whip-recursive-runtime-v7"
+	currentSchemaVersion = 8
+	schemaIdentity       = "whip-recursive-runtime-v8"
 )
 
 // MaxInboxRetries bounds how many times a failed turn may return its claimed
@@ -164,8 +164,10 @@ CREATE TABLE capabilities (
 );
 CREATE TABLE budgets (
 	root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL,
-	limit_value INTEGER NOT NULL, used_value INTEGER NOT NULL DEFAULT 0, reserved_value INTEGER NOT NULL DEFAULT 0,
-	updated_at TEXT NOT NULL, PRIMARY KEY(root_id,agent_id,kind)
+	limit_value INTEGER, used_value INTEGER NOT NULL DEFAULT 0, reserved_value INTEGER NOT NULL DEFAULT 0,
+ uncertain_value INTEGER NOT NULL DEFAULT 0, incomplete INTEGER NOT NULL DEFAULT 0,
+	updated_at TEXT NOT NULL, PRIMARY KEY(root_id,agent_id,kind),
+ CHECK(limit_value IS NOT NULL OR kind IN ('tokens','cost','elapsed'))
 );
 CREATE TABLE operations (
 	id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES sessions(id), agent_id TEXT NOT NULL,

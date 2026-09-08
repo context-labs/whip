@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
-import {chromium} from '@playwright/test';
+import {chromium, expect} from '@playwright/test';
 
 const exec = promisify(execFile);
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
@@ -25,13 +25,13 @@ try {
   await writeFile(resolve(consumer, 'index.html'), '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Packed WHIP consumer</title></head><body><div id="root"></div><script type="module" src="/main.tsx"></script></body></html>');
   await writeFile(resolve(consumer, 'main.tsx'), `import {createRoot} from 'react-dom/client';
 import {createWhipApplication} from '@whip/app';
-import {ThemeProvider, UIProvider, Button, CodeBlock} from '@whip/ui';
+import {ThemeProvider, UIProvider, Button, CodeBlock, Input, Textarea, Combobox, NumberField, Link} from '@whip/ui';
 import {WorkspaceTabs,workspaceTabId} from '@whip/ui/workspace-tabs';
 import '@whip/ui/reset.css';
 import '@whip/ui/fonts.css';
 const values = new Map();
 const application = createWhipApplication({storage:{keys:()=>[...values.keys()],getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),removeItem:key=>values.delete(key)},defaultEndpoint:'http://127.0.0.1:1',openExternal(){},async copy(){},download(){}});
-createRoot(document.getElementById('root')).render(new URLSearchParams(location.search).has('app') ? <application.Application/> : <ThemeProvider initialTheme="dark"><UIProvider><main><h1>Packed UI consumer</h1><WorkspaceTabs value="packed" items={[{value:'packed',label:'Packed tab',render:<a href="#packed-panel"/>}]} onClose={()=>{}} panelId="packed-panel"/><section id="packed-panel" role="tabpanel" aria-labelledby={workspaceTabId('packed')}><Button>Package button</Button><CodeBlock language="starlark" code="return True"/></section></main></UIProvider></ThemeProvider>);
+createRoot(document.getElementById('root')).render(new URLSearchParams(location.search).has('app') ? <application.Application/> : <ThemeProvider initialTheme="dark"><UIProvider><main><h1>Packed UI consumer</h1><WorkspaceTabs value="packed" items={[{value:'packed',label:'Packed tab',render:<a href="#packed-panel"/>}]} onClose={()=>{}} panelId="packed-panel"/><section id="packed-panel" role="tabpanel" aria-labelledby={workspaceTabId('packed')}><Button>Package button</Button><Input aria-label="Package input"/><Textarea aria-label="Package textarea"/><Combobox label="Package combobox" options={[]}/><NumberField label="Package number"/><Link href="#packed-panel">Package link</Link><CodeBlock language="starlark" code="return True"/></section></main></UIProvider></ThemeProvider>);
 window.addEventListener('pagehide',()=>application.dispose());
 `);
   // The official StyleX plugin discovers source packages from the consumer cwd.
@@ -40,7 +40,7 @@ window.addEventListener('pagehide',()=>application.dispose());
   const {build, preview, createServer} = await import(pathToFileURL(require.resolve('vite')).href);
   const {default: react} = await import(pathToFileURL(require.resolve('@vitejs/plugin-react')).href);
   const {default: stylex} = await import(pathToFileURL(require.resolve('@stylexjs/unplugin')).href);
-  const config = () => ({configFile: false, root: consumer, plugins: [stylex.vite({useCSSLayers: true, runtimeInjection: false, unstable_moduleResolution: {type: 'commonJS', rootDir: consumer}}), react()], logLevel: 'warn', optimizeDeps: {include: ['use-sync-external-store/shim', 'use-sync-external-store/shim/with-selector']}, build: {assetsInlineLimit: 0}, server: {host: '127.0.0.1', port: 0}, preview: {host: '127.0.0.1', port: 0}});
+  const config = () => ({configFile: false, root: consumer, plugins: [stylex.vite({useCSSLayers: {before: ['whip-reset']}, runtimeInjection: false, unstable_moduleResolution: {type: 'commonJS', rootDir: consumer}}), react()], logLevel: 'warn', optimizeDeps: {include: ['use-sync-external-store/shim', 'use-sync-external-store/shim/with-selector']}, build: {assetsInlineLimit: 0}, server: {host: '127.0.0.1', port: 0}, preview: {host: '127.0.0.1', port: 0}});
   await build(config());
   const browser = await chromium.launch(); const results = [];
   try {
@@ -59,6 +59,32 @@ window.addEventListener('pagehide',()=>application.dispose());
             await page.getByRole('tab', {name:'Packed tab'}).waitFor();
             const styled = await button.evaluate(el => {const style = getComputedStyle(el); return style.borderRadius !== '0px' && style.display === 'inline-flex';});
             if (!styled) throw new Error(`${mode}: packed UI styles were not compiled`);
+            // Exercise the real cascade in both modes: Vite injects the reset
+            // after StyleX during development, unlike the production CSS bundle.
+            for (const label of ['Package input', 'Package textarea', 'Package combobox', 'Package number']) {
+              const input = page.getByLabel(label, {exact: true});
+              await input.click();
+              await expect(input).toBeFocused();
+              await expect(input).toHaveCSS('outline-style', 'none');
+              await expect(input).toHaveCSS('border-top-width', '1px');
+              await input.press('Tab');
+              await page.keyboard.press('Shift+Tab');
+              await expect(input).toBeFocused();
+              await expect(input).toHaveCSS('outline-style', 'none');
+            }
+            await button.click();
+            await expect(button).toHaveCSS('outline-style', 'none');
+            await button.press('Tab');
+            await page.keyboard.press('Shift+Tab');
+            await expect(button).toBeFocused();
+            await expect(button).toHaveCSS('outline-style', 'solid');
+            await expect(button).toHaveCSS('outline-width', '1px');
+            const focusColor = await button.evaluate(el => getComputedStyle(el).outlineColor);
+            const link = page.getByRole('link', {name: 'Package link'});
+            await link.focus();
+            await expect(link).toHaveCSS('outline-style', 'solid');
+            await expect(link).toHaveCSS('outline-width', '1px');
+            await expect(link).toHaveCSS('outline-color', focusColor);
           } else {
             await page.getByRole('button', {name: 'Connect to host', exact: true}).first().waitFor();
             await page.getByRole('button', {name: 'Connect to host', exact: true}).first().click();

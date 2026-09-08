@@ -29,14 +29,32 @@ import (
 // optional chroma style name for code. Colors are "#rrggbb" or an ANSI
 // palette index "0".."255".
 type Spec struct {
-	Name     string        `json:"name"`
-	Dark     bool          `json:"dark"`
-	Palette  PaletteSpec   `json:"palette"`
-	Surfaces *SurfaceSpec  `json:"surfaces,omitempty"` // omitted: derived from the background
-	Syntax   *SyntaxSpec   `json:"syntax,omitempty"`   // omitted: derived from the palette
-	Markdown *MarkdownSpec `json:"markdown,omitempty"` // omitted: derived from the palette
-	Chroma   string        `json:"chroma,omitempty"`   // omitted: generated from the palette / syntax
-	neutral  bool          // the unknown-background theme: ANSI palette colors, no fills
+	Name        string        `json:"name"`
+	DisplayName string        `json:"displayName,omitempty"`
+	Dark        bool          `json:"dark"`
+	Palette     PaletteSpec   `json:"palette"`
+	Surfaces    *SurfaceSpec  `json:"surfaces,omitempty"` // omitted: derived from the background
+	Syntax      *SyntaxSpec   `json:"syntax,omitempty"`   // omitted: derived from the palette
+	Markdown    *MarkdownSpec `json:"markdown,omitempty"` // omitted: derived from the palette
+	Chroma      string        `json:"chroma,omitempty"`   // omitted: generated from the palette / syntax
+	Web         *WebSpec      `json:"web,omitempty"`      // omitted: browser derives its supporting surfaces
+	neutral     bool          // the unknown-background theme: ANSI palette colors, no fills
+}
+
+// WebSpec pins browser surfaces independently of the terminal layer ladder.
+type WebSpec struct {
+	Navigation           string `json:"navigation,omitempty"`
+	QuietBorder          string `json:"quietBorder,omitempty"`
+	CodeBackground       string `json:"codeBackground,omitempty"`
+	InlineCodeBackground string `json:"inlineCodeBackground,omitempty"`
+}
+
+// Label returns the display name while Name remains the stable selection ID.
+func (s Spec) Label() string {
+	if s.DisplayName != "" {
+		return s.DisplayName
+	}
+	return s.Name
 }
 
 // SyntaxSpec pins the code-highlighting roles instead of deriving them.
@@ -135,9 +153,9 @@ func Neutral() Spec {
 	}
 }
 
-// catalog holds the themes embedded from themes/*.json: opencode's theme
-// collection converted by themes/convert_opencode.py, one spec per dark and
-// light variant.
+// catalog holds the themes embedded from themes/*.json: opencode's collection
+// converted by themes/convert_opencode.py and curated reference palettes.
+// Each file describes one dark or light variant.
 //
 //go:embed themes/*.json
 var catalogFS embed.FS
@@ -268,6 +286,9 @@ func (s *Spec) Validate() error {
 	if !utf8.ValidString(s.Name) || len(s.Name) > 128 || strings.IndexFunc(s.Name, unicode.IsControl) >= 0 {
 		problems = append(problems, "name must be at most 128 UTF-8 bytes without control characters")
 	}
+	if !utf8.ValidString(s.DisplayName) || len(s.DisplayName) > 120 || strings.IndexFunc(s.DisplayName, unicode.IsControl) >= 0 {
+		problems = append(problems, "displayName must be at most 120 UTF-8 bytes without control characters")
+	}
 	for i := range pv.NumField() {
 		field := pv.Field(i)
 		if field.String() == "" {
@@ -283,7 +304,7 @@ func (s *Spec) Validate() error {
 	for _, block := range []struct {
 		name string
 		v    any
-	}{{"surfaces", s.Surfaces}, {"syntax", s.Syntax}, {"markdown", s.Markdown}} {
+	}{{"surfaces", s.Surfaces}, {"syntax", s.Syntax}, {"markdown", s.Markdown}, {"web", s.Web}} {
 		rv := reflect.ValueOf(block.v)
 		if !rv.IsValid() || rv.IsNil() {
 			continue
@@ -311,7 +332,9 @@ func jsonName(f reflect.StructField) string {
 }
 
 func allowedKeys() []string {
-	keys := []string{"name", "dark", "surfaces{panel,element,hover}", "syntax{keyword,string,number,comment,function,type,operator,punctuation}", "markdown{heading,strong,code,quote}", "chroma"}
+	keys := []string{"name", "displayName", "dark", "surfaces{panel,element,hover}",
+		"syntax{keyword,string,number,comment,function,type,operator,punctuation}",
+		"markdown{heading,strong,code,quote}", "chroma", "web{navigation,quietBorder,codeBackground,inlineCodeBackground}"}
 	t := reflect.TypeFor[PaletteSpec]()
 	for field := range t.Fields() {
 		keys = append(keys, "palette."+jsonName(field))

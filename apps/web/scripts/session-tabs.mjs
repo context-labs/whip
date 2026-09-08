@@ -40,7 +40,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     });
     socket.on('close', () => subscriptionSets.delete(socket));
   });
-  const ready = async () => { await page.getByLabel('Message WHIP', { exact: true }).waitFor(); await page.getByText('live', { exact: true }).waitFor(); };
+  const ready = async () => { await page.getByLabel('Message WHIP', { exact: true }).waitFor(); await eventually(() => page.getByLabel('Message WHIP', { exact: true }).isEnabled()); };
   const tab = id => page.locator(`#whip-workspace-tab-${id}`);
   const checks = [];
   const retainedState = [];
@@ -68,8 +68,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.locator(`[data-workspace-tab="${roots[0]}"]`).getByRole('button', { name: /^Close / }).click();
     await eventually(() => page.url().endsWith(route(roots[1])), { description: 'close selects right neighbor' });
     assert.equal(await tab(roots[0]).count(), 0);
-    await page.getByRole('button', { name: 'Application menu', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Reopen closed tab', exact: true }).click();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
+    await page.getByRole('dialog', { name: 'Commands', exact: true }).getByRole('combobox').fill('Reopen closed tab'); await page.getByRole('option', { name: 'Reopen closed tab', exact: true }).click();
     await ready(); assert.equal(await page.getByLabel('Message WHIP', { exact: true }).inputValue(), 'Keep this draft across session switches.');
     const commandCount = frames.filter(frame => frame.method === 'command.submit').length;
     assert.equal(commandCount, 0, 'Tab operations submitted daemon commands');
@@ -83,7 +83,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(await peer.getByRole('tab').count(), peerCount, 'Browser windows share tab layout mutations');
     await peer.close(); checks.push('independent browser-window layouts');
 
-    await page.getByRole('button', { name: 'Application menu', exact: true }).click(); await page.getByRole('menuitem', { name: 'Reopen closed tab', exact: true }).click(); await ready();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k'); await page.getByRole('dialog', { name: 'Commands', exact: true }).getByRole('combobox').fill('Reopen closed tab'); await page.getByRole('option', { name: 'Reopen closed tab', exact: true }).click(); await ready();
     const samples = [];
     for (let i = 0; i < 16; i++) {
       const id = roots[i % 4], start = performance.now(); await tab(id).click(); await ready();
@@ -97,7 +97,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await tab(roots[1]).click(); await ready();
     assert.equal(await page.getByRole('button', { name: 'Remove retained-tab.txt', exact: true }).count(), 0);
     await page.locator(`[data-workspace-tab="${roots[0]}"]`).getByRole('button', { name: /^Close / }).click({ force: true });
-    await page.getByRole('button', { name: 'Application menu', exact: true }).click(); await page.getByRole('menuitem', { name: 'Reopen closed tab', exact: true }).click(); await ready();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k'); await page.getByRole('dialog', { name: 'Commands', exact: true }).getByRole('combobox').fill('Reopen closed tab'); await page.getByRole('option', { name: 'Reopen closed tab', exact: true }).click(); await ready();
     await page.getByRole('button', { name: 'Remove retained-tab.txt', exact: true }).waitFor();
     await page.getByText('retained-tab.txt · Ready', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Remove retained-tab.txt', exact: true }).click();
@@ -132,7 +132,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.screenshot({ path: join(directory, `${name}-desktop-dark.png`) });
     await page.evaluate(() => localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'light' })));
     const storage = { version: 1, workspaces: [{ ...seed.workspaces[0], tabs: roots.map((rootId, index) => ({ rootId, titleHint: `Session ${index + 1}`, location: {} })), lastActiveRootId: roots[0] }] };
-    await page.evaluate(value => sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify(value)), storage);
+    await page.evaluate(value => { sessionStorage.removeItem('whip.web.workspace.v2'); sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify(value)); }, storage);
     await page.goto(origin + route(roots[0])); await ready(); assert.equal(await page.getByRole('tab').count(), 32);
     const cold = [];
     for (let i = 0; i < 8; i++) { const start = performance.now(); await tab(roots[i]).click(); await ready(); cold.push(performance.now() - start); }
@@ -150,7 +150,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     checks.push('summary polling stops when document visibility reports hidden');
     await page.getByLabel('Message WHIP', { exact: true }).fill('Restart keeps this draft and the open layout.');
     await fixture.crashAndRestart(); await client.whenConnected();
-    await eventually(async () => (await page.getByText('live', { exact: true }).count()) === 1 && (await tab(roots[7]).getAttribute('aria-label')) !== null && !(await tab(roots[7]).getAttribute('aria-label')).includes('Activity unavailable'), { description: 'same-runtime restart recovers session and summaries' });
+    await eventually(async () => await page.getByLabel('Message WHIP', { exact: true }).isEnabled() && (await tab(roots[7]).getAttribute('aria-label')) !== null && !(await tab(roots[7]).getAttribute('aria-label')).includes('Activity unavailable'), { description: 'same-runtime restart recovers session and summaries' });
     assert.equal(await page.getByLabel('Message WHIP', { exact: true }).inputValue(), 'Restart keeps this draft and the open layout.');
     assert.equal(await page.getByRole('tab').count(), 32);
     checks.push('same-runtime daemon crash/restart retains all tabs and unsent draft');
@@ -179,13 +179,13 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       const inspector = await context.newCDPSession(page);
       for (const count of [1, 8, 32]) {
         const ids = [roots[2], ...roots.filter(id => id !== roots[2])].slice(0, count);
-        await page.evaluate(value => sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify(value)), { version: 1, workspaces: [{ runtimeId: fixture.info.runtime_id, tabs: ids.map(rootId => ({ rootId, titleHint: '', location: {} })), closed: [] }] });
+        await page.evaluate(value => { sessionStorage.removeItem('whip.web.workspace.v2'); sessionStorage.setItem('whip.web.tabs.v1', JSON.stringify(value)); }, { version: 1, workspaces: [{ runtimeId: fixture.info.runtime_id, tabs: ids.map(rootId => ({ rootId, titleHint: '', location: {} })), closed: [] }] });
         await page.goto(origin + route(roots[2])); await ready();
         for (const id of ids.slice(1, 4)) { await tab(id).click(); await ready(); }
         await tab(roots[2]).click(); await ready();
         await inspector.send('HeapProfiler.collectGarbage');
         const heap = await inspector.send('Runtime.getHeapUsage');
-        retainedState.push({ openTabs: count, usedHeapBytesAfterGC: heap.usedSize, activeSubscriptions: subscriptionSets.get(currentSocket)?.size ?? 0, metadataBytes: await page.evaluate(() => new TextEncoder().encode(sessionStorage.getItem('whip.web.tabs.v1')).length), mountedConversations: await page.getByRole('region', { name: 'Conversation', exact: true }).count() });
+        retainedState.push({ openTabs: count, usedHeapBytesAfterGC: heap.usedSize, activeSubscriptions: subscriptionSets.get(currentSocket)?.size ?? 0, metadataBytes: await page.evaluate(() => new TextEncoder().encode(sessionStorage.getItem('whip.web.workspace.v2')).length), mountedConversations: await page.getByRole('region', { name: 'Conversation', exact: true }).count() });
       }
       await inspector.detach();
       checks.push('whole-app retained heap, metadata bytes and subscriptions measured at 1/8/32 tabs');

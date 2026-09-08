@@ -5,7 +5,10 @@
       "type": "string"
     },
     "limit": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "pattern": "^-?(0|[1-9][0-9]*)$",
       "format": "int64"
     },
@@ -20,12 +23,23 @@
       "format": "int64"
     },
     "remaining": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "uncertain": {
       "type": "string",
       "pattern": "^-?(0|[1-9][0-9]*)$",
       "format": "int64"
+    },
+    "incomplete": {
+      "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v3/BudgetState",
+  "$id": "https://whip.dev/protocol/v4/BudgetState",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "BudgetState",
   "required": [
@@ -33,7 +47,9 @@
     "limit",
     "used",
     "reserved",
-    "remaining"
+    "remaining",
+    "uncertain",
+    "incomplete"
   ],
   "additionalProperties": false
 }

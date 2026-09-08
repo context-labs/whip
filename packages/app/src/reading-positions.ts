@@ -7,7 +7,7 @@ export interface ReadingBookmark {
 }
 const encoder = new TextEncoder();
 
-/** Bounded per-recipient reading hints, never a second transcript cache. */
+/** Bounded per-view/agent reading hints, never a second transcript cache. */
 export class ReadingPositions {
   private readonly entries = new Map<string, ReadingBookmark>();
   get(key: string): ReadingBookmark | undefined {
@@ -49,8 +49,8 @@ export class ReadingPositions {
     )
       this.entries.delete(this.entries.keys().next().value!);
   }
-  forgetRoot(runtimeId: string, rootId: string) {
-    const prefix = `${runtimeId}:${rootId}:`;
+  forgetView(runtimeId: string, viewId: string) {
+    const prefix = `${runtimeId}:${viewId}:`;
     for (const key of this.entries.keys())
       if (key.startsWith(prefix)) this.entries.delete(key);
   }

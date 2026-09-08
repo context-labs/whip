@@ -186,13 +186,16 @@ func TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration(t *te
 	parent.Effort = "medium"
 	parent.WorkingDir = t.TempDir()
 	parent.ContextLimit = 4096
+	parent.Prices = llm.TokenPrices{Input: 0.01, Output: 0.02, Known: true}
+	parent.CompactPrices = llm.TokenPrices{Input: 0.001, Output: 0.002, Known: true}
 	parent.ResolveModel = func(model, provider string) (agent.ModelRoute, error) {
 		if model != "child-model" || provider != "" {
 			return agent.ModelRoute{}, errors.New("unexpected model override")
 		}
 		return agent.ModelRoute{
 			Client: llm.New("https://child.test", "key"), ModelName: model, Provider: "child-provider",
-			Model: "child-api-model", ContextLimit: 8192, MaxTokens: 1024, Effort: "high",
+			Prices: llm.TokenPrices{Input: 0.003, Output: 0.004, Known: true},
+			Model:  "child-api-model", ContextLimit: 8192, MaxTokens: 1024, Effort: "high",
 		}, nil
 	}
 
@@ -201,7 +204,7 @@ func TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration(t *te
 		t.Fatal(err)
 	}
 	defer inherited.Services.Close()
-	if inheritedModel != parent.ModelName || inheritedProvider != parent.Provider || inherited.Effort != parent.Effort || inherited.WorkingDir != parent.WorkingDir || inherited.ContextLimit != parent.ContextLimit {
+	if inherited.Prices != parent.Prices || inherited.CompactPrices != parent.CompactPrices || inheritedModel != parent.ModelName || inheritedProvider != parent.Provider || inherited.Effort != parent.Effort || inherited.WorkingDir != parent.WorkingDir || inherited.ContextLimit != parent.ContextLimit {
 		t.Fatalf("inherited child = model %q provider %q effort %q cwd %q context %d", inheritedModel, inheritedProvider, inherited.Effort, inherited.WorkingDir, inherited.ContextLimit)
 	}
 
@@ -210,7 +213,7 @@ func TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration(t *te
 		t.Fatal(err)
 	}
 	defer overridden.Services.Close()
-	if modelName != "child-model" || providerName != "child-provider" || overridden.Model != "child-api-model" || overridden.Effort != "high" || overridden.ContextLimit != 8192 || overridden.MaxTokens != 1024 {
+	if overridden.Prices.Input != 0.003 || overridden.Prices.Output != 0.004 || overridden.CompactPrices != parent.CompactPrices || modelName != "child-model" || providerName != "child-provider" || overridden.Model != "child-api-model" || overridden.Effort != "high" || overridden.ContextLimit != 8192 || overridden.MaxTokens != 1024 {
 		t.Fatalf("overridden child = model %q provider %q api %q effort %q context %d output %d", modelName, providerName, overridden.Model, overridden.Effort, overridden.ContextLimit, overridden.MaxTokens)
 	}
 	if _, _, _, err := cloneRuntimeAgent(parent, tools.NewServices(), map[string]any{"provider": "child-provider"}); err == nil {
@@ -978,7 +981,7 @@ func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
 		}
 		last := input.Messages[len(input.Messages)-1]
 		if last.Role == "user" && strings.Contains(last.Content, "trace") {
-			streamToolCall(w, "trace", "print('working')\nfiles.list(path=\".\")\nprint('done')")
+			streamToolCall(w, "trace", "print('working')\nfor i in range(3):\n    files.list(path=\".\")\nprint('done')")
 			return
 		}
 		streamText(w, "done")
@@ -993,7 +996,7 @@ func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostSeen, outputSeen := false, false
+	hostCount, outputSeen, completed := 0, false, false
 	for _, envelope := range events {
 		var event StreamEvent
 		if json.Unmarshal(envelope.Payload.Inline, &event) != nil {
@@ -1002,16 +1005,23 @@ func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
 		switch envelope.Kind {
 		case "stream.cell.host":
 			if event.ID == "trace" && event.Name == "files.list" && strings.Contains(event.Args, "path=.") && event.Text != "" {
-				hostSeen = true
+				if event.Result != "" {
+					t.Errorf("host call failed: %s", event.Result)
+				}
+				hostCount++
 			}
 		case "stream.tool.output":
 			if event.ID == "trace" && strings.Contains(event.Text, "working") {
 				outputSeen = true
 			}
+		case "stream.tool.completed":
+			if event.ID == "trace" && strings.Contains(event.Result, "done") && !strings.HasPrefix(event.Result, "Error:") {
+				completed = true
+			}
 		}
 	}
-	if !hostSeen || !outputSeen {
-		t.Fatalf("host event=%v live output=%v", hostSeen, outputSeen)
+	if hostCount != 3 || !outputSeen || !completed {
+		t.Fatalf("host events=%d live output=%v completed=%v", hostCount, outputSeen, completed)
 	}
 }
 

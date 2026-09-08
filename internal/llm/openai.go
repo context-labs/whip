@@ -402,11 +402,14 @@ func New(baseURL, apiKey string) *Client {
 
 // Request is a chat completions request.
 type Request struct {
-	Model           string    `json:"model"`
-	Messages        []Message `json:"messages"`
-	Tools           []Tool    `json:"tools,omitempty"`
-	MaxTokens       int       `json:"max_tokens,omitempty"`
-	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	// BeforeAttempt admits each HTTP attempt, including retries, and returns its
+	// settlement callback. It is local execution policy, never provider payload.
+	BeforeAttempt   func(context.Context, Request) (func(Usage) error, error) `json:"-"`
+	Model           string                                                    `json:"model"`
+	Messages        []Message                                                 `json:"messages"`
+	Tools           []Tool                                                    `json:"tools,omitempty"`
+	MaxTokens       int                                                       `json:"max_tokens,omitempty"`
+	ReasoningEffort string                                                    `json:"reasoning_effort,omitempty"`
 	// Temperature and TopP are optional per-model sampling knobs. Pointers so
 	// 0.0 (a legitimate value) is distinguishable from unset; nil omits the
 	// field from the request, preserving provider defaults.
@@ -428,10 +431,12 @@ type Request struct {
 // Usage is the token accounting the provider reports for one request
 // (prompt = input, completion = output). CachedTokens counts the slice of
 // the prompt served from the provider's prompt cache. Providers that omit
-// usage leave all fields zero — the session totals just skip those calls.
+// usage remain explicitly unknown; zero reported usage is a separate outcome.
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	Reported         bool `json:"-"`
+	Dispatched       bool `json:"-"`
+	PromptTokens     int  `json:"prompt_tokens"`
+	CompletionTokens int  `json:"completion_tokens"`
 	// PromptTokensDetails nests the cache hit count (OpenAI-compatible).
 	PromptTokensDetails *struct {
 		CachedTokens int `json:"cached_tokens"`
@@ -682,7 +687,7 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 // After that point a retry would replay text the caller already rendered, so
 // the error is surfaced instead. A retry regenerates the whole assistant
 // message server-side; nothing in the request messages is mutated by a failed
-// attempt, so retrying is idempotent.
+// attempt. Each attempt may incur usage and is accounted separately.
 func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
 	req.Stream = true
 	req.StreamOptions = &struct {
@@ -697,6 +702,7 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 		return Message{}, Usage{}, err
 	}
 	var last error
+	var total Usage
 	for attempt := 1; attempt <= c.attempts(); attempt++ {
 		emitted := false // true once any visible delta reached the caller
 		wrapText, wrapThink := onText, onThink
@@ -706,9 +712,23 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 		if onThink != nil {
 			wrapThink = func(s string) { emitted = true; onThink(s) }
 		}
-		msg, usage, err := c.streamOnce(ctx, body, wrapText, wrapThink, onToolCall)
+		wrapTool := onToolCall
+		if onToolCall != nil {
+			wrapTool = func(id, name, args string) { emitted = true; onToolCall(id, name, args) }
+		}
+		settle, err := beginAttempt(ctx, req)
+		if err != nil {
+			return Message{}, total, err
+		}
+		msg, usage, err := c.streamOnce(ctx, body, wrapText, wrapThink, wrapTool)
+		total.add(usage)
+		if settle != nil {
+			if settleErr := settle(usage); settleErr != nil {
+				return msg, total, errors.Join(err, settleErr)
+			}
+		}
 		if err == nil {
-			return msg, usage, nil
+			return msg, total, nil
 		}
 		last = err
 		// Retry only transient failures the caller hasn't seen output from.
@@ -720,10 +740,10 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
 		}
 		if serr := sleep(ctx, delay); serr != nil {
-			return Message{}, Usage{}, serr
+			return Message{}, total, serr
 		}
 	}
-	return Message{}, Usage{}, last
+	return Message{}, total, last
 }
 
 // streamOnce performs a single streaming request attempt; the Stream retry
@@ -736,18 +756,18 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 	}
 	hr.Header.Set("Content-Type", "application/json")
 	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	usage := Usage{Dispatched: true}
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
-		return Message{}, Usage{}, err
+		return Message{}, usage, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return Message{}, Usage{}, &HTTPError{Status: resp.Status, Body: strings.TrimSpace(string(b))}
+		usage, err := readHTTPFailure(resp)
+		return Message{}, usage, err
 	}
 
 	msg := Message{Role: "assistant"}
-	var usage Usage      // from the terminal chunk (include_usage); zero if omitted
 	var calls []ToolCall // arrival order; providers may use sparse stream indexes
 	callPositions := make(map[int]int)
 	finish := ""
@@ -766,14 +786,18 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 		if err := json.Unmarshal([]byte(data), &ch); err != nil {
 			continue
 		}
+		if ch.Usage != nil {
+			if err := ch.Usage.validate(); err != nil {
+				return Message{}, usage, nonRetryable{err}
+			}
+			usage = *ch.Usage
+			usage.Reported, usage.Dispatched = true, true
+		}
 		if ch.Error != nil {
 			// The provider accepted the request (200) then failed mid-stream.
 			// These are provider-logic errors (content filter, model faults),
 			// not transport blips — surface them, don't retry.
 			return Message{}, usage, nonRetryable{fmt.Errorf("api error: %s", ch.Error.Message)}
-		}
-		if ch.Usage != nil {
-			usage = *ch.Usage // the terminal usage chunk carries empty choices
 		}
 		if len(ch.Choices) == 0 {
 			continue
@@ -866,12 +890,23 @@ func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, erro
 		return "", Usage{}, err
 	}
 	var last error
+	var total Usage
 	for attempt := 1; attempt <= c.attempts(); attempt++ {
 		var text string
 		var usage Usage
+		settle, admissionErr := beginAttempt(ctx, req)
+		if admissionErr != nil {
+			return "", total, admissionErr
+		}
 		text, usage, err = c.completeOnce(ctx, body)
+		total.add(usage)
+		if settle != nil {
+			if settleErr := settle(usage); settleErr != nil {
+				return text, total, errors.Join(err, settleErr)
+			}
+		}
 		if err == nil {
-			return text, usage, nil
+			return text, total, nil
 		}
 		last = err
 		if !retryable(err) || attempt == c.attempts() {
@@ -882,10 +917,10 @@ func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, erro
 			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
 		}
 		if serr := sleep(ctx, delay); serr != nil {
-			return "", Usage{}, serr
+			return "", total, serr
 		}
 	}
-	return "", Usage{}, last
+	return "", total, last
 }
 
 // completeOnce performs one non-streaming request attempt.
@@ -896,14 +931,15 @@ func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 	}
 	hr.Header.Set("Content-Type", "application/json")
 	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	usage := Usage{Dispatched: true}
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
-		return "", Usage{}, err
+		return "", usage, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", Usage{}, &HTTPError{Status: resp.Status, Body: strings.TrimSpace(string(b))}
+		usage, err := readHTTPFailure(resp)
+		return "", usage, err
 	}
 	var out struct {
 		Choices []struct {
@@ -914,14 +950,36 @@ func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 		Usage *Usage `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return "", Usage{}, err
+		return "", usage, err
+	}
+	if out.Usage != nil {
+		if err := out.Usage.validate(); err != nil {
+			return "", usage, nonRetryable{err}
+		}
+		usage = *out.Usage
+		usage.Reported, usage.Dispatched = true, true
 	}
 	if len(out.Choices) == 0 {
-		return "", Usage{}, errors.New("no choices in completion response")
-	}
-	var usage Usage
-	if out.Usage != nil {
-		usage = *out.Usage
+		return "", usage, nonRetryable{errors.New("no choices in completion response")}
 	}
 	return out.Choices[0].Message.Content, usage, nil
+}
+
+// A failed HTTP response can still report billable usage. Keep the bounded
+// diagnostic body and admit the next attempt against that settled usage.
+func readHTTPFailure(response *http.Response) (Usage, error) {
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	httpErr := &HTTPError{Status: response.Status, Body: strings.TrimSpace(string(body))}
+	usage := Usage{Dispatched: true}
+	var payload struct {
+		Usage *Usage `json:"usage"`
+	}
+	if json.Unmarshal(body, &payload) == nil && payload.Usage != nil {
+		if err := payload.Usage.validate(); err != nil {
+			return usage, errors.Join(httpErr, nonRetryable{err})
+		}
+		usage = *payload.Usage
+		usage.Reported, usage.Dispatched = true, true
+	}
+	return usage, httpErr
 }

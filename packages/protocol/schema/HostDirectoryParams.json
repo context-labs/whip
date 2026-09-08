@@ -17,7 +17,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v3/HostDirectoryParams",
+  "$id": "https://whip.dev/protocol/v4/HostDirectoryParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "HostDirectoryParams",
   "required": [

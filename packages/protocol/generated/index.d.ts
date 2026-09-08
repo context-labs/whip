@@ -256,10 +256,12 @@ export interface BudgetCapParams {
 
 export interface BudgetState {
   kind: string;
-  limit: string;
+  limit: string | null;
   used: string;
   reserved: string;
-  remaining: string;
+  remaining: string | null;
+  uncertain: string;
+  incomplete: boolean;
 }
 
 export interface CancelParams {
@@ -994,6 +996,8 @@ export interface ProviderCatalogsResult {
       models:
         | null
         | {
+            pricing_known?: boolean;
+            cache_read_price_known?: boolean;
             id: string;
             context_length?: number;
             max_completion_tokens?: number;
@@ -1233,6 +1237,12 @@ export interface Resolved {
       };
     };
   };
+  web?: null | {
+    navigation?: string;
+    quiet_border?: string;
+    code_background?: string;
+    inline_code_background?: string;
+  };
 }
 
 export interface RestartNotice {
@@ -1317,10 +1327,12 @@ export interface RootCollectionPage {
           agent_id: string;
           state: {
             kind: string;
-            limit: string;
+            limit: string | null;
             used: string;
             reserved: string;
-            remaining: string;
+            remaining: string | null;
+            uncertain: string;
+            incomplete: boolean;
           };
         };
         capability?: null | {
@@ -1435,10 +1447,12 @@ export interface RootCollectionPage {
               agent_id: string;
               state: {
                 kind: string;
-                limit: string;
+                limit: string | null;
                 used: string;
                 reserved: string;
-                remaining: string;
+                remaining: string | null;
+                uncertain: string;
+                incomplete: boolean;
               };
             };
           }
@@ -1680,10 +1694,12 @@ export interface RootSnapshot {
         agent_id: string;
         state: {
           kind: string;
-          limit: string;
+          limit: string | null;
           used: string;
           reserved: string;
-          remaining: string;
+          remaining: string | null;
+          uncertain: string;
+          incomplete: boolean;
         };
       }[];
   capabilities:

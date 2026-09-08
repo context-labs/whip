@@ -39,6 +39,71 @@ func loopServer(t *testing.T) *httptest.Server {
 	}))
 }
 
+type recordedModelBudget struct {
+	estimates []llm.CallEstimate
+	usages    []llm.Usage
+}
+
+func (b *recordedModelBudget) ReserveModelCall(_ context.Context, estimate llm.CallEstimate) (func(llm.Usage) error, error) {
+	b.estimates = append(b.estimates, estimate)
+	return func(usage llm.Usage) error {
+		b.usages = append(b.usages, usage)
+		return nil
+	}, nil
+}
+
+func TestEveryAgentCallUsesItsRouteBudget(t *testing.T) {
+	for _, kind := range []string{"turn", "final answer", "compaction"} {
+		t.Run(kind, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request llm.Request
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					return
+				}
+				if request.Stream {
+					fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}\n\ndata: [DONE]\n\n")
+				} else {
+					fmt.Fprint(w, `{"choices":[{"message":{"content":"summary"}}],"usage":{"prompt_tokens":12,"completion_tokens":3}}`)
+				}
+			}))
+			defer server.Close()
+			ag := newTestAgent(llm.New(server.URL, "fixture"), "root-model", 8192, "system")
+			ag.Prices = llm.TokenPrices{Input: 0.01, Output: 0.02, Known: true}
+			ag.CompactClient, ag.CompactModel = llm.New(server.URL, "fixture"), "compact-model"
+			ag.CompactPrices = llm.TokenPrices{Input: 0.001, Output: 0.002, Known: true}
+			budget := &recordedModelBudget{}
+			ag.SetModelCallBudget(budget)
+			wantPrices, wantOutput := ag.Prices, int64(8192)
+			var err error
+			switch kind {
+			case "turn":
+				_, err = ag.Turn(t.Context(), "hello", Events{})
+			case "final answer":
+				_, err = ag.finalAnswer(t.Context(), Events{})
+			case "compaction":
+				for range 8 {
+					ag.Messages = append(ag.Messages, llm.Message{Role: "user", Content: "question"}, llm.Message{Role: "assistant", Content: "answer"})
+				}
+				err = ag.ManualCompact(t.Context(), Events{})
+				wantPrices, wantOutput = ag.CompactPrices, 4096
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(budget.estimates) != 1 || len(budget.usages) != 1 {
+				t.Fatalf("admissions=%d settlements=%d", len(budget.estimates), len(budget.usages))
+			}
+			if estimate := budget.estimates[0]; estimate.Prices != wantPrices || estimate.OutputTokens != wantOutput || estimate.PromptTokens == 0 {
+				t.Fatalf("route estimate=%+v", estimate)
+			}
+			if usage := budget.usages[0]; !usage.Reported || !usage.Dispatched || usage.PromptTokens != 12 || usage.CompletionTokens != 3 {
+				t.Fatalf("settled usage=%+v", usage)
+			}
+		})
+	}
+}
+
 func echoTool() tools.Tool {
 	return tools.Tool{
 		Def: llm.NewTool("echo", "echo", `{"type":"object","properties":{"s":{"type":"string"}}}`),

@@ -19,6 +19,7 @@ export function readableColor(color: string, backgrounds: readonly string[], tar
  * Inconsistent custom surface ladders move toward their canvas when necessary. */
 export function adaptThemeForWeb(source: ThemeDefinition): ThemeDefinition {
   const colors = {...source.colors};
+  const web = source.web ? {...source.web} : undefined;
   const endpoint = contrastRatio('#000000', colors.background) > contrastRatio('#ffffff', colors.background) ? '#000000' : '#ffffff';
   for (const role of ['panel', 'element', 'hover'] as const) {
     if (contrastRatio(endpoint, colors[role]) >= 5) continue;
@@ -27,14 +28,19 @@ export function adaptThemeForWeb(source: ThemeDefinition): ThemeDefinition {
     colors[role] = mix(colors[role], colors.background, hi);
   }
   const backgrounds = [colors.background, colors.panel, colors.element, colors.hover];
+  if (web?.navigation) {
+    // Custom navigation surfaces share the same readable text contract.
+    if (contrastRatio(endpoint, web.navigation) < 5) web.navigation = colors.background;
+    backgrounds.push(web.navigation);
+  }
   for (const role of ['foreground', 'muted', 'link', 'emphasis', 'accent'] as const) colors[role] = readableColor(colors[role], backgrounds);
   // Status badges/buttons use a 10–15% tint. Include those fills when deriving text.
   for (const role of ['success', 'warning', 'error', 'info'] as const) colors[role] = readableColor(colors[role], [...backgrounds, mix(colors.background, source.colors[role], 0.15)], 5);
-  const codeBackground = source.code.background === source.colors.element ? colors.element : source.code.background;
+  const codeBackground = web?.codeBackground ?? (source.code.background === source.colors.element ? colors.element : source.code.background);
   const syntax = {...source.syntax};
   for (const role of Object.keys(syntax) as (keyof typeof syntax)[]) syntax[role] = readableColor(syntax[role], [codeBackground]);
   const markdown = {...source.markdown};
-  for (const role of Object.keys(markdown) as (keyof typeof markdown)[]) markdown[role] = readableColor(markdown[role], backgrounds);
+  for (const role of Object.keys(markdown) as (keyof typeof markdown)[]) markdown[role] = readableColor(markdown[role], role === 'code' && web?.inlineCodeBackground ? [web.inlineCodeBackground] : backgrounds);
   const tokens = Object.fromEntries(Object.entries(source.code.tokens).map(([name, token]) => [name, {...token, background: token.background === source.code.background ? codeBackground : token.background, color: readableColor(token.color, [token.background === source.code.background ? codeBackground : token.background])}]));
-  return {...source, colors, syntax, markdown, code: {...source.code, background: codeBackground, foreground: readableColor(source.code.foreground, [codeBackground]), tokens}};
+  return {...source, ...(web ? {web} : {}), colors, syntax, markdown, code: {...source.code, background: codeBackground, foreground: readableColor(source.code.foreground, [codeBackground]), tokens}};
 }

@@ -18,6 +18,12 @@ export function validateTheme(input: unknown): ThemeDefinition {
     for (const key of keys) if (!colorPattern.test((group as Record<string, string>)[key] ?? '')) throw new Error(`Invalid resolved theme color: ${key}.`);
   };
   check(value.colors, colorRoles); check(value.syntax, syntaxRoles); check(value.markdown, markdownRoles);
+  if (value.web !== undefined) {
+    if (!value.web || typeof value.web !== 'object' || Array.isArray(value.web)) throw new Error('Invalid web theme surfaces.');
+    for (const [key, color] of Object.entries(value.web)) {
+      if (!['navigation', 'quietBorder', 'codeBackground', 'inlineCodeBackground'].includes(key) || typeof color !== 'string' || !colorPattern.test(color)) throw new Error(`Invalid web theme surface: ${key}.`);
+    }
+  }
   check(value.code, ['foreground', 'background']);
   if (!value.code.tokens || typeof value.code.tokens !== 'object' || Object.keys(value.code.tokens).length > 512) throw new Error('Invalid syntax token catalog.');
   for (const token of Object.values(value.code.tokens)) {

@@ -36,3 +36,30 @@ test('validated custom data cannot be mutated by a retained caller reference', (
   assert.notEqual(resolved, source);
   assert.notEqual(resolved.colors, source.colors);
 });
+
+test('Claude Code preserves Paper surfaces through browser adaptation', () => {
+  const source = themeCatalog.find(theme => theme.id === 'claude-code')!;
+  assert.ok(source);
+  assert.equal(source.name, 'Claude Code');
+  assert.equal(source.dark, true);
+  const shown = adaptThemeForWeb(validateTheme(source));
+  assert.deepEqual(shown.web, {navigation: '#111110', quietBorder: '#1c1c1b', codeBackground: '#1b1b19', inlineCodeBackground: '#2b2726'});
+  assert.equal(shown.code.background, '#1b1b19');
+  assert.ok(Object.values(shown.code.tokens).every(token => token.background === '#1b1b19'));
+  assert.ok(contrastRatio(shown.markdown.code, shown.web.inlineCodeBackground!) >= 4.5);
+  for (const [role, expected] of Object.entries({background: '#141414', foreground: '#c2c0b8', muted: '#aaa99f', panel: '#1b1b19', element: '#222221', hover: '#343434', border: '#343430', primary: '#c87555'})) {
+    assert.equal(shown.colors[role as keyof typeof shown.colors], expected, role);
+  }
+});
+
+test('optional browser surfaces are validated and incompatible navigation stays readable', () => {
+  const source = themeCatalog.find(theme => theme.id === 'dark')!;
+  for (const web of [null, [], {navigation: 'red'}, {quietBorder: 'url(x)'}, {arbitrary: '#111111'}]) {
+    assert.throws(() => validateTheme({...source, web}), /web theme/);
+  }
+  const custom = validateTheme({...source, web: {navigation: '#ffffff'}});
+  const shown = adaptThemeForWeb(custom);
+  assert.equal(custom.web?.navigation, '#ffffff');
+  assert.equal(shown.web?.navigation, shown.colors.background);
+  assert.ok(contrastRatio(shown.colors.foreground, shown.web!.navigation!) >= 4.5);
+});

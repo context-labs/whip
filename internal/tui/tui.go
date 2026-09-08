@@ -1107,19 +1107,15 @@ func (m *model) contextLimitFor(provName, apiID string) int {
 	return 0
 }
 
-// sessionCost returns the session's cumulative USD spend at the current
-// model's advertised rates; ok is false when the provider's catalog has no
-// pricing for the model, in which case the status line hides the segment.
+// sessionCost uses durable model-specific accounting rather than repricing all
+// prior calls with the currently selected model. Incomplete totals stay hidden.
 func (m *model) sessionCost() (float64, bool) {
-	cat, ok := m.catalogs[m.provName]
-	if !ok {
-		return 0, false
+	for _, budget := range m.clientView.budgets {
+		if budget.AgentID == "" && budget.State.Kind == session.BudgetCost {
+			return float64(budget.State.Used) / 1_000_000, !budget.State.Incomplete
+		}
 	}
-	in, out, cacheRead, ok := cat.Pricing(m.displayModelID())
-	if !ok {
-		return 0, false
-	}
-	return llm.SessionCost(m.displayUsage(), in, out, cacheRead), true
+	return 0, false
 }
 
 // compactThresholdFor converts the config's compactPct preference into the

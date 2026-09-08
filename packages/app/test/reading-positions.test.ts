@@ -36,7 +36,7 @@ it('forgets only the requested runtime and root namespace', () => {
   const positions = new ReadingPositions();
   for (const key of ['a:root:one', 'a:root:two', 'a:root2:one', 'b:root:one'])
     positions.set(key, bookmark);
-  positions.forgetRoot('a', 'root');
+  positions.forgetView('a', 'root');
   expect(positions.get('a:root:one')).toBeUndefined();
   expect(positions.get('a:root:two')).toBeUndefined();
   expect(positions.get('a:root2:one')).toBeDefined();
@@ -66,4 +66,17 @@ it('restores exact anchors only within the same revision and falls back to neare
     offset: 0,
     fallback: true,
   });
+});
+
+it('keeps chat and REPL bookmarks independent and forgets both modes of a closed view', () => {
+  const positions = new ReadingPositions();
+  positions.set('host:view:root', bookmark);
+  positions.set('host:view:root:repl', { ...bookmark, messageId: 'cell' });
+  positions.set('host:duplicate:root:repl', bookmark);
+  expect(positions.get('host:view:root')?.messageId).toBe('message');
+  expect(positions.get('host:view:root:repl')?.messageId).toBe('cell');
+  positions.forgetView('host', 'view');
+  expect(positions.get('host:view:root')).toBeUndefined();
+  expect(positions.get('host:view:root:repl')).toBeUndefined();
+  expect(positions.get('host:duplicate:root:repl')).toEqual(bookmark);
 });

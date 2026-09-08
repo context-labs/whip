@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -133,6 +134,84 @@ func TestBoundToolsUseDispatcherWithoutChangingOutput(t *testing.T) {
 	}
 	if got, want := ledger.begins.Load(), int64(2*len(cases)+2); got != want {
 		t.Fatalf("dispatcher admissions = %d, want %d", got, want)
+	}
+}
+
+func TestBoundHostCallsHaveDistinctOperationIDs(t *testing.T) {
+	for _, concurrent := range []bool{false, true} {
+		name := "sequential"
+		if concurrent {
+			name = "concurrent"
+		}
+		t.Run(name, func(t *testing.T) {
+			workspace := t.TempDir()
+			if err := os.WriteFile(filepath.Join(workspace, "file.txt"), []byte("host call result\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			store, err := session.Open(filepath.Join(t.TempDir(), "sessions.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			rootID, err := store.Create(session.SessionKindAgent, workspace, "model", "provider")
+			if err != nil {
+				t.Fatal(err)
+			}
+			authority, err := store.EnsureAuthority(t.Context(), rootID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ledger := &countingLedger{Store: store}
+			services := NewServices()
+			if err := services.BindDispatcher(ledger, store.Workspaces(), store.Processes(), authority); err != nil {
+				t.Fatal(err)
+			}
+			ctx, err := WithTurnIdentity(t.Context(), "host-call-test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx = WithOperationIdentity(ctx, "1:rlm_exec_0")
+			const calls = 8
+			results := make(chan error, calls)
+			invoke := func() {
+				output, err := services.Invoke(ctx, "read", json.RawMessage(`{"path":"file.txt"}`))
+				if err == nil && !strings.Contains(output, "host call result") {
+					t.Errorf("read output = %q", output)
+				}
+				results <- err
+			}
+			for range calls {
+				if concurrent {
+					go invoke()
+				} else {
+					invoke()
+				}
+			}
+			for range calls {
+				if err := <-results; err != nil {
+					t.Errorf("host call: %v", err)
+				}
+			}
+			if len(ledger.admissions) != calls {
+				t.Fatalf("admissions = %d, want %d", len(ledger.admissions), calls)
+			}
+			first := ledger.admissions[0].Request
+			seen := make(map[string]bool)
+			for _, admission := range ledger.admissions {
+				request := admission.Request
+				if request.OperationID == "" || seen[request.OperationID] {
+					t.Errorf("duplicate or missing operation ID: %q", request.OperationID)
+				}
+				seen[request.OperationID] = true
+				if !strings.HasPrefix(request.OperationID, first.CommandID+":1:rlm_exec_0:") {
+					t.Errorf("operation lost parent tool call attribution: %q", request.OperationID)
+				}
+				if request.CommandClientID != "host-call-test" || request.CommandID == "" || request.TraceID == "" ||
+					request.CommandID != first.CommandID || request.TraceID != first.TraceID {
+					t.Errorf("host call lost command/trace attribution: %+v", request)
+				}
+			}
+		})
 	}
 }
 

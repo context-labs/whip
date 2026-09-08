@@ -385,16 +385,18 @@ func (session *AgentSession) GenerateTitle(ctx context.Context) (string, llm.Usa
 		return "", llm.Usage{}, errors.New("title requires a completed exchange")
 	}
 	client, model := session.agent.CompactClient, session.agent.CompactModel
+	prices := session.agent.CompactPrices
 	if client == nil || model == "" {
 		client, model = session.agent.Client, session.agent.Model
+		prices = session.agent.Prices
 	}
-	output, usage, err := client.Complete(ctx, llm.Request{
+	output, usage, err := client.Complete(ctx, session.agent.BudgetRequest(llm.Request{
 		Model: model, MaxTokens: 24,
 		Messages: []llm.Message{
 			{Role: "system", Content: "Name this coding session. Reply with a plain 3-6 word title: no quotes and no trailing period."},
 			{Role: "user", Content: "Request: " + boundedTitleText(userText, 300) + "\nResponse: " + boundedTitleText(assistantText, 200)},
 		},
-	})
+	}, prices))
 	if err != nil {
 		return "", usage, err
 	}
@@ -476,19 +478,8 @@ func (session *AgentSession) complete(ctx context.Context, prompt string, maxTok
 		Model: session.agent.Model, MaxTokens: maxTokens,
 		Messages: []llm.Message{{Role: "user", Content: prompt}},
 	}
-	settle := func(llm.Usage) error { return nil }
-	if session.root != nil && session.id != "" {
-		estimate := int64(agent.EstimateTokens(request.Messages) + max(maxTokens, 1))
-		var err error
-		settle, err = session.root.ReserveAgentModelCall(ctx, session.id, estimate)
-		if err != nil {
-			return "", llm.Usage{}, err
-		}
-	}
+	request = session.agent.BudgetRequest(request, session.agent.Prices)
 	output, usage, err := session.agent.Client.Complete(ctx, request)
-	if settleErr := settle(usage); err == nil {
-		err = settleErr
-	}
 	session.agent.AddUsage(usage)
 	return output, usage, err
 }

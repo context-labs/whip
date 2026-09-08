@@ -24,7 +24,7 @@ type registryEntry struct {
 // still has exactly one home even when it's not a slash command.
 var registry = []registryEntry{
 	{Name: "/auth", Hint: "<provider> [key] — connect a provider (bare = guided login)", Category: "Agent"},
-	{Name: "/agents", Hint: "[list|stop <id>|delete <id>|budget <id> <kind> <limit>|revoke <capability-id>] — inspect or control recursive agents", Category: "Session"},
+	{Name: "/agents", Hint: "[list|stop <id>|delete <id>|revoke <capability-id>] — inspect or control recursive agents", Category: "Session"},
 	{Name: "/browser", Hint: "[status|driver rod|driver chromedp] — inspect or select browser automation", Category: "Session"},
 	{Name: "/cd", Hint: "[dir] — change working directory (bare prints it)", Category: "Session"},
 	{Name: "/clear", Hint: "— reset conversation", Category: "Session"},

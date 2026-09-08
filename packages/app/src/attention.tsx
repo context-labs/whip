@@ -6,11 +6,13 @@ import type { WhipClient } from '@whip/sdk';
 import { Badge, Button, Sheet } from '@whip/ui';
 import { Bell } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
-import { useAppState } from './context';
+import { useAppState, useRuntime } from './context';
+import { sessionSearch } from './session-tabs';
 import { layout } from './styles';
 
 export function Attention({ client }: { client: WhipClient }) {
   const { preferences } = useAppState();
+  const runtime = useRuntime();
   const close = (value: boolean) => {
     setOpen(value);
     if (!value) setAfter(undefined);
@@ -68,7 +70,8 @@ export function Attention({ client }: { client: WhipClient }) {
                 runtimeId: connection.info?.runtime_id || '',
                 rootId: item.root_id,
               }}
-              search={{}}
+              search={sessionSearch(runtime.tabs.preferred(connection.info?.runtime_id || '', item.root_id))}
+              state={{ whipViewId: runtime.tabs.preferred(connection.info?.runtime_id || '', item.root_id)?.id }}
               onClick={() => close(false)}
               {...stylex.props(layout.sessionLink)}
             >

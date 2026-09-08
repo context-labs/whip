@@ -1,41 +1,27 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link, useLocation, useNavigate, useParams } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import type { SessionCatalogPage } from '@whip/protocol';
-import type { DeepReadonly } from '@whip/sdk/state';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useNavigate, useParams } from '@tanstack/react-router';
 import { useHotkey } from '@tanstack/react-hotkeys';
-import { useWhipConnection, useSessionListView } from '@whip/sdk/react';
-import type { WhipClient } from '@whip/sdk';
-import type { SessionListView } from '@whip/sdk/state';
 import {
   Button,
   IconButton,
   Input,
   Dialog,
   Sheet,
-  Badge,
-  ThemePicker,
   CommandPicker,
-  Menu,
-  ContextMenu,
 } from '@whip/ui';
-import { workspaceTabId } from '@whip/ui/workspace-tabs';
+import { workspacePanelId } from '@whip/ui/workspace-layout';
+import { selectedSessionTab } from './session-tabs';
 import {
-  MessageSquare,
-  Plus,
-  Settings2,
   PanelLeft,
-  Plug,
   X,
-  ArrowUpRight,
-  MoreHorizontal,
 } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
+import { SessionSearchDialog } from './session-search-dialog';
+import { SessionSidebar } from './session-sidebar';
+import { SidebarResize, useSidebarLayout } from './sidebar-layout';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { inspectorSections, isInspectorSection } from './navigation';
-import { Attention } from './attention';
 import { ConnectionNotice } from './connection-notice';
 import { SessionTabStrip, type SessionTabActions } from './session-tab-strip';
 
@@ -44,58 +30,48 @@ export function AppShell({ children }: { children: ReactNode }) {
   const state = useAppState();
   const navigate = useNavigate();
   const params = useParams({ strict: false });
-  const tabState = useSessionTabs();
-  const selectedTab = tabState.workspaces.find(item => item.runtimeId === params.runtimeId)?.tabs.find(item => item.rootId === params.rootId);
+  useSessionTabs();
   const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 767px)').matches);
   useEffect(() => { const query = window.matchMedia('(max-width: 767px)'); const update = () => setCompact(query.matches); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, []);
   const [navigation, setNavigation] = useState(false);
+  const sidebar = useSidebarLayout();
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchOpener = useRef<HTMLElement | null>(null);
+  const openSearch = () => {
+    searchOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setNavigation(false);
+    setSearchOpen(true);
+  };
+  const toggleNavigation = () => {
+    if (compact) setNavigation(value => !value);
+    else {
+      sidebar.setState(value => ({ ...value, hidden: !value.hidden }));
+      requestAnimationFrame(() => toggleRef.current?.focus());
+    }
+  };
+  const navigationToggle = <IconButton ref={toggleRef} variant="ghost"
+    label={compact || sidebar.state.hidden ? 'Open navigation' : 'Hide navigation'}
+    aria-expanded={compact ? navigation : !sidebar.state.hidden} aria-controls="whip-session-navigation"
+    onClick={toggleNavigation}><PanelLeft size={18} /></IconButton>;
   const [connection, setConnection] = useState(false);
   const [commands, setCommands] = useState(false);
   const [endpoint, setEndpoint] = useState(state.endpoint);
   const [connecting, setConnecting] = useState(false);
   const tabActions = useRef<SessionTabActions>(null);
-  const focusComposer = () =>
-    document
-      .querySelector<HTMLTextAreaElement>('[data-whip-composer]')
-      ?.focus();
+  const focusComposer = () => {
+    const id = state.client?.getSnapshot().info?.runtime_id;
+    const tab = id ? selectedSessionTab(runtime.tabs.workspace(id)) : undefined;
+    const container = tab ? document.getElementById(workspacePanelId(tab.id)) : undefined;
+    container?.querySelector<HTMLTextAreaElement>('[data-whip-composer]')?.focus();
+  };
   useHotkey(state.preferences.commandShortcut, () =>
     setCommands((value) => !value),
   );
   useHotkey(state.preferences.composerShortcut, focusComposer);
   useEffect(() => setEndpoint(state.endpoint), [state.endpoint]);
-  return (
-    <div {...stylex.props(layout.shell)}>
-      {!compact && <aside {...stylex.props(layout.sidebar)} aria-label="Session navigation">
-        <Navigation
-          onConnect={() => setConnection(true)}
-          onNavigate={() => {}}
-        />
-      </aside>}
-      <div {...stylex.props(layout.main)}>
-        {state.client ? <SessionTabStrip ref={tabActions} client={state.client} compact={compact} utilities={<>
-          <IconButton
-            variant="ghost"
-            label="Open navigation"
-            xstyle={layout.mobileOnly}
-            onClick={() => setNavigation(true)}
-          >
-            <PanelLeft size={18} />
-          </IconButton>
-          {!compact && (
-            <ConnectionBadge
-              client={state.client}
-              onConnect={() => setConnection(true)}
-            />
-          )}
-          <Attention client={state.client} />
-          {!compact && <Menu trigger={<IconButton variant="ghost" label="Application menu"><MoreHorizontal size={16} /></IconButton>} items={[
-            { id: 'commands', label: 'Commands', onSelect: () => setCommands(true) },
-            { id: 'reopen', label: 'Reopen closed tab', onSelect: () => tabActions.current?.reopen() },
-            { id: 'appearance', label: 'Appearance', onSelect: () => void navigate({ to: '/settings', search: { section: 'appearance' } }) },
-            { id: 'settings', label: 'Settings', onSelect: () => void navigate({ to: '/settings' }) },
-          ]} />}
-        </>} /> : <header {...stylex.props(layout.header)}><Button variant="ghost" onClick={() => setConnection(true)}><Plug size={14} /> Connect to host</Button><span {...stylex.props(layout.grow)} /><ThemePicker compact /></header>}
-        {state.client && <ConnectionNotice client={state.client} />}
+  const notices = <>
+{state.client && <ConnectionNotice client={state.client} />}
         {state.error && (
           <div role="alert" {...stylex.props(layout.row, layout.notice)}>
             <span {...stylex.props(layout.grow)}>{state.error}</span>
@@ -107,11 +83,24 @@ export function AppShell({ children }: { children: ReactNode }) {
             </IconButton>
           </div>
         )}
-        {params.rootId ? <section id="whip-session-panel" role="tabpanel" aria-labelledby={!compact && selectedTab && state.client?.getSnapshot().info?.runtime_id === params.runtimeId ? workspaceTabId(params.rootId) : undefined} aria-label="Session" {...stylex.props(layout.main)}>{children}</section> : children}
+  </>;
+  return (
+    <div {...stylex.props(layout.shell)}>
+      {!compact && !sidebar.state.hidden && <aside id="whip-session-navigation" {...stylex.props(layout.sidebar)} style={{ width: sidebar.width }} aria-label="Session navigation">
+        <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch} headerAction={navigationToggle}
+          onConnect={() => setConnection(true)} onNavigate={() => {}} />
+        <SidebarResize width={sidebar.width} maxWidth={sidebar.maxWidth}
+          onResize={width => sidebar.setState(value => ({ ...value, width }))}
+          onHide={() => { sidebar.setState(value => ({ ...value, hidden: true })); requestAnimationFrame(() => toggleRef.current?.focus()); }} toggleRef={toggleRef} />
+      </aside>}
+      <div {...stylex.props(layout.main)}>
+        {state.client ? <SessionTabStrip ref={tabActions} client={state.client} compact={compact}
+          utilities={compact || sidebar.state.hidden ? navigationToggle : null} notices={notices}>{children}</SessionTabStrip>
+          : <>{(compact || sidebar.state.hidden) && <div {...stylex.props(layout.row)}>{navigationToggle}</div>}{notices}{children}</>}
       </div>
-      <Sheet open={navigation} onOpenChange={setNavigation} title="WHIP">
-        <div {...stylex.props(layout.sidebar, layout.sidebarMobile)}>
-          <Navigation
+      <Sheet xstyle={layout.sidebarSheet} open={compact && navigation} onOpenChange={setNavigation} title="WHIP">
+        <div id="whip-session-navigation" {...stylex.props(layout.sidebar, layout.sidebarMobile)}>
+          <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch}
             onConnect={() => {
               setNavigation(false);
               setConnection(true);
@@ -189,6 +178,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Button>
         </form>
       </Dialog>
+      {state.client && state.list && <SessionSearchDialog key={state.endpoint} client={state.client} list={state.list}
+        open={searchOpen} onOpenChange={setSearchOpen}
+        finalFocus={() => searchOpener.current?.isConnected ? searchOpener.current : toggleRef.current} />}
       <CommandPicker
         open={commands}
         onOpenChange={setCommands}
@@ -211,308 +203,19 @@ export function AppShell({ children }: { children: ReactNode }) {
           ),
         ]}
         onSelect={(action) => {
-          if (action === 'new') void navigate({ to: '/' });
+          if (action === 'new') void navigate({ to: '/', search: {} });
           else if (action === 'focus') requestAnimationFrame(focusComposer);
-          else if (action === 'navigation') setNavigation(true);
+          else if (action === 'navigation') openSearch();
           else if (action === 'connect') setConnection(true);
           else if (action === 'tabs:search') tabActions.current?.showPicker();
           else if (action === 'tabs:next') tabActions.current?.next(1);
           else if (action === 'tabs:previous') tabActions.current?.next(-1);
           else if (action === 'tabs:close') tabActions.current?.close();
           else if (action === 'tabs:reopen') tabActions.current?.reopen();
-          else if (action.startsWith('panel:') && params.runtimeId && params.rootId && isInspectorSection(action.slice(6))) void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: params.runtimeId, rootId: params.rootId }, search: previous => ({ ...previous, panel: action.slice(6) as import('./navigation').InspectorSection }) });
+          else if (action.startsWith('panel:') && params.runtimeId && params.rootId && isInspectorSection(action.slice(6))) void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: params.runtimeId, rootId: params.rootId }, state: { whipViewId: selectedSessionTab(runtime.tabs.workspace(params.runtimeId))?.id }, search: previous => ({ ...previous, panel: action.slice(6) as import('./navigation').InspectorSection }) });
           else void navigate({ to: '/settings', search: { section: action } });
         }}
       />
-    </div>
-  );
-}
-
-function ConnectionBadge({
-  client,
-  onConnect,
-}: {
-  client: WhipClient;
-  onConnect(): void;
-}) {
-  const connection = useWhipConnection(client);
-  return (
-    <button
-      {...stylex.props(layout.subtleButton)}
-      onClick={onConnect}
-      aria-label="Connection settings"
-    >
-      <Badge tone={connection.state === 'connected' ? 'success' : 'warning'}>
-        {connection.state === 'connected' ? 'Connected' : connection.state}
-      </Badge>
-    </button>
-  );
-}
-
-function Navigation({
-  onConnect,
-  onNavigate,
-}: {
-  onConnect(): void;
-  onNavigate(): void;
-}) {
-  const state = useAppState();
-  return (
-    <>
-      <div {...stylex.props(layout.sidebarHeader)}>
-        <Link
-          to="/"
-          onClick={onNavigate}
-          {...stylex.props(layout.brand, layout.subtleButton)}
-        >
-          WHIP
-        </Link>
-        <span {...stylex.props(layout.grow)} />
-        <Link
-          to="/"
-          onClick={onNavigate}
-          aria-label="New session"
-          {...stylex.props(layout.subtleButton)}
-        >
-          <Plus size={18} />
-        </Link>
-      </div>
-      {state.client && state.list ? (
-        <SessionNavigation
-          client={state.client}
-          list={state.list}
-          onNavigate={onNavigate}
-        />
-      ) : (
-        <Button onClick={onConnect}>Connect to host</Button>
-      )}
-      <div {...stylex.props(layout.column)}>
-        <Link
-          to="/settings"
-          onClick={onNavigate}
-          {...stylex.props(layout.subtleButton)}
-        >
-          <Settings2 size={15} /> Settings
-        </Link>
-        <button {...stylex.props(layout.subtleButton)} onClick={onConnect}>
-          <Plug size={15} />
-          <span {...stylex.props(layout.ellipsis)}>{state.endpoint}</span>
-          <ArrowUpRight size={13} />
-        </button>
-      </div>
-    </>
-  );
-}
-
-function SessionNavigation({
-  client,
-  list,
-  onNavigate,
-}: {
-  client: WhipClient;
-  list: SessionListView;
-  onNavigate(): void;
-}) {
-  const [search, setSearch] = useState('');
-  const [term, setTerm] = useState('');
-  useEffect(() => {
-    const timer = setTimeout(() => setTerm(search.trim()), 200);
-    return () => clearTimeout(timer);
-  }, [search]);
-  return (
-    <>
-      <Input
-        aria-label="Search sessions on this host"
-        placeholder="Find a session…"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
-      <span {...stylex.props(layout.eyebrow)}>SESSIONS</span>
-      {term ? (
-        <SearchSessions
-          key={term}
-          term={term}
-          client={client}
-          onNavigate={onNavigate}
-        />
-      ) : (
-        <ObservedSessions client={client} list={list} onNavigate={onNavigate} />
-      )}
-    </>
-  );
-}
-function ObservedSessions({
-  client,
-  list,
-  onNavigate,
-}: {
-  client: WhipClient;
-  list: SessionListView;
-  onNavigate(): void;
-}) {
-  const catalog = useSessionListView(list);
-  const runtime = useRuntime();
-  return (
-    <SessionRows
-      client={client}
-      page={catalog.page}
-      loading={catalog.status === 'loading'}
-      error={catalog.error?.message}
-      onNavigate={onNavigate}
-      loadMore={() =>
-        void list.loadMore().catch((error) => runtime.report(error))
-      }
-    />
-  );
-}
-function SearchSessions({
-  client,
-  term,
-  onNavigate,
-}: {
-  client: WhipClient;
-  term: string;
-  onNavigate(): void;
-}) {
-  const connection = useWhipConnection(client);
-  const [cursor, setCursor] = useState<SessionCatalogPage['next_cursor']>();
-  const query = useQuery({
-    queryKey: ['session-search', term, cursor],
-    queryFn: ({ signal }) =>
-      client.sessions.list(
-        {
-          search: term,
-          ...(cursor ? { cursor } : {}),
-          limit: 64,
-          max_bytes: 256 << 10,
-        },
-        { signal },
-      ),
-    enabled: connection.state === 'connected',
-  });
-  return (
-    <>
-      <SessionRows
-        client={client}
-        page={query.data}
-        loading={query.isFetching}
-        error={query.error?.message}
-        onNavigate={onNavigate}
-        loadMore={() => setCursor(query.data?.next_cursor)}
-      />
-      {cursor && (
-        <Button variant="ghost" onClick={() => setCursor(undefined)}>
-          First results
-        </Button>
-      )}
-      {query.error && (
-        <Button
-          variant="ghost"
-          onClick={() => {
-            if (cursor) setCursor(undefined);
-            else void query.refetch();
-          }}
-        >
-          Refresh search
-        </Button>
-      )}
-    </>
-  );
-}
-function SessionRows({
-  client,
-  page,
-  loading,
-  error,
-  onNavigate,
-  loadMore,
-}: {
-  client: WhipClient;
-  page?: DeepReadonly<SessionCatalogPage>;
-  loading: boolean;
-  error?: string;
-  onNavigate(): void;
-  loadMore(): void;
-}) {
-  const runtime = useRuntime();
-  useSessionTabs();
-  const connection = useWhipConnection(client);
-  const scroll = useRef<HTMLDivElement>(null);
-  const location = useLocation();
-  const items = page?.items ?? [];
-  const virtual = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => scroll.current,
-    estimateSize: () => 54,
-    overscan: 5,
-    getItemKey: (index) => items[index]!.id,
-  });
-  return (
-    <div ref={scroll} {...stylex.props(layout.sessionList)}>
-      <div style={{ height: virtual.getTotalSize(), position: 'relative' }}>
-        {virtual.getVirtualItems().map((row) => {
-          const session = items[row.index]!;
-          const runtimeId = connection.info?.runtime_id ?? '';
-          const saved = runtime.tabs.workspace(runtimeId).tabs.find(item => item.rootId === session.id);
-          return (
-            <div
-              key={session.id}
-              data-index={row.index}
-              ref={virtual.measureElement}
-              style={{
-                position: 'absolute',
-                width: '100%',
-                top: 0,
-                transform: `translateY(${row.start}px)`,
-              }}
-            >
-              <ContextMenu items={[{ id: 'open-background', label: 'Open in background tab', onSelect: () => {
-                try { runtime.tabs.open(runtimeId, session.id, session.title); }
-                catch (error) { runtime.report(error); }
-              } }]}><Link
-                to="/h/$runtimeId/s/$rootId"
-                params={{
-                  runtimeId,
-                  rootId: session.id,
-                }}
-                search={saved?.location ?? {}}
-                preload={false}
-                onClick={event => {
-                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                  try { runtime.tabs.open(runtimeId, session.id, session.title); onNavigate(); }
-                  catch (error) { event.preventDefault(); runtime.report(error); }
-                }}
-                {...stylex.props(
-                  layout.sessionLink,
-                  location.pathname.endsWith(`/s/${session.id}`) &&
-                    layout.selected,
-                )}
-              >
-                <MessageSquare size={15} strokeWidth={1.5} />
-                <div {...stylex.props(layout.grow)}>
-                  <div {...stylex.props(layout.ellipsis)}>
-                    {session.title || 'Untitled session'}
-                  </div>
-                  <div {...stylex.props(layout.muted, layout.ellipsis)}>
-                    {session.cwd}
-                  </div>
-                </div>
-              </Link></ContextMenu>
-            </div>
-          );
-        })}
-      </div>
-      {!items.length && (
-        <p {...stylex.props(layout.muted)}>
-          {loading ? 'Loading sessions…' : 'No matching sessions.'}
-        </p>
-      )}
-      {page?.has_more && (
-        <Button variant="ghost" disabled={loading} onClick={loadMore}>
-          Load more sessions
-        </Button>
-      )}
-      {error && <p role="alert">{error}</p>}
     </div>
   );
 }

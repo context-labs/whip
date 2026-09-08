@@ -77,7 +77,7 @@
     ],
     "additionalProperties": false
   },
-  "$id": "https://whip.dev/protocol/v3/AgentListResult",
+  "$id": "https://whip.dev/protocol/v4/AgentListResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "AgentListResult"
 }

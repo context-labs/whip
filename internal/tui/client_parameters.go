@@ -61,15 +61,6 @@ func clientCLIParameters(operation, text string) (string, any, error) {
 			}
 		}
 		return operation, value, nil
-	case "budget.cap":
-		if len(fields) != 3 {
-			return fail("budget cap requires agent, kind and limit")
-		}
-		limit, err := strconv.ParseInt(fields[2], 10, 64)
-		if err != nil || limit < 0 {
-			return fail("budget limit must be a nonnegative integer")
-		}
-		return operation, protocol.BudgetCapParams{ID: fields[0], Kind: fields[1], Limit: limit}, nil
 	case "schedule":
 		if len(fields) == 0 || len(fields) == 1 && fields[0] == "list" {
 			return "schedule.list", protocol.EmptyParams{}, nil

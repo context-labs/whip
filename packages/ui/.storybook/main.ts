@@ -6,7 +6,7 @@ const config: StorybookConfig = {
   framework: '@storybook/react-vite',
   addons: ['@storybook/addon-a11y'],
   viteFinal(config) {
-    config.plugins = [stylex.vite({useCSSLayers: true, runtimeInjection: false, unstable_moduleResolution: {type: 'commonJS', rootDir: fileURLToPath(new URL('../../../', import.meta.url))}}), ...(config.plugins ?? [])];
+    config.plugins = [stylex.vite({useCSSLayers: {before: ['whip-reset']}, runtimeInjection: false, unstable_moduleResolution: {type: 'commonJS', rootDir: fileURLToPath(new URL('../../../', import.meta.url))}}), ...(config.plugins ?? [])];
     return config;
   },
 };

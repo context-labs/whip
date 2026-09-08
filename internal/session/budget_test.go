@@ -29,9 +29,6 @@ func budgetState(t *testing.T, store *Store, rootID, agentID string, kind Budget
 func TestDefaultRootBudgetLimits(t *testing.T) {
 	store, rootID, rootAgentID := newSwarmFixture(t)
 	want := map[BudgetKind]int64{
-		BudgetTokens:                 100_000_000,
-		BudgetCost:                   DefaultRootCostMicros,
-		BudgetElapsed:                DefaultRootElapsedMillis,
 		BudgetDurableBytes:           DefaultRootDurableBytes,
 		BudgetRecordCount:            DefaultRootRecords,
 		BudgetSchedulesSubscriptions: DefaultRootSchedulesSubscriptions,
@@ -44,12 +41,76 @@ func TestDefaultRootBudgetLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(states) != len(want) {
+	if len(states) != len(want)+3 {
 		t.Fatalf("default budgets=%+v", states)
 	}
 	for _, state := range states {
-		if state.Limit != want[state.Kind] || state.Used != 0 || state.Reserved != 0 || state.Remaining != state.Limit {
+		if isModelBudgetKind(state.Kind) {
+			if state.Limit != nil || state.Remaining != nil || state.Used != 0 || state.Reserved != 0 {
+				t.Errorf("unlimited default: %+v", state)
+			}
+			continue
+		}
+		if state.Limit == nil || *state.Limit != want[state.Kind] || state.Used != 0 || state.Reserved != 0 || state.Remaining == nil || *state.Remaining != *state.Limit {
 			t.Errorf("default %q=%+v want limit=%d", state.Kind, state, want[state.Kind])
+		}
+	}
+}
+
+func TestModelSettlementStorageFailureIsAtomicAndRetryable(t *testing.T) {
+	store, rootID, agentID := newSwarmFixture(t)
+	reservation := []capability.Reservation{
+		{Kind: string(BudgetTokens), Amount: 100},
+		{Kind: string(BudgetCost), Amount: 200},
+		{Kind: string(BudgetActiveOperations), Amount: 1},
+	}
+	if err := store.ReserveModelBudget(t.Context(), rootID, agentID, reservation, false); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, store, `CREATE TRIGGER fail_model_settlement BEFORE UPDATE ON budgets WHEN NEW.kind='cost' BEGIN SELECT RAISE(ABORT,'disk failure'); END`)
+	actual := []capability.Usage{{Kind: string(BudgetTokens), Amount: 300}, {Kind: string(BudgetCost), Amount: 400}}
+	if err := store.ReconcileModelBudget(t.Context(), rootID, agentID, reservation, actual); err == nil {
+		t.Fatal("settlement ignored a storage failure")
+	}
+	if state := budgetState(t, store, rootID, agentID, BudgetTokens); state.Used != 0 || state.Reserved != 100 {
+		t.Fatalf("partial settlement: %+v", state)
+	}
+	exec(t, store, `DROP TRIGGER fail_model_settlement`)
+	if err := store.ReconcileModelBudget(t.Context(), rootID, agentID, reservation, actual); err != nil {
+		t.Fatal(err)
+	}
+	if state := budgetState(t, store, rootID, agentID, BudgetTokens); state.Used != 300 || state.Reserved != 0 {
+		t.Fatalf("retried settlement: %+v", state)
+	}
+	if state := budgetState(t, store, rootID, agentID, BudgetActiveOperations); state.Used != 0 || state.Reserved != 0 {
+		t.Fatalf("live capacity: %+v", state)
+	}
+}
+
+func TestForkStartsWithFreshUnlimitedModelBudgets(t *testing.T) {
+	store, rootID, agentID := newSwarmFixture(t)
+	if err := store.SetBudgetLimit(t.Context(), rootID, "", BudgetCost, 2); err != nil {
+		t.Fatal(err)
+	}
+	reservation := []capability.Reservation{{Kind: string(BudgetCost), Amount: 2}}
+	if err := store.ReserveModelBudget(t.Context(), rootID, agentID, reservation, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReconcileModelBudget(t.Context(), rootID, agentID, reservation, nil); err != nil {
+		t.Fatal(err)
+	}
+	forkID, err := store.Fork(rootID, 0, "fresh accounting")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := store.EnsureAuthority(t.Context(), forkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []BudgetKind{BudgetTokens, BudgetCost, BudgetElapsed} {
+		state := budgetState(t, store, forkID, authority.AgentID, kind)
+		if state.Limit != nil || state.Used != 0 || state.Uncertain != 0 || state.Reserved != 0 || state.Incomplete {
+			t.Fatalf("fork inherited model accounting: %+v", state)
 		}
 	}
 }
@@ -68,7 +129,7 @@ func TestBudgetKindsExhaustIndependently(t *testing.T) {
 			if err := store.ReserveBudget(context.Background(), rootID, rootAgentID, []capability.Reservation{reservation}); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.ReserveBudget(context.Background(), rootID, rootAgentID, []capability.Reservation{{Kind: string(kind), Amount: 1}}); !errors.Is(err, capability.ErrDenied) || !strings.Contains(err.Error(), string(kind)+" budget needs 1, remaining 0") {
+			if err := store.ReserveBudget(context.Background(), rootID, rootAgentID, []capability.Reservation{{Kind: string(kind), Amount: 1}}); !errors.Is(err, capability.ErrDenied) || !strings.Contains(err.Error(), string(kind)+" budget needs "+FormatBudgetAmount(kind, 1)+", remaining "+FormatBudgetAmount(kind, 0)) {
 				t.Fatalf("exhaustion error=%v", err)
 			}
 			actual := []capability.Usage{{Kind: string(kind), Amount: 1}}
@@ -124,7 +185,7 @@ func TestBudgetDescendantsRollUpAndReconcileConservatively(t *testing.T) {
 	if err := store.ReconcileBudget(context.Background(), rootID, "right", right, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := budgetState(t, store, rootID, rootAgentID, BudgetTokens); got.Used != 10 || got.Reserved != 0 || got.Remaining != 0 {
+	if got := budgetState(t, store, rootID, rootAgentID, BudgetTokens); got.Used != 10 || got.Reserved != 0 || (got.Remaining == nil || *got.Remaining != 0) {
 		t.Fatalf("missing actual did not consume reservation: %+v", got)
 	}
 }
@@ -332,7 +393,7 @@ func TestCapBudgetEnforcesAncestryAndPreservesAccounting(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, err := store.CapBudget(context.Background(), rootID, "parent", "target", BudgetTokens, 5)
-	if err != nil || state.Limit != 5 || state.Used != 3 || state.Reserved != 2 || state.Remaining != 0 {
+	if err != nil || (state.Limit == nil || *state.Limit != 5) || state.Used != 3 || state.Reserved != 2 || (state.Remaining == nil || *state.Remaining != 0) {
 		t.Fatalf("cap state=%+v err=%v", state, err)
 	}
 	if _, err := store.CapBudget(context.Background(), rootID, "parent", "target", BudgetTokens, 4); !errors.Is(err, capability.ErrDenied) {
@@ -366,43 +427,26 @@ func TestCapBudgetEnforcesAncestryAndPreservesAccounting(t *testing.T) {
 	}
 }
 
-func TestCapBudgetCreatesDescendantLimitForInheritedKind(t *testing.T) {
+func TestCapBudgetWaitsForInheritedReservations(t *testing.T) {
 	store, rootID, rootAgentID := newSwarmFixture(t)
-	if err := store.SetBudgetLimit(context.Background(), rootID, "", BudgetTokens, 10); err != nil {
-		t.Fatal(err)
-	}
-	held := []capability.Reservation{{Kind: string(BudgetTokens), Amount: 4}}
-	if err := store.ReserveBudget(context.Background(), rootID, rootAgentID, held); err != nil {
-		t.Fatal(err)
-	}
+	ctx := context.Background()
 	admitTestChild(t, store, rootID, rootAgentID, "child")
-
-	state, err := store.CapBudget(context.Background(), rootID, rootAgentID, "child", BudgetTokens, 8)
-	if err != nil || state.Limit != 6 || state.Used != 0 || state.Reserved != 0 || state.Remaining != 6 {
-		t.Fatalf("inherited cap state=%+v err=%v", state, err)
-	}
-	var limit, used, reserved int64
-	if err := store.db.QueryRowContext(context.Background(), `SELECT limit_value,used_value,reserved_value FROM budgets WHERE root_id=? AND agent_id='child' AND kind=?`, rootID, BudgetTokens).
-		Scan(&limit, &used, &reserved); err != nil || limit != 6 || used != 0 || reserved != 0 {
-		t.Fatalf("persisted inherited cap limit=%d used=%d reserved=%d err=%v", limit, used, reserved, err)
-	}
-	if err := store.ReleaseBudget(context.Background(), rootID, rootAgentID, held); err != nil {
+	held := []capability.Reservation{{Kind: string(BudgetTokens), Amount: 4}}
+	if err := store.ReserveBudget(ctx, rootID, "child", held); err != nil {
 		t.Fatal(err)
 	}
-	if got := budgetState(t, store, rootID, "child", BudgetTokens); got.Limit != 6 || got.Remaining != 6 {
-		t.Fatalf("released ancestor allowance increased child authority: %+v", got)
+	if _, err := store.CapBudget(ctx, rootID, rootAgentID, "child", BudgetTokens, 8); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("in-flight cap = %v", err)
 	}
-	if _, err := store.CapBudget(context.Background(), rootID, rootAgentID, "child", BudgetTokens, 8); !errors.Is(err, capability.ErrDenied) {
-		t.Fatalf("cap increased child authority: %v", err)
-	}
-	if err := store.ReserveBudget(context.Background(), rootID, "child", []capability.Reservation{{Kind: string(BudgetTokens), Amount: 6}}); err != nil {
+	if err := store.ReconcileBudget(ctx, rootID, "child", held, []capability.Usage{{Kind: string(BudgetTokens), Amount: 2}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CapBudget(context.Background(), rootID, rootAgentID, "child", BudgetTokens, 5); !errors.Is(err, capability.ErrDenied) {
-		t.Fatalf("cap fell below child accounting: %v", err)
+	state, err := store.CapBudget(ctx, rootID, rootAgentID, "child", BudgetTokens, 8)
+	if err != nil || state.Limit == nil || *state.Limit != 8 {
+		t.Fatalf("cap = %+v, %v", state, err)
 	}
-	if err := store.ReserveBudget(context.Background(), rootID, "child", []capability.Reservation{{Kind: string(BudgetTokens), Amount: 1}}); !errors.Is(err, capability.ErrDenied) {
-		t.Fatalf("cap did not bind later admission: %v", err)
+	if _, err := store.CapBudget(ctx, rootID, rootAgentID, "child", BudgetTokens, 9); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("cap raised: %v", err)
 	}
 }
 
@@ -457,6 +501,9 @@ func TestRecoveryReleasesDescendantOperationAndAgentTurnReservations(t *testing.
 	if err := store.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	for _, kind := range []BudgetKind{BudgetTokens, BudgetCost, BudgetActiveOperations, BudgetActiveChildren, BudgetConcurrentChildTurns} {
 		got := budgetState(t, store, rootID, authority.AgentID, kind)
 		wantReserved := int64(0)
@@ -466,10 +513,10 @@ func TestRecoveryReleasesDescendantOperationAndAgentTurnReservations(t *testing.
 		if got.Reserved != wantReserved {
 			t.Errorf("recovered %q=%+v", kind, got)
 		}
-		if kind == BudgetTokens && got.Used != 7 {
+		if kind == BudgetTokens && (got.Used != 4 || got.Uncertain != 3 || !got.Incomplete) {
 			t.Errorf("recovered cumulative usage=%+v", got)
 		}
-		if kind == BudgetCost && got.Used != 2 {
+		if kind == BudgetCost && (got.Used != 0 || got.Uncertain != 2 || !got.Incomplete) {
 			t.Errorf("recovered monetary usage=%+v", got)
 		}
 	}
@@ -576,7 +623,7 @@ func TestBudgetValidationAndAccountingDenials(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := store.db.ExecContext(ctx, `UPDATE budgets SET used_value=limit_value+1 WHERE root_id=? AND agent_id='' AND kind=?`, rootID, BudgetTokens); err != nil {
+	if _, err := store.db.ExecContext(ctx, `UPDATE budgets SET used_value=-1 WHERE root_id=? AND agent_id='' AND kind=?`, rootID, BudgetTokens); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ReserveBudget(ctx, rootID, "child", []capability.Reservation{{Kind: string(BudgetTokens), Amount: 1}}); !errors.Is(err, capability.ErrDenied) {
@@ -653,7 +700,7 @@ func TestBudgetAdditionalAccessAndCorruptionPaths(t *testing.T) {
 				}
 			})
 		}
-		if state, err := store.CapBudget(ctx, rootID, rootAgentID, rootAgentID, BudgetTokens, 100); err != nil || state.Limit != 100 {
+		if state, err := store.CapBudget(ctx, rootID, rootAgentID, rootAgentID, BudgetTokens, 100); err != nil || (state.Limit == nil || *state.Limit != 100) {
 			t.Fatalf("root cap=%+v err=%v", state, err)
 		}
 	})
@@ -661,7 +708,7 @@ func TestBudgetAdditionalAccessAndCorruptionPaths(t *testing.T) {
 	t.Run("invalid inherited accounting", func(t *testing.T) {
 		store, rootID, rootAgentID := newSwarmFixture(t)
 		admitTestChild(t, store, rootID, rootAgentID, "child")
-		if _, err := store.db.ExecContext(ctx, `UPDATE budgets SET used_value=limit_value+1 WHERE root_id=? AND agent_id='' AND kind=?`, rootID, BudgetCost); err != nil {
+		if _, err := store.db.ExecContext(ctx, `UPDATE budgets SET used_value=-1 WHERE root_id=? AND agent_id='' AND kind=?`, rootID, BudgetCost); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := store.CapBudget(ctx, rootID, rootAgentID, "child", BudgetCost, 1); !errors.Is(err, capability.ErrDenied) {
@@ -688,4 +735,134 @@ func TestBudgetAdditionalAccessAndCorruptionPaths(t *testing.T) {
 			t.Fatalf("missing budgets error=%v", err)
 		}
 	})
+}
+
+func TestUnlimitedModelBudgetsAndExplicitChildCaps(t *testing.T) {
+	store, rootID, rootAgentID := newSwarmFixture(t)
+	ctx := context.Background()
+	admitTestChild(t, store, rootID, rootAgentID, "child")
+	for _, kind := range []BudgetKind{BudgetTokens, BudgetCost, BudgetElapsed} {
+		// Exceed every former cumulative default without time or provider spending.
+		reservation := []capability.Reservation{{Kind: string(kind), Amount: 200_000_000}}
+		for range 2 {
+			if err := store.ReserveModelBudget(ctx, rootID, "child", reservation, false); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ReconcileModelBudget(ctx, rootID, "child", reservation, []capability.Usage{{Kind: string(kind), Amount: 200_000_001}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		state := budgetState(t, store, rootID, "child", kind)
+		if state.Limit != nil || state.Remaining != nil || state.Used != 400_000_002 || state.Reserved != 0 {
+			t.Fatalf("unlimited %s: %+v", kind, state)
+		}
+	}
+	if _, err := store.CapBudget(ctx, rootID, rootAgentID, "child", BudgetTokens, 2); err != nil {
+		t.Fatal(err)
+	}
+	reservation := []capability.Reservation{{Kind: string(BudgetTokens), Amount: 1}}
+	if err := store.ReserveModelBudget(ctx, rootID, "child", reservation, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReconcileModelBudget(ctx, rootID, "child", reservation, []capability.Usage{{Kind: string(BudgetTokens), Amount: 3}}); err != nil {
+		t.Fatal(err)
+	}
+	state := budgetState(t, store, rootID, "child", BudgetTokens)
+	if state.Used != 3 || state.Reserved != 0 || state.Remaining == nil || *state.Remaining != 0 {
+		t.Fatalf("overage: %+v", state)
+	}
+	if err := store.ReserveModelBudget(ctx, rootID, "child", reservation, false); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("spent cap: %v", err)
+	}
+	// A child's cap cannot prevent the unlimited parent from continuing.
+	if err := store.ReserveModelBudget(ctx, rootID, rootAgentID, reservation, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestModelBudgetUncertaintyAndKnownZero(t *testing.T) {
+	for _, known := range []bool{false, true} {
+		name := "unknown"
+		if known {
+			name = "known zero"
+		}
+		t.Run(name, func(t *testing.T) {
+			store, rootID, agentID := newSwarmFixture(t)
+			ctx := context.Background()
+			reservation := []capability.Reservation{{Kind: string(BudgetCost), Amount: 23_883_863}, {Kind: string(BudgetActiveOperations), Amount: 1}}
+			if err := store.ReserveModelBudget(ctx, rootID, agentID, reservation, false); err != nil {
+				t.Fatal(err)
+			}
+			var actual []capability.Usage
+			if known {
+				actual = []capability.Usage{{Kind: string(BudgetCost), Amount: 0}}
+			}
+			if err := store.ReconcileModelBudget(ctx, rootID, agentID, reservation, actual); err != nil {
+				t.Fatal(err)
+			}
+			cost := budgetState(t, store, rootID, agentID, BudgetCost)
+			if cost.Used != 0 || cost.Reserved != 0 || cost.Incomplete == known {
+				t.Fatalf("cost: %+v", cost)
+			}
+			want := int64(23_883_863)
+			if known {
+				want = 0
+			}
+			if cost.Uncertain != want {
+				t.Fatalf("uncertain: %+v", cost)
+			}
+			if op := budgetState(t, store, rootID, agentID, BudgetActiveOperations); op.Reserved != 0 {
+				t.Fatalf("live capacity: %+v", op)
+			}
+		})
+	}
+}
+
+func TestUnpricedModelRequiresUnlimitedCost(t *testing.T) {
+	store, rootID, agentID := newSwarmFixture(t)
+	ctx := context.Background()
+	reservation := []capability.Reservation{{Kind: string(BudgetCost), Amount: 0}}
+	if err := store.ReserveModelBudget(ctx, rootID, agentID, reservation, true); err != nil {
+		t.Fatal(err)
+	}
+	if state := budgetState(t, store, rootID, agentID, BudgetCost); !state.Incomplete || state.Used != 0 {
+		t.Fatalf("unpriced: %+v", state)
+	}
+	if _, err := store.CapBudget(ctx, rootID, agentID, agentID, BudgetCost, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReserveModelBudget(ctx, rootID, agentID, reservation, true); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("unpriced finite: %v", err)
+	}
+	// Known-free models can run even with an explicit zero cost allowance.
+	if _, err := store.CapBudget(ctx, rootID, agentID, agentID, BudgetCost, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReserveModelBudget(ctx, rootID, agentID, reservation, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnlimitedBudgetRequiresRootRowAndCheckedArithmetic(t *testing.T) {
+	store, rootID, agentID := newSwarmFixture(t)
+	ctx := context.Background()
+	admitTestChild(t, store, rootID, agentID, "child")
+	if _, err := store.CapBudget(ctx, rootID, agentID, "child", BudgetTokens, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE budgets SET used_value=9223372036854775807 WHERE root_id=? AND agent_id='' AND kind='cost'`, rootID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReserveBudget(ctx, rootID, agentID, []capability.Reservation{{Kind: "cost", Amount: 1}}); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("overflow: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `DELETE FROM budgets WHERE root_id=? AND agent_id='' AND kind='tokens'`, rootID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReserveBudget(ctx, rootID, "child", []capability.Reservation{{Kind: "tokens", Amount: 1}}); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("missing root row: %v", err)
+	}
+	if _, err := store.EnsureAuthority(ctx, rootID); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("reopening repaired missing accounting: %v", err)
+	}
 }

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/context-labs/whip/internal/llm"
 )
 
 // catalogTTL is how long a provider's fetched model list stays fresh.
@@ -21,13 +23,15 @@ type Catalog struct {
 
 // ModelInfoLite is the subset of the provider's /models entry whip uses.
 type ModelInfoLite struct {
+	PricingKnown        bool     `json:"pricingKnown,omitempty"`
+	CacheReadPriceKnown bool     `json:"cacheReadPriceKnown,omitempty"`
 	ID                  string   `json:"id"`
 	ContextLength       int      `json:"contextLength,omitempty"`       // model's context window (input), 0 if unadvertised
 	MaxCompletionTokens int      `json:"maxCompletionTokens,omitempty"` // provider's output cap, 0 if unadvertised
 	ReasoningEfforts    []string `json:"reasoningEfforts,omitempty"`
-	InPrice             float64  `json:"inPrice,omitempty"`         // USD per prompt token, 0 if unadvertised
-	OutPrice            float64  `json:"outPrice,omitempty"`        // USD per completion token, 0 if unadvertised
-	CacheReadPrice      float64  `json:"cacheReadPrice,omitempty"`  // USD per cached prompt token, 0 = bill at InPrice
+	InPrice             float64  `json:"inPrice,omitempty"`         // USD per prompt token; PricingKnown distinguishes free from missing
+	OutPrice            float64  `json:"outPrice,omitempty"`        // USD per completion token; see PricingKnown
+	CacheReadPrice      float64  `json:"cacheReadPrice,omitempty"`  // USD per cached prompt token; see CacheReadPriceKnown
 	InputModalities     []string `json:"inputModalities,omitempty"` // provider-advertised input types (["text","image"])
 }
 
@@ -75,12 +79,38 @@ func (c Catalog) MaxCompletionTokens(id string) int {
 // false when the catalog has no entry for it or the entry has no prices, in
 // which case callers should hide cost rather than show $0.
 func (c Catalog) Pricing(id string) (in, out, cacheRead float64, ok bool) {
-	for _, mi := range c.Models {
-		if mi.ID == id {
-			return mi.InPrice, mi.OutPrice, mi.CacheReadPrice, mi.InPrice > 0 || mi.OutPrice > 0
+	prices := c.TokenPrices(id)
+	return prices.Input, prices.Output, prices.CacheRate(), prices.Known
+}
+
+// TokenPrices returns a snapshot; an explicit free rate stays distinct from
+// absent pricing. Older positive cached prices remain usable until refresh.
+func (c Catalog) TokenPrices(id string) llm.TokenPrices {
+	if mi := c.Find(id); mi != nil {
+		prices := llm.TokenPrices{Input: mi.InPrice, Output: mi.OutPrice, CacheRead: mi.CacheReadPrice,
+			Known:          mi.PricingKnown || mi.InPrice > 0 && mi.OutPrice > 0,
+			CacheReadKnown: mi.CacheReadPriceKnown || mi.CacheReadPrice > 0}
+		if prices.Validate() == nil {
+			return prices
 		}
 	}
-	return 0, 0, 0, false
+	return llm.TokenPrices{}
+}
+
+// ModelLimits resolves the same context and response ceilings for every route.
+func (c Catalog) ModelLimits(id string, model Model) (contextLimit, maxOutput int) {
+	contextLimit = model.ContextWindow()
+	if value := c.ContextLength(id); value > 0 {
+		contextLimit = value
+	}
+	maxOutput = model.MaxOut
+	if maxOutput <= 0 {
+		maxOutput = c.MaxCompletionTokens(id)
+	}
+	if maxOutput <= 0 {
+		maxOutput = contextLimit
+	}
+	return contextLimit, maxOutput
 }
 
 // Find returns the catalog entry for a model id (nil when unadvertised).

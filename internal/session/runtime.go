@@ -1586,12 +1586,39 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 }
 
 func settleInterruptedBudgetReservations(ctx context.Context, tx *sql.Tx) error {
-	stamp := now()
-	if _, err := tx.ExecContext(ctx, `UPDATE budgets SET used_value=used_value+reserved_value,reserved_value=0,updated_at=?
-		WHERE kind NOT IN (?,?,?)`, stamp, BudgetActiveOperations, BudgetActiveChildren, BudgetConcurrentChildTurns); err != nil {
+	rows, err := tx.QueryContext(ctx, `SELECT kind,limit_value,used_value,reserved_value,uncertain_value,incomplete FROM budgets`)
+	if err != nil {
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=0,updated_at=? WHERE kind=?`, stamp, BudgetActiveOperations)
+	for rows.Next() {
+		var row budgetRow
+		if err := rows.Scan(&row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if _, valid := budgetRemaining(row); !valid {
+			_ = rows.Close()
+			return capability.ErrDenied
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	stamp := now()
+	if _, err := tx.ExecContext(ctx, `UPDATE budgets SET uncertain_value=uncertain_value+reserved_value,
+  incomplete=CASE WHEN reserved_value>0 THEN 1 ELSE incomplete END,reserved_value=0,updated_at=?
+  WHERE kind IN (?,?,?)`, stamp, BudgetTokens, BudgetCost, BudgetElapsed); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE budgets SET used_value=used_value+reserved_value,reserved_value=0,updated_at=?
+  WHERE kind NOT IN (?,?,?,?,?,?)`, stamp, BudgetActiveOperations, BudgetActiveChildren, BudgetConcurrentChildTurns, BudgetTokens, BudgetCost, BudgetElapsed); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE budgets SET reserved_value=0,updated_at=? WHERE kind=?`, stamp, BudgetActiveOperations)
 	return err
 }
 

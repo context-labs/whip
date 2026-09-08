@@ -71,9 +71,10 @@ type evaluationBudget struct {
 	calls           int
 }
 
-func (budget *evaluationBudget) ReserveModelCall(_ context.Context, estimate int64) (func(llm.Usage) error, error) {
+func (budget *evaluationBudget) ReserveModelCall(_ context.Context, request llm.CallEstimate) (func(llm.Usage) error, error) {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
+	estimate := request.PromptTokens + request.OutputTokens
 	if budget.calls >= budget.maxCalls {
 		return nil, errors.New("evaluation model-call budget exhausted")
 	}
@@ -180,7 +181,7 @@ func (host *smokeHost) callModel(ctx context.Context, prompt string) map[string]
 		}
 		var settle func(llm.Usage) error
 		if host.budget != nil {
-			settle, err = host.budget.ReserveModelCall(ctx, int64(agent.EstimateTokens([]llm.Message{{Role: "user", Content: prompt}})+maxTokens))
+			settle, err = host.budget.ReserveModelCall(ctx, llm.CallEstimate{PromptTokens: int64(agent.EstimateTokens([]llm.Message{{Role: "user", Content: prompt}})), OutputTokens: int64(maxTokens)})
 			if err != nil {
 				return map[string]any{"error": err.Error()}
 			}
@@ -194,7 +195,7 @@ func (host *smokeHost) callModel(ctx context.Context, prompt string) map[string]
 			}
 		}
 	} else if host.budget != nil {
-		settle, reserveErr := host.budget.ReserveModelCall(ctx, int64(agent.EstimateTokens([]llm.Message{{Role: "user", Content: prompt}})+256))
+		settle, reserveErr := host.budget.ReserveModelCall(ctx, llm.CallEstimate{PromptTokens: int64(agent.EstimateTokens([]llm.Message{{Role: "user", Content: prompt}})), OutputTokens: 256})
 		if reserveErr != nil {
 			return map[string]any{"error": reserveErr.Error()}
 		}

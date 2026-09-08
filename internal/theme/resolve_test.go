@@ -24,8 +24,8 @@ func TestAllShippedThemesMatchTerminal(t *testing.T) {
 	if len(catalog) != len(specs) {
 		t.Fatalf("browser %d themes; terminal %d", len(catalog), len(specs))
 	}
-	// Guard the initial milestone inventory without encoding it into application logic.
-	if len(catalog) != 65 {
+	// Guard the shipped inventory without encoding it into application logic.
+	if len(catalog) != 66 {
 		t.Fatalf("shipped inventory changed (%d); review theme parity fixtures", len(catalog))
 	}
 	seen := map[string]bool{}
@@ -75,6 +75,27 @@ func TestAllShippedThemesMatchTerminal(t *testing.T) {
 }
 
 func TestCustomResolution(t *testing.T) {
+	t.Run("display label and optional browser surfaces", func(t *testing.T) {
+		spec := theme.Spec{Name: "ink", DisplayName: "Readable Ink", Dark: true,
+			Web: &theme.WebSpec{Navigation: "16", QuietBorder: "#ABCDEF",
+				CodeBackground: "17", InlineCodeBackground: "#FEDCBA"}}
+		got, err := theme.ResolveSpec(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.ID != "ink" || got.Name != "Readable Ink" ||
+			got.Web.Navigation != "#000000" || got.Web.QuietBorder != "#abcdef" ||
+			got.Web.CodeBackground != "#00005f" || got.Web.InlineCodeBackground != "#fedcba" {
+			t.Fatalf("identity or normalized surfaces lost: %+v", got)
+		}
+		if spec.Web.Navigation != "16" || spec.Web.QuietBorder != "#ABCDEF" {
+			t.Fatal("resolver mutated source surfaces")
+		}
+		got, err = theme.ResolveJSON([]byte(`{"name":"partial","web":{"navigation":"16"}}`))
+		if err != nil || got.Web.Navigation != "#000000" || got.Web.QuietBorder != "" {
+			t.Fatalf("partial override: %+v, %v", got, err)
+		}
+	})
 	t.Run("defaults and ansi", func(t *testing.T) {
 		got, err := theme.ResolveJSON([]byte(`{"name":"ocean","dark":true,"palette":{"primary":"21","diffAdd":"255"}}`))
 		if err != nil {
@@ -142,6 +163,10 @@ func TestRejectInvalidCustomThemes(t *testing.T) {
 		"oversized":               strings.Repeat(" ", theme.MaxJSONBytes) + "{}",
 		"oversized name":          `{"name":"` + strings.Repeat("a", 129) + `"}`,
 		"name control":            `{"name":"oops\n"}`,
+		"display name control":    `{"displayName":"oops\n"}`,
+		"oversized display name":  `{"displayName":"` + strings.Repeat("a", 121) + `"}`,
+		"invalid web surface":     `{"web":{"navigation":"url(https://example.com)"}}`,
+		"unknown web surface":     `{"web":{"custom":"#123456"}}`,
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {

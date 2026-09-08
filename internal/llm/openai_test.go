@@ -519,3 +519,147 @@ func TestMessageUnmarshalPlainString(t *testing.T) {
 		t.Fatal("numeric content should error")
 	}
 }
+
+func TestAttemptAccountingPreservesUsageOnFailureAndRetry(t *testing.T) {
+	previousSleep := sleep
+	sleep = func(context.Context, time.Duration) error { return nil }
+	t.Cleanup(func() { sleep = previousSleep })
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				if requests == 1 {
+					w.WriteHeader(http.StatusBadGateway)
+					fmt.Fprint(w, `{"error":{"message":"temporary failure"},"usage":{"prompt_tokens":7,"completion_tokens":3}}`)
+					return
+				}
+				if stream {
+					fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\ndata: {\"error\":{\"message\":\"failed after usage\"}}\n\n")
+				} else {
+					fmt.Fprint(w, `{"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2}}`)
+				}
+			}))
+			defer server.Close()
+			client := New(server.URL, "test")
+			client.MaxRetries = 2
+			admitted := 0
+			var settled []Usage
+			request := Request{Model: "fixture", BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
+				admitted++
+				return func(usage Usage) error { settled = append(settled, usage); return nil }, nil
+			}}
+			var usage Usage
+			var err error
+			if stream {
+				_, usage, err = client.Stream(t.Context(), request, nil, nil, nil)
+			} else {
+				_, usage, err = client.Complete(t.Context(), request)
+			}
+			if err == nil || admitted != 2 || len(settled) != 2 || requests != 2 {
+				t.Fatalf("admitted=%d settled=%+v requests=%d err=%v", admitted, settled, requests, err)
+			}
+			if !settled[0].Reported || !settled[0].Dispatched || !settled[1].Reported || usage.PromptTokens != 11 || usage.CompletionTokens != 5 {
+				t.Fatalf("usage=%+v settled=%+v", usage, settled)
+			}
+		})
+	}
+}
+
+func TestAttemptAccountingDistinguishesUnknownZeroAndLocalFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, response string
+		reported       bool
+	}{
+		{name: "absent", response: `{"choices":[{"message":{"content":"ok"}}]}`},
+		{name: "zero", response: `{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":0,"completion_tokens":0}}`, reported: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, tc.response) }))
+			defer server.Close()
+			client := New(server.URL, "test")
+			var settled Usage
+			_, _, err := client.Complete(t.Context(), Request{BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
+				return func(u Usage) error { settled = u; return nil }, nil
+			}})
+			if err != nil || !settled.Dispatched || settled.Reported != tc.reported {
+				t.Fatalf("settled=%+v err=%v", settled, err)
+			}
+		})
+	}
+	t.Run("before dispatch", func(t *testing.T) {
+		client := New(":invalid", "test")
+		client.MaxRetries = 1
+		var settled Usage
+		_, _, err := client.Complete(t.Context(), Request{BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
+			return func(u Usage) error { settled = u; return nil }, nil
+		}})
+		if err == nil || settled.Dispatched {
+			t.Fatalf("settled=%+v err=%v", settled, err)
+		}
+	})
+}
+
+func TestAttemptAdmissionAndSettlementFailuresStopRetry(t *testing.T) {
+	for _, admission := range []bool{false, true} {
+		t.Run(fmt.Sprintf("admission=%t", admission), func(t *testing.T) {
+			requests, hooks := 0, 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				http.Error(w, "retry", http.StatusBadGateway)
+			}))
+			defer server.Close()
+			client := New(server.URL, "test")
+			client.MaxRetries = 4
+			sentinel := errors.New("budget failure")
+			_, _, err := client.Complete(t.Context(), Request{BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
+				hooks++
+				if admission {
+					return nil, sentinel
+				}
+				return func(Usage) error { return sentinel }, nil
+			}})
+			want := 1
+			if admission {
+				want = 0
+			}
+			if !errors.Is(err, sentinel) || hooks != 1 || requests != want {
+				t.Fatalf("hooks=%d requests=%d err=%v", hooks, requests, err)
+			}
+		})
+	}
+}
+
+func TestCancelledAttemptSettlesUnknownUsageOnce(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.(http.Flusher).Flush()
+				cancel()
+			}))
+			defer server.Close()
+			client := New(server.URL, "fixture")
+			settlements := 0
+			request := Request{BeforeAttempt: func(context.Context, Request) (func(Usage) error, error) {
+				return func(usage Usage) error {
+					settlements++
+					if !usage.Dispatched || usage.Reported {
+						t.Errorf("cancelled usage=%+v", usage)
+					}
+					return nil
+				}, nil
+			}}
+			if stream {
+				_, _, _ = client.Stream(ctx, request, nil, nil, nil)
+			} else {
+				_, _, _ = client.Complete(ctx, request)
+			}
+			if settlements != 1 {
+				t.Fatalf("settlements=%d", settlements)
+			}
+		})
+	}
+}

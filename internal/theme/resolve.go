@@ -54,6 +54,14 @@ type CodeStyle struct {
 	Tokens     map[string]TokenStyle `json:"tokens"`
 }
 
+// WebColors carries optional browser surface overrides using wire field names.
+type WebColors struct {
+	Navigation           string `json:"navigation,omitempty"`
+	QuietBorder          string `json:"quiet_border,omitempty"`
+	CodeBackground       string `json:"code_background,omitempty"`
+	InlineCodeBackground string `json:"inline_code_background,omitempty"`
+}
+
 // Resolved is presentation data, safe to use without a terminal renderer.
 type Resolved struct {
 	ID       string       `json:"id"`
@@ -63,6 +71,7 @@ type Resolved struct {
 	Syntax   SyntaxSpec   `json:"syntax"`
 	Markdown MarkdownSpec `json:"markdown"`
 	Code     CodeStyle    `json:"code"`
+	Web      *WebColors   `json:"web,omitempty"`
 }
 
 // SurfaceColors is the raised-layer ladder, independent of terminal color depth.
@@ -254,7 +263,14 @@ func ResolveSpec(spec Spec) (Resolved, error) {
 			Number: code.Tokens[chroma.LiteralNumber.String()].Color, Comment: code.Tokens[chroma.Comment.String()].Color,
 			Punctuation: code.Tokens[chroma.Punctuation.String()].Color, Operator: code.Tokens[chroma.Operator.String()].Color}
 	}
-	return Resolved{ID: spec.Name, Name: spec.Name, Dark: spec.Dark, Colors: colors, Syntax: syntax, Markdown: md, Code: code}, nil
+	var web *WebColors
+	if spec.Web != nil {
+		web = &WebColors{Navigation: spec.Web.Navigation, QuietBorder: spec.Web.QuietBorder,
+			CodeBackground: spec.Web.CodeBackground, InlineCodeBackground: spec.Web.InlineCodeBackground}
+		normalizeColors(web)
+	}
+	return Resolved{ID: spec.Name, Name: spec.Label(), Dark: spec.Dark,
+		Colors: colors, Syntax: syntax, Markdown: md, Code: code, Web: web}, nil
 }
 
 func orString(value, fallback string) string {

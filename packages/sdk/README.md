@@ -1,7 +1,12 @@
 # WHIP TypeScript SDK
 
+For product frontend work, read the canonical
+[frontend architecture and design guide](../../docs/frontend.md), including how
+the app combines SDK views with TanStack Query and local state. This README owns
+the SDK's public usage contract.
+
 Private, ESM client package for Node 24, browsers and future Electron clients.
-The SDK attaches to an existing WHIP v3 daemon. Execution, credentials, SQLite,
+The SDK attaches to an existing WHIP v4 daemon. Execution, credentials, SQLite,
 model context, permissions and schedules remain on the execution host.
 
 ## Install and check in this repository
@@ -177,6 +182,25 @@ opened agent; JavaScript heap overhead is additional. Large/missing output is
 explicitly marked. Call `closeAgent` when no longer inspecting a child. The
 catalog view polls revisions only while observed and never opens all roots.
 There are at most 16 active root subscriptions per connection.
+
+`executionRows(view.getSnapshot(), agentId)` from `@whip/sdk/state` projects
+read-only Starlark cells and restart markers for one agent. It merges loaded
+history with `snapshot.executions`, which the existing session subscription
+maintains. Calls retain stable keys across commit; cumulative arguments/output
+replace earlier values; repeated host calls keep separate event identities.
+`ExecutionCell` exposes code, output, result/error, status, steps, scoped body
+references and optional client-observed times. Recorded outcomes without enough
+evidence are marked unknown, and historical durations are not invented.
+
+Supplemental execution evidence is capped at 256 entries per root, 128 host calls
+per cell and 1 MiB **inside** the view's payload budget. Truncation is explicit.
+History revisions and root changes invalidate incompatible observations. When
+a child was observed before its history was loaded, ambiguous reused call IDs
+remain separate observed evidence instead of borrowing an older result. Durable
+transcripts recover code/results; host traces and restart details observed before
+the client attached may be unavailable. This API does not add a subscription,
+fetch all history or load every child's transcript. Use `loadOlder(agentId)` and
+scoped content reads explicitly when needed.
 
 For scripts, `await client.events.subscribe(rootId, cursor)` gives a single
 bounded async iterator. Install a view or read a snapshot to obtain a cursor.

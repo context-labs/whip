@@ -26,14 +26,11 @@ import (
 )
 
 type RecursiveRuntimeOptions struct {
-	Agent          *agent.Agent
-	History        []llm.Message
-	Limits         rlm.Limits
-	Kernels        *rlm.Manager
-	KernelCommand  []string
-	InputPrice     float64
-	OutputPrice    float64
-	CacheReadPrice float64
+	Agent         *agent.Agent
+	History       []llm.Message
+	Limits        rlm.Limits
+	Kernels       *rlm.Manager
+	KernelCommand []string
 }
 
 // RecursiveRuntime owns one tree of identical RLM agent sessions. The daemon
@@ -46,7 +43,6 @@ type RecursiveRuntime struct {
 	limits      rlm.Limits
 	kernels     *rlm.Manager
 	command     []string
-	pricing     [3]float64
 	hookMu      sync.RWMutex
 	runTurnHook func(*AgentSession)
 	closed      bool
@@ -108,7 +104,6 @@ func NewRecursiveRuntime(options RecursiveRuntimeOptions) (*RecursiveRuntime, er
 	runtime := &RecursiveRuntime{
 		agents: make(map[string]*AgentSession), limits: options.Limits, kernels: options.Kernels,
 		command: append([]string(nil), options.KernelCommand...),
-		pricing: [3]float64{options.InputPrice, options.OutputPrice, options.CacheReadPrice},
 	}
 	node, err := runtime.newNode(options.Agent, "", "root", nil, capability.Authority{})
 	if err != nil {
@@ -235,9 +230,6 @@ func (runtime *RecursiveRuntime) Bind(ctx context.Context, root *Session) error 
 	node.capabilities = []string{"read", "write", "shell", "browser", "computer", "mcp"}
 	runtime.agents[node.id] = node
 	runtime.mu.Unlock()
-	if err := root.ConfigureModelPricing(runtime.pricing[0], runtime.pricing[1], runtime.pricing[2]); err != nil {
-		return err
-	}
 	node.agent.SetModelCallBudget(agentModelBudget{node: node})
 	node.agent.TransformInput = node.host.focusInput
 	return runtime.restoreChildren(ctx)
@@ -433,8 +425,8 @@ func (runtime *RecursiveRuntime) restoreChildren(ctx context.Context) error {
 
 type agentModelBudget struct{ node *AgentSession }
 
-func (budget agentModelBudget) ReserveModelCall(ctx context.Context, amount int64) (func(llm.Usage) error, error) {
-	return budget.node.root.ReserveAgentModelCall(ctx, budget.node.id, amount)
+func (budget agentModelBudget) ReserveModelCall(ctx context.Context, estimate llm.CallEstimate) (func(llm.Usage) error, error) {
+	return budget.node.root.ReserveAgentModelCall(ctx, budget.node.id, estimate)
 }
 
 func (node *AgentSession) close(closeAgent bool) {
@@ -1145,6 +1137,7 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 
 func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments map[string]any) (*agent.Agent, string, string, error) {
 	client, modelID := parent.Client, parent.Model
+	prices := parent.Prices
 	contextLimit, maxTokens, effort, vision := parent.ContextLimit, parent.MaxTokens, parent.Effort, parent.Vision
 	modelName, _ := stringArgument(arguments, "model")
 	providerName, _ := stringArgument(arguments, "provider")
@@ -1169,12 +1162,7 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 		if effectiveProvider == "" {
 			return nil, "", "", errors.New("model override resolved without a provider")
 		}
-		if resolved.ContextLimit > 0 {
-			contextLimit = resolved.ContextLimit
-		}
-		if resolved.MaxTokens > 0 {
-			maxTokens = resolved.MaxTokens
-		}
+		contextLimit, maxTokens, prices = resolved.ContextLimit, resolved.MaxTokens, resolved.Prices
 		if resolved.Effort != "" {
 			effort = resolved.Effort
 		}
@@ -1186,6 +1174,7 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 	copyClient := *client
 	child := agent.NewRuntime(&copyClient, modelID, maxTokens, "", services)
 	child.ModelName, child.Provider = effectiveModel, effectiveProvider
+	child.Prices, child.CompactPrices = prices, parent.CompactPrices
 	child.ContextLimit, child.Effort = contextLimit, effort
 	child.Vision = vision
 	child.Temperature, child.TopP = parent.Temperature, parent.TopP
@@ -1665,7 +1654,7 @@ func requestedBudgets(value any) ([]sessionstore.BudgetLimit, error) {
 	result := make([]sessionstore.BudgetLimit, 0, len(keys))
 	for _, key := range keys {
 		limit, ok := items[key].(float64)
-		if !ok || limit < 0 || limit != float64(int64(limit)) {
+		if !ok || math.IsNaN(limit) || math.IsInf(limit, 0) || limit < 0 || limit >= float64(math.MaxInt64) || math.Trunc(limit) != limit {
 			return nil, fmt.Errorf("budget %q must be a non-negative integer", key)
 		}
 		result = append(result, sessionstore.BudgetLimit{Kind: sessionstore.BudgetKind(key), Limit: int64(limit)})

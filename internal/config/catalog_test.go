@@ -86,3 +86,28 @@ func TestCatalogSupportsVision(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogModelLimitsAndFreePrices(t *testing.T) {
+	catalog := Catalog{Models: []ModelInfoLite{{ID: "model", ContextLength: 1048576, MaxCompletionTokens: 1048576, PricingKnown: true, CacheReadPriceKnown: true}}}
+	for _, tc := range []struct {
+		name  string
+		model Model
+		want  int
+	}{
+		{name: "advertised", model: Model{Context: 4096}, want: 1048576},
+		{name: "explicit", model: Model{Context: 4096, MaxOut: 8192}, want: 8192},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			contextLimit, output := catalog.ModelLimits("model", tc.model)
+			if contextLimit != 1048576 || output != tc.want {
+				t.Fatalf("context=%d output=%d", contextLimit, output)
+			}
+		})
+	}
+	if _, output := (Catalog{}).ModelLimits("missing", Model{Context: 32768}); output != 32768 {
+		t.Fatalf("fallback output=%d", output)
+	}
+	if prices := catalog.TokenPrices("model"); !prices.Known || !prices.CacheReadKnown || prices.CacheRate() != 0 {
+		t.Fatalf("free: %+v", prices)
+	}
+}

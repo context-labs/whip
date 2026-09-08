@@ -7,6 +7,10 @@ Start with [architecture.md](architecture.md) for the moving parts and
 [rlm-runtime.md](rlm-runtime.md) for the recursive runtime, limits, recovery,
 and troubleshooting.
 
+For frontend work, start with [frontend.md](frontend.md): the canonical coding-agent
+guide to design philosophy, packages, components, data fetching, state ownership,
+and validation. [web-app.md](web-app.md) covers running the application.
+
 ## Install
 
 Prebuilt binaries (Linux/macOS, x64/arm64) from GitHub Releases — checksum-verified:

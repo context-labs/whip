@@ -131,6 +131,12 @@ export function themeFromHost(value: Resolved, namespace: string) {
   return {
     ...value,
     id: `${namespace}:${value.id}`,
+    web: value.web ? {
+      ...(value.web.navigation ? {navigation: value.web.navigation} : {}),
+      ...(value.web.quiet_border ? {quietBorder: value.web.quiet_border} : {}),
+      ...(value.web.code_background ? {codeBackground: value.web.code_background} : {}),
+      ...(value.web.inline_code_background ? {inlineCodeBackground: value.web.inline_code_background} : {}),
+    } : undefined,
     colors: {
       ...colors,
       onPrimary: on_primary,

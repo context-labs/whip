@@ -535,6 +535,44 @@ const theme13markdown = createTheme(markdown, {
   "strong": "#f5a97f"
 });
 const theme14colors = createTheme(colors, {
+  "accent": "#b796ff",
+  "background": "#141414",
+  "border": "#343430",
+  "borderFocus": "#6da7ec",
+  "diffAdd": "#11260f",
+  "diffDel": "#3c0e0e",
+  "element": "#222221",
+  "emphasis": "#c2c0b8",
+  "error": "#ec7e7e",
+  "faint": "#77776f",
+  "foreground": "#c2c0b8",
+  "hover": "#343434",
+  "info": "#6da7ec",
+  "link": "#6da7ec",
+  "muted": "#aaa99f",
+  "onPrimary": "#141414",
+  "panel": "#1b1b19",
+  "primary": "#c87555",
+  "success": "#91d68b",
+  "warning": "#fab219"
+});
+const theme14syntax = createTheme(syntax, {
+  "comment": "#aaa99f",
+  "function": "#6da7ec",
+  "keyword": "#b796ff",
+  "number": "#fab219",
+  "operator": "#c2c0b8",
+  "punctuation": "#aaa99f",
+  "string": "#91d68b",
+  "type": "#6da7ec"
+});
+const theme14markdown = createTheme(markdown, {
+  "code": "#cf7569",
+  "heading": "#c2c0b8",
+  "quote": "#aaa99f",
+  "strong": "#c2c0b8"
+});
+const theme15colors = createTheme(colors, {
   "accent": "#2affdf",
   "background": "#193549",
   "border": "#1f4662",
@@ -556,7 +594,7 @@ const theme14colors = createTheme(colors, {
   "success": "#9eff80",
   "warning": "#ffc600"
 });
-const theme14syntax = createTheme(syntax, {
+const theme15syntax = createTheme(syntax, {
   "comment": "#0088ff",
   "function": "#ffc600",
   "keyword": "#ff9d00",
@@ -566,13 +604,13 @@ const theme14syntax = createTheme(syntax, {
   "string": "#9eff80",
   "type": "#2affdf"
 });
-const theme14markdown = createTheme(markdown, {
+const theme15markdown = createTheme(markdown, {
   "code": "#9eff80",
   "heading": "#ffc600",
   "quote": "#adb7c9",
   "strong": "#ff628c"
 });
-const theme15colors = createTheme(colors, {
+const theme16colors = createTheme(colors, {
   "accent": "#00acc1",
   "background": "#ffffff",
   "border": "#d3dae3",
@@ -594,7 +632,7 @@ const theme15colors = createTheme(colors, {
   "success": "#4caf50",
   "warning": "#ff9800"
 });
-const theme15syntax = createTheme(syntax, {
+const theme16syntax = createTheme(syntax, {
   "comment": "#5c6b7d",
   "function": "#ff9800",
   "keyword": "#ff5722",
@@ -604,13 +642,13 @@ const theme15syntax = createTheme(syntax, {
   "string": "#4caf50",
   "type": "#00acc1"
 });
-const theme15markdown = createTheme(markdown, {
+const theme16markdown = createTheme(markdown, {
   "code": "#4caf50",
   "heading": "#ff9800",
   "quote": "#5c6b7d",
   "strong": "#e91e63"
 });
-const theme16colors = createTheme(colors, {
+const theme17colors = createTheme(colors, {
   "accent": "#88c0d0",
   "background": "#181818",
   "border": "#272727",
@@ -632,7 +670,7 @@ const theme16colors = createTheme(colors, {
   "success": "#3fa266",
   "warning": "#f1b467"
 });
-const theme16syntax = createTheme(syntax, {
+const theme17syntax = createTheme(syntax, {
   "comment": "#636363",
   "function": "#efb080",
   "keyword": "#82d2ce",
@@ -642,13 +680,13 @@ const theme16syntax = createTheme(syntax, {
   "string": "#e394dc",
   "type": "#efb080"
 });
-const theme16markdown = createTheme(markdown, {
+const theme17markdown = createTheme(markdown, {
   "code": "#e394dc",
   "heading": "#aaa0fa",
   "quote": "#636363",
   "strong": "#f8c762"
 });
-const theme17colors = createTheme(colors, {
+const theme18colors = createTheme(colors, {
   "accent": "#6f9ba6",
   "background": "#fcfcfc",
   "border": "#ebebeb",
@@ -670,7 +708,7 @@ const theme17colors = createTheme(colors, {
   "success": "#1f8a65",
   "warning": "#db704b"
 });
-const theme17syntax = createTheme(syntax, {
+const theme18syntax = createTheme(syntax, {
   "comment": "#5f5f5f",
   "function": "#db704b",
   "keyword": "#b3003f",
@@ -680,13 +718,13 @@ const theme17syntax = createTheme(syntax, {
   "string": "#9e94d5",
   "type": "#206595"
 });
-const theme17markdown = createTheme(markdown, {
+const theme18markdown = createTheme(markdown, {
   "code": "#1f8a65",
   "heading": "#206595",
   "quote": "#5f5f5f",
   "strong": "#141414"
 });
-const theme18colors = createTheme(colors, {
+const theme19colors = createTheme(colors, {
   "accent": "#8be9fd",
   "background": "#282a36",
   "border": "#44475a",
@@ -708,7 +746,7 @@ const theme18colors = createTheme(colors, {
   "success": "#50fa7b",
   "warning": "#f1fa8c"
 });
-const theme18syntax = createTheme(syntax, {
+const theme19syntax = createTheme(syntax, {
   "comment": "#6272a4",
   "function": "#50fa7b",
   "keyword": "#ff79c6",
@@ -718,13 +756,13 @@ const theme18syntax = createTheme(syntax, {
   "string": "#f1fa8c",
   "type": "#8be9fd"
 });
-const theme18markdown = createTheme(markdown, {
+const theme19markdown = createTheme(markdown, {
   "code": "#50fa7b",
   "heading": "#bd93f9",
   "quote": "#6272a4",
   "strong": "#ffb86c"
 });
-const theme19colors = createTheme(colors, {
+const theme20colors = createTheme(colors, {
   "accent": "#8be9fd",
   "background": "#f8f8f2",
   "border": "#c8c8c2",
@@ -746,7 +784,7 @@ const theme19colors = createTheme(colors, {
   "success": "#50fa7b",
   "warning": "#f1fa8c"
 });
-const theme19syntax = createTheme(syntax, {
+const theme20syntax = createTheme(syntax, {
   "comment": "#6272a4",
   "function": "#50fa7b",
   "keyword": "#ff79c6",
@@ -756,13 +794,13 @@ const theme19syntax = createTheme(syntax, {
   "string": "#f1fa8c",
   "type": "#8be9fd"
 });
-const theme19markdown = createTheme(markdown, {
+const theme20markdown = createTheme(markdown, {
   "code": "#50fa7b",
   "heading": "#bd93f9",
   "quote": "#6272a4",
   "strong": "#ffb86c"
 });
-const theme20colors = createTheme(colors, {
+const theme21colors = createTheme(colors, {
   "accent": "#d699b6",
   "background": "#2d353b",
   "border": "#859289",
@@ -784,7 +822,7 @@ const theme20colors = createTheme(colors, {
   "success": "#a7c080",
   "warning": "#e69875"
 });
-const theme20syntax = createTheme(syntax, {
+const theme21syntax = createTheme(syntax, {
   "comment": "#7a8478",
   "function": "#a7c080",
   "keyword": "#d699b6",
@@ -794,13 +832,13 @@ const theme20syntax = createTheme(syntax, {
   "string": "#a7c080",
   "type": "#dbbc7f"
 });
-const theme20markdown = createTheme(markdown, {
+const theme21markdown = createTheme(markdown, {
   "code": "#a7c080",
   "heading": "#d699b6",
   "quote": "#dbbc7f",
   "strong": "#e69875"
 });
-const theme21colors = createTheme(colors, {
+const theme22colors = createTheme(colors, {
   "accent": "#df69ba",
   "background": "#fdf6e3",
   "border": "#939f91",
@@ -822,7 +860,7 @@ const theme21colors = createTheme(colors, {
   "success": "#8da101",
   "warning": "#f57d26"
 });
-const theme21syntax = createTheme(syntax, {
+const theme22syntax = createTheme(syntax, {
   "comment": "#a6b0a0",
   "function": "#8da101",
   "keyword": "#df69ba",
@@ -832,13 +870,13 @@ const theme21syntax = createTheme(syntax, {
   "string": "#8da101",
   "type": "#dfa000"
 });
-const theme21markdown = createTheme(markdown, {
+const theme22markdown = createTheme(markdown, {
   "code": "#8da101",
   "heading": "#df69ba",
   "quote": "#dfa000",
   "strong": "#f57d26"
 });
-const theme22colors = createTheme(colors, {
+const theme23colors = createTheme(colors, {
   "accent": "#8b7ec8",
   "background": "#100f0f",
   "border": "#575653",
@@ -860,7 +898,7 @@ const theme22colors = createTheme(colors, {
   "success": "#879a39",
   "warning": "#da702c"
 });
-const theme22syntax = createTheme(syntax, {
+const theme23syntax = createTheme(syntax, {
   "comment": "#6f6e69",
   "function": "#da702c",
   "keyword": "#879a39",
@@ -870,13 +908,13 @@ const theme22syntax = createTheme(syntax, {
   "string": "#3aa99f",
   "type": "#d0a215"
 });
-const theme22markdown = createTheme(markdown, {
+const theme23markdown = createTheme(markdown, {
   "code": "#3aa99f",
   "heading": "#8b7ec8",
   "quote": "#d0a215",
   "strong": "#da702c"
 });
-const theme23colors = createTheme(colors, {
+const theme24colors = createTheme(colors, {
   "accent": "#bc5215",
   "background": "#fffcf0",
   "border": "#b7b5ac",
@@ -898,7 +936,7 @@ const theme23colors = createTheme(colors, {
   "success": "#66800b",
   "warning": "#bc5215"
 });
-const theme23syntax = createTheme(syntax, {
+const theme24syntax = createTheme(syntax, {
   "comment": "#6f6e69",
   "function": "#bc5215",
   "keyword": "#66800b",
@@ -908,13 +946,13 @@ const theme23syntax = createTheme(syntax, {
   "string": "#24837b",
   "type": "#ad8301"
 });
-const theme23markdown = createTheme(markdown, {
+const theme24markdown = createTheme(markdown, {
   "code": "#24837b",
   "heading": "#5e409d",
   "quote": "#ad8301",
   "strong": "#bc5215"
 });
-const theme24colors = createTheme(colors, {
+const theme25colors = createTheme(colors, {
   "accent": "#39c5cf",
   "background": "#0d1117",
   "border": "#30363d",
@@ -936,7 +974,7 @@ const theme24colors = createTheme(colors, {
   "success": "#3fb950",
   "warning": "#e3b341"
 });
-const theme24syntax = createTheme(syntax, {
+const theme25syntax = createTheme(syntax, {
   "comment": "#8b949e",
   "function": "#bc8cff",
   "keyword": "#ff7b72",
@@ -946,13 +984,13 @@ const theme24syntax = createTheme(syntax, {
   "string": "#39c5cf",
   "type": "#d29922"
 });
-const theme24markdown = createTheme(markdown, {
+const theme25markdown = createTheme(markdown, {
   "code": "#ff7b72",
   "heading": "#58a6ff",
   "quote": "#8b949e",
   "strong": "#d29922"
 });
-const theme25colors = createTheme(colors, {
+const theme26colors = createTheme(colors, {
   "accent": "#1b7c83",
   "background": "#ffffff",
   "border": "#d0d7de",
@@ -974,7 +1012,7 @@ const theme25colors = createTheme(colors, {
   "success": "#1a7f37",
   "warning": "#9a6700"
 });
-const theme25syntax = createTheme(syntax, {
+const theme26syntax = createTheme(syntax, {
   "comment": "#57606a",
   "function": "#8250df",
   "keyword": "#cf222e",
@@ -984,13 +1022,13 @@ const theme25syntax = createTheme(syntax, {
   "string": "#0969da",
   "type": "#bc4c00"
 });
-const theme25markdown = createTheme(markdown, {
+const theme26markdown = createTheme(markdown, {
   "code": "#bf3989",
   "heading": "#0969da",
   "quote": "#57606a",
   "strong": "#bc4c00"
 });
-const theme26colors = createTheme(colors, {
+const theme27colors = createTheme(colors, {
   "accent": "#8ec07c",
   "background": "#282828",
   "border": "#665c54",
@@ -1012,7 +1050,7 @@ const theme26colors = createTheme(colors, {
   "success": "#b8bb26",
   "warning": "#fe8019"
 });
-const theme26syntax = createTheme(syntax, {
+const theme27syntax = createTheme(syntax, {
   "comment": "#928374",
   "function": "#b8bb26",
   "keyword": "#fb4934",
@@ -1022,13 +1060,13 @@ const theme26syntax = createTheme(syntax, {
   "string": "#fabd2f",
   "type": "#8ec07c"
 });
-const theme26markdown = createTheme(markdown, {
+const theme27markdown = createTheme(markdown, {
   "code": "#fabd2f",
   "heading": "#83a598",
   "quote": "#928374",
   "strong": "#fe8019"
 });
-const theme27colors = createTheme(colors, {
+const theme28colors = createTheme(colors, {
   "accent": "#427b58",
   "background": "#fbf1c7",
   "border": "#bdae93",
@@ -1050,7 +1088,7 @@ const theme27colors = createTheme(colors, {
   "success": "#79740e",
   "warning": "#af3a03"
 });
-const theme27syntax = createTheme(syntax, {
+const theme28syntax = createTheme(syntax, {
   "comment": "#7c6f64",
   "function": "#79740e",
   "keyword": "#9d0006",
@@ -1060,13 +1098,13 @@ const theme27syntax = createTheme(syntax, {
   "string": "#b57614",
   "type": "#427b58"
 });
-const theme27markdown = createTheme(markdown, {
+const theme28markdown = createTheme(markdown, {
   "code": "#b57614",
   "heading": "#076678",
   "quote": "#7c6f64",
   "strong": "#af3a03"
 });
-const theme28colors = createTheme(colors, {
+const theme29colors = createTheme(colors, {
   "accent": "#d27e99",
   "background": "#1f1f28",
   "border": "#54546d",
@@ -1088,7 +1126,7 @@ const theme28colors = createTheme(colors, {
   "success": "#98bb6c",
   "warning": "#d7a657"
 });
-const theme28syntax = createTheme(syntax, {
+const theme29syntax = createTheme(syntax, {
   "comment": "#727169",
   "function": "#7e9cd8",
   "keyword": "#957fb8",
@@ -1098,13 +1136,13 @@ const theme28syntax = createTheme(syntax, {
   "string": "#98bb6c",
   "type": "#c38d9d"
 });
-const theme28markdown = createTheme(markdown, {
+const theme29markdown = createTheme(markdown, {
   "code": "#98bb6c",
   "heading": "#957fb8",
   "quote": "#727169",
   "strong": "#d7a657"
 });
-const theme29colors = createTheme(colors, {
+const theme30colors = createTheme(colors, {
   "accent": "#d27e99",
   "background": "#f2e9de",
   "border": "#d4cbbf",
@@ -1126,7 +1164,7 @@ const theme29colors = createTheme(colors, {
   "success": "#98bb6c",
   "warning": "#d7a657"
 });
-const theme29syntax = createTheme(syntax, {
+const theme30syntax = createTheme(syntax, {
   "comment": "#9e9389",
   "function": "#2d4f67",
   "keyword": "#957fb8",
@@ -1136,13 +1174,13 @@ const theme29syntax = createTheme(syntax, {
   "string": "#98bb6c",
   "type": "#c38d9d"
 });
-const theme29markdown = createTheme(markdown, {
+const theme30markdown = createTheme(markdown, {
   "code": "#98bb6c",
   "heading": "#957fb8",
   "quote": "#9e9389",
   "strong": "#d7a657"
 });
-const theme30colors = createTheme(colors, {
+const theme31colors = createTheme(colors, {
   "accent": "#89ddff",
   "background": "#263238",
   "border": "#37474f",
@@ -1164,7 +1202,7 @@ const theme30colors = createTheme(colors, {
   "success": "#c3e88d",
   "warning": "#ffcb6b"
 });
-const theme30syntax = createTheme(syntax, {
+const theme31syntax = createTheme(syntax, {
   "comment": "#546e7a",
   "function": "#82aaff",
   "keyword": "#c792ea",
@@ -1174,13 +1212,13 @@ const theme30syntax = createTheme(syntax, {
   "string": "#c3e88d",
   "type": "#ffcb6b"
 });
-const theme30markdown = createTheme(markdown, {
+const theme31markdown = createTheme(markdown, {
   "code": "#c3e88d",
   "heading": "#82aaff",
   "quote": "#546e7a",
   "strong": "#ffcb6b"
 });
-const theme31colors = createTheme(colors, {
+const theme32colors = createTheme(colors, {
   "accent": "#39adb5",
   "background": "#fafafa",
   "border": "#e0e0e0",
@@ -1202,7 +1240,7 @@ const theme31colors = createTheme(colors, {
   "success": "#91b859",
   "warning": "#ffb300"
 });
-const theme31syntax = createTheme(syntax, {
+const theme32syntax = createTheme(syntax, {
   "comment": "#90a4ae",
   "function": "#6182b8",
   "keyword": "#7c4dff",
@@ -1212,13 +1250,13 @@ const theme31syntax = createTheme(syntax, {
   "string": "#91b859",
   "type": "#ffb300"
 });
-const theme31markdown = createTheme(markdown, {
+const theme32markdown = createTheme(markdown, {
   "code": "#91b859",
   "heading": "#6182b8",
   "quote": "#90a4ae",
   "strong": "#f4511e"
 });
-const theme32colors = createTheme(colors, {
+const theme33colors = createTheme(colors, {
   "accent": "#c770ff",
   "background": "#0a0e0a",
   "border": "#1e2a1b",
@@ -1240,7 +1278,7 @@ const theme32colors = createTheme(colors, {
   "success": "#62ff94",
   "warning": "#e6ff57"
 });
-const theme32syntax = createTheme(syntax, {
+const theme33syntax = createTheme(syntax, {
   "comment": "#8ca391",
   "function": "#30b3ff",
   "keyword": "#c770ff",
@@ -1250,13 +1288,13 @@ const theme32syntax = createTheme(syntax, {
   "string": "#1cc24b",
   "type": "#e6ff57"
 });
-const theme32markdown = createTheme(markdown, {
+const theme33markdown = createTheme(markdown, {
   "code": "#1cc24b",
   "heading": "#00efff",
   "quote": "#8ca391",
   "strong": "#e6ff57"
 });
-const theme33colors = createTheme(colors, {
+const theme34colors = createTheme(colors, {
   "accent": "#c770ff",
   "background": "#eef3ea",
   "border": "#748476",
@@ -1278,7 +1316,7 @@ const theme33colors = createTheme(colors, {
   "success": "#1cc24b",
   "warning": "#e6ff57"
 });
-const theme33syntax = createTheme(syntax, {
+const theme34syntax = createTheme(syntax, {
   "comment": "#748476",
   "function": "#30b3ff",
   "keyword": "#c770ff",
@@ -1288,13 +1326,13 @@ const theme33syntax = createTheme(syntax, {
   "string": "#1cc24b",
   "type": "#e6ff57"
 });
-const theme33markdown = createTheme(markdown, {
+const theme34markdown = createTheme(markdown, {
   "code": "#1cc24b",
   "heading": "#24f6d9",
   "quote": "#748476",
   "strong": "#e6ff57"
 });
-const theme34colors = createTheme(colors, {
+const theme35colors = createTheme(colors, {
   "accent": "#8da4f5",
   "background": "#171721",
   "border": "#2a2a35",
@@ -1316,7 +1354,7 @@ const theme34colors = createTheme(colors, {
   "success": "#77c599",
   "warning": "#fc9b6f"
 });
-const theme34syntax = createTheme(syntax, {
+const theme35syntax = createTheme(syntax, {
   "comment": "#9d9da8",
   "function": "#8da4f5",
   "keyword": "#8da4f5",
@@ -1326,13 +1364,13 @@ const theme34syntax = createTheme(syntax, {
   "string": "#77c599",
   "type": "#77becf"
 });
-const theme34markdown = createTheme(markdown, {
+const theme35markdown = createTheme(markdown, {
   "code": "#77c599",
   "heading": "#ffffff",
   "quote": "#9d9da8",
   "strong": "#f4f5f9"
 });
-const theme35colors = createTheme(colors, {
+const theme36colors = createTheme(colors, {
   "accent": "#8da4f5",
   "background": "#ffffff",
   "border": "#f0f1f4",
@@ -1354,7 +1392,7 @@ const theme35colors = createTheme(colors, {
   "success": "#036e43",
   "warning": "#a44200"
 });
-const theme35syntax = createTheme(syntax, {
+const theme36syntax = createTheme(syntax, {
   "comment": "#70707d",
   "function": "#5266eb",
   "keyword": "#465bd1",
@@ -1364,13 +1402,13 @@ const theme35syntax = createTheme(syntax, {
   "string": "#036e43",
   "type": "#007f95"
 });
-const theme35markdown = createTheme(markdown, {
+const theme36markdown = createTheme(markdown, {
   "code": "#036e43",
   "heading": "#1e1e2a",
   "quote": "#70707d",
   "strong": "#1e1e2a"
 });
-const theme36colors = createTheme(colors, {
+const theme37colors = createTheme(colors, {
   "accent": "#a6e22e",
   "background": "#272822",
   "border": "#3e3d32",
@@ -1392,7 +1430,7 @@ const theme36colors = createTheme(colors, {
   "success": "#a6e22e",
   "warning": "#e6db74"
 });
-const theme36syntax = createTheme(syntax, {
+const theme37syntax = createTheme(syntax, {
   "comment": "#75715e",
   "function": "#a6e22e",
   "keyword": "#f92672",
@@ -1402,13 +1440,13 @@ const theme36syntax = createTheme(syntax, {
   "string": "#e6db74",
   "type": "#66d9ef"
 });
-const theme36markdown = createTheme(markdown, {
+const theme37markdown = createTheme(markdown, {
   "code": "#a6e22e",
   "heading": "#f92672",
   "quote": "#75715e",
   "strong": "#fd971f"
 });
-const theme37colors = createTheme(colors, {
+const theme38colors = createTheme(colors, {
   "accent": "#a6e22e",
   "background": "#fafafa",
   "border": "#d0d0d0",
@@ -1430,7 +1468,7 @@ const theme37colors = createTheme(colors, {
   "success": "#a6e22e",
   "warning": "#fd971f"
 });
-const theme37syntax = createTheme(syntax, {
+const theme38syntax = createTheme(syntax, {
   "comment": "#75715e",
   "function": "#a6e22e",
   "keyword": "#f92672",
@@ -1440,49 +1478,11 @@ const theme37syntax = createTheme(syntax, {
   "string": "#fd971f",
   "type": "#66d9ef"
 });
-const theme37markdown = createTheme(markdown, {
+const theme38markdown = createTheme(markdown, {
   "code": "#a6e22e",
   "heading": "#f92672",
   "quote": "#75715e",
   "strong": "#fd971f"
-});
-const theme38colors = createTheme(colors, {
-  "accent": "#c792ea",
-  "background": "#011627",
-  "border": "#5f7e97",
-  "borderFocus": "#82aaff",
-  "diffAdd": "#0a2e1a",
-  "diffDel": "#2d1b1b",
-  "element": "#0b253a",
-  "emphasis": "#c792ea",
-  "error": "#ef5350",
-  "faint": "#5f7e97",
-  "foreground": "#d6deeb",
-  "hover": "#1a3246",
-  "info": "#82aaff",
-  "link": "#82aaff",
-  "muted": "#5f7e97",
-  "onPrimary": "#011627",
-  "panel": "#0b253a",
-  "primary": "#82aaff",
-  "success": "#c5e478",
-  "warning": "#ecc48d"
-});
-const theme38syntax = createTheme(syntax, {
-  "comment": "#637777",
-  "function": "#82aaff",
-  "keyword": "#c792ea",
-  "number": "#f78c6c",
-  "operator": "#7fdbca",
-  "punctuation": "#d6deeb",
-  "string": "#ecc48d",
-  "type": "#c5e478"
-});
-const theme38markdown = createTheme(markdown, {
-  "code": "#c5e478",
-  "heading": "#82aaff",
-  "quote": "#5f7e97",
-  "strong": "#ecc48d"
 });
 const theme39colors = createTheme(colors, {
   "accent": "#c792ea",
@@ -1496,7 +1496,7 @@ const theme39colors = createTheme(colors, {
   "error": "#ef5350",
   "faint": "#5f7e97",
   "foreground": "#d6deeb",
-  "hover": "#0a2337",
+  "hover": "#1a3246",
   "info": "#82aaff",
   "link": "#82aaff",
   "muted": "#5f7e97",
@@ -1523,6 +1523,44 @@ const theme39markdown = createTheme(markdown, {
   "strong": "#ecc48d"
 });
 const theme40colors = createTheme(colors, {
+  "accent": "#c792ea",
+  "background": "#011627",
+  "border": "#5f7e97",
+  "borderFocus": "#82aaff",
+  "diffAdd": "#0a2e1a",
+  "diffDel": "#2d1b1b",
+  "element": "#0b253a",
+  "emphasis": "#c792ea",
+  "error": "#ef5350",
+  "faint": "#5f7e97",
+  "foreground": "#d6deeb",
+  "hover": "#0a2337",
+  "info": "#82aaff",
+  "link": "#82aaff",
+  "muted": "#5f7e97",
+  "onPrimary": "#011627",
+  "panel": "#0b253a",
+  "primary": "#82aaff",
+  "success": "#c5e478",
+  "warning": "#ecc48d"
+});
+const theme40syntax = createTheme(syntax, {
+  "comment": "#637777",
+  "function": "#82aaff",
+  "keyword": "#c792ea",
+  "number": "#f78c6c",
+  "operator": "#7fdbca",
+  "punctuation": "#d6deeb",
+  "string": "#ecc48d",
+  "type": "#c5e478"
+});
+const theme40markdown = createTheme(markdown, {
+  "code": "#c5e478",
+  "heading": "#82aaff",
+  "quote": "#5f7e97",
+  "strong": "#ecc48d"
+});
+const theme41colors = createTheme(colors, {
   "accent": "#8fbcbb",
   "background": "#2e3440",
   "border": "#434c5e",
@@ -1544,7 +1582,7 @@ const theme40colors = createTheme(colors, {
   "success": "#a3be8c",
   "warning": "#d08770"
 });
-const theme40syntax = createTheme(syntax, {
+const theme41syntax = createTheme(syntax, {
   "comment": "#8b95a7",
   "function": "#88c0d0",
   "keyword": "#81a1c1",
@@ -1554,13 +1592,13 @@ const theme40syntax = createTheme(syntax, {
   "string": "#a3be8c",
   "type": "#8fbcbb"
 });
-const theme40markdown = createTheme(markdown, {
+const theme41markdown = createTheme(markdown, {
   "code": "#a3be8c",
   "heading": "#88c0d0",
   "quote": "#8b95a7",
   "strong": "#ebcb8b"
 });
-const theme41colors = createTheme(colors, {
+const theme42colors = createTheme(colors, {
   "accent": "#8fbcbb",
   "background": "#eceff4",
   "border": "#4c566a",
@@ -1582,7 +1620,7 @@ const theme41colors = createTheme(colors, {
   "success": "#a3be8c",
   "warning": "#d08770"
 });
-const theme41syntax = createTheme(syntax, {
+const theme42syntax = createTheme(syntax, {
   "comment": "#4c566a",
   "function": "#88c0d0",
   "keyword": "#81a1c1",
@@ -1592,13 +1630,13 @@ const theme41syntax = createTheme(syntax, {
   "string": "#a3be8c",
   "type": "#8fbcbb"
 });
-const theme41markdown = createTheme(markdown, {
+const theme42markdown = createTheme(markdown, {
   "code": "#a3be8c",
   "heading": "#5e81ac",
   "quote": "#4c566a",
   "strong": "#ebcb8b"
 });
-const theme42colors = createTheme(colors, {
+const theme43colors = createTheme(colors, {
   "accent": "#56b6c2",
   "background": "#282c34",
   "border": "#393f4a",
@@ -1620,7 +1658,7 @@ const theme42colors = createTheme(colors, {
   "success": "#98c379",
   "warning": "#e5c07b"
 });
-const theme42syntax = createTheme(syntax, {
+const theme43syntax = createTheme(syntax, {
   "comment": "#5c6370",
   "function": "#61afef",
   "keyword": "#c678dd",
@@ -1630,13 +1668,13 @@ const theme42syntax = createTheme(syntax, {
   "string": "#98c379",
   "type": "#e5c07b"
 });
-const theme42markdown = createTheme(markdown, {
+const theme43markdown = createTheme(markdown, {
   "code": "#98c379",
   "heading": "#c678dd",
   "quote": "#5c6370",
   "strong": "#d19a66"
 });
-const theme43colors = createTheme(colors, {
+const theme44colors = createTheme(colors, {
   "accent": "#0184bc",
   "background": "#fafafa",
   "border": "#d1d1d2",
@@ -1658,7 +1696,7 @@ const theme43colors = createTheme(colors, {
   "success": "#50a14f",
   "warning": "#c18401"
 });
-const theme43syntax = createTheme(syntax, {
+const theme44syntax = createTheme(syntax, {
   "comment": "#a0a1a7",
   "function": "#4078f2",
   "keyword": "#a626a4",
@@ -1668,13 +1706,13 @@ const theme43syntax = createTheme(syntax, {
   "string": "#50a14f",
   "type": "#c18401"
 });
-const theme43markdown = createTheme(markdown, {
+const theme44markdown = createTheme(markdown, {
   "code": "#50a14f",
   "heading": "#a626a4",
   "quote": "#a0a1a7",
   "strong": "#986801"
 });
-const theme44colors = createTheme(colors, {
+const theme45colors = createTheme(colors, {
   "accent": "#9d7cd8",
   "background": "#0a0a0a",
   "border": "#484848",
@@ -1696,7 +1734,7 @@ const theme44colors = createTheme(colors, {
   "success": "#7fd88f",
   "warning": "#f5a742"
 });
-const theme44syntax = createTheme(syntax, {
+const theme45syntax = createTheme(syntax, {
   "comment": "#808080",
   "function": "#fab283",
   "keyword": "#9d7cd8",
@@ -1706,13 +1744,13 @@ const theme44syntax = createTheme(syntax, {
   "string": "#7fd88f",
   "type": "#e5c07b"
 });
-const theme44markdown = createTheme(markdown, {
+const theme45markdown = createTheme(markdown, {
   "code": "#7fd88f",
   "heading": "#9d7cd8",
   "quote": "#e5c07b",
   "strong": "#f5a742"
 });
-const theme45colors = createTheme(colors, {
+const theme46colors = createTheme(colors, {
   "accent": "#d68c27",
   "background": "#ffffff",
   "border": "#b8b8b8",
@@ -1734,7 +1772,7 @@ const theme45colors = createTheme(colors, {
   "success": "#3d9a57",
   "warning": "#d68c27"
 });
-const theme45syntax = createTheme(syntax, {
+const theme46syntax = createTheme(syntax, {
   "comment": "#8a8a8a",
   "function": "#3b7dd8",
   "keyword": "#d68c27",
@@ -1744,13 +1782,13 @@ const theme45syntax = createTheme(syntax, {
   "string": "#3d9a57",
   "type": "#b0851f"
 });
-const theme45markdown = createTheme(markdown, {
+const theme46markdown = createTheme(markdown, {
   "code": "#3d9a57",
   "heading": "#d68c27",
   "quote": "#b0851f",
   "strong": "#d68c27"
 });
-const theme46colors = createTheme(colors, {
+const theme47colors = createTheme(colors, {
   "accent": "#fff7f1",
   "background": "#0a0a0a",
   "border": "#ec5b2b",
@@ -1772,7 +1810,7 @@ const theme46colors = createTheme(colors, {
   "success": "#6ba1e6",
   "warning": "#ec5b2b"
 });
-const theme46syntax = createTheme(syntax, {
+const theme47syntax = createTheme(syntax, {
   "comment": "#808080",
   "function": "#ee7948",
   "keyword": "#ec5b2b",
@@ -1782,13 +1820,13 @@ const theme46syntax = createTheme(syntax, {
   "string": "#6ba1e6",
   "type": "#e5c07b"
 });
-const theme46markdown = createTheme(markdown, {
+const theme47markdown = createTheme(markdown, {
   "code": "#6ba1e6",
   "heading": "#ec5b2b",
   "quote": "#fff7f1",
   "strong": "#ee7948"
 });
-const theme47colors = createTheme(colors, {
+const theme48colors = createTheme(colors, {
   "accent": "#c94d24",
   "background": "#ffffff",
   "border": "#ec5b2b",
@@ -1810,7 +1848,7 @@ const theme47colors = createTheme(colors, {
   "success": "#0062d1",
   "warning": "#ec5b2b"
 });
-const theme47syntax = createTheme(syntax, {
+const theme48syntax = createTheme(syntax, {
   "comment": "#8a8a8a",
   "function": "#c94d24",
   "keyword": "#ec5b2b",
@@ -1820,13 +1858,13 @@ const theme47syntax = createTheme(syntax, {
   "string": "#0062d1",
   "type": "#b0851f"
 });
-const theme47markdown = createTheme(markdown, {
+const theme48markdown = createTheme(markdown, {
   "code": "#0062d1",
   "heading": "#ec5b2b",
   "quote": "#b0851f",
   "strong": "#ec5b2b"
 });
-const theme48colors = createTheme(colors, {
+const theme49colors = createTheme(colors, {
   "accent": "#549e6a",
   "background": "#111c18",
   "border": "#3d4a44",
@@ -1848,7 +1886,7 @@ const theme48colors = createTheme(colors, {
   "success": "#549e6a",
   "warning": "#e5c736"
 });
-const theme48syntax = createTheme(syntax, {
+const theme49syntax = createTheme(syntax, {
   "comment": "#53685b",
   "function": "#509475",
   "keyword": "#2dd5b7",
@@ -1858,13 +1896,13 @@ const theme48syntax = createTheme(syntax, {
   "string": "#63b07a",
   "type": "#549e6a"
 });
-const theme48markdown = createTheme(markdown, {
+const theme49markdown = createTheme(markdown, {
   "code": "#63b07a",
   "heading": "#2dd5b7",
   "quote": "#53685b",
   "strong": "#c1c497"
 });
-const theme49colors = createTheme(colors, {
+const theme50colors = createTheme(colors, {
   "accent": "#3d7a52",
   "background": "#f6f5dd",
   "border": "#a8a78c",
@@ -1886,7 +1924,7 @@ const theme49colors = createTheme(colors, {
   "success": "#3d7a52",
   "warning": "#b5a020"
 });
-const theme49syntax = createTheme(syntax, {
+const theme50syntax = createTheme(syntax, {
   "comment": "#53685b",
   "function": "#3d7560",
   "keyword": "#1faa90",
@@ -1896,13 +1934,13 @@ const theme49syntax = createTheme(syntax, {
   "string": "#3d7a52",
   "type": "#3d7a52"
 });
-const theme49markdown = createTheme(markdown, {
+const theme50markdown = createTheme(markdown, {
   "code": "#3d7a52",
   "heading": "#1faa90",
   "quote": "#53685b",
   "strong": "#111c18"
 });
-const theme50colors = createTheme(colors, {
+const theme51colors = createTheme(colors, {
   "accent": "#89ddff",
   "background": "#292d3e",
   "border": "#32364a",
@@ -1924,7 +1962,7 @@ const theme50colors = createTheme(colors, {
   "success": "#c3e88d",
   "warning": "#ffcb6b"
 });
-const theme50syntax = createTheme(syntax, {
+const theme51syntax = createTheme(syntax, {
   "comment": "#676e95",
   "function": "#82aaff",
   "keyword": "#c792ea",
@@ -1934,13 +1972,13 @@ const theme50syntax = createTheme(syntax, {
   "string": "#c3e88d",
   "type": "#ffcb6b"
 });
-const theme50markdown = createTheme(markdown, {
+const theme51markdown = createTheme(markdown, {
   "code": "#c3e88d",
   "heading": "#c792ea",
   "quote": "#676e95",
   "strong": "#f78c6c"
 });
-const theme51colors = createTheme(colors, {
+const theme52colors = createTheme(colors, {
   "accent": "#00acc1",
   "background": "#fafafa",
   "border": "#e0e0e0",
@@ -1962,7 +2000,7 @@ const theme51colors = createTheme(colors, {
   "success": "#91b859",
   "warning": "#ffb300"
 });
-const theme51syntax = createTheme(syntax, {
+const theme52syntax = createTheme(syntax, {
   "comment": "#8796b0",
   "function": "#4976eb",
   "keyword": "#a854f2",
@@ -1972,13 +2010,13 @@ const theme51syntax = createTheme(syntax, {
   "string": "#91b859",
   "type": "#ffb300"
 });
-const theme51markdown = createTheme(markdown, {
+const theme52markdown = createTheme(markdown, {
   "code": "#91b859",
   "heading": "#a854f2",
   "quote": "#8796b0",
   "strong": "#f4511e"
 });
-const theme52colors = createTheme(colors, {
+const theme53colors = createTheme(colors, {
   "accent": "#ebbcba",
   "background": "#191724",
   "border": "#403d52",
@@ -2000,7 +2038,7 @@ const theme52colors = createTheme(colors, {
   "success": "#31748f",
   "warning": "#f6c177"
 });
-const theme52syntax = createTheme(syntax, {
+const theme53syntax = createTheme(syntax, {
   "comment": "#6e6a86",
   "function": "#ebbcba",
   "keyword": "#31748f",
@@ -2010,13 +2048,13 @@ const theme52syntax = createTheme(syntax, {
   "string": "#f6c177",
   "type": "#9ccfd8"
 });
-const theme52markdown = createTheme(markdown, {
+const theme53markdown = createTheme(markdown, {
   "code": "#31748f",
   "heading": "#c4a7e7",
   "quote": "#6e6a86",
   "strong": "#eb6f92"
 });
-const theme53colors = createTheme(colors, {
+const theme54colors = createTheme(colors, {
   "accent": "#d7827e",
   "background": "#faf4ed",
   "border": "#dfdad9",
@@ -2038,7 +2076,7 @@ const theme53colors = createTheme(colors, {
   "success": "#286983",
   "warning": "#ea9d34"
 });
-const theme53syntax = createTheme(syntax, {
+const theme54syntax = createTheme(syntax, {
   "comment": "#9893a5",
   "function": "#d7827e",
   "keyword": "#286983",
@@ -2048,13 +2086,13 @@ const theme53syntax = createTheme(syntax, {
   "string": "#ea9d34",
   "type": "#56949f"
 });
-const theme53markdown = createTheme(markdown, {
+const theme54markdown = createTheme(markdown, {
   "code": "#286983",
   "heading": "#907aa9",
   "quote": "#9893a5",
   "strong": "#b4637a"
 });
-const theme54colors = createTheme(colors, {
+const theme55colors = createTheme(colors, {
   "accent": "#2aa198",
   "background": "#002b36",
   "border": "#073642",
@@ -2076,7 +2114,7 @@ const theme54colors = createTheme(colors, {
   "success": "#859900",
   "warning": "#b58900"
 });
-const theme54syntax = createTheme(syntax, {
+const theme55syntax = createTheme(syntax, {
   "comment": "#586e75",
   "function": "#268bd2",
   "keyword": "#859900",
@@ -2086,13 +2124,13 @@ const theme54syntax = createTheme(syntax, {
   "string": "#2aa198",
   "type": "#b58900"
 });
-const theme54markdown = createTheme(markdown, {
+const theme55markdown = createTheme(markdown, {
   "code": "#859900",
   "heading": "#268bd2",
   "quote": "#586e75",
   "strong": "#cb4b16"
 });
-const theme55colors = createTheme(colors, {
+const theme56colors = createTheme(colors, {
   "accent": "#2aa198",
   "background": "#fdf6e3",
   "border": "#eee8d5",
@@ -2114,7 +2152,7 @@ const theme55colors = createTheme(colors, {
   "success": "#859900",
   "warning": "#b58900"
 });
-const theme55syntax = createTheme(syntax, {
+const theme56syntax = createTheme(syntax, {
   "comment": "#93a1a1",
   "function": "#268bd2",
   "keyword": "#859900",
@@ -2124,13 +2162,13 @@ const theme55syntax = createTheme(syntax, {
   "string": "#2aa198",
   "type": "#b58900"
 });
-const theme55markdown = createTheme(markdown, {
+const theme56markdown = createTheme(markdown, {
   "code": "#859900",
   "heading": "#268bd2",
   "quote": "#93a1a1",
   "strong": "#cb4b16"
 });
-const theme56colors = createTheme(colors, {
+const theme57colors = createTheme(colors, {
   "accent": "#b084eb",
   "background": "#262335",
   "border": "#495495",
@@ -2152,7 +2190,7 @@ const theme56colors = createTheme(colors, {
   "success": "#72f1b8",
   "warning": "#fede5d"
 });
-const theme56syntax = createTheme(syntax, {
+const theme57syntax = createTheme(syntax, {
   "comment": "#848bbd",
   "function": "#ff8b39",
   "keyword": "#ff7edb",
@@ -2162,13 +2200,13 @@ const theme56syntax = createTheme(syntax, {
   "string": "#fede5d",
   "type": "#36f9f6"
 });
-const theme56markdown = createTheme(markdown, {
+const theme57markdown = createTheme(markdown, {
   "code": "#72f1b8",
   "heading": "#ff7edb",
   "quote": "#848bbd",
   "strong": "#ff8b39"
 });
-const theme57colors = createTheme(colors, {
+const theme58colors = createTheme(colors, {
   "accent": "#9c27b0",
   "background": "#fafafa",
   "border": "#e0e0e0",
@@ -2190,7 +2228,7 @@ const theme57colors = createTheme(colors, {
   "success": "#4caf50",
   "warning": "#ff9800"
 });
-const theme57syntax = createTheme(syntax, {
+const theme58syntax = createTheme(syntax, {
   "comment": "#5c5c8a",
   "function": "#ff5722",
   "keyword": "#e91e63",
@@ -2200,13 +2238,13 @@ const theme57syntax = createTheme(syntax, {
   "string": "#ff9800",
   "type": "#00bcd4"
 });
-const theme57markdown = createTheme(markdown, {
+const theme58markdown = createTheme(markdown, {
   "code": "#4caf50",
   "heading": "#e91e63",
   "quote": "#5c5c8a",
   "strong": "#ff5722"
 });
-const theme58colors = createTheme(colors, {
+const theme59colors = createTheme(colors, {
   "accent": "#ff966c",
   "background": "#1a1b26",
   "border": "#737aa2",
@@ -2228,7 +2266,7 @@ const theme58colors = createTheme(colors, {
   "success": "#c3e88d",
   "warning": "#ff966c"
 });
-const theme58syntax = createTheme(syntax, {
+const theme59syntax = createTheme(syntax, {
   "comment": "#828bb8",
   "function": "#82aaff",
   "keyword": "#c099ff",
@@ -2238,13 +2276,13 @@ const theme58syntax = createTheme(syntax, {
   "string": "#c3e88d",
   "type": "#ffc777"
 });
-const theme58markdown = createTheme(markdown, {
+const theme59markdown = createTheme(markdown, {
   "code": "#c3e88d",
   "heading": "#c099ff",
   "quote": "#ffc777",
   "strong": "#ff966c"
 });
-const theme59colors = createTheme(colors, {
+const theme60colors = createTheme(colors, {
   "accent": "#b15c00",
   "background": "#e1e2e7",
   "border": "#737a8c",
@@ -2266,7 +2304,7 @@ const theme59colors = createTheme(colors, {
   "success": "#587539",
   "warning": "#b15c00"
 });
-const theme59syntax = createTheme(syntax, {
+const theme60syntax = createTheme(syntax, {
   "comment": "#8990a3",
   "function": "#2e7de9",
   "keyword": "#9854f1",
@@ -2276,13 +2314,13 @@ const theme59syntax = createTheme(syntax, {
   "string": "#587539",
   "type": "#8c6c3e"
 });
-const theme59markdown = createTheme(markdown, {
+const theme60markdown = createTheme(markdown, {
   "code": "#587539",
   "heading": "#9854f1",
   "quote": "#8c6c3e",
   "strong": "#b15c00"
 });
-const theme60colors = createTheme(colors, {
+const theme61colors = createTheme(colors, {
   "accent": "#8e4ec6",
   "background": "#000000",
   "border": "#1f1f1f",
@@ -2304,7 +2342,7 @@ const theme60colors = createTheme(colors, {
   "success": "#46a758",
   "warning": "#ffb224"
 });
-const theme60syntax = createTheme(syntax, {
+const theme61syntax = createTheme(syntax, {
   "comment": "#878787",
   "function": "#bf7af0",
   "keyword": "#f75590",
@@ -2314,13 +2352,13 @@ const theme60syntax = createTheme(syntax, {
   "string": "#63c46d",
   "type": "#0ac7ac"
 });
-const theme60markdown = createTheme(markdown, {
+const theme61markdown = createTheme(markdown, {
   "code": "#63c46d",
   "heading": "#bf7af0",
   "quote": "#878787",
   "strong": "#f75590"
 });
-const theme61colors = createTheme(colors, {
+const theme62colors = createTheme(colors, {
   "accent": "#8e4ec6",
   "background": "#ffffff",
   "border": "#eaeaea",
@@ -2342,7 +2380,7 @@ const theme61colors = createTheme(colors, {
   "success": "#388e3c",
   "warning": "#ff9500"
 });
-const theme61syntax = createTheme(syntax, {
+const theme62syntax = createTheme(syntax, {
   "comment": "#888888",
   "function": "#8e4ec6",
   "keyword": "#e93d82",
@@ -2352,13 +2390,13 @@ const theme61syntax = createTheme(syntax, {
   "string": "#46a758",
   "type": "#12a594"
 });
-const theme61markdown = createTheme(markdown, {
+const theme62markdown = createTheme(markdown, {
   "code": "#46a758",
   "heading": "#8e4ec6",
   "quote": "#666666",
   "strong": "#e93d82"
 });
-const theme62colors = createTheme(colors, {
+const theme63colors = createTheme(colors, {
   "accent": "#ffc799",
   "background": "#101010",
   "border": "#282828",
@@ -2380,7 +2418,7 @@ const theme62colors = createTheme(colors, {
   "success": "#99ffe4",
   "warning": "#ffc799"
 });
-const theme62syntax = createTheme(syntax, {
+const theme63syntax = createTheme(syntax, {
   "comment": "#8b8b8b",
   "function": "#ffc799",
   "keyword": "#a0a0a0",
@@ -2390,13 +2428,13 @@ const theme62syntax = createTheme(syntax, {
   "string": "#99ffe4",
   "type": "#ffc799"
 });
-const theme62markdown = createTheme(markdown, {
+const theme63markdown = createTheme(markdown, {
   "code": "#a0a0a0",
   "heading": "#ffc799",
   "quote": "#a0a0a0",
   "strong": "#ffc799"
 });
-const theme63colors = createTheme(colors, {
+const theme64colors = createTheme(colors, {
   "accent": "#93e0e3",
   "background": "#3f3f3f",
   "border": "#5f5f5f",
@@ -2418,7 +2456,7 @@ const theme63colors = createTheme(colors, {
   "success": "#7f9f7f",
   "warning": "#f0dfaf"
 });
-const theme63syntax = createTheme(syntax, {
+const theme64syntax = createTheme(syntax, {
   "comment": "#7f9f7f",
   "function": "#8cd0d3",
   "keyword": "#f0dfaf",
@@ -2428,13 +2466,13 @@ const theme63syntax = createTheme(syntax, {
   "string": "#cc9393",
   "type": "#93e0e3"
 });
-const theme63markdown = createTheme(markdown, {
+const theme64markdown = createTheme(markdown, {
   "code": "#7f9f7f",
   "heading": "#f0dfaf",
   "quote": "#9f9f9f",
   "strong": "#dfaf8f"
 });
-const theme64colors = createTheme(colors, {
+const theme65colors = createTheme(colors, {
   "accent": "#5f8f8f",
   "background": "#ffffef",
   "border": "#d0d0c0",
@@ -2456,7 +2494,7 @@ const theme64colors = createTheme(colors, {
   "success": "#5f8f5f",
   "warning": "#8f8f5f"
 });
-const theme64syntax = createTheme(syntax, {
+const theme65syntax = createTheme(syntax, {
   "comment": "#5f7f5f",
   "function": "#5f7f8f",
   "keyword": "#8f8f5f",
@@ -2466,7 +2504,7 @@ const theme64syntax = createTheme(syntax, {
   "string": "#8f5f5f",
   "type": "#5f8f8f"
 });
-const theme64markdown = createTheme(markdown, {
+const theme65markdown = createTheme(markdown, {
   "code": "#5f8f5f",
   "heading": "#8f8f5f",
   "quote": "#6f6f6f",
@@ -2488,55 +2526,56 @@ export const themeStyles = {
   "catppuccin-light": [theme11colors, theme11syntax, theme11markdown],
   "catppuccin-macchiato": [theme12colors, theme12syntax, theme12markdown],
   "catppuccin-macchiato-light": [theme13colors, theme13syntax, theme13markdown],
-  "cobalt2": [theme14colors, theme14syntax, theme14markdown],
-  "cobalt2-light": [theme15colors, theme15syntax, theme15markdown],
-  "cursor": [theme16colors, theme16syntax, theme16markdown],
-  "cursor-light": [theme17colors, theme17syntax, theme17markdown],
-  "dracula": [theme18colors, theme18syntax, theme18markdown],
-  "dracula-light": [theme19colors, theme19syntax, theme19markdown],
-  "everforest": [theme20colors, theme20syntax, theme20markdown],
-  "everforest-light": [theme21colors, theme21syntax, theme21markdown],
-  "flexoki": [theme22colors, theme22syntax, theme22markdown],
-  "flexoki-light": [theme23colors, theme23syntax, theme23markdown],
-  "github": [theme24colors, theme24syntax, theme24markdown],
-  "github-light": [theme25colors, theme25syntax, theme25markdown],
-  "gruvbox": [theme26colors, theme26syntax, theme26markdown],
-  "gruvbox-light": [theme27colors, theme27syntax, theme27markdown],
-  "kanagawa": [theme28colors, theme28syntax, theme28markdown],
-  "kanagawa-light": [theme29colors, theme29syntax, theme29markdown],
-  "material": [theme30colors, theme30syntax, theme30markdown],
-  "material-light": [theme31colors, theme31syntax, theme31markdown],
-  "matrix": [theme32colors, theme32syntax, theme32markdown],
-  "matrix-light": [theme33colors, theme33syntax, theme33markdown],
-  "mercury": [theme34colors, theme34syntax, theme34markdown],
-  "mercury-light": [theme35colors, theme35syntax, theme35markdown],
-  "monokai": [theme36colors, theme36syntax, theme36markdown],
-  "monokai-light": [theme37colors, theme37syntax, theme37markdown],
-  "nightowl": [theme38colors, theme38syntax, theme38markdown],
-  "nightowl-light": [theme39colors, theme39syntax, theme39markdown],
-  "nord": [theme40colors, theme40syntax, theme40markdown],
-  "nord-light": [theme41colors, theme41syntax, theme41markdown],
-  "one-dark": [theme42colors, theme42syntax, theme42markdown],
-  "one-dark-light": [theme43colors, theme43syntax, theme43markdown],
-  "opencode": [theme44colors, theme44syntax, theme44markdown],
-  "opencode-light": [theme45colors, theme45syntax, theme45markdown],
-  "orng": [theme46colors, theme46syntax, theme46markdown],
-  "orng-light": [theme47colors, theme47syntax, theme47markdown],
-  "osaka-jade": [theme48colors, theme48syntax, theme48markdown],
-  "osaka-jade-light": [theme49colors, theme49syntax, theme49markdown],
-  "palenight": [theme50colors, theme50syntax, theme50markdown],
-  "palenight-light": [theme51colors, theme51syntax, theme51markdown],
-  "rosepine": [theme52colors, theme52syntax, theme52markdown],
-  "rosepine-light": [theme53colors, theme53syntax, theme53markdown],
-  "solarized": [theme54colors, theme54syntax, theme54markdown],
-  "solarized-light": [theme55colors, theme55syntax, theme55markdown],
-  "synthwave84": [theme56colors, theme56syntax, theme56markdown],
-  "synthwave84-light": [theme57colors, theme57syntax, theme57markdown],
-  "tokyonight": [theme58colors, theme58syntax, theme58markdown],
-  "tokyonight-light": [theme59colors, theme59syntax, theme59markdown],
-  "vercel": [theme60colors, theme60syntax, theme60markdown],
-  "vercel-light": [theme61colors, theme61syntax, theme61markdown],
-  "vesper": [theme62colors, theme62syntax, theme62markdown],
-  "zenburn": [theme63colors, theme63syntax, theme63markdown],
-  "zenburn-light": [theme64colors, theme64syntax, theme64markdown],
+  "claude-code": [theme14colors, theme14syntax, theme14markdown],
+  "cobalt2": [theme15colors, theme15syntax, theme15markdown],
+  "cobalt2-light": [theme16colors, theme16syntax, theme16markdown],
+  "cursor": [theme17colors, theme17syntax, theme17markdown],
+  "cursor-light": [theme18colors, theme18syntax, theme18markdown],
+  "dracula": [theme19colors, theme19syntax, theme19markdown],
+  "dracula-light": [theme20colors, theme20syntax, theme20markdown],
+  "everforest": [theme21colors, theme21syntax, theme21markdown],
+  "everforest-light": [theme22colors, theme22syntax, theme22markdown],
+  "flexoki": [theme23colors, theme23syntax, theme23markdown],
+  "flexoki-light": [theme24colors, theme24syntax, theme24markdown],
+  "github": [theme25colors, theme25syntax, theme25markdown],
+  "github-light": [theme26colors, theme26syntax, theme26markdown],
+  "gruvbox": [theme27colors, theme27syntax, theme27markdown],
+  "gruvbox-light": [theme28colors, theme28syntax, theme28markdown],
+  "kanagawa": [theme29colors, theme29syntax, theme29markdown],
+  "kanagawa-light": [theme30colors, theme30syntax, theme30markdown],
+  "material": [theme31colors, theme31syntax, theme31markdown],
+  "material-light": [theme32colors, theme32syntax, theme32markdown],
+  "matrix": [theme33colors, theme33syntax, theme33markdown],
+  "matrix-light": [theme34colors, theme34syntax, theme34markdown],
+  "mercury": [theme35colors, theme35syntax, theme35markdown],
+  "mercury-light": [theme36colors, theme36syntax, theme36markdown],
+  "monokai": [theme37colors, theme37syntax, theme37markdown],
+  "monokai-light": [theme38colors, theme38syntax, theme38markdown],
+  "nightowl": [theme39colors, theme39syntax, theme39markdown],
+  "nightowl-light": [theme40colors, theme40syntax, theme40markdown],
+  "nord": [theme41colors, theme41syntax, theme41markdown],
+  "nord-light": [theme42colors, theme42syntax, theme42markdown],
+  "one-dark": [theme43colors, theme43syntax, theme43markdown],
+  "one-dark-light": [theme44colors, theme44syntax, theme44markdown],
+  "opencode": [theme45colors, theme45syntax, theme45markdown],
+  "opencode-light": [theme46colors, theme46syntax, theme46markdown],
+  "orng": [theme47colors, theme47syntax, theme47markdown],
+  "orng-light": [theme48colors, theme48syntax, theme48markdown],
+  "osaka-jade": [theme49colors, theme49syntax, theme49markdown],
+  "osaka-jade-light": [theme50colors, theme50syntax, theme50markdown],
+  "palenight": [theme51colors, theme51syntax, theme51markdown],
+  "palenight-light": [theme52colors, theme52syntax, theme52markdown],
+  "rosepine": [theme53colors, theme53syntax, theme53markdown],
+  "rosepine-light": [theme54colors, theme54syntax, theme54markdown],
+  "solarized": [theme55colors, theme55syntax, theme55markdown],
+  "solarized-light": [theme56colors, theme56syntax, theme56markdown],
+  "synthwave84": [theme57colors, theme57syntax, theme57markdown],
+  "synthwave84-light": [theme58colors, theme58syntax, theme58markdown],
+  "tokyonight": [theme59colors, theme59syntax, theme59markdown],
+  "tokyonight-light": [theme60colors, theme60syntax, theme60markdown],
+  "vercel": [theme61colors, theme61syntax, theme61markdown],
+  "vercel-light": [theme62colors, theme62syntax, theme62markdown],
+  "vesper": [theme63colors, theme63syntax, theme63markdown],
+  "zenburn": [theme64colors, theme64syntax, theme64markdown],
+  "zenburn-light": [theme65colors, theme65syntax, theme65markdown],
 } as const;

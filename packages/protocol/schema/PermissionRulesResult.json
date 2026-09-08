@@ -49,7 +49,7 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v3/PermissionRulesResult",
+  "$id": "https://whip.dev/protocol/v4/PermissionRulesResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "PermissionRulesResult",
   "required": [

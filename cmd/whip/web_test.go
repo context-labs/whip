@@ -48,7 +48,7 @@ func TestWebCLIUsesDiscoveredURLWithoutStartingRuntime(t *testing.T) {
 		if r.URL.Path != "/api/v3/web" {
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
-		fmt.Fprint(w, `{"available":true,"protocol_major":3,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`)
+		fmt.Fprintf(w, `{"available":true,"protocol_major":%d,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`, daemon.ProtocolMajor)
 	}))
 	defer server.Close()
 	oldProbe, oldOpen, oldLaunch := probeWebDaemon, openWebBrowser, launchManagedDaemon
@@ -84,7 +84,7 @@ func TestWebDiscoveryRejectsMissingAndIncompatibleAssets(t *testing.T) {
 		code            int
 		body, errorText string
 	}{
-		{name: "not packaged", code: 200, body: `{"available":false,"protocol_major":3,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`, errorText: "without web assets"},
+		{name: "not packaged", code: 200, body: fmt.Sprintf(`{"available":false,"protocol_major":%d,"websocket_path":"/api/v3/ws","content_path":"/api/v3/content/"}`, daemon.ProtocolMajor), errorText: "without web assets"},
 		{name: "old daemon", code: 404, errorText: "explicitly restart"},
 		{name: "host rejected", code: 403, errorText: "WHIP_ALLOWED_HOSTS"},
 		{name: "major mismatch", code: 200, body: `{"available":true,"protocol_major":1}`, errorText: "incompatible"},

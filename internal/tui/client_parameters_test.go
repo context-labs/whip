@@ -13,7 +13,6 @@ func TestClientCLIParametersUseNamedFields(t *testing.T) {
 		{"mcp", "import claude off", "mcp.import.configure", `"enabled":false`},
 		{"browser", "driver chromedp", "browser.set_driver", `"driver":"chromedp"`},
 		{"computer", "allow Visual Studio Code", "computer.allow", `"app":"Visual Studio Code"`},
-		{"budget.cap", "child tokens 9007199254740993", "budget.cap", `"limit":"9007199254740993"`},
 		{"history.rewind", "12", "history.rewind", `"cut":12`},
 	} {
 		t.Run(test.method, func(t *testing.T) {

@@ -5,6 +5,8 @@ import type {
 import type { SdkEvent, WhipClient } from './client.js';
 import type { Session } from './session.js';
 import { asError, WhipError } from './errors.js';
+import { boundExecutionEvidence, emptyExecutionEvidence, observeExecution, reconcileExecutions, seedExecutions, settleExecutions, type ExecutionEvidence } from './executions.js';
+export { executionRows, type ExecutionCell, type ExecutionHostCall, type ExecutionRestart, type ExecutionRow } from './executions.js';
 
 export type DeepReadonly<T> = T extends (...args: never[]) => unknown ? T
   : T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
@@ -29,6 +31,8 @@ export interface SessionViewSnapshot {
   history: Record<string, HistoryView>;
   collections: Record<string, RootCollectionPage>;
   retainedBytes: number;
+  /** Bounded supplemental REPL evidence; transcript bodies remain in history. */
+  executions?: ExecutionEvidence;
   truncated: boolean;
   unavailable: boolean;
   error?: Error;
@@ -129,7 +133,7 @@ export class SessionView {
     this.commandListener?.();
     const stream = this.stream;
     this.stream = undefined;
-    this.set({ ...this.current, status: 'closed' }, true);
+    this.set({ ...this.current, status: 'closed', executions: undefined }, true);
     this.listeners.clear();
     await stream?.dispose();
   }
@@ -214,7 +218,7 @@ export class SessionView {
         this.epoch++;
         void this.stream?.dispose();
         this.stream = undefined;
-        this.set({ ...this.current, status: 'error', error: new WhipError('runtime_changed', 'Execution runtime changed; open a new session view') }, true);
+        this.set({ ...this.current, executions: undefined, status: 'error', error: new WhipError('runtime_changed', 'Execution runtime changed; open a new session view') }, true);
       } else if (connection.info?.connection_id !== this.lastConnectionID) {
         this.lastConnectionID = connection.info?.connection_id;
         if (refresh) void this.refresh();
@@ -222,7 +226,7 @@ export class SessionView {
     } else {
       this.epoch++;
       this.stream = undefined;
-      this.set({ ...this.current, status: connection.state === 'incompatible' ? 'error' : this.current.root ? 'stale' : 'loading', error: connection.error }, true);
+      this.set({ ...this.current, executions: this.current.executions && settleExecutions(this.current.executions), status: connection.state === 'incompatible' ? 'error' : this.current.root ? 'stale' : 'loading', error: connection.error }, true);
     }
   }
 
@@ -269,6 +273,7 @@ export class SessionView {
       };
       this.set({
         status: 'live', root, history, collections: {}, retainedBytes: 0,
+        executions: seedExecutions(this.current.executions, snapshot, history),
         truncated: Object.values(root.omitted ?? {}).some(Boolean), unavailable: this.unknownSeen,
       }, true);
       void this.consume(stream, epoch);
@@ -278,7 +283,7 @@ export class SessionView {
       }
     } catch (error) {
       if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
-      this.set({ ...this.current, status: this.current.root ? 'stale' : 'error', error: asError(error) }, true);
+      this.set({ ...this.current, executions: this.current.executions && settleExecutions(this.current.executions), status: this.current.root ? 'stale' : 'error', error: asError(error) }, true);
       if (errorKind(error) === 'resynchronization_required') this.scheduleRefresh();
     }
   }
@@ -291,7 +296,7 @@ export class SessionView {
       }
     } catch (error) {
       if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
-      this.set({ ...this.current, status: 'stale', error: asError(error) }, true);
+      this.set({ ...this.current, executions: this.current.executions && settleExecutions(this.current.executions), status: 'stale', error: asError(error) }, true);
       // Recovery never keeps applying a stream after a gap, expiry, or overflow.
       this.scheduleRefresh();
     }
@@ -301,6 +306,8 @@ export class SessionView {
     const previous = this.current.root;
     if (!previous || event.root_id !== previous.root_id || BigInt(event.seq) <= BigInt(previous.cursor)) return;
     if (BigInt(event.seq) !== BigInt(previous.cursor) + 1n) throw new WhipError('resynchronization_required', 'Event sequence gap; resynchronization required');
+    const executions = observeExecution(this.current.executions ?? emptyExecutionEvidence(previous.root_id, previous.history_revision),
+      event, previous.active_turns, this.current.history, Date.now());
     let root = { ...previous, cursor: event.seq };
     let unavailable = this.current.unavailable;
     const payload = event.payload as Record<string, unknown>;
@@ -346,7 +353,7 @@ export class SessionView {
     // Hidden tabs can throttle notification timers indefinitely. Bound incoming
     // growth independently, without reserializing the cached history per delta.
     this.pendingBytes += bytes(event);
-    this.set({ ...this.current, root, unavailable }, this.published.retainedBytes + this.pendingBytes > this.maxBytes);
+    this.set({ ...this.current, root, executions, unavailable }, this.published.retainedBytes + this.pendingBytes > this.maxBytes);
   }
 
   private async readHistory(agentId: string, older: boolean): Promise<void> {
@@ -397,7 +404,8 @@ export class SessionView {
         nextSeq: messages[0]?.seq ?? page.next_seq, hasMore: page.has_more,
         loading: false, messages, truncated: all.length > messages.length || messages.some(item => !!item.body),
       };
-      this.set({ ...this.current, history: { ...this.current.history, [agentId]: history } }, true);
+      const histories = { ...this.current.history, [agentId]: history };
+      this.set({ ...this.current, history: histories, executions: this.current.executions && reconcileExecutions(this.current.executions, histories) }, true);
     } catch (error) {
       if (epoch !== this.epoch || this.lifetime.signal.aborted || !this.opened.has(agentId)) return;
       const history = { ...this.current.history };
@@ -463,11 +471,16 @@ function bound(state: SessionViewSnapshot, maxBytes: number, maxMessages: number
       next.truncated = true;
     }
   }
-  const size = (): number => bytes({ root: next.root, history: next.history, collections: next.collections });
+  const size = (): number => bytes({ root: next.root, history: next.history, collections: next.collections, executions: next.executions });
+  if (next.executions?.truncated) next.truncated = true;
   let total = size();
   if (total > maxBytes) {
     next.truncated = true;
     next.collections = {};
+    if (next.executions) {
+      const otherBytes = bytes({ root: next.root, history: next.history, collections: next.collections });
+      next.executions = boundExecutionEvidence(next.executions, Math.max(0, maxBytes - otherBytes - 32));
+    }
     total = size();
     const children = Object.keys(next.history).filter(id => id !== next.root?.root_id)
       .sort((a, b) => Number(!!next.root?.active_turns[a]) - Number(!!next.root?.active_turns[b]));
@@ -491,6 +504,7 @@ function bound(state: SessionViewSnapshot, maxBytes: number, maxMessages: number
     // A configured budget may be smaller than a single metadata record. Expose
     // that limitation explicitly rather than violating the bound indefinitely.
     next.root = undefined;
+    next.executions = undefined;
     next.history = {};
     next.collections = {};
     next.unavailable = true;

@@ -32,8 +32,14 @@ node owns its cancellation context, provider loop, services, and kernel. The
 recursive runtime owns the tree and closes a whole subtree exactly once.
 
 The budget ledger limits active children, concurrent child turns, recursion
-depth, tokens, cost, elapsed time, durable bytes, record count, operations,
-and schedules/subscriptions. Child limits clamp inherited authority.
+depth, durable bytes, record count, operations, and schedules/subscriptions.
+Cumulative model tokens, cost, and elapsed usage are unlimited by default;
+explicit child caps narrow inherited authority. Every model transport attempt,
+including retries, reserves and settles against the same ancestor rows using
+its own model prices. Settlement runs outside the root actor and survives caller
+cancellation. Missing usage becomes uncertain exposure, not known spend;
+restart moves orphan model reservations to uncertainty and reconstructs live
+capacity. Generic durable-operation consumption remains unchanged.
 
 ## Message flow
 
@@ -217,6 +223,9 @@ replay queue. HTTP transfer lifetimes are bound to the connection as well as the
 caller's abort signal.
 
 ## React application lifetimes
+
+The [frontend guide](frontend.md) explains why these ownership boundaries exist
+and how app features should use them. This section records their lifecycle rules.
 
 `packages/app/src/runtime.ts` owns the current SDK client, session-list view,
 TanStack Query client, root-view leases and local command waiters. Host attachment

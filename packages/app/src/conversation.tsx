@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useRouter } from '@tanstack/react-router';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Link, useNavigate } from '@tanstack/react-router';
 import type { WhipClient } from '@whip/sdk';
 import { useSessionView, useWhipConnection } from '@whip/sdk/react';
 import type { SessionView } from '@whip/sdk/state';
@@ -13,120 +13,68 @@ import {
   Menu,
   Sheet,
 } from '@whip/ui';
-import { GitBranch, MoreHorizontal, PanelRight, Square } from 'lucide-react';
+import { GitBranch, MoreHorizontal, Square } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { layout } from './styles';
 import {
   Timeline,
-  timelineRows,
+  conversationRows,
   messagePresentation,
   ImageAttachment,
   type TimelineRow,
 } from './timeline';
 import { Composer } from './composer';
+import { ReplView } from './repl-view';
+import { SessionModelPicker } from './model-selection';
+import { admittedText, isChatInput } from './input-presentation';
 import { PendingRequests } from './requests';
 import type { InspectorSection } from './navigation';
 import { SessionInspector } from './inspector';
+import { selectedSessionTab, sessionViewPane, sessionSearch, type SessionTab } from './session-tabs';
 
-export function ConversationRoute({
-  rootId,
-  runtimeId,
-  agentId,
-  panel,
-}: {
-  rootId: string;
-  runtimeId: string;
-  agentId?: string;
-  panel?: InspectorSection;
-}) {
+/** Route admission/status only. Workspace reconciliation is the sole root lease owner. */
+export function ConversationRoute({ rootId, runtimeId }: { rootId: string; runtimeId: string }) {
   const runtime = useRuntime();
   useSessionTabs();
   const { client } = useAppState();
   if (!runtime.tabs.canOpen(runtimeId, rootId)) return <div {...stylex.props(layout.empty)}><h1 {...stylex.props(layout.emptyTitle)}>Your session tabs are full</h1><p>Close an open tab to view this session. Its work stays on the host.</p></div>;
-  if (!client)
-    return (
-      <div {...stylex.props(layout.empty)}>
-        Connect to the session’s execution host.
-      </div>
-    );
-  return (
-    <AttachedConversation
-      client={client}
-      rootId={rootId}
-      runtimeId={runtimeId}
-      agentId={agentId}
-      panel={panel}
-    />
-  );
+  if (!client) return <div {...stylex.props(layout.empty)}>Connect to the session’s execution host.</div>;
+  return <ConversationHostStatus client={client} runtimeId={runtimeId} />;
 }
-function AttachedConversation({
-  client,
-  rootId,
-  runtimeId,
-  agentId,
-  panel,
-}: {
-  client: WhipClient;
-  rootId: string;
-  runtimeId: string;
-  agentId?: string;
-  panel?: InspectorSection;
-}) {
-  const runtime = useRuntime();
+function ConversationHostStatus({ client, runtimeId }: { client: WhipClient; runtimeId: string }) {
   const connection = useWhipConnection(client);
-  const matched = connection.info?.runtime_id === runtimeId;
-  const [view, setView] = useState<SessionView>();
-  useLayoutEffect(() => {
-    if (!matched) return;
-    const lease = runtime.acquireView(rootId);
-    setView(lease.view);
-    try {
-      runtime.rememberSession(runtimeId, rootId);
-    } catch (error) {
-      runtime.report(error);
-    }
-    return lease.release;
-  }, [runtime, client, rootId, matched, runtimeId]);
-  if (connection.info && !matched)
-    return (
-      <div {...stylex.props(layout.empty)}>
-        <h1 {...stylex.props(layout.emptyTitle)}>
-          This session belongs to another host
-        </h1>
-        <p {...stylex.props(layout.emptyText)}>
-          Reconnect to its original runtime to continue. No session requests
-          were sent to this host.
-        </p>
-        <Link to="/">Choose a session</Link>
-      </div>
-    );
-  if (!view || view.session.rootId !== rootId || view.session.client !== client)
-    return <div {...stylex.props(layout.empty)}>Opening session…</div>;
-  return (
-    <Conversation
-      key={`${runtimeId}:${rootId}`}
-      view={view}
-      expectedRuntimeId={runtimeId}
-      agentId={agentId || rootId}
-      panel={panel}
-    />
+  if (connection.info && connection.info.runtime_id !== runtimeId) return (
+    <div {...stylex.props(layout.empty)}>
+      <h1 {...stylex.props(layout.emptyTitle)}>This session belongs to another host</h1>
+      <p {...stylex.props(layout.emptyText)}>Reconnect to its original runtime to continue. No session requests were sent to this host.</p>
+      <Link to="/">Choose a session</Link>
+    </div>
   );
+  return <div {...stylex.props(layout.empty)}>Opening session…</div>;
 }
 
-function Conversation({
+/** Shared session state, controls and inspectors for chat and REPL renderers. */
+export function SessionContent({
+  kind,
   view,
   expectedRuntimeId,
   agentId,
   panel,
+  viewId,
 }: {
+  kind: SessionTab['kind'];
   view: SessionView;
   expectedRuntimeId: string;
   agentId: string;
   panel?: InspectorSection;
+  viewId?: string;
 }) {
   const runtime = useRuntime();
+  useSessionTabs();
   const state = useSessionView(view);
+  const { commands } = useAppState();
+  const submitted = useSyncExternalStore(runtime.submittedInputs.subscribe, runtime.submittedInputs.getSnapshot);
   const session = view.session;
   const connection = useWhipConnection(session.client);
   const root = state.root;
@@ -153,9 +101,8 @@ function Conversation({
   useEffect(() => {
     setStored(undefined);
     return () => bodyRequest.current?.abort();
-  }, [agentId]);
+  }, [agentId, kind]);
   const navigate = useNavigate();
-  const router = useRouter();
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const canCreateTab = () => {
@@ -163,8 +110,22 @@ function Conversation({
     runtime.report('There are 32 open session tabs. Close a tab before creating another.');
     return false;
   };
-  const stillHere = (location: typeof router.state.location) => mounted.current && router.state.location === location && runtime.getSnapshot().client === session.client;
-  const setPanel = (next?: InspectorSection) => void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search: previous => ({ ...previous, panel: next }), replace: true });
+  const navigationRevision = useRef(0);
+  useLayoutEffect(() => { navigationRevision.current++; }, [agentId, panel, session, kind]);
+  const stillHere = (revision: number) => mounted.current && navigationRevision.current === revision && runtime.getSnapshot().client === session.client;
+  const focused = !viewId || selectedSessionTab(runtime.tabs.workspace(expectedRuntimeId))?.id === viewId;
+  const setPanel = (next?: InspectorSection) => {
+    const search = sessionSearch({ kind, location: { ...(agentId !== session.rootId ? { agent: agentId } : {}), panel: next } });
+    void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true });
+  };
+  const openCreated = async (rootId: string) => {
+    const workspace = runtime.tabs.workspace(expectedRuntimeId);
+    const pane = viewId ? sessionViewPane(workspace, viewId) : undefined;
+    const active = !viewId || selectedSessionTab(workspace)?.id === viewId;
+    const id = runtime.tabs.open(expectedRuntimeId, rootId, '', pane?.id);
+    if (active) await navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId }, search: {}, state: { whipViewId: id } });
+    else runtime.tabs.activate(expectedRuntimeId, id, false);
+  };
   const currentRuntime = connection.info?.runtime_id;
   const wrongRuntime = !!currentRuntime && currentRuntime !== expectedRuntimeId;
   const connected =
@@ -176,23 +137,45 @@ function Conversation({
     agentId === session.rootId
       ? root?.presentation
       : root?.agent_presentations[agentId];
-  const rows = useMemo(
-    () => timelineRows(history, presentation),
-    [history, presentation],
-  );
-  const admitted =
-    root?.inbox?.filter((item) => item.agent_id === agentId) ?? [];
+  const rows = useMemo(() => kind === 'chat' ? conversationRows(
+    history, presentation,
+    root?.inbox?.filter(item => item.agent_id === agentId) ?? [],
+    submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId),
+    new Map(commands.filter(item => item.delivery).map(item => [item.id, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])),
+  ) : [], [kind, history, presentation, root?.inbox, submitted, commands, expectedRuntimeId, session.rootId, agentId]);
+  const admitted = root?.inbox?.filter(item => item.agent_id === agentId && !isChatInput(item)) ?? [];
+  const pendingInputs = submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.accepted && !item.confirmed);
+  const pendingInputIds = pendingInputs.map(item => item.id).join(',');
+  useEffect(() => {
+    // Seeing the exact inbox identity is sufficient, including after recovery.
+    runtime.submittedInputs.confirm(submitted.filter(input => input.runtimeId === expectedRuntimeId && input.rootId === session.rootId && root?.inbox?.some(item => item.agent_id === input.agentId && item.seq === input.inboxSeq)).map(input => input.id));
+  }, [runtime, submitted, expectedRuntimeId, session.rootId, root?.inbox]);
+  useEffect(() => {
+    if (!pendingInputIds || connection.state !== 'connected' || wrongRuntime) return;
+    let current = true;
+    // Let the SDK's coalesced lifecycle refresh populate the inbox first.
+    // Only very fast turns (never observed in the inbox) need this fallback.
+    const timer = setTimeout(() => {
+      void (async () => {
+        // A refresh can join an older snapshot. The second follows acceptance.
+        await view.refresh();
+        if (!current) return;
+        await view.refresh();
+        if (current && view.getSnapshot().status === 'live') runtime.submittedInputs.confirm(pendingInputIds.split(','));
+      })().catch(error => runtime.report(error));
+    }, 250);
+    return () => { current = false; clearTimeout(timer); };
+  }, [runtime, view, pendingInputIds, connection.state, wrongRuntime]);
   const agent = root?.agents?.find((item) => item.id === agentId);
   const activeTurn = root?.active_turns[agentId];
   useEffect(() => {
     if (agentId === session.rootId || wrongRuntime) return;
     // The recipient history exposes failures without leaking into another tab.
-    void view.openAgent(agentId).catch(() => {});
-    return () => view.closeAgent(agentId);
+    return runtime.acquireAgent(view, agentId);
   }, [view, agentId, session.rootId, runtime, wrongRuntime]);
   async function fork() {
     if (!root || !canCreateTab()) return;
-    const location = router.state.location;
+    const location = navigationRevision.current;
     try {
       const outcome = await runtime.run(
         session.fork({ expected_revision: root.history_revision }),
@@ -200,11 +183,7 @@ function Conversation({
       );
       const id = outcome.result?.root_id;
       if (id && stillHere(location))
-        await navigate({
-          to: '/h/$runtimeId/s/$rootId',
-          params: { runtimeId: expectedRuntimeId, rootId: id },
-          search: {},
-        });
+        await openCreated(id);
     } catch {
       /* The command notice retains errors and uncertain delivery. */
     }
@@ -246,70 +225,8 @@ function Conversation({
     );
   return (
     <>
-      <header {...stylex.props(layout.header)}>
-        <div {...stylex.props(layout.column, layout.grow)}>
-          <h1 {...stylex.props(layout.title)}>
-            {root?.meta.title || 'Untitled session'}
-          </h1>
-          <span {...stylex.props(layout.muted, layout.ellipsis)}>
-            {root?.meta.cwd}
-          </span>
-        </div>
-        <Badge tone={connected ? 'neutral' : 'warning'}>{state.status}</Badge>
-        <Button variant="ghost" onClick={() => setPanel('agents')}>
-          <PanelRight size={15} /> Details
-        </Button>
-        <Menu
-          trigger={
-            <Button variant="ghost" aria-label="Session actions">
-              <MoreHorizontal size={16} />
-            </Button>
-          }
-          items={[
-            {
-              id: 'Rename',
-              label: 'Rename',
-              onSelect: () => {
-                setTitle(root?.meta.title || '');
-                setRename(true);
-              },
-              disabled: !connected,
-            },
-            {
-              id: 'Fork session',
-              label: 'Fork session',
-              onSelect: () => void fork(),
-              disabled: !connected,
-            },
-            {
-              id: 'Compact history',
-              label: 'Compact history',
-              onSelect: () => {
-                void runtime
-                  .run(session.history.compact(), 'Compact history')
-                  .catch(() => {});
-              },
-              disabled: !connected,
-            },
-            {
-              id: 'Clear history…',
-              label: 'Clear history…',
-              onSelect: () => {
-                clearRevision.current = root?.history_revision;
-                setConfirm('clear');
-              },
-              disabled: !connected,
-            },
-            {
-              id: 'Delete session…',
-              label: 'Delete session…',
-              onSelect: () => setConfirm('delete'),
-              disabled: !connected,
-            },
-          ]}
-        />
-      </header>
-      {agentId !== session.rootId && (
+
+      {kind === 'chat' && agentId !== session.rootId && (
         <div {...stylex.props(layout.notice, layout.row)}>
           <GitBranch size={14} />
           <strong>{agent?.name || agentId}</strong>
@@ -319,6 +236,7 @@ function Conversation({
             to="/h/$runtimeId/s/$rootId"
             params={{ runtimeId: expectedRuntimeId, rootId: session.rootId }}
             search={{}}
+            state={{ whipViewId: viewId }}
           >
             Root conversation
           </Link>
@@ -337,17 +255,15 @@ function Conversation({
           </Button>
         </p>
       )}
-      {(state.truncated || state.unavailable || history?.truncated) && (
-        <p {...stylex.props(layout.notice)}>
-          Some output is truncated or unavailable. Older messages and stored
-          bodies can be loaded explicitly.
-        </p>
-      )}
-      {rows.length ? (
+      {kind === 'repl' ? <ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected}
+        onAgentChange={next => {
+          const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
+          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.report(error));
+        }} /> : rows.length ? (
         <Timeline
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
           rows={rows}
-          bookmarkKey={`${expectedRuntimeId}:${session.rootId}:${agentId}`}
+          bookmarkKey={`${expectedRuntimeId}:${viewId ?? session.rootId}:${agentId}`}
           historyRevision={history?.revision}
           historyReady={!!history && !history.loading}
           hasMore={history?.hasMore ?? false}
@@ -425,22 +341,75 @@ function Conversation({
           </Button>
         </div>
       )}
-      <Composer
+      {kind === 'chat' && <Composer
         key={`composer:${expectedRuntimeId}:${session.rootId}:${agentId}`}
         session={session}
         agentId={agentId}
         connected={connection.state === 'connected' && !wrongRuntime && !!root}
         activeTurn={activeTurn}
         runtimeId={expectedRuntimeId}
-      />
+        viewId={viewId}
+        modelControl={root && <SessionModelPicker view={view} root={root} connected={connected} agentId={agentId} />}
+      />}
       <Sheet
-        open={!!panel}
-        onOpenChange={open => setPanel(open ? panel || 'agents' : undefined)}
+        open={!!panel && focused}
+        onOpenChange={open => { if (focused) setPanel(open ? panel || 'agents' : undefined); }}
         title="Session details"
         description="Inspect recursive work and control the session."
       >
+        <Menu
+          trigger={
+            <Button variant="ghost" aria-label="Session actions">
+              <MoreHorizontal size={16} />
+            </Button>
+          }
+          items={[
+            {
+              id: 'Rename',
+              label: 'Rename',
+              onSelect: () => {
+                setTitle(root?.meta.title || '');
+                setRename(true);
+              },
+              disabled: !connected,
+            },
+            {
+              id: 'Fork session',
+              label: 'Fork session',
+              onSelect: () => void fork(),
+              disabled: !connected,
+            },
+            {
+              id: 'Compact history',
+              label: 'Compact history',
+              onSelect: () => {
+                void runtime
+                  .run(session.history.compact(), 'Compact history')
+                  .catch(() => {});
+              },
+              disabled: !connected,
+            },
+            {
+              id: 'Clear history…',
+              label: 'Clear history…',
+              onSelect: () => {
+                clearRevision.current = root?.history_revision;
+                setConfirm('clear');
+              },
+              disabled: !connected,
+            },
+            {
+              id: 'Delete session…',
+              label: 'Delete session…',
+              onSelect: () => setConfirm('delete'),
+              disabled: !connected,
+            },
+          ]}
+        />
         {root && (
           <SessionInspector
+            kind={kind}
+            viewId={viewId}
             section={panel || 'agents'}
             onSectionChange={setPanel}
             view={view}
@@ -496,7 +465,7 @@ function Conversation({
             variant="danger"
             disabled={!connected}
             onClick={async () => {
-              const location = router.state.location;
+              const location = navigationRevision.current;
               try {
                 const action = confirm;
                 await runtime.run(
@@ -506,7 +475,15 @@ function Conversation({
                   action === 'delete' ? 'Delete session' : 'Clear history',
                 );
                 setConfirm(undefined);
-                if (action === 'delete' && stillHere(location)) await navigate({ to: '/' });
+                if (action === 'delete' && runtime.getSnapshot().client === session.client) {
+                  const active = selectedSessionTab(runtime.tabs.workspace(expectedRuntimeId));
+                  runtime.tabs.close(expectedRuntimeId, [session.rootId], active?.rootId);
+                  if (active?.rootId === session.rootId) {
+                    const next = selectedSessionTab(runtime.tabs.workspace(expectedRuntimeId));
+                    if (next) await navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: next.rootId }, search: sessionSearch(next), state: { whipViewId: next.id }, replace: true });
+                    else await navigate({ to: '/', replace: true });
+                  }
+                }
               } catch {}
             }}
           >
@@ -536,7 +513,7 @@ function Conversation({
             onClick={async () => {
               if (!historyAction) return;
               if (historyAction.action === 'fork' && !canCreateTab()) return;
-              const location = router.state.location;
+              const location = navigationRevision.current;
               try {
                 if (historyAction.action === 'rewind')
                   await runtime.run(
@@ -555,14 +532,7 @@ function Conversation({
                     'Fork history',
                   );
                   if (outcome.result && stillHere(location))
-                    await navigate({
-                      to: '/h/$runtimeId/s/$rootId',
-                      params: {
-                        runtimeId: expectedRuntimeId,
-                        rootId: outcome.result.root_id,
-                      },
-                      search: {},
-                    });
+                    await openCreated(outcome.result.root_id);
                 }
                 setHistoryAction(undefined);
               } catch {}
@@ -642,39 +612,6 @@ function StoredMessage({ text }: { text: string }) {
   );
 }
 
-export function admittedText(
-  kind: string,
-  payload: {
-    text?: string | null;
-    binary?: string | null;
-    inline?: unknown;
-    reference_id: string;
-  },
-): string {
-  let text = payload.text ?? '';
-  if (payload.binary) {
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(
-        Uint8Array.from(atob(payload.binary), (char) => char.charCodeAt(0)),
-      );
-    } catch {
-      return 'Input preview is unavailable.';
-    }
-  }
-  if (kind.endsWith('.parts')) {
-    try {
-      const input = JSON.parse(text);
-      return `${typeof input.text === 'string' ? input.text : ''}${input.attachments?.length ? `\n${input.attachments.length} attached files` : ''}`;
-    } catch {
-      return 'Structured input preview is unavailable.';
-    }
-  }
-  return (
-    text ||
-    (payload.reference_id
-      ? 'Large input stored on the host.'
-      : payload.inline
-        ? JSON.stringify(payload.inline)
-        : 'Input accepted.')
-  );
-}
+const styles = stylex.create({
+  truncationNotice: {
+    borderRadius: 0,

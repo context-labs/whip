@@ -1,5 +1,9 @@
 # @whip/app
 
+Start with the canonical [frontend architecture and design guide](../../docs/frontend.md)
+for design decisions, state ownership, package boundaries, and implementation patterns.
+This README documents the app package's integration contract.
+
 WHIP's shared React application for the web shell and a future Electron renderer.
 This private ESM package distributes TypeScript source. It owns navigation and
 presentation; `@whip/sdk` owns connections and synchronized session state, and
@@ -35,19 +39,42 @@ fonts are served as files, and dynamic positioning is limited to runtime geometr
 Packed-package tests build and run an independently installed consumer in both
 production and development.
 
-There is one Query client per attached host. It contains host reads and detail
-pages, never a second session snapshot or transcript. Unobserved queries are
+There is one Query client per application runtime, cleared when detaching a host.
+It contains host reads and detail pages, never a second session snapshot or
+transcript. Unobserved queries are
 immediately discarded; mailbox pagination retains at most four bounded pages.
-A route leases an SDK view (8 MiB retained payload, 512 messages per opened agent),
+The workspace leases one SDK view per distinct visible root (8 MiB retained payload, 512 messages per opened agent),
 with at most four retained roots and 30 seconds of unused-view retention. Route
 preloading never opens roots. Explicit content reads are limited to 1 MiB of text;
 code rendering separately caps retained tokens, and downloads have a 64 MiB limit.
 These are payload bounds, not a claim about total JavaScript heap overhead.
 
+
+The workspace model lives in `session-tabs.ts`: up to four nested panes and 32
+view instances, with one selected tab per pane. `session-tab-routing.ts` applies
+the focused view's URL and browser-history hint. `workspace-views.ts` releases
+obsolete consumers before acquiring their replacements. Duplicate chat/REPL views share
+root/child SDK views and recipient drafts/uploads/locks; mode, scroll, caret and
+agent selection belong to each view. Generic geometry and dragging live in
+`@whip/ui/workspace-layout`. Window storage migrates the old flat tab list to
+`whip.web.workspace.v2`, retaining the original v1 entry. It never stores a
+transcript. The full tree survives single-pane presentation on narrow screens.
+
+A tab's **Open REPL** action switches that view to the read-only execution
+notebook; **Open chat** returns to its preserved composer and reading position.
+`?view=repl` is the shareable mode; legacy and ordinary session URLs use chat.
+`SessionContent` shares leases and human-request controls, `ReplView` renders SDK
+`executionRows`, and `ReadingList` owns virtual reading/selection behavior for
+both modes. The viewer submits no work and loads older history only on request.
+
 Draft text is saved separately from command recovery metadata: up to 32 drafts,
 256 KiB each, within a 1 MiB total budget. Files are uploaded only on explicit
-selection, paste or drop; incomplete uploads are cancelled on view teardown and
-never resubmitted automatically. Command identities are stored before delivery.
+selection, paste or drop. The window's composition store preserves files and
+uploads across view teardown and tab close/reopen. Host replacement interrupts
+transfers and marks files unavailable; reload requires reselecting them. Explicit
+removal, accepted submission, or draft discard clears the matching attachments.
+Uploads are never resubmitted automatically. Command identities are stored
+before delivery.
 Uncertain acceptance checks the original command; retry is explicit and retains
 its original identity and payload. Closing the app, aborting a wait or changing
 hosts never cancels accepted daemon work. Cancellation uses the exact active turn.
@@ -68,6 +95,6 @@ npm run build:storybook
 npm run test:packed -w @whip/ui
 ```
 
-See `docs/web-app.md` for local setup, test evidence and remaining manual checks.
+See [web-app.md](../../docs/web-app.md) for local setup, test evidence and remaining manual checks.
 Editing, review, interactive terminals, hosting authentication and Electron
 packaging are outside this application milestone.

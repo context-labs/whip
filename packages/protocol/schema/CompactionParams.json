@@ -8,7 +8,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v3/CompactionParams",
+  "$id": "https://whip.dev/protocol/v4/CompactionParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CompactionParams",
   "additionalProperties": false

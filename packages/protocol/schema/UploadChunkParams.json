@@ -18,7 +18,7 @@
       "contentEncoding": "base64"
     }
   },
-  "$id": "https://whip.dev/protocol/v3/UploadChunkParams",
+  "$id": "https://whip.dev/protocol/v4/UploadChunkParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "UploadChunkParams",
   "required": [

@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { RootSnapshot, StreamEvent } from '@whip/protocol';
 import type { SdkEvent, WhipClient } from '../src/client.js';
 import type { Session } from '../src/session.js';
-import { createSessionListView, createSessionView } from '../src/state.js';
+import { createSessionListView, createSessionView, executionRows } from '../src/state.js';
 
 const pause = (ms = 5) => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate: () => boolean): Promise<void> {
@@ -352,4 +352,77 @@ test('catalog polling is observed, revision-based, and never opens roots', async
   assert.equal(host.streams.length, 0);
   assert.ok(host.calls.every(call => call.method.startsWith('sessions.')));
   await list.dispose();
+});
+
+
+test('REPL evidence shares the root subscription and survives commit and reconnect', async t => {
+  const host = new Host();
+  host.root.active_turns = { root: 'turn-1' };
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  const stream = host.streams[0]!;
+  stream.push('11', 'stream.tool.call', { id: 'cell', name: 'rlm_exec', args: '{"code":"print(42)"}' });
+  stream.push('12', 'stream.tool.started', { id: 'cell', name: 'rlm_exec' });
+  stream.push('13', 'stream.cell.host', { id: 'cell', name: 'fs.read', args: '/file', text: '10ms' });
+  stream.push('14', 'stream.tool.completed', { id: 'cell', name: 'rlm_exec', result: '{"value":42,"steps":7}' });
+  await until(() => view.getSnapshot().root?.cursor === '14');
+  const first = executionRows(view.getSnapshot(), 'root')[0]!;
+  assert.equal(first.kind, 'cell');
+  assert.equal(host.streams.length, 1, 'projection opens no additional subscription');
+  assert.ok(host.calls.every(call => call.method === 'root.snapshot'));
+  host.root.cursor = '14';
+  host.root.active_turns = {};
+  host.root.messages = [...host.root.messages!,
+    { role: 'assistant', content: '', tool_calls: [{ id: 'cell', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"print(42)"}' } }] },
+    { role: 'tool', tool_call_id: 'cell', content: '{"value":42,"steps":7}' }];
+  host.root.message_seqs = [1, 2, 3];
+  await view.refresh();
+  const committed = executionRows(view.getSnapshot(), 'root');
+  assert.equal(committed.length, 1);
+  assert.equal(committed[0]!.id, first.id);
+  assert.equal(committed[0]!.kind === 'cell' && committed[0]!.hosts[0]?.name, 'fs.read');
+  assert.ok(Object.isFrozen(committed[0]!.kind === 'cell' && committed[0]!.hosts));
+  host.notify('reconnecting');
+  host.streams.at(-1)!.fail();
+  host.root.cursor = '20';
+  host.notify('connected');
+  await until(() => view.getSnapshot().root?.cursor === '20');
+  assert.equal(executionRows(view.getSnapshot(), 'root')[0]!.id, first.id);
+  host.root = snapshot('30', '2');
+  await view.refresh();
+  assert.equal(executionRows(view.getSnapshot(), 'root').length, 0, 'rewind revision clears incompatible observed cells');
+});
+
+test('REPL unclosed cells stop spinning after disconnect, disposal clears evidence and runtime replacement cannot leak it', async t => {
+  const host = new Host();
+  host.root.active_turns = { root: 'turn-1' };
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  host.streams[0]!.push('11', 'stream.tool.started', { id: 'a', name: 'rlm_exec' });
+  await until(() => view.getSnapshot().root?.cursor === '11');
+  host.notify('reconnecting');
+  const stale = executionRows(view.getSnapshot(), 'root')[0]!;
+  assert.equal(stale.kind === 'cell' && stale.status, 'unknown');
+  host.notify('connected', 'another-runtime');
+  assert.equal(view.getSnapshot().executions, undefined);
+  await view.dispose();
+  assert.equal(view.getSnapshot().executions, undefined);
+});
+
+test('REPL supplements count against the SessionView byte limit even while publication timers are throttled', async t => {
+  const host = new Host();
+  host.root.active_turns = { root: 'turn-1' };
+  const view = createSessionView(host.session(), { maxBytes: 4096, notificationIntervalMs: 10_000 });
+  t.after(() => view.dispose());
+  await view.start();
+  host.streams[0]!.push('11', 'stream.tool.started', { id: 'a', name: 'rlm_exec' });
+  host.streams[0]!.push('12', 'stream.tool.output', { id: 'a', text: 'x'.repeat(100_000) });
+  await until(() => view.getSnapshot().root?.cursor === '12');
+  const current = view.getSnapshot();
+  assert.ok(current.retainedBytes <= 4096);
+  assert.equal(current.truncated, true);
+  const bytes = new TextEncoder().encode(JSON.stringify({ root: current.root, history: current.history, collections: current.collections, executions: current.executions })).byteLength;
+  assert.equal(bytes, current.retainedBytes);
 });

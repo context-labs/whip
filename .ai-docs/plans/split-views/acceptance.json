@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-07",
+  "implementation": "WHIP-owned binary split tree; existing dnd-kit; react-resizable-panels 4.12.4",
+  "app_tests": 141,
+  "production_workspace": {
+    "chromium": {
+      "browser": "153.0.8010.12",
+      "maximumSubscriptions": 4,
+      "checks": [
+        "duplicate root shares one subscription and draft, with independent scroll",
+        "same-URL Back/Forward and independent child-agent selection",
+        "nested split and move prune empty pane while retaining selected view DOM",
+        "production tab dragging and cancellation retain view identity",
+        "keyboard resize, narrow presentation and full reload preserve the layout",
+        "minimum-size active panes retain reachable composer controls",
+        "four-pane admission and replacing roots stay within four subscriptions without daemon commands"
+      ]
+    },
+    "firefox": {
+      "browser": "155.0",
+      "maximumSubscriptions": 4,
+      "checks": [
+        "duplicate root shares one subscription and draft, with independent scroll",
+        "same-URL Back/Forward and independent child-agent selection",
+        "nested split and move prune empty pane while retaining selected view DOM",
+        "production tab dragging and cancellation retain view identity",
+        "keyboard resize, narrow presentation and full reload preserve the layout",
+        "minimum-size active panes retain reachable composer controls",
+        "four-pane admission and replacing roots stay within four subscriptions without daemon commands"
+      ]
+    }
+  },
+  "passed_checks": [
+    "npm run check:web",
+    "npm run test:web",
+    "UI types and unit tests",
+    "UI layout fixture: Chromium and Firefox, Axe, strict CSP, mixed renderers",
+    "UI tabs: Chromium and Firefox, all 65 themes",
+    "production browser.mjs: Chromium and Firefox",
+    "production session-tabs.mjs: Chromium and Firefox",
+    "production sidebar.mjs: Chromium and Firefox",
+    "production session-search.mjs: Chromium and Firefox",
+    "production performance.mjs: Chromium",
+    "Storybook build",
+    "isolated packed UI/app install, production and development rendering",
+    "task check (final source)"
+  ],
+  "screenshots_directory": "/tmp/whip-workspace-layout-results",
+  "manual_coverage": "Actual Safari, VoiceOver and physical touch were not exercised for split layouts in this run.",
+  "review": "Adversarial review completed; corrected sole root lease ownership, view identity in inspector commands, edge preview rejection, unscaled split bounds, and narrow controls.",
+  "drag_test_correction": "Await drag-source removal after Escape cancellation before beginning a second pointer gesture; no registry workaround or arbitrary sleep."
+}

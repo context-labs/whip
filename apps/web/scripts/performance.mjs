@@ -145,7 +145,7 @@ const viewport = page.getByRole('region', {
   exact: true,
 });
 const ready = async () => {
-  await page.getByText('live', { exact: true }).waitFor();
+  await eventually(() => page.locator('[data-whip-composer]').isEnabled());
   await page.locator('[data-whip-composer]').waitFor();
 };
 const frame = () =>
@@ -329,7 +329,8 @@ try {
   };
   await frame();
   const rootAnchor = await captureAnchor();
-  await page.getByRole('button', { name: 'Details', exact: true }).click();
+  await page.locator(`[data-workspace-tab="${fixture.info.root_id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
+  await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
   await page.getByRole('link', { name: 'perf-child-000', exact: true }).click();
   await ready();
   await frame();

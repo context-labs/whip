@@ -14,6 +14,12 @@ export interface ThemeDefinition {
   readonly id: string;
   readonly name: string;
   readonly dark: boolean;
+  readonly web?: {
+    readonly navigation?: string;
+    readonly quietBorder?: string;
+    readonly codeBackground?: string;
+    readonly inlineCodeBackground?: string;
+  };
   readonly colors: Readonly<Record<ColorRole, string>>;
   readonly syntax: Readonly<Record<SyntaxRole, string>>;
   readonly markdown: Readonly<Record<MarkdownRole, string>>;
@@ -2179,6 +2185,166 @@ export const themeCatalog: readonly ThemeDefinition[] = [
       "punctuation": "#cad3f5",
       "string": "#a6da95",
       "type": "#eed49f"
+    }
+  },
+  {
+    "code": {
+      "background": "#222221",
+      "foreground": "#c2c0b8",
+      "tokens": {
+        "Background": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#c2c0b8",
+          "italic": false,
+          "underline": false
+        },
+        "Comment": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#aaa99f",
+          "italic": true,
+          "underline": false
+        },
+        "Error": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#ec7e7e",
+          "italic": false,
+          "underline": false
+        },
+        "GenericDeleted": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#ec7e7e",
+          "italic": false,
+          "underline": false
+        },
+        "GenericInserted": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#91d68b",
+          "italic": false,
+          "underline": false
+        },
+        "Keyword": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#b796ff",
+          "italic": false,
+          "underline": false
+        },
+        "KeywordType": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#6da7ec",
+          "italic": false,
+          "underline": false
+        },
+        "LiteralNumber": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#fab219",
+          "italic": false,
+          "underline": false
+        },
+        "LiteralString": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#91d68b",
+          "italic": false,
+          "underline": false
+        },
+        "NameBuiltin": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#6da7ec",
+          "italic": false,
+          "underline": false
+        },
+        "NameClass": {
+          "background": "#222221",
+          "bold": true,
+          "color": "#6da7ec",
+          "italic": false,
+          "underline": false
+        },
+        "NameFunction": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#6da7ec",
+          "italic": false,
+          "underline": false
+        },
+        "Operator": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#c2c0b8",
+          "italic": false,
+          "underline": false
+        },
+        "Punctuation": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#aaa99f",
+          "italic": false,
+          "underline": false
+        },
+        "Text": {
+          "background": "#222221",
+          "bold": false,
+          "color": "#c2c0b8",
+          "italic": false,
+          "underline": false
+        }
+      }
+    },
+    "colors": {
+      "accent": "#b796ff",
+      "background": "#141414",
+      "border": "#343430",
+      "borderFocus": "#6da7ec",
+      "diffAdd": "#11260f",
+      "diffDel": "#3c0e0e",
+      "element": "#222221",
+      "emphasis": "#c2c0b8",
+      "error": "#ec7e7e",
+      "faint": "#77776f",
+      "foreground": "#c2c0b8",
+      "hover": "#343434",
+      "info": "#6da7ec",
+      "link": "#6da7ec",
+      "muted": "#aaa99f",
+      "onPrimary": "#141414",
+      "panel": "#1b1b19",
+      "primary": "#c87555",
+      "success": "#91d68b",
+      "warning": "#fab219"
+    },
+    "dark": true,
+    "id": "claude-code",
+    "markdown": {
+      "code": "#cf7569",
+      "heading": "#c2c0b8",
+      "quote": "#aaa99f",
+      "strong": "#c2c0b8"
+    },
+    "name": "Claude Code",
+    "syntax": {
+      "comment": "#aaa99f",
+      "function": "#6da7ec",
+      "keyword": "#b796ff",
+      "number": "#fab219",
+      "operator": "#c2c0b8",
+      "punctuation": "#aaa99f",
+      "string": "#91d68b",
+      "type": "#6da7ec"
+    },
+    "web": {
+      "codeBackground": "#1b1b19",
+      "inlineCodeBackground": "#2b2726",
+      "navigation": "#111110",
+      "quietBorder": "#1c1c1b"
     }
   },
   {
@@ -10037,5 +10203,5 @@ export const themeCatalog: readonly ThemeDefinition[] = [
   },
 ];
 
-export const themeIds = ["light","dark","aura","aura-light","ayu","ayu-light","carbonfox","carbonfox-light","catppuccin","catppuccin-frappe","catppuccin-frappe-light","catppuccin-light","catppuccin-macchiato","catppuccin-macchiato-light","cobalt2","cobalt2-light","cursor","cursor-light","dracula","dracula-light","everforest","everforest-light","flexoki","flexoki-light","github","github-light","gruvbox","gruvbox-light","kanagawa","kanagawa-light","material","material-light","matrix","matrix-light","mercury","mercury-light","monokai","monokai-light","nightowl","nightowl-light","nord","nord-light","one-dark","one-dark-light","opencode","opencode-light","orng","orng-light","osaka-jade","osaka-jade-light","palenight","palenight-light","rosepine","rosepine-light","solarized","solarized-light","synthwave84","synthwave84-light","tokyonight","tokyonight-light","vercel","vercel-light","vesper","zenburn","zenburn-light"] as const;
+export const themeIds = ["light","dark","aura","aura-light","ayu","ayu-light","carbonfox","carbonfox-light","catppuccin","catppuccin-frappe","catppuccin-frappe-light","catppuccin-light","catppuccin-macchiato","catppuccin-macchiato-light","claude-code","cobalt2","cobalt2-light","cursor","cursor-light","dracula","dracula-light","everforest","everforest-light","flexoki","flexoki-light","github","github-light","gruvbox","gruvbox-light","kanagawa","kanagawa-light","material","material-light","matrix","matrix-light","mercury","mercury-light","monokai","monokai-light","nightowl","nightowl-light","nord","nord-light","one-dark","one-dark-light","opencode","opencode-light","orng","orng-light","osaka-jade","osaka-jade-light","palenight","palenight-light","rosepine","rosepine-light","solarized","solarized-light","synthwave84","synthwave84-light","tokyonight","tokyonight-light","vercel","vercel-light","vesper","zenburn","zenburn-light"] as const;
 export type BuiltinThemeID = (typeof themeIds)[number];

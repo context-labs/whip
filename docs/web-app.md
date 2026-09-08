@@ -1,5 +1,9 @@
 # WHIP web application
 
+For implementation decisions and coding-agent context, read the canonical
+[frontend architecture and design guide](frontend.md). This page covers product
+behavior, local setup, deployment boundaries, and validation evidence.
+
 The browser attaches to WHIP's daemon. The daemon owns execution, credentials,
 permissions and durable sessions; closing a browser does not cancel its work.
 Multiple clients can use the same daemon concurrently. This first release is
@@ -27,16 +31,27 @@ inspect and forget saved identities after reload; those records contain no promp
 Its separate, confirmed discard action clears unsent drafts, including drafts for
 removed sessions, without deleting command identities or device preferences.
 
-## Session tabs
+## Session tabs and split views
 
-Selecting a saved session opens one root tab, reused on subsequent visits. Tabs
-span projects on the connected host; child agents stay inside their root tab.
+Selecting a saved session reuses a matching view or opens a tab in the focused
+pane. Tabs span projects on the connected host; child agents stay inside a chat
+view. Use its tab menu or pane actions to **Split right** or **Split down**.
+Splitting opens another view of the same session with independent scroll, agent
+and inspector selection. Drafts, files and submission locks remain shared when
+both views address the same agent.
 The URL controls selection, including browser Back/Forward and deep links.
 On an initial Home load, the window restores its last active session after the
 host identity is known. Intentional Home navigation stays on the New session
 launcher. Other browser windows have independent layouts.
 
-The strip supports drag reordering, close/close others/close right, Move left/right,
+Drag tabs between pane strips or into a pane center to move them; edge drops
+create nested splits, and Escape cancels. Move-to-pane menu actions provide a
+keyboard alternative. Pane dividers resize with dragging or arrow keys. Closing
+the last tab in a pane removes that pane. Up to four panes fit within the window;
+small available sizes temporarily show the focused pane without changing the saved
+tree. Other tab types and detached windows remain later work.
+
+Each strip supports drag reordering, close/close others/close right, Move left/right,
 Copy session link, and Reopen closed tab. Closing selects the right neighbor, then
 the left, and closing the last tab returns Home. Closing never deletes or cancels
 work or sends a draft. The command palette includes next/previous/close/reopen and
@@ -46,8 +61,10 @@ On phones, the current-session button opens a searchable list with explicit acti
 
 Window layout uses sessionStorage with memory fallback: 32 open tabs, 20 closed
 entries, four host layouts and 64 KiB total metadata. It contains only IDs, bounded
-title hints, order and child/inspector route hints. It contains no messages or
-credentials. Only the selected conversation mounts; at most four root views stay
+title hints, the split tree and ratios, order and child/inspector route hints.
+The v2 workspace entry migrates the previous flat list. It contains no messages or
+credentials. Only the selected conversation in each visible pane mounts. Duplicate views
+share root observation; at most four distinct root views stay
 warm for 30 seconds after release, with least-recently-used eviction. Reading
 anchors and composer selection are bounded memory hints; history changes fall
 back visibly to retained content instead of fetching unbounded history.
@@ -59,7 +76,7 @@ warns while attachments remain. Switching hosts interrupts transfers and marks
 attachments unavailable. Explicit removal, accepted submission and Settings →
 Recovery → Discard drafts clear the corresponding attachment state.
 
-Protocol 3.1's negotiated `session_summaries` capability supplies tab titles and
+The negotiated `session_summaries` capability supplies tab titles and
 running/queued agent and pending permission/question counts without opening each
 root. The window batches all open IDs into one query every two visible seconds;
 local lifecycle events coalesce refreshes. Hidden and disconnected windows pause
@@ -150,7 +167,7 @@ or separately configured browser origin.
 
 If Vite reports WebSocket proxy errors (`EPIPE`) and the app stays reconnecting,
 check the daemon's protocol and allowed origins. A running older daemon is not
-upgraded by starting Vite: this app requires protocol 3. Build it with `task build`,
+upgraded by starting Vite: this app requires protocol 4. Build it with `task build`,
 stop the old daemon using its original binary, and start `./whip` with the network
 settings above. Use the same `WHIP_HOME` on both commands to retain the same
 runtime. Stopping a daemon interrupts active work. Do not reset a compatible
@@ -193,9 +210,14 @@ with `--url`, or bind the intended host address directly.
 ## Appearance
 
 Open the palette button or **Settings → Appearance** to search and preview all
-65 named TUI themes. **System appearance** follows the operating system's light
+66 named TUI themes. **System appearance** follows the operating system's light
 or dark setting. Selection is saved on the viewing device and restored before
 the app renders. Controls, portaled dialogs, Markdown and code share the theme.
+
+**Claude Code** matches the dark Paper desktop reference with a nearly black
+sidebar, warm gray text, charcoal surfaces and Claude's orange accent. Select it
+from **Color theme**; it does not change WHIP's typography or layout. As with
+other themes, low-contrast text receives the browser's accessibility adjustment.
 
 While connected, **Custom themes** lists JSON themes from the execution host's
 `WHIP_HOME/themes` directory. **Import theme JSON** accepts the existing TUI format
@@ -367,7 +389,7 @@ npm run test:visual -w @whip/ui
 npm run test:visual:proof -w @whip/ui
 ```
 
-The UI suite covers all 65 generated palettes, source-palette immutability,
+The UI suite covers all 66 generated palettes, source-palette immutability,
 readable browser foreground derivation, custom-theme validation and complete
 Chroma token attributes. Its 65 Axe fixtures check text contrast, labels and ARIA;
 ten interaction scenarios cover keyboard/focus behavior, theme selection and
@@ -408,3 +430,16 @@ space. The history stress fixture preserves independent child/root reading ancho
 These automated results do not complete manual VoiceOver or physical-mobile gates.
 Playwright switching measurements include automation overhead and are not physical
 paint timings; the sub-100ms target is not certified by those measurements.
+
+
+### Split workspace verification — September 7, 2026
+
+The [split-view acceptance record](../.ai-docs/plans/split-views/acceptance.json)
+contains Chromium/Firefox production coverage for nested panes, duplicate chat
+views, independent agents/scroll, shared drafts, menu and drag transfers,
+cancellation, focused-pane commands, keyboard resizing, narrow restoration and
+four-root admission. Existing browser/tab/sidebar/search suites also passed;
+large-history performance passed in Chromium. App tests: 141 passing. UI layout
+checks include Axe, strict CSP and a separate fixture-only content renderer; tab
+chrome passes all 66 themes. Actual Safari split interactions, VoiceOver and
+physical touch remain separate release checks.

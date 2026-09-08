@@ -1,20 +1,21 @@
 import {
   isValidElement,
   memo,
-  useEffect,
-  useLayoutEffect,
-  useRef,
   useState,
   type ComponentPropsWithoutRef,
 } from 'react';
 import { Markdown } from '@tanstack/markdown/react';
 import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/streaming';
-import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import type { DeepReadonly, HistoryView } from '@whip/sdk/state';
 import type { RootSnapshot, StreamEvent } from '@whip/protocol';
-import { Button, CodeBlock, IconButton, Menu } from '@whip/ui';
-import { Copy, ArrowDown, ChevronRight, Code2 } from 'lucide-react';
+import { Button, CodeBlock, CopyButton, IconButton, Menu } from '@whip/ui';
+import {
+  ChevronRight,
+  Code2,
+  MoreHorizontal,
+} from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
+import { messageMarker } from './timeline.stylex';
 import {
   colors,
   typography,
@@ -24,7 +25,13 @@ import {
 } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
-import { readingTarget } from './reading-positions';
+import { ReadingList } from './reading-list';
+import {
+  admittedText,
+  isChatInput,
+  type InboxInput,
+  type SubmittedInput,
+} from './input-presentation';
 
 export interface TimelineRow {
   id: string;
@@ -37,6 +44,9 @@ export interface TimelineRow {
   body?: NonNullable<HistoryView['messages'][number]['body']>;
   seq?: number;
   images?: ImagePart[];
+  sentAt?: string;
+  delivery?: string;
+  queued?: boolean;
 }
 interface ImagePart {
   url: string;
@@ -128,6 +138,7 @@ export function timelineRows(
         seq: entry.seq,
         role: entry.role || 'notice',
         text: '',
+        sentAt: entry.sent_at ?? undefined,
         ...(entry.body ? { body: entry.body } : {}),
       });
       continue;
@@ -162,6 +173,7 @@ export function timelineRows(
         role: digest ? 'mailbox' : message.role,
         text: parts.text,
         images: parts.images,
+        sentAt: message.sent_at ?? entry.sent_at ?? undefined,
         ...(message.role === 'tool'
           ? { label: message.name || 'Tool output' }
           : {}),
@@ -235,6 +247,48 @@ export function timelineRows(
   return rows;
 }
 
+/** Inbox removal and committed history arrive in the same root snapshot. */
+export function conversationRows(
+  history: DeepReadonly<HistoryView> | undefined,
+  presentation: Presentation | undefined,
+  inbox: readonly InboxInput[],
+  submitted: readonly SubmittedInput[],
+  deliveries: ReadonlyMap<string, string> = new Map(),
+): TimelineRow[] {
+  const inputs: TimelineRow[] = inbox.filter(isChatInput).map((item) => {
+    const local = submitted.find((input) => input.inboxSeq === item.seq);
+    return {
+      id: local ? `input:${local.id}` : `inbox:${item.agent_id}:${item.seq}`,
+      role: 'user',
+      text: local?.text ?? admittedText(item.kind, item.payload),
+      sentAt: local?.sentAt,
+      delivery: item.status === 'running' ? undefined : 'Queued',
+      queued: item.status !== 'running' || item.kind.startsWith('steer'),
+    };
+  });
+  for (const input of submitted) {
+    if (input.confirmed || inbox.some((item) => item.seq === input.inboxSeq))
+      continue;
+    inputs.push({
+      id: `input:${input.id}`,
+      role: 'user',
+      text: input.text,
+      sentAt: input.sentAt,
+      delivery:
+        deliveries.get(input.id) ?? (input.accepted ? 'Queued' : 'Sending…'),
+      queued: input.queued,
+    });
+  }
+  const rows = timelineRows(history, presentation);
+  const firstLive = rows.findIndex((row) => row.seq === undefined);
+  rows.splice(
+    firstLive < 0 ? rows.length : firstLive,
+    0,
+    ...inputs.filter((row) => !row.queued),
+  );
+  return [...rows, ...inputs.filter((row) => row.queued)];
+}
+
 export function executionCode(args: string): string {
   try {
     const value = JSON.parse(args);
@@ -247,26 +301,47 @@ export function executionCode(args: string): string {
 }
 
 const styles = stylex.create({
-  viewport: {
-    flex: 1,
-    overflowY: 'auto',
-    minHeight: 0,
-    overflowAnchor: 'none',
-  },
-  inner: {
-    maxWidth: 840,
-    marginInline: 'auto',
-    paddingInline: { default: 32, [scale.phone]: 16 },
-    paddingBlock: 24,
-  },
   article: {
     paddingBlock: 14,
     overflowWrap: 'anywhere',
-    fontSize: 15,
-    lineHeight: 1.75,
+    fontSize: 14,
+    lineHeight: 1.65,
     color: colors.foreground,
   },
-  user: { marginBottom: 8 },
+  user: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    marginBottom: 8,
+  },
+  bubble: {
+    maxWidth: { default: '80%', [scale.phone]: '94%' },
+    minWidth: 0,
+    paddingBlock: 12,
+    paddingInline: 16,
+    borderRadius: 20,
+    backgroundColor: colors.element,
+    color: colors.foreground,
+  },
+  actions: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    minHeight: { default: 32, [scale.touch]: 44 },
+    marginTop: 4,
+    fontSize: 12,
+    color: surface.secondaryText,
+    opacity: {
+      default: 0,
+      [stylex.when.ancestor(':hover', messageMarker)]: 1,
+      [stylex.when.ancestor(':focus-within', messageMarker)]: 1,
+      [stylex.when.ancestor(':has([aria-expanded="true"])', messageMarker)]: 1,
+      [scale.touch]: 1,
+    },
+  },
+  responseActions: { justifyContent: 'flex-start', marginTop: 8 },
+  delivery: { fontSize: 12, color: surface.secondaryText, marginTop: 4 },
   byline: {
     fontSize: 12,
     fontWeight: 550,
@@ -300,7 +375,7 @@ const styles = stylex.create({
     borderRadius: 8,
   },
   details: { marginTop: 12, maxHeight: 480, overflow: 'auto' },
-  p: { marginBlock: '0 12px' },
+  p: { marginTop: 0, marginBottom: { default: 12, ':last-child': 0 } },
   heading: {
     fontSize: 18,
     fontWeight: 560,
@@ -311,7 +386,7 @@ const styles = stylex.create({
     fontFamily: typography.mono,
     fontSize: '0.85em',
     color: markdown.code,
-    backgroundColor: colors.element,
+    backgroundColor: surface.inlineCode,
     paddingInline: 4,
     borderRadius: 4,
   },
@@ -356,20 +431,7 @@ const styles = stylex.create({
     borderBottomStyle: 'solid',
     borderBottomColor: colors.border,
   },
-  jump: {
-    position: 'absolute',
-    bottom: 16,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    boxShadow: '0 2px 8px rgb(0 0 0 / 0.08)',
-  },
-  region: {
-    flex: 1,
-    position: 'relative',
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: 0,
-  },
+
 });
 
 const markdownComponents = {
@@ -463,7 +525,7 @@ export const Prose = memo(function Prose({
   );
 });
 
-const MessageRow = memo(function MessageRow({
+export const MessageRow = memo(function MessageRow({
   row,
   readBody,
   historyAction,
@@ -474,10 +536,24 @@ const MessageRow = memo(function MessageRow({
 }) {
   const runtime = useRuntime();
   const disclosure = ['tool', 'reasoning', 'mailbox'].includes(row.role);
+  const user = row.role === 'user';
+  const assistant = row.role === 'assistant';
+  const stamp = row.sentAt ? new Date(row.sentAt) : undefined;
+  const time = stamp && Number.isFinite(stamp.getTime()) ? stamp : undefined;
+  const copy = (
+    <CopyButton
+      label="Copy message"
+      text={row.text}
+      copy={(text) => runtime.platform.copy(text)}
+      onError={(error) => runtime.report(error)}
+    />
+  );
   return (
     <article
       data-message-id={row.id}
-      {...stylex.props(styles.article, row.role === 'user' && styles.user)}
+      data-message-role={row.role}
+      aria-label={user ? 'Your message' : undefined}
+      {...stylex.props(messageMarker, styles.article, user && styles.user)}
     >
       {disclosure ? (
         <details {...stylex.props(styles.disclosure)}>
@@ -512,28 +588,43 @@ const MessageRow = memo(function MessageRow({
             )}
           </div>
         </details>
-      ) : (
+      ) : user ? (
         <>
-          <div {...stylex.props(styles.byline)}>
-            <span>
-              {row.role === 'user'
-                ? 'You'
-                : row.role === 'assistant'
-                  ? 'WHIP'
-                  : 'Activity'}
-            </span>
-            {row.live && <span>· writing</span>}
-            <span {...stylex.props(layout.grow)} />
-            {row.role === 'user' && row.seq !== undefined && historyAction && (
+          <div data-user-bubble {...stylex.props(styles.bubble)}>
+            {row.body ? (
+              <Button variant="ghost" onClick={() => readBody(row)}>
+                Read stored message · {row.body.size} bytes
+              </Button>
+            ) : (
+              <>
+                <Prose text={row.text} />
+                {row.images?.map((image, index) => (
+                  <ImageAttachment key={index} image={image} />
+                ))}
+              </>
+            )}
+          </div>
+          {row.delivery && (
+            <div role="status" {...stylex.props(styles.delivery)}>
+              {row.delivery}
+            </div>
+          )}
+          <div data-message-actions {...stylex.props(styles.actions)}>
+            {time && (
+              <time dateTime={row.sentAt} title={time.toLocaleString()}>
+                {time.toLocaleTimeString(undefined, {
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+              </time>
+            )}
+            {copy}
+            {row.seq !== undefined && historyAction && (
               <Menu
                 trigger={
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Message history actions"
-                  >
-                    History
-                  </Button>
+                  <IconButton variant="ghost" label="Message history actions">
+                    <MoreHorizontal size={14} />
+                  </IconButton>
                 }
                 items={[
                   {
@@ -549,17 +640,17 @@ const MessageRow = memo(function MessageRow({
                 ]}
               />
             )}
-            <IconButton
-              label="Copy message"
-              onClick={() =>
-                void runtime.platform
-                  .copy(row.text)
-                  .catch((error) => runtime.report(error))
-              }
-            >
-              <Copy size={13} />
-            </IconButton>
           </div>
+        </>
+      ) : (
+        <>
+          {!assistant && (
+            <div {...stylex.props(styles.byline)}>
+              <span>Activity</span>
+              <span {...stylex.props(layout.grow)} />
+              {copy}
+            </div>
+          )}
           {row.body ? (
             <Button variant="ghost" onClick={() => readBody(row)}>
               Read stored message · {row.body.size} bytes
@@ -571,6 +662,15 @@ const MessageRow = memo(function MessageRow({
                 <ImageAttachment key={index} image={image} />
               ))}
             </>
+          )}
+          {assistant && (
+            <div
+              data-message-actions
+              {...stylex.props(styles.actions, styles.responseActions)}
+            >
+              {copy}
+              {row.live && <span>Writing…</span>}
+            </div>
           )}
         </>
       )}
@@ -597,278 +697,8 @@ export function Timeline({
   historyRevision?: string;
   historyReady?: boolean;
 }) {
-  const runtime = useRuntime();
-  const viewport = useRef<HTMLDivElement>(null);
-  const saved = useRef(
-    bookmarkKey ? runtime.readingPositions.get(bookmarkKey) : undefined,
-  );
-  const follow = useRef(saved.current?.follow ?? true);
-  const [atEnd, setAtEnd] = useState(follow.current);
-  const [loading, setLoading] = useState(false);
-  const [pinned, setPinned] = useState<string[]>([]);
-  const [positionNotice, setPositionNotice] = useState('');
-  const appliedRevision = useRef<string | undefined>(undefined);
-  const restoring = useRef(false);
-  const restoreFrame = useRef(0);
-  const virtual = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => viewport.current,
-    estimateSize: () => 140,
-    overscan: 8,
-    getItemKey: (index) => rows[index]!.id,
-    anchorTo: 'end',
-    scrollEndThreshold: 64,
-    rangeExtractor: (range) => {
-      const indices = defaultRangeExtractor(range);
-      const selected = pinned
-        .map((id) => rows.findIndex((row) => row.id === id))
-        .filter((index) => index >= 0);
-      if (selected.length)
-        for (
-          let index = Math.min(...selected);
-          index <= Math.max(...selected);
-          index++
-        )
-          indices.push(index);
-      return [...new Set(indices)].sort((left, right) => left - right);
-    },
-  });
-  const total = virtual.getTotalSize();
-  const savePosition = useRef(() => {});
-  savePosition.current = () => {
-    const root = viewport.current;
-    if (
-      !root ||
-      !bookmarkKey ||
-      !historyRevision ||
-      !historyReady ||
-      restoring.current ||
-      appliedRevision.current !== historyRevision
-    )
-      return;
-    const top = root.getBoundingClientRect().top;
-    const element = [
-      ...root.querySelectorAll<HTMLElement>('[data-message-id]'),
-    ].find((row) => row.getBoundingClientRect().bottom > top);
-    const row = rows.find((row) => row.id === element?.dataset.messageId);
-    if (!row || !element) return;
-    runtime.readingPositions.set(bookmarkKey, {
-      messageId: row.id,
-      revision: historyRevision,
-      seq: row.seq,
-      offset: top - element.getBoundingClientRect().top,
-      follow: follow.current,
-    });
-  };
-  const stopRestore = () => {
-    cancelAnimationFrame(restoreFrame.current);
-    restoring.current = false;
-  };
-  useLayoutEffect(() => {
-    if (
-      !bookmarkKey ||
-      !historyRevision ||
-      !historyReady ||
-      appliedRevision.current === historyRevision
-    )
-      return;
-    stopRestore();
-    const bookmark = runtime.readingPositions.get(bookmarkKey);
-    appliedRevision.current = historyRevision;
-    if (!bookmark || bookmark.follow) {
-      follow.current = true;
-      setAtEnd(true);
-      setPositionNotice('');
-      return;
-    }
-    const target = readingTarget(rows, historyRevision, bookmark);
-    setPositionNotice(
-      target.fallback
-        ? 'Your saved place is no longer in this history. Showing the nearest loaded messages.'
-        : '',
-    );
-    follow.current = false;
-    setAtEnd(false);
-    if (target.index < 0) return;
-    const id = rows[target.index]!.id;
-    restoring.current = true;
-    virtual.scrollToOffset(
-      (virtual.getOffsetForIndex(target.index, 'start')?.[0] ?? 0) +
-        target.offset,
-    );
-    let attempts = 0;
-    const align = () => {
-      const root = viewport.current;
-      if (!root) {
-        restoring.current = false;
-        return;
-      }
-      const element = [
-        ...root.querySelectorAll<HTMLElement>('[data-message-id]'),
-      ].find((row) => row.dataset.messageId === id);
-      if (element) {
-        const delta =
-          element.getBoundingClientRect().top -
-          root.getBoundingClientRect().top +
-          target.offset;
-        virtual.scrollToOffset(root.scrollTop + delta);
-      } else
-        virtual.scrollToOffset(
-          (virtual.getOffsetForIndex(target.index, 'start')?.[0] ?? 0) +
-            target.offset,
-        );
-      // Measurements can settle over several frames. This bounded one-time
-      // restore hands scrolling back to TanStack's existing prepend/follow logic.
-      if (++attempts < 8) restoreFrame.current = requestAnimationFrame(align);
-      else {
-        restoring.current = false;
-        if (!element)
-          setPositionNotice(
-            'Your saved place could not be restored. Showing loaded messages.',
-          );
-        savePosition.current();
-      }
-    };
-    restoreFrame.current = requestAnimationFrame(align);
-  }, [bookmarkKey, historyRevision, historyReady, rows, runtime, virtual]);
-  useLayoutEffect(
-    () => () => {
-      savePosition.current();
-      cancelAnimationFrame(restoreFrame.current);
-      restoring.current = false;
-      appliedRevision.current = undefined;
-    },
-    [bookmarkKey],
-  );
-  useLayoutEffect(() => {
-    // A fixed offset lets the next user scroll take over. An indexed scroll can
-    // keep reconciling toward the last row after the user starts reading history.
-    if (follow.current && historyReady && !restoring.current)
-      virtual.scrollToOffset(viewport.current?.scrollHeight ?? 0);
-  }, [rows, total, virtual, historyReady]);
-  useEffect(() => {
-    const update = () => {
-      const root = viewport.current;
-      if (!root) return;
-      const selection = document.getSelection();
-      const nodes = [
-        selection?.anchorNode,
-        selection?.focusNode,
-        document.activeElement,
-      ];
-      const ids = nodes.flatMap((node) => {
-        const element = node instanceof Element ? node : node?.parentElement;
-        const row = element?.closest<HTMLElement>('[data-message-id]');
-        return row && root.contains(row) ? [row.dataset.messageId!] : [];
-      });
-      setPinned((previous) =>
-        previous.join('\n') === ids.join('\n') ? previous : ids,
-      );
-    };
-    document.addEventListener('selectionchange', update);
-    document.addEventListener('focusin', update);
-    return () => {
-      document.removeEventListener('selectionchange', update);
-      document.removeEventListener('focusin', update);
-    };
-  }, []);
-  return (
-    <div {...stylex.props(styles.region)}>
-      {positionNotice && (
-        <div role="status" {...stylex.props(layout.notice)}>
-          {positionNotice}
-        </div>
-      )}
-      <div
-        ref={viewport}
-        {...stylex.props(styles.viewport)}
-        role="region"
-        tabIndex={0}
-        aria-label="Conversation"
-        onWheel={stopRestore}
-        onTouchStart={stopRestore}
-        onKeyDown={(event) => {
-          if (
-            [
-              'ArrowUp',
-              'ArrowDown',
-              'PageUp',
-              'PageDown',
-              'Home',
-              'End',
-              ' ',
-            ].includes(event.key)
-          )
-            stopRestore();
-        }}
-        onScroll={(event) => {
-          if (restoring.current) return;
-          const target = event.currentTarget;
-          const end =
-            target.scrollHeight - target.scrollTop - target.clientHeight < 64;
-          follow.current = end;
-          setAtEnd(end);
-          savePosition.current();
-        }}
-      >
-        <div {...stylex.props(styles.inner)}>
-          {hasMore && (
-            <Button
-              variant="ghost"
-              loading={loading}
-              onClick={async () => {
-                stopRestore();
-                follow.current = false;
-                setLoading(true);
-                try {
-                  await loadOlder();
-                } catch (error) {
-                  runtime.report(error);
-                } finally {
-                  setLoading(false);
-                }
-              }}
-            >
-              Load earlier messages
-            </Button>
-          )}
-          <div style={{ height: total, position: 'relative' }}>
-            {virtual.getVirtualItems().map((item) => (
-              <div
-                key={item.key}
-                data-index={item.index}
-                ref={virtual.measureElement}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  width: '100%',
-                  transform: `translateY(${item.start}px)`,
-                }}
-              >
-                <MessageRow
-                  row={rows[item.index]!}
-                  readBody={readBody}
-                  historyAction={historyAction}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      {!atEnd && (
-        <Button
-          variant="secondary"
-          xstyle={styles.jump}
-          onClick={() => {
-            stopRestore();
-            follow.current = true;
-            setAtEnd(true);
-            virtual.scrollToOffset(viewport.current?.scrollHeight ?? 0);
-          }}
-        >
-          <ArrowDown size={14} /> Latest
-        </Button>
-      )}
-    </div>
-  );
+  return <ReadingList rows={rows} hasMore={hasMore} loadOlder={loadOlder}
+    bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyReady={historyReady}
+    label="Conversation" earlierLabel="Load earlier messages"
+    renderRow={row => <MessageRow row={row} readBody={readBody} historyAction={historyAction} />} />;
 }

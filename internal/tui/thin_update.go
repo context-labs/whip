@@ -580,7 +580,7 @@ func clientCommandNeedsSnapshot(operation string) bool {
 	switch operation {
 	case "history.clear", "history.rewind", "history.compact", "history.compact.retry",
 		"goal.set", "goal.run", "goal.from-context",
-		"agent.control", "agent.delete", "budget.cap", "capability.revoke":
+		"agent.control", "agent.delete", "capability.revoke":
 		return true
 	default:
 		return false

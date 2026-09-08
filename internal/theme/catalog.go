@@ -46,7 +46,7 @@ func Catalog(customDir string) (CatalogResult, error) {
 		return result, errors.Join(errs...)
 	}
 	for _, s := range Builtins() {
-		result.Themes = append(result.Themes, Metadata{ID: s.Name, Name: s.Name, Dark: s.Dark, Source: "builtin"})
+		result.Themes = append(result.Themes, Metadata{ID: s.Name, Name: s.Label(), Dark: s.Dark, Source: "builtin"})
 	}
 	specs, errs, truncated, err := loadCustom(customDir)
 	if err != nil {
@@ -55,7 +55,7 @@ func Catalog(customDir string) (CatalogResult, error) {
 	result.Errors = errs
 	result.Truncated = truncated
 	for _, s := range specs {
-		result.Themes = append(result.Themes, Metadata{ID: s.Name, Name: s.Name, Dark: s.Dark, Source: "custom"})
+		result.Themes = append(result.Themes, Metadata{ID: s.Name, Name: s.Label(), Dark: s.Dark, Source: "custom"})
 	}
 	return result, nil
 }

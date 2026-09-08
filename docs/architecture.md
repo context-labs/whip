@@ -1,5 +1,9 @@
 # Architecture
 
+For the React application and component system, start with the canonical
+[frontend architecture and design guide](frontend.md). It explains frontend
+decisions, package boundaries, state ownership, and extension patterns.
+
 The TypeScript SDK in `packages/sdk` is another thin protocol client. Browser and
 Node WebSockets and Node Unix sockets feed one request/command engine; optional
 framework-independent views reconstruct daemon state, and React subscribes to
@@ -22,7 +26,7 @@ flowchart TB
         WEB["React web application + TypeScript SDK"]
     end
 
-    RPC["trusted WHIP v3 daemon protocol"]
+    RPC["trusted WHIP v4 daemon protocol"]
 
     subgraph daemon["whip _daemon"]
         ROOT["root actor"]
@@ -109,7 +113,7 @@ budgets, and private transcript.
 - `whip _kernel` evaluates Starlark with bounded steps, host calls, memory,
   wall time, output, and frames. It has no ambient provider credentials or
   direct filesystem/network API.
-- Clients use one typed WHIP v3 contract in JSON-RPC 2.0 envelopes over Unix
+- Clients use one typed WHIP v4 contract in JSON-RPC 2.0 envelopes over Unix
   newline framing or WebSocket text messages. Transport adapters share validation
   and application handlers. No v1 codec or build-equality attachment check remains.
 - Commands acknowledge committed acceptance; the daemon supervises execution.
@@ -190,8 +194,19 @@ content grants, and opt-in local/trusted-network setup.
 The web window owns up to 32 root-tab identities per connected runtime, while only
 one conversation is mounted and at most four SDK views are retained. TanStack
 Router owns selection and child/inspector search state; window sessionStorage owns
-only bounded layout metadata. The narrow protocol 3.1 `sessions.summaries` query
+only bounded layout metadata. The bounded `sessions.summaries` query
 supplies advisory descendant activity and human-input counts without opening roots.
 Uploads and reading bookmarks belong to AppRuntime so navigation can release a
 view without losing unsent work or the reader's place. Closing a tab has no daemon
 execution meaning. See [web-app.md](web-app.md#session-tabs) for limits and behavior.
+
+
+Model budget rows distinguish finite limits from explicit unlimited values.
+Root cost/token/elapsed rows always exist for accounting, even when unlimited;
+missing rows are not an unlimited fallback. Each transport attempt carries its
+model's immutable prices, while the session store atomically enforces finite
+ancestor allowances. Known usage, in-flight reservations, and uncertain exposure
+are separate counters. Model settlement can record an estimate overage and
+exhaust a finite allowance without losing the response or holding live capacity.
+Resource limits retain their strict semantics. See [concurrency](concurrency.md)
+and [frontend usage presentation](frontend.md#usage-and-execution-limits).

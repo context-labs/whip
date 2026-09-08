@@ -4,15 +4,17 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from 'react';
 import type { Session } from '@whip/sdk';
-import { Button, Field, IconButton, Select, Textarea } from '@whip/ui';
-import { ArrowUp, Paperclip, X } from 'lucide-react';
+import { Button, IconButton, Select, Textarea } from '@whip/ui';
+import { ArrowUp, AtSign, Paperclip, X } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface, scale } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
 import { CompletionPicker } from './completion-picker';
 import { layout } from './styles';
+import { selectedSessionTab } from './session-tabs';
 
 const styles = stylex.create({
   region: {
@@ -26,10 +28,10 @@ const styles = stylex.create({
   box: {
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: colors.border,
-    borderRadius: 12,
+    borderColor: surface.quietBorder,
+    borderRadius: 20,
     padding: 12,
-    backgroundColor: colors.background,
+    backgroundColor: colors.element,
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
@@ -38,11 +40,16 @@ const styles = stylex.create({
     borderWidth: 0,
     boxShadow: 'none',
     resize: 'none',
-    minHeight: 64,
+    minHeight: 40,
     maxHeight: 220,
     fontSize: { default: 14, [scale.phone]: 16 },
-    backgroundColor: 'transparent',
+    padding: 4,
+    backgroundColor: { default: 'transparent', ':hover': 'transparent' },
+    outline: { default: 'none', ':focus-visible': 'none' },
   },
+  toolbar: { display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 },
+  delivery: { alignSelf: 'flex-start', maxWidth: '100%' },
+  send: { borderRadius: '50%', width: { default: 32, [scale.touch]: 44 }, paddingInline: 0 },
   hint: {
     color: surface.secondaryText,
     fontSize: 11,
@@ -58,16 +65,21 @@ export function Composer({
   connected,
   activeTurn,
   runtimeId,
+  viewId,
+  modelControl,
 }: {
   session: Session;
   agentId: string;
   connected: boolean;
   activeTurn?: string;
   runtimeId: string;
+  viewId?: string;
+  modelControl?: ReactNode;
 }) {
   const runtime = useRuntime();
   const app = useAppState();
   const key = `${runtimeId}:${session.rootId}:${agentId}`;
+  const selectionKey = viewId ? `${runtimeId}:${viewId}:${agentId}` : key;
   const [draft, setDraft] = useState(() => runtime.draft(key));
   const draftRef = useRef(draft);
   const { sending, attachments } = useSyncExternalStore(
@@ -81,12 +93,34 @@ export function Composer({
   const input = useRef<HTMLTextAreaElement>(null);
   const files = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
+    const element = input.current;
+    if (!element) return;
+    const fit = () => {
+      element.style.height = '0px';
+      element.style.height = `${Math.min(220, Math.max(40, element.scrollHeight))}px`;
+    };
+    fit();
+    let width = element.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (element.clientWidth === width) return;
+      width = element.clientWidth;
+      fit();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [draft]);
+  useLayoutEffect(() => {
     mountedKey.current = key;
-    const saved = runtime.compositions.selection(key);
+    const saved = runtime.compositions.selection(selectionKey);
     if (saved) input.current?.setSelectionRange(saved.start, saved.end);
     return () => {
       mountedKey.current = undefined;
     };
+  }, [runtime, key, selectionKey]);
+  useEffect(() => {
+    const update = () => { const text = runtime.draft(key); draftRef.current = text; setDraft(text); };
+    update();
+    return runtime.subscribeDraft(key, update);
   }, [runtime, key]);
   const unresolved = app.commands.find(
     (command) => command.draftKey === key && command.delivery,
@@ -125,7 +159,7 @@ export function Composer({
     }
   }
   async function submit() {
-    const text = draftRef.current;
+    const text = runtime.draft(key);
     if (
       !connected ||
       sending ||
@@ -142,6 +176,7 @@ export function Composer({
       return;
     }
     if (!token) return;
+    let inputId: string | undefined;
     try {
       const payload = {
         text,
@@ -150,12 +185,14 @@ export function Composer({
           : {}),
       };
       const sentIds = attachments.map((item) => item.id);
+      inputId = runtime.submittedInputs.add({ runtimeId, rootId: session.rootId, agentId },
+        text + (attachments.length ? `\n${attachments.length} attached files` : ''), !!activeTurn);
       const command =
         agentId !== session.rootId
-          ? session.agents.submit(agentId, payload, delivery)
+          ? session.command('agent.submit', { id: agentId, ...payload, delivery }, { commandId: inputId })
           : delivery === 'steer' && activeTurn
-            ? session.steer(payload)
-            : session.submit(payload);
+            ? session.steer(payload, { commandId: inputId })
+            : session.submit(payload, { commandId: inputId });
       await runtime.run(
         command,
         agentId === session.rootId ? 'Send message' : 'Message child',
@@ -173,11 +210,13 @@ export function Composer({
           }
           runtime.compositions.clear(key, sentIds);
           runtime.compositions.finishSubmission(key, token!);
-          if (mountedKey.current === key) input.current?.focus();
+          if (mountedKey.current === key && (!viewId || selectedSessionTab(runtime.tabs.workspace(runtimeId))?.id === viewId)) input.current?.focus();
         },
         key,
       );
-    } catch {
+    } catch (error) {
+      if (inputId && !runtime.getSnapshot().commands.some(item => item.id === inputId && item.delivery)) runtime.submittedInputs.remove(inputId);
+      runtime.report(error);
       /* Preserve drafts when acceptance is uncertain. Do not resubmit automatically. */
     } finally {
       runtime.compositions.finishSubmission(key, token);
@@ -248,14 +287,11 @@ export function Composer({
             </IconButton>
           </div>
         ))}
-        <Field
-          label={
-            agentId === session.rootId ? 'Message WHIP' : 'Message this agent'
-          }
-        >
           <Textarea
             ref={input}
             data-whip-composer
+            aria-label={agentId === session.rootId ? 'Message WHIP' : 'Message this agent'}
+            rows={1}
             onPaste={(event) => {
               const images = Array.from(event.clipboardData.files).filter(
                 (file) => file.type.startsWith('image/'),
@@ -269,7 +305,7 @@ export function Composer({
             value={draft}
             onChange={(event) => change(event.target.value)}
             onSelect={(event) =>
-              runtime.compositions.rememberSelection(key, {
+              runtime.compositions.rememberSelection(selectionKey, {
                 start: event.currentTarget.selectionStart,
                 end: event.currentTarget.selectionEnd,
               })
@@ -290,8 +326,19 @@ export function Composer({
               }
             }}
           />
-        </Field>
-        <div {...stylex.props(layout.row)}>
+        {activeTurn && (
+          <Select
+            label="Message delivery"
+            xstyle={styles.delivery}
+            value={delivery}
+            onValueChange={setDelivery}
+            options={[
+              { value: 'queued', label: 'Queue message' },
+              { value: 'steer', label: 'Steer current work' },
+            ]}
+          />
+        )}
+        <div {...stylex.props(styles.toolbar)}>
           <input
             ref={files}
             type="file"
@@ -306,6 +353,7 @@ export function Composer({
           />
           <IconButton
             label="Attach text or images"
+            variant="ghost"
             disabled={
               !connected ||
               sending ||
@@ -315,7 +363,8 @@ export function Composer({
           >
             <Paperclip size={15} />
           </IconButton>
-          <Button
+          <IconButton
+            label="Add context"
             type="button"
             variant="ghost"
             disabled={!connected || sending}
@@ -327,23 +376,14 @@ export function Composer({
               setCompletion(true);
             }}
           >
-            @ Context
-          </Button>
-          {activeTurn && (
-            <Select
-              label="Message delivery"
-              value={delivery}
-              onValueChange={setDelivery}
-              options={[
-                { value: 'queued', label: 'Queue message' },
-                { value: 'steer', label: 'Steer current work' },
-              ]}
-            />
-          )}
+            <AtSign size={16} />
+          </IconButton>
           <span {...stylex.props(layout.grow)} />
+          {modelControl}
           <Button
             type="submit"
-            size="sm"
+            variant="primary"
+            xstyle={styles.send}
             aria-label="Send message"
             disabled={
               !connected ||
@@ -358,12 +398,6 @@ export function Composer({
           </Button>
         </div>
       </div>
-      {attachments.length > 0 && (
-        <p {...stylex.props(styles.hint)}>
-          Attachments stay in this window when you switch or close session tabs.
-          Reloading or leaving the browser requires selecting the files again.
-        </p>
-      )}
       {completion && (
         <CompletionPicker
           session={session}
@@ -383,11 +417,9 @@ export function Composer({
           }}
         />
       )}
-      <div {...stylex.props(styles.hint)}>
-        {connected
-          ? 'Enter to send · Shift + Enter for a new line'
-          : 'Reconnecting. Your draft stays here; it will not be sent automatically.'}
-      </div>
+      {!connected && <div role="status" {...stylex.props(styles.hint)}>
+        Reconnecting. Your draft stays here; it will not be sent automatically.
+      </div>}
     </form>
   );
 }

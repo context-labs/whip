@@ -80,6 +80,12 @@ export interface ThemeDefinition {
   readonly id: string;
   readonly name: string;
   readonly dark: boolean;
+  readonly web?: {
+    readonly navigation?: string;
+    readonly quietBorder?: string;
+    readonly codeBackground?: string;
+    readonly inlineCodeBackground?: string;
+  };
   readonly colors: Readonly<Record<ColorRole, string>>;
   readonly syntax: Readonly<Record<SyntaxRole, string>>;
   readonly markdown: Readonly<Record<MarkdownRole, string>>;
@@ -103,6 +109,9 @@ export const themeCatalog: readonly ThemeDefinition[] = [
 			return nil, err
 		}
 		value["colors"] = camelKeys(value["colors"].(map[string]any))
+		if web, ok := value["web"].(map[string]any); ok {
+			value["web"] = camelKeys(web)
+		}
 		b, err = json.MarshalIndent(value, "  ", "  ")
 		if err != nil {
 			return nil, err

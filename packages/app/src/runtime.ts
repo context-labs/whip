@@ -20,6 +20,7 @@ import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { SessionTabs } from './session-tabs';
 import { CompositionStore } from './compositions';
 import { ReadingPositions } from './reading-positions';
+import { SubmittedInputs } from './input-presentation';
 
 interface ViewLease {
   view: SessionView;
@@ -72,6 +73,7 @@ export class AppRuntime {
   readonly tabs: SessionTabs;
   readonly compositions = new CompositionStore();
   readonly readingPositions = new ReadingPositions();
+  readonly submittedInputs = new SubmittedInputs();
   readonly queries = new QueryClient({
     defaultOptions: {
       queries: {
@@ -89,6 +91,8 @@ export class AppRuntime {
   private readonly listeners = new Set<() => void>();
   private readonly views = new Map<string, ViewLease>();
   private readonly drafts = new Map<string, string>();
+  private readonly draftListeners = new Map<string, Set<() => void>>();
+  private readonly agentReaders = new WeakMap<SessionView, Map<string, { users: number }>>();
   private readonly draftIdentities = new Set<string>();
   private readonly pending = new Map<string, PendingCommand>();
   private draftTimer?: ReturnType<typeof setTimeout>;
@@ -145,9 +149,9 @@ export class AppRuntime {
       const next = this.tabs.getSnapshot();
       for (const workspace of previousTabs.workspaces) {
         const retained = next.workspaces.find(item => item.runtimeId === workspace.runtimeId);
-        const roots = new Set([...(retained?.tabs ?? []).map(item => item.rootId), ...(retained?.closed ?? []).map(item => item.tab.rootId)]);
-        for (const rootId of [...workspace.tabs.map(item => item.rootId), ...workspace.closed.map(item => item.tab.rootId)]) {
-          if (!roots.has(rootId)) this.readingPositions.forgetRoot(workspace.runtimeId, rootId);
+        const views = new Set([...(retained?.tabs ?? []).map(item => item.id), ...(retained?.closed ?? []).map(item => item.tab.id)]);
+        for (const viewId of [...workspace.tabs.map(item => item.id), ...workspace.closed.map(item => item.tab.id)]) {
+          if (!views.has(viewId)) this.readingPositions.forgetView(workspace.runtimeId, viewId);
         }
       }
       previousTabs = next;
@@ -219,6 +223,12 @@ export class AppRuntime {
     }
     return this.drafts.get(key) ?? '';
   }
+  subscribeDraft(key: string, listener: () => void) {
+    let listeners = this.draftListeners.get(key);
+    if (!listeners) { listeners = new Set(); this.draftListeners.set(key, listeners); }
+    listeners.add(listener);
+    return () => { listeners.delete(listener); if (!listeners.size) this.draftListeners.delete(key); };
+  }
   hasSessionDraft(runtimeId: string, rootId: string) {
     const prefix = `${runtimeId}:${rootId}:`;
     return this.compositions.hasAttachments(runtimeId, rootId) || [...this.draftIdentities].some(key => key.startsWith(prefix));
@@ -264,6 +274,7 @@ export class AppRuntime {
     const hadDraft = this.draftIdentities.has(key);
     if (text) this.draftIdentities.add(key); else this.draftIdentities.delete(key);
     this.dirtyDrafts.add(key);
+    for (const listener of this.draftListeners.get(key) ?? []) listener();
     clearTimeout(this.draftTimer);
     this.draftTimer = setTimeout(() => this.flushDrafts(), 150);
     if (hadDraft !== !!text) this.update({});
@@ -308,6 +319,7 @@ export class AppRuntime {
       this.drafts.delete(recipient);
       this.draftIdentities.delete(recipient);
       this.dirtyDrafts.delete(recipient);
+      for (const listener of this.draftListeners.get(recipient) ?? []) listener();
     }
     this.compositions.clearAll();
     this.update({});
@@ -458,6 +470,33 @@ export class AppRuntime {
       },
     };
   }
+  /** A child's history remains open until its last visible consumer leaves. */
+  acquireAgent(view: SessionView, agentId: string): () => void {
+    if (agentId === view.session.rootId) return () => {};
+    let readers = this.agentReaders.get(view);
+    if (!readers) { readers = new Map(); this.agentReaders.set(view, readers); }
+    let reader = readers.get(agentId);
+    if (!reader) {
+      reader = { users: 0 };
+      readers.set(agentId, reader);
+      void view.openAgent(agentId).catch(() => {});
+    }
+    reader.users++;
+    const retained = reader;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      retained.users--;
+      // StrictMode and pane transfers can release/reacquire in the same commit.
+      queueMicrotask(() => {
+        if (!retained.users && readers.get(agentId) === retained) {
+          readers.delete(agentId);
+          view.closeAgent(agentId);
+        }
+      });
+    };
+  }
   private dropView(id: string, lease: ViewLease) {
     clearTimeout(lease.timer);
     if (this.views.get(id) === lease) this.views.delete(id);
@@ -565,6 +604,7 @@ export class AppRuntime {
         if (epoch !== this.epoch)
           throw new Error('Host changed while submitting');
         this.pending.delete(handle.commandId);
+        this.submittedInputs.acknowledge(receipt);
         notice(receipt.status);
         if (!accepted) {
           accepted = true;
@@ -573,6 +613,7 @@ export class AppRuntime {
         const outcome = await handle.result({ signal });
         signal.throwIfAborted();
         if (epoch !== this.epoch) throw new Error('Host changed while awaiting the command');
+        this.submittedInputs.acknowledge(outcome);
         terminal = true;
         notice(
           outcome.status,
@@ -588,6 +629,7 @@ export class AppRuntime {
         return outcome;
       } catch (error) {
         if (!signal.aborted && epoch === this.epoch) {
+          if (!uncertain || accepted) this.submittedInputs.remove(handle.commandId);
           if (uncertain && !accepted) {
             this.pending.set(handle.commandId, pending);
             const absent =
@@ -624,6 +666,7 @@ export class AppRuntime {
   }
   private detach() {
     this.compositions.invalidateRuntime(this.state.client?.getSnapshot().info?.runtime_id);
+    this.submittedInputs.clear();
     this.waits.abort();
     this.waits = new AbortController();
     this.pending.clear();
@@ -644,5 +687,6 @@ export class AppRuntime {
     this.compositions.dispose();
     this.readingPositions.clear();
     this.listeners.clear();
+    this.draftListeners.clear();
   }
 }

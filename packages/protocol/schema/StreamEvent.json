@@ -71,7 +71,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v3/StreamEvent",
+  "$id": "https://whip.dev/protocol/v4/StreamEvent",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "StreamEvent",
   "additionalProperties": false

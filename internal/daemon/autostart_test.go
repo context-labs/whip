@@ -173,7 +173,7 @@ func TestEnsureClientRejectsOldProtocolWithoutLaunching(t *testing.T) {
 	defer running.server.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	for _, major := range []int{1, 2} {
+	for _, major := range []int{1, 2, 3} {
 		_, err = EnsureClient(ctx, paths, InitializeParams{
 			ProtocolMajor: major, ClientID: "old", ClientKind: "test",
 		}, func() error { t.Error("protocol mismatch triggered a launch"); return nil })

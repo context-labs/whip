@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-const Major = 3
-const Minor = 1
+const Major = 4
+const Minor = 0
 
 type ErrorData struct {
 	Kind string `json:"kind"`

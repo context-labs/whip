@@ -71,6 +71,7 @@ only a fallback for an unresponsive daemon.
 
 - [Manual](docs/README.md)
 - [Architecture](docs/architecture.md)
+- [Frontend architecture and design guide](docs/frontend.md) — start here for frontend work
 - [Recursive runtime](docs/rlm-runtime.md)
 - [Tools and modules](docs/tools.md)
 - [Agent loop](docs/agent-loop.md)

@@ -289,6 +289,10 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 		return capability.Authority{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	var existingRoot bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agents WHERE id=? AND root_id=?)`, authority.AgentID, rootID).Scan(&existingRoot); err != nil {
+		return capability.Authority{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,name,model,provider,effort,cwd,status,created_at,updated_at)
 		SELECT ?,id,NULL,'root',model,provider,effort,cwd,'idle',?,? FROM sessions WHERE id=?
 		ON CONFLICT(id) DO UPDATE SET name=CASE WHEN agents.name='' THEN 'root' ELSE agents.name END,
@@ -317,8 +321,16 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 			return capability.Authority{}, err
 		}
 	}
-	if err := insertDefaultRootBudgets(ctx, tx, rootID, stamp); err != nil {
-		return capability.Authority{}, err
+	if existingRoot {
+		// Reopening a root must not turn missing or corrupt accounting into a
+		// fresh unlimited allowance. Only the first bootstrap creates defaults.
+		if _, err := loadBudgetRowsTx(ctx, tx, rootID, authority.AgentID, ""); err != nil {
+			return capability.Authority{}, err
+		}
+	} else {
+		if err := insertDefaultRootBudgets(ctx, tx, rootID, stamp); err != nil {
+			return capability.Authority{}, err
+		}
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT generation FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
 		authority.Files.ID, rootID, authority.AgentID).Scan(&authority.Files.Generation); err != nil {

@@ -107,7 +107,7 @@ root prompt (`evals/rlm`).
 
 - The daemon is the only runtime/store owner.
 - TUI, `whip run`, sessions commands, ACP, and MCP stdio are protocol clients.
-- WHIP v3 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
+- WHIP v4 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
   WebSockets; compatible builds attach without replacing the daemon. The operation
   and event registry generates TypeScript declarations and Ajv validators.
 - Command submission returns committed acceptance. Stable client/command IDs
@@ -173,7 +173,11 @@ behavior to its owning code and repeatable validation.
 | --- | --- | --- |
 | Attach to an existing host, discover its directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
 | Window-local session tabs, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
+| Nested split views, draggable tabs between panes, duplicate chats with independent agents/scroll, shared drafts, and responsive layout restoration | `packages/app/src/{session-tabs,session-tab-strip,session-tab-routing,workspace-views,runtime,conversation,composer}.ts*`, `packages/ui/src/workspace-layout.tsx` | App model/routing/runtime/workspace/composer tests; `apps/web/scripts/workspace-layout.mjs`; UI layout Chromium/Firefox, Axe and strict-CSP fixture |
+| Read-only session REPL, in-place Open REPL/Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
+| Compact growing composer, shared model/reasoning picker for idle root sessions, and neutral input focus borders | `packages/app/src/{composer,model-selection}.tsx`, shared UI form styles | Composer tests; `apps/web/scripts/browser.mjs` (growth/shrink, explicit model/effort changes, busy state, draft/reload preservation); split workspace browser fixture |
+| Right-aligned user bubbles, hover/focus timestamps and controls, immediate submission previews, queued/running inbox messages | `packages/app/src/{input-presentation,runtime}.ts`, `packages/app/src/{conversation,timeline,composer}.tsx` | `packages/app/test/input-presentation.test.tsx`, composer/runtime tests, `apps/web/scripts/user-messages.mjs` (Chromium/Firefox delayed request, running turn, reload, duplicate text, hover/focus and responsive themes) |
 | Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
 | Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |
 | Host-owned provider login/configuration and local recovery/appearance settings | `packages/app/src/settings.tsx`, SDK services, daemon provider/configuration services | App runtime tests, existing provider/configuration acceptance, browser workflows |
@@ -362,8 +366,61 @@ palette; with it, that registered chroma style is used instead.
 
 The renderer-independent specification, catalog and ANSI/Chroma resolver live in
 `internal/theme`; the TUI retains terminal-specific rendering and background
-handling in `internal/tui/theme`. The browser generates all 65 named palettes with
+handling in `internal/tui/theme`. The browser generates all 66 named palettes with
 `cmd/themegen`, follows `prefers-color-scheme` for `auto`, and stores selection on
 the viewing device. Its accessible surface/text derivation leaves source palettes
 unchanged and retains full Chroma code styling. Host custom discovery and pasted
 JSON import share the Go resolver; the browser never compiles arbitrary CSS.
+
+**Claude Code** (`claude-code`) is a built-in dark theme based on the supplied
+Paper desktop screens: `#141414` canvas, `#111110` sidebar, warm gray text,
+`#222221` composer/hover fills, and `#343434` selected rows. Select it under
+**Settings → Appearance → Color theme**, or use `/theme claude-code` in the TUI.
+The source is `internal/theme/themes/claude-code.json`; research and the role
+mapping are in `.ai-docs/plans/claude-code-theme/README.md`. Optional `displayName`
+and optional `web` fields (`navigation`, `quietBorder`, `codeBackground`,
+`inlineCodeBackground`) preserve the stable theme ID and pin browser surfaces; themes without overrides retain the existing derivation.
+The browser still adjusts insufficient text contrast, including inline code.
+Tests: `internal/theme/resolve_test.go`, `packages/ui/tests/themes.test.ts`,
+and `apps/web/scripts/claude-code-theme.mjs` cover catalog parity, validation,
+source colors, rendered surfaces, selection, reload and switching away.
+
+## Web directory navigation
+
+The saved-session sidebar follows the compact Claude/Paper hierarchy while using
+WHIP's themes. It groups the loaded SDK catalog by exact directory, keeps
+worktrees distinct, preserves pin/recency order, and offers New session, Search
+sessions and Settings. Directory + opens the existing form with a host-scoped
+prefill; it does not create work until submitted. Search opens a centered dialog
+with recent sessions, debounced host search, bounded paging and arrow/Enter
+navigation (`session-search-dialog.tsx`; `apps/web/scripts/session-search.mjs`).
+Native session links and
+background-tab menus preserve remembered child/inspector locations.
+
+The sidebar has a 320 px default, keyboard/pointer resizing (256–420 px), a
+hide/show toggle, window-local layout and bounded host-specific collapse state.
+Mobile uses a contained Sheet with touch targets and a fixed footer. Virtualized
+catalog updates preserve the visible reading anchor and never hydrate roots to
+obtain labels. See [frontend navigation](frontend.md#saved-session-navigation).
+
+Code: `packages/app/src/session-sidebar.tsx`, `sidebar-state.ts`,
+`sidebar-layout.tsx`, `welcome.tsx`, and `session-tab-routing.ts`.
+Tests: `sidebar-state.test.ts`, `sidebar-layout.test.tsx`,
+`sidebar-creation.test.tsx`, `session-tab-routing.test.ts`, and the isolated
+production-browser workflow `apps/web/scripts/sidebar.mjs`.
+
+
+## Model usage budgets
+
+New root sessions and uncapped descendants have unlimited cumulative cost,
+tokens, and elapsed usage. Optional `agents.spawn(..., budgets=...)` limits still
+constrain a subtree; zero is a zero allowance. Worker/concurrency, recursion,
+storage, and provider response limits remain independent and bounded.
+
+Web and TUI budget inspection is read-only. Per-attempt accounting uses each
+route's model prices, including child overrides, compaction, and helper calls.
+Unknown provider usage is marked incomplete and retained separately from known
+usage; finite caps account for that uncertainty conservatively. Catalog-derived
+costs are estimates, not provider invoices. Protocol 4 carries nullable limits;
+the fresh runtime schema is version 8. Older stores are rejected without being
+modified; this change includes no session migration or automatic data deletion.

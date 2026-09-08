@@ -249,8 +249,17 @@ func (m *model) agentDetails() string {
 	}
 	var budgets []string
 	for _, budget := range m.clientView.budgets {
-		if budget.AgentID == value.ID {
-			budgets = append(budgets, fmt.Sprintf("%s %d/%d", budget.State.Kind, budget.State.Used+budget.State.Reserved, budget.State.Limit))
+		if budget.AgentID == value.ID || budget.AgentID == "" && value.ParentID == "" {
+			state := budget.State
+			limit := "unlimited"
+			if state.Limit != nil {
+				limit = session.FormatBudgetAmount(state.Kind, *state.Limit)
+			}
+			summary := fmt.Sprintf("%s %s used · %s in flight · %s", state.Kind, session.FormatBudgetAmount(state.Kind, state.Used), session.FormatBudgetAmount(state.Kind, state.Reserved), limit)
+			if state.Incomplete {
+				summary += " · incomplete (" + session.FormatBudgetAmount(state.Kind, state.Uncertain) + " unconfirmed)"
+			}
+			budgets = append(budgets, summary)
 		}
 	}
 	if len(budgets) > 0 {

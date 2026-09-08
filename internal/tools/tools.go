@@ -328,7 +328,7 @@ type invocationKey struct{}
 type invocation struct {
 	commandClientID string
 	commandID       string
-	operationID     string
+	operationPrefix string
 	traceID         string
 }
 
@@ -346,11 +346,12 @@ func WithTurnIdentity(ctx context.Context, clientID string) (context.Context, er
 	}), nil
 }
 
-// WithOperationIdentity attributes one model tool call within a turn.
+// WithOperationIdentity attributes host operations to one model tool call
+// within a turn. Each dispatch gets its own ID under this prefix.
 func WithOperationIdentity(ctx context.Context, callID string) context.Context {
 	identity, _ := ctx.Value(invocationKey{}).(invocation)
 	if callID != "" {
-		identity.operationID = identity.commandID + ":" + callID
+		identity.operationPrefix = identity.commandID + ":" + callID
 	}
 	return context.WithValue(ctx, invocationKey{}, identity)
 }
@@ -690,13 +691,15 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 	if operation != "mcp.call" {
 		request.WorkingDirectory = workingDirectory(ctx)
 	}
-	request.OperationID = identity.operationID
-	if request.OperationID == "" {
-		var err error
-		request.OperationID, err = randomID()
-		if err != nil {
-			return "", err
-		}
+	// One model tool call (such as rlm_exec) can dispatch many host operations.
+	// Their ledger entries must be distinct even when they share a context.
+	operationID, err := randomID()
+	if err != nil {
+		return "", err
+	}
+	request.OperationID = operationID
+	if identity.operationPrefix != "" {
+		request.OperationID = identity.operationPrefix + ":" + operationID
 	}
 	permission := &permissionInvocation{}
 	ctx = context.WithValue(ctx, permissionInvocationKey{}, permission)

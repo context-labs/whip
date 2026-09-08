@@ -413,7 +413,7 @@ func readSnapshotBlackboard(ctx context.Context, tx *sql.Tx, rootID string, snap
 }
 
 func readSnapshotBudgets(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
-	rows, err := tx.QueryContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value
+	rows, err := tx.QueryContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value,uncertain_value,incomplete
 		FROM budgets WHERE root_id=? ORDER BY agent_id,kind LIMIT ?`, rootID, snapshot.collectionLimit())
 	if err != nil {
 		return err
@@ -422,8 +422,11 @@ func readSnapshotBudgets(ctx context.Context, tx *sql.Tx, rootID string, snapsho
 	for rows.Next() {
 		var agentID string
 		var row budgetRow
-		if err := rows.Scan(&agentID, &row.kind, &row.limit, &row.used, &row.reserved); err != nil {
+		if err := rows.Scan(&agentID, &row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete); err != nil {
 			return err
+		}
+		if _, valid := budgetRemaining(row); !valid {
+			return capability.ErrDenied
 		}
 		snapshot.Budgets = append(snapshot.Budgets, SnapshotBudget{AgentID: agentID, State: budgetStateFromRow(row)})
 	}

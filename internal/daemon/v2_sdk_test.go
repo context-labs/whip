@@ -56,6 +56,9 @@ func TestV2SDKBridge(t *testing.T) {
 		if os.Getenv("WHIP_WEB_PERF_FIXTURE") == "1" {
 			seedSDKPerformanceHistory(t, store, rootID, directory)
 		}
+		if os.Getenv("WHIP_WEB_REPL_FIXTURE") == "1" {
+			seedSDKREPLHistory(t, store, rootID, directory)
+		}
 	}
 	frontendAddress := "127.0.0.1:0"
 	if previous.Frontend != "" {
@@ -130,6 +133,9 @@ func TestV2SDKBridge(t *testing.T) {
 	mux := http.NewServeMux()
 	if os.Getenv("WHIP_WEB_PERF_FIXTURE") == "1" {
 		registerSDKPerformanceProbes(mux, store, rootID)
+	}
+	if os.Getenv("WHIP_WEB_REPL_FIXTURE") == "1" {
+		registerSDKREPLProbes(mux, store, rootID)
 	}
 	mux.HandleFunc("POST /done", func(http.ResponseWriter, *http.Request) { once.Do(func() { close(done) }) })
 	mux.HandleFunc("GET /bridge.json", func(w http.ResponseWriter, _ *http.Request) {

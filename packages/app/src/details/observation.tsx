@@ -6,6 +6,7 @@ import type { MailboxPageParams } from '@whip/protocol';
 import { Badge, Button, CodeBlock, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
+import { sessionSearch } from '../session-tabs';
 import { layout } from '../styles';
 import { executionCode, timelineRows } from '../timeline';
 import {
@@ -39,9 +40,10 @@ export function Agents(props: InspectorProps) {
         <article key={agent.id} {...stylex.props(layout.column, layout.notice)}>
           <div {...stylex.props(layout.row, layout.wrap)}>
             <Link
+              state={{ whipViewId: props.viewId }}
               to="/h/$runtimeId/s/$rootId"
               params={{ runtimeId, rootId: view.session.rootId }}
-              search={{ agent: agent.id === view.session.rootId ? undefined : agent.id }}
+              search={sessionSearch({ kind: props.kind ?? 'chat', location: { agent: agent.id === view.session.rootId ? undefined : agent.id } })}
             >
               {agent.name || 'Root agent'}
             </Link>

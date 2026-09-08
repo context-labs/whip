@@ -15,7 +15,8 @@ import {
   ContextSettings,
   Goals,
   Permissions,
-  validCounter,
+  Limits,
+  formatBudgetAmount,
 } from '../src/details/session-controls';
 import { valueText, type InspectorProps } from '../src/details/shared';
 
@@ -344,10 +345,9 @@ describe('session inspector controls', () => {
       { rootId: 'root' },
     );
   });
-  it('preserves exact int64 limits and decodes binary presentation data without model admission', () => {
-    expect(validCounter('9007199254740993')).toBe(true);
-    expect(validCounter('9223372036854775808')).toBe(false);
-    expect(validCounter('-1')).toBe(false);
+  it('formats exact int64 usage and decodes binary presentation data without model admission', () => {
+    expect(formatBudgetAmount('cost', '9007199254740993')).toBe('$9007199254.740993');
+    expect(formatBudgetAmount('elapsed', '12345')).toBe('12.345 s');
     expect(valueText({ reference_id: '', digest: '', size: '5', binary: btoa('hello') })).toBe(
       'hello',
     );
@@ -503,6 +503,22 @@ describe('read-only mailbox and ephemeral integration workflows', () => {
           .map((query) => ({ key: query.queryKey, data: query.state.data })),
       ),
     ).not.toContain('super-secret');
+    expect(f.client.submit).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('read-only budget usage', () => {
+  it('shows unlimited and uncertain usage without offering budget controls', () => {
+    const f = fixture();
+    f.root.budgets = [{ agent_id: '', state: { kind: 'cost', limit: null, remaining: null, used: '1142228', reserved: '0', uncertain: '23883863', incomplete: true } }];
+    f.render(<Limits {...f.props} />);
+    expect(screen.getByText('Unlimited')).toBeTruthy();
+    expect(screen.getByText('$1.142228 used · $0.000000 in flight')).toBeTruthy();
+    expect(screen.getByText('Usage is incomplete · estimated $23.883863 unconfirmed.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Set cap' })).toBeNull();
+    expect(screen.queryByLabelText('Budget agent')).toBeNull();
+    expect(screen.queryByLabelText('Limit')).toBeNull();
     expect(f.client.submit).not.toHaveBeenCalled();
   });
 });

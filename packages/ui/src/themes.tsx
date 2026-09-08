@@ -49,13 +49,15 @@ export function applyTheme(input: ThemeDefinition, documentRoot: HTMLElement = d
   for (const role of syntaxRoles) setToken(syntax[role], theme.syntax[role]);
   for (const role of markdownRoles) setToken(markdown[role], theme.markdown[role]);
   setToken(surface.secondaryText, readableColor(theme.colors.muted, [theme.colors.background, theme.colors.panel, theme.colors.element, theme.colors.hover]));
-  setToken(surface.navigation, theme.dark
+  setToken(surface.navigation, theme.web?.navigation ?? (theme.dark
     ? `color-mix(in srgb, ${theme.colors.background} 75%, black)`
-    : `color-mix(in srgb, ${theme.colors.background} 50%, ${theme.colors.panel})`);
+    : `color-mix(in srgb, ${theme.colors.background} 50%, ${theme.colors.panel})`));
+  setToken(surface.quietBorder, theme.web?.quietBorder ?? `color-mix(in srgb, ${theme.colors.border} 55%, ${theme.colors.background})`);
+  setToken(surface.inlineCode, theme.web?.inlineCodeBackground ?? theme.colors.element);
   documentRoot.style.colorScheme = theme.dark ? 'dark' : 'light';
   documentRoot.style.backgroundColor = theme.colors.background;
   documentRoot.style.color = theme.colors.foreground;
-  documentRoot.style.setProperty('--whip-focus-ring', theme.colors.borderFocus);
+  documentRoot.style.setProperty('--whip-focus-ring', surface.secondaryText);
   documentRoot.style.setProperty('--whip-selection', theme.colors.primary);
   documentRoot.style.setProperty('--whip-selection-text', theme.colors.onPrimary);
   documentRoot.dataset.theme = theme.id;

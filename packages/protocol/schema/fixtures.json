@@ -2,7 +2,7 @@
   {
     "type": "InitializeParams",
     "value": {
-      "protocol_major": 3,
+      "protocol_major": 4,
       "build_id": "fixture",
       "client_kind": "human",
       "client_id": "browser-fixture"
@@ -664,10 +664,12 @@
     "type": "BudgetState",
     "value": {
       "kind": "",
-      "limit": "0",
+      "limit": null,
       "used": "0",
       "reserved": "0",
-      "remaining": "0"
+      "remaining": null,
+      "uncertain": "0",
+      "incomplete": false
     }
   },
   {

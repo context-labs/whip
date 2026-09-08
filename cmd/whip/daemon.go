@@ -110,23 +110,12 @@ func runDaemon(ctx context.Context, args []string) error {
 		client := llm.New(prov.BaseURL, key)
 		client.MaxRetries = runtimeCfg.MaxRetries
 		catalogs := config.LoadCatalogs()
-		catalog, hasCatalog := catalogs[meta.Provider]
-		contextLimit := model.ContextWindow()
-		if hasCatalog {
-			if value := catalog.ContextLength(apiID); value > 0 {
-				contextLimit = value
-			}
-		}
-		maxOutput := model.MaxOut
-		if maxOutput <= 0 && hasCatalog {
-			maxOutput = catalog.MaxCompletionTokens(apiID)
-		}
-		if maxOutput <= 0 {
-			maxOutput = contextLimit
-		}
+		catalog := catalogs[meta.Provider]
+		contextLimit, maxOutput := catalog.ModelLimits(apiID, model)
 		services := daemonToolServices(runtimeCfg, meta, apiID)
 		ag := agent.NewRuntime(client, apiID, maxOutput, "", services)
 		ag.ModelName, ag.Provider = meta.Model, meta.Provider
+		ag.Prices = catalog.TokenPrices(apiID)
 		ag.WorkingDir = meta.CWD
 		ag.ContextLimit = contextLimit
 		if model.SamplingParams != nil {
@@ -171,14 +160,14 @@ func runDaemon(ctx context.Context, args []string) error {
 				resolvedProviderName = resolvedModel.Providers[0]
 			}
 			resolvedVision := resolvedModel.Vision
-			if currentCatalog, ok := config.LoadCatalogs()[resolvedProviderName]; ok {
-				if advertised, found := currentCatalog.SupportsVision(apiID); found {
-					resolvedVision = advertised
-				}
+			currentCatalog := config.LoadCatalogs()[resolvedProviderName]
+			if advertised, found := currentCatalog.SupportsVision(apiID); found {
+				resolvedVision = advertised
 			}
+			contextLimit, maxOutput := currentCatalog.ModelLimits(apiID, resolvedModel)
 			return agent.ModelRoute{
 				Client: childClient, ModelName: model, Provider: resolvedProviderName, Model: apiID,
-				ContextLimit: resolvedModel.ContextWindow(), MaxTokens: resolvedModel.MaxOut,
+				ContextLimit: contextLimit, MaxTokens: maxOutput, Prices: currentCatalog.TokenPrices(apiID),
 				Vision: resolvedVision,
 			}, nil
 		}
@@ -186,12 +175,8 @@ func runDaemon(ctx context.Context, args []string) error {
 		if compactName == "" {
 			compactName = config.DefaultCompactModel
 		}
-		if compactProvider, _, compactID, resolveErr := runtimeCfg.Resolve(compactName, runtimeCfg.CompactProvider); resolveErr == nil {
-			if compactKey, keyErr := compactProvider.ResolveKey(); keyErr == nil && compactKey != "" {
-				ag.CompactClient = llm.New(compactProvider.BaseURL, compactKey)
-				ag.CompactClient.MaxRetries = runtimeCfg.MaxRetries
-				ag.CompactModel = compactID
-			}
+		if compactRoute, resolveErr := ag.ResolveModel(compactName, runtimeCfg.CompactProvider); resolveErr == nil {
+			ag.CompactClient, ag.CompactModel, ag.CompactPrices = compactRoute.Client, compactRoute.Model, compactRoute.Prices
 		}
 		compactPct := runtimeCfg.CompactPct
 		if compactPct == 0 {
@@ -204,14 +189,9 @@ func runDaemon(ctx context.Context, args []string) error {
 			mcpManager = mcp.NewManager(discovery.Merged)
 			mcpManager.SetBlocked(discovery.Blocked)
 		}
-		inputPrice, outputPrice, cacheReadPrice := 0.0, 0.0, 0.0
-		if hasCatalog {
-			inputPrice, outputPrice, cacheReadPrice, _ = catalog.Pricing(apiID)
-		}
 		runtime, err := daemon.NewRecursiveRuntime(daemon.RecursiveRuntimeOptions{
 			Agent: ag, History: history, Limits: limits, Kernels: kernels,
 			KernelCommand: daemonKernelCommand,
-			InputPrice:    inputPrice, OutputPrice: outputPrice, CacheReadPrice: cacheReadPrice,
 		})
 		if err != nil {
 			if mcpManager != nil {

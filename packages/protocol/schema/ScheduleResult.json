@@ -5,7 +5,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v3/ScheduleResult",
+  "$id": "https://whip.dev/protocol/v4/ScheduleResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ScheduleResult",
   "required": [

@@ -1,0 +1,51 @@
+{
+  "name": "claude-code",
+  "displayName": "Claude Code",
+  "dark": true,
+  "palette": {
+    "text": "#c2c0b8",
+    "muted": "#aaa99f",
+    "faint": "#77776f",
+    "primary": "#c87555",
+    "accent": "#b796ff",
+    "success": "#91d68b",
+    "warning": "#fab219",
+    "error": "#ec7e7e",
+    "info": "#6da7ec",
+    "link": "#6da7ec",
+    "emphasis": "#c2c0b8",
+    "onPrimary": "#141414",
+    "border": "#343430",
+    "borderFocus": "#6da7ec",
+    "bg": "#141414",
+    "diffAdd": "#11260f",
+    "diffDel": "#3c0e0e"
+  },
+  "surfaces": {
+    "panel": "#1b1b19",
+    "element": "#222221",
+    "hover": "#343434"
+  },
+  "web": {
+    "navigation": "#111110",
+    "quietBorder": "#1c1c1b",
+    "codeBackground": "#1b1b19",
+    "inlineCodeBackground": "#2b2726"
+  },
+  "syntax": {
+    "keyword": "#b796ff",
+    "string": "#91d68b",
+    "number": "#fab219",
+    "comment": "#aaa99f",
+    "function": "#6da7ec",
+    "type": "#6da7ec",
+    "operator": "#c2c0b8",
+    "punctuation": "#aaa99f"
+  },
+  "markdown": {
+    "heading": "#c2c0b8",
+    "strong": "#c2c0b8",
+    "code": "#cf7569",
+    "quote": "#aaa99f"
+  }
+}

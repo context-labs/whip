@@ -12,7 +12,7 @@ img, svg { vertical-align: middle; }
 button svg, [role='button'] svg { flex-shrink: 0; }
 pre, code, kbd { font-family: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace; }
 [hidden] { display: none !important; }
-:focus-visible { outline: 2px solid var(--whip-focus-ring, #3b7dd8); outline-offset: 3px; }
+:focus-visible { outline: 1px solid var(--whip-focus-ring, currentColor); outline-offset: 2px; }
 /* Base UI CSPProvider disables its style element; these are its required
    cross-browser hidden-scrollbar equivalents, scoped to the relevant viewport. */
 [data-base-ui-scroll-area-viewport] { scrollbar-width: none; }

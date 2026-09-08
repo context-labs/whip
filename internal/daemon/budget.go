@@ -5,16 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
-
-type modelPricing struct {
-	input, output, cacheRead float64
-}
 
 func (s *Session) consumeBudgets(ctx context.Context, agentID string, reservations []capability.Reservation, action func() error) error {
 	if err := s.store.ReserveBudget(ctx, s.meta.ID, agentID, reservations); err != nil {
@@ -36,87 +33,71 @@ func durableReservations(bytes int) []capability.Reservation {
 	return reservations
 }
 
-// ConfigureModelPricing supplies the provider-advertised per-token USD rates
-// used for durable monetary budget accounting. Missing pricing remains
-// unpriced rather than being reported as zero-cost usage.
-func (s *Session) ConfigureModelPricing(input, output, cacheRead float64) error {
-	for _, rate := range []float64{input, output, cacheRead} {
-		if rate < 0 || math.IsNaN(rate) || math.IsInf(rate, 0) {
-			return errors.New("model pricing must be finite and nonnegative")
-		}
-	}
-	s.pricingMu.Lock()
-	s.pricing = modelPricing{input: input, output: output, cacheRead: cacheRead}
-	s.pricingMu.Unlock()
-	return nil
+// ReserveModelCall admits one root transport attempt.
+func (s *Session) ReserveModelCall(ctx context.Context, estimate llm.CallEstimate) (func(llm.Usage) error, error) {
+	return s.ReserveAgentModelCall(ctx, s.authority.AgentID, estimate)
 }
 
-func (s *Session) modelPricing() modelPricing {
-	s.pricingMu.RLock()
-	defer s.pricingMu.RUnlock()
-	return s.pricing
-}
-
-// ReserveModelCall makes the root session itself an agent.ModelCallBudget.
-// Root, descendant, and stateless calls therefore share durable accounting.
-func (s *Session) ReserveModelCall(ctx context.Context, amount int64) (func(llm.Usage) error, error) {
-	return s.reserveModelCall(ctx, s.authority.AgentID, amount)
-}
-
-func (s *Session) ReserveAgentModelCall(ctx context.Context, agentID string, amount int64) (func(llm.Usage) error, error) {
-	return s.reserveModelCall(ctx, agentID, amount)
-}
-
-func (s *Session) reserveModelCall(ctx context.Context, agentID string, amount int64) (func(llm.Usage) error, error) {
+// ReserveAgentModelCall accounts with the immutable prices of this particular
+// model route, including child overrides, compaction and stateless helpers.
+func (s *Session) ReserveAgentModelCall(ctx context.Context, agentID string, estimate llm.CallEstimate) (func(llm.Usage) error, error) {
 	const maxCallElapsed = int64((30 * time.Minute) / time.Millisecond)
-	if amount < 1 {
-		return nil, errors.New("model call reservation must be positive")
+	if estimate.PromptTokens < 0 || estimate.OutputTokens < 1 || estimate.PromptTokens > math.MaxInt64-estimate.OutputTokens {
+		return nil, errors.New("invalid model token estimate")
 	}
-	pricing := s.modelPricing()
+	pricing := estimate.Prices
+	if err := pricing.Validate(); err != nil {
+		return nil, err
+	}
+	cost := int64(0)
+	if pricing.Known {
+		cost = dollarsToMicros(float64(estimate.PromptTokens)*max(pricing.Input, pricing.CacheRate()) + float64(estimate.OutputTokens)*pricing.Output)
+	}
 	reservation := []capability.Reservation{
-		{Kind: string(sessionstore.BudgetTokens), Amount: amount},
+		{Kind: string(sessionstore.BudgetTokens), Amount: estimate.PromptTokens + estimate.OutputTokens},
+		{Kind: string(sessionstore.BudgetCost), Amount: cost},
 		{Kind: string(sessionstore.BudgetElapsed), Amount: maxCallElapsed},
 		{Kind: string(sessionstore.BudgetActiveOperations), Amount: 1},
 	}
-	if cost := maximumCostMicros(amount, pricing); cost > 0 {
-		reservation = append(reservation, capability.Reservation{Kind: string(sessionstore.BudgetCost), Amount: cost})
-	}
-	started := time.Now()
 	if _, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (struct{}, error) {
-		return struct{}{}, s.store.ReserveBudget(actorCtx, s.meta.ID, agentID, reservation)
+		return struct{}{}, s.store.ReserveModelBudget(actorCtx, s.meta.ID, agentID, reservation, !pricing.Known)
 	}); err != nil {
 		return nil, fmt.Errorf("reserve model budget: %w", err)
 	}
+	started := time.Now()
+	var settleMu sync.Mutex
+	settled := false
 	return func(usage llm.Usage) error {
-		actual := make([]capability.Usage, 0, 3)
-		if tokens := usage.PromptTokens + usage.CompletionTokens; tokens > 0 {
-			actual = append(actual, capability.Usage{Kind: string(sessionstore.BudgetTokens), Amount: int64(tokens)})
+		settleMu.Lock()
+		defer settleMu.Unlock()
+		if settled {
+			return nil
 		}
-		if cost := actualCostMicros(usage, pricing); cost > 0 {
-			actual = append(actual, capability.Usage{Kind: string(sessionstore.BudgetCost), Amount: cost})
+		actual := []capability.Usage{{Kind: string(sessionstore.BudgetElapsed), Amount: max(time.Since(started).Milliseconds(), 0)}}
+		if usage.Reported || !usage.Dispatched {
+			if usage.PromptTokens < 0 || usage.CompletionTokens < 0 || int64(usage.PromptTokens) > math.MaxInt64-int64(usage.CompletionTokens) {
+				return errors.New("invalid model usage")
+			}
+			actual = append(actual, capability.Usage{Kind: string(sessionstore.BudgetTokens), Amount: int64(usage.PromptTokens) + int64(usage.CompletionTokens)})
+			if pricing.Known || !usage.Dispatched {
+				actual = append(actual, capability.Usage{Kind: string(sessionstore.BudgetCost), Amount: actualCostMicros(usage, pricing)})
+			}
 		}
-		actual = append(actual, capability.Usage{Kind: string(sessionstore.BudgetElapsed), Amount: max(time.Since(started).Milliseconds(), 1)})
-		// Settlement can outlive a cancelled model turn. Keep it independent of
-		// the root actor so shutdown never waits on a worker that is waiting to
-		// route its final accounting back through that same actor.
-		return s.store.ReconcileBudget(context.Background(), s.meta.ID, agentID, reservation, actual)
+		// Settlement must outlive cancellation without routing back through the actor:
+		// shutdown can be waiting for this worker to finish.
+		err := s.store.ReconcileModelBudget(context.Background(), s.meta.ID, agentID, reservation, actual)
+		if err == nil {
+			settled = true
+		}
+		return err
 	}, nil
 }
 
-func maximumCostMicros(tokens int64, pricing modelPricing) int64 {
-	rate := max(pricing.input, pricing.output, pricing.cacheRead)
-	return dollarsToMicros(float64(tokens) * rate)
-}
-
-func actualCostMicros(usage llm.Usage, pricing modelPricing) int64 {
+func actualCostMicros(usage llm.Usage, pricing llm.TokenPrices) int64 {
 	prompt := max(usage.PromptTokens, 0)
 	cached := min(max(usage.Cached(), 0), prompt)
 	completion := max(usage.CompletionTokens, 0)
-	cacheRead := pricing.cacheRead
-	if cacheRead == 0 {
-		cacheRead = pricing.input
-	}
-	return dollarsToMicros(float64(prompt-cached)*pricing.input + float64(cached)*cacheRead + float64(completion)*pricing.output)
+	return dollarsToMicros(float64(prompt-cached)*pricing.Input + float64(cached)*pricing.CacheRate() + float64(completion)*pricing.Output)
 }
 
 func dollarsToMicros(value float64) int64 {

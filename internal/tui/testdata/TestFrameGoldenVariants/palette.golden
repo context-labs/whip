@@ -24,17 +24,17 @@
                                                              catppuccin-light                                    ████████                   
                                                Found it. Lo  catppuccin-macchiato                                ████████                   
                                                              catppuccin-macchiato-light                          ████████                   
-                                               1. resolve t  cobalt2                                             ████████                   
-                                               2. decode th  cobalt2-light                                       ████████                   
-                                                             cursor                                              ████████                   
-                                                 cfg, err :  cursor-light                                        ████████                   
-                                                             dracula                                             ████████                   
-                                               See the docs  dracula-light                                       ████████                   
-    [2] Context                        0%                    everforest                                          ████████                   
-                                            ┃                everforest-light                                    ████████                   
-                                            ┃  Ask whip any  flexoki                                             ████████                   
-                                            ┃                flexoki-light                                       ████████                   
-    [3] LSP                             0   ┃  Off · kimi-k  github                                              ████████                   
+                                               1. resolve t  claude-code                                         ████████                   
+                                               2. decode th  cobalt2                                             ████████                   
+                                                             cobalt2-light                                       ████████                   
+                                                 cfg, err :  cursor                                              ████████                   
+                                                             cursor-light                                        ████████                   
+                                               See the docs  dracula                                             ████████                   
+    [2] Context                        0%                    dracula-light                                       ████████                   
+                                            ┃                everforest                                          ████████                   
+                                            ┃  Ask whip any  everforest-light                                    ████████                   
+                                            ┃                flexoki                                             ████████                   
+    [3] LSP                             0   ┃  Off · kimi-k  flexoki-light                                       ████████                   
                                             ┃                                                                                               
                                                                                                                                             
  /work/whip                                                               ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar  ctrl+p commands 

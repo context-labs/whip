@@ -64,11 +64,11 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
     function (this: HTMLElement) {
       const root = this.closest<HTMLElement>('[aria-label="Conversation"]');
-      const index = Number(this.parentElement?.dataset.index ?? 0);
-      const top = this.dataset.messageId
+      const index = Number(this.dataset.index ?? 0);
+      const top = this.dataset.readingId
         ? 50 + index * 100 - (root?.scrollTop ?? 0)
         : 50;
-      const height = this.dataset.messageId ? 100 : 200;
+      const height = this.dataset.readingId ? 100 : 200;
       return {
         top,
         bottom: top + height,
@@ -206,4 +206,16 @@ it('hands control back immediately when the reader scrolls during restoration', 
   expect(root.scrollTop).toBe(220);
   expect(harness.scrolls).toHaveLength(calls);
   expect(f.readingPositions.get('host:root:root')?.messageId).toBe('row-2');
+});
+
+it('preserves a bookmark while the reader has no rows and restores when evidence arrives', () => {
+  const f = fixture();
+  f.readingPositions.set('host:view:root:repl', {
+    messageId: 'row-2', seq: 2, revision: '1', offset: 15, follow: false,
+  });
+  const mounted = render(f.app('host:view:root:repl', '1', true, []));
+  mounted.rerender(f.app('host:view:root:repl'));
+  act(() => vi.advanceTimersByTime(160));
+  expect(screen.getByRole('region', { name: 'Conversation' }).scrollTop).toBe(215);
+  expect(f.loadOlder).not.toHaveBeenCalled();
 });

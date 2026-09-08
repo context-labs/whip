@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url);
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const output = resolve(packageRoot, 'ui-test-results/workspace-tabs');
 await mkdir(output, { recursive: true });
-await build({ configFile: false, root: resolve(packageRoot, 'tests/fixtures/workspace-tabs'), plugins: [stylex.vite({ useCSSLayers: true, runtimeInjection: false, unstable_moduleResolution: { type: 'commonJS', rootDir: resolve(packageRoot, '../..') } }), react()], logLevel: 'warn', build: { outDir: output, emptyOutDir: true, assetsInlineLimit: 0 } });
+await build({ configFile: false, root: resolve(packageRoot, 'tests/fixtures/workspace-tabs'), plugins: [stylex.vite({ useCSSLayers: {before: ['whip-reset']}, runtimeInjection: false, unstable_moduleResolution: { type: 'commonJS', rootDir: resolve(packageRoot, '../..') } }), react()], logLevel: 'warn', build: { outDir: output, emptyOutDir: true, assetsInlineLimit: 0 } });
 const csp = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'";
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2' };
 const server = createServer(async (req, res) => {
@@ -110,6 +110,7 @@ try {
       await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, { steps: 20 });
       await expect.poll(() => page.locator('[data-workspace-tab]').evaluateAll(elements => elements.map(el => el.dataset.workspaceTab).join(','))).toBe('gamma,alpha,delta,beta');
       await page.keyboard.press('Escape'); await page.mouse.up();
+      await expect(page.locator('[data-dragging]')).toHaveCount(0);
       await expect.poll(() => page.locator('[data-workspace-tab]').evaluateAll(elements => elements.map(el => el.dataset.workspaceTab).join(','))).toBe('beta,gamma,alpha,delta');
       await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('beta,gamma,alpha,delta');
       await expect(page.getByLabel('Navigation count', { exact: true })).toHaveText('1'); await selected('alpha');
@@ -150,7 +151,7 @@ try {
       assert(closeSize.width >= 44 && closeSize.height >= 44, 'Touch close target is too small');
       await touch.close();
       if (name === 'chromium') {
-        console.log('chromium: workspace tab states across all 65 themes');
+        console.log(`chromium: workspace tab states across all ${themeCatalog.length} themes`);
         for (const theme of themeCatalog) {
           await visit(`?theme=${encodeURIComponent(theme.id)}`);
           const appearance = await tab('alpha').evaluate(element => {
@@ -180,7 +181,7 @@ try {
       report.browsers.push({ name, passed: true, csp, manualActivation: true, siblingControls: true, focusAfterClose: true, nativeModifiedLinks: true, pointerReorder: true, noTouchDrag: true, overflow: true, rtl: true });
     } finally { await browser.close(); }
   }
-  console.log('Workspace tab strict-CSP keyboard/close/reorder/overflow/RTL/touch scenarios passed in Chromium and Firefox; all 65 themes passed Axe.');
+  console.log(`Workspace tab strict-CSP keyboard/close/reorder/overflow/RTL/touch scenarios passed in Chromium and Firefox; all ${themeCatalog.length} themes passed Axe.`);
 } finally {
   await writeFile(resolve(packageRoot, 'ui-test-results/workspace-tabs-report.json'), JSON.stringify(report, null, 2));
   await new Promise(resolve => server.close(resolve));

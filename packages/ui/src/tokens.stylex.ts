@@ -40,5 +40,6 @@ export const surface = stylex.defineVars({
   quietBorder: `color-mix(in srgb, ${colors.border} 55%, ${colors.background})`,
   // applyTheme chooses the recessed surface for the palette's declared mode.
   navigation: `color-mix(in srgb, ${colors.background} 50%, ${colors.panel})`,
+  inlineCode: colors.element,
   overlay: 'rgb(0 0 0 / 0.38)',
 });

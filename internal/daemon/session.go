@@ -279,9 +279,6 @@ type Session struct {
 	autoTitle          bool
 	deferredWake       time.Time
 
-	pricingMu sync.RWMutex
-	pricing   modelPricing
-
 	questions questionRegistry // open user.ask prompts, keyed by question id
 }
 

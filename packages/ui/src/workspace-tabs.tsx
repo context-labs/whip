@@ -5,7 +5,7 @@ import { useSortable, isSortable } from '@dnd-kit/react/sortable';
 import { AutoScroller, PointerSensor, PointerActivationConstraints } from '@dnd-kit/dom';
 import { OptimisticSortingPlugin } from '@dnd-kit/dom/sortable';
 import { X } from 'lucide-react';
-import { useLayoutEffect, useRef } from 'react';
+import { createContext, useContext, useLayoutEffect, useRef } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { Tooltip } from './actions';
 import { styles, tabMarker } from './workspace-tabs.stylex';
@@ -32,26 +32,32 @@ export interface WorkspaceTabsProps {
   onClose: (value: string) => void;
   onReorder?: (values: string[]) => void;
   utilities?: ReactNode;
+  leading?: ReactNode;
   label?: string;
-  /** ID of the application's single route panel; no hidden panels or content are mounted here. */
+  /** ID of this strip's selected content panel; no content is mounted here. */
   panelId?: string;
+  /** A pane ID enables transfers inside WorkspaceLayout's shared drag provider. */
+  groupId?: string;
 }
 
 export function workspaceTabId(value: string): string {
   return `whip-workspace-tab-${encodeURIComponent(value)}`;
 }
 
-const pointerSensors = [PointerSensor.configure({
+export const workspaceDragContext = createContext(false);
+
+export const workspacePointerSensors = [PointerSensor.configure({
   activationConstraints: [new PointerActivationConstraints.Distance({ value: 6 })],
   preventActivation: event => event.pointerType === 'touch' || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey,
 })];
 // Default feedback/selection plugins inject CSS and conflict with the renderer's CSP.
 // Sortable movement uses native Web Animations; keyboard reordering belongs to the app's menu.
-const dragPlugins = [AutoScroller];
+export const workspaceDragPlugins = [AutoScroller];
 const sortablePlugins = [OptimisticSortingPlugin];
 const transition = { duration: 100, easing: 'ease-out' };
 
-export function WorkspaceTabs({ items, value, onValueChange, onClose, onReorder, utilities, label = 'Open sessions', panelId }: WorkspaceTabsProps) {
+export function WorkspaceTabs({ items, value, onValueChange, onClose, onReorder, utilities, leading, label = 'Open sessions', panelId, groupId }: WorkspaceTabsProps) {
+  const sharedDrag = useContext(workspaceDragContext);
   const strip = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const controls = useRef(new Map<string, HTMLElement>());
@@ -89,7 +95,23 @@ export function WorkspaceTabs({ items, value, onValueChange, onClose, onReorder,
     onClose(closed);
   }
 
-  return <DragDropProvider sensors={pointerSensors} plugins={dragPlugins} onDragStart={(event, manager) => {
+  const tabs = <Tabs.Root ref={strip} value={value} onValueChange={(next, details) => {
+      const item = items.find(item => item.value === next);
+      if (!item || item.render || details.reason !== 'none') return;
+      onValueChange?.(item.value);
+    }} {...stylex.props(styles.row)}>
+      {leading && <div {...stylex.props(styles.utilities)}>{leading}</div>}
+      {/* aria-owns keeps sibling action buttons outside the tablist's required tab-only ownership. */}
+      {items.length > 0 && <div role="tablist" aria-label={label} aria-owns={items.map(item => workspaceTabId(item.value)).join(' ')} {...stylex.props(styles.semanticList)}/>}
+      <Tabs.List ref={list} activateOnFocus={false} role="presentation" data-workspace-tab-strip {...stylex.props(styles.list)}>
+        {items.map((item, index) => <WorkspaceTab key={item.value} item={item} index={index} active={item.value === value} panelId={panelId} groupId={groupId} sharedDrag={sharedDrag} reorderable={sharedDrag ? !!groupId : !!onReorder}
+          controlRef={element => { if (element) controls.current.set(item.value, element); else controls.current.delete(item.value); }}
+          onFocus={element => reveal(element)} onClose={() => close(item.value)}/>) }
+      </Tabs.List>
+      {utilities && <div data-tab-utilities {...stylex.props(styles.utilities)}>{utilities}</div>}
+    </Tabs.Root>;
+  if (sharedDrag) return tabs;
+  return <DragDropProvider sensors={workspacePointerSensors} plugins={workspaceDragPlugins} onDragStart={(event, manager) => {
     // Pointer collisions need initial geometry even though we do not render a floating clone.
     if (isSortable(event.operation.source)) manager.dragOperation.shape = event.operation.source.sortable.refreshShape() ?? null;
   }} onDragMove={(event, manager) => {
@@ -108,29 +130,14 @@ export function WorkspaceTabs({ items, value, onValueChange, onClose, onReorder,
     const [moved] = values.splice(from, 1);
     values.splice(to, 0, moved!);
     onReorder(values);
-  }}>
-    <Tabs.Root ref={strip} value={value} onValueChange={(next, details) => {
-      const item = items.find(item => item.value === next);
-      if (!item || item.render || details.reason !== 'none') return;
-      onValueChange?.(item.value);
-    }} {...stylex.props(styles.row)}>
-      {/* aria-owns keeps sibling action buttons outside the tablist's required tab-only ownership. */}
-      {items.length > 0 && <div role="tablist" aria-label={label} aria-owns={items.map(item => workspaceTabId(item.value)).join(' ')} {...stylex.props(styles.semanticList)}/>}
-      <Tabs.List ref={list} activateOnFocus={false} role="presentation" data-workspace-tab-strip {...stylex.props(styles.list)}>
-        {items.map((item, index) => <WorkspaceTab key={item.value} item={item} index={index} active={item.value === value} panelId={panelId} reorderable={!!onReorder}
-          controlRef={element => { if (element) controls.current.set(item.value, element); else controls.current.delete(item.value); }}
-          onFocus={element => reveal(element)} onClose={() => close(item.value)}/>) }
-      </Tabs.List>
-      {utilities && <div data-tab-utilities {...stylex.props(styles.utilities)}>{utilities}</div>}
-    </Tabs.Root>
-  </DragDropProvider>;
+  }}>{tabs}</DragDropProvider>;
 }
 
-function WorkspaceTab({ item, index, active, panelId, reorderable, controlRef, onClose, onFocus }: {
-  item: WorkspaceTabItem; index: number; active: boolean; panelId?: string; reorderable: boolean;
+function WorkspaceTab({ item, index, active, panelId, groupId, sharedDrag, reorderable, controlRef, onClose, onFocus }: {
+  item: WorkspaceTabItem; index: number; active: boolean; panelId?: string; groupId?: string; sharedDrag: boolean; reorderable: boolean;
   controlRef: (element: HTMLElement | null) => void; onClose: () => void; onFocus: (element: HTMLElement) => void;
 }) {
-  const { ref, handleRef, isDragSource } = useSortable({ id: item.value, index, disabled: !reorderable, plugins: sortablePlugins, transition });
+  const { ref, handleRef, isDragSource } = useSortable({ id: item.value, index, group: groupId, disabled: !reorderable, plugins: sharedDrag ? [] : sortablePlugins, transition });
   const name = item.accessibleLabel ?? (typeof item.label === 'string' ? item.label : item.value);
   const control = <Tabs.Tab value={item.value} id={workspaceTabId(item.value)} aria-controls={active ? panelId : undefined} aria-label={item.accessibleLabel}
     nativeButton={!item.render} render={item.render} ref={element => { controlRef(element); handleRef(element); }}
@@ -143,7 +150,7 @@ function WorkspaceTab({ item, index, active, panelId, reorderable, controlRef, o
     <span {...stylex.props(styles.title)}>{item.label}</span>
     {item.metadata && <span {...stylex.props(styles.metadata)}>{item.metadata}</span>}
   </Tabs.Tab>;
-  const tab = <div ref={ref} role="presentation" data-workspace-tab={item.value} data-dragging={isDragSource || undefined} {...stylex.props(tabMarker, styles.item, active && styles.active, isDragSource && styles.dragging)}>
+  const tab = <div ref={ref} role="presentation" data-workspace-tab={item.value} data-workspace-tab-group={groupId} data-workspace-tab-index={index} data-dragging={isDragSource || undefined} {...stylex.props(tabMarker, styles.item, active && styles.active, isDragSource && styles.dragging)}>
     {item.tooltip ? <Tooltip label={item.tooltip}>{control}</Tooltip> : control}
     {item.menu && <div {...stylex.props(styles.menu, active && styles.menuVisible)}>{item.menu}</div>}
     <button type="button" aria-label={`Close ${name}`} tabIndex={active ? 0 : -1}

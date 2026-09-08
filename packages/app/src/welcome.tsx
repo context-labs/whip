@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useRouter } from '@tanstack/react-router';
+import { Link, useNavigate, useRouter, useSearch, useLocation } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useWhipConnection } from '@whip/sdk/react';
 import { Button, Combobox, Input } from '@whip/ui';
@@ -9,6 +9,7 @@ import { useAppState, useRuntime } from './context';
 import { layout } from './styles';
 import type { WhipClient } from '@whip/sdk';
 import { DirectoryPicker } from './directory-picker';
+import { sessionSearch } from './session-tabs';
 
 export function Welcome() {
   const { client } = useAppState();
@@ -37,10 +38,15 @@ function NewSession({ client }: { client: WhipClient }) {
   const router = useRouter();
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const [cwd, setCwd] = useState('');
+  const search = useSearch({ from: '/' });
+  const prefill = search.runtimeId === connection.info?.runtime_id ? search.cwd ?? '' : '';
+  const creationLocation = useLocation({ select: location => location.state.__TSR_key });
+  const [cwd, setCwd] = useState(prefill);
+  useEffect(() => setCwd(prefill), [prefill, connection.info?.runtime_id, creationLocation]);
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState('');
   const previous = runtime.lastSession();
+  const previousView = previous ? runtime.tabs.preferred(previous.runtimeId, previous.rootId) : undefined;
   const enabled = connection.state === 'connected';
   const catalogs = useQuery({
     queryKey: ['provider-catalogs', connection.info?.runtime_id],
@@ -98,7 +104,7 @@ function NewSession({ client }: { client: WhipClient }) {
       }}
     >
       {previous && previous.runtimeId === connection.info?.runtime_id && (
-        <Link to="/h/$runtimeId/s/$rootId" params={previous} search={{}}>
+        <Link to="/h/$runtimeId/s/$rootId" params={previous} search={sessionSearch(previousView)} state={{ whipViewId: previousView?.id }}>
           Continue your previous session
         </Link>
       )}

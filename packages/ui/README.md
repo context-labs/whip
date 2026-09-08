@@ -1,5 +1,9 @@
 # @whip/ui
 
+The canonical [frontend architecture and design guide](../../docs/frontend.md)
+explains the product philosophy and package boundaries. This README owns the
+component APIs, theme contract, and UI-specific checks.
+
 WHIP's private React 19 component library. Base UI owns focus, keyboard navigation,
 ARIA state and overlay behavior; StyleX owns the authored visuals. The library has
 no SDK, protocol, router, Query, filesystem, host or permission authority.
@@ -34,7 +38,12 @@ Obtain localStorage inside try/catch if the browser may disallow accessing the
 property itself. `UIProvider` installs shared tooltip timing, toast delivery and
 Base UI's CSP configuration (`disableStyleElements`). Portals inherit the document
 root theme. Parent-app CSS must not override library properties with an unlayered
-reset. The supplied reset is isolated in `@layer whip-reset`.
+reset. The supplied reset is isolated in `@layer whip-reset`. Configure
+StyleX with `useCSSLayers: {before: ['whip-reset']}`. This explicit layer order is
+required: Vite loads generated styles before the reset in development, while
+production bundles can load them after it. Without it, reset focus defaults can
+override component styles. Text inputs use their neutral focus border; buttons,
+links, tabs and splitters use a 1px neutral keyboard-focus outline.
 
 StyleX requires a `.stylex` import suffix for cross-package variables, so use
 `@whip/ui/tokens.stylex` in authored style modules. The plain tokens export is
@@ -64,7 +73,7 @@ in its native style path. Composition uses Base UI's `mergeProps` and `render`.
 | Forms | Field, Fieldset, Label, Input, Textarea, NumberField, Checkbox, RadioGroup, Switch, Select, Combobox | Field connects labels/descriptions/errors with controls. Select/Combobox use keyboard navigation and typeahead/filtering; errors remain visible. |
 | Overlays | Dialog, AlertDialog, Sheet, Menu, ContextMenu, Popover, CommandPicker | Controlled open state; focus trap/return and escape/outside behavior from Base UI. Confirming asynchronous work never silently closes a dialog. |
 | Structure | Tabs, Collapsible, Accordion, Separator, Stack, Row, Panel, ScrollArea, SettingsRow, Breadcrumbs, VisuallyHidden | Native scrollbars/touch scrolling; explicit selected sections. App owns navigation and virtualization. |
-| Workspace navigation | WorkspaceTabs, workspaceTabId (from `@whip/ui/workspace-tabs`) | Controlled session strip, link composition, close, pointer reorder and utility slots. No session state or content loading. |
+| Workspace navigation | WorkspaceTabs, workspaceTabId (from `@whip/ui/workspace-tabs`) | Controlled session strip, link composition, close, pointer reorder, and leading/trailing utility slots. No session state or content loading. |
 | Feedback | Badge, StatusIndicator, Progress, Meter, Spinner, Skeleton, Alert, EmptyState, ErrorState, Avatar, useToast | Status includes text, never color alone. Error/stale/loading/empty remain distinct. |
 | Appearance | ThemeProvider, initializeTheme, useTheme, ThemePicker, ThemePreview | Per-device selection, reversible previews, all generated TUI themes and validated custom colors. |
 | Read-only code | CodeBlock | Lazy focused syntax grammars; React text nodes, exact source text, theme-aware Chroma styling, bounded presentation. No editing or content fetching. |
@@ -134,6 +143,13 @@ visuals remain compiled StyleX. Applications own their alternative mobile sheet.
 `createTheme` modules. `go run ./cmd/themegen -check` rejects drift. Never edit the
 generated catalog or copy theme palettes into React code.
 
+**Claude Code** (`claude-code`) is the Paper-derived dark desktop palette. Optional
+catalog `displayName` keeps human labels separate from stable IDs. The resolved
+`web` block may pin `navigation`, `quietBorder`, `codeBackground`, and
+`inlineCodeBackground`; these are validated hex colors, not CSS. Missing roles
+retain their existing derivation, and switching themes resets every override.
+Use `surface.inlineCode` for inline chips; it defaults to `colors.element`.
+
 `auto` follows `prefers-color-scheme`; named themes retain their declared dark or
 light appearance. Selection persists in `whip.appearance.theme.v1` through the
 application's optional storage adapter. The currently selected validated custom
@@ -180,7 +196,7 @@ focus return, responsive controls, and theme switching. The product browser suit
 owns runtime flows; component tests do not need a daemon. Run keyboard and touch
 checks on representatives, and compact fixture/token checks across every theme.
 
-The component browser suite checks all 65 palettes with Axe contrast, label and
+The component browser suite checks all 66 palettes with Axe contrast, label and
 ARIA rules, plus keyboard/focus, custom-theme persistence, preview cancellation,
 system appearance, storage failure, and narrow touch controls. `test:csp` builds
 an isolated production fixture with no `unsafe-eval` or `unsafe-inline`; Chromium
@@ -193,13 +209,15 @@ coverage. The fixture disables Vite asset inlining to keep fonts under
 
 `test:packed` installs real protocol/SDK/UI/app archives into an isolated temporary
 consumer and exercises both production and Vite development rendering. Build the
-SDK first. Neither component fixture connects to a daemon. Runtime flows and
+SDK first. It checks the computed pointer/keyboard focus styles for text inputs,
+textareas, comboboxes, number fields, buttons and the reset's link fallback in
+both modes. Neither component fixture connects to a daemon. Runtime flows and
 retained session views belong to the parent application's acceptance suite.
 
 `test:tabs` builds a separate strict-CSP production fixture. Chromium and Firefox
 exercise link/button keyboard activation, native modified links, close/focus,
 context menu movement, pointer sorting/cancellation, overflow, 200% zoom, RTL and
-touch-drag exclusion. All 65 themes receive Axe checks for contrast and ARIA
+touch-drag exclusion. All 66 themes receive Axe checks for contrast and ARIA
 ownership. This is automated browser coverage, not a physical-device or screen
 reader usability claim. Reports are written to `ui-test-results/workspace-tabs-report.json`.
 
@@ -240,3 +258,50 @@ the source. Normal tests never write or accept a missing baseline. CI must never
 update baselines. Screenshot comparisons cover these component fixtures; actual
 application workflows, assistive technology and physical-device checks remain
 separate acceptance work.
+
+Dialog accepts an optional `header` slot for controls such as a search input; its
+`title` remains the accessible dialog name. `initialFocus` and `finalFocus`
+forward Base UI focus destinations. Default titled dialogs are unchanged.
+
+Text inputs, textareas, combobox inputs, and number inputs indicate focus by
+changing their one-pixel border to `surface.secondaryText`. They do not add an
+outer accent ring. A composed input can put that focus treatment on its containing
+surface while keeping its accessible label. Other shared form controls retain a
+one-pixel neutral focus-visible outline, offset from the control.
+
+### Workspace layout
+
+`@whip/ui/workspace-layout` exports `WorkspaceLayout`, `WorkspaceLayoutNode`,
+`WorkspaceDrop`, and `workspacePanelId(viewId)`. The app supplies a binary tree of
+`pane` leaves and `split` nodes (`direction`, `ratio`, `first`, `second`), selected
+content by view ID, pane headers, and callbacks for focus, resize, and drops. The
+UI does not own tabs, routing, persistence, sessions, or resource limits.
+
+Each header can use `WorkspaceTabs` with `groupId={paneId}` to join the layout's
+shared drag context. Drops supply `{ viewId, paneId, index?, edge? }`; an index is
+an insertion boundary in the target pane's array **before** removing the source.
+An omitted index appends. `canDrop` can reject product limits before displaying a
+preview and again at commit. Touch and keyboard move/split commands remain
+application menu actions; pointer movement uses existing dnd-kit primitives.
+
+Only selected content is passed in `panels`. Its wrappers remain flat siblings,
+keyed **and ordered** by view ID, with measured rectangles over pane content slots.
+This preserves DOM identity, input focus, and scroll when the split tree changes
+or a selected view moves; inactive tab bodies are not retained by this primitive.
+`labelledBy` is applied only while the corresponding tab exists, otherwise the
+panel uses its supplied label. Call `onCompactChange` to reconcile app observers:
+when the window is below 768 px or the tree cannot fit 320 × 240 px minimum panes,
+the UI displays only the focused pane without changing the saved layout.
+
+`react-resizable-panels` owns separator keyboard behavior and resize geometry;
+authored appearance remains extracted StyleX and semantic theme tokens. Dividers
+use a one-pixel quiet border with a transparent pointer target above the sibling
+content overlays, so both split directions remain easy to resize. Pane focus does
+not recolor the tab-strip border; keyboard focus retains its visible outline.
+The library's `disableCursor` option prevents cursor rules, but version 4.12.4 still allocates
+one empty adopted stylesheet after pointer interaction. This sheet has **zero CSS
+rules**; no style elements, vendor CSS, or CSP relaxation are used. The production
+fixture asserts those boundaries alongside actual drag/cancel, nested resizing,
+compact restoration, a separate editable notes renderer, drag after menu-driven
+transfer/pruning, and unchanged DOM/focus/scroll across moves in Chromium and
+Firefox (`npm run test:layout -w @whip/ui`).

@@ -14,6 +14,8 @@ type Catalog struct {
 	Models    []CatalogModel `json:"models"`
 }
 type CatalogModel struct {
+	PricingKnown        bool     `json:"pricing_known,omitempty"`
+	CacheReadPriceKnown bool     `json:"cache_read_price_known,omitempty"`
 	ID                  string   `json:"id"`
 	ContextLength       int      `json:"context_length,omitempty"`
 	MaxCompletionTokens int      `json:"max_completion_tokens,omitempty"`

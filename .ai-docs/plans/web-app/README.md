@@ -1,5 +1,10 @@
 # WHIP web application: OpenCode research and proposed delivery plan
 
+Historical research and delivery record. The maintained source for frontend
+architecture and design decisions is [docs/frontend.md](../../../docs/frontend.md).
+Later decisions, including session tabs, supersede the original proposals below.
+Use this plan for rationale and dated evidence, not as a fresh implementation brief.
+
 Branch: `whip-rlm`
 
 Status: Implementation in progress, 2026-09-06. Scope and stack decisions below
@@ -227,8 +232,9 @@ Sessions               Conversation               Agents | Details
 
 At ordinary laptop widths the navigation rail collapses before reading widths
 become poor. The agent/details rail can be collapsed; nothing replaces it with
-an empty review pane. Avoid a second persistent session-tab system initially;
-the session sidebar and browser history provide navigation.
+an empty review pane. The initial proposal used the sidebar and browser history
+without app tabs. The subsequently accepted [session-tab design](../session-tabs/README.md)
+supersedes that choice; tabs now represent the window's working set.
 
 On narrow screens, the conversation fills the viewport. Sessions open in a
 navigation drawer; agents and details open in a sheet or dedicated route. Keep

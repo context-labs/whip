@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Badge, Button, Combobox, CodeBlock, Field, Input, Select, Textarea } from '@whip/ui';
+import { Badge, Button, CodeBlock, Field, Input, Select, Textarea } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
+import { ModelSelection } from '../model-selection';
 import {
   Action,
   CollectionMore,
@@ -123,10 +124,14 @@ export function Goals({ view, root, connected }: InspectorProps) {
     </>
   );
 }
-export function validCounter(value: string) {
-  return /^(0|[1-9][0-9]*)$/.test(value) && BigInt(value) <= 9223372036854775807n;
+export function formatBudgetAmount(kind: string, value: string) {
+  const amount = BigInt(value);
+  if (kind === 'cost') return `$${amount / 1_000_000n}.${(amount % 1_000_000n).toString().padStart(6, '0')}`;
+  if (kind === 'elapsed') return `${amount / 1000n}.${(amount % 1000n).toString().padStart(3, '0')} s`;
+  return `${amount.toLocaleString()}${kind === 'tokens' ? ' tokens' : ''}`;
 }
-export function Limits({ view, root, connected, agentId }: InspectorProps) {
+
+export function Limits({ view, root, connected }: InspectorProps) {
   const runtime = useRuntime();
   const budgets = useCollection(view, 'budgets');
   const capabilities = useCollection(view, 'capabilities');
@@ -140,16 +145,12 @@ export function Limits({ view, root, connected, agentId }: InspectorProps) {
     capabilities.page?.items?.flatMap((item) => (item.capability ? [item.capability] : [])) ?? [],
     (item) => item.id,
   );
-  const [id, setId] = useState(agentId);
-  const [kind, setKind] = useState('tokens');
-  const [limit, setLimit] = useState('');
   const agents = root.agents ?? [];
-  const canCap = agents.find((agent) => agent.id === id)?.allowed_controls?.includes('budget.cap');
   return (
     <>
       <Section
         title="Usage"
-        description="Budget usage includes reservations and may include descendants. Do not sum ancestor and child limits as independent totals."
+        description="Usage includes descendants. Ancestor and child totals overlap. Model usage is unlimited unless an agent explicitly caps a child."
       >
         <p>
           {root.meta.usage_in.toLocaleString()} input · {root.meta.usage_out.toLocaleString()}{' '}
@@ -162,14 +163,19 @@ export function Limits({ view, root, connected, agentId }: InspectorProps) {
           >
             <strong>{item.state.kind}</strong>
             <span {...stylex.props(layout.muted)}>
-              {agents.find((agent) => agent.id === item.agent_id)?.name || item.agent_id}
+              {agents.find((agent) => agent.id === item.agent_id)?.name || item.agent_id || 'Root tree'}
             </span>
             <span>
-              {item.state.used} used · {item.state.reserved} reserved
+              {formatBudgetAmount(item.state.kind, item.state.used)} used · {formatBudgetAmount(item.state.kind, item.state.reserved)} in flight
             </span>
             <span>
-              {item.state.remaining} remaining of {item.state.limit}
+              {item.state.limit === null
+                ? 'Unlimited'
+                : `${formatBudgetAmount(item.state.kind, item.state.remaining!)} remaining of ${formatBudgetAmount(item.state.kind, item.state.limit)}`}
             </span>
+            {item.state.incomplete && <span {...stylex.props(layout.muted)}>
+              Usage is incomplete{item.state.uncertain !== '0' ? ` · estimated ${formatBudgetAmount(item.state.kind, item.state.uncertain)} unconfirmed` : ''}.
+            </span>}
           </div>
         ))}
         <CollectionMore
@@ -177,45 +183,6 @@ export function Limits({ view, root, connected, agentId }: InspectorProps) {
           omitted={root.omitted?.budgets}
           connected={connected}
         />
-        <Field label="Budget agent">
-          <Select
-            label="Budget agent"
-            value={id}
-            onValueChange={setId}
-            options={agents.map((agent) => ({
-              value: agent.id,
-              label: agent.name || 'Root agent',
-            }))}
-          />
-        </Field>
-        <Field
-          label="Budget kind"
-          description="Use a kind reported by this host. Cost uses micro-units; elapsed time uses milliseconds."
-        >
-          <Select
-            label="Budget kind"
-            value={kind}
-            onValueChange={setKind}
-            options={[...new Set(['tokens', ...values.map((value) => value.state.kind)])].map(
-              (value) => ({ value, label: value }),
-            )}
-          />
-        </Field>
-        <Field label="Limit" description="An exact nonnegative 64-bit integer.">
-          <Input
-            value={limit}
-            inputMode="numeric"
-            onChange={(event) => setLimit(event.target.value)}
-          />
-        </Field>
-        <Action
-          disabled={!connected || !canCap || !validCounter(limit)}
-          run={() =>
-            runtime.run(view.session.command('budget.cap', { id, kind, limit }), 'Set budget cap')
-          }
-        >
-          Set cap
-        </Action>
       </Section>
       <Section
         title="Delegated capabilities"
@@ -351,62 +318,16 @@ function Context(props: InspectorProps) {
 }
 function ModelSettings({ view, root, connected }: InspectorProps) {
   const runtime = useRuntime();
-  const [model, setModel] = useState(root.meta.model);
-  const [provider, setProvider] = useState(root.meta.provider);
-  const [effort, setEffort] = useState(root.meta.effort || 'off');
   const [system, setSystem] = useState('');
   const [turns, setTurns] = useState('');
   const idle = !Object.keys(root.active_turns ?? {}).length;
-  const catalog = useQuery({
-    queryKey: ['inspector-models', view.session.client.getSnapshot().info?.runtime_id],
-    queryFn: ({ signal }) => view.session.client.providers.catalogs({ signal }),
-    enabled: connected,
-    gcTime: 0,
-  });
   return (
     <>
       <Section
         title="Model & reasoning"
         description="Changes apply to this root session while it is idle. Provider credentials stay on the execution host."
       >
-        {!idle && <Empty>Wait for active turns to finish before changing the runtime.</Empty>}
-        <Field label="Model" description="Choose a catalog model or enter an exact model ID.">
-          <Combobox
-            label="Model"
-            value={model}
-            onValueChange={setModel}
-            onInputValueChange={setModel}
-            options={Object.keys(catalog.data?.result?.models ?? {})
-              .slice(0, 1000)
-              .map((name) => ({ value: name, label: name }))}
-          />
-        </Field>
-        <Field label="Provider">
-          <Input value={provider} onChange={(event) => setProvider(event.target.value)} />
-        </Field>
-        <Action
-          disabled={!connected || !idle || !model.trim()}
-          run={() => runtime.run(view.session.setModel(model, provider), 'Change model')}
-        >
-          Apply model
-        </Action>
-        <Field label="Reasoning effort">
-          <Select
-            label="Reasoning effort"
-            value={effort}
-            onValueChange={setEffort}
-            options={['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({
-              value,
-              label: value,
-            }))}
-          />
-        </Field>
-        <Action
-          disabled={!connected || !idle}
-          run={() => runtime.run(view.session.setEffort(effort), 'Set reasoning effort')}
-        >
-          Apply effort
-        </Action>
+        <ModelSelection view={view} root={root} connected={connected} />
         <Action
           disabled={!connected || !idle}
           run={() =>

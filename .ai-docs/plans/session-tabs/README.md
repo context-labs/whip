@@ -1,5 +1,8 @@
 # WHIP session tabs
 
+Feature design and acceptance history. For the maintained cross-feature
+architecture and design contract, read [docs/frontend.md](../../../docs/frontend.md).
+
 Branch: `whip-rlm`
 
 Status: Implemented, 2026-09-07. Automated acceptance is recorded below.

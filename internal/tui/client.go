@@ -1975,13 +1975,10 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 		if len(parts) == 2 && parts[0] == "delete" {
 			return m.submitClientCLI("agent.delete", parts[1])
 		}
-		if len(parts) == 4 && parts[0] == "budget" {
-			return m.submitClientCLI("budget.cap", strings.Join(parts[1:], " "))
-		}
 		if len(parts) == 2 && parts[0] == "revoke" {
 			return m.submitClientCLI("capability.revoke", parts[1])
 		}
-		m.append(errStyle.Render("usage: /agents [list|stop <id>|delete <id>|budget <id> <kind> <limit>|revoke <capability-id>]"))
+		m.append(errStyle.Render("usage: /agents [list|stop <id>|delete <id>|revoke <capability-id>]"))
 		return m, nil
 	case "permissions":
 		parts := strings.Fields(args)

@@ -1,9 +1,9 @@
-# WHIP protocol v3
+# WHIP protocol v4
 
 The Go daemon owns execution, admission, provider credentials, model context,
 configuration and SQLite persistence. Unix sockets and WebSockets use the same
 JSON-RPC 2.0 methods, typed payloads, validation and handlers. WHIP's protocol
-major is `3`; the JSON-RPC envelope version remains `"2.0"`. Compatible builds
+major is `4`; the JSON-RPC envelope version remains `"2.0"`. Compatible builds
 attach regardless of build ID. Replacement of a running daemon is explicit.
 
 The executable contract is `internal/protocol`: wire DTOs, operation registry,
@@ -15,6 +15,13 @@ editing Go types with `npm run generate`; drift checks compare without rewriting
 files. Standalone validators require no runtime code generation or Ajv dependency.
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
+
+Protocol **4.0** adds explicit unlimited model budgets: `limit` and `remaining`
+are decimal strings or `null`, with separate `uncertain` and `incomplete` fields.
+This breaks the old finite-only contract, so clients and daemon update together.
+The existing `/api/v3/ws` transport path remains stable; the initialize handshake
+owns protocol compatibility. Fresh runtime stores use schema 8; older stores are
+rejected without mutation and are not migrated by this change.
 
 Protocol **3.0** removes client enrollment, signing keys and connection nonces.
 All connected clients may answer permission requests and change permission modes.
@@ -100,7 +107,7 @@ capabilities. Build equality is not required for compatibility. Older protocol
 majors are rejected without restarting the runtime.
 
 ```json
-{"jsonrpc":"2.0","id":"request-1","method":"initialize","params":{"protocol_major":3,"build_id":"browser-build","client_kind":"human","client_id":"browser-installation"}}
+{"jsonrpc":"2.0","id":"request-1","method":"initialize","params":{"protocol_major":4,"build_id":"browser-build","client_kind":"human","client_id":"browser-installation"}}
 ```
 
 Fields use snake_case. Signed 64-bit counters use decimal strings; JavaScript

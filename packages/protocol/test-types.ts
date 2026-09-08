@@ -5,7 +5,7 @@ import {
   type CommandOperation, type EphemeralOperation, type RootEvent,
 } from './generated/index.js';
 
-const initialize: InitializeParams = { protocol_major: 3, build_id: 'fixture', client_kind: 'human', client_id: 'browser' };
+const initialize: InitializeParams = { protocol_major: 4, build_id: 'fixture', client_kind: 'human', client_id: 'browser' };
 const subscription: SubscribeParams = { root_id: 'root', subscription_id: 'view', cursor: '9007199254740993' };
 assertValid('InitializeParams', initialize);
 assertValid('SubscribeParams', subscription);
@@ -62,7 +62,7 @@ void inspectEvent;
 function inspectCollection(page: RpcMethods['root.collection']['result']) {
   for (const entry of page.items ?? []) {
     if (entry.agent) { const id: string = entry.agent.id; void id; }
-    if (entry.budget) { const limit: string = entry.budget.state.limit; void limit; }
+    if (entry.budget) { const limit: string | null = entry.budget.state.limit; void limit; }
     if (entry.blackboard) { const revision: string = entry.blackboard.version; void revision; }
     if (entry.body) { const ref: string = entry.body.reference_id; void ref; }
     // @ts-expect-error typed agent IDs are strings

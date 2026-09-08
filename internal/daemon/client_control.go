@@ -1690,14 +1690,15 @@ func clientProviderCatalogs(ctx context.Context) (string, error) {
 func modelInfoLites(values []llm.ModelInfo) []config.ModelInfoLite {
 	result := make([]config.ModelInfoLite, 0, len(values))
 	for _, value := range values {
-		var inputPrice, outputPrice, cacheReadPrice float64
+		var prices llm.TokenPrices
 		if value.Pricing != nil {
-			inputPrice, outputPrice, cacheReadPrice = value.Pricing.Rates()
+			prices = value.Pricing.TokenPrices()
 		}
 		result = append(result, config.ModelInfoLite{
 			ID: value.ID, ContextLength: value.ContextLength, MaxCompletionTokens: value.MaxCompletionTokens,
 			ReasoningEfforts: value.ReasoningEfforts, InputModalities: value.InputModalities,
-			InPrice: inputPrice, OutPrice: outputPrice, CacheReadPrice: cacheReadPrice,
+			InPrice: prices.Input, OutPrice: prices.Output, CacheReadPrice: prices.CacheRead,
+			PricingKnown: prices.Known, CacheReadPriceKnown: prices.CacheReadKnown,
 		})
 	}
 	return result

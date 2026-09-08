@@ -462,7 +462,7 @@ func TestThinCommandsMapOneUserActionToOneDaemonCommand(t *testing.T) {
 		"/cd /tmp":             "workspace.set", "/model next": "session.model", "/effort high": "session.effort",
 		"/rewind 2": "history.rewind", "/agents stop child": "agent.control", "/mcp list": "mcp.status",
 		"/lsp list": "lsp.status", "/browser status": "browser.status", "/computer status": "computer.status",
-		"/context-doctor": "context.audit", "/agents budget child tokens 10": "budget.cap",
+		"/context-doctor":      "context.audit",
 		"/agents revoke cap-1": "capability.revoke", "/agents delete child": "agent.delete",
 		"/permissions": "permission.rules", "/permissions forget rule-1": "permission.forget",
 	}

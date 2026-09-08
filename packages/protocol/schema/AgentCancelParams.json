@@ -8,7 +8,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v3/AgentCancelParams",
+  "$id": "https://whip.dev/protocol/v4/AgentCancelParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "AgentCancelParams",
   "required": [

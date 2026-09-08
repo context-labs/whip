@@ -38,7 +38,7 @@ func TestSessionSummariesAcrossTransports(t *testing.T) {
 		t.Run(transport, func(t *testing.T) {
 			client := f.dial(transport, "summaries-"+transport)
 			initialize := client.InitializeResult()
-			if initialize.ProtocolMinor < 1 || !slices.Contains(initialize.Capabilities, "session_summaries") {
+			if initialize.ProtocolMajor != ProtocolMajor || !slices.Contains(initialize.Capabilities, "session_summaries") {
 				t.Fatalf("summary capability absent: %+v", initialize)
 			}
 			var result protocol.SessionSummariesResult

@@ -249,6 +249,22 @@ function command(overrides: Record<string, unknown> = {}) {
 const missing = () => new RpcError({ code: -32011, message: 'Command not found', data: { kind: 'command_not_found' } });
 
 describe('uncertain command acceptance', () => {
+  it('reconciles a child preview after an explicit retry finishes outside the original composer wait', async () => {
+    const app = runtime(); await app.connect();
+    const id = app.submittedInputs.add({ runtimeId: 'runtime', rootId: 'root', agentId: 'child' }, 'Child message');
+    const handle = command({
+      commandId: id,
+      status: vi.fn(async () => { throw missing(); }),
+      retry: vi.fn(async () => ({ command_id: id, ingress_seq: '10', status: 'running' })),
+      result: vi.fn(async () => ({ command_id: id, ingress_seq: '10', status: 'succeeded', result: { inbox_seq: '20' } })),
+    });
+    await expect(app.run(handle, 'Message child')).rejects.toThrow('Command not found');
+    expect(app.submittedInputs.getSnapshot()[0]).toMatchObject({ id, accepted: false });
+    await app.retryCommand(id);
+    expect(app.submittedInputs.getSnapshot()[0]).toMatchObject({ id, accepted: true, inboxSeq: '20' });
+    app.dispose();
+    expect(app.submittedInputs.getSnapshot()).toHaveLength(0);
+  });
   it('reconciles lost acknowledgements and calls acceptance once before completion', async () => {
     const app = runtime(); await app.connect();
     const handle = command();
@@ -348,4 +364,60 @@ it('an old command cannot navigate after disposal during query refresh', async (
   app.dispose(); release();
   await expect(waiting).rejects.toThrow();
   expect(navigate).not.toHaveBeenCalled();
+});
+
+describe('split pane observation and draft consumers', () => {
+  it('reference-counts duplicate child history readers and survives StrictMode reacquisition', async () => {
+    const app = runtime();
+    const view = { session: { rootId: 'root' }, openAgent: vi.fn(async () => {}), closeAgent: vi.fn() };
+    const typed = view as unknown as Parameters<AppRuntime['acquireAgent']>[0];
+    const first = app.acquireAgent(typed, 'child');
+    const second = app.acquireAgent(typed, 'child');
+    const other = app.acquireAgent(typed, 'other');
+    expect(view.openAgent.mock.calls).toEqual([['child'], ['other']]);
+    first(); first(); await Promise.resolve();
+    expect(view.closeAgent).not.toHaveBeenCalled();
+    second();
+    const reacquired = app.acquireAgent(typed, 'child');
+    await Promise.resolve();
+    expect(view.openAgent).toHaveBeenCalledTimes(2);
+    expect(view.closeAgent).not.toHaveBeenCalled();
+    reacquired(); await Promise.resolve();
+    expect(view.closeAgent).toHaveBeenCalledExactlyOnceWith('child');
+    other(); await Promise.resolve();
+    expect(view.closeAgent).toHaveBeenLastCalledWith('other');
+    app.acquireAgent(typed, 'root')();
+    expect(view.openAgent).toHaveBeenCalledTimes(2);
+    app.dispose();
+  });
+  it('notifies all views of one recipient while keeping other drafts independent', () => {
+    const app = runtime();
+    const first = vi.fn(), duplicate = vi.fn(), other = vi.fn();
+    const off = app.subscribeDraft('host:root:child', first);
+    const offDuplicate = app.subscribeDraft('host:root:child', duplicate);
+    const offOther = app.subscribeDraft('host:root:other', other);
+    app.setDraft('host:root:child', 'shared');
+    expect(first).toHaveBeenCalledTimes(1); expect(duplicate).toHaveBeenCalledTimes(1); expect(other).not.toHaveBeenCalled();
+    off(); off(); app.setDraft('host:root:child', 'edited');
+    expect(first).toHaveBeenCalledTimes(1); expect(duplicate).toHaveBeenCalledTimes(2);
+    expect(app.draft('host:root:child')).toBe('edited');
+    app.setDraft('host:root:other', 'independent');
+    expect(other).toHaveBeenCalledTimes(1); expect(duplicate).toHaveBeenCalledTimes(2);
+    offDuplicate(); offOther(); app.dispose();
+  });
+});
+
+it('notifies recipient subscribers after discarding saved and pending drafts', () => {
+  const app = runtime();
+  app.setDraft('host:root:saved', 'saved'); app.flushDrafts();
+  app.setDraft('host:root:pending', 'pending');
+  const saved = vi.fn(), pending = vi.fn(), empty = vi.fn();
+  app.subscribeDraft('host:root:saved', saved);
+  app.subscribeDraft('host:root:pending', pending);
+  app.subscribeDraft('host:root:empty', empty);
+  app.discardDrafts();
+  expect(saved).toHaveBeenCalledTimes(1); expect(pending).toHaveBeenCalledTimes(1);
+  expect(empty).not.toHaveBeenCalled();
+  expect(app.draft('host:root:saved')).toBe(''); expect(app.draft('host:root:pending')).toBe('');
+  app.dispose();
 });

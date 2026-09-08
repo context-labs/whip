@@ -57,7 +57,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v3/CatalogResult",
+  "$id": "https://whip.dev/protocol/v4/CatalogResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CatalogResult",
   "required": [

@@ -2,7 +2,7 @@ import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from './tokens.stylex';
 
 export const styles = stylex.create({
-  control: { fontFamily: typography.sans, fontSize: 13, lineHeight: '20px', color: colors.foreground, borderRadius: scale.radiusControl, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, outline: {default: 'none', ':focus-visible': `2px solid ${colors.borderFocus}`}, outlineOffset: 2, minHeight: {default: 32, [scale.touch]: 44}, transitionProperty: 'background-color, border-color', transitionDuration: scale.motionFast, backgroundColor: {default: colors.panel, ':hover': colors.hover}, opacity: {default: 1, ':disabled': 0.45}, cursor: {default: 'pointer', ':disabled': 'not-allowed'} },
+  control: { fontFamily: typography.sans, fontSize: 13, lineHeight: '20px', color: colors.foreground, borderRadius: scale.radiusControl, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, outline: {default: 'none', ':focus-visible': `1px solid ${surface.secondaryText}`}, outlineOffset: 2, minHeight: {default: 32, [scale.touch]: 44}, transitionProperty: 'background-color, border-color', transitionDuration: scale.motionFast, backgroundColor: {default: colors.panel, ':hover': colors.hover}, opacity: {default: 1, ':disabled': 0.45}, cursor: {default: 'pointer', ':disabled': 'not-allowed'} },
   button: {display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, paddingBlock: 5, paddingInline: 11, fontWeight: 530, whiteSpace: 'nowrap', userSelect: 'none', flexShrink: 0},
   primary: {backgroundColor: {default: colors.foreground, ':hover': `color-mix(in srgb, ${colors.foreground} 86%, ${colors.background})`}, color: colors.background, borderColor: 'transparent'},
   secondary: {backgroundColor: {default: colors.panel, ':hover': colors.hover}},
@@ -11,7 +11,7 @@ export const styles = stylex.create({
   small: {minHeight: {default: 28, [scale.touch]: 44}, paddingBlock: 3, paddingInline: 8, fontSize: 12},
   large: {minHeight: 40, paddingInline: 16, fontSize: 14},
   icon: {width: {default: 32, [scale.touch]: 44}, paddingInline: 0, paddingBlock: 0},
-  input: {width: '100%', fontSize: {default: 13, [scale.phone]: 16}, paddingBlock: 7, paddingInline: 10, backgroundColor: {default: colors.background, ':hover': colors.background}, cursor: 'text', borderColor: {default: surface.quietBorder, ':focus': colors.borderFocus}, color: {default: colors.foreground, '::placeholder': surface.secondaryText}, minWidth: 0},
+  input: {width: '100%', fontSize: {default: 13, [scale.phone]: 16}, paddingBlock: 7, paddingInline: 10, backgroundColor: {default: colors.background, ':hover': colors.background}, cursor: 'text', borderColor: {default: surface.quietBorder, ':focus': surface.secondaryText}, outline: {default: 'none', ':focus-visible': 'none'}, color: {default: colors.foreground, '::placeholder': surface.secondaryText}, minWidth: 0},
   textarea: {resize: 'vertical', minHeight: 84, lineHeight: '1.55'},
   invalid: {borderColor: colors.error},
   field: {display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0},

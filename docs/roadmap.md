@@ -75,12 +75,18 @@ in
   Protocol v3 preserves permission decisions, rules and internal agent authority.
 - [x] React web implementation with separate UI/app/web source packages, TanStack
   application primitives, Base UI controls and extracted StyleX styles.
-- [x] All 65 TUI themes, automatic appearance, custom-theme resolution and themed
+- [x] All 66 TUI themes, automatic appearance, custom-theme resolution and themed
   read-only code, with deterministic generation and component contrast checks.
 - [x] Packaged browser assets and explicit `whip web` attachment/launch command.
 - [x] Session tabs with window-local restoration, preserved drafts/reading position,
   bounded background activity, and responsive themed navigation. See the
   [session-tabs implementation and acceptance](../.ai-docs/plans/session-tabs/README.md).
+- [x] Nested in-window split panes with movable tabs, duplicate chat views, independent
+  reading/agent selection and bounded observation. See the
+  [split-view implementation](../.ai-docs/plans/split-views/README.md).
+- [x] Read-only session REPL notebook with tab-mode switching, independent split
+  views and bounded live/recorded execution evidence. See the
+  [session REPL implementation](../.ai-docs/plans/session-repl-viewer/README.md).
 - [ ] Complete the web application's release acceptance: full workflow/recovery
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.

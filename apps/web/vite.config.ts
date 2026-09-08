@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [
     tanstackRouter({ target: 'react', routesDirectory: '../../packages/app/src/routes', generatedRouteTree: '../../packages/app/src/routeTree.gen.ts', autoCodeSplitting: true }),
     stylex.vite({
-      useCSSLayers: true, runtimeInjection: false,
+      useCSSLayers: {before: ['whip-reset']}, runtimeInjection: false,
       unstable_moduleResolution: { type: 'commonJS', rootDir: fileURLToPath(new URL('../../', import.meta.url)) },
     }),
     react(),

@@ -1,6 +1,10 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from './runtime';
-import { isInspectorSection } from './navigation';
+import { selectedSessionTab, sessionSearch, validateSessionSearch } from './session-tabs';
+
+declare module '@tanstack/react-router' {
+  interface HistoryState { whipViewId?: string }
+}
 
 export function sessionDestination(pathname: string): { runtimeId: string; rootId: string } | undefined {
   const match = /^\/h\/([^/]+)\/s\/([^/]+)\/?$/.exec(pathname);
@@ -12,7 +16,7 @@ export function sessionDestination(pathname: string): { runtimeId: string; rootI
 /** The router is the active-tab authority; saved selection is only a boot hint. */
 export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
   const initial = router.state.location;
-  let startup = initial.pathname === '/';
+  let startup = initial.pathname === '/' && !Object.keys(initial.search).length;
   let observing = false;
   let disposed = false;
   let capacityNotice: string | undefined;
@@ -45,19 +49,17 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
           }
           return;
         }
-        runtime.tabs.visit(destination.runtimeId, destination.rootId, {
-          ...(typeof search.agent === 'string' ? { agent: search.agent } : {}),
-          ...(isInspectorSection(search.panel) ? { panel: search.panel } : {}),
-        });
+        runtime.tabs.visit(destination.runtimeId, destination.rootId, validateSessionSearch(search), typeof current.state.whipViewId === 'string' ? current.state.whipViewId : undefined);
+        if (destination.runtimeId === runtimeId) runtime.rememberSession(runtimeId, destination.rootId);
         capacityNotice = undefined;
       } else if (current.pathname === '/') {
         if (startup && connection?.state !== 'connected') return;
         if (startup) {
           startup = false;
           const workspace = runtime.tabs.workspace(runtimeId);
-          const tab = workspace.tabs.find(item => item.rootId === workspace.lastActiveRootId);
+          const tab = workspace.lastActiveRootId ? selectedSessionTab(workspace) : undefined;
           if (tab) {
-            void router.navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId, rootId: tab.rootId }, search: tab.location, replace: true }).catch(error => runtime.report(error));
+            void router.navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id }, replace: true }).catch(error => runtime.report(error));
             return;
           }
         }

@@ -87,7 +87,7 @@ async function measurePresentation(page) {
 }
 async function ready(page) {
   await page.getByLabel('Message WHIP', { exact: true }).waitFor();
-  await page.getByText('live', { exact: true }).waitFor();
+  await eventually(() => page.getByLabel('Message WHIP', { exact: true }).isEnabled());
   assert.ok((await page.getByRole('region', { name: 'Conversation', exact: true }).count()) <= 1, 'Navigation retained multiple conversation trees');
 }
 async function send(page, text) {
@@ -173,11 +173,44 @@ try {
       assert.equal(await page.getByLabel('Message WHIP', { exact: true }).evaluate(element => document.activeElement === element), true, 'Command selection must focus the requested composer');
       checks.push('command palette accepts immediate keyboard search and focuses the requested composer');
 
+      progress('compact composer and session model picker');
+      const composer = page.getByLabel('Message WHIP', { exact: true });
+      const emptyHeight = (await composer.boundingBox()).height;
+      await composer.fill(Array.from({ length: 12 }, (_, index) => `Draft line ${index + 1}`).join('\n'));
+      await eventually(async () => (await composer.boundingBox()).height > emptyHeight + 100);
+      await composer.fill('Keep this draft while changing the model');
+      await eventually(async () => (await composer.boundingBox()).height === emptyHeight);
+      const modelTrigger = page.getByRole('button', { name: 'Model and reasoning', exact: true });
+      await modelTrigger.click();
+      const modelPicker = page.getByRole('dialog', { name: 'Model & reasoning', exact: true });
+      await modelPicker.getByRole('combobox', { name: 'Model', exact: true }).fill('replacement');
+      await modelPicker.getByLabel('Provider', { exact: true }).fill('provider');
+      await modelPicker.getByRole('button', { name: 'Apply model', exact: true }).click();
+      await eventually(async () => (await session.snapshot()).meta.model === 'replacement', { description: 'composer model selection reaches the host' });
+      await modelPicker.getByRole('combobox', { name: 'Reasoning effort', exact: true }).click();
+      await page.getByRole('option', { name: 'medium', exact: true }).click();
+      await modelPicker.getByRole('button', { name: 'Apply effort', exact: true }).click();
+      await eventually(async () => (await session.snapshot()).meta.effort === 'medium');
+      await page.screenshot({ path: join(resultsDirectory, `${name}-model-picker.png`) });
+      await page.keyboard.press('Escape');
+      await modelPicker.waitFor({ state: 'hidden' });
+      await eventually(async () => (await modelTrigger.innerText()).includes('replacement'));
+      assert.equal(await composer.inputValue(), 'Keep this draft while changing the model');
+      assert.equal((await session.snapshot()).messages?.length ?? 0, 0, 'Changing models submitted the message draft');
+      await page.reload(); await ready(page);
+      assert.ok((await modelTrigger.innerText()).includes('replacement'));
+      assert.equal(await composer.inputValue(), 'Keep this draft while changing the model');
+      checks.push('composer grows and shrinks, model/effort apply explicitly, and draft/model survive reload');
+
       progress('stream grouping, theme switch and reload');
       await send(page, 'hold:tool-stream');
       await eventually(async () => (await page.locator('[data-message-id^="live-tool:"]').count()) === 2, { description: 'two cumulative tool rows' });
       assert.equal(await page.locator('[data-message-id^="live:"]').count(), 1, 'Text deltas must append to one live row');
       const tools = page.locator('[data-message-id^="live-tool:"]');
+      await modelTrigger.click();
+      assert.equal(await modelPicker.getByRole('button', { name: 'Apply model', exact: true }).isEnabled(), false);
+      assert.equal(await modelPicker.getByRole('button', { name: 'Apply effort', exact: true }).isEnabled(), false);
+      await modelTrigger.click(); await modelPicker.waitFor({ state: 'hidden' });
       for (let index = 0; index < 2; index++) {
         await tools.nth(index).locator('summary').click();
         const text = await tools.nth(index).innerText();
@@ -205,7 +238,7 @@ try {
 
       progress('host context completion');
       await writeFile(join(fixture.directory, 'web-browser-context.txt'), 'Host-side completion fixture.');
-      await page.getByRole('button', { name: '@ Context', exact: true }).click();
+      await page.getByRole('button', { name: 'Add context', exact: true }).click();
       await page.getByRole('combobox', { name: 'Search on the host', exact: true }).fill('web-browser-context');
       await page.getByRole('option', { name: /web-browser-context\.txt/ }).click();
       assert.match(await page.getByLabel('Message WHIP', { exact: true }).inputValue(), /@web-browser-context\.txt/);

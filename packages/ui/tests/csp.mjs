@@ -12,7 +12,7 @@ import {chromium, firefox} from '@playwright/test';
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const root = resolve(packageRoot, 'ui-test-results/csp');
 await mkdir(root, {recursive: true});
-await build({configFile: false, root: resolve(packageRoot, 'tests/fixtures/csp'), plugins: [stylex.vite({useCSSLayers: true, runtimeInjection: false, unstable_moduleResolution: {type: 'commonJS', rootDir: resolve(packageRoot, '../..')}}), react()], logLevel: 'warn', build: {outDir: root, emptyOutDir: true, assetsInlineLimit: 0}});
+await build({configFile: false, root: resolve(packageRoot, 'tests/fixtures/csp'), plugins: [stylex.vite({useCSSLayers: {before: ['whip-reset']}, runtimeInjection: false, unstable_moduleResolution: {type: 'commonJS', rootDir: resolve(packageRoot, '../..')}}), react()], logLevel: 'warn', build: {outDir: root, emptyOutDir: true, assetsInlineLimit: 0}});
 const csp = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'";
 const mime = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.woff2': 'font/woff2'};
 let safariResult;

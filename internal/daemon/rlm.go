@@ -205,7 +205,7 @@ func (s *Session) wakeAgent(agentID string) {
 }
 
 // reconcileAgentWork re-derives readiness for every node after a control
-// change (permission decision, budget cap) that may have unblocked work. It
+// change. Permission decisions may unblock work; budget caps only narrow it. It
 // runs off the actor so it is safe to call from a control callback.
 func (s *Session) reconcileAgentWork() {
 	s.supervisor.launchWorker("agent work reconciliation", func() {

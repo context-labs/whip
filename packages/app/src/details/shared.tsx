@@ -18,6 +18,8 @@ export interface InspectorProps {
   root: DeepReadonly<RootSnapshot>;
   connected: boolean;
   agentId: string;
+  viewId?: string;
+  kind?: 'chat' | 'repl';
 }
 export type Value = NonNullable<RootSnapshot['blackboard']>[number]['payload'];
 export function useDetailQuery<O extends QueryOperation>(

@@ -26,7 +26,7 @@ test('Go-produced fixtures validate without numeric coercion', async () => {
 });
 
 test('TypeScript requests reject undeclared fields and malformed input', () => {
-  assertValid('InitializeParams', { protocol_major: 3, build_id: 'different-build', client_kind: 'human', client_id: 'browser' });
+  assertValid('InitializeParams', { protocol_major: manifest.major, build_id: 'different-build', client_kind: 'human', client_id: 'browser' });
   assert.equal(validate('InitializeParams', { protocol_major: '3', build_id: '', client_kind: 'human', client_id: 'browser' }), false);
   assert.equal(validate('SubscribeParams', { root_id: 'root', subscription_id: 'view', cursor: '1', extra: true }), false);
   assert.throws(() => validate('unknown', {}), /Unknown/);
@@ -91,9 +91,18 @@ test('permission decisions are typed requests without signing credentials', () =
 
 test('collection variants preserve typed properties and exactly one item', () => {
   const page = { root_id: 'root', collection: 'budgets', revision: '1', event_cursor: '1', has_more: false,
-    items: [{ budget: { agent_id: 'root', state: { kind: 'tokens', limit: '9007199254740993', used: '0', reserved: '0', remaining: '9007199254740993' } } }] };
+    items: [{ budget: { agent_id: 'root', state: { kind: 'tokens', limit: '9007199254740993', used: '0', reserved: '0', uncertain: '0', incomplete: false, remaining: '9007199254740993' } } }] };
   assertValid('RootCollectionPage', page);
   assert.equal(validate('RootCollectionPage', { ...page, items: [{}] }), false);
   assert.equal(validate('RootCollectionPage', { ...page, items: [{ ...page.items[0], agent: null }] }), false);
   assert.equal(validate('RootCollectionPage', { ...page, items: [{ budget: { ...page.items[0].budget, agent_id: 1 } }] }), false);
+});
+
+
+test('model budgets preserve explicit unlimited and exact uncertainty', () => {
+  const state = { kind: 'cost', limit: null, remaining: null, used: '9007199254740993', reserved: '0', uncertain: '23883863', incomplete: true };
+  assertValid('BudgetState', state);
+  assertValid('BudgetState', { ...state, limit: '9223372036854775807', remaining: '0' });
+  assert.equal(validate('BudgetState', { ...state, limit: 0 }), false);
+  assert.equal(validate('BudgetState', { ...state, uncertain: 23883863 }), false);
 });

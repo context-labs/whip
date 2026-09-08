@@ -75,11 +75,12 @@ type Events struct {
 // ModelCallBudget reserves descendant model spend before a provider request
 // and reconciles the provider-reported usage afterward.
 type ModelCallBudget interface {
-	ReserveModelCall(context.Context, int64) (func(llm.Usage) error, error)
+	ReserveModelCall(context.Context, llm.CallEstimate) (func(llm.Usage) error, error)
 }
 
 // ModelRoute is a resolved model override for a recursively spawned agent.
 type ModelRoute struct {
+	Prices       llm.TokenPrices
 	Client       *llm.Client
 	ModelName    string
 	Provider     string
@@ -102,13 +103,15 @@ type CompactInfo struct {
 
 // Agent holds one conversation.
 type Agent struct {
-	Client    *llm.Client
-	Model     string // model id sent to the API
-	ModelName string // config model name (may differ from Model via id mapping)
-	Provider  string // config provider name
-	MaxTokens int
-	Effort    string // reasoning effort: "" = parameter omitted from requests
-	Vision    bool   // model accepts image content parts
+	Prices        llm.TokenPrices
+	CompactPrices llm.TokenPrices
+	Client        *llm.Client
+	Model         string // model id sent to the API
+	ModelName     string // config model name (may differ from Model via id mapping)
+	Provider      string // config provider name
+	MaxTokens     int
+	Effort        string // reasoning effort: "" = parameter omitted from requests
+	Vision        bool   // model accepts image content parts
 	// Temperature/TopP are optional per-model sampling knobs for outbound
 	// requests. nil omits the field, preserving provider defaults.
 	Temperature *float64
@@ -499,18 +502,11 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 			TopP:            a.TopP,
 			MaxTokens:       a.MaxTokens,
 		}
-		settleBudget, err := a.reserveModelCall(ctx, request)
-		if err != nil {
-			return "", err
-		}
+		request = a.BudgetRequest(request, a.Prices)
 		a.Client.OnRetry = ev.OnRetry
 		msg, usage, err := a.Client.Stream(ctx, request, ev.OnText, ev.OnThink, ev.OnToolCall)
 		a.Client.OnRetry = nil
-		if settleBudget != nil {
-			if budgetErr := settleBudget(usage); err == nil && budgetErr != nil {
-				err = budgetErr
-			}
-		}
+
 		a.AddUsage(usage)
 		a.notePrompt(usage)
 		if ev.OnUsage != nil {
@@ -615,14 +611,25 @@ func (a *Agent) appendTurnMessages(ev Events, messages ...llm.Message) {
 	}
 }
 
-func (a *Agent) reserveModelCall(ctx context.Context, request llm.Request) (func(llm.Usage) error, error) {
+// BudgetRequest attaches per-attempt accounting without putting runtime policy
+// in the provider payload. The client calls it again before every retry.
+func (a *Agent) BudgetRequest(request llm.Request, prices llm.TokenPrices) llm.Request {
 	budget := a.modelCallBudget()
 	if budget == nil {
-		return nil, nil //nolint:nilnil // nil settlement means no model-call budget is configured
+		return request
 	}
-	definitionBytes, _ := json.Marshal(request.Tools)
-	estimate := int64(EstimateTokens(request.Messages) + max(request.MaxTokens, 1) + (len(definitionBytes)+3)/4)
-	return budget.ReserveModelCall(ctx, estimate)
+	request.BeforeAttempt = func(ctx context.Context, prepared llm.Request) (func(llm.Usage) error, error) {
+		definitionBytes, err := json.Marshal(prepared.Tools)
+		if err != nil {
+			return nil, err
+		}
+		estimate := llm.CallEstimate{
+			PromptTokens: int64(EstimateTokens(prepared.Messages)) + int64((len(definitionBytes)+3)/4),
+			OutputTokens: int64(max(prepared.MaxTokens, 1)), Prices: prices,
+		}
+		return budget.ReserveModelCall(ctx, estimate)
+	}
+	return request
 }
 
 func (a *Agent) finishTurn() {
@@ -911,16 +918,13 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 			{Role: "user", Content: summaryPrompt},
 		},
 	}
-	settleBudget, err := a.reserveModelCall(ctx, request)
-	if err != nil {
-		return "", 0, CompactInfo{}, err
+	prices := a.Prices
+	if dedicated {
+		prices = a.CompactPrices
 	}
+	request = a.BudgetRequest(request, prices)
 	sum, usage, cerr := cli.Complete(ctx, request)
-	if settleBudget != nil {
-		if budgetErr := settleBudget(usage); cerr == nil && budgetErr != nil {
-			cerr = budgetErr
-		}
-	}
+
 	a.AddUsage(usage) // the summary call is session spend too
 	if cerr != nil {
 		return "", 0, CompactInfo{}, fmt.Errorf("compaction summary failed: %w", cerr)
@@ -1101,14 +1105,15 @@ func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
 	msgs := append(append([]llm.Message(nil), a.Messages...),
 		llm.Message{Role: "system", Content: "You have reached the tool-call limit. Do NOT request any more tools. Give your final answer now using only what you have already gathered."})
 	a.Client.OnRetry = ev.OnRetry
-	msg, usage, err := a.Client.Stream(ctx, llm.Request{
+	msg, usage, err := a.Client.Stream(ctx, a.BudgetRequest(llm.Request{
 		Model:           a.Model,
 		Messages:        msgs,
 		Tools:           nil, // no tools — force a text answer
 		ReasoningEffort: a.Effort,
 		Temperature:     a.Temperature,
 		TopP:            a.TopP,
-	}, ev.OnText, ev.OnThink, ev.OnToolCall)
+		MaxTokens:       a.MaxTokens,
+	}, a.Prices), ev.OnText, ev.OnThink, ev.OnToolCall)
 	a.Client.OnRetry = nil
 	a.AddUsage(usage)
 	a.notePrompt(usage)

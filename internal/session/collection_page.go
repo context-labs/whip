@@ -196,9 +196,15 @@ func (s *Store) readCollectionEntry(ctx context.Context, tx *sql.Tx, rootID, col
 	case "budgets":
 		var value SnapshotBudget
 		var row budgetRow
-		err := tx.QueryRowContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value FROM budgets WHERE root_id=? AND rowid=?`, rootID, key).Scan(&value.AgentID, &row.kind, &row.limit, &row.used, &row.reserved)
+		err := tx.QueryRowContext(ctx, `SELECT agent_id,kind,limit_value,used_value,reserved_value,uncertain_value,incomplete FROM budgets WHERE root_id=? AND rowid=?`, rootID, key).Scan(&value.AgentID, &row.kind, &row.limit, &row.used, &row.reserved, &row.uncertain, &row.incomplete)
+		if err != nil {
+			return CollectionEntry{}, err
+		}
+		if _, valid := budgetRemaining(row); !valid {
+			return CollectionEntry{}, capability.ErrDenied
+		}
 		value.State = budgetStateFromRow(row)
-		return CollectionEntry{Budget: &value}, err
+		return CollectionEntry{Budget: &value}, nil
 	case "inbox":
 		value := InboxItem{RootID: rootID}
 		err := tx.QueryRowContext(ctx, `SELECT seq,agent_id,kind,status,substr(payload_inline,1,?),COALESCE(payload_ref,''),COALESCE(r.digest,''),COALESCE(r.size,0),COALESCE(r.media_type,''),COALESCE(r.source,'')

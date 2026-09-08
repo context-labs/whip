@@ -209,9 +209,30 @@
         "tokens"
       ],
       "additionalProperties": false
+    },
+    "web": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "navigation": {
+          "type": "string"
+        },
+        "quiet_border": {
+          "type": "string"
+        },
+        "code_background": {
+          "type": "string"
+        },
+        "inline_code_background": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
   },
-  "$id": "https://whip.dev/protocol/v3/Resolved",
+  "$id": "https://whip.dev/protocol/v4/Resolved",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Resolved",
   "required": [

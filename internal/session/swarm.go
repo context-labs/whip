@@ -104,7 +104,7 @@ func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64
 		return 0, err
 	}
 	for _, row := range depthRows {
-		if childDepth > row.limit {
+		if row.limit == nil || childDepth > *row.limit {
 			return 0, capability.ErrDenied
 		}
 	}
@@ -134,10 +134,10 @@ func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64
 		limit := requestedLimit
 		for _, row := range rows {
 			remaining, valid := budgetRemaining(row)
-			if !valid {
+			if !valid || row.limit != nil && row.used > *row.limit {
 				return 0, capability.ErrDenied
 			}
-			if remaining < limit {
+			if row.limit != nil && remaining < limit {
 				limit = remaining
 			}
 		}

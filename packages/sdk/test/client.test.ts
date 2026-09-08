@@ -17,7 +17,7 @@ interface Connection {
 
 function initialize(): InitializeResult {
   return {
-    protocol_major: 3, protocol_minor: 0, runtime_id: 'runtime-fixture',
+    protocol_major: 4, protocol_minor: 0, runtime_id: 'runtime-fixture',
     connection_id: 'connection-fixture', host_platform: 'darwin', host_architecture: 'arm64',
     build_id: 'different-daemon-build', generation: '9007199254740993',
     capabilities: [], negotiated_capabilities: [],
