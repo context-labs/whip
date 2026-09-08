@@ -195,8 +195,8 @@ func (c *Codex) streamOnce(ctx context.Context, body []byte, onText, onThink fun
 		if event.Type == "error" || event.Type == "response.failed" {
 			// The backend accepted the request then failed mid-stream: a
 			// provider-logic error, not a transport blip — don't retry.
-			if event.Error.Message != "" {
-				return Message{}, usage, nonRetryable{fmt.Errorf("api error: %s", event.Error.Message)}
+			if m := event.errorMessage(); m != "" {
+				return Message{}, usage, nonRetryable{fmt.Errorf("api error: %s", m)}
 			}
 			return Message{}, usage, nonRetryable{errors.New("codex response failed")}
 		}
@@ -237,7 +237,20 @@ func (c *Codex) streamOnce(ctx context.Context, body []byte, onText, onThink fun
 	if err := scanner.Err(); err != nil {
 		return Message{}, usage, err
 	}
-	msg.ToolCalls = calls.calls
+	// Same guard as the chat-completions client: a stream that closed before
+	// a call's arguments finished (proxy drop, clean EOF before
+	// response.completed) must not persist malformed JSON into history —
+	// strict backends reject the whole next request over it. Drop just the
+	// broken calls and say so.
+	kept := make([]ToolCall, 0, len(calls.calls))
+	for _, tc := range calls.calls {
+		if tc.Function.Arguments != "" && !validToolCallArgs(tc.Function.Arguments) {
+			msg.Content += fmt.Sprintf("\n[tool call %q discarded: arguments are invalid JSON]", tc.Function.Name)
+			continue
+		}
+		kept = append(kept, tc)
+	}
+	msg.ToolCalls = kept
 	return msg, usage, nil
 }
 
@@ -562,9 +575,19 @@ type responseEvent struct {
 	Arguments string       `json:"arguments"`
 	Item      responseItem `json:"item"`
 	Response  response     `json:"response"`
-	Error     struct {
+	// Error events arrive either nested ({"type":"error","error":{...}}) or
+	// flat ({"type":"error","message":...}); read both.
+	Message string `json:"message"`
+	Error   struct {
 		Message string `json:"message"`
 	} `json:"error"`
+}
+
+func (e responseEvent) errorMessage() string {
+	if e.Error.Message != "" {
+		return e.Error.Message
+	}
+	return e.Message
 }
 
 type response struct {

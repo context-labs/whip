@@ -760,3 +760,39 @@ func TestCodexCompleteRetriesServerErrors(t *testing.T) {
 		t.Fatalf("text=%q calls=%d err=%v", text, calls, err)
 	}
 }
+
+// A stream that ends before a tool call's arguments close drops that call
+// rather than persisting malformed JSON; complete siblings survive.
+func TestCodexStreamDropsTruncatedToolCall(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc-1\",\"call_id\":\"call-1\",\"name\":\"read\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.done\",\"call_id\":\"call-1\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc-2\",\"call_id\":\"call-2\",\"name\":\"bash\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call-2\",\"delta\":\"{\\\"command\\\":\\\"rm -\"}\n\n")
+		// connection closes here: no arguments.done, no response.completed
+	}))
+	defer srv.Close()
+	msg, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].ID != "call-1" {
+		t.Fatalf("only the complete call should survive: %+v", msg.ToolCalls)
+	}
+	if !strings.Contains(msg.Content, `"bash" discarded`) {
+		t.Fatalf("discard should be noted in content: %q", msg.Content)
+	}
+}
+
+func TestCodexStreamReadsFlatErrorEvent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"slow down\"}\n\n")
+	}))
+	defer srv.Close()
+	_, _, err := NewCodex(srv.URL, codexSource(t)).Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "slow down") {
+		t.Fatalf("flat error event should surface its message, got %v", err)
+	}
+}
