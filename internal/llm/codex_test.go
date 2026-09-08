@@ -678,3 +678,85 @@ func TestCodexRateLimits(t *testing.T) {
 		t.Fatal("expected HTTP error")
 	}
 }
+
+// Transient failures retry with backoff and report through OnRetry, like the
+// OpenAI client; a mid-stream provider error and post-output failures don't.
+func TestCodexStreamRetriesTransientFailures(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			http.Error(w, "busy", http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 3
+	var events []RetryEvent
+	client.SetOnRetry(func(ev RetryEvent) { events = append(events, ev) })
+	sleepFn := sleep
+	sleep = func(context.Context, time.Duration) error { return nil }
+	defer func() { sleep = sleepFn }()
+	msg, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil)
+	if err != nil || msg.Content != "ok" {
+		t.Fatalf("msg=%+v err=%v", msg, err)
+	}
+	if calls != 3 || len(events) != 2 || events[1].Attempt != 2 || events[1].Max != 3 {
+		t.Fatalf("calls=%d events=%+v", calls, events)
+	}
+
+	// A 400 is not retried.
+	calls = 0
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, "nope", http.StatusBadRequest)
+	}))
+	defer bad.Close()
+	client = NewCodex(bad.URL, codexSource(t))
+	client.MaxRetries = 3
+	if _, _, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, nil); err == nil || calls != 1 {
+		t.Fatalf("4xx should fail once: calls=%d err=%v", calls, err)
+	}
+
+	// A mid-stream provider error after output is surfaced, not retried.
+	calls = 0
+	mid := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.failed\",\"error\":{\"message\":\"model fault\"}}\n\n")
+	}))
+	defer mid.Close()
+	client = NewCodex(mid.URL, codexSource(t))
+	client.MaxRetries = 3
+	_, _, err = client.Stream(context.Background(), Request{Model: "gpt-5.5"}, func(string) {}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "model fault") || calls != 1 {
+		t.Fatalf("mid-stream failure: calls=%d err=%v", calls, err)
+	}
+}
+
+func TestCodexCompleteRetriesServerErrors(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			http.Error(w, "upstream", http.StatusBadGateway)
+			return
+		}
+		fmt.Fprint(w, `{"output":[{"type":"message","content":[{"type":"output_text","text":"summary"}]}],"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 2
+	sleepFn := sleep
+	sleep = func(context.Context, time.Duration) error { return nil }
+	defer func() { sleep = sleepFn }()
+	text, _, err := client.Complete(context.Background(), Request{Model: "gpt-5.5"})
+	if err != nil || text != "summary" || calls != 2 {
+		t.Fatalf("text=%q calls=%d err=%v", text, calls, err)
+	}
+}

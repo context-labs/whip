@@ -25,6 +25,16 @@ func (c *Config) RemoveProvider(name string) {
 			*pin = ""
 		}
 	}
+	// Model pins whose route entry just vanished would make Resolve fail on
+	// the next start; clear them so the remaining routes' defaults apply.
+	for _, pin := range []*string{&c.DefaultModel, &c.CompactModel, &c.TaskModel} {
+		if _, ok := c.Models[*pin]; *pin != "" && !ok {
+			*pin = ""
+		}
+	}
+	// Removing the last provider legitimately empties the config; tell Save
+	// this isn't the accidental-wipe it normally refuses.
+	c.allowEmptySave = len(c.Providers) == 0 && len(c.Models) == 0
 	cats := LoadCatalogs()
 	if _, ok := cats[name]; ok {
 		delete(cats, name)

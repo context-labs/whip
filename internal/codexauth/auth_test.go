@@ -492,3 +492,35 @@ func writeAuth(t *testing.T, path, contents string) {
 		t.Fatal(err)
 	}
 }
+
+// A refresh merges into the file as it is at save time: a field another tool
+// wrote between our load and save survives instead of being clobbered.
+func TestRefreshSaveMergesConcurrentWrites(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, time.August, 25, 12, 0, 0, 0, time.UTC)
+	path := filepath.Join(home, ".codex", "auth.json")
+	writeAuth(t, path, `{"tokens":{"access_token":"old-access","refresh_token":"old-refresh","id_token":"`+jwt(t, now.Add(-time.Hour), "account")+`"}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The Codex CLI writes while our refresh is in flight.
+		writeAuth(t, path, `{"cli_added":1,"tokens":{"access_token":"cli-access","refresh_token":"cli-refresh","cli_field":"x"}}`)
+		w.Write([]byte(`{"access_token":"new-access","refresh_token":"new-refresh","id_token":"` + jwt(t, now.Add(time.Hour), "account") + `"}`))
+	}))
+	defer srv.Close()
+	source := Source{HomeDir: home, HTTP: srv.Client(), TokenURL: srv.URL + "/oauth/token", now: func() time.Time { return now }}
+	if _, err := source.Credentials(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	var stored map[string]json.RawMessage
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := stored["cli_added"]; !ok {
+		t.Fatalf("root field written during refresh was clobbered: %s", data)
+	}
+	var tokens map[string]json.RawMessage
+	_ = json.Unmarshal(stored["tokens"], &tokens)
+	if string(tokens["cli_field"]) != `"x"` || string(tokens["access_token"]) != `"new-access"` {
+		t.Fatalf("tokens = %s", stored["tokens"])
+	}
+}

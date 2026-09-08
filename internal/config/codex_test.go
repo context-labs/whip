@@ -154,3 +154,41 @@ func TestNormalizeRenamesLegacyCodexProvider(t *testing.T) {
 		t.Fatal("non-codex-API provider named codex must not be renamed")
 	}
 }
+
+// Removing the last provider must still be saveable, and model pins whose
+// entries vanished are cleared so the next start resolves cleanly.
+func TestRemoveLastProviderSavesAndClearsModelPins(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Providers = map[string]Provider{"only": {API: "openai-completions"}}
+	cfg.Models = map[string]Model{"m": {Providers: []string{"only"}}}
+	cfg.DefaultModel, cfg.CompactModel, cfg.TaskModel = "m", "m", "m"
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.RemoveProvider("only")
+	if cfg.DefaultModel != "" || cfg.CompactModel != "" || cfg.TaskModel != "" {
+		t.Fatalf("model pins should be cleared: %q %q %q", cfg.DefaultModel, cfg.CompactModel, cfg.TaskModel)
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("last-provider logout must persist: %v", err)
+	}
+	again, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := again.Providers["only"]; ok {
+		t.Fatalf("removed provider came back from the backup on reload: %v", again.Providers)
+	}
+	// The guard still protects an accidental empty save.
+	again.Providers = map[string]Provider{"p": {}}
+	if err := again.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Config{}).Save(); err == nil {
+		t.Fatal("an empty config not produced by RemoveProvider must still be refused")
+	}
+}

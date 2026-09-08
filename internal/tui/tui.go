@@ -160,9 +160,12 @@ type model struct {
 	height    int
 	termWidth int // full terminal width (opencode mode places the sidebar in the reserved columns)
 
-	busy    bool
-	current string // in-flight partial assistant line
-	inMsg   bool   // "● " prefix already printed for this assistant segment
+	busy bool
+	// loginOwnsBusy: an in-flight /auth codex claimed busy/cancel; its result
+	// may only release them while this is still set (a turn clears it).
+	loginOwnsBusy bool
+	current       string // in-flight partial assistant line
+	inMsg         bool   // "● " prefix already printed for this assistant segment
 	// lastResp is the token usage of the most recent API response (updated
 	// per streamed request via usageMsg); the status line shows it after the
 	// session spend as "last in(cached)/out tok".
@@ -3772,7 +3775,9 @@ func ClientForProvider(prov config.Provider, name string, maxRetries int) (llm.C
 		if err := source.Available(); err != nil {
 			return nil, err
 		}
-		return llm.NewCodex(prov.BaseURL, source), nil
+		client := llm.NewCodex(prov.BaseURL, source)
+		client.MaxRetries = maxRetries
+		return client, nil
 	default:
 		return nil, fmt.Errorf("unsupported API %q for provider %q", prov.API, name)
 	}
@@ -4305,6 +4310,7 @@ func (m *model) submitGoal(text string) (tea.Model, tea.Cmd) {
 
 func (m *model) submitTurn(text string, authored bool) (tea.Model, tea.Cmd) {
 	m.busy = true
+	m.loginOwnsBusy = false // any in-flight /auth codex no longer owns the busy slot
 	m.turnStart = m.nowFn()
 	prepared, parts := m.prepareTurn(text)
 	userMsgIdx := len(m.agent.Messages) // where Turn will append this message

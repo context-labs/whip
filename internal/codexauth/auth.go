@@ -454,6 +454,15 @@ func expiryFromDuration(raw json.RawMessage, now time.Time) time.Time {
 }
 
 func (c *candidate) save(now time.Time) error {
+	// Re-read at save time: the Codex CLI (or another whip) may have rotated
+	// tokens or written fields since load(). Merge only our token fields into
+	// the current file so a stale snapshot never clobbers theirs.
+	if data, err := os.ReadFile(c.path); err == nil {
+		root := map[string]json.RawMessage{}
+		if json.Unmarshal(data, &root) == nil && root != nil {
+			c.root = root
+		}
+	}
 	fields := map[string]json.RawMessage{}
 	if raw, ok := c.root["tokens"]; ok {
 		if err := json.Unmarshal(raw, &fields); err != nil {

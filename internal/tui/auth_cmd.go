@@ -80,6 +80,7 @@ func (m *model) authCodex() {
 	m.append(dimStyle.Render("starting Codex device login…"))
 	ctx, cancel := context.WithCancel(context.Background())
 	m.busy = true
+	m.loginOwnsBusy = true
 	m.cancel = cancel
 	m.turnStart = time.Now()
 	p := m.prog
@@ -103,10 +104,15 @@ func (m *model) authCodex() {
 }
 
 func (m *model) applyCodexLoginResult(result codexLoginResultMsg) {
-	m.busy = false
-	m.cancel = nil
-	m.interrupt1 = false
-	m.turnStart = time.Time{}
+	// A force-drained queue may have cancelled this login and started a turn
+	// that now owns busy/cancel; only release the slot if it is still ours.
+	if m.loginOwnsBusy {
+		m.busy = false
+		m.cancel = nil
+		m.interrupt1 = false
+		m.turnStart = time.Time{}
+	}
+	m.loginOwnsBusy = false
 	if errors.Is(result.err, context.Canceled) {
 		m.append(dimStyle.Render("Codex login cancelled"))
 		return

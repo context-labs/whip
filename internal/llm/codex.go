@@ -23,11 +23,48 @@ type Codex struct {
 	HTTP    *http.Client
 	// CacheKey is stamped as prompt_cache_key (see OpenAI.CacheKey).
 	CacheKey string
+	// MaxRetries and OnRetry mirror OpenAI's: transient failures (transport,
+	// 429, 5xx) are retried with backoff until output has been shown.
+	MaxRetries int
+	OnRetry    func(RetryEvent)
 }
 
-func (c *Codex) Clone() Client        { cp := *c; return &cp }
-func (c *Codex) SetCacheKey(k string) { c.CacheKey = k }
-func (c *Codex) Endpoint() string     { return c.BaseURL }
+func (c *Codex) Clone() Client                  { cp := *c; return &cp }
+func (c *Codex) SetCacheKey(k string)           { c.CacheKey = k }
+func (c *Codex) Endpoint() string               { return c.BaseURL }
+func (c *Codex) SetOnRetry(fn func(RetryEvent)) { c.OnRetry = fn }
+
+func (c *Codex) attempts() int {
+	if c.MaxRetries > 0 {
+		return c.MaxRetries
+	}
+	return DefaultMaxAttempts
+}
+
+// retry runs one attempt per loop until it succeeds, fails non-retryably, or
+// exhausts attempts. stop is consulted after a failure: true means a retry
+// would replay output the caller already saw, so the error surfaces instead.
+func (c *Codex) retry(ctx context.Context, once func() error, stop func() bool) error {
+	var last error
+	for attempt := 1; attempt <= c.attempts(); attempt++ {
+		err := once()
+		if err == nil {
+			return nil
+		}
+		last = err
+		if stop() || !retryable(err) || attempt == c.attempts() {
+			break
+		}
+		delay := backoff(attempt)
+		if c.OnRetry != nil {
+			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
+		}
+		if serr := sleep(ctx, delay); serr != nil {
+			return serr
+		}
+	}
+	return last
+}
 
 // codexModelsClientVersion is required by the subscription catalog endpoint.
 const codexModelsClientVersion = "0.0.0"
@@ -107,6 +144,27 @@ func (c *Codex) Stream(ctx context.Context, req Request, onText, onThink func(st
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
+	var msg Message
+	var usage Usage
+	emitted := false
+	wrapText, wrapThink := onText, onThink
+	if onText != nil {
+		wrapText = func(s string) { emitted = true; onText(s) }
+	}
+	if onThink != nil {
+		wrapThink = func(s string) { emitted = true; onThink(s) }
+	}
+	err = c.retry(ctx, func() (err error) {
+		msg, usage, err = c.streamOnce(ctx, body, wrapText, wrapThink, onToolCall)
+		return err
+	}, func() bool { return emitted })
+	if err != nil {
+		return Message{}, usage, err
+	}
+	return msg, usage, nil
+}
+
+func (c *Codex) streamOnce(ctx context.Context, body []byte, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
 	resp, err := c.post(ctx, body, true)
 	if err != nil {
 		return Message{}, Usage{}, err
@@ -135,10 +193,12 @@ func (c *Codex) Stream(ctx context.Context, req Request, onText, onThink func(st
 			continue
 		}
 		if event.Type == "error" || event.Type == "response.failed" {
+			// The backend accepted the request then failed mid-stream: a
+			// provider-logic error, not a transport blip — don't retry.
 			if event.Error.Message != "" {
-				return Message{}, usage, fmt.Errorf("api error: %s", event.Error.Message)
+				return Message{}, usage, nonRetryable{fmt.Errorf("api error: %s", event.Error.Message)}
 			}
-			return Message{}, usage, errors.New("codex response failed")
+			return Message{}, usage, nonRetryable{errors.New("codex response failed")}
 		}
 		switch event.Type {
 		case "response.output_text.delta":
@@ -188,6 +248,16 @@ func (c *Codex) Complete(ctx context.Context, req Request) (string, Usage, error
 	if err != nil {
 		return "", Usage{}, err
 	}
+	var text string
+	var usage Usage
+	err = c.retry(ctx, func() (err error) {
+		text, usage, err = c.completeOnce(ctx, body)
+		return err
+	}, func() bool { return false })
+	return text, usage, err
+}
+
+func (c *Codex) completeOnce(ctx context.Context, body []byte) (string, Usage, error) {
 	resp, err := c.post(ctx, body, false)
 	if err != nil {
 		return "", Usage{}, err
@@ -198,7 +268,7 @@ func (c *Codex) Complete(ctx context.Context, req Request) (string, Usage, error
 	}
 	var out response
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&out); err != nil {
-		return "", Usage{}, err
+		return "", Usage{}, nonRetryable{err}
 	}
 	var text strings.Builder
 	for _, item := range out.Output {
@@ -209,18 +279,18 @@ func (c *Codex) Complete(ctx context.Context, req Request) (string, Usage, error
 		}
 	}
 	if text.Len() == 0 {
-		return "", out.Usage.usage(), errors.New("no text in Codex completion response")
+		return "", out.Usage.usage(), nonRetryable{errors.New("no text in Codex completion response")}
 	}
 	return text.String(), out.Usage.usage(), nil
 }
 
 func (c *Codex) post(ctx context.Context, body []byte, stream bool) (*http.Response, error) {
 	if c.Source == nil {
-		return nil, codexauth.ErrLoginRequired
+		return nil, nonRetryable{codexauth.ErrLoginRequired}
 	}
 	creds, err := c.Source.Credentials(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nonRetryable{err} // a login problem never fixes itself by retrying
 	}
 	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/codex/responses", bytes.NewReader(body))
 	if err != nil {

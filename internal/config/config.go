@@ -185,7 +185,10 @@ type Config struct {
 	WorktreeSubagents *bool               `json:"worktreeSubagents,omitempty"`
 	MaxRetries        int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
 	Providers         map[string]Provider `json:"providers"`
-	Models            map[string]Model    `json:"models"`
+	// allowEmptySave lets Save write a config with no providers/models — only
+	// RemoveProvider sets it, when the last provider is deliberately removed.
+	allowEmptySave bool
+	Models         map[string]Model `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: whip always wins per name.
@@ -452,7 +455,7 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-	if len(c.Providers) == 0 && len(c.Models) == 0 {
+	if len(c.Providers) == 0 && len(c.Models) == 0 && !c.allowEmptySave {
 		if existing, err := os.ReadFile(p); err == nil {
 			var cur Config
 			if parseJSONC(existing, &cur) == nil && (len(cur.Providers) > 0 || len(cur.Models) > 0) {
@@ -487,6 +490,13 @@ func (c *Config) Save() error {
 		_ = os.Remove(tmp)
 		logf("config.save", "rename failed: %v", err)
 		return err
+	}
+	if c.allowEmptySave {
+		// Load treats an empty config as corruption and restores the backup;
+		// the user removed their last provider on purpose, so drop it and let
+		// the next start regenerate the shipped defaults.
+		_ = os.Remove(p + ".bak")
+		c.allowEmptySave = false
 	}
 	return nil
 }

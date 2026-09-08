@@ -63,6 +63,7 @@ func TestAuthCommandCodexUsage(t *testing.T) {
 func TestCodexLoginResultConfiguresAndMakesModelPickable(t *testing.T) {
 	m := authTestModel(t)
 	m.busy = true
+	m.loginOwnsBusy = true
 	m.cancel = func() {}
 	m.applyCodexLoginResult(codexLoginResultMsg{models: []llm.ModelInfo{
 		{ID: "gpt-5.6-sol", ContextLength: 1050000, ReasoningEfforts: []string{"low", "high"}, InputModalities: []string{"text", "image"}},
@@ -383,5 +384,19 @@ func TestAuthMakesCatalogModelsPickable(t *testing.T) {
 	}
 	if client.APIKey != "sk-or-live" {
 		t.Error("agent should carry the authed key")
+	}
+}
+
+// A turn that took over the busy slot while the login was in flight keeps it:
+// the late login result must not clear the live turn's state.
+func TestCodexLoginResultDoesNotClobberLiveTurn(t *testing.T) {
+	m := authTestModel(t)
+	m.busy = true
+	m.loginOwnsBusy = false // submitTurn cleared ownership
+	turnCancel := func() {}
+	m.cancel = turnCancel
+	m.applyCodexLoginResult(codexLoginResultMsg{err: errors.New("cancelled by drain")})
+	if !m.busy || m.cancel == nil {
+		t.Fatal("login result must not release a busy slot it no longer owns")
 	}
 }
