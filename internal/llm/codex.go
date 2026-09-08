@@ -142,20 +142,25 @@ func (c *Codex) Stream(ctx context.Context, req Request, onText, onThink func(st
 	}
 	var msg Message
 	var usage Usage
+	// emitted: any visible output (text, thinking, or a pending tool-call row)
+	// reached the caller — a retry would replay it, so the policy stops.
 	emitted := false
-	wrapText, wrapThink := onText, onThink
+	wrapText, wrapThink, wrapTool := onText, onThink, onToolCall
 	if onText != nil {
 		wrapText = func(s string) { emitted = true; onText(s) }
 	}
 	if onThink != nil {
 		wrapThink = func(s string) { emitted = true; onThink(s) }
 	}
+	if onToolCall != nil {
+		wrapTool = func(id, name, args string) { emitted = true; onToolCall(id, name, args) }
+	}
 	err = c.policy().run(ctx, func() (err error) {
-		msg, usage, err = c.streamOnce(ctx, body, wrapText, wrapThink, onToolCall)
+		msg, usage, err = c.streamOnce(ctx, body, wrapText, wrapThink, wrapTool)
 		return err
 	}, func() bool { return emitted })
 	if err != nil {
-		return Message{}, usage, err
+		return Message{}, Usage{}, err // never hand back a failed attempt's usage
 	}
 	return msg, usage, nil
 }

@@ -1042,3 +1042,33 @@ func TestCodexRetryEventsMatchOpenAIShape(t *testing.T) {
 		t.Fatalf("calls=%d evs=%+v", calls, evs)
 	}
 }
+
+// A stream that showed only a pending tool-call row before a server_error
+// must not retry (the UI would get ghost duplicate rows), and a failed
+// stream never hands back the failed attempt's usage.
+func TestCodexNoRetryAfterToolCallShownAndNoUsageOnError(t *testing.T) {
+	noSleep(t)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"id\":\"fc-1\",\"call_id\":\"call-1\",\"name\":\"bash\"}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.function_call_arguments.delta\",\"call_id\":\"call-1\",\"delta\":\"{\"}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":50,\"output_tokens\":5}}}\n\n")
+		fmt.Fprint(w, "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"server_error\",\"message\":\"late\"}}}\n\n")
+	}))
+	defer srv.Close()
+	client := NewCodex(srv.URL, codexSource(t))
+	client.MaxRetries = 3
+	var toolRows int
+	_, usage, err := client.Stream(context.Background(), Request{Model: "gpt-5.5"}, nil, nil, func(string, string, string) { toolRows++ })
+	if err == nil || calls != 1 {
+		t.Fatalf("a shown tool-call row must block the retry: calls=%d err=%v", calls, err)
+	}
+	if usage != (Usage{}) {
+		t.Fatalf("failed stream must not return usage, got %+v", usage)
+	}
+	if toolRows == 0 {
+		t.Fatal("test fixture should have surfaced a tool-call row")
+	}
+}

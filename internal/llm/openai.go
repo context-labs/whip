@@ -268,12 +268,19 @@ func stripInternal(msgs []Message, keepCodexIDs bool) []Message {
 			out[i].CodexReasoning = nil
 		}
 		out[i].RewoundFrom = ""
-		for j := range out[i].ToolCalls {
-			out[i].ToolCalls[j].DurationMs = 0
-			out[i].ToolCalls[j].ExitCode = 0
-			if !keepCodexIDs {
-				out[i].ToolCalls[j].ItemID = ""
+		// ToolCalls is shared with the caller's history by the shallow copy
+		// above; copy before zeroing so whip's per-tool bookkeeping survives.
+		if len(out[i].ToolCalls) > 0 {
+			calls := make([]ToolCall, len(out[i].ToolCalls))
+			copy(calls, out[i].ToolCalls)
+			for j := range calls {
+				calls[j].DurationMs = 0
+				calls[j].ExitCode = 0
+				if !keepCodexIDs {
+					calls[j].ItemID = ""
+				}
 			}
+			out[i].ToolCalls = calls
 		}
 		// W/H are whip-local estimation bookkeeping; the provider's wire shape
 		// for image parts is just the data URL. Copy the Parts slice first —
@@ -755,16 +762,19 @@ func (c *OpenAI) Stream(ctx context.Context, req Request, onText, onThink func(s
 	}
 	var msg Message
 	var usage Usage
-	emitted := false // true once any visible delta reached the caller
-	wrapText, wrapThink := onText, onThink
+	emitted := false // true once any visible delta (text, thinking, tool-call row) reached the caller
+	wrapText, wrapThink, wrapTool := onText, onThink, onToolCall
 	if onText != nil {
 		wrapText = func(s string) { emitted = true; onText(s) }
 	}
 	if onThink != nil {
 		wrapThink = func(s string) { emitted = true; onThink(s) }
 	}
+	if onToolCall != nil {
+		wrapTool = func(id, name, args string) { emitted = true; onToolCall(id, name, args) }
+	}
 	err = c.policy().run(ctx, func() (err error) {
-		msg, usage, err = c.streamOnce(ctx, body, wrapText, wrapThink, onToolCall)
+		msg, usage, err = c.streamOnce(ctx, body, wrapText, wrapThink, wrapTool)
 		return err
 	}, func() bool { return emitted })
 	if err != nil {
