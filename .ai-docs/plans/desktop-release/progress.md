@@ -49,6 +49,9 @@ and `/usr/local/bin/whipcode` remain unchanged.
   cover` reports **90.0%**, satisfying the existing CI floor without changing it.
 - [Local validation evidence](evidence/local-validation.json) records signed
   archive/native hashes and all 61 successful launch measurements.
+- Final review also found a missing inherited-descriptor cleanup edge case.
+  The guard rejects descriptor reuse before creating a second file wrapper;
+  subprocess regression tests and the compiled two-version update pass with it.
 
 Local validation artifacts use `0.2.0-beta.1` with dirty development provenance
 and no update feed. They are test builds, not publishable release candidates.

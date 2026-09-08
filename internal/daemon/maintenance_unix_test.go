@@ -96,6 +96,46 @@ func TestMaintenanceInheritedDescriptor(t *testing.T) {
 	}
 }
 
+func TestMaintenanceRefusesMissingInheritedDescriptor(t *testing.T) {
+	if home := os.Getenv("WHIP_MAINTENANCE_MISSING_CHILD"); home != "" {
+		paths, err := ResolvePaths(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// ExtraFiles reserves FD3 for our sentinel, so closing it cannot touch
+		// a descriptor owned by the Go runtime.
+		if err := unix.Close(3); err != nil {
+			t.Fatal(err)
+		}
+		startup, err := AcquireStartup(paths, 3)
+		if startup != nil {
+			_ = startup.Close()
+		}
+		if err == nil || err.Error() != "inherited maintenance descriptor was not open" {
+			t.Fatalf("missing inherited descriptor: %v", err)
+		}
+		if _, err := unix.FcntlInt(3, unix.F_GETFD, 0); !errors.Is(err, unix.EBADF) {
+			t.Fatalf("probe descriptor was not closed: %v", err)
+		}
+		return
+	}
+	home := t.TempDir()
+	if _, err := Paths(home); err != nil {
+		t.Fatal(err)
+	}
+	sentinel, err := os.CreateTemp(t.TempDir(), "sentinel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sentinel.Close()
+	command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestMaintenanceRefusesMissingInheritedDescriptor$")
+	command.Env = append(os.Environ(), "WHIP_MAINTENANCE_MISSING_CHILD="+home)
+	command.ExtraFiles = []*os.File{sentinel}
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("child: %s, %v", output, err)
+	}
+}
+
 func TestMaintenanceRefusesSymlinkAndForeignDescriptor(t *testing.T) {
 	paths, err := Paths(t.TempDir())
 	if err != nil {

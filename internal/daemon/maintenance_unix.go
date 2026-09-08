@@ -67,6 +67,9 @@ func AcquireStartup(paths RuntimePaths, inheritedFD int) (*os.File, error) {
 	if inheritedFD != 3 {
 		return nil, errors.New("invalid inherited maintenance descriptor")
 	}
+	if file.Fd() == uintptr(inheritedFD) {
+		return nil, errors.New("inherited maintenance descriptor was not open")
+	}
 	inherited := os.NewFile(uintptr(inheritedFD), "inherited-maintenance")
 	if err := validateInheritedMaintenance(file, inherited); err != nil {
 		_ = inherited.Close()
