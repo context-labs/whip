@@ -1072,38 +1072,22 @@ prompt-after-resume order.
 
 ## Startup resume flags — `whip -c` / `-r` / `--browse`
 
-Three ways to pick up a previous session at launch (`cmd/whip/main.go`,
-wired in `tui.Run`):
+- **`whip -r <id>`** (or `--resume <id>`) — resume a session by id or unique prefix.
+- **`whip -r`** (or `--resume`, bare) — open the `/resume` picker at startup.
+- **`whip -c`** (or `--continue`) — resume the most-recent ordinary session in
+  the current dir; starts fresh (with a notice) if none.
+- **`whip --browse`** — alias for bare `--resume` (the picker).
 
-- **`whip --resume <id>` / `whip -r <id>`** — resume a specific session by id
-  or unique prefix (`Store.Load`'s prefix scan). `-r` is a shorthand for
-  `--resume`.
-- **`whip --resume` / `whip -r`** (bare, no id) — open the interactive
-  `/resume` session picker at startup (`m.openPicker`, the same UI as
-  in-session `/resume`: arrow keys, last-exchange previews, enter resumes, esc
-  cancels → fresh session). This is the claude-code/pi semantics — pi's `-r`
-  help literally reads "Browse and select session."
-- **`whip -c` / `--continue`** — resume the most-recent ordinary session in
-  the current directory (`Store.LatestInDir(cwd())`, `cwd = ?` filter,
-  excludes subagent transcripts via `task_id = ''`). If none exists in this
-  dir, prints "(no previous session in this directory — starting fresh)" and
-  starts a new session instead of erroring — matches claude-code/pi: "no
-  session here → just start." The full resume path (`m.resume`) rebuilds the
-  agent, restores background subagents, todos, snapshots, and usage.
-- **`whip --browse`** — explicit alias for bare `--resume` (opens the picker);
-  exists so the picker has a name independent of the optional-value trick.
+Precedence: `-r <id>` > `-c` > `--browse`. With `whip up <prompt>`, the
+resume/continue/picker runs first and the prompt fires as the next turn
+(`-r up …` reads as resume-by-id "up", so use `--browse up …` for
+picker-then-prompt).
 
-Precedence when several are given: `-r <id>` > `-c` > `--browse` (an explicit
-id is the strongest intent). `whip up <prompt>` combines with all of them: the
-picker/continue/resume runs first, then the prompt submits as the next turn
-after the replay, matching `--resume <id>` + `up`'s prompt-after-resume order.
-Bare `--resume` + `up` is ambiguous (`-r up …` reads as resume-by-id "up"), so
-use `--browse up …` or `-c up …` for picker-then-prompt.
+Bare `--resume` works despite stdlib `flag` having no optional values:
+`normalizeBareResume` (cmd/whip/main.go) rewrites a trailing bare `-r`/
+`--resume` to `--browse` before `flag.Parse`; `-r <id>` and `-r=<id>` are
+left untouched.
 
-Why bare `--resume` works despite Go's stdlib `flag` having no optional values:
-`normalizeBareResume` (in `cmd/whip/main.go`) pre-scans `os.Args` and rewrites
-a trailing bare `-r`/`--resume` (no following id) to `--browse` before
-`flag.Parse`. A `-r <id>` or `-r=<id>` form is left untouched. No pflag dep.
 
 Tests: `internal/session/session_test.go` — `TestLatestInDir` (newest per dir,
 `sql.ErrNoRows` when none), `TestLatestInDirExcludesSubagentTranscripts`,
