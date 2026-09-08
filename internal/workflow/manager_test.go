@@ -116,9 +116,13 @@ func TestManagerRejectsResumeOfRunningRun(t *testing.T) {
 	t.Setenv("WHIP_HOME", home)
 	release := make(chan struct{})
 	// A runner that blocks until released: keeps the run in RunRunning.
-	m := NewManager(func(_ context.Context, _ AgentRequest) (any, Usage, error) {
-		<-release
-		return "ok", Usage{}, nil
+	m := NewManager(func(ctx context.Context, _ AgentRequest) (any, Usage, error) {
+		select {
+		case <-ctx.Done():
+			return nil, Usage{}, ctx.Err()
+		case <-release:
+			return "ok", Usage{}, nil
+		}
 	}, "")
 	r, err := m.Start(metaHeader+"return await agent('x')", nil, "")
 	if err != nil {
@@ -132,6 +136,45 @@ func TestManagerRejectsResumeOfRunningRun(t *testing.T) {
 	}
 	close(release)
 	waitSettled(t, m, r.ID)
+}
+
+// TestManagerStopCancelsRun pins C1's Manager.Stop: it returns false for an
+// unknown id or a settled run, and true (cancelling the run) for a running
+// one. Covers the get/running-check/cancel path the C1 rewrite introduced.
+func TestManagerStopCancelsRun(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	release := make(chan struct{})
+	m := NewManager(func(ctx context.Context, _ AgentRequest) (any, Usage, error) {
+		select {
+		case <-ctx.Done():
+			return nil, Usage{}, ctx.Err()
+		case <-release:
+			return "ok", Usage{}, nil
+		}
+	}, "")
+	r, err := m.Start(metaHeader+"return await agent('x')", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Let the script park on `await agent(...)` before cancelling — goja's
+	// vm.Interrupt repanics if it fires mid-instruction before the async body
+	// parks (the existing TestStopCancelsRun sleeps for the same reason).
+	time.Sleep(50 * time.Millisecond)
+
+	// Unknown id → false.
+	if m.Stop("nope") {
+		t.Error("Stop(unknown) = true, want false")
+	}
+	// Running id → true, cancels the run.
+	if !m.Stop(r.ID) {
+		t.Fatal("Stop(running) = false, want true")
+	}
+	waitSettled(t, m, r.ID)
+	// Settled id → false (already done).
+	if m.Stop(r.ID) {
+		t.Error("Stop(settled) = true, want false")
+	}
+	close(release)
 }
 
 // TestManagerListReturnsSnapshots pins C1: List returns RunSummary values

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/workflow"
 )
 
 // workflowServer answers: the parent's first request with a workflow tool
@@ -122,6 +123,115 @@ func TestWorkflowToolEndToEnd(t *testing.T) {
 			t.Fatalf("workflow did not complete: runs=%+v", runs)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// schemaServer answers a workflow subagent turn by calling the
+// structured_output tool once, so runWorkflowAgent's schema path returns the
+// validated object (and its no-call repair branch gets coverage).
+func schemaServer(t *testing.T, calls *atomic.Int64, callArgs string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "text/event-stream")
+		isSub := len(req.Messages) > 0 && strings.Contains(req.Messages[0].Content, "You are a subagent inside whip")
+		if !isSub {
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		n := calls.Add(1)
+		if n == 1 {
+			// First turn: emit a structured_output tool call whose args ARE
+			// the validated object.
+			delta := map[string]any{"choices": []any{map[string]any{"delta": map[string]any{
+				"tool_calls": []any{map[string]any{
+					"index": 0, "id": "s1", "type": "function",
+					"function": map[string]any{"name": "structured_output", "arguments": callArgs},
+				}},
+			}}}}
+			line, _ := json.Marshal(delta)
+			fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", line)
+			return
+		}
+		// Any repair pass: plain text (no structured_output) so the repair
+		// branch's "still didn't call it" path is covered.
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"no tool"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+}
+
+// TestRunWorkflowAgentStructuredOutput drives the schema path of
+// runWorkflowAgent directly: a workflow agent() call with a schema makes the
+// subagent call structured_output, and runWorkflowAgent returns the parsed
+// args as the result.
+func TestRunWorkflowAgentStructuredOutput(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	var calls atomic.Int64
+	wantArgs := `{"verdict":"pass","confidence":0.9}`
+	srv := schemaServer(t, &calls, wantArgs)
+	defer srv.Close()
+
+	ag := New(llm.New(srv.URL, "k"), "m", 100000, "sys", WithExperimental([]string{FeatureWorkflows}))
+	res, _, err := ag.runWorkflowAgent(context.Background(), workflow.AgentRequest{
+		Prompt:  "produce a verdict",
+		Options: workflow.AgentOptions{Schema: json.RawMessage(`{"type":"object","properties":{"verdict":{"type":"string"},"confidence":{"type":"number"}},"required":["verdict"]}`)},
+	})
+	if err != nil {
+		t.Fatalf("runWorkflowAgent schema path errored: %v", err)
+	}
+	m, ok := res.(map[string]any)
+	if !ok || m["verdict"] != "pass" {
+		t.Fatalf("schema result = %#v, want {verdict:pass}", res)
+	}
+	// 2 HTTP turns: the structured_output tool call, then the follow-up after
+	// the agent sends the tool result back (the model then stops).
+	if calls.Load() != 2 {
+		t.Fatalf("expected 2 sub turns (tool call + follow-up), got %d", calls.Load())
+	}
+}
+
+// TestRunWorkflowAgentStructuredOutputRepair drives the repair branch: the
+// subagent doesn't call structured_output on the first turn, so runWorkflowAgent
+// re-prompts; the repair also doesn't call it, so the function returns the
+// "did not produce valid structured_output" error.
+func TestRunWorkflowAgentStructuredOutputRepair(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	var calls atomic.Int64
+	// A server that never calls structured_output (always plain text).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		calls.Add(1)
+		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"just text"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	ag := New(llm.New(srv.URL, "k"), "m", 100000, "sys", WithExperimental([]string{FeatureWorkflows}))
+	_, _, err := ag.runWorkflowAgent(context.Background(), workflow.AgentRequest{
+		Prompt:  "produce a verdict",
+		Options: workflow.AgentOptions{Schema: json.RawMessage(`{"type":"object"}`)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "did not produce valid structured_output") {
+		t.Fatalf("expected structured_output error, got %v", err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("expected 2 sub turns (initial + repair), got %d", calls.Load())
+	}
+}
+
+// TestRunWorkflowAgentModelOverrideError covers the model-override error
+// branch: a request with a model the agent can't resolve returns an error
+// before any subagent is spawned.
+func TestRunWorkflowAgentModelOverrideError(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	ag := New(llm.New("http://unused", "k"), "m", 100, "sys", WithExperimental([]string{FeatureWorkflows}))
+	// No ResolveModel set → a non-empty model override errors.
+	_, _, err := ag.runWorkflowAgent(context.Background(), workflow.AgentRequest{
+		Prompt: "x", Model: "unresolvable-model",
+	})
+	if err == nil || !strings.Contains(err.Error(), "model override") {
+		t.Fatalf("expected model override error, got %v", err)
 	}
 }
 
