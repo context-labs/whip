@@ -111,7 +111,7 @@ func runCLI(args []string) error {
 		sys = string(data)
 	}
 
-	ag := agent.New(client, apiID, mdl.MaxTokens, sys)
+	ag := agent.New(client, apiID, mdl.MaxTokens, sys, agent.WithExperimental(cfg.Experimental))
 	ag.ModelName, ag.Provider = modelName, provName
 	// Headless runs have no one to answer a consent prompt: computer_exec
 	// stays disabled (no interactive approver is ever installed).

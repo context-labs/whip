@@ -159,6 +159,12 @@ type Agent struct {
 	wfMu sync.Mutex
 	wf   *workflow.Manager
 
+	// experimental is the opt-in experimental feature set (mirrors
+	// config.Config.Experimental); set via WithExperimental before tools are
+	// built in New. Default empty = stable-only — tools gated on an
+	// experimental feature are not built.
+	experimental []string
+
 	// BrowserDisabled, when true, keeps browser_exec out of the tool set
 	// (config browser.enabled=false) even when the manager hook exists.
 	BrowserDisabled bool
@@ -282,12 +288,15 @@ func (a *Agent) Usage() llm.Usage {
 	return u
 }
 
-func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *Agent {
+func New(client *llm.Client, model string, maxTokens int, systemPrompt string, opts ...Option) *Agent {
 	a := &Agent{
 		Client:    client,
 		Model:     model,
 		MaxTokens: maxTokens,
 		Messages:  []llm.Message{{Role: "system", Content: systemPrompt}},
+	}
+	for _, o := range opts {
+		o(a)
 	}
 	a.Tools = tools.All()
 	if !a.BrowserDisabled {
@@ -297,13 +306,50 @@ func New(client *llm.Client, model string, maxTokens int, systemPrompt string) *
 		a.Tools = append(a.Tools, tools.ComputerExec())
 	}
 	a.Tools = append(a.Tools, taskTool(a), taskSteerTool(a))
-	a.Tools = append(a.Tools, workflowTool(a))
+	if a.experimentalEnabled(FeatureWorkflows) {
+		a.Tools = append(a.Tools, workflowTool(a))
+	}
 	a.Tools = append(a.Tools, todoTool(a))
 	a.Tools = append(a.Tools, waitTool(a))
 	a.Tools = append(a.Tools, memoryTools(a)...)
 	a.files = newFileLocks()
 	a.bg = newTaskRegistry()
 	return a
+}
+
+// Experimental feature names the agent recognizes. Add a constant here as
+// new experimental features ship; gate the build with experimentalEnabled.
+const (
+	// FeatureWorkflows gates the workflow tool (dynamic multi-agent
+	// orchestration). Opt in via "experimental": ["workflows"] in config.
+	FeatureWorkflows = "workflows"
+)
+
+// Option configures an Agent at construction. Applied before tools are
+// built in New, so an option can gate which tools the agent exposes.
+type Option func(*Agent)
+
+// WithExperimental sets the opt-in experimental feature set (mirrors
+// config.Config.Experimental). Tools gated on an experimental feature are
+// only built when their name is present. Default empty = stable-only.
+func WithExperimental(features []string) Option {
+	return func(a *Agent) { a.experimental = features }
+}
+
+// Experimental returns the agent's opt-in experimental feature set, so
+// fork/swap sites that rebuild the agent can inherit the gate
+// (agent.WithExperimental(parent.Experimental())).
+func (a *Agent) Experimental() []string { return a.experimental }
+
+// experimentalEnabled reports whether name is in the agent's experimental
+// opt-in set.
+func (a *Agent) experimentalEnabled(name string) bool {
+	for _, e := range a.experimental {
+		if e == name {
+			return true
+		}
+	}
+	return false
 }
 
 // MessagesSnapshot returns a copy of the conversation safe to read while a

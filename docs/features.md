@@ -345,6 +345,21 @@ Go port of the pi `better-workflows` extension
 tool. "Dynamic" = the graph is built at runtime (loops, conditionals,
 data-dependent fan-out), not a static DAG declared up front.
 
+**Experimental — opt-in required.** The tool is gated behind the
+`experimental` config list (`internal/config`): absent an entry the tool is
+not built into the agent's tool set — the model never sees the schema. Opt in
+via `~/.whip/config.json`:
+```json
+"experimental": ["workflows"]
+```
+The agent carries the whole `experimental` set (mirroring the config field)
+and each gated feature checks its own name — one general mechanism, not a
+per-feature flag. `agent.WithExperimental([]string)` threads it into
+`agent.New` before the tool set is built; fork/swap sites inherit the
+parent's set via `agent.Experimental()`. Add the next experimental feature
+with a `const FeatureX` + one `experimentalEnabled(FeatureX)` guard at its
+build site.
+
 - **Script contract** (`parse.go`). Starts with `export const meta =
   { name, description, phases? }` — a pure literal (brace-matched,
   strings/comments aware, evaluated in an empty goja realm; non-literals
@@ -411,7 +426,9 @@ live calls, `TestResumeRunsFromFirstMiss`, `TestNestedWorkflowSharesCaps`,
 `internal/agent/workflowtool_test.go` `TestWorkflowToolEndToEnd` drives the
 full path against a fake provider — the `workflow` call starts a background
 run, two `agent()` calls hit the fake, and the completion steers back into
-the parent.
+the parent. `TestWorkflowToolGatedByExperimental` pins the opt-in posture:
+the tool is absent by default, present with `"workflows"`, and absent for an
+unrelated experimental name.
 
 ## Models & providers
 

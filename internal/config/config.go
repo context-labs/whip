@@ -181,10 +181,15 @@ type Config struct {
 	// WorktreeSubagents defaults background subagents to run in their own git
 	// worktree so their file edits stay isolated from the parent's tree and
 	// from each other. The subagent tool's per-call `worktree` arg overrides this.
-	WorktreeSubagents *bool               `json:"worktreeSubagents,omitempty"`
-	MaxRetries        int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
-	Providers         map[string]Provider `json:"providers"`
-	Models            map[string]Model    `json:"models"`
+	WorktreeSubagents *bool `json:"worktreeSubagents,omitempty"`
+	MaxRetries        int   `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
+	// Experimental opts into not-yet-stable features by name. Today the only
+	// entry is "workflows" (the dynamic multi-agent workflow tool). Absent or
+	// empty = stable-only. The agent reads this slice wholesale (see
+	// agent.WithExperimental) — no per-feature config block.
+	Experimental []string            `json:"experimental,omitempty"`
+	Providers    map[string]Provider `json:"providers"`
+	Models       map[string]Model    `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: whip always wins per name.

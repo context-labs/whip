@@ -71,8 +71,8 @@ func TestWorkflowToolEndToEnd(t *testing.T) {
 	srv := workflowServer(t, &subCalls)
 	defer srv.Close()
 
-	ag := New(llm.New(srv.URL, "k"), "m", 100000, "sys")
-	// The workflow tool must be registered by agent.New.
+	ag := New(llm.New(srv.URL, "k"), "m", 100000, "sys", WithExperimental([]string{FeatureWorkflows}))
+	// The workflow tool must be registered by agent.New when opted in.
 	found := false
 	for i := range ag.Tools {
 		if ag.Tools[i].Def.Function.Name == "workflow" {
@@ -154,4 +154,45 @@ func TestResolveWorkflowScript(t *testing.T) {
 
 func writeFile(p, content string) error {
 	return os.WriteFile(p, []byte(content), 0o600)
+}
+
+// hasTool reports whether the agent exposes a tool with the given name.
+func hasTool(a *Agent, name string) bool {
+	for i := range a.Tools {
+		if a.Tools[i].Def.Function.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// TestWorkflowToolGatedByExperimental pins the gating posture: the workflow
+// tool is absent by default and present only when "workflows" is in the
+// experimental set (a different name must NOT enable it).
+func TestWorkflowToolGatedByExperimental(t *testing.T) {
+	c := llm.New("http://unused", "k")
+
+	// Default (no experimental set): workflow tool is not built.
+	def := New(c, "m", 100, "sys")
+	if hasTool(def, "workflow") {
+		t.Fatal("workflow tool built without experimental opt-in")
+	}
+	if got := def.Experimental(); len(got) != 0 {
+		t.Fatalf("default Experimental() = %v, want empty", got)
+	}
+
+	// Opted in: workflow tool is built.
+	on := New(c, "m", 100, "sys", WithExperimental([]string{FeatureWorkflows}))
+	if !hasTool(on, "workflow") {
+		t.Fatal("workflow tool not built with experimental opt-in")
+	}
+	if got := on.Experimental(); len(got) != 1 || got[0] != FeatureWorkflows {
+		t.Fatalf("Experimental() = %v, want [workflows]", got)
+	}
+
+	// A different name must NOT enable workflows (the check is name-specific).
+	other := New(c, "m", 100, "sys", WithExperimental([]string{"future-thing"}))
+	if hasTool(other, "workflow") {
+		t.Fatal("workflow tool built by an unrelated experimental name")
+	}
 }
