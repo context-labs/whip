@@ -520,7 +520,7 @@ model through the ChatGPT Codex Responses SSE endpoint without an API key.
 verification URL and one-time code,
 polls until approval (or ctrl+c), exchanges the server-provided PKCE verifier,
 atomically stores the result in Codex-compatible `~/.codex/auth.json`, and
-then upserts the `codex` provider plus `gpt-5.5` fallback route **and fetches
+then upserts the `codex-subscription` provider plus `gpt-5.5` fallback route **and fetches
 the signed-in account's `/codex/models` catalog**. `/auth codex` does the same
 within an active TUI session, so `/model` shows every available subscription
 model immediately. Neither flow changes the user's default model. The backend
@@ -536,9 +536,29 @@ existing provider contract. Codex subscription requests omit
 `max_output_tokens`, which that endpoint rejects; its backend owns the output
 limit. Catalog context, vision, and supported reasoning efforts flow through
 the same picker and resolver as OpenRouter. OAuth credentials are accepted
-only for `https://chatgpt.com/backend-api`. Tests: `codexauth/auth_test.go`,
+only for `https://chatgpt.com/backend-api`. Transient failures (429, 5xx,
+transport) retry with the same backoff as the OpenAI client and stop once
+output has been shown; a stream that dies mid tool-call drops that call rather
+than persisting malformed arguments. Tests: `codexauth/auth_test.go`,
 `cmd/whip/auth_codex_test.go`, `llm/codex_test.go`, and `tui/model_cmd_test.go`
 (`TestBuildAgentCodexAuth*`).
+
+`/usage` (`internal/tui/usage_cmd.go`) fetches the subscription's rate-limit
+windows from the backend's usage endpoint with the stored credentials and
+prints one line per window (used %, reset countdown). It applies only to
+subscription providers — API-key providers bill per token — and says so when
+no Codex provider is configured. Pickers label the Codex endpoint "ChatGPT
+Codex subscription" instead of its raw `chatgpt.com/backend-api` URL. On the
+subscription, unpinned subagents default to `gpt-5.6-luna`
+(`config.CodexDefaultTaskModel`); any configured or catalog model can be pinned
+instead via ctrl+p › Subagent model.
+
+`whip auth <provider> logout` (`openrouter` or `codex`) removes the provider
+entry, every model route through it, any default/compact/task pin naming it,
+and its cached catalog (`config.RemoveProvider`). Removing the last provider
+persists as an intentionally empty config. Codex logout leaves
+`~/.codex/auth.json` in place because the Codex CLI shares it; `codex logout`
+revokes it. `whip auth --help` prints the provider/subcommand summary.
 
 `cmd/whip/auth.go`, `internal/config/openrouter.go`, `internal/config/codex.go`,
 `internal/tui/auth_cmd.go` — one-command provider onboarding. `whip auth openrouter [--env] [<key>]` takes

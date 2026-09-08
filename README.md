@@ -61,7 +61,9 @@ Whip can use an existing ChatGPT/Codex subscription instead of an API key.
 Run `whip auth codex` and follow the displayed URL and one-time code. On
 approval, Whip saves the login and adds
 the account's available Codex models to `/model` immediately. The same flow is
-available from an active session with `/auth codex`.
+available from an active session with `/auth codex`. `/usage` shows the
+subscription's rate-limit windows; `whip auth codex logout` removes the
+provider from Whip again.
 
 Whip saves the login in `~/.codex/auth.json`. Expiring tokens refresh locally
 and are never printed or added to conversations. Whip fetches the signed-in
