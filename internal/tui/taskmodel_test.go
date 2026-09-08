@@ -377,3 +377,26 @@ func TestSubagentModelPanelWindowsToHeight(t *testing.T) {
 		t.Fatalf("selected row should be visible:\n%s", view)
 	}
 }
+
+// The palette's Model panel windows its heading+route rows to the terminal
+// and keeps the selected route visible.
+func TestPaletteModelPanelWindowsToHeight(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	m := taskmodelCfgModel(sseTextServer(t, "").URL)
+	var many []config.ModelInfoLite
+	for i := range 300 {
+		many = append(many, config.ModelInfoLite{ID: fmt.Sprintf("vendor/model-%03d", i)})
+	}
+	if err := config.SaveCatalogs(map[string]config.Catalog{"p": {FetchedAt: time.Now(), Models: many}}); err != nil {
+		t.Fatal(err)
+	}
+	m.height = 30
+	pp := &ppanel{kind: panelModel, title: "Model", items: buildModelItems(m.cfg)}
+	if n := len(strings.Split(m.panelView(pp), "\n")); n > 30 {
+		t.Fatalf("Model panel should fit the terminal, got %d lines", n)
+	}
+	pp.idx = 200
+	if view := m.panelView(pp); !strings.Contains(view, "vendor/model-199") || !strings.Contains(view, "↑ ") || !strings.Contains(view, "↓ ") {
+		t.Fatalf("selected route and overflow markers should be visible:\n%s", view)
+	}
+}

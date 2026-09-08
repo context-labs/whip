@@ -964,6 +964,8 @@ func (m *model) panelView(pp *ppanel) string {
 	var b strings.Builder
 	switch pp.kind {
 	case panelModel:
+		var rows []string
+		selRow := 0
 		lastModel := ""
 		for i, it := range pp.items {
 			if it.model != lastModel {
@@ -971,7 +973,7 @@ func (m *model) panelView(pp *ppanel) string {
 				if it.fromCatalog {
 					heading = dimStyle.Render(heading + dimNew)
 				}
-				b.WriteString(heading + "\n")
+				rows = append(rows, heading)
 				lastModel = it.model
 			}
 			cur := ""
@@ -983,10 +985,25 @@ func (m *model) panelView(pp *ppanel) string {
 				line = dimStyle.Render(line)
 			}
 			if i == pp.idx {
-				b.WriteString(botStyle.Render("   → "+line) + cur + "\n")
+				selRow = len(rows)
+				rows = append(rows, botStyle.Render("   → "+line)+cur)
 			} else {
-				b.WriteString("     " + line + cur + "\n")
+				rows = append(rows, "     "+line+cur)
 			}
+		}
+		// Window to the terminal (headings + routes can run to ~1000 rows).
+		lo, hi := 0, len(rows)
+		if avail := m.height - 7; avail > 0 && len(rows) > avail {
+			lo, hi = ocWindow(len(rows), selRow, avail)
+		}
+		if lo > 0 {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("   ↑ %d more", lo)) + "\n")
+		}
+		for _, r := range rows[lo:hi] {
+			b.WriteString(r + "\n")
+		}
+		if hi < len(rows) {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("   ↓ %d more", len(rows)-hi)) + "\n")
 		}
 		b.WriteString("\n" + dimStyle.Render(fmt.Sprintf("  (%d/%d) ↑/↓ preview · enter switch · esc back", pp.idx+1, len(pp.items))))
 
@@ -1021,8 +1038,7 @@ func (m *model) panelView(pp *ppanel) string {
 		// the query line and footer off screen; keep the selection in view.
 		lo, hi := 0, len(view)
 		if avail := m.height - 9; avail > 0 && len(view) > avail {
-			lo = max(min(pp.midx-avail/2, len(view)-avail), 0)
-			hi = lo + avail
+			lo, hi = ocWindow(len(view), pp.midx, avail)
 		}
 		if lo > 0 {
 			b.WriteString(dimStyle.Render(fmt.Sprintf("   ↑ %d more", lo)) + "\n")
