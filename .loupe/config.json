@@ -1,6 +1,6 @@
 {
   "harness": "whip",
-  "model": "kimi-k3",
+  "model": "glm-5.3",
   "timezone": "PST",
   "maxTurns": 5,
   "whip": {
@@ -10,8 +10,9 @@
       "baseUrl": "https://api.inference.net/v1",
       "apiKeyEnv": "INFERENCE_API_KEY"
     },
-    "defaultModel": "kimi-k3",
+    "defaultModel": "glm-5.3",
     "models": [
+      "glm-5.3",
       "kimi-k3",
       "kimi-k3-fast",
       "glm-5.3-flash",
