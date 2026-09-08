@@ -101,7 +101,9 @@ func TestBrowseOpensPickerAndEnterResumes(t *testing.T) {
 	}
 
 	// Enter on the highlighted row resumes the session, same as /resume.
-	if _, _ = m.pickerKey(tea.KeyMsg{Type: tea.KeyEnter}); false {
+	mm, _ := m.pickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if mm != m {
+		t.Fatal("pickerKey should return the same model")
 	}
 	if m.picker != nil {
 		t.Fatal("enter should dismiss the picker")

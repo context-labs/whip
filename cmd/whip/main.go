@@ -34,7 +34,7 @@ func cwd() string {
 // -r=<id> are left untouched (the next token being a non-flag means it's the
 // id). Runs before flag.Parse, which stops at the first positional (`up`).
 func normalizeBareResume(args []string) {
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		a := args[i]
 		if a != "-r" && a != "--resume" {
 			continue
