@@ -82,6 +82,24 @@ func sanitizeName(name string) string {
 	return b.String()
 }
 
+// validRunID guards the model-supplied runID before it is used in
+// runs/<runID>.json. GenerateRunID's output always matches; a hand-edited or
+// hostile resumeFromRunId (e.g. "../../foo") must be rejected so SaveRun
+// can't write (and LoadRun can't read) outside the runs dir.
+func validRunID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, r := range id {
+		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.'
+		if !ok {
+			return false
+		}
+	}
+	// no path separators (covered above) and no '..' segment
+	return !strings.Contains(id, "..")
+}
+
 // JournalEntry is one settled agent() call: its lexical call index, the
 // resume hash of (prompt, opts), and the result to replay.
 type JournalEntry struct {

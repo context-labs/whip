@@ -9,8 +9,9 @@ import (
 )
 
 // `whip sessions` — list stored sessions, newest first. The scriptable
-// companion to `whip run`: find a session, then resume it in the TUI or
-// inspect it from a script.
+// companion to `whip run`: find a session, then resume it in the TUI with
+// `whip --resume <id>` (or `-r <id>`), `whip -c` for the newest in this dir,
+// or `whip --browse` for the interactive picker — or inspect from a script.
 func sessionsCLI() error {
 	dir, err := config.Dir()
 	if err != nil {

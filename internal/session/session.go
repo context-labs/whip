@@ -525,6 +525,18 @@ func (s *Store) Recent(n int) ([]Meta, error) {
 	return scanMetas(rows)
 }
 
+// LatestInDir returns the most recently updated ordinary session in the given
+// directory (cwd match), for `whip -c/--continue`. Subagent transcripts
+// (task_id != "") are excluded — continuing one would drop the user into a
+// subagent's internal transcript — and rows with no messages are skipped, like
+// Recent. Returns sql.ErrNoRows when no session in dir qualifies.
+func (s *Store) LatestInDir(dir string) (Meta, error) {
+	row := s.db.QueryRowContext(context.Background(), `SELECT id, title, model, provider, cwd, goal, forked_from, fork_seq, tags, pinned, effort, usage_in, usage_cached, usage_out, task_id, sub_usage, updated_at FROM sessions
+		WHERE cwd = ? AND task_id = '' AND EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)
+		ORDER BY updated_at DESC LIMIT 1`, dir)
+	return scanMeta(row)
+}
+
 // UserHistory returns user-message contents across ALL sessions (every folder),
 // newest first and de-duplicated, for up-arrow input recall. Order is by the
 // session's last activity then the message's position within it, so the most
@@ -896,26 +908,36 @@ func likeEscape(s string) string {
 	return r.Replace(s)
 }
 
+// scanMeta scans one session row (the column order used by Recent/LatestInDir)
+// from a *sql.Row or *sql.Rows — the single-row factor of scanMetas.
+func scanMeta(row interface{ Scan(dest ...any) error }) (Meta, error) {
+	var m Meta
+	var updated, tags, subUsage string
+	var pinned int
+	if err := row.Scan(&m.ID, &m.Title, &m.Model, &m.Provider, &m.CWD, &m.Goal,
+		&m.ForkedFrom, &m.ForkSeq, &tags, &pinned, &m.Effort,
+		&m.UsageIn, &m.UsageCached, &m.UsageOut, &m.TaskID, &subUsage, &updated); err != nil {
+		return Meta{}, err
+	}
+	if tags != "" {
+		m.Tags = strings.Split(tags, ",")
+	}
+	if subUsage != "" {
+		_ = json.Unmarshal([]byte(subUsage), &m.SubUsage)
+	}
+	m.Pinned = pinned != 0
+	m.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+	return m, nil
+}
+
 func scanMetas(rows *sql.Rows) ([]Meta, error) {
 	defer func() { _ = rows.Close() }()
 	var out []Meta
 	for rows.Next() {
-		var m Meta
-		var updated, tags, subUsage string
-		var pinned int
-		if err := rows.Scan(&m.ID, &m.Title, &m.Model, &m.Provider, &m.CWD, &m.Goal,
-			&m.ForkedFrom, &m.ForkSeq, &tags, &pinned, &m.Effort,
-			&m.UsageIn, &m.UsageCached, &m.UsageOut, &m.TaskID, &subUsage, &updated); err != nil {
+		m, err := scanMeta(rows)
+		if err != nil {
 			return nil, err
 		}
-		if tags != "" {
-			m.Tags = strings.Split(tags, ",")
-		}
-		if subUsage != "" {
-			_ = json.Unmarshal([]byte(subUsage), &m.SubUsage)
-		}
-		m.Pinned = pinned != 0
-		m.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
 		out = append(out, m)
 	}
 	return out, rows.Err()

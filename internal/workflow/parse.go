@@ -47,8 +47,17 @@ type Meta struct {
 }
 
 // determinismBlocklist is the author-facing fast feedback; the runtime also
-// neuters these inside the VM (parse.ts DETERMINISM_BLOCKLIST).
-var determinismBlocklist = regexp.MustCompile(`\bDate\s*\.\s*now\b|\bMath\s*\.\s*random\b|\bnew\s+Date\s*\(\s*\)`)
+// neuters these inside the VM (parse.ts DETERMINISM_BLOCKLIST). Covers both
+// dot- and bracket-notation (Date['now'], Math["random"]) so a meta literal
+// can't smuggle a nondeterministic call past the pure-literal check. The
+// dot-notation branches match the bare reference (with or without parens);
+// bracket-notation requires the call.
+var determinismBlocklist = regexp.MustCompile(
+	`\bDate\s*\.\s*now\b` +
+		`|\bDate\s*\[\s*['"]now['"]\s*\]\s*\(\s*\)` +
+		`|\bMath\s*\.\s*random\b` +
+		`|\bMath\s*\[\s*['"]random['"]\s*\]\s*\(\s*\)` +
+		`|\bnew\s+Date\s*\(\s*\)`)
 
 var metaPrefix = regexp.MustCompile(`^export\s+const\s+meta\s*=`)
 
@@ -96,8 +105,17 @@ func Parse(script string) (Meta, string, error) {
 	// Evaluate as a literal in an empty realm: a pure literal succeeds;
 	// anything referencing a variable / calling a function throws. The tag
 	// mapper is required so Meta's json tags drive the field mapping.
+	//
+	// Run the determinism prelude first: the meta literal gets a fresh goja
+	// realm with full builtins, so a getter (`get name() { return Date['now']()+'' }`)
+	// or IIFE could otherwise execute nondeterministic code at evaluation time
+	// and leak a changing value into meta — which feeds model/effort selection
+	// and the resume hash. The prelude neuters Date/Math just like the body VM.
 	vm := goja.New()
 	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
+	if _, err := vm.RunString(determinismPrelude); err != nil {
+		return Meta{}, "", fmt.Errorf("meta determinism prelude: %w", err)
+	}
 	v, err := vm.RunString("(" + objText + ")")
 	if err != nil {
 		return Meta{}, "", fmt.Errorf("meta must be a PURE LITERAL — no variables, function calls, spreads, or template interpolation (%v)", err)

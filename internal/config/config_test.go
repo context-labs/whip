@@ -17,6 +17,12 @@ func TestLoadSaveDefaults(t *testing.T) {
 	if cfg.DefaultModel != "kimi-k3-fast" || cfg.Providers["inference-net"].BaseURL != "https://api.inference.net/v1" {
 		t.Fatalf("defaults: %+v", cfg)
 	}
+	// New installs boot in opencode render mode. An explicit "" (classic look)
+	// set by setUIMode persists and is honored on reload — only a missing file
+	// seeds "opencode".
+	if cfg.UIMode != "opencode" {
+		t.Fatalf("first-run UIMode = %q, want %q", cfg.UIMode, "opencode")
+	}
 	cfg.DefaultModel = "glm-5.2-fast"
 	cfg.Experimental = []string{"workflows", "future-thing"}
 	if err := cfg.Save(); err != nil {
@@ -28,6 +34,23 @@ func TestLoadSaveDefaults(t *testing.T) {
 	}
 	if len(cfg2.Experimental) != 2 || cfg2.Experimental[0] != "workflows" {
 		t.Fatalf("experimental round-trip: %+v", cfg2.Experimental)
+	}
+	if cfg2.UIMode != "opencode" {
+		t.Fatalf("reload UIMode = %q, want %q", cfg2.UIMode, "opencode")
+	}
+
+	// A user who toggled to the classic look persists "" and keeps it on reload
+	// (the opencode default must only apply on first run, not override a choice).
+	cfg2.UIMode = ""
+	if err := cfg2.Save(); err != nil {
+		t.Fatal(err)
+	}
+	cfg3, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg3.UIMode != "" {
+		t.Fatalf("opt-out UIMode = %q, want empty (classic)", cfg3.UIMode)
 	}
 }
 

@@ -3,6 +3,7 @@ package workflow
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -105,5 +106,23 @@ func TestGenerateRunIDUnique(t *testing.T) {
 			t.Fatalf("duplicate run id %q", id)
 		}
 		seen[id] = true
+	}
+}
+
+func TestValidRunID(t *testing.T) {
+	good := []string{"run-1", "abc123", "run-1.2.3", "a_b-c.d", GenerateRunID()}
+	for _, id := range good {
+		if !validRunID(id) {
+			t.Errorf("validRunID(%q) = false, want true", id)
+		}
+	}
+	bad := []string{
+		"", "../../foo", "..", "run/../x", "a/b", "a\\b", "a b",
+		"a:b", "a;b", "a\x00b", strings.Repeat("x", 129),
+	}
+	for _, id := range bad {
+		if validRunID(id) {
+			t.Errorf("validRunID(%q) = true, want false", id)
+		}
 	}
 }

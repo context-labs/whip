@@ -114,13 +114,24 @@ type sharedState struct {
 	agentCount int
 	sem        chan struct{} // the concurrency limiter: capacity IS the cap
 	spent      atomic.Int64
+	// maxAgents is the root run's effective agent cap, shared with nested
+	// workflow() children via the pointer-shared state. A child run resolves
+	// its own cap to min(its opts.MaxAgents, this) so a parent started with
+	// MaxAgents: 5 can't be bypassed by a nested workflow defaulting to 1000.
+	maxAgents int
 }
 
-// reserveAgent atomically checks the cap and takes a slot.
+// reserveAgent atomically checks the cap and takes a slot. The cap is the
+// shared root maxAgents (nested children inherit it), so a fan-out can't
+// overshoot the parent's limit by resolving its own default.
 func (s *sharedRuntime) reserveAgent(max int) (n int, ok bool) {
 	s.state.mu.Lock()
 	defer s.state.mu.Unlock()
-	if s.state.agentCount >= max {
+	cap := s.state.maxAgents
+	if cap <= 0 || max < cap {
+		cap = max // root with no shared cap, or a child whose own cap is tighter
+	}
+	if s.state.agentCount >= cap {
 		return 0, false
 	}
 	s.state.agentCount++
@@ -149,6 +160,13 @@ type runState struct {
 	tokens    int
 	journal   []JournalEntry
 	resume    map[int]JournalEntry
+	// reservedIndex is a pre-assigned call index for the next agent() call,
+	// consumed once then reset to -1. parallel()/pipeline() pre-reserve a
+	// block of indexes in array order (on the scheduler) and hand each worker
+	// goroutine its index so fan-out is reproducible on resume — without it,
+	// whichever goroutine enqueues first wins index 0 and the same script
+	// hash-mismatches on resume. -1 = take the next callSeq (the default).
+	reservedIndex int
 }
 
 // determinismPrelude neuters the nondeterministic builtins inside the VM
@@ -207,10 +225,13 @@ func Run(ctx context.Context, script string, opts Options) (*Result, error) {
 				conc = MaxConcurrency
 			}
 		}
-		shared = &sharedRuntime{state: &sharedState{sem: make(chan struct{}, conc)}}
+		// Root run: stamp the effective cap into the shared state so nested
+		// workflow() children inherit it (reserveAgent checks it) instead of
+		// resolving their own default (1000) and bypassing a tighter parent cap.
+		shared = &sharedRuntime{state: &sharedState{sem: make(chan struct{}, conc), maxAgents: maxAgents}}
 	}
 
-	st := &runState{firstMiss: 1 << 30, resume: opts.ResumeJournal}
+	st := &runState{firstMiss: 1 << 30, resume: opts.ResumeJournal, reservedIndex: -1}
 	// Default the current phase to the first declared one so agents created
 	// before an explicit phase() call still group under a declared phase.
 	if len(meta.Phases) > 0 {
@@ -238,8 +259,8 @@ func Run(ctx context.Context, script string, opts Options) (*Result, error) {
 	must(vm.Set("log", func(msg any) { sc.log(opts.Events.OnLog, fmt.Sprint(msg)) }))
 	must(vm.Set("phase", func(title string) { sc.setPhase(st, title, opts.Events.OnPhase) }))
 	must(vm.Set("agent", sc.agentFunc(ctx, st, opts, shared, meta, maxAgents, cwd)))
-	must(vm.Set("parallel", sc.parallelFunc(opts.Events.OnLog)))
-	must(vm.Set("pipeline", sc.pipelineFunc(opts.Events.OnLog)))
+	must(vm.Set("parallel", sc.parallelFunc(st, opts.Events.OnLog)))
+	must(vm.Set("pipeline", sc.pipelineFunc(st, opts.Events.OnLog)))
 	must(vm.Set("workflow", sc.nestedWorkflowFunc(ctx, opts, shared)))
 
 	if _, err := vm.RunString(determinismPrelude); err != nil {
@@ -441,8 +462,31 @@ func (s *scheduler) agentFunc(ctx context.Context, st *runState, opts Options, s
 		}
 		var ao AgentOptions
 		if len(call.Arguments) > 1 {
-			if err := vm.ExportTo(call.Argument(1), &ao); err != nil {
+			// Decode opts with Schema as any (not json.RawMessage): a JS object
+			// ({ schema: { type: "object", ... } }) can't ExportTo into []byte,
+			// so decode the schema as a generic value and JSON-marshal it into
+			// the RawMessage the structured-output tool expects.
+			var od struct {
+				Label     string `json:"label,omitempty"`
+				Phase     string `json:"phase,omitempty"`
+				Schema    any    `json:"schema,omitempty"`
+				Model     string `json:"model,omitempty"`
+				Effort    string `json:"effort,omitempty"`
+				TimeoutMs int    `json:"timeoutMs,omitempty"`
+			}
+			if err := vm.ExportTo(call.Argument(1), &od); err != nil {
 				panic(vm.ToValue("agent(prompt, opts): " + err.Error()))
+			}
+			ao = AgentOptions{
+				Label: od.Label, Phase: od.Phase, Model: od.Model,
+				Effort: od.Effort, TimeoutMs: od.TimeoutMs,
+			}
+			if od.Schema != nil {
+				b, err := json.Marshal(od.Schema)
+				if err != nil {
+					panic(vm.ToValue("agent(prompt, opts): schema is not a valid JSON value: " + err.Error()))
+				}
+				ao.Schema = b
 			}
 		}
 		if ctx.Err() != nil {
@@ -463,7 +507,14 @@ func (s *scheduler) agentFunc(ctx context.Context, st *runState, opts Options, s
 		}
 
 		callIndex := st.callSeq
-		st.callSeq++
+		if st.reservedIndex >= 0 {
+			// A fan-out (parallel/pipeline) pre-reserved this index in array
+			// order so resume is reproducible; consume it once.
+			callIndex = st.reservedIndex
+			st.reservedIndex = -1
+		} else {
+			st.callSeq++
+		}
 		callHash := callKey(prompt, model, effort, assignedPhase, ao.Schema)
 
 		n, ok := shared.reserveAgent(maxAgents)
@@ -611,11 +662,13 @@ func writeJSONString(b *strings.Builder, s string) {
 }
 
 // parallelFunc: Promise.all over thunks — a BARRIER. A throwing thunk
-// resolves to null; the call never rejects (runtime.ts parallel).
-func (s *scheduler) parallelFunc(onLog func(string)) func(goja.FunctionCall) goja.Value {
+// resolves to null; the call never rejects (runtime.ts parallel). st reserves
+// a contiguous block of agent() call indexes in array order so fan-out is
+// reproducible on resume.
+func (s *scheduler) parallelFunc(st *runState, onLog func(string)) func(goja.FunctionCall) goja.Value {
 	vm := s.vm
 	return func(call goja.FunctionCall) goja.Value {
-		thunks, err := s.thunks(call.Argument(0), "parallel")
+		thunks, err := s.thunks(call.Argument(0), "parallel", st)
 		if err != nil {
 			panic(vm.ToValue(err.Error()))
 		}
@@ -650,8 +703,11 @@ func (s *scheduler) parallelFunc(onLog func(string)) func(goja.FunctionCall) goj
 
 // pipelineFunc: each item flows through all stages independently — NO barrier
 // (runtime.ts pipeline). A throwing stage drops the item to null and skips
-// its remaining stages.
-func (s *scheduler) pipelineFunc(onLog func(string)) func(goja.FunctionCall) goja.Value {
+// its remaining stages. st reserves a contiguous block of agent() call
+// indexes in array order so fan-out is reproducible on resume: each item's
+// first stage gets its reserved index (only the first agent() call consumes
+// it; later stages take the next callSeq as usual).
+func (s *scheduler) pipelineFunc(st *runState, onLog func(string)) func(goja.FunctionCall) goja.Value {
 	vm := s.vm
 	return func(call goja.FunctionCall) goja.Value {
 		var items []any
@@ -661,14 +717,16 @@ func (s *scheduler) pipelineFunc(onLog func(string)) func(goja.FunctionCall) goj
 		if len(items) > MaxFanoutItems {
 			panic(vm.ToValue(fmt.Sprintf("pipeline() accepts at most %d items (got %d)", MaxFanoutItems, len(items))))
 		}
-		var stages []func(args ...any) (any, error)
+		var stages []func(reserveIdx int, args ...any) (any, error)
 		for _, arg := range call.Arguments[1:] {
 			fn, ok := goja.AssertFunction(arg)
 			if !ok {
 				panic(vm.ToValue("pipeline() stages must be functions"))
 			}
-			stages = append(stages, s.stage(fn))
+			stages = append(stages, s.stage(fn, st))
 		}
+		start := st.callSeq
+		st.callSeq += len(items) // reserve one index per item, in array order
 		promise, resolve, _ := vm.NewPromise()
 		results := make([]any, len(items))
 		var wg sync.WaitGroup
@@ -677,8 +735,14 @@ func (s *scheduler) pipelineFunc(onLog func(string)) func(goja.FunctionCall) goj
 			go func(i int, item any) {
 				defer wg.Done()
 				value := item
-				for _, stage := range stages {
-					v, err := stage(value, item, i)
+				for j, stage := range stages {
+					// Only the first stage gets the reserved index; later
+					// stages take the next callSeq (−1 = no reservation).
+					reserveIdx := -1
+					if j == 0 {
+						reserveIdx = start + i
+					}
+					v, err := stage(reserveIdx, value, item, i)
 					if err != nil {
 						s.enqueue(func() { s.log(onLog, fmt.Sprintf("pipeline[%d] dropped at a stage: %v", i, err)) })
 						results[i] = nil
@@ -699,7 +763,7 @@ func (s *scheduler) pipelineFunc(onLog func(string)) func(goja.FunctionCall) goj
 
 // thunks converts the parallel() argument into Go callables. Each call is a
 // scheduler job; a thenable result is awaited through .then (also a job).
-func (s *scheduler) thunks(v goja.Value, name string) ([]func() (any, error), error) {
+func (s *scheduler) thunks(v goja.Value, name string, st *runState) ([]func() (any, error), error) {
 	vm := s.vm
 	obj := v.ToObject(vm)
 	if obj == nil || obj.Get("length") == nil {
@@ -709,24 +773,29 @@ func (s *scheduler) thunks(v goja.Value, name string) ([]func() (any, error), er
 	if n > MaxFanoutItems {
 		return nil, fmt.Errorf("%s() accepts at most %d items (got %d)", name, MaxFanoutItems, n)
 	}
+	start := st.callSeq
+	st.callSeq += n // reserve n indexes in array order for resume reproducibility
 	thunks := make([]func() (any, error), 0, n)
 	for i := 0; i < n; i++ {
 		fn, ok := goja.AssertFunction(obj.Get(fmt.Sprint(i)))
 		if !ok {
 			return nil, fmt.Errorf("%s() expects functions, not promises — wrap each call: () => agent(...)", name)
 		}
+		idx := start + i
 		thunks = append(thunks, func() (any, error) {
-			return s.callJS(fn)
+			return s.callJSWith(idx, st, fn)
 		})
 	}
 	return thunks, nil
 }
 
-// stage wraps one pipeline stage function the same way, with (prev, original,
-// index) arguments.
-func (s *scheduler) stage(fn goja.Callable) func(args ...any) (any, error) {
-	return func(args ...any) (any, error) {
-		return s.callJS(fn, args...)
+// stage wraps one pipeline stage function, with (prev, original, index)
+// arguments. The caller passes reserveIdx (-1 = none) to pre-assign the
+// first agent() call's index for this item so pipeline fan-out is
+// reproducible on resume.
+func (s *scheduler) stage(fn goja.Callable, st *runState) func(reserveIdx int, args ...any) (any, error) {
+	return func(reserveIdx int, args ...any) (any, error) {
+		return s.callJSWith(reserveIdx, st, fn, args...)
 	}
 }
 
@@ -735,6 +804,17 @@ func (s *scheduler) stage(fn goja.Callable) func(args ...any) (any, error) {
 // channel. This is THE bridge between the goroutine fan-out and the
 // single-goroutine VM.
 func (s *scheduler) callJS(fn goja.Callable, args ...any) (any, error) {
+	return s.callJSWith(-1, nil, fn, args...)
+}
+
+// callJSWith is callJS with a pre-reserved agent() call index (for fan-out
+// reproducibility). If reserveIdx >= 0, it is set on the runState before the
+// JS function runs (on the scheduler) so the first agent() inside the thunk
+// consumes it; it is cleared after fn returns, so an unconsumed reservation
+// (the thunk didn't call agent) can't leak into a later call. For the
+// documented `() => agent(...)` thunk, agent() runs synchronously when fn()
+// is called and consumes the reservation before fn returns.
+func (s *scheduler) callJSWith(reserveIdx int, st *runState, fn goja.Callable, args ...any) (any, error) {
 	vm := s.vm
 	type out struct {
 		v   any
@@ -742,11 +822,18 @@ func (s *scheduler) callJS(fn goja.Callable, args ...any) (any, error) {
 	}
 	done := make(chan out, 1)
 	s.enqueue(func() {
+		if st != nil && reserveIdx >= 0 {
+			st.reservedIndex = reserveIdx
+		}
+		clear := st != nil && reserveIdx >= 0
 		vals := make([]goja.Value, len(args))
 		for i, a := range args {
 			vals[i] = vm.ToValue(a)
 		}
 		v, err := fn(goja.Undefined(), vals...)
+		if clear {
+			st.reservedIndex = -1 // consumed by agent() already, or reclaim it
+		}
 		if err != nil {
 			done <- out{err: err}
 			return
@@ -759,8 +846,6 @@ func (s *scheduler) callJS(fn goja.Callable, args ...any) (any, error) {
 		}
 		done <- out{v: v.Export()}
 	})
-	// s.done covers the cancelled-run case: with the scheduler dead, dropped
-	// resolve jobs would otherwise leave this worker parked forever.
 	select {
 	case o := <-done:
 		return o.v, o.err
@@ -801,12 +886,24 @@ func (s *scheduler) nestedWorkflowFunc(ctx context.Context, opts Options, shared
 				s.enqueue(func() { _ = reject("could not read scriptPath: " + err.Error()) })
 				return
 			}
+			// The child gets a NEUTRAL Events: only OnLog forwards to the
+			// parent's log for visibility. Sharing the parent's OnJournal /
+			// OnAgentStart / OnAgentEnd / OnPhase would collide journal indexes
+			// (the child's callSeq starts at 0, overwriting parent entries in
+			// JournalMap) and pollute the parent's snapshot with the child's
+			// agents and phases. The child's result returns via the promise;
+			// its internal calls are not the parent's resume concern.
+			childEvents := Events{}
+			if opts.Events.OnLog != nil {
+				onLog := opts.Events.OnLog
+				childEvents.OnLog = onLog
+			}
 			child, err := Run(ctx, string(data), Options{
 				RunID:  opts.RunID + ".nested",
 				Cwd:    opts.Cwd,
 				Args:   childArgs,
 				Run:    opts.Run,
-				Events: opts.Events,
+				Events: childEvents,
 				shared: shared.child(),
 			})
 			if err != nil {

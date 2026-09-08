@@ -117,13 +117,17 @@ func (a *Agent) runWorkflowAgent(ctx context.Context, req workflow.AgentRequest)
 		capture := &structuredCapture{}
 		sub.Tools = append(sub.Tools, structuredOutputTool(req.Options.Schema, capture))
 		prompt := req.Prompt + "\n\nFinal output contract:\n- Your final action MUST be a single structured_output tool call.\n- Its arguments are the return value of this subagent.\n- Inspect files / run commands first if needed, then call structured_output exactly once."
-		_, terr := sub.Turn(ctx, prompt, Events{OnUsage: a.AddUsage})
+		// No OnUsage: newSub already wires sub.usageSink → a.AddSubUsage, so the
+		// sub's spend reaches the parent's sub-ledger once. Passing OnUsage:
+		// a.AddUsage here would double-count it into the parent's own ledger
+		// too (same shape as the regular subagent tool, which uses Events{}).
+		_, terr := sub.Turn(ctx, prompt, Events{})
 		if capture.called {
 			return capture.value, usageOf(sub), nil
 		}
 		// One repair pass (agent.ts resolveStructured).
 		if terr == nil {
-			_, terr = sub.Turn(ctx, "You did not call the structured_output tool. Call structured_output now as your only action, with every required field filled in. Do not write a prose answer.", Events{OnUsage: a.AddUsage})
+			_, terr = sub.Turn(ctx, "You did not call the structured_output tool. Call structured_output now as your only action, with every required field filled in. Do not write a prose answer.", Events{})
 			if capture.called {
 				return capture.value, usageOf(sub), nil
 			}
@@ -134,7 +138,7 @@ func (a *Agent) runWorkflowAgent(ctx context.Context, req workflow.AgentRequest)
 		return nil, usageOf(sub), fmt.Errorf("agent %q did not produce valid structured_output", req.Options.Label)
 	}
 
-	report, terr := sub.Turn(ctx, req.Prompt, Events{OnUsage: a.AddUsage})
+	report, terr := sub.Turn(ctx, req.Prompt, Events{})
 	if terr != nil {
 		return nil, usageOf(sub), terr
 	}
@@ -149,7 +153,7 @@ func usageOf(sub *Agent) workflow.Usage {
 
 // onWorkflowSettle fans a finished run back into the parent as a steered
 // message (settle → Steer, the same shape as background subagents).
-func (a *Agent) onWorkflowSettle(run *workflow.ManagedRun) {
+func (a *Agent) onWorkflowSettle(run workflow.RunSummary) {
 	snap, _ := a.Workflows().Snapshot(run.ID)
 	var b strings.Builder
 	fmt.Fprintf(&b, "[workflow %s %s] %s", run.ID, run.Status, run.Name)

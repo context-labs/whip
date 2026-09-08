@@ -240,6 +240,83 @@ func TestDeterminismThrows(t *testing.T) {
 	}
 }
 
+// TestParseRejectsBracketNotationNondeterminism pins C7: the blocklist must
+// catch bracket-notation (Date['now'], Math['random']) so a meta literal
+// can't smuggle a nondeterministic call past the pure-literal check.
+func TestParseRejectsBracketNotationNondeterminism(t *testing.T) {
+	for _, snippet := range []string{
+		"Date['now']()",
+		`Date["now"]()`,
+		"Math['random']()",
+		`Math["random"]()`,
+	} {
+		script := "export const meta = { name: 't', description: 'd' }\n" +
+			"const f = new Function('return " + snippet + "'); await agent('x'); return f()"
+		_, _, err := Parse(script)
+		if err == nil || !strings.Contains(err.Error(), "deterministic") {
+			t.Errorf("%s: expected determinism error, got %v", snippet, err)
+		}
+	}
+}
+
+// TestResumeFanoutReplaysInOrder pins C3: parallel() fan-out must assign
+// agent() call indexes in array order (not worker-enqueue order), so the
+// same script resumes with a 100% cache hit. Without the pre-reservation,
+// whichever goroutine enqueues first wins index 0 and the resume
+// hash-mismatches, re-running the whole fan-out.
+func TestResumeFanoutReplaysInOrder(t *testing.T) {
+	var calls atomic.Int64
+	runner := echoRunner(&calls)
+	script := metaHeader + `
+const r = await parallel([0, 1, 2, 3].map(i => () => agent('task ' + i)))
+return r.join('|')
+`
+	first, err := Run(context.Background(), script, Options{Run: runner, RunID: "fanout-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 4 {
+		t.Fatalf("first run made %d agent calls, want 4", calls.Load())
+	}
+	// Resume with the SAME script + journal: the pre-reserved indexes must
+	// line up so every call is a cache hit (zero live calls).
+	calls.Store(0)
+	_, err = Run(context.Background(), script, Options{
+		Run: runner, RunID: "fanout-1",
+		ResumeJournal: JournalMap(&PersistedRun{Journal: first.Journal}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("fanout resume re-ran %d calls; indexes should have lined up for 100%% cache hit", calls.Load())
+	}
+}
+
+// TestAgentSchemaObjectDecodes pins C4: a schema passed as a JS object
+// (agent(prompt, { schema: { type: "object", ... } })) must decode into the
+// AgentRequest as JSON, not throw on ExportTo into json.RawMessage.
+func TestAgentSchemaObjectDecodes(t *testing.T) {
+	var gotSchema json.RawMessage
+	runner := func(ctx context.Context, req AgentRequest) (any, Usage, error) {
+		gotSchema = req.Options.Schema
+		return "ok", Usage{}, nil
+	}
+	script := metaHeader + `
+return await agent('produce json', { schema: { type: "object", properties: { verdict: { type: "string" } }, required: ["verdict"] } })
+`
+	_, err := Run(context.Background(), script, Options{Run: runner})
+	if err != nil {
+		t.Fatalf("schema object form threw: %v", err)
+	}
+	if len(gotSchema) == 0 {
+		t.Fatal("schema did not reach the runner")
+	}
+	if !strings.Contains(string(gotSchema), "verdict") {
+		t.Fatalf("schema content lost: %s", gotSchema)
+	}
+}
+
 func TestResumeReplaysPrefix(t *testing.T) {
 	var calls atomic.Int64
 	runner := echoRunner(&calls)
