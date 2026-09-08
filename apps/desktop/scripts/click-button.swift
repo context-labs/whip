@@ -1,6 +1,10 @@
 import ApplicationServices
 import Foundation
 
+if CommandLine.arguments.dropFirst() == ["--check"] {
+    guard ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true", AXIsProcessTrusted() else { exit(1) }
+    print("CI accessibility permission verified"); exit(0)
+}
 // A disposable CI helper: only two buttons on the exact owned app process.
 guard CommandLine.arguments.count == 3,
       let pid = Int32(CommandLine.arguments[1]), pid > 0,
