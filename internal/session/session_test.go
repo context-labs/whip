@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -834,5 +836,110 @@ func TestSubagentTranscriptAttributesSubModel(t *testing.T) {
 	}
 	if meta.Model != "sub-model-id" {
 		t.Fatalf("transcript should attribute the sub's model, got %q", meta.Model)
+	}
+}
+
+func TestLatestInDir(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// Two sessions in /a (B newer), one in /b. now() has second precision, so
+	// two saves in the same second tie on ORDER BY updated_at — stamp explicit
+	// timestamps to make "newest" deterministic without a sleep.
+	stamp := func(id string, at time.Time) {
+		if _, err := st.db.ExecContext(context.Background(),
+			`UPDATE sessions SET updated_at=? WHERE id=?`, at.UTC().Format(time.RFC3339), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, _ := st.Create("/a", "m", "p")
+	st.Save(a, 0, []llm.Message{{Role: "user", Content: "a"}}, "m", "p")
+	stamp(a, time.Now().Add(-2*time.Hour))
+	b, _ := st.Create("/a", "m", "p")
+	st.Save(b, 0, []llm.Message{{Role: "user", Content: "b"}}, "m", "p")
+	stamp(b, time.Now().Add(-1*time.Hour))
+	c, _ := st.Create("/b", "m", "p")
+	st.Save(c, 0, []llm.Message{{Role: "user", Content: "c"}}, "m", "p")
+	stamp(c, time.Now().Add(-1*time.Hour))
+
+	if meta, err := st.LatestInDir("/a"); err != nil {
+		t.Fatalf("/a: %v", err)
+	} else if meta.ID != b {
+		t.Fatalf("LatestInDir(/a) = %s, want newest %s", meta.ID, b)
+	}
+	if meta, err := st.LatestInDir("/b"); err != nil {
+		t.Fatalf("/b: %v", err)
+	} else if meta.ID != c {
+		t.Fatalf("LatestInDir(/b) = %s, want %s", meta.ID, c)
+	}
+	if _, err := st.LatestInDir("/none"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("LatestInDir(/none) = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestLatestInDirExcludesSubagentTranscripts(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// An ordinary session in /proj, and a subagent transcript whose parent is
+	// in /proj. SaveSubagentTranscript writes cwd="" for the transcript row,
+	// so the cwd filter alone would already exclude it — but the point of this
+	// test is the task_id='' guard. Force the transcript's cwd to /proj so the
+	// only thing keeping it out of LatestInDir is the task_id filter.
+	ordinary, _ := st.Create("/proj", "m", "p")
+	st.Save(ordinary, 0, []llm.Message{{Role: "user", Content: "main"}}, "m", "p")
+	subID, err := st.SaveSubagentTranscript(ordinary, "probe-1",
+		[]llm.Message{{Role: "user", Content: "sub"}}, "sub-m", "sub-p")
+	if err != nil || subID == "" {
+		t.Fatalf("subagent transcript save: id=%q err=%v", subID, err)
+	}
+	if _, err := st.db.ExecContext(context.Background(),
+		`UPDATE sessions SET cwd='/proj', updated_at=? WHERE id=?`, now(), subID); err != nil {
+		t.Fatal(err)
+	}
+
+	meta, err := st.LatestInDir("/proj")
+	if err != nil {
+		t.Fatalf("/proj: %v", err)
+	}
+	if meta.ID != ordinary {
+		t.Fatalf("LatestInDir(/proj) = %s (subagent transcript), want ordinary %s", meta.ID, ordinary)
+	}
+	if meta.TaskID != "" {
+		t.Fatalf("returned a subagent transcript row: task_id=%q", meta.TaskID)
+	}
+}
+
+func TestLatestInDirSkipsEmptySessions(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// A created-but-never-written session (no messages) in /x, plus a real one.
+	// Stamp timestamps so the empty row (which can't be LatestInDir's pick
+	// anyway — it has no messages) isn't relied on for ordering.
+	empty, _ := st.Create("/x", "m", "p")
+	if _, err := st.db.ExecContext(context.Background(),
+		`UPDATE sessions SET updated_at=? WHERE id=?`,
+		time.Now().Add(-1*time.Hour).UTC().Format(time.RFC3339), empty); err != nil {
+		t.Fatal(err)
+	}
+	full, _ := st.Create("/x", "m", "p")
+	st.Save(full, 0, []llm.Message{{Role: "user", Content: "hi"}}, "m", "p")
+
+	meta, err := st.LatestInDir("/x")
+	if err != nil {
+		t.Fatalf("/x: %v", err)
+	}
+	if meta.ID != full {
+		t.Fatalf("LatestInDir(/x) = %s, want the only session with messages %s", meta.ID, full)
 	}
 }

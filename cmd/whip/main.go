@@ -28,6 +28,25 @@ func cwd() string {
 	return wd
 }
 
+// normalizeBareResume rewrites a trailing bare -r/--resume (no following id) to
+// --browse, so bare `whip --resume` opens the picker instead of erroring
+// "flag needs an argument" — stdlib flag has no optional values. -r <id> and
+// -r=<id> are left untouched (the next token being a non-flag means it's the
+// id). Runs before flag.Parse, which stops at the first positional (`up`).
+func normalizeBareResume(args []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a != "-r" && a != "--resume" {
+			continue
+		}
+		// A following non-flag token is the session id (`-r <id>`), not bare.
+		if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			continue
+		}
+		args[i] = "--browse"
+	}
+}
+
 // username is the OS login name, or "unknown" when it can't be resolved
 // (e.g. inside a container without a passwd entry).
 func username() string {
@@ -88,9 +107,15 @@ func main() {
 	modelFlag := flag.String("m", "", "model name from ~/.whip/config.json (default: defaultModel)")
 	providerFlag := flag.String("p", "", "provider to route the model through (default: model's first provider)")
 	versionFlag := flag.Bool("version", false, "print version")
-	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
+	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix); bare opens the picker")
+	flag.StringVar(resumeFlag, "r", "", "shorthand for --resume")
+	var continueMode, browseMode bool
+	flag.BoolVar(&continueMode, "c", false, "continue the most recent session in the current directory")
+	flag.BoolVar(&continueMode, "continue", false, "same as -c")
+	flag.BoolVar(&browseMode, "browse", false, "open the session picker at startup (same as bare --resume)")
 	benchFlag := flag.Bool("bench", false, "do full startup init (config, routing, key, agent) then exit; for `task benchmark`")
 	cautiousFlag := flag.Bool("cautious", false, "ask before running commands / writing files")
+	normalizeBareResume(os.Args[1:]) // bare -r/--resume → --browse before flag.Parse (stdlib flag has no optional values)
 	flag.Parse()
 
 	if *versionFlag {
@@ -207,7 +232,7 @@ func main() {
 	// notice still shows on the next launch.
 	go update.Check(version)
 	tui.Version = version // /report names the build in the bug-report bundle
-	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, systemPrompt(cwd(), time.Now()), *resumeFlag, *cautiousFlag, firstRun, initialPrompt)
+	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, systemPrompt(cwd(), time.Now()), *resumeFlag, *cautiousFlag, firstRun, initialPrompt, continueMode, browseMode)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whip:", err)
 		os.Exit(1)
