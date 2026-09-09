@@ -74,6 +74,7 @@ func TestTranscriptPreservesRootAndChildRawHistoryAcrossTwoCompactionsAndReopen(
 				{Role: "user", Content: "third instruction"},
 				{Role: "assistant", Content: "third answer"},
 			}
+			raw[1].Continuation = llm.ResponseContinuation{AccountID: "account", Model: "model", Items: `[{"type":"reasoning","encrypted_content":"opaque-model-state"}]`}
 			transcriptCommit(t, store, rootID, agentID, 1, raw[:4])
 			cutoff := 4
 			transcriptCommit(t, store, rootID, agentID, 2, raw[4:6], RootCompaction{Summary: "first summary", RawCutoff: &cutoff})

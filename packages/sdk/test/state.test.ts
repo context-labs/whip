@@ -93,6 +93,34 @@ class Host {
   }
 }
 
+test('large cumulative calls retain child identity; legacy references never become root activity', async t => {
+  const host = new Host();
+  host.root.active_turns = { child: 'turn' };
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  const content = { reference_id: 'large', digest: 'a'.repeat(64), size: '12000', media_type: 'application/json' };
+  let seq = 10;
+  const push = (kind: string, payload: unknown) => host.streams[0]!.push(String(++seq), kind, payload);
+  push('stream.tool.call', { agent_id: 'child', turn_id: 'turn', id: 'call', name: 'rlm_exec', args: '{"code":"print(1)"}' });
+  for (let i = 0; i < 30; i++) {
+    push('stream.tool.call', { truncated: true, content });
+    push('stream.tool.call', { agent_id: 'child', turn_id: 'turn', id: 'call', name: 'rlm_exec', truncated: true, content });
+  }
+  push('stream.tool.started', { agent_id: 'child', turn_id: 'turn', id: 'call', name: 'rlm_exec', truncated: true, content });
+  push('stream.tool.completed', { agent_id: 'child', turn_id: 'turn', id: 'call', name: 'rlm_exec', truncated: true, content });
+  await until(() => view.getSnapshot().root?.cursor === String(seq));
+  const state = view.getSnapshot();
+  assert.equal(state.unavailable, true);
+  assert.equal(state.root?.presentation?.length, 0);
+  assert.equal(state.root?.agent_presentations?.child?.length, 3);
+  assert.equal(state.executions?.rows.length, 1);
+  assert.equal(state.executions?.rows[0]?.agentId, 'child');
+  assert.equal(state.executions?.rows[0]?.closed, true);
+  assert.equal(state.executions?.rows[0]?.kind === 'cell' && state.executions.rows[0].status, 'unknown', 'large completion ends activity without inventing success');
+  assert.equal(host.calls.filter(call => call.method === 'content.read').length, 0);
+});
+
 test('snapshot plus pre-ack events preserves cursor precision and immutable snapshots', async () => {
   const host = new Host();
   host.root.cursor = '9007199254740993';

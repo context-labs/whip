@@ -149,6 +149,7 @@ func (host *recursiveHost) history(ctx context.Context, operation string, argume
 		field, _ := stringArgument(arguments, "field")
 		var body, messageRevision string
 		if field == "" || field == "message" {
+			message.Continuation = llm.ResponseContinuation{}
 			data, err := json.Marshal(message)
 			if err != nil {
 				return nil, err

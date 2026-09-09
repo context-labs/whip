@@ -156,6 +156,15 @@
     "agent_id": {
       "type": "string"
     },
+    "turn_id": {
+      "type": "string"
+    },
+    "invocation_id": {
+      "type": "string"
+    },
+    "host_status": {
+      "type": "string"
+    },
     "id": {
       "type": "string"
     },

@@ -3,6 +3,8 @@ import type { DeepReadonly, HistoryView, SessionViewSnapshot } from './state.js'
 
 export interface ExecutionHostCall {
   readonly id: string;
+  readonly invocationId?: string;
+  readonly status: 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'unknown';
   readonly name: string;
   readonly summary: string;
   readonly duration: string;
@@ -14,6 +16,11 @@ export interface ExecutionCell {
   readonly id: string;
   readonly callId: string;
   readonly agentId: string;
+  readonly turnId?: string;
+  /** First observed event, retained when this cell joins recorded history. */
+  readonly eventSeq?: string;
+  /** Retained tool-event identities for joining bounded presentation prefixes. */
+  readonly presentationSeqs?: readonly string[];
   /** Transcript sequence, when a recorded call is available. */
   readonly seq?: number;
   readonly code: string;
@@ -254,7 +261,7 @@ export function observeExecution(
   const rows = [...evidence.rows];
   const cursor = event.seq;
   const afterSeq = history[agentId]?.throughSeq ?? 0;
-  const turnId = activeTurns[agentId];
+  const turnId = text(payload.turn_id) || activeTurns[agentId];
   if (event.kind === 'scratch.restored') {
     rows.push({ kind: 'restart', id: key(evidence.rootId, agentId, evidence.revision, 'restart', event.seq), agentId,
       text: restartText(payload), eventSeq: event.seq, afterSeq, turnId, historyUnknown: !hasHistoryBoundary(history[agentId]) });
@@ -265,7 +272,7 @@ export function observeExecution(
       if (event.kind.endsWith('.started') || !row.turnId || row.turnId === payload.turn_id) {
         const status = event.kind.endsWith('.cancelled') ? 'cancelled' : event.kind.endsWith('.interrupted') ? 'interrupted'
           : event.kind.endsWith('.failed') ? 'failed' : 'unknown';
-        rows[index] = { ...row, status, closed: true, ...(observedAt === undefined ? {} : { observedEndedAt: observedAt }),
+        rows[index] = { ...row, status, hosts: settleHosts(row.hosts, status), closed: true, ...(observedAt === undefined ? {} : { observedEndedAt: observedAt }),
           ...(payload.error ? { error: excerpt(text(payload.error)) } : {}) };
       }
     }
@@ -273,16 +280,29 @@ export function observeExecution(
     const callId = text(payload.id);
     if (!callId) return { ...evidence, cursor };
     let index = -1;
+    const invocationId = event.kind.startsWith('stream.cell.host') ? text(payload.invocation_id) : '';
+    if (invocationId) index = rows.findIndex(row => row.kind === 'cell' && row.agentId === agentId && row.callId === callId
+      && (!turnId || !row.turnId || row.turnId === turnId) && row.hosts.some(host => host.id === key(row.id, invocationId)));
+    const knownInvocation = index >= 0;
+    // Once its start has been evicted, an invocation's owner is unknowable.
+    // A provider can reuse the tool ID, even within the same turn.
+    if (invocationId && event.kind === 'stream.cell.host' && index < 0) return { ...evidence, cursor, truncated: true };
     for (let candidate = rows.length - 1; candidate >= 0; candidate--) {
+      if (index >= 0) break;
       const row = rows[candidate]!;
       if (row.kind === 'cell' && row.agentId === agentId && row.callId === callId
         && (!turnId || !row.turnId || row.turnId === turnId)) { index = candidate; break; }
     }
     let prior = rows[index];
+    // A reconnect can lose the next cell's tool prefix. Reused provider IDs do
+    // not prove that its new invocation belongs to our uncertain prior cell.
+    if (event.kind === 'stream.cell.host.started' && invocationId && !knownInvocation
+      && prior?.kind === 'cell' && prior.status === 'unknown') return { ...evidence, cursor, truncated: true };
     if ((event.kind === 'stream.tool.call' || event.kind === 'stream.tool.started') && prior?.kind === 'cell'
       && prior.closed) { index = -1; prior = undefined; }
-    if (!prior && (payload.name !== 'rlm_exec' || !['stream.tool.call', 'stream.tool.started', 'stream.tool.completed'].includes(event.kind))) return { ...evidence, cursor };
-    if (payload.name && payload.name !== 'rlm_exec' && event.kind !== 'stream.cell.host') return { ...evidence, cursor };
+    const hostStart = event.kind === 'stream.cell.host.started' && invocationId && turnId && turnId === activeTurns[agentId];
+    if (!prior && !hostStart && (payload.name !== 'rlm_exec' || !['stream.tool.call', 'stream.tool.started', 'stream.tool.completed'].includes(event.kind))) return { ...evidence, cursor };
+    if (payload.name && payload.name !== 'rlm_exec' && !event.kind.startsWith('stream.cell.host')) return { ...evidence, cursor };
     let cell: ObservedRow & ExecutionCell = prior?.kind === 'cell' ? { ...prior } : {
       kind: 'cell', id: key(evidence.rootId, agentId, evidence.revision, 'event', event.seq), callId, agentId,
       eventSeq: event.seq, afterSeq, turnId, historyUnknown: !hasHistoryBoundary(history[agentId]), code: '', output: '', status: 'unknown', hosts: [],
@@ -291,7 +311,7 @@ export function observeExecution(
       case 'stream.tool.call':
       case 'stream.tool.started': {
         const args = text(payload.args);
-        cell = { ...cell, ...(args ? { code: executionCode(args) } : {}), status: event.kind.endsWith('.started') ? 'running' : 'writing',
+        cell = { ...cell, ...(args ? { code: executionCode(args) } : payload.truncated ? { code: '' } : {}), status: event.kind.endsWith('.started') ? 'running' : 'writing',
           ...(event.kind.endsWith('.started') && observedAt !== undefined && cell.observedStartedAt === undefined ? { observedStartedAt: observedAt } : {}),
           ...(args.length > FIELD_BYTES ? { truncated: true } : {}) };
         break;
@@ -303,17 +323,30 @@ export function observeExecution(
           ...(output !== preview ? { truncated: true } : {}) };
         break;
       }
+      case 'stream.cell.host.started':
       case 'stream.cell.host': {
-        if (cell.hosts.length >= MAX_HOSTS) cell = { ...cell, truncated: true };
-        else cell = { ...cell, hosts: [...cell.hosts, { id: key(cell.id, event.seq), name: excerpt(text(payload.name), 1024),
-          summary: excerpt(text(payload.args), 2048), duration: excerpt(text(payload.text), 128),
-          ...(payload.result ? { error: excerpt(text(payload.result), 2048) } : {}) }],
-          ...(text(payload.name).length > 1024 || text(payload.args).length > 2048 || text(payload.result).length > 2048 ? { truncated: true } : {}) };
+        const started = event.kind.endsWith('.started');
+        const invocationId = text(payload.invocation_id);
+        // Legacy completions have only an event occurrence; never join by name.
+        const id = key(cell.id, invocationId || event.seq);
+        const hosts = [...cell.hosts];
+        const index = hosts.findIndex(host => host.id === id);
+        if (started && (cell.closed || index >= 0)) break;
+        const host: ExecutionHostCall = { id, ...(invocationId ? { invocationId } : {}), name: excerpt(text(payload.name), 1024),
+          status: started ? 'running' : payload.host_status === 'cancelled' ? 'cancelled' : payload.result || payload.host_status === 'failed' ? 'failed' : payload.truncated ? 'unknown' : 'completed',
+          summary: excerpt(text(payload.args), 2048), duration: started ? '' : excerpt(text(payload.text), 128),
+          ...(payload.result ? { error: excerpt(text(payload.result), 2048) } : {}) };
+        if (index >= 0) hosts[index] = host;
+        else hosts.push(host);
+        // Keep recent operations (especially the current invocation) at the cap.
+        const overflow = hosts.length > MAX_HOSTS;
+        cell = { ...cell, hosts: hosts.slice(-MAX_HOSTS), ...(!cell.closed && started ? { status: 'running' as const } : {}),
+          ...(overflow || text(payload.name).length > 1024 || text(payload.args).length > 2048 || text(payload.result).length > 2048 ? { truncated: true } : {}) };
         break;
       }
       case 'stream.tool.completed': {
         const { restart, hasResult, ...fields } = result(text(payload.result));
-        cell = { ...cell, ...fields, closed: true, output: hasResult ? fields.output : cell.output,
+        cell = { ...cell, ...fields, hosts: settleHosts(cell.hosts, fields.status), closed: true, output: hasResult ? fields.output : cell.output,
           ...(observedAt === undefined ? {} : { observedEndedAt: observedAt }) };
         if (restart && !rows.some(row => row.kind === 'restart' && row.agentId === agentId && row.turnId === turnId && row.text === restart && BigInt(row.eventSeq) >= BigInt(cell.eventSeq))) {
           rows.push({ kind: 'restart', id: `${cell.id}:restart`, agentId, text: restart, eventSeq: event.seq, afterSeq, turnId, historyUnknown: !hasHistoryBoundary(history[agentId]) });
@@ -322,6 +355,8 @@ export function observeExecution(
       }
       default: return { ...evidence, cursor };
     }
+    if (payload.truncated) cell = { ...cell, truncated: true };
+    if (event.kind.startsWith('stream.tool.')) cell = { ...cell, presentationSeqs: [...(cell.presentationSeqs ?? []), event.seq].slice(-128) };
     if (index < 0) rows.push(cell); else rows[index] = cell;
   }
   return boundExecutionEvidence({ ...evidence, cursor, rows });
@@ -341,7 +376,13 @@ export function boundExecutionEvidence(evidence: ExecutionEvidence, maxBytes = M
 
 export function settleExecutions(evidence: ExecutionEvidence, activeTurns?: Readonly<Record<string, string>>): ExecutionEvidence {
   return { ...evidence, rows: evidence.rows.map(row => row.kind === 'cell' && !row.closed && (!activeTurns || !activeTurns[row.agentId]
-    || (row.turnId && row.turnId !== activeTurns[row.agentId])) ? { ...row, status: 'unknown', ...(activeTurns ? { closed: true } : {}) } : row) };
+    || (row.turnId && row.turnId !== activeTurns[row.agentId])) ? { ...row, status: 'unknown', hosts: settleHosts(row.hosts, 'unknown'), ...(activeTurns ? { closed: true } : {}) } : row) };
+}
+
+function settleHosts(hosts: readonly ExecutionHostCall[], status: ExecutionCell['status']): readonly ExecutionHostCall[] {
+  // A cell/turn outcome does not prove the host operation succeeded or failed.
+  return hosts.map(host => host.status === 'running' ? { ...host,
+    status: status === 'cancelled' || status === 'interrupted' ? status : 'unknown' } : host);
 }
 
 /** Reconcile loaded history without copying its bodies into the supplemental evidence. */
@@ -378,6 +419,21 @@ export function seedExecutions(previous: ExecutionEvidence | undefined, root: Ro
   const events = [...(root.presentation ?? []), ...Object.entries(root.agent_presentations ?? {}).flatMap(([agentId, items]) =>
     (items ?? []).map(event => ({ ...event, payload: { ...record(event.payload), agent_id: agentId } })))]
     .sort((a, b) => BigInt(a.seq) < BigInt(b.seq) ? -1 : BigInt(a.seq) > BigInt(b.seq) ? 1 : 0);
+  if (evidence.rows.some(row => row.kind === 'cell' && row.status === 'unknown' && !row.closed)) {
+    let replay = emptyExecutionEvidence(root.root_id, root.history_revision);
+    for (const event of events) replay = observeExecution(replay, event, root.active_turns, history);
+    evidence = { ...evidence, rows: evidence.rows.map(row => {
+      if (row.kind !== 'cell' || row.closed || row.status !== 'unknown' || !row.turnId || root.active_turns[row.agentId] !== row.turnId) return row;
+      const confirmed = replay.rows.find((item): item is ObservedRow & ExecutionCell => item.kind === 'cell'
+        && item.agentId === row.agentId && item.turnId === row.turnId && item.callId === row.callId
+        && (item.eventSeq === row.eventSeq || item.hosts.some(host => host.invocationId && row.hosts.some(old => old.invocationId === host.invocationId))));
+      if (!confirmed || confirmed.closed) return row;
+      return { ...row, status: confirmed.status, observedStartedAt: undefined, hosts: row.hosts.map(host => {
+        const current = confirmed.hosts.find(item => host.invocationId && item.invocationId === host.invocationId);
+        return host.status === 'unknown' && current ? { ...current, id: host.id } : host;
+      }) };
+    }) };
+  }
   for (const event of events) evidence = observeExecution(evidence, event, root.active_turns, history);
   return reconcileExecutions(settleExecutions({ ...evidence, cursor: root.cursor }, root.active_turns), history);
 }
@@ -414,5 +470,7 @@ export function executionRows(snapshot: DeepReadonly<SessionViewSnapshot>, agent
     rows.splice(following < 0 ? rows.length : following, 0, row);
   }
   return Object.freeze(rows.map(row => Object.freeze(row.kind === 'cell'
-    ? { ...row, hosts: Object.freeze(row.hosts.map(host => Object.freeze(host))), ...(row.body ? { body: Object.freeze(row.body) } : {}) } : row)));
+    ? { ...row, hosts: Object.freeze(row.hosts.map(host => Object.freeze(host))),
+      ...(row.presentationSeqs ? { presentationSeqs: Object.freeze([...row.presentationSeqs]) } : {}),
+      ...(row.body ? { body: Object.freeze(row.body) } : {}) } : row)));
 }

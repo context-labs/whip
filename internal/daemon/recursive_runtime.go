@@ -159,18 +159,31 @@ func (store scratchStore) Load(ctx context.Context) (string, rlm.SnapshotManifes
 	return snapshot, manifest, err
 }
 
-// emitHostCall publishes one host call made inside a cell as a presentation
-// event: module.operation, a bounded argument summary, and the duration. It
-// lets a client show what a cell is doing while it runs.
+func (node *AgentSession) emitHostStart(call rlm.HostCall) {
+	node.emitHostEvent("stream.cell.host.started", call)
+}
+
+// The existing kind remains completion-only for older clients.
 func (node *AgentSession) emitHostCall(call rlm.HostCall) {
+	node.emitHostEvent("stream.cell.host", call)
+}
+
+func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
 	emit := node.emit
 	if emit == nil {
 		return
 	}
-	emit("stream.cell.host", StreamEvent{
+	node.mu.Lock()
+	turnID := node.turn.TurnID
+	node.mu.Unlock()
+	event := StreamEvent{
 		ID: call.CallID, Name: call.Module + "." + call.Operation, Args: call.Summary,
-		Text: call.Duration.Round(time.Millisecond).String(), Result: call.Err,
-	})
+		TurnID: turnID, InvocationID: call.InvocationID, HostStatus: call.Status, Result: call.Err,
+	}
+	if kind == "stream.cell.host" {
+		event.Text = call.Duration.Round(time.Millisecond).String()
+	}
+	emit(kind, event)
 }
 
 // recordScratchRestore persists the restore outcome off the kernel lock; the
@@ -209,7 +222,7 @@ func (runtime *RecursiveRuntime) newNode(value *agent.Agent, parentID, name stri
 	host := &recursiveHost{session: node}
 	kernel, err := rlm.NewKernel(rlm.KernelOptions{
 		Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
-		OnRestore: node.recordScratchRestore, OnHostCall: node.emitHostCall,
+		OnRestore: node.recordScratchRestore, OnHostStart: node.emitHostStart, OnHostCall: node.emitHostCall,
 	})
 	if err != nil {
 		return nil, err

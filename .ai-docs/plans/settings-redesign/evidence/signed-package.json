@@ -1,0 +1,50 @@
+{
+  "bundle": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/out/Whip-darwin-arm64/Whip.app",
+  "version": "0.1.3",
+  "distribution": "whipcode",
+  "buildId": "local-settings-40699639b",
+  "rendererDigest": "a4be825d93afa12793f7b1544117a02b7330a92c1af05a34777253bf967b2cb1",
+  "nativeFiles": {
+    "whipcode": {
+      "bytes": 41430640,
+      "sha256": "447fec2354d752250086b9abe77e3fef7885ae85efe685512307a42b0088d9c3"
+    },
+    "whip-computer": {
+      "bytes": 431648,
+      "sha256": "77a6e00674d1eb5a28f2596e2db67111b6b6917616640eee20c5ec1c0dda64c4"
+    }
+  },
+  "source": {
+    "commit": "40699639bb6f3096daa6cefb69968877f25a801a",
+    "dirty": true,
+    "lockfile": "5722628aaf99fb36683aee4faa08af75f1beee9679693a110c64f955f551c2ab"
+  },
+  "compatibility": {
+    "protocolMajor": 5,
+    "protocolMinor": 0,
+    "schemaVersion": 12
+  },
+  "teamId": "JAPWPV5JY2",
+  "fuses": {
+    "0": 48,
+    "1": 49,
+    "2": 48,
+    "3": 48,
+    "4": 49,
+    "5": 49,
+    "6": 48,
+    "7": 48,
+    "8": 49,
+    "version": "1"
+  },
+  "signed": true,
+  "notarized": false,
+  "bundleDigest": "8b57fb3850bd9547bb97bffdf876924c88aded4ff1d3fe1ce9b678cf7d59952b",
+  "toolchain": {
+    "node": "v24.14.1",
+    "arch": "arm64",
+    "go": "go version go1.27.0 darwin/arm64",
+    "xcode": "Xcode 26.3\nBuild version 17C529",
+    "macOS": "26.3.1"
+  }
+}

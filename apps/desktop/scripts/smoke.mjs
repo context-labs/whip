@@ -52,12 +52,14 @@ try {
   assert.equal(await fileDigest(executable), manifest.files.whipcode.sha256);
   await assert.rejects(lstat(path.join(env.WHIP_DESKTOP_USER_DATA, 'runtimes')), { code: 'ENOENT' });
   await assert.rejects(lstat(path.join(env.HOME, '.whip')), { code: 'ENOENT' });
-  await page.getByRole('button', { name: 'Manage execution hosts', exact: true }).click();
-  const hosts = page.getByRole('dialog', { name: 'Execution hosts', exact: true });
-  await hosts.getByRole('textbox', { name: 'Name', exact: true }).fill('Smoke URL');
-  await hosts.getByRole('textbox', { name: 'Daemon address', exact: true }).fill(remote.info.endpoint);
-  await hosts.getByRole('button', { name: 'Save and connect', exact: true }).click();
+  await page.getByRole('button', { name: 'Manage servers', exact: true }).click();
+  await page.getByRole('button', { name: 'Add server', exact: true }).click();
+  const hosts = page.getByRole('dialog', { name: 'Add server', exact: true });
+  await hosts.getByRole('textbox', { name: /Server name/ }).fill('Smoke URL');
+  await hosts.getByRole('textbox', { name: 'Server address', exact: true }).fill(remote.info.endpoint);
+  await hosts.getByRole('button', { name: 'Add server', exact: true }).click();
   await hosts.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
   const remoteLink = page.locator(`a[href="/h/${remote.info.runtime_id}/s/${remote.info.root_id}"]`).first();
   await remoteLink.waitFor(); await remoteLink.click();
   await page.getByLabel('Message WHIP', { exact: true }).waitFor();
@@ -117,13 +119,19 @@ try {
     await page.goto(route.href);
     await expect(page.getByText('Follow-up completed.', { exact: true })).toBeVisible();
   }
-  await page.getByRole('button', { name: 'Manage execution hosts', exact: true }).click();
-  const row = name => hosts.getByText(name, { exact: true }).locator('..').locator('..');
-  await row('Smoke URL').getByRole('button', { name: 'Disconnect', exact: true }).click();
-  assert.equal(await row('This Mac').getByRole('button', { name: 'Disconnect', exact: true }).count(), 1, 'Disconnecting URL detached This Mac');
-  await row('Smoke URL').getByRole('button', { name: 'Connect', exact: true }).click();
-  await row('Smoke URL').getByRole('button', { name: 'Disconnect', exact: true }).waitFor();
-  await hosts.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Manage servers', exact: true }).click();
+  const openActions = name => page.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
+  await openActions('Smoke URL');
+  await page.getByRole('menuitem', { name: 'Disconnect', exact: true }).click();
+  await openActions('This Mac');
+  assert.equal(await page.getByRole('menuitem', { name: 'Disconnect', exact: true }).count(), 1, 'Disconnecting URL detached This Mac');
+  await page.keyboard.press('Escape');
+  await openActions('Smoke URL');
+  await page.getByRole('menuitem', { name: 'Connect', exact: true }).click();
+  await openActions('Smoke URL');
+  await page.getByRole('menuitem', { name: 'Disconnect', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
   await page.getByRole('link', { name: 'Settings', exact: true }).first().click();
   await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
   await page.reload();
@@ -140,10 +148,16 @@ try {
   const reopened = await electron.firstWindow();
   // The saved identity exists before reconnect. Require a host-dependent enabled
   // control to prove the new renderer actually attached to the daemon.
-  await reopened.getByRole('button', { name: 'Manage execution hosts', exact: true }).click();
-  const reopenedHosts = reopened.getByRole('dialog', { name: 'Execution hosts', exact: true });
+  await reopened.locator('[data-settings-layout], [aria-label="Session navigation"]').first().waitFor();
+  if (await reopened.locator('[data-settings-layout]').isVisible()) {
+    await reopened.getByRole('button', { name: 'Servers', exact: true }).click();
+  } else {
+    await reopened.getByRole('button', { name: 'Manage servers', exact: true }).click();
+  }
   for (const name of ['This Mac', 'Smoke URL']) {
-    await reopenedHosts.getByText(name, { exact: true }).locator('..').locator('..').getByRole('button', { name: 'Disconnect', exact: true }).waitFor();
+    await reopened.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
+    await reopened.getByRole('menuitem', { name: 'Disconnect', exact: true }).waitFor();
+    await reopened.keyboard.press('Escape');
   }
   const attached = JSON.parse((await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 })).stdout);
   assert.equal(attached.pid, initial.pid);

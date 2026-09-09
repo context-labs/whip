@@ -9,6 +9,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferencenet"
+	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
@@ -32,46 +33,31 @@ func (s *ProviderService) ListLogins() ProviderLoginList {
 }
 
 func (s *ProviderService) ProviderStatus(provider string) (ProviderStatus, error) {
-	return readProviderStatus(provider)
-}
-
-func readProviderStatus(provider string) (ProviderStatus, error) {
-	if provider != config.InferenceNetProvider && provider != "openrouter" {
-		return ProviderStatus{}, errors.New("unsupported provider")
-	}
 	cfg, err := config.Load()
 	if err != nil {
 		return ProviderStatus{}, err
 	}
-	entry, ok := cfg.Providers[provider]
-	result := ProviderStatus{Provider: provider, Configured: ok, Warnings: []string{}}
-	switch {
-	case !ok:
-		result.KeySource = "none"
-	case entry.APIKeyEnv != "":
-		result.KeySource = "environment"
-	case entry.APIKey != "":
-		result.KeySource = "literal"
-	default:
-		result.KeySource = "machine"
+	return s.providerStatus(cfg, provider)
+}
+
+func readProviderStatus(provider string) (ProviderStatus, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return ProviderStatus{}, err
 	}
-	if provider == config.InferenceNetProvider {
-		auth, err := inferencenet.LoadAuth()
-		if err != nil {
-			return ProviderStatus{}, errors.New("could not read provider account on execution host")
-		}
-		result.Email, result.ProjectID, result.ProjectName, result.MachineKeyName = auth.UserEmail, auth.ProjectID, auth.ProjectName, auth.MachineKeyName
-	}
-	return result, nil
+	return providerKeyStatus(cfg, provider)
 }
 
 func (s *ProviderService) LogoutProvider(ctx context.Context, provider string) (ProviderStatus, error) {
+	if provider == openaiauth.Provider {
+		return s.logoutOpenAI(ctx)
+	}
 	if provider != config.InferenceNetProvider {
 		return ProviderStatus{}, errors.New("provider does not support account logout")
 	}
 	s.mu.Lock()
 	for _, flow := range s.flows {
-		if loginActive(flow.status.State) {
+		if flow.status.Provider != openaiauth.Provider && loginActive(flow.status.State) {
 			flow.status.State = "interrupted"
 			flow.token = ""
 			flow.cancel()
@@ -80,6 +66,10 @@ func (s *ProviderService) LogoutProvider(ctx context.Context, provider string) (
 	s.mu.Unlock()
 	s.provisionMu.Lock()
 	defer s.provisionMu.Unlock()
+	return s.logoutInferenceNetLocked(ctx)
+}
+
+func (s *ProviderService) logoutInferenceNetLocked(ctx context.Context) (ProviderStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	auth, err := inferencenet.LoadAuth()
@@ -100,7 +90,10 @@ func (s *ProviderService) LogoutProvider(ctx context.Context, provider string) (
 	if err := inferencenet.ClearAuth(); err != nil {
 		return ProviderStatus{}, errors.New("could not remove provider account on execution host")
 	}
-	result, err := readProviderStatus(provider)
+	if err := config.DeleteCatalog(config.InferenceNetProvider); err != nil {
+		return ProviderStatus{}, errors.New("signed out, but the provider model cache could not be removed")
+	}
+	result, err := readProviderStatus(config.InferenceNetProvider)
 	result.Warnings = warnings
 	return result, err
 }
@@ -125,6 +118,9 @@ func (s *ProviderService) RotateProviderKey(ctx context.Context, provider string
 	}
 	if err := inferencenet.SaveAuth(auth); err != nil {
 		return ProviderStatus{}, errors.New("could not save rotated provider key on execution host")
+	}
+	if err := config.DeleteCatalog(provider); err != nil {
+		return ProviderStatus{}, errors.New("key rotated, but the provider model cache could not be removed")
 	}
 	return readProviderStatus(provider)
 }

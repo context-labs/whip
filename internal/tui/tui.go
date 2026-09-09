@@ -115,8 +115,11 @@ type model struct {
 	historyPages        map[string]*clientHistoryPage
 	historyRequested    bool
 	reloadAfterCatalogs bool
-	modelName           string
-	provName            string
+	// verboseCatalogs echoes the next provider.catalogs result (explicit
+	// /model refresh); background refreshes (startup, auth) stay quiet.
+	verboseCatalogs bool
+	modelName       string
+	provName        string
 	// cfgExtra pins scalar settings this session explicitly changed (theme,
 	// effort, …): the config watcher applies file values only for keys not
 	// pinned here, so a local pick this session survives another session's
@@ -1204,7 +1207,15 @@ func (m *model) accept() bool {
 func (m *model) modelCands() []cand {
 	out := make([]cand, 0, len(m.cfg.Models))
 	for name, mdl := range m.cfg.Models {
-		out = append(out, cand{name, "via " + strings.Join(mdl.Providers, ", ")})
+		var providers []string
+		for _, provider := range mdl.Providers {
+			if _, available := m.cfg.Providers[provider]; available {
+				providers = append(providers, provider)
+			}
+		}
+		if len(providers) > 0 {
+			out = append(out, cand{name, "via " + strings.Join(providers, ", ")})
+		}
 	}
 	// catalog-advertised models are usable without a config entry (catalog
 	// fallback in Resolve); offer them in completion too

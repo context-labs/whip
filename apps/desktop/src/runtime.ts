@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import type { LocalRuntimeStatus } from '@whip/app/platform';
 import { access, chmod, copyFile, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -78,15 +78,32 @@ export function parseDaemonStatus(stdout: string): DaemonStatus {
   return value;
 }
 
-/** Finder supplies a small PATH. Only extract PATH, never persist the shell environment. */
-export async function runtimeEnvironment(signal: AbortSignal): Promise<NodeJS.ProcessEnv> {
-  const env = { ...process.env };
-  const shell = env.SHELL;
+// Keep this small allowlist aligned with config.ProviderPresets (checked by tests).
+export const providerEnvironmentNames = ['INFERENCE_API_KEY', 'OPENROUTER_API_KEY'] as const;
+
+/** Recover shell PATH and, for local launches only, supported provider keys. Never persist them. */
+export async function runtimeEnvironment(signal: AbortSignal, providerKeys = false, inherited = process.env): Promise<NodeJS.ProcessEnv> {
+  const env = { ...inherited };
+  let shell = env.SHELL;
+  if (!shell && providerKeys) {
+    try { shell = userInfo().shell || '/bin/sh'; } catch { shell = '/bin/sh'; }
+  }
   if (shell && path.isAbsolute(shell)) {
     try {
-      const output = await run(shell, ['-l', '-c', 'printf "\\0WHIP_PATH=%s\\0" "$PATH"'], env, signal, 3000);
-      const match = /\x00WHIP_PATH=([^\x00]{1,16384})\x00/.exec(output);
-      if (match && !/[\r\n]/.test(match[1]!)) env.PATH = match[1];
+      const names = ['PATH', ...(providerKeys ? providerEnvironmentNames : [])];
+      // Only fixed identifiers enter the command; values stay in quoted shell expansions.
+      const command = `printf '\\0WHIP_ENV\\0'; ${names.map(name => `printf '%s\\0%s\\0' '${name}' "\${${name}-}"`).join('; ')}`;
+      const output = await run(shell, [providerKeys ? '-il' : '-l', '-c', command], env, signal, 3000);
+      const marker = '\x00WHIP_ENV\x00';
+      const start = output.lastIndexOf(marker);
+      if (start >= 0) {
+        const fields = output.slice(start + marker.length).split('\0');
+        for (let index = 0; index + 1 < fields.length; index += 2) {
+          const name = fields[index]!; const value = fields[index + 1]!;
+          if (!names.includes(name) || value.length > 16384 || /[\r\n]/.test(value)) continue;
+          if (name === 'PATH' || (env[name] === undefined && value.trim())) env[name] = value;
+        }
+      }
     } catch { signal.throwIfAborted(); }
   }
   env.PATH = [...new Set((env.PATH ?? '').split(':').filter(part => path.isAbsolute(part)))
@@ -122,7 +139,7 @@ export class LocalRuntime {
 
   private async environment(signal: AbortSignal) {
     signal.throwIfAborted();
-    const env = this.options.env ? { ...this.options.env } : await runtimeEnvironment(signal);
+    const env = this.options.env ? { ...this.options.env } : await runtimeEnvironment(signal, true);
     env.WHIPCODE_HOME = absolutePath(env.WHIPCODE_HOME || path.join(env.HOME || homedir(), '.whipcode'));
     // A stable loopback endpoint also makes CLI/web usable when desktop starts first.
     env.WHIPCODE_LISTEN ??= '127.0.0.1:8080';

@@ -8,6 +8,7 @@ import { useRuntime } from './context';
 import { ReadingList } from './reading-list';
 import { CollectionMore, ContentRead, mergeBy, useCollection } from './details/shared';
 import { styles } from './repl-view.stylex';
+import { ExecutionTime } from './execution-time';
 
 const historyHelp = 'Saved cells include code, output, results and recorded restart information. Details of individual host calls may be unavailable for older cells.';
 
@@ -71,20 +72,6 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
 }
 
 const statusLabels: Record<ExecutionCell['status'], string> = { writing: 'Writing', running: 'Running', completed: 'Completed', failed: 'Failed', interrupted: 'Interrupted', cancelled: 'Cancelled', unknown: 'Outcome unavailable' };
-function ObservedTime({ cell, connected }: { cell: ExecutionCell; connected: boolean }) {
-  const [now, setNow] = useState(Date.now);
-  const running = connected && cell.status === 'running' && cell.observedStartedAt !== undefined;
-  useEffect(() => {
-    if (!running) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  if (cell.observedStartedAt === undefined || (!running && cell.observedEndedAt === undefined)) return null;
-  const seconds = Math.max(0, ((cell.observedEndedAt ?? now) - cell.observedStartedAt) / 1000);
-  return <span {...stylex.props(styles.meta)} title="Time observed in this client; not a historical execution duration">Observed {seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s</span>;
-}
-
 /** Preview the tail of a running cell and the beginning of a recorded result. */
 export function outputPreview(output: string, running: boolean, expanded: boolean) {
   const lines = output.replace(/\n$/, '').split('\n');
@@ -116,7 +103,7 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
     <header {...stylex.props(styles.header)}>
       <span {...stylex.props(styles.ordinal)}>In [{number}]</span>
       <Badge tone={row.status === 'failed' ? 'error' : interrupted ? 'warning' : running && connected ? 'info' : 'neutral'}>{!connected && running ? 'Observation paused' : statusLabels[row.status]}</Badge>
-      <ObservedTime cell={row} connected={connected} />
+      <ExecutionTime cell={row} connected={connected} />
       {row.steps !== undefined && <span {...stylex.props(styles.meta)}>{row.steps.toLocaleString()} steps</span>}
       <span {...stylex.props(styles.grow)} />
       {row.code && <CopyButton label="Copy Starlark code" text={row.code} copy={runtime.platform.copy} onError={runtime.report} />}
@@ -125,7 +112,7 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
     {row.code ? <CodeBlock code={row.code} language="starlark" label={`Cell ${number} · Starlark`} xstyle={styles.code} /> : !row.body && <p {...stylex.props(styles.meta)}>{row.status === 'writing' ? 'Waiting for code…' : 'Code is unavailable in this record.'}</p>}
     {!!row.hosts.length && <div {...stylex.props(styles.hosts)} aria-label="Host calls">
       {row.hosts.map(host => <div key={host.id}>
-        <div {...stylex.props(styles.host)}><span aria-hidden="true">→</span><span {...stylex.props(styles.hostName)}>{host.name}{host.summary && <span {...stylex.props(styles.meta)}>({host.summary})</span>}</span><span {...stylex.props(styles.duration)}>{host.duration}</span></div>
+        <div {...stylex.props(styles.host)}><span aria-hidden="true">→</span><span {...stylex.props(styles.hostName)}>{host.name}{host.summary && <span {...stylex.props(styles.meta)}>({host.summary})</span>}</span><span {...stylex.props(styles.duration)}>{host.status === 'running' ? connected ? 'Running' : 'Updates paused' : host.status === 'unknown' ? 'Outcome unavailable' : host.status === 'cancelled' || host.status === 'interrupted' ? host.status : host.duration}</span></div>
         {host.error && <p {...stylex.props(styles.error)}>{host.error}</p>}
       </div>)}
     </div>}

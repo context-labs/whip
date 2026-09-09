@@ -363,6 +363,33 @@ it('deduplicates setup per host and disposes late transports after cancellation'
   expect(mocks.clients.some(client => client.endpoint === 'http://retired.test')).toBe(false);
   expect(f.hosts.home().client).toBe(local);
 });
+it('cancels a native save on the deduplicated host without touching other hosts', async () => {
+  const saved = { ...sshProfile(), runtimeId: 'remote' };
+  const f = nativeFixture([remote('a')], [localProfile, saved]); await start(f.hosts);
+  const before = f.values.get('whip.hosts.v2'); const local = f.hosts.home().client; const url = f.hosts.host('a')?.client;
+  const setup = deferred<ResolvedConnection>(); let signal!: AbortSignal;
+  f.resolveConnection.mockImplementationOnce(async (_profile, options) => { signal = options.signal; return setup.promise; });
+  const cancel = new AbortController();
+  const saving = f.hosts.saveNative({ ...sshProfile(), id: 'ssh:duplicate' }, false, cancel.signal);
+  const rejection = expect(saving).rejects.toThrow();
+  cancel.abort(); expect(signal.aborted).toBe(true);
+  const dispose = vi.fn(); setup.resolve({ endpoint: 'http://late.test', dispose });
+  await rejection; expect(dispose).toHaveBeenCalledOnce();
+  expect(f.hosts.getSnapshot().hosts.find(host => host.id === saved.id)?.runtimeId).toBe('remote');
+  expect(f.hosts.getSnapshot().hosts.some(host => host.id === 'ssh:duplicate')).toBe(false);
+  expect(f.values.get('whip.hosts.v2')).toBe(before);
+  expect(f.hosts.home().client).toBe(local); expect(f.hosts.host('a')?.client).toBe(url);
+});
+it('does not start an already-cancelled native save or detach a successfully saved host on a late abort', async () => {
+  const f = nativeFixture([]); await start(f.hosts);
+  const cancelled = new AbortController(); cancelled.abort(); f.resolveConnection.mockClear();
+  await expect(f.hosts.saveNative(sshProfile(), false, cancelled.signal)).rejects.toThrow();
+  expect(f.resolveConnection).not.toHaveBeenCalled();
+  const finished = new AbortController(); await f.hosts.saveNative(sshProfile(), false, finished.signal);
+  const client = f.hosts.getSnapshot().hosts.find(host => host.id === 'ssh:server')?.client;
+  expect(client).toBeDefined(); finished.abort();
+  expect(f.hosts.getSnapshot().hosts.find(host => host.id === 'ssh:server')?.client).toBe(client);
+});
 it('requires explicit native replacement consent and keeps remembered identity after rejection', async () => {
   const saved = { ...sshProfile(), runtimeId: 'old' }; const f = nativeFixture([], [localProfile, saved]); await start(f.hosts);
   mocks.identities.set('http://server.test', 'replacement');

@@ -1,3 +1,4 @@
+import { typography } from '@whip/ui/tokens.stylex';
 import { useState } from 'react';
 import { Button, Popover } from '@whip/ui';
 import { Check, ChevronDown, Hand, ShieldAlert, ShieldCheck } from 'lucide-react';
@@ -50,14 +51,14 @@ const styles = stylex.create({
     backgroundColor: { default: 'transparent', ':hover': colors.hover },
     color: colors.foreground,
     font: 'inherit',
-    fontSize: 13,
+    fontSize: typography.size13,
     textAlign: 'start',
     cursor: 'default',
   },
   optionIcon: { marginTop: 1, flexShrink: 0, color: surface.secondaryText },
   optionActive: { backgroundColor: colors.hover },
   optionLabel: { display: 'flex', flexDirection: 'column', gap: 2 },
-  optionDescription: { color: surface.secondaryText, fontSize: 12 },
+  optionDescription: { color: surface.secondaryText, fontSize: typography.size12 },
   check: { color: surface.secondaryText, flexShrink: 0, marginTop: 2 },
 });
 

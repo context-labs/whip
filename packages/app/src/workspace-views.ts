@@ -14,7 +14,7 @@ export function reconcileWorkspaceViews(runtime: Pick<AppRuntime, 'acquireView'>
   for (const [key, entry] of leases) if (wanted.get(key)?.client !== entry.client) { entry.lease.release(); leases.delete(key); }
   const errors = new Map<string, string>();
   for (const [key, root] of wanted) if (!leases.has(key)) {
-    if (!root.client) { errors.set(key, 'This host is disconnected or unavailable. Connect it in Execution hosts.'); continue; }
+    if (!root.client) { errors.set(key, 'This host is disconnected or unavailable. Connect it in Settings → Servers.'); continue; }
     try { leases.set(key, { client: root.client, lease: runtime.acquireView(root.runtimeId, root.rootId) }); }
     catch (error) { errors.set(key, error instanceof Error ? error.message : String(error)); }
   }

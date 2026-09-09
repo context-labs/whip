@@ -1,0 +1,24 @@
+{
+  "observations": [
+    {
+      "contrast": true,
+      "renderedContrast": "more",
+      "motion": true,
+      "transition": "1e-05s"
+    },
+    {
+      "contrast": true,
+      "renderedContrast": "more",
+      "motion": false,
+      "transition": "0.1s"
+    },
+    {
+      "contrast": false,
+      "renderedContrast": "standard",
+      "motion": false,
+      "transition": "0.1s"
+    }
+  ],
+  "errors": [],
+  "zoom400": true
+}

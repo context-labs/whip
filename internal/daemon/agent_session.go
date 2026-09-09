@@ -118,11 +118,17 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	if emit := session.emit; emit != nil {
 		events.OnText = func(text string) { emit("stream.text", StreamEvent{Text: text}) }
 		events.OnThink = func(text string) { emit("stream.reasoning", StreamEvent{Text: text}) }
-		events.OnToolCall = func(id, name, args string) { emit("stream.tool.call", StreamEvent{ID: id, Name: name, Args: args}) }
-		events.OnToolStart = func(id, name, args string) { emit("stream.tool.started", StreamEvent{ID: id, Name: name, Args: args}) }
-		events.OnToolOutput = func(id, text string) { emit("stream.tool.output", StreamEvent{ID: id, Text: text}) }
+		events.OnToolCall = func(id, name, args string) {
+			emit("stream.tool.call", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID})
+		}
+		events.OnToolStart = func(id, name, args string) {
+			emit("stream.tool.started", StreamEvent{ID: id, Name: name, Args: args, TurnID: turnID})
+		}
+		events.OnToolOutput = func(id, text string) {
+			emit("stream.tool.output", StreamEvent{ID: id, Text: text, TurnID: turnID})
+		}
 		events.OnToolEnd = func(id, name, result string) {
-			emit("stream.tool.completed", StreamEvent{ID: id, Name: name, Result: result})
+			emit("stream.tool.completed", StreamEvent{ID: id, Name: name, Result: result, TurnID: turnID})
 		}
 		events.OnCompactStart = func(_, _ int) { emit("stream.notice", StreamEvent{Text: "compacting context…"}) }
 		events.OnRetry = func(event llm.RetryEvent) {
@@ -477,11 +483,13 @@ func (session *AgentSession) ContextAudit() ContextAuditResult {
 // boundary as ordinary turns. It is intentionally private so no second model
 // execution adapter can grow beside AgentSession.
 func (session *AgentSession) complete(ctx context.Context, prompt string, maxTokens int) (string, llm.Usage, error) {
+	explicitOutputLimit := maxTokens > 0
 	if maxTokens <= 0 {
 		maxTokens = session.agent.MaxTokens
 	}
 	request := llm.Request{
-		Model: session.agent.Model, MaxTokens: maxTokens,
+		OutputLimitExplicit: explicitOutputLimit,
+		Model:               session.agent.Model, MaxTokens: maxTokens,
 		Messages: []llm.Message{{Role: "user", Content: prompt}},
 	}
 	request.Accounting = session.agent.CallAccounting("helper")

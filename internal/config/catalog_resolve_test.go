@@ -10,7 +10,7 @@ import (
 func catalogFixture(t *testing.T, prov string, models ...ModelInfoLite) {
 	t.Helper()
 	t.Setenv("WHIP_HOME", t.TempDir())
-	if err := SaveCatalogs(map[string]Catalog{prov: {Models: models}}); err != nil {
+	if err := SaveCatalogs(map[string]Catalog{prov: {BaseURL: "https://" + prov, Models: models}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -88,8 +88,8 @@ func TestResolveCatalogFallbackVision(t *testing.T) {
 func TestResolveCatalogFallbackAmbiguous(t *testing.T) {
 	t.Setenv("WHIP_HOME", t.TempDir())
 	if err := SaveCatalogs(map[string]Catalog{
-		"alpha": {Models: []ModelInfoLite{{ID: "shared-model", ContextLength: 1000}}},
-		"beta":  {Models: []ModelInfoLite{{ID: "shared-model", ContextLength: 2000}}},
+		"alpha": {BaseURL: "https://alpha", Models: []ModelInfoLite{{ID: "shared-model", ContextLength: 1000}}},
+		"beta":  {BaseURL: "https://beta", Models: []ModelInfoLite{{ID: "shared-model", ContextLength: 2000}}},
 	}); err != nil {
 		t.Fatal(err)
 	}

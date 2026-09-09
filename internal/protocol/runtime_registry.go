@@ -53,7 +53,7 @@ var runtimeOperations = []Operation{
 	action[AgentInputParams, AgentSubmitResult]("agent.submit", Command, "agent-admission", false),
 	action[AgentCancelParams, Empty]("agent.turn.cancel", Command, "target-turn", false),
 	action[QuestionAnswerParams, Empty]("question.answer", Command, "pending-question", false),
-	action[EmptyParams, ProviderCatalogsResult]("provider.catalogs", Query, "host-runtime", false),
+	action[ProviderCatalogParams, ProviderCatalogsResult]("provider.catalogs", Query, "host-runtime", false),
 	action[IDParams, Empty]("agent.control", Command, "agent-authority", false),
 	action[IDParams, Empty]("agent.delete", Command, "agent-authority", false),
 	action[BudgetCapParams, session.BudgetState]("budget.cap", Command, "budget-authority", false),

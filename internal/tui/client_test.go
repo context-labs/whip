@@ -221,6 +221,44 @@ func TestAuthenticationRefreshesDaemonCatalogsBeforeReload(t *testing.T) {
 	}
 }
 
+func TestCatalogRefreshEchoOnlyWhenExplicit(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	catalogsResult := daemon.CommandResult{Status: "succeeded", Output: `{"catalogs":{"anthropic":{}}}`}
+
+	// Background refresh (startup, auth): no "refreshed" echo, flag untouched.
+	m, _ := liveQueueModel(t)
+	m.busy = false
+	m.cfg = config.Default()
+	next, _ := m.Update(clientCommandMsg{action: Action{Operation: "provider.catalogs"}, result: catalogsResult})
+	m = next.(*model)
+	for _, blk := range m.blocks {
+		if strings.Contains(blk.text, "refreshed") {
+			t.Fatalf("background refresh echoed: %q", blk.text)
+		}
+	}
+
+	// Explicit /model refresh: echoes once, then the flag resets.
+	next, _ = m.thinCommand("/model refresh")
+	m = next.(*model)
+	if !m.verboseCatalogs {
+		t.Fatal("explicit refresh did not arm the echo")
+	}
+	next, _ = m.Update(clientCommandMsg{action: Action{Operation: "provider.catalogs"}, result: catalogsResult})
+	m = next.(*model)
+	var echoes int
+	for _, blk := range m.blocks {
+		if strings.Contains(blk.text, "refreshed") {
+			echoes++
+		}
+	}
+	if echoes != 1 {
+		t.Fatalf("explicit refresh echoes=%d", echoes)
+	}
+	if m.verboseCatalogs {
+		t.Fatal("echo flag did not reset after the refresh result")
+	}
+}
+
 func TestClientSnapshotEventsAndStableActions(t *testing.T) {
 	snapshot := session.RootSnapshot{
 		RootID: "root", Cursor: 2, Meta: session.Meta{ID: "root", Model: "m", Provider: "p"},

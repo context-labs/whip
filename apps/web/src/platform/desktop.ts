@@ -95,13 +95,33 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
   let notificationsEnabled = false;
   let update: AppUpdateSnapshot = Object.freeze({ state: 'idle' });
   const updateListeners = new Set<() => void>();
+  let systemContrast: boolean | undefined;
+  let contrastEventReceived = false;
+  const contrastListeners = new Set<() => void>();
+  const receiveContrast = (value: unknown) => {
+    if (disposed || typeof value !== 'boolean' || value === systemContrast) return;
+    systemContrast = value;
+    for (const listener of contrastListeners) listener();
+  };
+  void bridge.getSystemContrast().then(value => { if (!contrastEventReceived) receiveContrast(value); }).catch(() => {
+    // Browser media queries remain available if this optional OS read fails.
+  });
   const unsubscribeUpdates = bridge.onEvent(event => {
-    if (disposed || event.kind !== 'update') return;
+    if (disposed) return;
+    if (event.kind === 'system-contrast') {
+      if (typeof event.highContrast === 'boolean') { contrastEventReceived = true; receiveContrast(event.highContrast); }
+      return;
+    }
+    if (event.kind !== 'update') return;
     if (event.state === update.state && event.version === update.version && event.error === update.error) return;
     update = Object.freeze({ state: event.state, ...(event.version ? { version: event.version } : {}), ...(event.error ? { error: event.error } : {}) });
     for (const listener of updateListeners) listener();
   });
   return {
+    systemContrast: {
+      getSnapshot: () => systemContrast,
+      subscribe(listener) { contrastListeners.add(listener); return () => { contrastListeners.delete(listener); }; },
+    },
     storage: browserStorage(() => window.localStorage, unavailable),
     windowStorage: browserStorage(() => window.localStorage, unavailable, 'whip.desktop.window.main.'),
     ...(bridge.chrome === 'inset' ? { chrome: 'inset' as const } : {}),
@@ -200,7 +220,7 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
     dispose() {
       if (disposed) return;
       if (notificationsEnabled) bridge.setNotificationsEnabled(false);
-      disposed = true; unsubscribeUpdates(); updateListeners.clear();
+      disposed = true; unsubscribeUpdates(); updateListeners.clear(); contrastListeners.clear();
       prepared.clear();
     },
     async download(bytes, filename, mediaType) {

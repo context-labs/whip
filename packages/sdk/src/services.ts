@@ -1,4 +1,4 @@
-import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type PermissionDecision, type PermissionDecisionResult, type ProviderKeySetup, type ProviderValidateParams } from '@whip/protocol';
+import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type PermissionDecision, type PermissionDecisionResult, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderValidateParams } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
 import { WhipError } from './errors.js';
@@ -71,14 +71,21 @@ export class Configuration {
 }
 export class Providers {
   constructor(private readonly client: WhipClient) {}
-  catalogs(options: CallOptions = {}) { return this.client.query('provider.catalogs', {}, options); }
+  list(options: CallOptions = {}) { return this.client.call('provider.list', {}, options); }
+  disconnect(params: ProviderDisconnectParams, options: CallOptions = {}) { return this.client.call('provider.disconnect', params, options); }
+  catalogs({ refresh, ...options }: CallOptions & { refresh?: boolean } = {}) {
+    return this.client.query('provider.catalogs', refresh ? { refresh } : {}, options);
+  }
   status(name: string, options: CallOptions = {}) { return this.client.call('provider.status', { provider: name }, options); }
   setKey(params: ProviderKeySetup, options: CallOptions = {}) { return this.client.call('provider.key.set', params, options); }
   validate(params: ProviderValidateParams, options: CallOptions = {}) { return this.client.call('provider.validate', params, options); }
   rotateKey(name: string, options: CallOptions = {}) { return this.client.call('provider.key.rotate', { provider: name }, options); }
   logout(name: string, options: CallOptions = {}) { return this.client.call('provider.logout', { provider: name }, options); }
   readonly login = {
-    begin: (options: CallOptions = {}) => this.client.call('provider.login.begin', {}, options),
+    begin: (options: CallOptions & ProviderLoginBeginParams = {}) => {
+      const { provider, ...callOptions } = options;
+      return this.client.call('provider.login.begin', provider ? { provider } : {}, callOptions);
+    },
     list: (options: CallOptions = {}) => this.client.call('provider.login.list', {}, options),
     status: (flowId: string, options: CallOptions = {}) => this.client.call('provider.login.status', { flow_id: flowId }, options),
     cancel: (flowId: string, options: CallOptions = {}) => this.client.call('provider.login.cancel', { flow_id: flowId }, options),

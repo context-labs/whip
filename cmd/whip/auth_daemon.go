@@ -11,6 +11,7 @@ type providerDaemon interface {
 	ReadConfiguration(context.Context) (daemon.RuntimeConfiguration, error)
 	SetProviderKey(context.Context, daemon.ProviderKeySetup) (daemon.RuntimeConfiguration, error)
 	BeginLogin(context.Context) (daemon.ProviderLoginStatus, error)
+	BeginProviderLogin(context.Context, string) (daemon.ProviderLoginStatus, error)
 	LoginStatus(context.Context, string) (daemon.ProviderLoginStatus, error)
 	SelectLoginTeam(context.Context, string, string) (daemon.ProviderLoginStatus, error)
 	SelectLoginProject(context.Context, string, string) (daemon.ProviderLoginStatus, error)

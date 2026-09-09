@@ -76,14 +76,14 @@ function SidebarDestinations({ onNavigate, onSearch, headerAction, inset }: { on
       <Link to="/" search={{}} onClick={onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Plus size={16} />New session</Link>
       <button onClick={() => onSearch()} {...stylex.props(styles.destination, styles.primaryDestination)}><Search size={16} />Search sessions</button>
       <button onClick={() => onSearch('archived')} {...stylex.props(styles.destination, styles.primaryDestination)}><Archive size={16} />Archived sessions</button>
-      <Link to="/settings" onClick={onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Settings2 size={16} />Settings</Link>
+      <Link id="whip-settings-link" to="/settings" onClick={onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Settings2 size={16} />Settings</Link>
     </nav>
   </>;
 }
 function SidebarFooter({ onConnect }: { onConnect(): void }) {
   return <div {...stylex.props(styles.footer)}>
-    <button {...stylex.props(styles.destination, layout.grow)} onClick={onConnect} aria-label="Manage execution hosts">
-      <Plug size={16} /><span {...stylex.props(layout.ellipsis, layout.grow)}>Execution hosts</span><ArrowUpRight size={13} />
+    <button {...stylex.props(styles.destination, layout.grow)} onClick={onConnect} aria-label="Manage servers">
+      <Plug size={16} /><span {...stylex.props(layout.ellipsis, layout.grow)}>Servers</span><ArrowUpRight size={13} />
     </button>
   </div>;
 }

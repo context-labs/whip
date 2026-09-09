@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
+
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 // providerCall waits for a connection but never retries an issued mutation.
@@ -45,8 +47,12 @@ func (c *Client) SetProviderKey(ctx context.Context, p ProviderKeySetup) (Runtim
 }
 
 func (c *Client) BeginLogin(ctx context.Context) (ProviderLoginStatus, error) {
+	return c.BeginProviderLogin(ctx, "")
+}
+
+func (c *Client) BeginProviderLogin(ctx context.Context, provider string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.Call(ctx, "provider.login.begin", struct{}{}, &result)
+	err := c.Call(ctx, "provider.login.begin", protocol.ProviderLoginBeginParams{Provider: provider}, &result)
 	return result, err
 }
 
@@ -99,8 +105,12 @@ func (c *RootClient) SetProviderKey(ctx context.Context, p ProviderKeySetup) (Ru
 }
 
 func (c *RootClient) BeginLogin(ctx context.Context) (ProviderLoginStatus, error) {
+	return c.BeginProviderLogin(ctx, "")
+}
+
+func (c *RootClient) BeginProviderLogin(ctx context.Context, provider string) (ProviderLoginStatus, error) {
 	var result ProviderLoginStatus
-	err := c.providerCall(ctx, "provider.login.begin", struct{}{}, &result)
+	err := c.providerCall(ctx, "provider.login.begin", protocol.ProviderLoginBeginParams{Provider: provider}, &result)
 	return result, err
 }
 

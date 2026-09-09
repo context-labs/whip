@@ -53,7 +53,7 @@ export function AgentTurnNotice({ agent, view, activeTurn }: { agent?: Agent; vi
 
 const styles = stylex.create({
   container: { width: '100%', maxWidth: 880, marginInline: 'auto', padding: { default: '12px 24px', [scale.phone]: '8px 12px' }, minWidth: 0, flexShrink: 0, maxHeight: '40dvh', overflowY: 'auto', overflowWrap: 'anywhere' },
-  body: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, overflowWrap: 'anywhere', fontSize: 13 },
-  meta: { color: surface.secondaryText, fontSize: 12 },
-  error: { margin: 0, fontFamily: typography.mono, fontSize: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
+  body: { minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4, overflowWrap: 'anywhere', fontSize: typography.size13 },
+  meta: { color: surface.secondaryText, fontSize: typography.size12 },
+  error: { margin: 0, fontFamily: typography.mono, fontSize: typography.codeSize, lineHeight: 1.6, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
 });

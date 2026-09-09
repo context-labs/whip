@@ -1,3 +1,4 @@
+import { typography } from '@whip/ui/tokens.stylex';
 import {
   useEffect,
   useLayoutEffect,
@@ -42,7 +43,7 @@ const styles = stylex.create({
     resize: 'none',
     minHeight: 40,
     maxHeight: 220,
-    fontSize: { default: 14, [scale.phone]: 16 },
+    fontSize: { default: typography.size14, [scale.phone]: typography.size16 },
     padding: 4,
     backgroundColor: { default: 'transparent', ':hover': 'transparent' },
     outline: { default: 'none', ':focus-visible': 'none' },
@@ -52,7 +53,7 @@ const styles = stylex.create({
   send: { borderRadius: '50%', width: { default: 32, [scale.touch]: 44 }, paddingInline: 0 },
   hint: {
     color: surface.secondaryText,
-    fontSize: 11,
+    fontSize: typography.size11,
     paddingTop: 8,
     textAlign: 'center',
   },

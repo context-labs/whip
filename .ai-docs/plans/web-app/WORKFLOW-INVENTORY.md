@@ -40,6 +40,8 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:provider.login.status` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
 | `rpc:provider.login.team.select` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
 | `rpc:provider.logout` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
+| `rpc:provider.list` | Web | Host-owned connection inventory, credential source, readiness, default route and configuration revision; no model fetch or secret-command execution. |
+| `rpc:provider.disconnect` | Web | Revision-checked removal of WHIP-owned credentials and durable disabling; keeps model aliases/defaults and external credentials intact. |
 | `rpc:provider.status` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
 | `rpc:provider.validate` | Web | Provider settings: validate an entered key without saving it. The normal key-setup service already validates before saving, avoiding duplicate requests. |
 | `rpc:query` | Internal | SDK command/query/ephemeral engine; application command notices, recovery, and typed service calls. |

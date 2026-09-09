@@ -6,6 +6,7 @@ import type { DragDropEventHandlers } from '@dnd-kit/react';
 import { isSortable } from '@dnd-kit/react/sortable';
 import type { DragDropManager } from '@dnd-kit/dom';
 import type { WorkspaceDrop } from './workspace-layout';
+import { prefersReducedMotion } from './appearance-data';
 import { styles } from './workspace-tabs.stylex';
 
 export type Point = { x: number; y: number };
@@ -76,7 +77,7 @@ export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: {
     const transform = `translateX(${x / zoom}px)`;
     element.style.transform = transform;
     const animation = element.animate([{ transform: from }, { transform }], {
-      duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 100, easing: 'ease-out',
+      duration: prefersReducedMotion() ? 0 : 100, easing: 'ease-out',
     });
     offsets.current.set(element, { x, animation });
   }
@@ -158,7 +159,7 @@ export function useWorkspaceTabDrag({ locate, onDrop, onPreview }: {
       const rect = destination.getBoundingClientRect();
       const zoom = element.getBoundingClientRect().width / element.offsetWidth || 1;
       const animation = element.animate([{ transform: element.style.transform }, { transform: `translate(${rect.left / zoom}px, ${rect.top / zoom}px)` }], {
-        duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 100, easing: 'ease-out', fill: 'forwards',
+        duration: prefersReducedMotion() ? 0 : 100, easing: 'ease-out', fill: 'forwards',
       });
       settling.current = animation;
       void animation.finished.catch(() => {}).then(() => {

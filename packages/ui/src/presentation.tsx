@@ -46,7 +46,7 @@ export function Stack({xstyle, ...props}: ComponentPropsWithRef<'div'> & Styled)
 export function Row({xstyle, ...props}: ComponentPropsWithRef<'div'> & Styled) {return <div {...mergeProps(stylex.props(styles.row, xstyle), props)}/>;}
 export function Panel({xstyle, ...props}: ComponentPropsWithRef<'section'> & Styled) {return <section {...mergeProps(stylex.props(styles.panel, xstyle), props)}/>;}
 export function ScrollArea({xstyle, ...props}: ComponentPropsWithRef<'div'> & Styled) {return <div tabIndex={0} {...mergeProps(stylex.props(styles.scroll, xstyle), props)}/>;}
-export function SettingsRow({label, description, children}: {label: ReactNode; description?: ReactNode; children: ReactNode}) {return <div {...stylex.props(styles.settingsRow)}><div {...stylex.props(styles.grow)}><div {...stylex.props(styles.label)}>{label}</div>{description && <p {...stylex.props(styles.description)}>{description}</p>}</div>{children}</div>;}
+export function SettingsRow({label, description, children, xstyle}: {label: ReactNode; description?: ReactNode; children: ReactNode} & Styled) {return <div {...stylex.props(styles.settingsRow, xstyle)}><div {...stylex.props(styles.grow)}><div {...stylex.props(styles.label)}>{label}</div>{description && <p {...stylex.props(styles.description)}>{description}</p>}</div>{children}</div>;}
 export function Breadcrumbs({children, label = 'Location'}: {children: ReactNode; label?: string}) {return <nav aria-label={label} {...stylex.props(styles.row)}>{children}</nav>;}
 /**
  * The Whipcode wordmark (source: whipcode-wordmark.svg, viewBox 2008x395).

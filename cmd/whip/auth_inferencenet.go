@@ -92,14 +92,18 @@ func inferenceNetBYOK(key string, envMode bool) error {
 }
 
 func inferenceNetDeviceLogin() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	return providerDeviceLogin(config.InferenceNetProvider, 10*time.Minute)
+}
+
+func providerDeviceLogin(provider string, lifetime time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), lifetime)
 	defer cancel()
 	client, err := connectProviderDaemon(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = client.Close() }()
-	status, err := client.BeginLogin(ctx)
+	status, err := client.BeginProviderLogin(ctx, provider)
 	if err != nil {
 		return err
 	}
@@ -134,7 +138,13 @@ func inferenceNetDeviceLogin() error {
 				status, err = client.CreateLoginProject(ctx, status.FlowID, name)
 			}
 		case "succeeded":
-			fmt.Printf("✓ Signed in as %s; project %s. Provider configured on the execution host.\n", status.Email, status.ProjectID)
+			fmt.Printf("✓ Signed in as %s. Provider configured on the execution host.\n", status.Email)
+			if status.Error != "" {
+				fmt.Fprintln(os.Stderr, status.Error)
+			}
+			if status.ProjectID != "" {
+				fmt.Println("  Project " + status.ProjectID)
+			}
 			return nil
 		case "failed", "interrupted", "expired", "cancelled":
 			return fmt.Errorf("provider login %s: %s", status.State, status.Error)

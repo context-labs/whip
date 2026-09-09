@@ -24,6 +24,7 @@ import (
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
@@ -90,6 +91,8 @@ func runDaemon(ctx context.Context, args []string) error {
 		return err
 	}
 	limits := rlmLimits(cfg.RLM)
+	providers := daemon.NewProviderService(ctx, strconv.FormatInt(generation, 10))
+	defer providers.Close()
 	kernels := rlm.NewManager(limits.MaxWorkers)
 	defer kernels.Close()
 	factory := func(_ context.Context, meta session.Meta, history []llm.Message) (daemon.Components, error) {
@@ -107,7 +110,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		default:
 			return daemon.Components{}, fmt.Errorf("unsupported session kind %q", meta.Kind)
 		}
-		route, model, err := resolveRuntimeModel(runtimeCfg, meta.Model, meta.Provider)
+		route, model, err := resolveRuntimeModel(runtimeCfg, meta.Model, meta.Provider, providers)
 		if err != nil {
 			return daemon.Components{}, err
 		}
@@ -126,20 +129,20 @@ func runDaemon(ctx context.Context, args []string) error {
 			})
 		}
 		ag.Vision = route.Vision
-		ag.Effort = resolvedRuntimeEffort(config.LoadCatalogs(), route.Provider, route.Model, meta.Effort, runtimeCfg.DefaultEffort)
+		ag.Effort = resolvedRuntimeEffort(providers.Catalogs(), route.Provider, route.Model, meta.Effort, runtimeCfg.DefaultEffort)
 		ag.ResolveModel = func(model, provider string) (agent.ModelRoute, error) {
 			currentCfg, loadErr := config.Load()
 			if loadErr != nil {
 				return agent.ModelRoute{}, loadErr
 			}
-			resolved, _, resolveErr := resolveRuntimeModel(currentCfg, model, provider)
+			resolved, _, resolveErr := resolveRuntimeModel(currentCfg, model, provider, providers)
 			return resolved, resolveErr
 		}
 		compactName := runtimeCfg.CompactModel
 		if compactName == "" {
 			compactName = config.DefaultCompactModel
 		}
-		if compact, _, resolveErr := resolveRuntimeModel(runtimeCfg, compactName, runtimeCfg.CompactProvider); resolveErr == nil {
+		if compact, _, resolveErr := resolveRuntimeModel(runtimeCfg, compactName, runtimeCfg.CompactProvider, providers); resolveErr == nil {
 			ag.CompactClient = compact.Client
 			ag.CompactModel, ag.CompactProvider = compact.Model, compact.Provider
 			ag.CompactPricing = compact.Pricing
@@ -174,7 +177,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		return components, nil
 	}
-	ownerDaemon, err := daemon.New(store, factory)
+	ownerDaemon, err := daemon.New(store, factory, providers)
 	if err != nil {
 		_ = store.Close()
 		return err
@@ -227,7 +230,7 @@ func runDaemon(ctx context.Context, args []string) error {
 // resolveRuntimeModel snapshots the actual endpoint and its catalog rates together.
 // All model purposes use this resolver so a default provider cannot accidentally
 // supply another endpoint's price or output limits.
-func resolveRuntimeModel(cfg *config.Config, modelName, providerName string) (agent.ModelRoute, config.Model, error) {
+func resolveRuntimeModel(cfg *config.Config, modelName, providerName string, services ...*daemon.ProviderService) (agent.ModelRoute, config.Model, error) {
 	if modelName == "" {
 		modelName = cfg.DefaultModel
 	}
@@ -235,23 +238,29 @@ func resolveRuntimeModel(cfg *config.Config, modelName, providerName string) (ag
 	if err != nil {
 		return agent.ModelRoute{}, config.Model{}, err
 	}
-	key, err := provider.ResolveKey()
+	var providers *daemon.ProviderService
+	if len(services) > 0 {
+		providers = services[0]
+	}
+	client, err := providers.ModelClient(provider)
 	if err != nil {
 		return agent.ModelRoute{}, config.Model{}, err
 	}
-	if key == "" {
-		return agent.ModelRoute{}, config.Model{}, fmt.Errorf("no API key for provider %q", providerName)
-	}
-	catalog := config.LoadCatalogs()[providerName]
+	catalog := providers.CatalogsFor(cfg)[providerName]
 	contextLimit, maxOutput := catalog.ModelLimits(apiID, model)
+	if provider.API == openaiauth.Provider {
+		maxOutput = llm.SubscriptionOutputLimit(apiID)
+		if maxOutput == 0 || (model.MaxOut > 0 && model.MaxOut < maxOutput) {
+			return agent.ModelRoute{}, config.Model{}, errors.New("ChatGPT subscription route requires a verified model limit and cannot enforce a smaller maxOut")
+		}
+	}
 	vision := model.Vision
 	if advertised, found := catalog.SupportsVision(apiID); found {
 		vision = advertised
 	}
-	client := llm.New(provider.BaseURL, key)
 	client.MaxRetries = cfg.MaxRetries
 	pricing := llm.Pricing{}
-	if strings.TrimRight(catalog.BaseURL, "/") == client.BaseURL {
+	if provider.API != openaiauth.Provider && strings.TrimRight(catalog.BaseURL, "/") == client.BaseURL {
 		pricing = catalog.ModelPricing(apiID)
 	}
 	return agent.ModelRoute{

@@ -10,7 +10,7 @@ let reportStorage: (() => void) | undefined;
 const unavailable = () => { storageUnavailable = true; reportStorage?.(); };
 const desktop = window.whipDesktop;
 try {
-  if ((location.protocol === 'whip-app:' || desktop) && desktop?.version !== 1)
+  if ((location.protocol === 'whip-app:' || desktop) && desktop?.version !== 2)
     throw new Error('The desktop host is unavailable or incompatible. Restart Whip or reinstall the application.');
   const platform = desktop ? createDesktopPlatform(desktop, unavailable) : createBrowserPlatform(unavailable);
   const application = mountApplication(platform, desktop);

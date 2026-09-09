@@ -13,6 +13,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferencenet"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
@@ -49,19 +50,23 @@ type providerLoginIdentity struct {
 // daemon shutdown. Provider failures are intentionally not returned verbatim:
 // upstream error bodies may contain credentials.
 type ProviderService struct {
-	provisionMu sync.Mutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	generation  string
-	mu          sync.Mutex
-	flows       map[string]*providerLoginFlow
-	wg          sync.WaitGroup
-	login       func(context.Context, func(string, string)) (providerLoginIdentity, error)
-	projects    func(context.Context, string, inferencenet.Team) ([]inferencenet.Project, error)
-	create      func(context.Context, string, inferencenet.Team, string) (inferencenet.Project, error)
-	finish      func(context.Context, inferencenet.Auth) error
-	validate    func(context.Context, string, string) ([]llm.ModelInfo, error)
-	lifetime    time.Duration
+	provisionMu   sync.Mutex
+	ctx           context.Context
+	cancel        context.CancelFunc
+	generation    string
+	mu            sync.Mutex
+	flows         map[string]*providerLoginFlow
+	wg            sync.WaitGroup
+	login         func(context.Context, func(string, string)) (providerLoginIdentity, error)
+	projects      func(context.Context, string, inferencenet.Team) ([]inferencenet.Project, error)
+	create        func(context.Context, string, inferencenet.Team, string) (inferencenet.Project, error)
+	finish        func(context.Context, inferencenet.Auth) error
+	validate      func(context.Context, string, string) ([]llm.ModelInfo, error)
+	lifetime      time.Duration
+	openAI        *openaiauth.Manager
+	openAIErr     error
+	openAILogin   func(context.Context, func(string, string)) (openaiauth.Credentials, error)
+	refreshModels func(context.Context, string, config.Provider) error
 }
 
 func NewProviderService(ctx context.Context, generation string) *ProviderService {
@@ -74,6 +79,13 @@ func NewProviderService(ctx context.Context, generation string) *ProviderService
 			return providerLoginIdentity{token: identity.Token, email: identity.Email, teams: identity.Teams}, err
 		},
 		finish: func(ctx context.Context, auth inferencenet.Auth) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			if err := inferenceNetLoginRoute(cfg); err != nil {
+				return err
+			}
 			if _, err := auth.EnsureMachineKey(ctx); err != nil {
 				return err
 			}
@@ -83,13 +95,38 @@ func NewProviderService(ctx context.Context, generation string) *ProviderService
 			if err := inferencenet.SaveAuth(auth); err != nil {
 				return err
 			}
-			_, _, err := config.UpdateVersioned("", func(c *config.Config) error { c.UpsertInferenceNet("", false); return nil })
-			return err
+			_, _, err = config.UpdateVersioned("", func(c *config.Config) error {
+				if err := inferenceNetLoginRoute(c); err != nil {
+					return err
+				}
+				c.UpsertInferenceNet("", false)
+				c.EnableProvider(config.InferenceNetProvider)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			return config.DeleteCatalog(config.InferenceNetProvider)
 		},
 		validate: func(ctx context.Context, baseURL, key string) ([]llm.ModelInfo, error) {
 			return llm.New(baseURL, key).Models(ctx)
 		},
 	}
+	directory, err := config.Dir()
+	if err != nil {
+		s.openAIErr = errors.New("could not locate OpenAI credential directory on the execution host")
+	} else {
+		s.openAI = openaiauth.New(ctx, directory)
+		s.openAILogin = func(ctx context.Context, onCode func(string, string)) (openaiauth.Credentials, error) {
+			code, err := s.openAI.StartDevice(ctx)
+			if err != nil {
+				return openaiauth.Credentials{}, err
+			}
+			onCode(code.VerificationURL, code.UserCode)
+			return s.openAI.CompleteDevice(ctx, code)
+		}
+	}
+	s.refreshModels = s.refreshCatalog
 	return s
 }
 
@@ -105,6 +142,9 @@ func (s *ProviderService) Close() {
 	}
 	s.mu.Unlock()
 	s.wg.Wait()
+	if s.openAI != nil {
+		s.openAI.Close()
+	}
 }
 
 func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguration {
@@ -118,9 +158,11 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 			codex = *c.MCPImport.Codex.Enabled
 		}
 	}
+	disabled := append([]string{}, c.DisabledProviders...)
 	return RuntimeConfiguration{
-		RemoteHosts:  &hosts,
-		ImportClaude: claude, ImportCodex: codex, Revision: revision, DefaultModel: c.DefaultModel,
+		DisabledProviders: &disabled,
+		RemoteHosts:       &hosts,
+		ImportClaude:      claude, ImportCodex: codex, Revision: revision, DefaultModel: c.DefaultModel,
 		DefaultProvider: c.DefaultProvider, DefaultEffort: c.DefaultEffort,
 		CompactModel: c.CompactModel, CompactProvider: c.CompactProvider, CompactPercent: c.CompactPct,
 		GoalMaxRounds: c.GoalMaxRounds, MaxRetries: c.MaxRetries,
@@ -139,7 +181,24 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 	if p.Revision == "" {
 		return RuntimeConfiguration{}, errors.New("configuration revision is required")
 	}
+	if p.DisabledProviders != nil {
+		s.provisionMu.Lock()
+		defer s.provisionMu.Unlock()
+	}
 	c, revision, err := config.UpdateVersioned(p.Revision, func(c *config.Config) error {
+		if p.DisabledProviders != nil {
+			if len(*p.DisabledProviders) > 128 {
+				return errors.New("too many disabled providers")
+			}
+			names := slices.Clone(*p.DisabledProviders)
+			for _, name := range names {
+				if name == "" || len(name) > 256 || strings.ContainsAny(name, "\x00\r\n") {
+					return errors.New("invalid provider ID")
+				}
+			}
+			slices.Sort(names)
+			c.DisabledProviders = slices.Compact(names)
+		}
 		if p.RemoteHosts != nil {
 			hosts, err := config.NormalizeRemoteHosts(*p.RemoteHosts)
 			if err != nil {
@@ -167,9 +226,6 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 			}
 		}
 
-		if p.DefaultEffort != nil && !slices.Contains([]string{"", "off", "low", "medium", "high", "xhigh", "max"}, *p.DefaultEffort) {
-			return errors.New("invalid default effort")
-		}
 		if p.CompactPercent != nil && (*p.CompactPercent < 0 || *p.CompactPercent > 100) {
 			return errors.New("invalid compaction percentage")
 		}
@@ -203,10 +259,20 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 		if p.MaxRetries != nil {
 			c.MaxRetries = *p.MaxRetries
 		}
+		if p.DefaultEffort != nil {
+			if err := validateConfiguredEffort(c, c.DefaultModel, c.DefaultProvider, *p.DefaultEffort); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
 		return RuntimeConfiguration{}, err
+	}
+	if p.DisabledProviders != nil {
+		for _, name := range c.DisabledProviders {
+			s.interruptProviderLogins(name)
+		}
 	}
 	return runtimeConfiguration(c, revision), nil
 }
@@ -215,16 +281,41 @@ func (s *ProviderService) SetProviderKey(ctx context.Context, p ProviderKeySetup
 	if p.Revision == "" {
 		return RuntimeConfiguration{}, errors.New("configuration revision is required")
 	}
-	c := config.Default()
-	switch p.Provider {
-	case "openrouter":
-		c.UpsertOpenRouter(config.TrimKey(p.Key), p.Environment)
-	case config.InferenceNetProvider:
-		c.UpsertInferenceNet(config.TrimKey(p.Key), p.Environment)
-	default:
-		return RuntimeConfiguration{}, errors.New("unsupported provider")
+	s.provisionMu.Lock()
+	defer s.provisionMu.Unlock()
+	c, revision, err := config.ReadVersioned()
+	if err != nil {
+		return RuntimeConfiguration{}, err
 	}
-	provider := c.Providers[p.Provider]
+	if revision != p.Revision {
+		return RuntimeConfiguration{}, config.ErrRevisionConflict
+	}
+	provider, ok := c.Providers[p.Provider]
+	for _, preset := range config.ProviderPresets() {
+		if preset.ID != p.Provider {
+			continue
+		}
+		if !ok {
+			provider, ok = preset.Provider, true
+		}
+		if p.Environment && provider.APIKeyEnv == "" && strings.TrimRight(provider.BaseURL, "/") == preset.Provider.BaseURL {
+			provider.APIKeyEnv = preset.Provider.APIKeyEnv
+		}
+	}
+	if !ok || (provider.API != "" && provider.API != "openai-completions") {
+		return RuntimeConfiguration{}, errors.New("provider does not support API key setup")
+	}
+	if p.Environment {
+		if provider.APIKeyEnv == "" {
+			return RuntimeConfiguration{}, errors.New("no environment variable configured for this provider")
+		}
+		provider.APIKey = ""
+	} else {
+		provider.APIKey, provider.APIKeyEnv = config.TrimKey(p.Key), ""
+		if provider.APIKey == "" {
+			return RuntimeConfiguration{}, errors.New("API key is required")
+		}
+	}
 	key, err := provider.ResolveKey()
 	if err != nil || key == "" {
 		return RuntimeConfiguration{}, errors.New("provider key is unavailable on the execution host")
@@ -238,16 +329,18 @@ func (s *ProviderService) SetProviderKey(ctx context.Context, p ProviderKeySetup
 	if err := ctx.Err(); err != nil {
 		return RuntimeConfiguration{}, err
 	}
-	c, revision, err := config.UpdateVersioned(p.Revision, func(c *config.Config) error {
+	c, revision, err = config.UpdateVersioned(p.Revision, func(c *config.Config) error {
 		if c.Providers == nil {
 			c.Providers = make(map[string]config.Provider)
 		}
 		c.Providers[p.Provider] = provider
+		c.EnableProvider(p.Provider)
 		return nil
 	})
 	if err != nil {
 		return RuntimeConfiguration{}, err
 	}
+	s.interruptProviderLogins(p.Provider)
 	cacheProviderModels(p.Provider, provider.BaseURL, models)
 	return runtimeConfiguration(c, revision), nil
 }
@@ -264,6 +357,37 @@ func loginSnapshot(flow *providerLoginFlow) ProviderLoginStatus {
 }
 
 func (s *ProviderService) BeginLogin() (ProviderLoginStatus, error) {
+	return s.BeginProviderLogin(config.InferenceNetProvider)
+}
+
+func (s *ProviderService) BeginProviderLogin(provider string) (ProviderLoginStatus, error) {
+	if provider == "" {
+		provider = config.InferenceNetProvider
+	}
+	if provider != config.InferenceNetProvider && provider != openaiauth.Provider {
+		return ProviderLoginStatus{}, errors.New("provider does not support account login")
+	}
+	if provider == config.InferenceNetProvider {
+		cfg, err := config.Load()
+		if err != nil {
+			return ProviderLoginStatus{}, err
+		}
+		if err := inferenceNetLoginRoute(cfg); err != nil {
+			return ProviderLoginStatus{}, err
+		}
+	}
+	if provider == openaiauth.Provider {
+		if s.openAIErr != nil {
+			return ProviderLoginStatus{}, s.openAIErr
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return ProviderLoginStatus{}, err
+		}
+		if err := cfg.UpsertOpenAICodex(); err != nil {
+			return ProviderLoginStatus{}, err
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ctx.Err(); err != nil {
@@ -272,6 +396,9 @@ func (s *ProviderService) BeginLogin() (ProviderLoginStatus, error) {
 	active := 0
 	for id, flow := range s.flows {
 		if loginActive(flow.status.State) {
+			if provider == openaiauth.Provider && flow.status.Provider == provider {
+				return loginSnapshot(flow), nil
+			}
 			active++
 		} else if time.Now().After(flow.status.ExpiresAt) {
 			delete(s.flows, id)
@@ -285,9 +412,14 @@ func (s *ProviderService) BeginLogin() (ProviderLoginStatus, error) {
 		return ProviderLoginStatus{}, err
 	}
 	id := s.generation + ":" + hex.EncodeToString(random[:])
-	ctx, cancel := context.WithTimeout(s.ctx, s.lifetime)
+	lifetime := s.lifetime
+	if provider == openaiauth.Provider {
+		lifetime = openaiauth.DeviceLifetime
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, lifetime)
 	flow := &providerLoginFlow{ctx: ctx, cancel: cancel, status: ProviderLoginStatus{
-		FlowID: id, State: "authorizing", Teams: []ProviderChoice{}, Projects: []ProviderChoice{}, ExpiresAt: time.Now().Add(s.lifetime),
+		FlowID: id, Provider: provider, State: "authorizing", Teams: []ProviderChoice{}, Projects: []ProviderChoice{},
+		ExpiresAt: time.Now().Add(lifetime),
 	}}
 	s.flows[id] = flow
 	s.wg.Add(2)
@@ -307,6 +439,10 @@ func (s *ProviderService) BeginLogin() (ProviderLoginStatus, error) {
 	}()
 	go func() {
 		defer s.wg.Done()
+		if provider == openaiauth.Provider {
+			s.loginOpenAI(flow)
+			return
+		}
 		identity, err := s.login(ctx, func(url, code string) {
 			s.mu.Lock()
 			defer s.mu.Unlock()

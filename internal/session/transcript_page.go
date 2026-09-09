@@ -90,7 +90,9 @@ func (s *Store) ReadTranscriptPage(ctx context.Context, rootID, agentID string, 
 	// Fetch metadata first, then one candidate body at a time. Oversized bodies
 	// are fetched only when creating their authorized content handle.
 	//nolint:gosec // Source and direction are fixed SQL fragments; all caller values are bound parameters.
-	rows, err := tx.QueryContext(ctx, `SELECT seq,length(CAST(content AS BLOB)) FROM `+source+direction, queryArgs...)
+	// Model continuation stays in durable storage. Strip it before measuring
+	// public frames or creating downloadable transcript content references.
+	rows, err := tx.QueryContext(ctx, `SELECT seq,length(CAST(json_remove(content,'$.continuation') AS BLOB)) FROM `+source+direction, queryArgs...)
 	if err != nil {
 		return page, err
 	}
@@ -120,7 +122,7 @@ func (s *Store) ReadTranscriptPage(ctx context.Context, rootID, agentID string, 
 		}
 		item := TranscriptPageEntry{Seq: entry.seq}
 		if entry.size <= opts.MaxBytes {
-			if err := tx.QueryRowContext(ctx, `SELECT content FROM `+source+` AND seq=?`, append(slices.Clone(args), entry.seq)...).Scan(&entry.data); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT json_remove(content,'$.continuation') FROM `+source+` AND seq=?`, append(slices.Clone(args), entry.seq)...).Scan(&entry.data); err != nil {
 				return page, err
 			}
 			var message llm.Message
@@ -145,7 +147,7 @@ func (s *Store) ReadTranscriptPage(ctx context.Context, rootID, agentID string, 
 				break
 			}
 			if entry.size > opts.MaxBytes {
-				if err := tx.QueryRowContext(ctx, `SELECT content FROM `+source+` AND seq=?`, append(slices.Clone(args), entry.seq)...).Scan(&entry.data); err != nil {
+				if err := tx.QueryRowContext(ctx, `SELECT json_remove(content,'$.continuation') FROM `+source+` AND seq=?`, append(slices.Clone(args), entry.seq)...).Scan(&entry.data); err != nil {
 					return page, err
 				}
 			}

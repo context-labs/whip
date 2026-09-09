@@ -33,15 +33,17 @@ import (
 // execution host must have the variable exported before its daemon starts.
 func authCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New(buildinfo.Text("usage: whip auth <provider> [<args>]\n  providers: inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>]"))
+		return errors.New(buildinfo.Text("usage: whip auth <provider> [<args>]\n  providers: openai-codex (login | status | logout), inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>]"))
 	}
 	switch args[0] {
 	case "inference-net", "inference":
 		return authInferenceNetCLI(args[1:])
 	case "openrouter":
 		return authOpenRouterCLI(args[1:])
+	case "openai-codex":
+		return authOpenAICLI(args[1:])
 	default:
-		return fmt.Errorf("unknown provider %q (supported: inference-net, openrouter)", args[0])
+		return fmt.Errorf("unknown provider %q (supported: inference-net, openrouter, openai-codex)", args[0])
 	}
 }
 

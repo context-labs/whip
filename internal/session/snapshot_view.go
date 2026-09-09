@@ -35,7 +35,7 @@ func (s *RootSnapshot) collectionLimit() int {
 
 func readSnapshotRecentMessages(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
 	budget := snapshot.view.MaxBytes / 2
-	rows, err := tx.QueryContext(ctx, `SELECT seq,length(CAST(content AS BLOB)),substr(CAST(content AS BLOB),1,?) FROM messages WHERE session_id=? ORDER BY seq DESC LIMIT ?`, budget, rootID, snapshot.view.RecentMessages+1)
+	rows, err := tx.QueryContext(ctx, `SELECT seq,length(CAST(body AS BLOB)),substr(CAST(body AS BLOB),1,?) FROM (SELECT seq,json_remove(content,'$.continuation') AS body FROM messages WHERE session_id=? ORDER BY seq DESC LIMIT ?)`, budget, rootID, snapshot.view.RecentMessages+1)
 	if err != nil {
 		return err
 	}
@@ -70,7 +70,10 @@ func (s *Store) readBoundedPresentation(ctx context.Context, tx *sql.Tx, rootID 
 	// Read a bounded suffix. Any missing prefix is explicitly unavailable; the
 	// durable transcript remains independently pageable.
 	limit := snapshot.view.CollectionLimit
-	rows, err := tx.QueryContext(ctx, `SELECT seq,kind,substr(payload_inline,1,?),length(payload_inline),COALESCE(payload_ref,'') FROM (SELECT seq,kind,payload_inline,payload_ref FROM events WHERE root_id=? ORDER BY seq DESC LIMIT ?) ORDER BY seq`, snapshot.view.MaxBytes/4, rootID, limit+1)
+	rows, err := tx.QueryContext(ctx, `SELECT seq,kind,substr(payload_inline,1,?),length(payload_inline),COALESCE(payload_ref,'') FROM (
+		SELECT seq,kind,payload_inline,payload_ref FROM events WHERE root_id=?
+		AND ((kind LIKE 'stream.%' AND kind NOT IN ('stream.accounting','stream.usage')) OR kind LIKE 'turn.%' OR kind LIKE 'agent.turn.%')
+		ORDER BY seq DESC LIMIT ?) ORDER BY seq`, snapshot.view.MaxBytes/4, rootID, limit+1)
 	if err != nil {
 		return err
 	}

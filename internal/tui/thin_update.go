@@ -171,16 +171,22 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				if result.Providers != nil {
 					m.cfg.Providers = make(map[string]config.Provider, len(result.Providers))
 					for name, provider := range result.Providers {
+						if provider.Available != nil && !*provider.Available {
+							continue
+						}
 						m.cfg.Providers[name] = config.Provider{BaseURL: provider.BaseURL}
 					}
 				}
 				m.updateCatalogs(result.Catalogs)
 				m.applyClientRoute(m.modelName, m.provName)
-				m.append(dimStyle.Render(fmt.Sprintf("✓ refreshed %d provider catalog(s)", len(result.Catalogs))))
+				if m.verboseCatalogs {
+					m.append(dimStyle.Render(fmt.Sprintf("✓ refreshed %d provider catalog(s)", len(result.Catalogs))))
+				}
 				for provider, message := range result.Errors {
 					m.append(errStyle.Render(provider + ": " + message))
 				}
 			}
+			m.verboseCatalogs = false
 			if m.reloadAfterCatalogs {
 				m.reloadAfterCatalogs = false
 				return m.submitClientAction("session.reload", map[string]string{}, "")
@@ -188,6 +194,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.action.Operation == "provider.catalogs" && !succeeded {
+			m.verboseCatalogs = false
 			m.reloadAfterCatalogs = false
 		}
 		if succeeded && msg.action.Operation == "agent.submit" {

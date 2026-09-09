@@ -1,11 +1,11 @@
 {
-  "recordedAt": "2026-09-08T05:00:34.242Z",
+  "recordedAt": "2026-09-09T05:23:38.286Z",
   "purpose": "Scheme/CSP/storage/renderer feasibility, not a release startup benchmark",
   "electron": "44.2.0",
   "os": "25.3.0",
   "cpu": "Apple M4 Max",
-  "rendererDigest": "77e39cd6d6040ea5f6f59c3607c811c26c3ca13f50c7df8dee6968003d2e1d60",
-  "observedLaunchToHeadingMs": 2441.86875,
+  "rendererDigest": "cc61011f5e221de52e5de370df082857405f84c5db1d537c7616e9b3d64d7158",
+  "observedLaunchToHeadingMs": 862.4078340000001,
   "browser": {
     "origin": "whip-app://bundle",
     "secure": true,
@@ -15,7 +15,7 @@
     "fonts": "loaded",
     "stylesheets": 1,
     "background": "rgba(0, 0, 0, 0)",
-    "readyMark": 266
+    "readyMark": 272.5
   },
   "observations": [
     {

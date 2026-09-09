@@ -1,7 +1,10 @@
 import {
   isValidElement,
   memo,
+  useEffect,
+  useMemo,
   useState,
+  useSyncExternalStore,
   type ComponentPropsWithoutRef,
 } from 'react';
 import { Markdown } from '@tanstack/markdown/react';
@@ -22,10 +25,13 @@ import {
   markdown,
   surface,
   scale,
+  appearance,
 } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
 import { ReadingList } from './reading-list';
+import { ActivityGroupRow } from './chat-activity';
+import { isActivityGroup, responseCopies, type ConversationActivityRow } from './chat-activity-rows';
 import { conversationRows, messagePresentation, type ImagePart, type TimelineRow } from './conversation-rows';
 export { conversationRows, messagePresentation, timelineRows, type TimelineRow } from './conversation-rows';
 import {
@@ -91,17 +97,18 @@ export function executionCode(args: string): string {
 
 const styles = stylex.create({
   article: {
-    paddingBlock: 14,
+    position: 'relative',
+    paddingBlock: 8,
     overflowWrap: 'anywhere',
-    fontSize: 14,
+    fontSize: typography.size14,
     lineHeight: 1.65,
     color: colors.foreground,
   },
+  authored: { paddingBottom: { default: 28, '@media (pointer: coarse)': 48 } },
   user: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-end',
-    marginBottom: 8,
   },
   bubble: {
     maxWidth: { default: '80%', [scale.phone]: '94%' },
@@ -113,26 +120,30 @@ const styles = stylex.create({
     color: colors.foreground,
   },
   actions: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 8,
-    minHeight: { default: 32, [scale.touch]: 44 },
-    marginTop: 4,
-    fontSize: 12,
+    minHeight: { default: 28, '@media (pointer: coarse)': 44 },
+    pointerEvents: { default: 'none', [stylex.when.ancestor(':hover', messageMarker)]: 'auto', [stylex.when.ancestor(':focus-within', messageMarker)]: 'auto', '@media (pointer: coarse)': 'auto' },
+    fontSize: typography.size12,
     color: surface.secondaryText,
     opacity: {
       default: 0,
       [stylex.when.ancestor(':hover', messageMarker)]: 1,
       [stylex.when.ancestor(':focus-within', messageMarker)]: 1,
       [stylex.when.ancestor(':has([aria-expanded="true"])', messageMarker)]: 1,
-      [scale.touch]: 1,
+      '@media (pointer: coarse)': 1,
     },
   },
-  responseActions: { justifyContent: 'flex-start', marginTop: 8 },
-  delivery: { fontSize: 12, color: surface.secondaryText, marginTop: 4 },
+  responseActions: { display: 'flex', alignItems: 'center', paddingBlock: '2px 12px', color: surface.secondaryText },
+  actionButton: { width: { default: 28, '@media (pointer: coarse)': 44 }, minHeight: { default: 28, '@media (pointer: coarse)': 44 }, padding: 0 },
+  delivery: { fontSize: typography.size12, color: surface.secondaryText, marginTop: 4 },
   byline: {
-    fontSize: 12,
+    fontSize: typography.size12,
     fontWeight: 550,
     marginBottom: 8,
     color: surface.secondaryText,
@@ -141,20 +152,21 @@ const styles = stylex.create({
     gap: 8,
   },
   disclosure: {
-    fontSize: 12,
+    fontSize: typography.size12,
     lineHeight: 1.65,
     color: surface.secondaryText,
-    borderRadius: 8,
-    backgroundColor: colors.panel,
-    padding: 12,
+    paddingBlock: 6,
   },
+  toolPreview: { flexBasis: '100%', fontFamily: typography.mono, fontSize: typography.codeSize, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '5em', overflow: 'hidden', paddingLeft: 21 },
   summary: {
+    flexWrap: 'wrap',
     display: 'flex',
     alignItems: 'center',
     gap: 8,
     cursor: 'pointer',
     listStyle: 'none',
     minHeight: 24,
+    borderRadius: 6,
   },
   image: {
     maxWidth: '100%',
@@ -166,7 +178,7 @@ const styles = stylex.create({
   details: { marginTop: 12, maxHeight: 480, overflow: 'auto' },
   p: { marginTop: 0, marginBottom: { default: 12, ':last-child': 0 } },
   heading: {
-    fontSize: 18,
+    fontSize: typography.size18,
     fontWeight: 560,
     color: markdown.heading,
     marginBlock: '18px 10px',
@@ -181,13 +193,14 @@ const styles = stylex.create({
   },
   codeBlock: {
     fontFamily: typography.mono,
-    fontSize: 12,
+    fontSize: typography.codeSize,
     padding: 16,
     backgroundColor: colors.element,
     overflow: 'auto',
     borderRadius: 8,
     lineHeight: 1.65,
-    whiteSpace: 'pre',
+    whiteSpace: appearance.codeWhiteSpace,
+    overflowWrap: appearance.codeOverflowWrap,
     maxHeight: 560,
   },
   link: {
@@ -204,13 +217,13 @@ const styles = stylex.create({
     borderLeftColor: colors.border,
   },
   strong: { color: markdown.strong, fontWeight: 600 },
-  list: { paddingLeft: 24, marginBlock: '0 12px' },
+  list: { paddingLeft: 24, marginTop: 0, marginBottom: { default: 12, ':last-child': 0 } },
   table: {
     display: 'block',
     overflowX: 'auto',
     maxWidth: '100%',
     borderCollapse: 'collapse',
-    fontSize: 13,
+    fontSize: typography.size13,
     marginBlock: 12,
   },
   cell: {
@@ -305,14 +318,56 @@ export const Prose = memo(function Prose({
   live?: boolean;
 }) {
   return (
-    <Markdown
+    <div data-message-prose><Markdown
       components={markdownComponents}
       extensions={live ? streaming : undefined}
     >
       {text}
-    </Markdown>
+    </Markdown></div>
   );
 });
+
+function MessageDisclosure({ row, readBody }: { row: TimelineRow; readBody(row: TimelineRow): void }) {
+  const runtime = useRuntime();
+  const density = useSyncExternalStore(runtime.subscribe, () => runtime.getSnapshot().preferences.toolDensity);
+  const [disclosed, setDisclosed] = useState<{ id: string; open: boolean }>();
+  const open = disclosed?.id === row.id ? disclosed.open : row.role === 'tool' && density === 'detailed';
+  return (
+        <details open={open} {...stylex.props(styles.disclosure)}>
+          <summary onClick={event => { event.preventDefault(); setDisclosed({ id: row.id, open: !open }); }} {...stylex.props(styles.summary)}>
+            <ChevronRight size={13} />
+            <Code2 size={13} />
+            <span>
+              {row.label ||
+                (row.role === 'mailbox'
+                  ? `Mailbox update${row.deliveries ? ` · ${row.deliveries} deliveries` : ''}`
+                  : 'Reasoning')}
+            </span>
+            {row.live && <span>· in progress</span>}
+            {!open && row.role === 'tool' && density === 'comfortable' && <span data-tool-preview {...stylex.props(styles.toolPreview)}>{(row.text || (row.args ? executionCode(row.args) : '')).slice(0, 512).split('\n').slice(0, 3).join('\n')}</span>}
+          </summary>
+          {open && <div {...stylex.props(styles.details)}>
+            {row.args && (
+              <CodeBlock
+                code={executionCode(row.args)}
+                language={
+                  row.label === 'Starlark execution' ? 'starlark' : 'json'
+                }
+              />
+            )}
+            {row.text && <pre {...stylex.props(layout.pre)}>{row.text}</pre>}
+            {row.images?.map((image, index) => (
+              <ImageAttachment key={index} image={image} />
+            ))}
+            {row.body && (
+              <Button variant="ghost" onClick={() => readBody(row)}>
+                Read stored message · {row.body.size} bytes
+              </Button>
+            )}
+          </div>}
+        </details>
+  );
+}
 
 export const MessageRow = memo(function MessageRow({
   row,
@@ -332,6 +387,7 @@ export const MessageRow = memo(function MessageRow({
   const copy = (
     <CopyButton
       label="Copy message"
+      xstyle={styles.actionButton}
       text={row.text}
       copy={(text) => runtime.platform.copy(text)}
       onError={(error) => runtime.report(error)}
@@ -342,41 +398,10 @@ export const MessageRow = memo(function MessageRow({
       data-message-id={row.id}
       data-message-role={row.role}
       aria-label={user ? 'Your message' : undefined}
-      {...stylex.props(messageMarker, styles.article, user && styles.user)}
+      {...stylex.props(messageMarker, styles.article, user && styles.authored, user && styles.user)}
     >
       {disclosure ? (
-        <details {...stylex.props(styles.disclosure)}>
-          <summary {...stylex.props(styles.summary)}>
-            <ChevronRight size={13} />
-            <Code2 size={13} />
-            <span>
-              {row.label ||
-                (row.role === 'mailbox'
-                  ? `Mailbox update${row.deliveries ? ` · ${row.deliveries} deliveries` : ''}`
-                  : 'Reasoning')}
-            </span>
-            {row.live && <span>· in progress</span>}
-          </summary>
-          <div {...stylex.props(styles.details)}>
-            {row.args && (
-              <CodeBlock
-                code={executionCode(row.args)}
-                language={
-                  row.label === 'Starlark execution' ? 'starlark' : 'json'
-                }
-              />
-            )}
-            {row.text && <pre {...stylex.props(layout.pre)}>{row.text}</pre>}
-            {row.images?.map((image, index) => (
-              <ImageAttachment key={index} image={image} />
-            ))}
-            {row.body && (
-              <Button variant="ghost" onClick={() => readBody(row)}>
-                Read stored message · {row.body.size} bytes
-              </Button>
-            )}
-          </div>
-        </details>
+        <MessageDisclosure row={row} readBody={readBody} />
       ) : user ? (
         <>
           <div data-user-bubble {...stylex.props(styles.bubble)}>
@@ -411,7 +436,7 @@ export const MessageRow = memo(function MessageRow({
             {row.seq !== undefined && historyAction && (
               <Menu
                 trigger={
-                  <IconButton variant="ghost" label="Message history actions">
+                  <IconButton variant="ghost" xstyle={styles.actionButton} label="Message history actions">
                     <MoreHorizontal size={14} />
                   </IconButton>
                 }
@@ -452,15 +477,6 @@ export const MessageRow = memo(function MessageRow({
               ))}
             </>
           )}
-          {assistant && (
-            <div
-              data-message-actions
-              {...stylex.props(styles.actions, styles.responseActions)}
-            >
-              {copy}
-              {row.live && <span>Writing…</span>}
-            </div>
-          )}
         </>
       )}
     </article>
@@ -478,8 +494,12 @@ export function Timeline({
   historyReady = true,
   canLoadOlder = true,
   loadingHistory = false,
+  connected = true,
+  onOpenRepl,
+  density = 'compact',
+  active = false,
 }: {
-  rows: TimelineRow[];
+  rows: ConversationActivityRow[];
   hasMore: boolean;
   loadOlder(): Promise<void>;
   readBody(row: TimelineRow): void;
@@ -489,10 +509,40 @@ export function Timeline({
   historyReady?: boolean;
   canLoadOlder?: boolean;
   loadingHistory?: boolean;
+  connected?: boolean;
+  onOpenRepl?(): void;
+  density?: 'compact' | 'comfortable' | 'detailed';
+  active?: boolean;
 }) {
+  const runtime = useRuntime();
+  const copies = useMemo(() => responseCopies(rows, active || !connected || !historyReady, hasMore), [rows, active, connected, historyReady, hasMore]);
+  const [choices, setChoices] = useState<ReadonlyMap<string, boolean>>(new Map());
+  useEffect(() => {
+    const ids = new Set(rows.filter(isActivityGroup).map(row => row.id));
+    setChoices(previous => [...previous.keys()].every(id => ids.has(id)) ? previous
+      : new Map([...previous].filter(([id]) => ids.has(id))));
+  }, [rows]);
+  const toggle = (id: string, open: boolean) => setChoices(previous => {
+    const next = new Map(previous);
+    next.delete(id);
+    next.set(id, !open);
+    if (next.size > 128) next.delete(next.keys().next().value!);
+    return next;
+  });
   return <ReadingList rows={rows} hasMore={hasMore} loadOlder={loadOlder}
     bookmarkKey={bookmarkKey} historyRevision={historyRevision} historyReady={historyReady}
     canLoadOlder={canLoadOlder} loadingHistory={loadingHistory}
     label="Conversation" earlierLabel="Load earlier messages"
-    renderRow={row => <MessageRow row={row} readBody={readBody} historyAction={historyAction} />} />;
+    renderRow={row => {
+      const open = choices.get(row.id) ?? (density === 'detailed' && isActivityGroup(row) && row.cells.length > 0);
+      const copy = copies.get(row.id);
+      return <>
+        {isActivityGroup(row) ? <ActivityGroupRow group={row} open={open} onToggle={() => toggle(row.id, open)} connected={connected}
+          density={density} readBody={readBody} onOpenRepl={onOpenRepl} /> : <MessageRow row={row} readBody={readBody} historyAction={historyAction} />}
+        {copy && <div data-response-actions {...stylex.props(styles.responseActions)}>
+          <CopyButton label={copy.label} text={copy.text} xstyle={styles.actionButton}
+            copy={text => runtime.platform.copy(text)} onError={error => runtime.report(error)} />
+        </div>}
+      </>;
+    }} />;
 }

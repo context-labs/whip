@@ -1,5 +1,5 @@
 import * as stylex from '@stylexjs/stylex';
-import { colors, typography, surface, scale } from '@whip/ui/tokens.stylex';
+import { colors, typography, surface, scale, appearance } from '@whip/ui/tokens.stylex';
 
 export const layout = stylex.create({
   srOnly: {
@@ -25,7 +25,7 @@ export const layout = stylex.create({
     backgroundColor: colors.background,
     color: colors.foreground,
     fontFamily: typography.sans,
-    fontSize: 13,
+    fontSize: typography.size13,
   },
   sidebar: {
     width: 320,
@@ -74,16 +74,16 @@ export const layout = stylex.create({
     borderBottomColor: surface.quietBorder,
   },
   title: {
-    fontSize: 14,
+    fontSize: typography.size14,
     fontWeight: 550,
     margin: 0,
     overflow: 'hidden',
     whiteSpace: 'nowrap',
     textOverflow: 'ellipsis',
   },
-  muted: { color: surface.secondaryText, fontSize: 12 },
+  muted: { color: surface.secondaryText, fontSize: typography.size12 },
   eyebrow: {
-    fontSize: 11,
+    fontSize: typography.size11,
     letterSpacing: '0.03em',
     fontWeight: 550,
     color: surface.secondaryText,
@@ -105,7 +105,7 @@ export const layout = stylex.create({
   },
   pageTitle: {
     fontWeight: 550,
-    fontSize: 24,
+    fontSize: typography.size24,
     letterSpacing: '-0.035em',
     margin: 0,
   },
@@ -120,13 +120,13 @@ export const layout = stylex.create({
     textAlign: 'center',
   },
   emptyTitle: {
-    fontSize: { default: 28, [scale.phone]: 23 },
+    fontSize: { default: typography.size28, [scale.phone]: `calc(${typography.size13} * 23 / 13)` },
     letterSpacing: '-0.045em',
     fontWeight: 500,
     margin: 0,
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: typography.size14,
     lineHeight: 1.7,
     color: surface.secondaryText,
     maxWidth: 420,
@@ -169,7 +169,7 @@ export const layout = stylex.create({
     padding: '10px 16px',
     borderRadius: 8,
     backgroundColor: colors.panel,
-    fontSize: 12,
+    fontSize: typography.size12,
     lineHeight: 1.6,
   },
   error: { color: colors.error },
@@ -200,10 +200,10 @@ export const layout = stylex.create({
   },
   pre: {
     fontFamily: typography.mono,
-    fontSize: 12,
+    fontSize: typography.codeSize,
     lineHeight: 1.65,
-    whiteSpace: 'pre-wrap',
-    overflowWrap: 'anywhere',
+    whiteSpace: appearance.codeWhiteSpace,
+    overflowWrap: appearance.codeOverflowWrap,
     margin: 0,
     overflow: 'auto',
     maxHeight: 440,

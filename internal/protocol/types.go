@@ -12,7 +12,7 @@ import (
 
 const (
 	Major = 5
-	Minor = 0
+	Minor = 1
 )
 
 type ErrorData struct {
@@ -102,14 +102,17 @@ type ProtocolEvent struct {
 }
 
 type StreamEvent struct {
-	Accounting *session.ModelAccounting `json:"accounting,omitempty"`
-	Usage      *UsageEvent              `json:"usage,omitempty"`
-	AgentID    string                   `json:"agent_id,omitempty"`
-	ID         string                   `json:"id,omitempty"`
-	Name       string                   `json:"name,omitempty"`
-	Text       string                   `json:"text,omitempty"`
-	Args       string                   `json:"args,omitempty"`
-	Result     string                   `json:"result,omitempty"`
+	Accounting   *session.ModelAccounting `json:"accounting,omitempty"`
+	Usage        *UsageEvent              `json:"usage,omitempty"`
+	AgentID      string                   `json:"agent_id,omitempty"`
+	TurnID       string                   `json:"turn_id,omitempty"`
+	InvocationID string                   `json:"invocation_id,omitempty"`
+	HostStatus   string                   `json:"host_status,omitempty"`
+	ID           string                   `json:"id,omitempty"`
+	Name         string                   `json:"name,omitempty"`
+	Text         string                   `json:"text,omitempty"`
+	Args         string                   `json:"args,omitempty"`
+	Result       string                   `json:"result,omitempty"`
 }
 
 type SubmitPayload struct {
@@ -188,7 +191,8 @@ type ProviderValidateResult struct {
 }
 
 type ProviderDescriptor struct {
-	BaseURL string `json:"base_url"`
+	BaseURL   string `json:"base_url"`
+	Available *bool  `json:"available,omitempty"`
 }
 
 type ModelDescriptor struct {
@@ -316,6 +320,7 @@ type UnsubscribeParams struct {
 func (e *RPCError) Error() string { return e.Message }
 
 type RuntimeConfiguration struct {
+	DisabledProviders *[]string `json:"disabled_providers,omitempty"`
 	// Presence identifies support even when no remote hosts have been saved.
 	RemoteHosts     *[]config.RemoteHost `json:"remote_hosts,omitempty"`
 	ImportClaude    bool                 `json:"import_claude"`
@@ -332,18 +337,19 @@ type RuntimeConfiguration struct {
 }
 
 type ConfigurationUpdate struct {
-	RemoteHosts     *[]config.RemoteHost `json:"remote_hosts,omitempty"`
-	ImportClaude    *bool                `json:"import_claude,omitempty"`
-	ImportCodex     *bool                `json:"import_codex,omitempty"`
-	Revision        string               `json:"revision"`
-	DefaultModel    *string              `json:"default_model,omitempty"`
-	DefaultProvider *string              `json:"default_provider,omitempty"`
-	DefaultEffort   *string              `json:"default_effort,omitempty"`
-	CompactModel    *string              `json:"compact_model,omitempty"`
-	CompactProvider *string              `json:"compact_provider,omitempty"`
-	CompactPercent  *int                 `json:"compact_percent,omitempty"`
-	GoalMaxRounds   *int                 `json:"goal_max_rounds,omitempty"`
-	MaxRetries      *int                 `json:"max_retries,omitempty"`
+	DisabledProviders *[]string            `json:"disabled_providers,omitempty"`
+	RemoteHosts       *[]config.RemoteHost `json:"remote_hosts,omitempty"`
+	ImportClaude      *bool                `json:"import_claude,omitempty"`
+	ImportCodex       *bool                `json:"import_codex,omitempty"`
+	Revision          string               `json:"revision"`
+	DefaultModel      *string              `json:"default_model,omitempty"`
+	DefaultProvider   *string              `json:"default_provider,omitempty"`
+	DefaultEffort     *string              `json:"default_effort,omitempty"`
+	CompactModel      *string              `json:"compact_model,omitempty"`
+	CompactProvider   *string              `json:"compact_provider,omitempty"`
+	CompactPercent    *int                 `json:"compact_percent,omitempty"`
+	GoalMaxRounds     *int                 `json:"goal_max_rounds,omitempty"`
+	MaxRetries        *int                 `json:"max_retries,omitempty"`
 }
 
 type ProviderKeySetup struct {
@@ -360,6 +366,7 @@ type ProviderChoice struct {
 
 type ProviderLoginStatus struct {
 	FlowID          string           `json:"flow_id"`
+	Provider        string           `json:"provider,omitempty"`
 	State           string           `json:"state"`
 	VerificationURL string           `json:"verification_url,omitempty"`
 	UserCode        string           `json:"user_code,omitempty"`

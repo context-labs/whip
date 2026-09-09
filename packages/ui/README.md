@@ -70,12 +70,12 @@ in its native style path. Composition uses Base UI's `mergeProps` and `render`.
 | Group | Exports | Interaction/ownership |
 | --- | --- | --- |
 | Actions | Button, IconButton, ButtonGroup, ToggleGroup, Link, Tooltip, Kbd, CopyButton | Buttons default to `type=button`; busy controls cannot repeat actions; icon actions require a label. Clipboard errors belong to the caller. |
-| Forms | Field, Fieldset, Label, Input, Textarea, NumberField, Checkbox, RadioGroup, Switch, Select, Combobox | Field connects labels/descriptions/errors with controls. Select/Combobox use keyboard navigation and typeahead/filtering; errors remain visible. |
+| Forms | Field, Fieldset, Label, Input, Textarea, NumberField, Slider, Checkbox, RadioGroup, Switch, Select, Combobox | Field connects labels/descriptions/errors with controls. Select/Combobox use keyboard navigation and typeahead/filtering; errors remain visible. |
 | Overlays | Dialog, AlertDialog, Sheet, Menu, ContextMenu, Popover, CommandPicker | Controlled open state; focus trap/return and escape/outside behavior from Base UI. Confirming asynchronous work never silently closes a dialog. |
 | Structure | Tabs, Collapsible, Accordion, Separator, Stack, Row, Panel, ScrollArea, SettingsRow, Breadcrumbs, VisuallyHidden | Native scrollbars/touch scrolling; explicit selected sections. App owns navigation and virtualization. |
 | Workspace navigation | WorkspaceTabs, workspaceTabId (from `@whip/ui/workspace-tabs`) | Controlled session strip, link composition, close, pointer reorder, and leading/trailing utility slots. No session state or content loading. |
 | Feedback | Badge, StatusIndicator, Progress, Meter, Spinner, Skeleton, Alert, EmptyState, ErrorState, Avatar, useToast | Status includes text, never color alone. Error/stale/loading/empty remain distinct. |
-| Appearance | ThemeProvider, initializeTheme, useTheme, ThemePicker, ThemePreview | Per-device selection, reversible previews, all generated TUI themes and validated custom colors. |
+| Appearance | ThemeProvider, initializeTheme, useTheme, ThemePicker, ThemePreview | Device-local themes and bounded display preferences, reversible previews, all generated TUI themes, validated custom colors. |
 | Read-only code | CodeBlock | Lazy focused syntax grammars; React text nodes, exact source text, theme-aware Chroma styling, bounded presentation. No editing or content fetching. |
 
 Buttons accept `variant=primary|secondary|ghost|danger`, `size=sm|md|lg`,
@@ -329,3 +329,43 @@ fixture asserts those boundaries alongside actual drag/cancel, nested resizing,
 compact restoration, a separate editable notes renderer, drag after menu-driven
 transfer/pruning, and unchanged DOM/focus/scroll across moves in Chromium and
 Firefox (`npm run test:layout -w @whip/ui`).
+
+
+### Device appearance
+
+`ThemeProvider` owns generic display preferences alongside the selected theme.
+`initializeTheme({storage, systemContrast})` applies both before the app mounts.
+`useTheme()` exposes `display`, `setDisplay(patch)`, `resetDisplay()`, and
+`resetAppearance()`. The latter resets the base theme to System and display
+preferences to defaults, retaining imported theme definitions. Imported themes
+are bounded to 16 / 256 KiB; the separate versioned display record is at most
+4 KiB. Failed reads or saves stay visible through `notice`.
+
+Use `typography.size10` through the exported size roles for UI/reading text;
+they scale proportionally from a 13 px base. `typography.codeSize` is independent,
+and `sans`/`mono` follow the closed self-hosted/system font choices. Inline code
+inherits surrounding size. `appearance.codeWhiteSpace` and `codeOverflowWrap`
+wrap bounded read-only code without changing its source. Portals inherit the same
+fixed variables. Explicit reduced motion applies in CSS and the tab animation
+helper `prefersReducedMotion()`; system motion remains respected.
+
+`contrast: 'system' | 'standard' | 'more'` adapts the selected palette without
+changing its saved identity or generated data. Increased mode targets 7:1 primary
+reading and syntax text, plus 3:1 meaningful control edges/focus. Electron may
+supply its read-only native contrast flag; ordinary browsers use media queries.
+Browser forced-color palettes retain their native override.
+
+`ThemePicker presentation="popover"` gives Settings a compact searchable picker
+with reversible preview. Its miniature workspaces use the same derived browser
+surfaces and resolved contrast mode as the applied theme; search uses neutral
+input focus. `Slider` provides named, controlled range semantics:
+pass `label`, `value`, `onValueChange`, and `getValueText` for discrete choices.
+Its track uses `surface.controlBorder`, derived to at least 3:1 against shared
+surfaces; `quietBorder` remains a decorative separator role.
+`Switch hideLabel` keeps its label available to assistive technology when a
+SettingsRow already renders the visible title.
+
+`ActivityIndicator active reduceMotion={display.motion === 'reduce'}` is a
+decorative three-dot status mark. Supply adjacent readable text and own any live
+region in the consumer. Motion begins after one second, stops while the document
+is hidden, and follows OS reduced motion. It owns no progress or execution state.

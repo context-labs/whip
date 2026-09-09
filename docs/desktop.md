@@ -63,6 +63,16 @@ path in `native-local-runtime.json` under Electron user data (normally
 that selection even if their PATH differs. `WHIPCODE_HOME` explicitly overrides
 the home; it is not a legacy `WHIP_HOME` migration or a setting in that JSON file.
 
+For local launches, desktop recovers `INFERENCE_API_KEY` and
+`OPENROUTER_API_KEY` alongside PATH from the user's interactive login shell.
+The fixed allowlist, three-second timeout and output limits keep this bounded;
+explicit inherited values win, including an intentionally empty value. Shell
+output and recovered keys are not persisted or logged. SSH setup retains its
+PATH-only probe and uses the remote daemon's credentials; URL hosts also use
+their own environment. Reusing an already running local daemon does not update
+its environment or restart it. After changing shell keys, use the existing
+explicit daemon restart workflow when appropriate for active work.
+
 **Choose executable** validates an existing installation. **Install whipcode**
 defaults to `~/.local/bin/whipcode`, verifies the bundled payload, and copies
 its exact bytes there atomically. It does not overwrite an existing backend.

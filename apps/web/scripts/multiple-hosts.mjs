@@ -86,17 +86,27 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       await page.getByRole('combobox', { name: label, exact: true }).click();
       await page.getByRole('option', { name: option, exact: true }).click();
     };
-    const manager = page.getByRole('dialog', { name: 'Execution hosts', exact: true });
-    const manage = () => page.getByRole('button', { name: 'Manage execution hosts', exact: true }).click();
-    const hostRow = hostName => manager.getByLabel('Saved execution hosts').locator('div').filter({ has: page.locator('strong').filter({ hasText: new RegExp(`^${hostName}$`) }) }).filter({ has: page.getByRole('button', { name: /^(Connect|Disconnect)$/ }) }).last();
+    const addDialog = page.getByRole('dialog', { name: 'Add server', exact: true });
+    const manage = () => page.getByRole('button', { name: 'Manage servers', exact: true }).click();
+    const back = () => page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
+    const hostAction = async (name, action) => {
+      await page.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
+      await page.getByRole('menuitem', { name: action, exact: true }).click();
+      if (action === 'Remove server') await page.getByRole('alertdialog').getByRole('button', { name: 'Remove server', exact: true }).click();
+    };
+    const addHost = async host => {
+      await page.getByRole('button', { name: 'Add server', exact: true }).click();
+      await addDialog.getByLabel(/Server name/).fill(host.name);
+      await addDialog.getByLabel('Server address', { exact: true }).fill(origin(host.fixture));
+      await addDialog.getByRole('button', { name: 'Add server', exact: true }).click();
+      await addDialog.waitFor({ state: 'hidden' });
+      await back();
+    };
     await page.goto(`${origin(local)}/h/${hosts[0].runtimeId}/s/${hosts[0].root}`);
     await ready(hosts[0].root);
     for (const host of hosts.slice(1)) {
       await manage();
-      await manager.getByLabel('Name', { exact: true }).fill(host.name);
-      await manager.getByLabel('Daemon address', { exact: true }).fill(origin(host.fixture));
-      await manager.getByRole('button', { name: 'Save and connect', exact: true }).click();
-      await manager.waitFor({ state: 'hidden' });
+      await addHost(host);
       await page.getByRole('region', { name: `${host.name} sessions`, exact: true }).getByRole('link', { name: `Shared title ${host.name}`, exact: true }).waitFor();
     }
     const profiles = (await hosts[0].client.configuration.get()).remote_hosts;
@@ -220,11 +230,11 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     // Explicit disconnect detaches observation; an accepted remote turn continues.
     await send(hosts[1].view, 'hold:detached');
     await panel(hosts[1].view).getByRole('button', { name: 'Pause this turn', exact: true }).waitFor();
-    await manage(); await hostRow('Remote A').getByRole('button', { name: 'Disconnect', exact: true }).click();
+    await manage(); await hostAction('Remote A', 'Disconnect');
     await remoteA.release('detached');
     await eventually(async () => Object.keys((await hosts[1].client.session(hosts[1].root).snapshot()).active_turns).length === 0);
-    await hostRow('Remote A').getByRole('button', { name: 'Connect', exact: true }).click();
-    await manager.getByRole('button', { name: 'Close', exact: true }).click();
+    await hostAction('Remote A', 'Connect');
+    await back();
     await ready(hosts[1].view);
     checks.push('explicit host disconnect leaves accepted work running and reconnect recovers its result');
 
@@ -234,9 +244,9 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await panel(removedHost.view).getByLabel('Message WHIP', { exact: true }).fill(unsent);
     await eventually(async () => await page.evaluate(key => localStorage.getItem(key), draftKey) === unsent);
     await manage();
-    await hostRow(removedHost.name).getByRole('button', { name: 'Remove', exact: true }).click();
+    await hostAction(removedHost.name, 'Remove server');
     await eventually(async () => (await hosts[0].client.configuration.get()).remote_hosts.length === 1);
-    await manager.getByRole('button', { name: 'Close', exact: true }).click();
+    await back();
     await panel(removedHost.view).getByRole('heading', { name: 'This execution host is unavailable', exact: true }).waitFor();
     const retained = panes((await workspace()).layout).flatMap(pane => pane.tabs).find(tab => tab.id === removedHost.view);
     assert.equal(retained.runtimeId, removedHost.runtimeId);
@@ -247,11 +257,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       await send(survivor.view, text);
       await eventually(async () => (await survivor.fixture.effects()).includes(text));
     }
-    await panel(removedHost.view).getByRole('button', { name: 'Execution hosts', exact: true }).click();
-    await manager.getByLabel('Name', { exact: true }).fill(removedHost.name);
-    await manager.getByLabel('Daemon address', { exact: true }).fill(origin(removedHost.fixture));
-    await manager.getByRole('button', { name: 'Save and connect', exact: true }).click();
-    await manager.waitFor({ state: 'hidden' });
+    await panel(removedHost.view).getByRole('button', { name: 'Manage servers', exact: true }).click();
+    await addHost(removedHost);
     await ready(removedHost.view);
     assert.equal(await panel(removedHost.view).getByLabel('Message WHIP', { exact: true }).inputValue(), unsent);
     const restoredProfile = (await hosts[0].client.configuration.get()).remote_hosts.find(profile => profile.runtime_id === removedHost.runtimeId);

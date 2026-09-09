@@ -1,0 +1,64 @@
+{
+  "date": "2026-09-09",
+  "checks": [
+    {
+      "command": "task check",
+      "exitCode": 0,
+      "log": "/tmp/whip-openai-check.log"
+    },
+    {
+      "command": "go test -race -p 1 ./...",
+      "exitCode": 0,
+      "log": "/tmp/whip-openai-race-final.log"
+    },
+    {
+      "command": "task check",
+      "exitCode": 0,
+      "log": "/tmp/whip-openai-live-check-final.log",
+      "scope": "after all live fixes"
+    },
+    {
+      "command": "go test -race -p 1 ./internal/llm ./internal/openaiauth ./internal/daemon ./internal/session ./cmd/whip",
+      "exitCode": 0,
+      "log": "/tmp/whip-openai-live-race.log"
+    },
+    {
+      "command": "npm run pack:web",
+      "exitCode": 0,
+      "log": "/tmp/whip-openai-live-pack.log"
+    },
+    {
+      "command": "node apps/web/scripts/model-picker.mjs",
+      "exitCode": 0,
+      "log": "/tmp/whip-openai-model-picker.log",
+      "scenarios": 20
+    }
+  ],
+  "sdkTests": 272,
+  "appTests": 363,
+  "adversarialReview": {
+    "findings": 4,
+    "resolvedAndRechecked": 4,
+    "areas": [
+      "optional OAuth expiry",
+      "HTTP and SSE failure classification",
+      "ACP subscription routing",
+      "logout and same-account relogin before dispatch"
+    ],
+    "liveFixesRechecked": [
+      "streamed completed output items",
+      "explicit discovered model/provider selection"
+    ]
+  },
+  "runtimeFixture": [
+    "tool continuation",
+    "models.call",
+    "models.batch",
+    "child inheritance",
+    "title",
+    "compaction",
+    "unknown-cost accounting"
+  ],
+  "liveAcceptance": "Passed; see live-check.json. CLI login, real token rotation, authenticated catalog, root/tool/helper/child/image/title/compaction/restart, production browser inference and logout verified.",
+  "releaseReady": true
+}

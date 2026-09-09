@@ -17,7 +17,7 @@ import (
 type Provider struct {
 	Name      string `json:"name,omitempty"`
 	BaseURL   string `json:"baseUrl"`
-	API       string `json:"api"`              // "openai-completions" is the only supported value for now
+	API       string `json:"api"`              // "openai-completions" or "openai-codex"
 	APIKey    string `json:"apiKey,omitempty"` // literal key or a secret reference ("$VAR"/"${VAR}"/"!cmd"); apiKeyEnv is another option
 	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
 }
@@ -36,27 +36,8 @@ func (p Provider) Key() string {
 // errors when the provider is actually used. The resolved value never enters
 // the event log.
 func (p Provider) ResolveKey() (string, error) {
-	if p.APIKeyEnv != "" {
-		if v := os.Getenv(p.APIKeyEnv); v != "" {
-			return v, nil
-		}
-	}
-	if p.APIKey != "" {
-		k, err := ResolveSecret(p.APIKey)
-		if err != nil {
-			return "", fmt.Errorf("provider %q apiKey: %w", p.Name, err)
-		}
-		return k, nil
-	}
-	// Inference.net fallbacks: the machine key provisioned by
-	// `whip auth inference-net login`, then the inf CLI's stored key.
-	if strings.Contains(p.BaseURL, "api.inference.net") {
-		if k := whipInferenceNetKey(); k != "" {
-			return k, nil
-		}
-		return infKey(), nil
-	}
-	return "", nil
+	key, _, err := p.resolveKey(true)
+	return key, err
 }
 
 // whipInferenceNetKey reads the machine key from ~/.whip/inference-net.json
@@ -158,25 +139,26 @@ const DefaultCompactPct = 50
 
 // Config is the root of ~/.whip/config.json (JSONC: comments allowed).
 type Config struct {
-	RemoteHosts     []RemoteHost        `json:"remote_hosts,omitempty"`
-	DefaultModel    string              `json:"defaultModel"`
-	DefaultProvider string              `json:"defaultProvider,omitempty"` // override the model's first provider
-	DefaultEffort   string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
-	CompactModel    string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
-	CompactProvider string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
-	CompactPct      int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
-	Theme           string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
-	Sidebar         *bool               `json:"sidebar,omitempty"`         // the left column of panels; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
-	Repl            *bool               `json:"repl,omitempty"`            // true opens the REPL panel at startup (ctrl+x r still toggles)
-	Panel           string              `json:"panel,omitempty"`           // the expanded left panel at startup: agents (default), context or lsp (ctrl+x 1/2/3 still switch)
-	Mouse           *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
-	Thinking        *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
-	CollapsePaste   *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
-	GoalMaxRounds   int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
-	RLM             RLMConfig           `json:"rlm,omitzero"`
-	MaxRetries      int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
-	Providers       map[string]Provider `json:"providers"`
-	Models          map[string]Model    `json:"models"`
+	RemoteHosts       []RemoteHost        `json:"remote_hosts,omitempty"`
+	DefaultModel      string              `json:"defaultModel"`
+	DefaultProvider   string              `json:"defaultProvider,omitempty"` // override the model's first provider
+	DefaultEffort     string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
+	CompactModel      string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
+	CompactProvider   string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
+	CompactPct        int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
+	Theme             string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
+	Sidebar           *bool               `json:"sidebar,omitempty"`         // the left column of panels; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
+	Repl              *bool               `json:"repl,omitempty"`            // true opens the REPL panel at startup (ctrl+x r still toggles)
+	Panel             string              `json:"panel,omitempty"`           // the expanded left panel at startup: agents (default), context or lsp (ctrl+x 1/2/3 still switch)
+	Mouse             *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
+	Thinking          *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
+	CollapsePaste     *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
+	GoalMaxRounds     int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
+	RLM               RLMConfig           `json:"rlm,omitzero"`
+	MaxRetries        int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
+	Providers         map[string]Provider `json:"providers"`
+	DisabledProviders []string            `json:"disabledProviders,omitempty"`
+	Models            map[string]Model    `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: whip always wins per name.
@@ -570,9 +552,10 @@ func (c *Config) ResolveRoute(model, provider string) (string, Provider, Model, 
 	if provider == "" && len(m.Providers) > 0 {
 		provider = m.Providers[0]
 	}
-	p, ok := c.Providers[provider]
+	providers := c.EffectiveProviders()
+	p, ok := providers[provider]
 	if !ok {
-		return "", Provider{}, Model{}, "", fmt.Errorf("unknown provider %q (providers: %s)", provider, keys(c.Providers))
+		return "", Provider{}, Model{}, "", fmt.Errorf("provider %q is unavailable (providers: %s)", provider, keys(providers))
 	}
 	id := m.ID
 	if id == "" {
@@ -606,11 +589,12 @@ func (c *Config) resolveFromCatalog(model, provider string) (Model, string, erro
 		mi   *ModelInfoLite
 	}
 	var hits []hit
+	providers := c.EffectiveProviders()
 	for name, cat := range LoadCatalogs() {
 		if provider != "" && name != provider {
 			continue
 		}
-		if _, ok := c.Providers[name]; !ok {
+		if route, ok := providers[name]; !ok || strings.TrimRight(route.BaseURL, "/") != strings.TrimRight(cat.BaseURL, "/") {
 			continue // catalog for a provider no longer configured
 		}
 		if mi := cat.Find(model); mi != nil {
@@ -647,6 +631,7 @@ func (c *Config) resolveFromCatalog(model, provider string) (Model, string, erro
 // place, only replaced wholesale with the map entry.
 func (c *Config) Snapshot() *Config {
 	snap := *c
+	snap.DisabledProviders = slices.Clone(c.DisabledProviders)
 	snap.Providers = make(map[string]Provider, len(c.Providers))
 	maps.Copy(snap.Providers, c.Providers)
 	snap.Models = make(map[string]Model, len(c.Models))

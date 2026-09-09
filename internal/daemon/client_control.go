@@ -1106,7 +1106,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		history, err := s.store.UserHistory(500)
 		return marshalClientOutput(history, err)
 	case "provider.catalogs":
-		return clientProviderCatalogs(ctx)
+		return clientProviderCatalogs(ctx, s.providers, false)
 	case "history.compact.log":
 		return marshalClientOutput(s.store.Compactions(s.meta.ID), nil)
 	case "history.compact.retry":
@@ -1451,27 +1451,34 @@ func daemonEffortLabel(level string) string {
 }
 
 func validateEffort(model, provider, requested string) error {
-	if requested == "off" {
-		return nil
-	}
-	if !slices.Contains([]string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}, requested) {
-		return fmt.Errorf("unknown effort level %q", requested)
-	}
 	cfg, err := config.Load()
 	if err != nil {
-		return nil //nolint:nilerr // best-effort: skip the catalog check when config cannot load
+		cfg = nil // Validate known fallback values without an unavailable catalog.
 	}
-	_, _, apiID, err := cfg.Resolve(model, provider)
-	if err != nil {
-		return nil //nolint:nilerr // best-effort: skip the catalog check when the model cannot be resolved
-	}
-	catalog, ok := config.LoadCatalogs()[provider]
-	if !ok {
+	return validateConfiguredEffort(cfg, model, provider, requested)
+}
+
+func validateConfiguredEffort(cfg *config.Config, model, provider, requested string) error {
+	if requested == "off" || requested == "" {
 		return nil
 	}
-	info := catalog.Find(apiID)
-	if info != nil && len(info.ReasoningEfforts) > 0 && !slices.Contains(info.ReasoningEfforts, requested) {
-		return fmt.Errorf("%s does not support effort %q", model, requested)
+	known := slices.Contains([]string{"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}, requested)
+	if cfg != nil {
+		resolved, _, _, apiID, err := cfg.ResolveRoute(model, provider)
+		if err == nil {
+			catalog := config.LoadCatalogs()[resolved]
+			if info := catalog.Find(apiID); info != nil && len(info.ReasoningEfforts) > 0 {
+				if slices.Contains(info.ReasoningEfforts, requested) {
+					return nil
+				}
+				if known {
+					return fmt.Errorf("%s does not support effort %q", model, requested)
+				}
+			}
+		}
+	}
+	if !known {
+		return fmt.Errorf("unknown effort level %q", requested)
 	}
 	return nil
 }
@@ -1704,41 +1711,51 @@ func marshalClientOutput(value any, err error) (string, error) {
 	return string(raw), err
 }
 
-func clientProviderCatalogs(ctx context.Context) (string, error) {
+func clientProviderCatalogs(ctx context.Context, providers *ProviderService, refresh bool) (string, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return "", err
 	}
-	catalogs := config.LoadCatalogs()
-	result := ProviderCatalogsResult{Catalogs: catalogs, Models: map[string]protocol.ModelDescriptor{}, Providers: map[string]protocol.ProviderDescriptor{}, Errors: map[string]string{}}
+	catalogs := providers.CatalogsFor(cfg)
+	failures := map[string]string{}
+	for name, provider := range cfg.EffectiveProviders() {
+		status, err := providers.providerStatus(cfg, name)
+		if err != nil || (status.AuthState != "unchecked" && (status.Available == nil || !*status.Available)) {
+			continue
+		}
+		if cached, ok := catalogs[name]; !refresh && ok && !cached.Stale() {
+			continue
+		}
+		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err = providers.refreshCatalog(fetchCtx, name, provider)
+		cancel()
+		if err != nil {
+			failures[name] = "Model discovery failed; check the provider connection and retry."
+		}
+	}
+	// Account/config changes may have completed while discovery was in flight.
+	cfg, err = config.Load()
+	if err != nil {
+		return "", err
+	}
+	result := ProviderCatalogsResult{Catalogs: providers.CatalogsFor(cfg), Models: map[string]protocol.ModelDescriptor{}, Providers: map[string]protocol.ProviderDescriptor{}, Errors: failures}
 	for name, model := range cfg.Models {
 		result.Models[name] = protocol.ModelDescriptor{Name: model.Name, ID: model.ID, Providers: model.Providers, Context: model.ContextWindow(), Vision: model.Vision}
-	}
-	for name, provider := range cfg.Providers {
-		result.Providers[name] = protocol.ProviderDescriptor{BaseURL: provider.BaseURL}
-	}
-	for name, provider := range cfg.Providers {
-		key, keyErr := provider.ResolveKey()
-		if keyErr != nil || key == "" {
-			if keyErr != nil {
-				result.Errors[name] = keyErr.Error()
-			} else {
-				result.Errors[name] = "no API key"
-			}
-			continue
-		}
-		models, fetchErr := llm.New(provider.BaseURL, key).Models(ctx)
-		if fetchErr != nil {
-			result.Errors[name] = fetchErr.Error()
-			continue
-		}
-		catalog := config.Catalog{FetchedAt: time.Now(), BaseURL: provider.BaseURL, Models: modelInfoLites(models)}
-		if err := config.UpdateCatalog(name, catalog); err != nil {
-			return "", err
+		for _, provider := range model.Providers {
+			result.Providers[provider] = protocol.ProviderDescriptor{Available: new(false)}
 		}
 	}
-	catalogs = config.LoadCatalogs()
-	result.Catalogs = catalogs
+	for name, provider := range cfg.EffectiveProviders() {
+		status, err := providers.providerStatus(cfg, name)
+		available := err == nil && ((status.Available != nil && *status.Available) || status.AuthState == "unchecked")
+		descriptor := protocol.ProviderDescriptor{Available: new(available)}
+		if available {
+			descriptor.BaseURL = provider.BaseURL
+		} else {
+			delete(result.Catalogs, name)
+		}
+		result.Providers[name] = descriptor
+	}
 	return marshalClientOutput(result, nil)
 }
 

@@ -38,9 +38,7 @@ func (s *Session) QueryClient(ctx context.Context, operation string, payload jso
 		return marshalClientOutput(protocol.BrowserStatusResult{Enabled: true, Driver: manager.Driver()}, nil)
 	}
 	if operation == "provider.catalogs" {
-		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		return clientProviderCatalogs(bounded)
+		return queryProviderCatalogs(ctx, s.providers, payload)
 	}
 	return routeControlValue(s, ctx, func(actorCtx context.Context) (string, error) {
 		// Query cancellation belongs to the connection/request, not to the root.
@@ -63,9 +61,7 @@ func (s *Server) query(ctx context.Context, params protocol.QueryParams) (protoc
 	var err error
 	switch params.Operation {
 	case "provider.catalogs":
-		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		output, err = clientProviderCatalogs(bounded)
+		output, err = queryProviderCatalogs(ctx, s.providers, params.Payload)
 	case "session.list":
 		var list protocol.ListParams
 		if err := json.Unmarshal(params.Payload, &list); err != nil && len(params.Payload) > 0 {
@@ -117,4 +113,16 @@ func (c *Client) Query(ctx context.Context, params protocol.QueryParams) (protoc
 		result.Result = command.Result
 	}
 	return result, err
+}
+
+func queryProviderCatalogs(ctx context.Context, providers *ProviderService, payload json.RawMessage) (string, error) {
+	var params protocol.ProviderCatalogParams
+	if len(payload) > 0 {
+		if err := json.Unmarshal(payload, &params); err != nil {
+			return "", err
+		}
+	}
+	bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return clientProviderCatalogs(bounded, providers, params.Refresh)
 }

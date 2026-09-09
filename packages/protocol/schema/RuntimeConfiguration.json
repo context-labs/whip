@@ -1,6 +1,15 @@
 {
   "type": "object",
   "properties": {
+    "disabled_providers": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
     "remote_hosts": {
       "type": [
         "null",

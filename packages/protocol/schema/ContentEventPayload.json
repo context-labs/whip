@@ -1,6 +1,185 @@
 {
   "type": "object",
   "properties": {
+    "accounting": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "root_id": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "reported_cost_micros": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "estimated_cost_micros": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "reported_cost_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "estimated_cost_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "unknown_cost_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "reported_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "estimated_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        },
+        "pending_calls": {
+          "type": "string",
+          "pattern": "^-?(0|[1-9][0-9]*)$",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "root_id",
+        "agent_id",
+        "scope",
+        "revision",
+        "reported_cost_micros",
+        "estimated_cost_micros",
+        "reported_cost_calls",
+        "estimated_cost_calls",
+        "unknown_cost_calls",
+        "reported_calls",
+        "estimated_calls",
+        "pending_calls"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "used": {
+          "type": "integer"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "reported": {
+              "type": "boolean"
+            },
+            "cost": {
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "prompt_tokens": {
+              "type": "integer"
+            },
+            "completion_tokens": {
+              "type": "integer"
+            },
+            "prompt_tokens_details": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "cached_tokens": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "cached_tokens"
+              ],
+              "additionalProperties": false
+            },
+            "completion_tokens_details": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "reasoning_tokens": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "reasoning_tokens"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "prompt_tokens",
+            "completion_tokens"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "used",
+        "size",
+        "usage"
+      ],
+      "additionalProperties": false
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "turn_id": {
+      "type": "string"
+    },
+    "invocation_id": {
+      "type": "string"
+    },
+    "host_status": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "args": {
+      "type": "string"
+    },
+    "result": {
+      "type": "string"
+    },
     "content": {
       "type": "object",
       "properties": {

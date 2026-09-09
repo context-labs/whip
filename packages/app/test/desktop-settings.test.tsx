@@ -2,20 +2,16 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import { Settings } from '../src/settings';
+import { AboutSettings, GeneralSettings } from '../src/settings/sections';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { resolveURLConnection, urlProfile, type AppUpdates, type AppUpdateSnapshot } from '../src/platform';
 
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
-  useNavigate: () => vi.fn(),
-}));
 const runtimes: AppRuntime[] = [];
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => { for (const runtime of runtimes.splice(0)) runtime.dispose(); vi.unstubAllGlobals(); });
 
-function fixture(desktop = true) {
+function fixture(desktop = true, section: 'about' | 'general' = 'about') {
   let snapshot: AppUpdateSnapshot = { state: 'idle' };
   const listeners = new Set<() => void>();
   const updates: AppUpdates = {
@@ -33,7 +29,7 @@ function fixture(desktop = true) {
   });
   runtimes.push(runtime);
   const view = render(<RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider>
-    <QueryClientProvider client={runtime.queries}><Settings section="device" /></QueryClientProvider>
+    <QueryClientProvider client={runtime.queries}>{section === 'about' ? <AboutSettings /> : <GeneralSettings />}</QueryClientProvider>
   </UIProvider></ThemeProvider></RuntimeContext.Provider>);
   return { runtime, updates, listeners, ...view,
     update(next: AppUpdateSnapshot) { act(() => { snapshot = next; for (const listener of listeners) listener(); }); },
@@ -81,15 +77,15 @@ it('keeps a downloaded update available when restart is declined or fails', asyn
 });
 
 it('omits desktop updates from the browser device settings', () => {
-  const f = fixture(false);
-  expect(screen.getByRole('heading', { name: 'Keyboard and attention' })).toBeTruthy();
+  const f = fixture(false, 'general');
+  expect(screen.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeTruthy();
   expect(screen.queryByRole('region', { name: 'Application updates' })).toBeNull();
   expect(f.updates.check).not.toHaveBeenCalled(); expect(f.listeners.size).toBe(0);
   expect(screen.queryByRole('switch', { name: /^Desktop notifications/ })).toBeNull();
 });
 
 it('defaults native notifications off and saves the explicit device preference', () => {
-  const f = fixture(); const control = screen.getByRole('switch', { name: /^Desktop notifications/ });
+  const f = fixture(true, 'general'); const control = screen.getByRole('switch', { name: /^Desktop notifications/ });
   expect(control.getAttribute('aria-checked')).toBe('false');
   expect(screen.getByText(/Notifications stop when Whip quits/)).toBeTruthy();
   fireEvent.click(control);

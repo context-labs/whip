@@ -1,3 +1,4 @@
+import { typography } from '@whip/ui/tokens.stylex';
 import { useId, useState } from 'react';
 import type { Session } from '@whip/sdk';
 import type { DeepReadonly } from '@whip/sdk/state';
@@ -198,22 +199,22 @@ const permissionStyles = stylex.create({
     borderRadius: 20,
     backgroundColor: `color-mix(in srgb, ${colors.warning} 12%, ${colors.background})`,
     color: colors.foreground,
-    fontSize: 13,
+    fontSize: typography.size13,
     lineHeight: 1.5,
   },
   header: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: scale.space2 },
   title: {
     display: 'flex', alignItems: 'center', gap: scale.space2,
-    margin: 0, fontSize: 13, fontWeight: 550,
+    margin: 0, fontSize: typography.size13, fontWeight: 550,
     color: `color-mix(in srgb, ${colors.warning} 70%, ${colors.foreground})`,
   },
   icon: { flexShrink: 0 },
-  waiting: { marginInlineStart: 'auto', color: surface.secondaryText, fontSize: 12 },
-  identity: { display: 'flex', alignItems: 'baseline', gap: scale.space2, color: surface.secondaryText, fontSize: 12, minWidth: 0, overflowWrap: 'anywhere' },
+  waiting: { marginInlineStart: 'auto', color: surface.secondaryText, fontSize: typography.size12 },
+  identity: { display: 'flex', alignItems: 'baseline', gap: scale.space2, color: surface.secondaryText, fontSize: typography.size12, minWidth: 0, overflowWrap: 'anywhere' },
   agent: { fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   operation: { flexShrink: 0, maxWidth: '50%' },
   command: { maxHeight: 'min(24dvh, 200px)', paddingBlock: scale.space1 },
-  rule: { margin: 0, overflowWrap: 'anywhere', fontSize: 12, color: surface.secondaryText },
+  rule: { margin: 0, overflowWrap: 'anywhere', fontSize: typography.size12, color: surface.secondaryText },
   footer: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: scale.space2, paddingTop: scale.space1 },
   control: {
     maxWidth: '100%', whiteSpace: 'normal', textAlign: 'start',
@@ -221,7 +222,7 @@ const permissionStyles = stylex.create({
     backgroundColor: { default: 'transparent', ':hover': `color-mix(in srgb, ${colors.foreground} 5%, transparent)` },
   },
   scope: {
-    flexShrink: 1, minWidth: 0, fontSize: 12, fontWeight: 400,
+    flexShrink: 1, minWidth: 0, fontSize: typography.size12, fontWeight: 400,
     color: surface.secondaryText, borderColor: 'transparent',
   },
   recovery: { alignSelf: 'flex-start' },
@@ -244,8 +245,8 @@ const questionStyles = stylex.create({
     gap: 8,
     color: surface.secondaryText,
   },
-  headerLabel: { fontSize: 13, fontWeight: 500 },
-  question: { fontSize: 13.5, fontWeight: 600, lineHeight: 1.4 },
+  headerLabel: { fontSize: typography.size13, fontWeight: 500 },
+  question: { fontSize: `calc(${typography.size13} * 13.5 / 13)`, fontWeight: 600, lineHeight: 1.4 },
   options: {
     display: 'flex',
     flexDirection: 'column',
@@ -265,7 +266,7 @@ const questionStyles = stylex.create({
     backgroundColor: { default: 'transparent', ':hover': colors.hover },
     color: 'inherit',
     font: 'inherit',
-    fontSize: 13.5,
+    fontSize: `calc(${typography.size13} * 13.5 / 13)`,
     textAlign: 'start',
     cursor: 'pointer',
   },
@@ -281,7 +282,7 @@ const questionStyles = stylex.create({
     borderStyle: 'solid',
     borderColor: surface.quietBorder,
     color: surface.secondaryText,
-    fontSize: 12,
+    fontSize: typography.size12,
     marginTop: 1,
   },
   numberSelected: {
@@ -297,7 +298,7 @@ const questionStyles = stylex.create({
   },
   optionDescription: {
     color: surface.secondaryText,
-    fontSize: 12,
+    fontSize: typography.size12,
     lineHeight: 1.4,
   },
   optionLabel: {
@@ -313,7 +314,7 @@ const questionStyles = stylex.create({
     borderStyle: 'solid',
     borderColor: surface.quietBorder,
     color: surface.secondaryText,
-    fontSize: 11,
+    fontSize: typography.size11,
     lineHeight: 1.5,
   },
   footer: { display: 'flex', alignItems: 'center', gap: 14 },
@@ -331,7 +332,7 @@ const questionStyles = stylex.create({
     borderWidth: 0,
     boxShadow: 'none',
     padding: 4,
-    fontSize: 13.5,
+    fontSize: `calc(${typography.size13} * 13.5 / 13)`,
     backgroundColor: { default: 'transparent', ':hover': 'transparent' },
     outline: { default: 'none', ':focus-visible': 'none' },
   },

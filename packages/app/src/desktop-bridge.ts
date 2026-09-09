@@ -23,16 +23,18 @@ export type DesktopEvent =
   | { kind: 'navigate'; path: string }
   | { kind: 'close-tab' }
   | { kind: 'attention-wakeup' }
+  | { kind: 'system-contrast'; highContrast: boolean }
   | { kind: 'update'; state: 'checking' | 'available' | 'downloaded' | 'current' | 'error'; version?: string; error?: string };
 
 export interface DesktopBridge {
-  readonly version: 1;
+  readonly version: 2;
   readonly appVersion: string;
   /** 'inset' when the host hides the native title bar (macOS hiddenInset) and
    * the renderer owns the top chrome, including window drag regions. */
   readonly chrome?: 'inset';
   readonly sessionScheme?: 'whip' | 'whip-beta';
   readonly connectionKinds: readonly ConnectionTarget['kind'][];
+  getSystemContrast(): Promise<boolean>;
   onEvent(listener: (event: DesktopEvent) => void): () => void;
   prepareConnection(id: string, profile: ConnectionProfile): Promise<void>;
   releaseConnection(id: string): void;

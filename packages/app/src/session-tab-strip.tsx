@@ -1,3 +1,4 @@
+import { typography } from '@whip/ui/tokens.stylex';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type Ref } from 'react';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { useQueries } from '@tanstack/react-query';
@@ -226,7 +227,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
         const pane = sessionViewPane(workspace, tab.id)!;
         const view = views.views.get(workspaceRootKey(tab));
         return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
-          content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id}/> : views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)} role="alert"><h2>This execution host is unavailable</h2><p>{`${hostName(tab)}: ${views.errors.get(workspaceRootKey(tab))}`}</p><Button variant="secondary" onClick={onManageHosts}>Execution hosts</Button></div> : <SessionLoading /> };
+          content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id}/> : views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)} role="alert"><h2>This execution host is unavailable</h2><p>{`${hostName(tab)}: ${views.errors.get(workspaceRootKey(tab))}`}</p><Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading /> };
       })}/>
       : <>{!compact && renderStrip(focusedPane, false)}{children}</>}
     <Sheet open={picker} onOpenChange={setPicker} title="Open sessions" description="Closing a tab leaves its session, drafts, and agents on the host.">
@@ -250,11 +251,11 @@ const styles = stylex.create({
   running: { color: colors.primary }, attention: { color: colors.warning },
   mobileBar: { display: 'flex', alignItems: 'center', gap: 2, minHeight: 52, paddingInline: 4, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, backgroundColor: surface.navigation, flexShrink: 0 },
   mobileSelector: { flex: 1, minWidth: 0, minHeight: 44, textAlign: 'start' },
-  count: { fontSize: 11, color: surface.secondaryText, backgroundColor: colors.element, padding: '2px 5px', borderRadius: 4 },
+  count: { fontSize: typography.size11, color: surface.secondaryText, backgroundColor: colors.element, padding: '2px 5px', borderRadius: 4 },
   pickerList: { display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', maxHeight: '65dvh' },
   pickerRow: { display: 'flex', alignItems: 'center', minWidth: 0, borderRadius: 6 },
   selected: { backgroundColor: colors.element },
   pickerSelect: { display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0, minHeight: 60, padding: 12, textAlign: 'start', borderWidth: 0, borderStyle: 'none', borderRadius: 6, color: colors.foreground, backgroundColor: { default: 'transparent', ':hover': colors.hover }, cursor: 'pointer' },
-  pickerText: { gap: 5, overflowWrap: 'anywhere', fontSize: 13 },
-  toast: { position: 'fixed', bottom: { default: 20, [scale.phone]: 12 }, insetInlineStart: '50%', transform: 'translateX(-50%)', zIndex: 30, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 8, backgroundColor: colors.panel, color: colors.foreground, fontSize: 12, boxShadow: '0 4px 24px #0002', maxWidth: 'calc(100vw - 24px)' },
+  pickerText: { gap: 5, overflowWrap: 'anywhere', fontSize: typography.size13 },
+  toast: { position: 'fixed', bottom: { default: 20, [scale.phone]: 12 }, insetInlineStart: '50%', transform: 'translateX(-50%)', zIndex: 30, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 8, backgroundColor: colors.panel, color: colors.foreground, fontSize: typography.size12, boxShadow: '0 4px 24px #0002', maxWidth: 'calc(100vw - 24px)' },
 });

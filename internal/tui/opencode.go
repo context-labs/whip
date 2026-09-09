@@ -56,38 +56,26 @@ const (
 	opencodeLeftMargin = 2
 )
 
-// The "whip" block-glyph wordmark, drawn in the same ▀▄█ pixel font as
-// opencode's logo: "wh" muted, "ip" bold foreground (mirroring opencode's
-// two-tone open|code mark), themed via whip's light/dark handling.
-var (
-	ocLogoWh = []string{
-		"      ▄   ",
-		"█ ▄ █ █▀▀█",
-		"█ █ █ █  █",
-		"▀▀▀▀▀ ▀  ▀",
-	}
-	ocLogoIp = []string{
-		"▄     ",
-		"█ █▀▀█",
-		"█ █  █",
-		"▀ █▀▀▀",
-	}
-)
+// The "whipcode" block-glyph wordmark (37 cells), drawn in the same ▀▄█
+// pixel font as opencode's logo. Rendered in a single bold-foreground tone
+// that tracks the active theme, the way the web wordmark tracks currentColor.
+var ocLogo = []string{
+	"      ▄    ▄             ▄           ",
+	"█ ▄ █ █▀▀█ █ █▀▀█ ▄▀▀▀ ▄▀▀▄ ▄▀▀█ ▄▀▀▄",
+	"█ █ █ █  █ █ █  █ █    █  █ █  █ █▀▀▀",
+	"▀▀▀▀▀ ▀  ▀ ▀ █▀▀▀ ▀▄▄▄ ▀▄▄▀ ▀▄▄█ ▀▄▄▄",
+}
 
-// opencodeLogo renders the wordmark: muted "wh", bold "ip", joined with a
-// single-column gap per line (opencode's two-tone logo treatment).
+// opencodeLogo renders the wordmark in the theme's foreground; it recomputes
+// per call so theme and light/dark swaps repaint it automatically.
 func opencodeLogo() string {
-	th := currentTheme()
-	left := th.On(th.Muted, nil)
-	right := th.On(th.Text, nil).Bold(true)
+	s := currentTheme().On(currentTheme().Text, nil).Bold(true)
 	var b strings.Builder
-	for i := range ocLogoWh {
+	for i, row := range ocLogo {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(left.Render(ocLogoWh[i]))
-		b.WriteByte(' ')
-		b.WriteString(right.Render(ocLogoIp[i]))
+		b.WriteString(s.Render(row))
 	}
 	return b.String()
 }

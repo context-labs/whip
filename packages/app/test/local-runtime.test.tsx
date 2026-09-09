@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import { HostDialog } from '../src/host-dialog';
+import { LocalRuntimePanel } from '../src/host-dialog';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { localProfile, type AppLocalRuntime, type LocalRuntimeStatus } from '../src/platform';
@@ -36,7 +36,7 @@ function fixture(initial = stopped, desktop = true) {
   runtimes.push(runtime);
   const connect = vi.spyOn(runtime.connections, 'connect').mockResolvedValue();
   const tree = (open: boolean) => <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider>
-    <QueryClientProvider client={runtime.queries}><HostDialog open={open} onOpenChange={() => {}} /></QueryClientProvider>
+    <QueryClientProvider client={runtime.queries}>{open && desktop && <LocalRuntimePanel api={api} hostState={runtime.getSnapshot().home!.state} disabled={false} onBusyChange={() => {}} />}</QueryClientProvider>
   </UIProvider></ThemeProvider></RuntimeContext.Provider>;
   const view = render(tree(true));
   return { runtime, api, connect, ...view, reopen() { view.rerender(tree(false)); view.rerender(tree(true)); } };
@@ -52,12 +52,13 @@ it('makes local setup available before connection and keeps tests separate from 
   fireEvent.click(within(panel).getByRole('button', { name: 'Test Connection' }));
   expect(within(panel).getByRole('status').textContent).toContain('Locating whipcode');
   expect((within(panel).getByRole('button', { name: 'Choose executable' }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole('button', { name: 'Connect', exact: true }) as HTMLButtonElement).disabled).toBe(true);
   act(() => probe.resolve(stopped)); await within(panel).findByText(stopped.message);
   expect(f.connect).not.toHaveBeenCalled(); expect(f.api.install).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
-  await waitFor(() => expect(f.connect).toHaveBeenCalledExactlyOnceWith('local'));
-  expect(within(panel).getByText(stopped.executable!)).toBeTruthy();
+  const diagnostics = within(panel).getByRole('button', { name: 'Runtime diagnostics' });
+  expect(diagnostics.getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(diagnostics);
+  expect(diagnostics.getAttribute('aria-expanded')).toBe('true');
+  expect(await within(panel).findByText(stopped.executable!)).toBeTruthy();
   expect(within(panel).getByText(stopped.home)).toBeTruthy();
 });
 
@@ -102,6 +103,5 @@ it('keeps native repair controls out of shells without the capability', () => {
   const f = fixture(stopped, false);
   expect(screen.queryByRole('region', { name: 'This Mac runtime' })).toBeNull();
   expect(f.api.test).not.toHaveBeenCalled();
-  expect(screen.getByRole('button', { name: 'URL', exact: true })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'SSH', exact: true })).toBeTruthy();
+
 });

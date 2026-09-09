@@ -507,15 +507,18 @@ function mergeMessages(left: Message[], right: Message[]): Message[] {
 
 function appendPresentation(previous: Presentation[], item: Presentation, continuous = true): Presentation[] {
   if (item.kind === 'stream.accounting') return previous;
-  const payload = (item.payload ?? {}) as StreamEvent;
+  const payload = (item.payload ?? {}) as StreamEvent & { truncated?: boolean; content?: unknown };
+  // Legacy content-only events have no owner or call identity. Never attribute
+  // them to the root or turn cumulative deltas into anonymous tool rows.
+  if (payload.truncated && payload.content && !payload.agent_id) return previous;
   const cumulative = ['stream.tool.call', 'stream.tool.output'].includes(item.kind);
   const index = cumulative && payload.id ? previous.findIndex(row => {
     const value = (row.payload ?? {}) as StreamEvent;
-    return row.kind === item.kind && value.id === payload.id && value.agent_id === payload.agent_id;
+    return row.kind === item.kind && value.id === payload.id && value.agent_id === payload.agent_id && value.turn_id === payload.turn_id;
   }) : previous.length - 1;
   const last = previous[index];
   const lastPayload = (last?.payload ?? {}) as StreamEvent;
-  if (last?.kind === item.kind && payload.id === lastPayload.id && payload.agent_id === lastPayload.agent_id) {
+  if (last?.kind === item.kind && payload.id === lastPayload.id && payload.agent_id === lastPayload.agent_id && payload.turn_id === lastPayload.turn_id) {
     let next: Presentation | undefined;
     // Tool arguments/output are full values so far, even when calls interleave.
     if (cumulative && payload.id) next = { ...item, seq: last.seq };

@@ -1,0 +1,32 @@
+{
+  "chromium": {
+    "browser": "153.0.8010.12",
+    "maximumSubscriptions": 4,
+    "checks": [
+      "UI saves two verified profiles only in Local config; a fresh browser discovers all three hosts",
+      "creation uses each host’s own folder and distinct model default; Go never submits creation",
+      "three mixed-host panes retain independent drafts and route concurrent turns to their own daemons",
+      "search and permission attention label/filter hosts without root hydration; approval reaches Remote A only",
+      "a remote file upload is materialized only in its Remote B conversation",
+      "Remote A and Local process outages preserve healthy remote work, partial search, drafts and reconnect",
+      "explicit host disconnect leaves accepted work running and reconnect recovers its result",
+      "removing Remote A preserves its unavailable tab and draft; Local/B keep working and re-adding its runtime restores the draft",
+      "reload restores the mixed layout; all host connections together retain at most four root subscriptions"
+    ]
+  },
+  "firefox": {
+    "browser": "155.0",
+    "maximumSubscriptions": 4,
+    "checks": [
+      "UI saves two verified profiles only in Local config; a fresh browser discovers all three hosts",
+      "creation uses each host’s own folder and distinct model default; Go never submits creation",
+      "three mixed-host panes retain independent drafts and route concurrent turns to their own daemons",
+      "search and permission attention label/filter hosts without root hydration; approval reaches Remote A only",
+      "a remote file upload is materialized only in its Remote B conversation",
+      "Remote A and Local process outages preserve healthy remote work, partial search, drafts and reconnect",
+      "explicit host disconnect leaves accepted work running and reconnect recovers its result",
+      "removing Remote A preserves its unavailable tab and draft; Local/B keep working and re-adding its runtime restores the draft",
+      "reload restores the mixed layout; all host connections together retain at most four root subscriptions"
+    ]
+  }
+}

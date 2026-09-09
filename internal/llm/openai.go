@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/context-labs/whip/internal/openaiauth"
 )
 
 // Message is one chat message. Content is a string; ToolCalls set on assistant
@@ -23,6 +25,7 @@ import (
 // image Parts (multimodal/vision) — when Parts is non-empty it is sent as the
 // content array and Content is mirrored as a text part so both stay in sync.
 type Message struct {
+	Continuation ResponseContinuation `json:"-"`
 	// RawSequence identifies the retained transcript row. Summaries carry
 	// the last covered raw sequence. Runtime-only; never serialized.
 	RawSequence int           `json:"-"`
@@ -146,23 +149,25 @@ func (p ContentPart) DecodeDimensions() (w, h int, ok bool) {
 // fields are omitempty and cleared by stripAuthored before a provider request,
 // so they only ever appear in the persisted session store.
 type messageWire struct {
-	Role        string     `json:"role"`
-	Content     any        `json:"content"`
-	ToolCalls   []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID  string     `json:"tool_call_id,omitempty"`
-	Name        string     `json:"name,omitempty"`
-	Authored    bool       `json:"authored,omitempty"`
-	SentAt      *time.Time `json:"sent_at,omitempty"`
-	Usage       *Usage     `json:"usage,omitempty"`
-	Model       string     `json:"model,omitempty"`
-	RewoundFrom string     `json:"rewound_from,omitempty"`
+	Continuation ResponseContinuation `json:"continuation,omitzero"`
+	Role         string               `json:"role"`
+	Content      any                  `json:"content"`
+	ToolCalls    []ToolCall           `json:"tool_calls,omitempty"`
+	ToolCallID   string               `json:"tool_call_id,omitempty"`
+	Name         string               `json:"name,omitempty"`
+	Authored     bool                 `json:"authored,omitempty"`
+	SentAt       *time.Time           `json:"sent_at,omitempty"`
+	Usage        *Usage               `json:"usage,omitempty"`
+	Model        string               `json:"model,omitempty"`
+	RewoundFrom  string               `json:"rewound_from,omitempty"`
 }
 
 // MarshalJSON sends Content as a plain string for text-only messages and as a
 // content-parts array (text + images) for multimodal ones.
 func (m Message) MarshalJSON() ([]byte, error) {
 	w := messageWire{
-		Role: m.Role, Content: m.Content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID,
+		Continuation: m.Continuation,
+		Role:         m.Role, Content: m.Content, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID,
 		Name: m.Name, Authored: m.Authored, SentAt: m.SentAt, Usage: m.Usage,
 		Model: m.Model, RewoundFrom: m.RewoundFrom,
 	}
@@ -187,6 +192,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*m = Message{}
+	m.Continuation = raw.Continuation
 	m.Role, m.ToolCalls, m.ToolCallID, m.Name = raw.Role, raw.ToolCalls, raw.ToolCallID, raw.Name
 	m.Authored, m.SentAt, m.Usage, m.Model, m.RewoundFrom = raw.Authored, raw.SentAt, raw.Usage, raw.Model, raw.RewoundFrom
 	if len(raw.Content) == 0 {
@@ -234,6 +240,7 @@ func stripAuthored(msgs []Message) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
+		out[i].Continuation = ResponseContinuation{}
 		out[i].Authored = false
 		out[i].SentAt = nil
 		out[i].Usage = nil
@@ -368,6 +375,7 @@ func NewTool(name, desc, schema string) Tool {
 
 // Client talks to one provider endpoint.
 type Client struct {
+	openAI  *openaiauth.Manager
 	BaseURL string
 	APIKey  string
 	HTTP    *http.Client
@@ -402,12 +410,15 @@ func New(baseURL, apiKey string) *Client {
 
 // Request is a chat completions request.
 type Request struct {
-	Accounting      *CallAccounting `json:"-"`
-	Model           string          `json:"model"`
-	Messages        []Message       `json:"messages"`
-	Tools           []Tool          `json:"tools,omitempty"`
-	MaxTokens       int             `json:"max_tokens,omitempty"`
-	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
+	// OutputLimitExplicit distinguishes a caller's hard output cap from an
+	// internal helper target. Subscription routes cannot enforce smaller caps.
+	OutputLimitExplicit bool            `json:"-"`
+	Accounting          *CallAccounting `json:"-"`
+	Model               string          `json:"model"`
+	Messages            []Message       `json:"messages"`
+	Tools               []Tool          `json:"tools,omitempty"`
+	MaxTokens           int             `json:"max_tokens,omitempty"`
+	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
 	// Temperature and TopP are optional per-model sampling knobs. Pointers so
 	// 0.0 (a legitimate value) is distinguishable from unset; nil omits the
 	// field from the request, preserving provider defaults.
@@ -489,8 +500,10 @@ type apiError struct {
 // specific reason strings; Error() keeps the "<status>: <body>" shape the
 // existing tests assert ( e.g. "... 401 ..." ).
 type HTTPError struct {
-	Status string
-	Body   string
+	Status     string
+	Body       string
+	Permanent  bool
+	RetryAfter time.Duration
 }
 
 func (e *HTTPError) Error() string { return e.Status + ": " + e.Body }
@@ -502,6 +515,9 @@ func IsPermanentRequestError(err error) bool {
 	var response *HTTPError
 	if !errors.As(err, &response) {
 		return false
+	}
+	if response.Permanent {
+		return true
 	}
 	fields := strings.Fields(response.Status)
 	if len(fields) == 0 {
@@ -552,6 +568,9 @@ func retryable(err error) bool {
 		return false
 	}
 	if he, ok := errors.AsType[*HTTPError](err); ok {
+		if he.Permanent {
+			return false
+		}
 		code, _ := strconv.Atoi(strings.Fields(he.Status)[0])
 		return retryableStatus(code)
 	}
@@ -648,6 +667,9 @@ type Pricing struct {
 
 // Models fetches GET /models from the provider.
 func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
+	if c.openAI != nil {
+		return c.subscriptionModels(ctx)
+	}
 	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/models", nil)
 	if err != nil {
 		return nil, err
@@ -697,6 +719,7 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 	}
 	logicalID := logicalCallID()
 	var total Usage
+	authRetried := false
 	for attempt := 1; ; attempt++ {
 		emitted := false
 		wrapText := func(s string) {
@@ -721,10 +744,20 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 			return c.streamOnce(ctx, body, wrapText, wrapThink, wrapTool)
 		})
 		total.add(usage)
+		if rejected, ok := errors.AsType[*subscriptionUnauthorized](err); ok && !emitted && !authRetried && !IsAccountingError(err) {
+			authRetried = true
+			if _, refreshErr := c.openAI.Refresh(ctx, rejected.token); refreshErr != nil {
+				return msg, total, &HTTPError{Status: "401 Unauthorized", Body: refreshErr.Error()}
+			}
+			continue
+		}
 		if err == nil || emitted || IsAccountingError(err) || !retryable(err) || attempt >= c.attempts() {
 			return msg, total, err
 		}
 		delay := backoff(attempt)
+		if rejection, ok := errors.AsType[*HTTPError](err); ok {
+			delay = max(delay, rejection.RetryAfter)
+		}
 		if c.OnRetry != nil {
 			c.OnRetry(RetryEvent{Attempt: attempt, Max: c.attempts(), Delay: delay, Err: err})
 		}
@@ -737,6 +770,9 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 // streamOnce performs a single streaming request attempt; the Stream retry
 // wrapper calls it per attempt and tracks all output, even with nil callbacks.
 func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink func(string), onToolCall func(id, name, args string)) (Message, Usage, error) {
+	if c.openAI != nil {
+		return c.subscriptionOnce(ctx, body, onText, onThink, onToolCall)
+	}
 	hr, err := httpRequest(ctx, c.BaseURL, body)
 	if err != nil {
 		return Message{}, Usage{}, err
@@ -879,6 +915,10 @@ func validToolCallArgs(s string) bool {
 // summary call, where streaming would just add UI noise for a one-shot
 // synthesis.
 func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, error) {
+	if c.openAI != nil {
+		message, usage, err := c.Stream(ctx, req, nil, nil, nil)
+		return message.Content, usage, err
+	}
 	ctx, cancel := c.callContext(ctx)
 	defer cancel()
 	req.Stream = false

@@ -6,6 +6,39 @@ import { transportFixture } from './transport-fixture.js';
 
 const decision = { root_id: 'root', permission_id: 'permission', allow: true, command_id: 'decision-1', reason: '<tag> & café "quoted"' };
 
+test('provider inventory and revision-checked disconnect stay outside command recovery', async t => {
+  const records: unknown[] = [];
+  const fixture = transportFixture({ request(request, connection) {
+    if (request.method === 'provider.list') connection.reply(request, { revision: '7', providers: [] });
+    if (request.method === 'provider.disconnect') connection.reply(request, { provider: 'openrouter', configured: true, key_source: 'none', available: false, disabled: true, warnings: [] });
+  } });
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client', reconnect: false,
+    recoveryStorage: { async list() { return []; }, async put(record) { records.push(record); }, async delete() {} } });
+  t.after(() => client.close());
+  await client.connect();
+  assert.equal((await client.providers.list()).revision, '7');
+  assert.deepEqual(fixture.current.requests.at(-1)?.params, {});
+  assert.equal((await client.providers.disconnect({ provider: 'openrouter', revision: '7' })).disabled, true);
+  assert.deepEqual(fixture.current.requests.at(-1)?.params, { provider: 'openrouter', revision: '7' });
+  assert.equal(records.length, 0);
+});
+
+test('provider login preserves omitted-provider behavior and supports subscription login', async t => {
+  const fixture = transportFixture({ request(request, connection) {
+    if (request.method === 'provider.login.begin') connection.reply(request, {
+      flow_id: 'login', provider: request.params.provider ?? 'inference-net', state: 'authorizing',
+      teams: [], projects: [], expires_at: '2099-01-01T00:00:00Z',
+    });
+  } });
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client', reconnect: false });
+  t.after(() => client.close());
+  await client.connect();
+  assert.equal((await client.providers.login.begin()).provider, 'inference-net');
+  assert.deepEqual(fixture.current.requests.at(-1)?.params, {});
+  assert.equal((await client.providers.login.begin({ provider: 'openai-codex', timeoutMs: 1000 })).provider, 'openai-codex');
+  assert.deepEqual(fixture.current.requests.at(-1)?.params, { provider: 'openai-codex' });
+});
+
 for (const clientKind of ['human', 'automation'] as const) {
   test(`${clientKind} clients submit unsigned decisions with stable command identities`, async t => {
     const fixture = transportFixture({ request(request, connection) {

@@ -14,6 +14,7 @@ import (
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
@@ -246,6 +247,7 @@ func (s *supervisor) wait() {
 }
 
 type Session struct {
+	providers  *ProviderService
 	store      *sessionstore.Store
 	meta       sessionstore.Meta
 	authority  capability.Authority
@@ -748,6 +750,36 @@ func (s *Session) recordStreamEvent(stream *streamEnvelope) error {
 	payload, err := json.Marshal(stream.event)
 	if err != nil {
 		return err
+	}
+	if len(payload) > sessionstore.InlineValueLimit {
+		value, err := s.store.StoreContent(s.supervisor.ctx, sessionstore.ContentGrant{
+			RootID: s.meta.ID, Scope: sessionstore.ContentGrantRoot,
+		}, sessionstore.RuntimePayload{Data: payload, MediaType: "application/json", Source: stream.kind})
+		if err != nil {
+			return err
+		}
+		event := stream.event
+		// Keep complete small fields; partial JSON arguments/results would invent
+		// parse failures. Full bodies stay explicitly readable through the handle.
+		if len(event.Text) > 1024 {
+			event.Text = ""
+		}
+		if len(event.Args) > 1024 {
+			event.Args = ""
+		}
+		if len(event.Result) > 1024 {
+			if stream.kind == "stream.cell.host" && event.HostStatus == "" {
+				event.HostStatus = "failed"
+			}
+			event.Result = ""
+		}
+		event.Accounting, event.Usage = nil, nil
+		payload, err = json.Marshal(protocol.ContentEventPayload{StreamEvent: event,
+			Content: protocol.ContentHandle{ReferenceID: value.ReferenceID, Digest: value.Digest,
+				Size: value.Size, MediaType: value.MediaType, Source: value.Source}, Truncated: true})
+		if err != nil {
+			return err
+		}
 	}
 	_, err = s.store.AppendRootEvent(s.supervisor.ctx, s.meta.ID, stream.kind, sessionstore.RuntimePayload{
 		Data: payload, MediaType: "application/json", Source: stream.kind,

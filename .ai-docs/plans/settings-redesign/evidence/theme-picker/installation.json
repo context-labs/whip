@@ -1,0 +1,30 @@
+{
+  "buildId": "local-theme-picker-6d99e1b2",
+  "rendererDigest": "6d99e1b26b237e0fda598754b0d579afe9041cb84a4aba3340715500b68d8542",
+  "checkedFiles": 23,
+  "installed": "/Applications/Whip.app",
+  "backup": "/var/folders/q1/vxdpc0bd0f59c7k86x2vcsrh0000gn/T/whip-before-theme-picker-Dfyh2y",
+  "before": {
+    "turns": 0,
+    "agents": 0,
+    "interrupted": 3
+  },
+  "after": {
+    "turns": 0,
+    "agents": 0,
+    "interrupted": 3
+  },
+  "status": {
+    "state": "running",
+    "network_endpoint": "http://127.0.0.1:8080",
+    "pid": 25294,
+    "generation": 9,
+    "daemon_build": "local-theme-picker-6d99e1b2",
+    "client_build": "local-theme-picker-6d99e1b2",
+    "build_match": true,
+    "started_at": "2026-09-09T06:46:56.454414Z",
+    "socket": "/Users/samheutmaker/.whipcode/runtime-v2/daemon.sock",
+    "database": "/Users/samheutmaker/.whipcode/runtime-v2/sessions.db",
+    "log": "/Users/samheutmaker/.whipcode/runtime-v2/daemon.log"
+  }
+}

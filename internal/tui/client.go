@@ -1699,6 +1699,7 @@ func (m *model) openThinSessionPalette() {
 func (m *model) openThinAuthPalette() {
 	commands := []struct{ title, command string }{
 		{"Sign in to Inference.net", "/auth inference-net"},
+		{"Sign in to OpenAI (ChatGPT subscription)", "/auth openai-codex"},
 		{"Configure OpenRouter key", "/auth openrouter"},
 	}
 	m.openCommandSubpalette("Authentication", commands)
@@ -1922,7 +1923,8 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 		return m.submitClientAction("session.effort", protocol.EffortParams{Effort: effortLabel(level), PersistDefault: true}, "")
 	case "model", "model-for-session":
 		if args == "refresh" {
-			return m.submitClientAction("provider.catalogs", map[string]string{}, "")
+			m.verboseCatalogs = true
+			return m.submitClientAction("provider.catalogs", protocol.ProviderCatalogParams{Refresh: true}, "")
 		}
 		if args == "" {
 			m.openModelPicker(name == "model-for-session")

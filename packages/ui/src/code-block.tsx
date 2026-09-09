@@ -1,7 +1,7 @@
 import * as stylex from '@stylexjs/stylex';
 import {useEffect, useMemo, useState} from 'react';
 import type {ReactNode} from 'react';
-import {colors, surface, typography} from './tokens.stylex';
+import {appearance, colors, surface, typography} from './tokens.stylex';
 import {useTheme} from './themes';
 import {boundedCode, codeTokenStyle} from './code-data';
 import type {HighlightedCode} from './code-highlight';
@@ -18,9 +18,9 @@ export interface CodeBlockProps extends Styled {
 }
 const styles = stylex.create({
   root: {minWidth: 0, margin: 0, border: `1px solid ${surface.quietBorder}`, borderRadius: 8, overflow: 'hidden'},
-  header: {display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingBlock: 6, paddingInline: 12, color: surface.secondaryText, backgroundColor: colors.panel, fontFamily: typography.mono, fontSize: 11},
-  pre: {margin: 0, padding: 12, fontFamily: typography.mono, fontSize: 12, lineHeight: '20px', overflow: 'auto', tabSize: 2, whiteSpace: 'pre', maxHeight: 520},
-  status: {paddingBlock: 7, paddingInline: 12, margin: 0, color: surface.secondaryText, backgroundColor: colors.panel, fontSize: 12, lineHeight: '18px'},
+  header: {display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, paddingBlock: 6, paddingInline: 12, color: surface.secondaryText, backgroundColor: colors.panel, fontFamily: typography.mono, fontSize: typography.size11},
+  pre: {margin: 0, padding: 12, fontFamily: typography.mono, fontSize: typography.codeSize, lineHeight: '1.6667', overflow: 'auto', tabSize: 2, whiteSpace: appearance.codeWhiteSpace, overflowWrap: appearance.codeOverflowWrap, maxHeight: 520},
+  status: {paddingBlock: 7, paddingInline: 12, margin: 0, color: surface.secondaryText, backgroundColor: colors.panel, fontSize: typography.size12, lineHeight: '1.5'},
 });
 export function CodeBlock({code, language, label, maxBytes, truncated, downloadAction, xstyle}: CodeBlockProps) {
   const {resolvedTheme} = useTheme();

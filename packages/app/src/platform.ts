@@ -83,6 +83,8 @@ export interface AppPlatform {
   sessionLink?(path: string, profile?: ConnectionProfile): string;
   pickDirectory?(): Promise<string | undefined>;
   updates?: AppUpdates;
+  /** Native accessibility preference; absent hosts use browser media queries. */
+  systemContrast?: { getSnapshot(): boolean | undefined; subscribe(listener: () => void): () => void };
   localRuntime?: AppLocalRuntime;
   projectEditors?: AppProjectEditors;
   notify?(notification: AppNotification): Promise<void>;

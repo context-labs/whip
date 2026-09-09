@@ -1,0 +1,31 @@
+{
+  "chromium-repl": {
+    "rendererDigest": "a4be825d93afa12793f7b1544117a02b7330a92c1af05a34777253bf967b2cb1",
+    "checks": [
+      "Settings removes transcript consumers and releases idle root subscriptions after the bounded grace",
+      "real recorded tools obey Compact/Comfortable/Detailed; previews are bounded and density performs no content reads",
+      "manual disclosure overrides Detailed default during real in-progress/output/completion events",
+      "child chat: exact URL, agent/mode/view identity, split layout and focus restored",
+      "child REPL: exact URL, agent/mode/view identity, split layout and focus restored",
+      "split root chat and child REPL: exact URL, agent/mode/view identity, split layout and focus restored",
+      "root and child drafts stay isolated across all Settings round trips",
+      "older history retains message and offset after font/code-size/wrap/density changes (h:0:687, drift 0.00px)",
+      "follow-latest survives Settings and follows subsequent actual daemon output"
+    ],
+    "pageErrors": [],
+    "cspErrors": [],
+    "frameCount": 71,
+    "contentReads": 0
+  },
+  "chromium-body": {
+    "rendererDigest": "a4be825d93afa12793f7b1544117a02b7330a92c1af05a34777253bf967b2cb1",
+    "checks": [
+      "Settings removes transcript consumers and releases idle root subscriptions after the bounded grace",
+      "actual oversized tool body stays behind a handle in Detailed mode; preview respects its byte limit, and only explicit download reads content"
+    ],
+    "pageErrors": [],
+    "cspErrors": [],
+    "frameCount": 30,
+    "contentReads": 1
+  }
+}

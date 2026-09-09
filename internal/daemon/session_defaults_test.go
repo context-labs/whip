@@ -63,7 +63,7 @@ func TestSessionDefaultsPreserveRoutingChoices(t *testing.T) {
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.SaveCatalogs(map[string]config.Catalog{"override": {Models: []config.ModelInfoLite{{ID: "catalog-only"}}}}); err != nil {
+	if err := config.SaveCatalogs(map[string]config.Catalog{"override": {BaseURL: "http://localhost:2", Models: []config.ModelInfoLite{{ID: "catalog-only"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ name, model, provider, wantModel, wantProvider string }{

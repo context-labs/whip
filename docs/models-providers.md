@@ -1,8 +1,53 @@
 # Models & providers
 
-whip is provider-agnostic by construction: any OpenAI-compatible endpoint is
-a provider, models route to providers, and the model catalog is discovered
-live — there is no registry to update when a new model ships.
+whip routes models to OpenAI-compatible API-key endpoints or its built-in
+ChatGPT subscription profile. Catalogs are discovered live; the subscription
+profile also requires verified model output limits for budget admission.
+
+## Provider connections in Settings
+
+**Providers & models** groups connected providers, connections needing attention,
+and providers available to connect. Bundled logos identify Inference.net,
+OpenRouter, and OpenAI (ChatGPT subscription); existing custom endpoints get a
+generic icon. Each row opens its own connect/manage dialog. Inference.net account
+login and ChatGPT device login retain their existing host-owned flows.
+
+The execution host discovers `INFERENCE_API_KEY` and `OPENROUTER_API_KEY` when
+their built-in provider entry is absent. Discovery also recognizes an existing
+Inference.net account. These effective routes are computed in memory: discovery
+does not write provider entries or resolved keys into configuration. Saved routes
+take precedence as a whole, including custom endpoints and key references.
+Settings shows the credential source actually selected by runtime resolution.
+An Environment label means a key is present; it does not certify billing access
+or that every advertised model can run. Credential commands are shown as
+unchecked and are never executed by the provider inventory.
+
+**Disable on this host** records the provider ID in `disabledProviders`, leaving
+its environment, external CLI credentials, saved key, and model aliases intact.
+**Disconnect provider** removes the selected WHIP-owned key/account and disables
+the route so a fallback key cannot immediately reconnect it. Custom endpoint
+keys can be removed without signing out an unrelated Inference.net account.
+API-key removal is local; account logout retains its existing best-effort remote
+cleanup. Connecting or disconnecting never chooses a different default model.
+An unavailable default has explicit manage/change actions.
+
+Disabling takes effect at the next model-request admission, including retries,
+subagents, helpers, and compaction. An admitted request may finish; subsequent
+requests fail with repair guidance and are not automatically retried. Enabling
+restores the route. Existing session clients otherwise retain their credential
+and endpoint snapshot until explicit session reload/model change or session
+reconstruction; reload an existing session after replacing or rotating its API key.
+
+Catalog reads exclude disabled, removed, invalid, or endpoint-mismatched routes.
+Ordinary reads reuse the existing 24-hour cache; `/model refresh` or SDK
+`providers.catalogs({ refresh: true })` forces discovery. Fetches are bounded and
+retain the last usable catalog on transient failure. Pending responses are
+discarded if the route or resolved account key changed during discovery.
+
+This release covers the existing Inference.net/OpenRouter APIs, ChatGPT
+subscriptions, and management of already configured custom endpoints. New
+OpenAI API/Cerebras presets and custom endpoint creation remain separate work;
+native Anthropic/Google protocols are not added by environment detection.
 
 ## Routing model
 
@@ -47,14 +92,80 @@ flowchart LR
 
 ## Key resolution
 
-Per provider, in order:
+For API-key providers, in order:
 
 ```mermaid
 flowchart LR
-    E["apiKeyEnv<br/>env var"] --> K["apiKey<br/>literal in config"] --> I["~/.inf/config.json<br/>(inference.net only, minted by inf CLI)"]
+    E["apiKeyEnv<br/>nonblank env var"] --> K["apiKey<br/>literal or secret reference"] --> W["WHIP Inference.net account"] --> I["~/.inf/config.json<br/>external Inference.net CLI"]
 ```
 
 First hit wins. No key material ever lives in the session store.
+Account fallbacks apply only to the canonical Inference.net endpoint.
+
+## OpenAI: ChatGPT subscription
+
+The `openai-codex` provider uses a ChatGPT account with Codex access. It is
+separate from API billing and never falls back to an API key when subscription
+access fails. This is a maintained WHIP integration, not an OpenAI endorsement
+or a promise that the subscription endpoints are a stable public API.
+
+In Settings → Providers & models on the execution host, choose
+**Sign in with OpenAI (ChatGPT subscription)**.
+The same flow is available from the terminal:
+
+```sh
+whip auth openai-codex
+whip auth openai-codex status
+whip auth openai-codex logout
+```
+
+In the TUI, use `/auth openai-codex`. Open the displayed verification link and
+enter the temporary code. ChatGPT Security settings must allow **device code
+authorization for Codex**. The daemon owns polling, so closing a tab does not
+cancel sign-in; another attached client can recover it. Cancel explicitly to
+stop it. One account is connected per execution host, including remote hosts.
+
+Credentials are stored only on that host in `openai-codex.json` under the
+configured WHIP home, with owner-only permissions and atomic token rotation.
+WHIP and whipcode keep separate homes. Tokens are never sent to the renderer,
+session history or event log, and no other application's credentials are imported.
+Logout removes the login and its account-scoped model catalog, preserving model
+configuration. A configured route alone does not mean an account is connected.
+
+Sign-in preserves current model defaults. Select an advertised subscription
+model explicitly, for example `/model gpt-5.5 openai-codex`. The new-session
+and conversation model menus include discovered models and identify the provider
+for each choice, including when API and subscription routes share a model name. To use the
+subscription for titles and compaction as well, select it under Settings →
+Agents & execution → Context compaction. Existing compaction settings still
+apply independently to every conversation.
+
+The adapter uses streamed Responses with `store:false`. Text, images on
+advertised vision models, reasoning summaries, and `rlm_exec` tool round trips
+use the existing recursive runtime. Opaque response items are retained privately
+with the assistant message for restart, fork and rewind; account/model switches
+do not replay incompatible items. They are excluded from public history and
+downloadable message bodies.
+
+Subscription token usage is recorded, including cached input and reasoning
+output. Monetary cost remains **unknown**, not zero. A finite monetary budget
+therefore prevents dispatch. The endpoint does not offer an enforceable smaller
+output cap: each call reserves the model's verified natural output limit, and a
+smaller explicit `maxOut` or `models.call(max_tokens=...)` is refused. Internal
+title/summary defaults use the same natural reservation. Models without verified
+limits are omitted. Input estimates include opaque continuation size and remain
+estimates. `temperature` and `top_p` overrides are rejected on this route.
+
+Rejected access is refreshed once before any output; every HTTP attempt is
+accounted separately. Within a model request, retries stop once output begins.
+The shared runtime may queue a new turn attempt after a transient failure,
+retaining its partial history. Incomplete or failed responses cannot execute
+tool calls. Subscription quota exhaustion stops both retry layers and asks the
+user to wait or change the selected route explicitly.
+
+Implementation and validation status, upstream references, and live acceptance
+evidence are recorded in the
+[subscription plan](../.ai-docs/plans/openai-subscriptions/README.md).
 
 ## OpenRouter: one key, every model
 

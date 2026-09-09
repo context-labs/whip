@@ -3,7 +3,7 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 5,
-  "minor": 0,
+  "minor": 1,
   "operations": [
     {
       "name": "command.status",
@@ -183,6 +183,14 @@ export const manifest = {
       "result_type": "PermissionDecisionResult"
     },
     {
+      "name": "provider.disconnect",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "configuration-revision",
+      "params_type": "ProviderDisconnectParams",
+      "result_type": "ProviderStatus"
+    },
+    {
       "name": "provider.key.rotate",
       "surface": "rpc",
       "execution": "ephemeral",
@@ -201,11 +209,19 @@ export const manifest = {
       "result_type": "RuntimeConfiguration"
     },
     {
+      "name": "provider.list",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-configuration",
+      "params_type": "Empty",
+      "result_type": "ProviderList"
+    },
+    {
       "name": "provider.login.begin",
       "surface": "rpc",
       "execution": "ephemeral",
       "permission": "host-configuration",
-      "params_type": "Empty",
+      "params_type": "ProviderLoginBeginParams",
       "result_type": "ProviderLoginStatus"
     },
     {
@@ -671,7 +687,7 @@ export const manifest = {
       "surface": "runtime",
       "execution": "query",
       "permission": "host-runtime",
-      "params_type": "EmptyParams",
+      "params_type": "ProviderCatalogParams",
       "result_type": "ProviderCatalogsResult"
     },
     {
@@ -964,6 +980,7 @@ export const manifest = {
     "state.private.set": "LifecycleEvent",
     "stream.accounting": "StreamEvent",
     "stream.cell.host": "StreamEvent",
+    "stream.cell.host.started": "StreamEvent",
     "stream.notice": "StreamEvent",
     "stream.reasoning": "StreamEvent",
     "stream.terminal.awaiting": "StreamEvent",

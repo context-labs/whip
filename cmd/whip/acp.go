@@ -22,6 +22,7 @@ import (
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -57,12 +58,18 @@ func acpCLI(args []string) error {
 			providerName = model.Providers[0]
 		}
 	}
-	key, err := provider.ResolveKey()
-	if err != nil {
-		return err
-	}
-	if key == "" {
-		return fmt.Errorf(buildinfo.Text("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)"), providerName)
+	if provider.API == openaiauth.Provider {
+		if err := provider.ValidateOpenAICodex(); err != nil {
+			return err
+		}
+	} else {
+		key, err := provider.ResolveKey()
+		if err != nil {
+			return err
+		}
+		if key == "" {
+			return fmt.Errorf(buildinfo.Text("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)"), providerName)
+		}
 	}
 	backend := &acpDaemonBackend{
 		clientID: "acp-" + rand.Text(), model: modelName, provider: providerName,

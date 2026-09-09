@@ -38,7 +38,7 @@ try {
   await writeFile(preload, `const { contextBridge, ipcRenderer } = require('electron');
 localStorage.setItem('whip.hosts.v2', '[]');
 localStorage.setItem('whip.selectedHost.v2', JSON.stringify('disconnected-probe'));
-contextBridge.exposeInMainWorld('whipDesktop', { version: 1, appVersion: 'probe',
+contextBridge.exposeInMainWorld('whipDesktop', { version: 2, getSystemContrast: async () => false, appVersion: 'probe',
  connectionKinds: ['local', 'url', 'ssh'], onEvent: () => () => {}, ready: () => ipcRenderer.send('probe:ready') });`);
   const main = path.join(temporary, 'main.cjs');
   await build({ stdin: { contents: `import { app, BrowserWindow, protocol } from 'electron';
@@ -82,9 +82,9 @@ app.on('window-all-closed', () => app.quit());`, resolveDir: root }, outfile: ma
   assert.ok(observations.some(item => item.method === 'WS' && item.origin === 'whip-app://bundle'));
   assert.deepEqual(errors, []);
   await page.goto('whip-app://bundle/settings');
-  await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Appearance', exact: true }).waitFor();
   await page.reload();
-  await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Appearance', exact: true }).waitFor();
   const evidence = { recordedAt: new Date().toISOString(), purpose: 'Scheme/CSP/storage/renderer feasibility, not a release startup benchmark',
     electron: (await electron.evaluate(({ app }) => process.versions.electron)), os: release(), cpu: cpus()[0]?.model,
     rendererDigest: manifest.digest, observedLaunchToHeadingMs: elapsed, browser, observations, routeReload: true, errors };

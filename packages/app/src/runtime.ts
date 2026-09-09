@@ -14,6 +14,7 @@ import {
 } from '@whip/sdk/state';
 import type { CommandOperation } from '@whip/protocol';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
+import { parseSettingsReturn, settingsReturnKey, type SettingsReturn } from './settings/navigation';
 import { SessionTabs } from './session-tabs';
 import { CompositionStore } from './compositions';
 import { ReadingPositions } from './reading-positions';
@@ -52,12 +53,14 @@ export const composerShortcuts = [
   'Mod+Shift+F',
 ] as const;
 export interface DevicePreferences {
+  toolDensity: 'compact' | 'comfortable' | 'detailed';
   commandShortcut: (typeof commandShortcuts)[number];
   composerShortcut: (typeof composerShortcuts)[number];
   attentionAnnouncements: boolean;
   desktopNotifications: boolean;
 }
 const defaultPreferences: DevicePreferences = {
+  toolDensity: 'compact',
   commandShortcut: 'Mod+K',
   composerShortcut: 'Mod+Shift+L',
   attentionAnnouncements: true,
@@ -107,8 +110,13 @@ export class AppRuntime {
   private draftTimer?: ReturnType<typeof setTimeout>;
   private readonly dirtyDrafts = new Set<string>();
   private closed = false;
+  settingsReturn?: SettingsReturn;
 
   constructor(readonly platform: AppPlatform) {
+    try {
+      const saved = platform.windowStorage?.getItem(settingsReturnKey);
+      if (saved && saved.length <= 4096) this.settingsReturn = parseSettingsReturn(JSON.parse(saved));
+    } catch { /* Return to the retained workspace when navigation storage is unavailable. */ }
     const preferences = readPreference<Partial<DevicePreferences> | null>(
       platform.storage,
       'whip.web.preferences.v1',
@@ -131,6 +139,7 @@ export class AppRuntime {
             )
         : [],
       preferences: {
+        toolDensity: preferences?.toolDensity === 'comfortable' || preferences?.toolDensity === 'detailed' ? preferences.toolDensity : 'compact',
         commandShortcut: commandShortcuts.includes(
           preferences?.commandShortcut as never,
         )
@@ -191,6 +200,16 @@ export class AppRuntime {
       JSON.stringify(preferences),
     );
     this.update({ preferences });
+  }
+  rememberSettingsReturn(value: SettingsReturn) {
+    this.settingsReturn = parseSettingsReturn(value);
+    try { this.platform.windowStorage?.setItem(settingsReturnKey, JSON.stringify(this.settingsReturn)); }
+    catch { this.report('The return location is kept for this window, but could not be saved.'); }
+  }
+  clearSettingsReturn() {
+    this.settingsReturn = undefined;
+    try { this.platform.windowStorage?.removeItem(settingsReturnKey); }
+    catch { this.report('The previous Settings return location could not be cleared.'); }
   }
   forgetLegacyHost(endpoint: string) {
     const hosts = this.state.legacyHosts.filter((host) => host !== endpoint);

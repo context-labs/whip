@@ -14,6 +14,7 @@ import (
 // Only public flow state is retained in the UI; device tokens and machine keys
 // never cross the daemon boundary.
 type inferenceNetPending struct {
+	label           string
 	flowID          string
 	state           string
 	verificationURL string
@@ -35,20 +36,24 @@ func (m *model) authInferenceNetCommand(args []string) {
 }
 
 func (m *model) authInferenceNetLogin() {
+	m.authProviderLogin(config.InferenceNetProvider, "Inference.net", 10*time.Minute)
+}
+
+func (m *model) authProviderLogin(provider, label string, lifetime time.Duration) {
 	if m.infAuth != nil {
-		m.append(dimStyle.Render("Inference.net sign-in is already in progress"))
+		m.append(dimStyle.Render("provider sign-in is already in progress"))
 		return
 	}
-	m.append(dimStyle.Render("starting Inference.net sign-in… (approve in your browser)"))
+	m.append(dimStyle.Render("starting " + label + " sign-in… (approve in your browser)"))
 	if m.prog == nil {
 		return
 	}
-	m.infAuth = &inferenceNetPending{}
+	m.infAuth = &inferenceNetPending{label: label}
 	client, program := m.client, m.prog
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute+10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), lifetime+10*time.Second)
 		defer cancel()
-		status, err := client.BeginLogin(ctx)
+		status, err := client.BeginProviderLogin(ctx, provider)
 		if err != nil {
 			program.Send(inferenceNetLoginMsg{err: err})
 			return
@@ -64,12 +69,14 @@ func (m *model) authInferenceNetLogin() {
 			select {
 			case <-ctx.Done():
 				timer.Stop()
+				program.Send(inferenceNetLoginMsg{err: ctx.Err()})
 				return
 			case <-timer.C:
 			}
 			status, err = client.LoginStatus(ctx, id)
 			if err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					program.Send(inferenceNetLoginMsg{err: err})
 					return
 				}
 				// A request can race a disconnect. The next read waits for reconnection;
@@ -82,7 +89,7 @@ func (m *model) authInferenceNetLogin() {
 
 func (m *model) applyInferenceNetLogin(msg inferenceNetLoginMsg) bool {
 	if msg.err != nil {
-		m.append(errStyle.Render("Inference.net sign-in failed: " + msg.err.Error()))
+		m.append(errStyle.Render("provider sign-in failed: " + msg.err.Error()))
 		m.infAuth = nil
 		return false
 	}
@@ -139,14 +146,21 @@ func (m *model) applyInferenceNetLogin(msg inferenceNetLoginMsg) bool {
 	case "loading_projects":
 		m.append(dimStyle.Render("loading projects…"))
 	case "provisioning":
-		m.append(dimStyle.Render("provisioning a key on the execution host…"))
+		m.append(dimStyle.Render("configuring the provider on the execution host…"))
 	case "succeeded":
+		label := m.infAuth.label
+		if label == "" {
+			label = "Inference.net"
+		}
 		m.infAuth = nil
-		m.append(dimStyle.Render("✓ signed in as " + status.Email + "; inference-net configured on the execution host"))
+		m.append(dimStyle.Render("✓ signed in as " + status.Email + "; " + label + " configured on the execution host"))
+		if status.Error != "" {
+			m.append(dimStyle.Render(status.Error))
+		}
 		return true
 	case "failed", "expired", "cancelled", "interrupted":
 		m.infAuth = nil
-		m.append(errStyle.Render("Inference.net sign-in " + status.State + ". " + status.Error))
+		m.append(errStyle.Render("provider sign-in " + status.State + ". " + status.Error))
 	}
 	return false
 }

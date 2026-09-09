@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { Link, useNavigate } from '@tanstack/react-router';
 import type { WhipClient } from '@whip/sdk';
 import { useSessionView, useWhipConnection } from '@whip/sdk/react';
-import type { SessionView } from '@whip/sdk/state';
+import { executionRows, type SessionView } from '@whip/sdk/state';
 import {
   Badge,
   Button,
@@ -28,6 +28,8 @@ import {
 import { Composer } from './composer';
 import { ReplView } from './repl-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
+import { ChatActivity } from './chat-activity';
+import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
 import { SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
 import { admittedText, isChatInput } from './input-presentation';
@@ -114,7 +116,7 @@ export function SessionContent({
   const runtime = useRuntime();
   useSessionTabs();
   const state = useSessionView(view);
-  const { commands } = useAppState();
+  const { commands, preferences } = useAppState();
   const submitted = useSyncExternalStore(runtime.submittedInputs.subscribe, runtime.submittedInputs.getSnapshot);
   const session = view.session;
   const connection = useWhipConnection(session.client);
@@ -183,6 +185,10 @@ export function SessionContent({
     submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId),
     new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])),
   ) : [], [kind, history, presentation, root?.inbox, submitted, commands, expectedRuntimeId, session.rootId, agentId]);
+  const executions = useMemo(() => kind === 'chat' ? executionRows(state, agentId) : [], [kind, state, agentId]);
+  const previousGroups = useRef<readonly ActivityGroup[]>([]);
+  const activityRows = useMemo(() => conversationActivityRows(rows, executions, previousGroups.current), [rows, executions]);
+  useLayoutEffect(() => { previousGroups.current = activityRows.filter(isActivityGroup).slice(-128); }, [activityRows]);
   const admitted = root?.inbox?.filter(item => item.agent_id === agentId && !isChatInput(item)) ?? [];
   const pendingInputs = submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.accepted && !item.confirmed);
   const pendingInputIds = pendingInputs.map(item => item.id).join(',');
@@ -285,10 +291,17 @@ export function SessionContent({
         onAgentChange={next => {
           const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
           void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.report(error));
-        }} /> : rows.length ? (
+        }} /> : activityRows.length ? (
         <Timeline
+          active={!!activeTurn}
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
-          rows={rows}
+          rows={activityRows}
+          connected={connected}
+          density={preferences.toolDensity}
+          onOpenRepl={() => {
+            const search = sessionSearch({ kind: 'repl', location: { agent: agentId === session.rootId ? undefined : agentId, panel } });
+            void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(runtime.report);
+          }}
           bookmarkKey={`${expectedRuntimeId}:${viewId ?? session.rootId}:${agentId}`}
           historyRevision={history?.revision}
           historyReady={!!history && !history.loading}
@@ -336,6 +349,12 @@ export function SessionContent({
           ))}
         </details>
       )}
+      {kind === 'chat' && <ChatActivity state={state} cells={executions} agentId={agentId} agent={agent} connected={connected}
+        onAllAgents={() => setPanel('agents')}
+        onAgent={next => {
+          const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
+          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(runtime.report);
+        }} />}
       {root && (
         <PendingRequests
           root={root}

@@ -108,6 +108,54 @@ root prompt (`evals/rlm`).
   pins a stable key (e.g. `repo/reviewer`) so one-off runs reuse the cached
   system prefix.
 
+### Provider connections and environment discovery
+
+Settings renders a host-owned provider inventory with bundled logos, credential
+source labels and per-provider connect/manage dialogs. Existing API/account
+flows are reused. Inference.net and OpenRouter environment discovery creates
+effective routes without persisting discovered secrets or configuration entries.
+Saved overrides win; revision-checked disable/disconnect preserves aliases and
+defaults. Disabled routes stop at model admission across root, child, helper and
+compaction requests. Model menus exclude unavailable routes; catalog publication
+rejects stale route/account responses. Desktop recovers only the supported local
+shell keys, bounded and without forwarding them to remote hosts.
+
+Code: `internal/config/providers.go`, `internal/daemon/provider_{list,disconnect,model}.go`,
+`internal/daemon/budget.go`, `packages/app/src/settings/provider-connections.tsx`,
+`packages/app/src/settings/provider-login.tsx`, and `apps/desktop/src/runtime.ts`.
+Tests: `internal/config/providers_test.go`,
+`internal/daemon/provider_connections_test.go`, `packages/sdk/test/services.test.ts`,
+`packages/app/test/provider-connections.test.tsx`, `packages/app/test/model-selection.test.tsx`,
+`apps/desktop/tests/provider-environment.test.ts`, and the production
+`apps/web/scripts/provider-connections.mjs` workflow. See the
+[implementation plan](../.ai-docs/plans/provider-connections/README.md) for scope
+and validation results.
+
+### ChatGPT subscription provider
+
+`openai-codex` adds host-owned device login, restart-safe rotating credentials,
+account-scoped model discovery, and a Responses adapter to the existing model
+client. Settings, CLI and TUI share daemon login/status/logout; API-key routes
+remain separate. Public history excludes opaque model continuation, while the
+durable transcript retains it through restart, fork and rewind. Unknown cost,
+natural output reservations, and explicit-cap rejection preserve accounting.
+Completed stream items survive an empty terminal output array. Model menus
+include discovered models and select explicit model/provider pairs.
+See [models and providers](models-providers.md#openai-chatgpt-subscription) for
+setup and limits; live acceptance is tracked in the
+[implementation plan](../.ai-docs/plans/openai-subscriptions/README.md).
+
+Code: `internal/openaiauth`, `internal/llm/{subscription,responses}.go`,
+`internal/daemon/provider_{openai,model}.go`, `cmd/whip/auth_openai.go`,
+`internal/tui/auth_cmd.go`, `packages/app/src/settings/providers.tsx`, and
+`packages/app/src/model-options.ts`.
+Tests: `internal/openaiauth/auth_test.go`, `internal/llm/{subscription,responses}_test.go`,
+`internal/daemon/provider_openai_test.go`, `internal/session/continuation_test.go`,
+and `packages/app/test/{providers,model-selection}.test.tsx` cover rotation races,
+cross-transport login recovery, secret isolation, stream completion, budgeting,
+model/provider selection and client state. Live Pro-account acceptance also
+verified tools, helpers, a child, images, title/compaction and restart recovery.
+
 ## Daemon and clients
 
 - The daemon is the only runtime/store owner.
@@ -216,8 +264,10 @@ behavior to its owning code and repeatable validation.
 | Right-aligned user bubbles, hover/focus timestamps and controls, immediate submission previews, queued/running inbox messages | `packages/app/src/{input-presentation,runtime}.ts`, `packages/app/src/{conversation,timeline,composer}.tsx` | `packages/app/test/input-presentation.test.tsx`, composer/runtime tests, `apps/web/scripts/user-messages.mjs` (Chromium/Firefox delayed request, running turn, reload, duplicate text, hover/focus and responsive themes) |
 | Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
 | Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |
-| Host-owned provider login/configuration and local recovery/appearance settings | `packages/app/src/settings.tsx`, SDK services, daemon provider/configuration services | App runtime tests, existing provider/configuration acceptance, browser workflows |
-| Accessible controls, all TUI themes, custom-theme resolution, auto appearance and portaled overlays | `packages/ui`, `internal/theme`, `cmd/themegen`, `internal/daemon/host.go` | Theme parity/drift tests, 65-theme Axe fixtures, ten component interaction scenarios, Chromium/Firefox/actual Safari CSP smoke |
+| Full-window Settings with seven categories, local control search, responsive navigation and exact workspace return | `packages/app/src/settings.tsx`, `settings/navigation.ts`, `shell.tsx`, `runtime.ts` | `settings-navigation.test.ts`, `desktop-close-tab.test.tsx`, `apps/web/scripts/settings.mjs` and `settings-conversation.mjs` |
+| Host-scoped configuration, login cleanup, unsaved-edit guards and offline draft recovery | `packages/app/src/settings/{configuration,providers,recovery,unsaved}.tsx`, SDK/daemon services | `settings-configuration.test.tsx`, `settings-host-selection.test.tsx`, `settings-unsaved.test.tsx`, provider tests and production Settings workflow |
+| Working Appearance controls: bounded tool density, code wrapping, UI/code fonts and sizes, contrast/motion, preview and resets | `packages/app/src/settings/appearance.tsx`, `timeline.tsx`, `runtime.ts`, `packages/ui/src/{appearance-data,themes,tokens.stylex,code-block}.*`, native contrast bridge | `settings-density.test.tsx`, UI appearance/theme tests, desktop-adapter tests, production Settings/conversation workflows |
+| Accessible controls, all TUI themes, custom-theme resolution, auto appearance and portaled overlays | `packages/ui`, `internal/theme`, `cmd/themegen`, `internal/daemon/host.go` | Theme parity/drift tests, 66-theme Axe fixtures, thirteen component interaction scenarios, Chromium/Firefox/actual Safari CSP smoke |
 | Packaged same-origin web assets and explicit `whip web` launch | `internal/webassets`, `cmd/whip/web.go`, `scripts/pack-web.mjs` | `internal/webassets/assets_test.go`, `cmd/whip/web_test.go`, `scripts/pack-web.test.mjs`, isolated packed-source consumer builds |
 
 React 19 and TanStack Router/Query/Form/Virtual compose the product. Base UI owns
@@ -231,6 +281,25 @@ Closing a page detaches the client. It neither cancels accepted work nor sends
 unsent drafts. A command outcome is separate from completion of descendant agents,
 mailboxes or schedules. See [web-app.md](web-app.md) for exact startup commands,
 trusted-network setup and current browser evidence.
+
+## Chat activity
+
+Web and desktop share compact execution groups, one current status above the
+composer, and bounded named-agent rows. Authored messages retain their order;
+expansion exposes bounded code/output and host-operation evidence with an
+in-place **Open in REPL** action. Reading aliases and stable detail windows protect
+navigation and focus. Appearance density, typography and reduced motion apply.
+
+- Runtime: `internal/rlm/kernel.go` emits host starts before dispatch and correlated
+  completions afterward. `recursive_runtime.go` publishes additive protocol 5.1
+  events without a database migration. Cancellation remains distinct from failure.
+- State: `packages/sdk/src/executions.ts` joins root/agent/turn/invocation evidence,
+  handles replay, late completions and bounded eviction; it is shared by both views.
+- UI: `packages/app/src/chat-activity{,-rows}.ts*`, `conversation.tsx`, `timeline.tsx`,
+  `reading-positions.ts`, `execution-time.tsx`, and `packages/ui/src/activity-indicator.tsx`.
+- Coverage: kernel cancellation/ordering and daemon journal tests, SDK execution
+  regressions, `chat-activity.test.tsx`, existing reading tests, and the isolated
+  production browser workflow `apps/web/scripts/chat-activity.mjs`.
 
 ## Conversation row actions
 
@@ -262,6 +331,10 @@ and Zed; Finder is local-only and browsers can copy the exact directory.
   a key-hint footer across the whole last row. On exit it prints a resume line
   to the scrollback. The former inline mode and the `uiMode` config key are
   gone.
+- The empty-transcript home screen centers a "whipcode" wordmark drawn in the
+  opencode ▀▄█ block-glyph pixel font, rendered in the active theme's
+  foreground (bold), so it recolors on every theme or light/dark swap like the
+  web wordmark's `currentColor` (`opencodeLogo` in `internal/tui/opencode.go`).
 - The left column shows on terminals of 120 columns or more and holds three
   panels: `[1] Agents`, `[2] Context` (tokens, share of the window, spend) and
   `[3] LSP`. One is expanded and the others collapse to their header row;

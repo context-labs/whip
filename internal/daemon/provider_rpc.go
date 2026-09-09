@@ -37,6 +37,16 @@ func (s *Server) handleProvider(connection *serverConn, request rpcMessage) (any
 	var result any
 	var err error
 	switch request.Method {
+	case "provider.list":
+		var p struct{}
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.ListProviders()
+		}
+	case "provider.disconnect":
+		var p protocol.ProviderDisconnectParams
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.DisconnectProvider(connection.ctx, p)
+		}
 	case "config.get":
 		var p struct{}
 		if err = decodeProviderParams(request.Params, &p); err == nil {
@@ -70,9 +80,9 @@ func (s *Server) handleProvider(connection *serverConn, request rpcMessage) (any
 			}
 		}
 	case "provider.login.begin":
-		var p struct{}
+		var p protocol.ProviderLoginBeginParams
 		if err = decodeProviderParams(request.Params, &p); err == nil {
-			result, err = s.providers.BeginLogin()
+			result, err = s.providers.BeginProviderLogin(p.Provider)
 		}
 	case "provider.login.status", "provider.login.cancel":
 		var p ProviderLoginParams

@@ -194,11 +194,9 @@ func buildModelItems(cfg *config.Config, catalogs map[string]config.Catalog) []m
 	var items []modelItem
 	for _, name := range names {
 		for _, p := range cfg.Models[name].Providers {
-			url := ""
 			if prov, ok := cfg.Providers[p]; ok {
-				url = prov.BaseURL
+				items = append(items, modelItem{model: name, provider: p, url: prov.BaseURL})
 			}
-			items = append(items, modelItem{model: name, provider: p, url: url})
 		}
 	}
 	return appendCatalogRoutes(items, cfg, catalogs)

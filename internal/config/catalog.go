@@ -16,6 +16,7 @@ const catalogTTL = 24 * time.Hour
 
 // Catalog is the cached model list of one provider.
 type Catalog struct {
+	AccountID string          `json:"accountId,omitempty"` // private cache scope for subscription routes
 	FetchedAt time.Time       `json:"fetchedAt"`
 	BaseURL   string          `json:"baseUrl"`
 	Models    []ModelInfoLite `json:"models"`
@@ -176,7 +177,19 @@ func saveCatalogsUnlocked(cats map[string]Catalog) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(p, append(data, '\n'), 0o600)
+	file, err := os.CreateTemp(filepath.Dir(p), ".models-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(file.Name()) }()
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), p)
 }
 
 // Stale reports whether the cached catalog should be refetched.
@@ -189,5 +202,18 @@ func UpdateCatalog(provider string, catalog Catalog) error {
 	defer catalogMu.Unlock()
 	catalogs := loadCatalogsUnlocked()
 	catalogs[provider] = catalog
+	return saveCatalogsUnlocked(catalogs)
+}
+
+// DeleteCatalog removes only the named provider's cache, preserving concurrent
+// updates to every other route.
+func DeleteCatalog(provider string) error {
+	catalogMu.Lock()
+	defer catalogMu.Unlock()
+	catalogs := loadCatalogsUnlocked()
+	if _, ok := catalogs[provider]; !ok {
+		return nil
+	}
+	delete(catalogs, provider)
 	return saveCatalogsUnlocked(catalogs)
 }

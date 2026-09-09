@@ -7,6 +7,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/openaiauth"
 )
 
 // /auth <provider> [key] turns a pasted API key into a working provider
@@ -22,16 +23,23 @@ import (
 
 func (m *model) authCommand(args []string) {
 	if len(args) == 0 {
-		m.append(dimStyle.Render("usage: /auth <provider> [key] — inference-net (bare = browser login) or openrouter (bare = masked prompt)"))
+		m.append(dimStyle.Render("usage: /auth <provider> [key] — openai-codex or inference-net (browser login), openrouter (masked key prompt)"))
 		return
 	}
 	switch args[0] {
 	case "inference-net", "inference":
 		m.authInferenceNetCommand(args)
 		return
+	case "openai-codex":
+		if len(args) != 1 {
+			m.append(errStyle.Render("usage: /auth openai-codex — signs in to your ChatGPT subscription"))
+			return
+		}
+		m.authProviderLogin(openaiauth.Provider, "OpenAI (ChatGPT subscription)", openaiauth.DeviceLifetime)
+		return
 	case "openrouter":
 	default:
-		m.append(errStyle.Render("unknown provider " + args[0] + " (supported: inference-net, openrouter)"))
+		m.append(errStyle.Render("unknown provider " + args[0] + " (supported: inference-net, openrouter, openai-codex)"))
 		return
 	}
 	if len(args) > 1 {

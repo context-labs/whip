@@ -61,16 +61,20 @@ export class ReadingPositions {
 
 /** Choose only among already retained rows; restoration never loads more history. */
 export function readingTarget(
-  rows: readonly { id: string; seq?: number }[],
+  rows: readonly { id: string; seq?: number; memberIds?: readonly string[]; memberSeqs?: readonly number[] }[],
   revision: string,
   bookmark: ReadingBookmark,
 ): { index: number; offset: number; fallback: boolean } {
   const exact =
     revision === bookmark.revision
-      ? rows.findIndex((row) => row.id === bookmark.messageId)
+      ? rows.findIndex((row) => row.id === bookmark.messageId || row.memberIds?.includes(bookmark.messageId))
       : -1;
   if (exact >= 0)
     return { index: exact, offset: bookmark.offset, fallback: false };
+  if (revision === bookmark.revision && bookmark.seq !== undefined) {
+    const member = rows.findIndex(row => row.memberSeqs?.includes(bookmark.seq!));
+    if (member >= 0) return { index: member, offset: 0, fallback: false };
+  }
   let index = rows.length ? 0 : -1;
   if (bookmark.seq !== undefined) {
     let nearest = Infinity;

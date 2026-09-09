@@ -1,3 +1,4 @@
+import { typography } from '@whip/ui/tokens.stylex';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -8,6 +9,7 @@ import { colors, surface } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
 import { Action, Empty, type InspectorProps } from './details/shared';
+import { modelOptions } from './model-options';
 
 type ModelProps = Pick<InspectorProps, 'view' | 'root' | 'connected'>;
 type CatalogResult = Awaited<ReturnType<ModelProps['view']['session']['client']['providers']['catalogs']>>['result'];
@@ -27,16 +29,9 @@ function useCatalog(view: ModelProps['view'], connected: boolean) {
   });
 }
 
-/** Merge the same model id reported by several provider catalogs. */
-function catalogModels(catalog: CatalogResult | undefined): Map<string, CatalogModel & { providers: string[] }> {
-  const merged = new Map<string, CatalogModel & { providers: string[] }>();
-  for (const [provider, entry] of Object.entries(catalog?.catalogs ?? {}))
-    for (const model of entry.models ?? []) {
-      const existing = merged.get(model.id);
-      if (existing) existing.providers.push(provider);
-      else merged.set(model.id, { ...model, providers: [provider] });
-    }
-  return merged;
+function catalogModels(catalog: CatalogResult | undefined, selectedProvider: string) {
+  return new Map(modelOptions(catalog).filter(option => option.provider === selectedProvider)
+    .map(option => [option.name, option.model]));
 }
 
 /** Effort levels the daemon accepts for this model: its catalog list, or every level when unknown. */
@@ -57,7 +52,7 @@ export function EffortPicker({ view, root, connected }: ModelProps) {
   const [open, setOpen] = useState(false);
   const idle = !Object.keys(root.active_turns ?? {}).length;
   const catalog = useCatalog(view, connected);
-  const models = useMemo(() => catalogModels(catalog.data?.result), [catalog.data]);
+  const models = useMemo(() => catalogModels(catalog.data?.result, root.meta.provider), [catalog.data, root.meta.provider]);
   const levels = modelEfforts(models, root.meta.model);
   const current = root.meta.effort || 'off';
   return <Popover open={open} onOpenChange={setOpen} xstyle={styles.popup}
@@ -99,23 +94,23 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
   const runtime = useRuntime();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [highlighted, setHighlighted] = useState(root.meta.model);
+  const current = JSON.stringify([root.meta.model, root.meta.provider]);
+  const [highlighted, setHighlighted] = useState(current);
   const idle = !Object.keys(root.active_turns ?? {}).length;
   const catalog = useCatalog(view, connected);
-  const models = useMemo(() => catalogModels(catalog.data?.result), [catalog.data]);
-  const names = useMemo(() => [...models.keys()].sort((left, right) => left.localeCompare(right)), [models]);
+  const options = useMemo(() => modelOptions(catalog.data?.result), [catalog.data]);
   const filtered = query.trim()
-    ? names.filter(name => name.toLowerCase().includes(query.trim().toLowerCase()))
-    : names;
+    ? options.filter(option => option.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : options;
   const searching = !!query.trim();
-  const ordered = searching || !names.includes(root.meta.model)
+  const selected = options.find(option => option.value === current);
+  const ordered = searching || !selected
     ? filtered
-    : [root.meta.model, ...filtered.filter(name => name !== root.meta.model)];
-  const pick = (name: string) => {
+    : [selected, ...filtered.filter(option => option.value !== current)];
+  const pick = (option: typeof options[number]) => {
     setOpen(false);
-    if (!name || name === root.meta.model) return;
-    const provider = models.get(name)?.providers[0] ?? root.meta.provider;
-    runtime.run(view.session.setModel(name, provider), 'Change model').catch(error => runtime.report(error));
+    if (option.value === current) return;
+    runtime.run(view.session.setModel(option.name, option.provider), 'Change model').catch(error => runtime.report(error));
   };
   return <Popover open={open} onOpenChange={setOpen} xstyle={styles.popupWide}
     trigger={<Button variant="ghost" aria-label="Model" disabled={!connected || !idle}
@@ -132,20 +127,20 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
           {...stylex.props(styles.searchInput)}
           onChange={event => setQuery(event.target.value)} />
       </div>
-      <div role="listbox" aria-label="Models" aria-activedescendant={root.meta.model} {...stylex.props(styles.list)}>
+      <div role="listbox" aria-label="Models" aria-activedescendant={current} {...stylex.props(styles.list)}>
         {catalog.isLoading && <p role="status" {...stylex.props(styles.listMeta)}>Loading models…</p>}
         {!catalog.isLoading && !filtered.length && <p {...stylex.props(styles.listMeta)}>No matching models</p>}
-        {ordered.slice(0, 200).map(name => <Tooltip key={name} label={<ModelCard model={models.get(name)!} />}
+        {ordered.slice(0, 200).map(option => <Tooltip key={option.value} label={<ModelCard model={{ ...option.model, providers: [option.provider] }} />}
           side="right" align="start" sideOffset={8} collisionPadding={8} delay={0} disableHoverablePopup xstyle={styles.card}
           collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'end' }}>
-          <button id={name} role="option" aria-selected={name === root.meta.model}
+          <button id={option.value} role="option" aria-selected={option.value === current}
             disabled={!connected || !idle}
-            {...stylex.props(styles.option, name === highlighted && styles.optionActive)}
-            onMouseEnter={() => setHighlighted(name)}
-            onFocus={() => setHighlighted(name)}
-            onClick={() => pick(name)}>
-            <span {...stylex.props(layout.ellipsis, layout.grow)}>{name}</span>
-            {name === root.meta.model && <Check size={14} {...stylex.props(styles.check)} />}
+            {...stylex.props(styles.option, option.value === highlighted && styles.optionActive)}
+            onMouseEnter={() => setHighlighted(option.value)}
+            onFocus={() => setHighlighted(option.value)}
+            onClick={() => pick(option)}>
+            <span {...stylex.props(layout.ellipsis, layout.grow)}>{option.label}</span>
+            {option.value === current && <Check size={14} {...stylex.props(styles.check)} />}
         </button></Tooltip>)}
       </div>
       <div {...stylex.props(styles.footer)}>
@@ -179,13 +174,14 @@ export function ModelSelection({ view, root, connected }: ModelProps) {
   const [effort, setEffort] = useState(root.meta.effort || 'off');
   const idle = !Object.keys(root.active_turns ?? {}).length;
   const catalog = useCatalog(view, connected);
-  const models = useMemo(() => catalogModels(catalog.data?.result), [catalog.data]);
+  const models = useMemo(() => catalogModels(catalog.data?.result, root.meta.provider), [catalog.data, root.meta.provider]);
   return <>
     {!idle && <Empty>Wait for active turns to finish before changing the model or reasoning.</Empty>}
     <Field label="Model" description="Choose a catalog model or enter an exact model ID.">
       <Combobox label="Model" value={model} onValueChange={setModel} onInputValueChange={setModel}
         loading={catalog.isLoading}
-        options={Object.keys(catalog.data?.result?.models ?? {}).slice(0, 1000).map(name => ({ value: name, label: name }))} />
+        options={modelOptions(catalog.data?.result).filter(option => option.provider === provider).slice(0, 1000)
+          .map(option => ({ value: option.name, label: option.name }))} />
     </Field>
     {catalog.error && <p role="alert" {...stylex.props(layout.error)}>Could not load the model catalog. You can still enter an exact model ID.</p>}
     <Field label="Provider">
@@ -206,24 +202,24 @@ export function ModelSelection({ view, root, connected }: ModelProps) {
 const styles = stylex.create({
   trigger: { minWidth: 0, maxWidth: 220, flexShrink: 1, paddingInline: 6, gap: 6 },
   chevron: { flexShrink: 0 },
-  childModel: { color: surface.secondaryText, fontSize: 12, paddingInline: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  childModel: { color: surface.secondaryText, fontSize: typography.size12, paddingInline: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   popup: { padding: 4, maxHeight: 'min(320px, var(--available-height))', overflow: 'auto' },
   menu: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 140 },
-  menuItem: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', paddingBlock: 5, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: 13, textAlign: 'start', cursor: 'default', minHeight: 26 },
+  menuItem: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', paddingBlock: 5, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: typography.size13, textAlign: 'start', cursor: 'default', minHeight: 26 },
   popupWide: { display: 'flex', padding: 4, maxHeight: 'min(420px, var(--available-height))', overflow: 'hidden' },
   pickerList: { width: 'min(300px, calc(100vw - 48px))', minHeight: 0 },
   searchBox: { display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, paddingInline: 8, paddingBlock: 6, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, marginBottom: 4 },
   searchIcon: { color: surface.secondaryText, flexShrink: 0 },
-  searchInput: { borderWidth: 0, outline: 'none', backgroundColor: 'transparent', color: colors.foreground, font: 'inherit', fontSize: 13, width: '100%', padding: 0 },
+  searchInput: { borderWidth: 0, outline: 'none', backgroundColor: 'transparent', color: colors.foreground, font: 'inherit', fontSize: typography.size13, width: '100%', padding: 0 },
   list: { overflowY: 'auto', maxHeight: 320, minHeight: 0, paddingBottom: 12, maskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent)', WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent)' },
-  listMeta: { color: surface.secondaryText, fontSize: 12, padding: 8, margin: 0 },
-  option: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', paddingBlock: 7, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: 13, textAlign: 'start', cursor: 'default', minHeight: 30 },
+  listMeta: { color: surface.secondaryText, fontSize: typography.size12, padding: 8, margin: 0 },
+  option: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', paddingBlock: 7, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: typography.size13, textAlign: 'start', cursor: 'default', minHeight: 30 },
   optionActive: { backgroundColor: colors.hover },
   check: { color: surface.secondaryText, flexShrink: 0 },
   footer: { flexShrink: 0, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, boxShadow: '0 -6px 10px -6px rgb(0 0 0 / 0.12)' },
-  manage: { display: 'flex', alignItems: 'center', gap: 8, paddingBlock: 7, paddingInline: 8, borderRadius: 6, color: colors.foreground, fontSize: 13, textDecoration: 'none', backgroundColor: { default: 'transparent', ':hover': colors.hover } },
-  card: { width: 232, maxWidth: 'var(--available-width)', maxHeight: 'var(--available-height)', overflow: 'auto', borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12, color: colors.foreground, backgroundColor: colors.panel, boxShadow: '0 4px 16px rgb(0 0 0 / 0.10)' },
+  manage: { display: 'flex', alignItems: 'center', gap: 8, paddingBlock: 7, paddingInline: 8, borderRadius: 6, color: colors.foreground, fontSize: typography.size13, textDecoration: 'none', backgroundColor: { default: 'transparent', ':hover': colors.hover } },
+  card: { width: 232, maxWidth: 'var(--available-width)', maxHeight: 'var(--available-height)', overflow: 'auto', borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 5, fontSize: typography.size12, color: colors.foreground, backgroundColor: colors.panel, boxShadow: '0 4px 16px rgb(0 0 0 / 0.10)' },
   cardRow: { display: 'flex', flexShrink: 0, justifyContent: 'space-between', gap: 10, minWidth: 0 },
-  cardLabel: { color: surface.secondaryText, flexShrink: 0, fontSize: 11 },
-  cardValue: { textAlign: 'end', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 },
+  cardLabel: { color: surface.secondaryText, flexShrink: 0, fontSize: typography.size11 },
+  cardValue: { textAlign: 'end', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: typography.size12 },
 });

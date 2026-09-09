@@ -290,8 +290,9 @@ home. An explicit `WHIPCODE_HOME` can isolate a fixture; legacy `WHIP_HOME` neve
 redirects local work. The canonical installation on the development Mac is
 `/usr/local/bin/whipcode`.
 
-[`HostDialog`](../packages/app/src/host-dialog.tsx) exposes **This Mac** diagnostics
-even before the first successful connection. Opening the dialog and changes to
+**Settings → Servers → This Mac → Local server settings** exposes diagnostics
+even before the first successful connection. The focused dialog reuses
+[`LocalRuntimePanel`](../packages/app/src/host-dialog.tsx). Opening it and changes to
 the host's connection state refresh a read-only diagnostic snapshot; **Test
 Connection** repeats that check without starting a daemon, installing a binary,
 creating the runtime home or rewriting its configuration. Only the bounded
@@ -345,6 +346,35 @@ The existing revision-checked configuration update persists the whole registry.
 Host management refreshes it on open, browser focus, and Local reconnect; conflicts
 surface rather than overwriting another browser's changes. Legacy browser-only
 addresses remain available for explicit import.
+
+**Settings → Servers** is the canonical management surface. Sidebar, command
+palette, and disconnected-session actions navigate there through the existing
+unsaved-edit guard; `section=connections` and `setting=hosts` remain compatible.
+[`ServerManager`](../packages/app/src/host-dialog.tsx) renders ordered rows with
+name, textual status, muted address, contextual errors/progress, and labeled
+shared overflow menus. A single Servers heading and Add server action sit above
+quiet bordered rows, using shared `SettingsRow` layout and theme tokens. There
+is no separate connection-method group or inline add form. Local cannot be
+removed. Removing another saved server
+requires confirmation and does not remove daemon sessions, host-owned tabs, or
+drafts. Diagnostics and legacy import/recovery tools are contextual, not an
+always-visible second management form.
+
+[`HostDialog`](../packages/app/src/host-dialog.tsx) is now only the reusable
+Add/Edit form. Onboarding opens it directly and retains its selection callback.
+URL is the default; the shared `Tabs` component exposes Server URL and SSH only
+on platforms that support SSH. Fields, alerts, and advanced/recovery disclosures
+use shared `@whip/ui` components. Blank names derive from the normalized URL
+host (including a non-default port), while SSH names derive from the host/alias. URL
+connect-on-launch and explicit replacement-identity acceptance remain collapsed
+under Advanced. SSH overrides remain in their disclosure with no invented
+auto-connect control. URL saves require Local's loaded shared registry; native
+SSH saves do not. Pending native saves can be cancelled through their scoped
+AbortSignal without detaching other hosts. Validation/save failures preserve the form. A successful save
+selects and initiates connection before closing; connection failure remains on
+the row, not mislabeled as successful connection. Dialogs restore focus to the
+originating Add button or row menu trigger. No additional controller or store
+owns these effects.
 
 Desktop connection profiles represent URL, local or SSH targets. Each host record
 owns asynchronous setup cancellation, progress, the resolved transport and its
@@ -423,7 +453,9 @@ at 16 per connection; do not open extra connections to bypass that limit.
 | Files, upload progress and submission locks | App `CompositionStore` | Window memory shared by runtime/root/recipient |
 | Composer caret selection | App `CompositionStore` | Window memory scoped by runtime/view/agent |
 | Reading anchors | App `ReadingPositions` | Bounded memory scoped by runtime/view/agent and history revision |
-| Theme and keyboard preferences | UI theme provider / app preferences through platform storage | Viewing-device preferences; not daemon settings |
+| Theme, typography, wrapping, contrast and motion | UI theme provider through platform storage | Validated viewing-device preferences, applied at the document root before paint |
+| Keyboard preferences and tool density | AppRuntime preferences through platform storage | Viewing-device behavior; density never reads additional transcript/content data |
+| Settings return location | AppRuntime and window storage | One bounded return record with runtime/root/view/search/focus; cleared on exit |
 | Open popover, focused control, transient form edits | Local React/Base UI/Form state | Narrowest component lifetime that satisfies the workflow |
 
 Do not save snapshots, event streams, or Query caches to browser storage. Command
@@ -473,7 +505,7 @@ then one in its pane, then another existing view before adding a new tab. Matchi
 always includes runtime and root identity.
 
 The v3 window record migrates the last-used v1/v2 host layout first. Other legacy
-layouts remain recoverable under **Execution hosts → Restore previous host tabs**.
+layouts remain recoverable under **Settings → Servers → Restore previous host tabs**.
 Restoring merges panes and closed-tab history after checking the window-wide
 limits and remaps view/pane IDs to avoid collisions. If the complete layout cannot
 fit, **Open individual previous tabs** recovers either open or closed descriptors
@@ -694,11 +726,127 @@ Provider onboarding, tokens, machine keys, and shared configuration writes remai
 host-owned. API-key entry is an ephemeral UI input: never place it in drafts,
 Query persistence, command-recovery storage, or logs. Configuration updates use
 revision checks; display conflicts instead of overwriting newer settings.
+`settings/provider-connections.tsx` reads the inexpensive `provider.list`
+inventory, scoped to the execution host, independently of model discovery.
+Rows use app-owned bundled SVGs, source labels and shared Dialog primitives.
+The daemon owns readiness, default-provider resolution, environment discovery,
+and durable `disabledProviders` opt-outs. The renderer never probes environment
+variables or infers connection state from the existence of a config entry.
+Connect/disconnect invalidate that host's inventory, defaults and model queries.
+`provider.disconnect` requires the inventory's configuration revision.
+The screen requires `provider.list`; it has no alternate editor for older hosts.
+The connection dialogs use `provider-login.tsx` for account login flows.
+Unavailable provider descriptors are filtered from model choices while aliases
+and saved defaults remain intact; an unavailable default offers explicit repair.
 Provider/runtime/recovery settings have an explicit execution-host selector,
 initially the last session's host or Local. Saved-host management always writes to
-Local. Appearance and keyboard preferences remain viewing-device settings.
+Local. Pin the initially resolved host for the Settings visit: disappearance or
+identity replacement preserves the old form disabled, rather than silently
+retargeting it. Wait for saved profile discovery before falling back to Local.
+Appearance and keyboard preferences remain viewing-device settings.
+
+### Dedicated Settings workspace
+
+`/settings` takes over the app window with its own category navigation and
+independently scrolling content. It hides conversation navigation and the tab
+strip; it never inserts a Settings tab or rebuilds the saved split tree. Runtime,
+connection management, notifications, command recovery and global dialogs remain
+mounted above the route. Visible session consumers release their leases while
+Settings is open; daemon work continues.
+
+`settings/navigation.ts` owns the seven-category registry, bounded local search
+index and validated `section`, `host`, and `setting` search parameters. Search
+navigates to and focuses the actual control, opening any enclosing disclosure.
+Native-only controls are absent from browser search. Below 768px, navigation uses
+a Sheet; desktop retains its inset traffic-light and draggable regions.
+
+On entry, `bindSettingsNavigation` records the exact runtime, root, duplicate view,
+child/inspector/REPL location and focus target in window storage. Category changes
+replace the route without overwriting that record. Back and native Cmd-W return to
+that view; a missing view falls back to the selected workspace or Home. A successful
+exit clears the record. Composer drafts, attachments, split layout and reading
+positions retain their existing owners.
+
+The category modules live under `settings/`: General, Appearance, Providers &
+models, Agents & execution, Servers, Recovery, and About & updates. Host forms
+submit category-scoped revision-checked patches. `SettingsEditsProvider` guards
+category/host/Back navigation with Save, Discard, or Stay; secret inputs allow only
+Discard or Stay and never enter persisted recovery. Reverting fields to their
+original values makes the form clean. Provider polling exists only during an
+active login flow and is aborted on cleanup. Recovery filters durable commands by
+their owning runtime, while local draft recovery remains available offline.
+
+Subscription login uses the same host-scoped daemon flow as API-provider
+onboarding: the optional `provider` selects `openai-codex`, with omission retaining
+Inference.net behavior. Settings renders safe `auth_state`, account and plan
+metadata, never access or refresh tokens. A subscription route can be configured
+while signed out; only connected auth state is shown as connected. Successful
+login invalidates configuration, status and catalog queries for that host.
 
 ## Conversation and navigation patterns
+
+Chat folds adjacent typed `rlm_exec` rows into quiet, expandable activity groups.
+Internal mailbox digests join the following executions at their delivery boundary;
+they never merge into earlier work or across authored prose. Standalone digests
+appear as **Agent updates**, without claiming an execution outcome. Raw deliveries
+remain behind a separate **Agent messages** disclosure, closed even at Detailed
+density, with stored bodies read only on request. Groups retain at most six
+digests before starting another group, and preserve digest IDs/sequences for
+reading bookmarks. Agent-written replies remain verbatim; UI code does not infer
+that a reply is redundant from its wording or parse digest text for agent status.
+`conversationActivityRows` consumes the existing portable `conversationRows` and
+SDK `executionRows`; the app does not parse results or subscribe to events again.
+Authored prose, notices, known turns and restart boundaries remain separate.
+Unknown historical turn identity is never presented as a turn duration or total.
+Group keys survive append, prepend and live-to-recorded reconciliation; bounded
+member aliases restore old reading bookmarks. Explicit disclosure choices are
+capped at 128 and pruned with retained groups. Expanded groups show six cells in
+a stable window, three host operations per cell and bounded code/output previews;
+**Open in REPL** provides the full retained record without creating another tab.
+Expanded details use one quiet inset rule and a content-width REPL action.
+Message prose has its own element so trailing paragraph/list margins cannot
+compound with the action area. Assistant paragraphs have no action spacer.
+`responseCopies` places one visible copy footer after a completed response's
+prose and activity, delimited by authored input; internal deliveries remain in
+that response. Active responses have no footer, and queued input cannot finish
+one. Copy includes retained assistant prose only, capped at 256K characters;
+partial history/body windows are labeled **Copy visible response**. This view
+does not invent historical turn IDs or merge virtual reading rows. User message
+actions retain a fixed 28px footer on fine pointers and visible 44px targets on
+coarse pointers. A narrow desktop viewport alone does not enlarge those actions.
+
+Large stream events retain agent/turn/call/invocation identity inline with a
+content handle. Complete small fields can remain inline; omitted arguments or
+results are unavailable, not parse failures or evidence of success. The SDK
+coalesces cumulative updates by agent, turn and call. Older content-only events
+advance the cursor and signal unavailable evidence without creating anonymous
+root-agent tool rows. Accounting/usage events do not consume the bounded snapshot
+presentation window. Full event bodies remain explicitly scoped content reads;
+rendering never dereferences them for each token update.
+
+`ChatActivity` reads the same selected session snapshot and execution projection.
+One unboxed status above the composer prioritizes connection health and human
+requests, then current operation/model activity. Direct child rows show agent
+names and current lifecycle state, with at most three visible and no eager child
+transcript reads. Counts from incomplete snapshots say **At least**. Retained
+children are labeled **Session agents**, not attributed to an unproven turn.
+Inactive unrelated children stay in the inspector; visible agent admission order
+is retained, and attention changes do not evict a focused agent row.
+The shared `ActivityIndicator` starts gentle opacity motion after one second,
+stops in hidden documents, and respects OS and Appearance reduced motion. Its
+pause control updates the existing device preference. Status text remains static
+and readable, with one polite live region and no per-token/timer announcements.
+Chat and REPL reuse `ExecutionTime` for client-observed durations. Its isolated
+timer stops while hidden; replay never starts a new historical clock.
+
+Protocol 5.1 adds `stream.cell.host.started` immediately before host dispatch.
+`stream.cell.host` remains completion-only. Turn and invocation IDs join these
+events in SDK evidence; host cancellation, caught host errors and cell/turn
+outcomes remain distinct. Snapshot/replay can recover known current operations;
+missing prefixes fall back to generic activity. Old daemons still support
+accurate Running through existing tool lifecycle events. Older clients preserve
+ordered delivery but surface the new kind as unavailable detail; update their
+renderer to use the richer event. Never filter events out of a sequenced stream.
 
 The composer is a compact, theme-derived surface with an automatically growing
 textarea (40–220 px), accessible recipient label, attachment/context actions,
@@ -707,7 +855,12 @@ heading and shortcut hints. Toolbar controls wrap in narrow panes so Send/Pause
 stays reachable. `model-selection.tsx` provides separate model and
 reasoning popovers that apply the selected option immediately; the inspector
 retains explicit Apply actions and exact model/provider entry. The controls
-share the host-scoped provider-catalog query while connected. Root changes
+share the host-scoped provider-catalog query while connected. New-session and
+conversation model menus union configured and discovered models using
+`model-options.ts`; each option identifies a model/provider pair, preserving
+configured aliases and making billing-route selection explicit. Effort choices
+use the selected provider's list when multiple routes advertise the same
+model ID. Root changes
 require an idle session, including options in an already-open popover; child composers display their own
 model without changing the root. `permission-mode.tsx` toggles the root
 session's consent mode (`permission.mode` with `external_permissions`) from a
@@ -724,8 +877,8 @@ User messages use right-aligned, theme-derived bubbles. Timestamps and existing
 copy/history actions appear below the bubble on hover or keyboard focus; touch
 keeps the controls available. Show recorded `sent_at` values when supplied, and
 never invent timestamps for historical messages that lack them.
-Agent responses omit a repeated author heading and put their copy control below
-the response, aligned left, with the same hover/focus/touch visibility.
+Agent responses omit a repeated author heading and show one left-aligned copy
+control in the completed response footer, with no per-paragraph copy control.
 
 Committed history only includes a turn's messages after that turn finishes.
 `input-presentation.ts` therefore owns window-local submission previews (at most
@@ -918,9 +1071,9 @@ by the current compilation path.
 | Palette | `colors`: background, foreground, panel, element, hover, borders, semantic statuses |
 | Accessible secondary text | `surface.secondaryText`; terminal faint/muted colors are not automatically suitable for small browser text |
 | Quiet separation / recessed navigation | `surface.quietBorder` / `surface.navigation` |
-| Reading and code typography | `typography.sans` / `typography.mono` |
+| Reading and code typography | `typography.sans` / `typography.mono`, scalable `size10`…`size28`, and `codeSize` |
 | Rhythm and geometry | `scale`: 4/8/12/16/20/24/32px spacing; 4/6/10/12px radii |
-| Responsive and motion rules | `scale.phone`, `scale.touch`, `scale.reducedMotion`, 100/160ms motion tokens |
+| Responsive and motion rules | `scale.phone`, `scale.touch`, `scale.reducedMotion`, `appearance.motionFast`/`motionNormal`, and `prefersReducedMotion()` for imperative animation |
 | Syntax and Markdown | `syntax`, `markdown`, resolved theme code tokens |
 
 Typical chrome is 13px, conversation and desktop composer text 14px, and small supporting text 12px;
@@ -968,9 +1121,47 @@ derived surfaces; it must not be guessed from the OS when a named theme is activ
 `adaptThemeForWeb` preserves the source palette while adjusting insufficient
 foreground contrast for browser surfaces; the raw TUI palette and displayed
 browser palette are intentionally distinguishable. Custom TUI JSON goes through
-the host's shared resolver, then validation and the fixed variable allowlist.
+the home connection's shared resolver, then validation and the fixed variable allowlist.
 No arbitrary CSS is accepted. Theme choice is a viewing-device preference and
 does not write the TUI's chosen theme or host configuration.
+Custom theme import lives beside the color theme control at the top of Appearance.
+It uses the home connection only, with no execution-host selector or remote theme
+configuration. A shared dialog and file button import bounded JSON (64 KiB), show
+validation errors inline, and cancel pending imports when dismissed. Existing
+imports stay available offline.
+
+`appearance-data.ts` validates a bounded device display record: UI size 12–20,
+code size 10–24, Inter or system UI font, JetBrains Mono or system monospace,
+code wrapping, contrast (system/standard/increased), and motion (system/reduce).
+Typography roles scale from the 13px UI default; code uses its independent 12px
+default. Use these roles instead of new fixed font sizes. Code wrapping changes
+presentation across Markdown, tool bodies and REPL without modifying copied text.
+The compact theme picker reuses the full catalog and preview/cancel behavior in
+one Base UI combobox popup. Its empty search query is separate from the selected
+theme; selection stays in the trigger and checked row. The row places its type
+(Light/Dark) before a swatch on the right. Swatches are miniature workspaces:
+canvas, navigation, conversation and composer use the applied theme's surface
+roles, with a small primary accent and its actual foreground. `browserSurfaces`
+shares derived roles between document application and swatches, including custom
+navigation overrides and the resolved increased-contrast preference. Syntax colors
+do not stand in for the application's palette. Search uses the neutral inset input
+treatment, with a complete focus border rather than an accent underline.
+Appearance includes a bounded preview composed from real MessageRow and CodeBlock
+components; it owns no SDK data or simulated client.
+
+Tool density belongs to AppRuntime: Compact shows summaries, Comfortable adds at
+most three lines/512 characters of already-loaded content, and Detailed initially
+opens available tool details. Manual disclosure state wins for the mounted row.
+Density does not auto-open reasoning or mailbox details and never dereferences a
+body handle; full content still requires an explicit user action.
+
+Increased contrast adapts semantic foregrounds and control/focus boundaries while
+preserving the chosen palette. System contrast uses the browser media query, with
+Electron's validated `nativeTheme.shouldUseHighContrastColors` snapshot/events
+through desktop bridge v2. The asynchronous native snapshot cannot overwrite a
+newer event. Reduced motion controls CSS durations and imperative tab movement;
+system mode continues to follow the OS. Appearance reset restores display/theme
+and density defaults but keeps imported themes. Persistence failures remain visible.
 
 ## Usage and execution limits
 
@@ -1005,8 +1196,9 @@ accounting for explicit consumers; its totals are separate from tree totals.
 
 ## Protocol and build boundaries
 
-The current wire protocol is JSON-RPC major **4**, minor **1**. It retains session
-summaries and adds nullable model-budget limits and explicit usage uncertainty. The older filename [`protocol-v2.md`](protocol-v2.md) is retained for
+The current wire protocol is JSON-RPC major **5**, minor **1**. This additive minor
+adds correlated host-operation starts while preserving completion-only events.
+The older filename [`protocol-v2.md`](protocol-v2.md) is retained for
 the reference; it does not mean the app should speak v2. Capabilities and protocol
 compatibility determine availability, not matching build strings. Do not restore
 older-major fallbacks, signer code, or build-mismatch daemon restarts.

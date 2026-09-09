@@ -151,8 +151,8 @@ try {
       assert.deepEqual(await page.evaluate(() => window.__cspErrors), [], `${name}: drag caused a CSP violation`);
 
       // Drop to the left, RTL, and browser zoom share the same pointer/slot geometry.
-      for (const { rtl, zoom, reduced = false } of [{ rtl: false, zoom: 1 }, { rtl: true, zoom: 1 }, { rtl: false, zoom: 1.25 }, { rtl: false, zoom: 1.5 }, { rtl: false, zoom: 2 }, { rtl: false, zoom: 1, reduced: true }]) {
-        await visit(rtl ? '?rtl' : '');
+      for (const { rtl, zoom, reduced = false, manualReduced = false } of [{ rtl: false, zoom: 1 }, { rtl: true, zoom: 1 }, { rtl: false, zoom: 1.25 }, { rtl: false, zoom: 1.5 }, { rtl: false, zoom: 2 }, { rtl: false, zoom: 1, reduced: true }, { rtl: false, zoom: 1, manualReduced: true }]) {
+        await visit(manualReduced ? '?reduce' : rtl ? '?rtl' : '');
         await page.emulateMedia({ reducedMotion: reduced ? 'reduce' : 'no-preference' });
         await page.evaluate(zoom => { document.documentElement.style.zoom = String(zoom); }, zoom);
         const source = await page.locator('[data-workspace-tab="beta"]').boundingBox();
@@ -167,7 +167,7 @@ try {
         const x = destination.x + destination.width / 2 + (rtl ? 8 : -8);
         await page.mouse.move(x, destination.y + destination.height / 2, { steps: 10 });
         await expect.poll(async () => Math.abs((await preview.boundingBox()).x + offset - x)).toBeLessThan(2);
-        if (reduced) assert(await page.locator('[data-workspace-tab]').evaluateAll(items => items.every(item => item.getAnimations().every(animation => animation.effect.getTiming().duration === 0))), 'Reduced motion animated neighboring tabs');
+        if (reduced || manualReduced) assert(await page.locator('[data-workspace-tab]').evaluateAll(items => items.every(item => item.getAnimations().every(animation => animation.effect.getTiming().duration === 0))), 'Reduced motion animated neighboring tabs');
         await page.mouse.up();
         await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('beta,alpha,gamma,delta');
         await expect(preview).toHaveCount(0);

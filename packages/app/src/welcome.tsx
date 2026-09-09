@@ -12,6 +12,7 @@ import { HostDialog } from './host-dialog';
 import type { HostConnection } from './hosts';
 import { DirectoryPicker } from './directory-picker';
 import { sessionSearch } from './session-tabs';
+import { modelOptions } from './model-options';
 
 export function Welcome() {
   const runtime = useRuntime();
@@ -41,7 +42,7 @@ export function Welcome() {
         </div>
         {remote && <div {...stylex.props(layout.column)}>
           {!!remotes.length && <Select label="Execution host" value={host?.id ?? ''} options={remotes.map(host => ({ value: host.id, label: host.name }))} onValueChange={setSelected} />}
-          <Button variant="ghost" onClick={() => setAdding(true)}>Add remote host</Button>
+          <Button variant="ghost" onClick={() => setAdding(true)}>Add server</Button>
         </div>}
         {host?.client ? <NewSession key={`${host.id}:${host.runtimeId}`} client={host.client} host={host} />
           : host ? <><p>{host.name} is {host.state === 'closed' ? 'disconnected' : host.state}.</p><Button onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button></>
@@ -74,13 +75,7 @@ function NewSession({ client, host }: { client: WhipClient; host: HostConnection
     queryFn: ({ signal }) => client.providers.catalogs({ signal }),
     enabled,
   });
-  const models = Object.entries(catalogs.data?.result?.models ?? {}).flatMap(
-    ([name, info]) =>
-      (info.providers ?? []).map((provider) => ({
-        value: JSON.stringify([name, provider]),
-        label: `${name} · ${provider}`,
-      })),
-  );
+  const models = modelOptions(catalogs.data?.result);
   return (
     <form
       {...stylex.props(layout.column)}

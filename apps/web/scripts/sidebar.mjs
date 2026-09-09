@@ -218,7 +218,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
     const sheet = page.getByRole('dialog', { name: 'WHIP', exact: true });
     assert.ok((await sheet.getByRole('button', { name: 'Search sessions', exact: true }).boundingBox()).height >= 44);
-    const geometry = await sheet.evaluate(node => { const list = node.querySelector('[aria-label="Saved sessions"]'); const host = node.querySelector('[aria-label="Manage execution hosts"]'); return { height: list.clientHeight, hostBottom: host.getBoundingClientRect().bottom, viewport: innerHeight }; });
+    const geometry = await sheet.evaluate(node => { const list = node.querySelector('[aria-label="Saved sessions"]'); const host = node.querySelector('[aria-label="Manage servers"]'); return { height: list.clientHeight, hostBottom: host.getBoundingClientRect().bottom, viewport: innerHeight }; });
     assert.ok(geometry.height > 100 && geometry.hostBottom <= geometry.viewport, JSON.stringify(geometry));
     await sheet.getByRole('button', { name: 'Search sessions', exact: true }).click();
     const searchDialog = page.getByRole('dialog', { name: 'Search sessions', exact: true });

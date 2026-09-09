@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -27,7 +29,22 @@ func seedSDKREPLHistory(t *testing.T, store *session.Store, rootID, cwd string) 
 	if _, err := store.EnsureAuthority(t.Context(), rootID); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save(rootID, 0, sdkREPLMessages(t, "Root", 180), "model", "provider"); err != nil {
+	messages := sdkREPLMessages(t, "Root", 180)
+	if os.Getenv("WHIP_WEB_CHAT_POLISH_FIXTURE") == "1" {
+		// A short, recorded exchange makes spacing and digest disclosure observable.
+		messages = sdkREPLMessages(t, "Survey", 2)[4:]
+		messages[0].Content = "Please explore the frontend architecture."
+		messages[3].Content = "The survey is complete. The web app and desktop share the same renderer.\n\n- Shared components live in packages/ui.\n- Product behavior lives in packages/app.\n\nThe full report is available in the agent's mailbox."
+		messages = slices.Insert(messages, 1,
+			llm.Message{Role: "assistant", Content: "I'll review the shared renderer and check how the packages fit together."},
+			llm.Message{Role: "user", Content: "Mailbox digest: 1 pending.\n\n[message from child explore-frontend kind=report]\nThe shared renderer serves both the browser and desktop."},
+		)
+		messages = append(messages,
+			llm.Message{Role: "user", Content: "Mailbox digest: 1 pending.\n\n[message from child explore-frontend kind=completion]\nThe architecture survey is complete."},
+			llm.Message{Role: "assistant", Content: "Both surveys are complete; the reports remain available for inspection."},
+		)
+	}
+	if err := store.Save(rootID, 0, messages, "model", "provider"); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"repl-child", "repl-empty", "repl-paged", "repl-sparse"} {
@@ -113,6 +130,13 @@ func registerSDKREPLProbes(mux *http.ServeMux, store *session.Store, rootID stri
 	mux.HandleFunc("POST /control/repl/{step}", func(w http.ResponseWriter, r *http.Request) {
 		events := []sdkREPLProbe{}
 		switch r.PathValue("step") {
+		case "activity-start", "activity-next", "activity-complete", "activity-large", "activity-large-complete":
+			turnID, err := store.RunningTurnID(r.Context(), rootID, rootID)
+			if err != nil || turnID == "" {
+				http.Error(w, "activity fixture requires a held turn", http.StatusConflict)
+				return
+			}
+			events = sdkChatActivityProbes(r.PathValue("step"), rootID, turnID)
 		case "refresh":
 			events = append(events, sdkREPLProbe{kind: "blackboard.set", payload: session.LifecycleEvent{AgentID: rootID}})
 		case "start":
@@ -171,6 +195,18 @@ func registerSDKREPLProbes(mux *http.ServeMux, store *session.Store, rootID stri
 			return
 		}
 		for _, event := range events {
+			if strings.HasPrefix(r.PathValue("step"), "activity-large") {
+				if payload, ok := event.payload.(StreamEvent); ok {
+					root := &Session{store: store, meta: session.Meta{ID: rootID}, supervisor: newSupervisor()}
+					err := root.recordStreamEvent(&streamEnvelope{kind: event.kind, event: payload})
+					root.supervisor.cancel()
+					if err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+					continue
+				}
+			}
 			data, err := json.Marshal(event.payload)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -185,6 +221,51 @@ func registerSDKREPLProbes(mux *http.ServeMux, store *session.Store, rootID stri
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+func sdkChatActivityProbes(step, rootID, turnID string) []sdkREPLProbe {
+	events := []sdkREPLProbe{}
+	emit := func(kind string, event StreamEvent) {
+		event.AgentID, event.TurnID = rootID, turnID
+		events = append(events, sdkREPLProbe{kind: kind, payload: event})
+	}
+	switch step {
+	case "activity-large":
+		emit("stream.text", StreamEvent{Text: "I am inspecting the repository. "})
+		emit("stream.tool.call", StreamEvent{ID: "large-root", Name: "rlm_exec", Args: `{"code":"print(1)"}`})
+		for index := range 12 {
+			args := `{"code":"` + strings.Repeat("x", 10000+index) + `"}`
+			emit("stream.tool.call", StreamEvent{ID: "large-root", Name: "rlm_exec", Args: args})
+			events = append(events,
+				sdkREPLProbe{kind: "stream.tool.call", payload: StreamEvent{AgentID: "repl-child", TurnID: "child:turn", ID: "large-child", Name: "rlm_exec", Args: args}},
+				// Original daemon representation: identity is entirely offloaded.
+				sdkREPLProbe{kind: "stream.tool.call", payload: map[string]string{"agent_id": "repl-child", "id": "legacy", "name": "rlm_exec", "args": args}},
+			)
+		}
+		emit("stream.tool.started", StreamEvent{ID: "large-root", Name: "rlm_exec", Args: `{"code":"print(1)"}`})
+	case "activity-large-complete":
+		emit("stream.tool.completed", StreamEvent{ID: "large-root", Name: "rlm_exec", Result: strings.Repeat("large output", 1000)})
+		emit("stream.text", StreamEvent{Text: "The inspection has finished."})
+	case "activity-start":
+		for index := range 3 {
+			id := fmt.Sprintf("chat-%d", index)
+			invocation := fmt.Sprintf("%d:1", index)
+			emit("stream.tool.started", StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code":"files.read(path=\"README.md\")"}`})
+			emit("stream.cell.host.started", StreamEvent{ID: id, InvocationID: invocation, Name: "files.read", Args: "path=README.md"})
+			if index < 2 {
+				emit("stream.cell.host", StreamEvent{ID: id, InvocationID: invocation, Name: "files.read", Args: "path=README.md", Text: "8ms", HostStatus: "completed"})
+				emit("stream.tool.completed", StreamEvent{ID: id, Name: "rlm_exec", Result: `{"value":null,"output":"Read the repository guide.\n","steps":24}`})
+			}
+		}
+	case "activity-next":
+		emit("stream.cell.host", StreamEvent{ID: "chat-2", InvocationID: "2:1", Name: "files.read", Args: "path=README.md", Text: "2s", HostStatus: "completed"})
+		emit("stream.cell.host.started", StreamEvent{ID: "chat-2", InvocationID: "2:2", Name: "agents.wait", Args: "agents=<2 names>"})
+	case "activity-complete":
+		emit("stream.cell.host", StreamEvent{ID: "chat-2", InvocationID: "2:2", Name: "agents.wait", Text: "3s", HostStatus: "completed"})
+		emit("stream.tool.completed", StreamEvent{ID: "chat-2", Name: "rlm_exec", Result: `{"value":null,"output":"Review complete.\n","steps":32}`})
+		emit("stream.text", StreamEvent{Text: "The review is complete. All three executions are available in the REPL."})
+	}
+	return events
 }
 
 func TestSDKREPLProbesRecordFixedEventsAndBoundRequests(t *testing.T) {

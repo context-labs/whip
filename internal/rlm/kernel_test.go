@@ -766,3 +766,69 @@ func TestHostCallSummaryRedactsPayloads(t *testing.T) {
 		t.Fatal("empty arguments should summarize to nothing")
 	}
 }
+
+func TestHostInvocationsStartBeforeDispatchAndSettleOnCancellation(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts := make(chan HostCall, 4)
+	ends := make(chan HostCall, 4)
+	entered := make(chan struct{}, 4)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	host := HostFunc(func(ctx context.Context, _, _ string, _ map[string]any) (any, error) {
+		entered <- struct{}{}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	kernel, err := NewKernel(KernelOptions{
+		Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Limits: DefaultLimits(), Host: host,
+		OnHostStart: func(call HostCall) { starts <- call },
+		OnHostCall:  func(call HostCall) { ends <- call },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kernel.Close)
+	done := make(chan error, 1)
+	go func() {
+		_, err := kernel.Exec(tools.WithToolCallID(ctx, "same-call"), "files.write(path='a', content='secret')")
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("host did not start")
+	}
+	var start HostCall
+	select {
+	case start = <-starts:
+	default:
+		t.Fatal("host was entered before its start callback")
+	}
+	select {
+	case <-ends:
+		t.Fatal("completion emitted while the host is blocked")
+	default:
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled call succeeded")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled call did not finish")
+	}
+	end := <-ends
+	if start.InvocationID == "" || start.InvocationID != end.InvocationID || start.CallID != "same-call" {
+		t.Fatalf("invocation identity changed: start=%+v end=%+v", start, end)
+	}
+	if start.Duration != 0 || start.Err != "" || end.Err == "" || end.Duration <= 0 || end.Status != "cancelled" {
+		t.Fatalf("incorrect lifecycle: start=%+v end=%+v", start, end)
+	}
+	if start.Summary != end.Summary || strings.Contains(start.Summary, "secret") {
+		t.Fatalf("unsafe summary: %q / %q", start.Summary, end.Summary)
+	}
+}

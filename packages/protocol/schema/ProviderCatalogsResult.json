@@ -41,6 +41,12 @@
         "properties": {
           "base_url": {
             "type": "string"
+          },
+          "available": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         },
         "required": [

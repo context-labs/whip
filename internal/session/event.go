@@ -355,7 +355,7 @@ func readSnapshotMessages(ctx context.Context, tx *sql.Tx, rootID string, snapsh
 	if snapshot.view != nil {
 		return readSnapshotRecentMessages(ctx, tx, rootID, snapshot)
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT content FROM messages WHERE session_id=? ORDER BY seq`, rootID)
+	rows, err := tx.QueryContext(ctx, `SELECT json_remove(content,'$.continuation') FROM messages WHERE session_id=? ORDER BY seq`, rootID)
 	if err != nil {
 		return err
 	}

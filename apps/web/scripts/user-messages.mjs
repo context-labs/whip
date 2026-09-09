@@ -65,7 +65,7 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
     await eventually(async () => (await user.count()) === 1 && !(await user.getByRole('status').count()));
     assert.equal(await page.locator('[data-message-role="assistant"]').count(), 1, 'Response is streaming but unfinished');
     await bubble.hover(); await page.screenshot({ path: `${output}/${name}-light.png` });
-    await composer.fill('Queued while the response runs'); await send.click();
+    await composer.fill('Queued while the response runs'); await composer.press('Enter');
     const queued = page.locator('[data-message-role="user"]').filter({ hasText: 'Queued while the response runs' });
     await queued.getByRole('status').filter({ hasText: 'Queued' }).waitFor();
     const roles = await page.locator('[data-message-role]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-message-role')));

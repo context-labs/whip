@@ -1,0 +1,66 @@
+{
+  "date": "2026-09-09",
+  "accountPlan": "pro",
+  "isolatedWhipHome": true,
+  "deviceCodeSettingEnabledWithUserApproval": true,
+  "authentication": {
+    "deviceLogin": true,
+    "refreshSucceeded": true,
+    "accessTokenRotated": true,
+    "refreshTokenRotated": true,
+    "reopenedCredentialsMatched": true,
+    "credentialFileMode": "0600"
+  },
+  "catalog": {
+    "models": [
+      "gpt-6-astra",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5"
+    ],
+    "usableContextTokens": 258400,
+    "vettedOutputTokens": 128000
+  },
+  "inference": {
+    "cliText": "WHIP_SUBSCRIPTION_OK",
+    "toolsAndHelpers": "Computed number: 437. Helper replies: HELPER_OK, BATCH_ONE, BATCH_TWO.",
+    "child": "CHILD_OK_42",
+    "afterRestart": "Result: 438. Previous helper replies: HELPER_OK, BATCH_ONE, BATCH_TWO.",
+    "imageAnswer": "red",
+    "title": "Starlark Provider Acceptance Test",
+    "compaction": {
+      "cutoff": 1,
+      "model": "gpt-5.5 @ chatgpt.com",
+      "usage": {
+        "completion_tokens": 409,
+        "prompt_tokens": 10206,
+        "prompt_tokens_details": {
+          "cached_tokens": 5120
+        },
+        "reported": true
+      }
+    },
+    "afterCompaction": "Result: 439. Original helper markers: HELPER_OK, BATCH_ONE, BATCH_TWO.",
+    "browserModel": "gpt-5.6-luna",
+    "browserResponse": "WHIP_BROWSER_SUBSCRIPTION_OK"
+  },
+  "accounting": {
+    "daemonSuccessfulCalls": 17,
+    "allRecordedCosts": "unknown",
+    "reportedUsageVerified": true
+  },
+  "fixesFromLiveAcceptance": [
+    "Retain raw response.output_item.done items when terminal output is empty; gate tool execution on successful response completion.",
+    "Use configured and discovered model/provider pairs in new-session and conversation menus; preserve aliases and allow provider-only changes."
+  ],
+  "negativeControl": "The initial pre-fix text request failed after streaming with a terminal-output mismatch. Its failed call remains in the isolated history; subsequent live calls passed.",
+  "cleanup": {
+    "uiLogout": true,
+    "credentialFileRemoved": true,
+    "accountCatalogRemoved": true,
+    "testDaemonStopped": true,
+    "installedApplicationReplaced": false
+  },
+  "secrets": "No access or refresh token appeared in the inspected configuration, catalog, session database/WAL or daemon/application logs. Device codes, tokens, account IDs and opaque reasoning were excluded from this evidence."
+}

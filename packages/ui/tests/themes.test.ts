@@ -63,3 +63,23 @@ test('optional browser surfaces are validated and incompatible navigation stays 
   assert.equal(shown.web?.navigation, shown.colors.background);
   assert.ok(contrastRatio(shown.colors.foreground, shown.web!.navigation!) >= 4.5);
 });
+
+test('increased contrast preserves catalog identity and reaches reading/control targets for every palette', () => {
+  for (const source of [...themeCatalog, {...themeCatalog[0]!, id: 'custom:middle', colors: {...themeCatalog[0]!.colors, background: '#777777', panel: '#888888'}, code: {...themeCatalog[0]!.code, background: '#777777'}}]) {
+    const before = JSON.stringify(source);
+    const normal = adaptThemeForWeb(source);
+    const shown = adaptThemeForWeb(source, true);
+    assert.equal(JSON.stringify(source), before, source.id);
+    assert.equal(shown.id, source.id);
+    for (const background of [shown.colors.background, shown.colors.panel, shown.colors.element, shown.colors.hover, shown.web?.navigation].filter((item): item is string => !!item)) {
+      assert.ok(contrastRatio(shown.colors.foreground, background) >= 7, `${source.id}: reading`);
+      assert.ok(contrastRatio(shown.colors.border, background) >= 3, `${source.id}: border`);
+      assert.ok(contrastRatio(shown.colors.borderFocus, background) >= 3, `${source.id}: focus`);
+    }
+    assert.ok(contrastRatio(shown.colors.onPrimary, shown.colors.primary) >= 7, `${source.id}: selection text`);
+    assert.ok(contrastRatio(shown.code.foreground, shown.code.background) >= 7, `${source.id}: code`);
+    for (const token of Object.values(shown.code.tokens)) assert.ok(contrastRatio(token.color, token.background) >= 7, `${source.id}: code token`);
+    for (const color of Object.values(shown.syntax)) assert.ok(contrastRatio(color, shown.code.background) >= 7, `${source.id}: syntax`);
+    assert.deepEqual(adaptThemeForWeb(source), normal, `${source.id}: restoring standard preserves base`);
+  }
+});

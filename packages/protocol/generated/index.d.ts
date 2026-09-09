@@ -499,6 +499,7 @@ export interface ComputerStatusResult {
 }
 
 export interface ConfigurationUpdate {
+  disabled_providers?: null | string[];
   remote_hosts?:
     | null
     | {
@@ -522,6 +523,45 @@ export interface ConfigurationUpdate {
 }
 
 export interface ContentEventPayload {
+  accounting?: null | {
+    root_id: string;
+    agent_id: string;
+    scope: string;
+    revision: string;
+    reported_cost_micros: string;
+    estimated_cost_micros: string;
+    reported_cost_calls: string;
+    estimated_cost_calls: string;
+    unknown_cost_calls: string;
+    reported_calls: string;
+    estimated_calls: string;
+    pending_calls: string;
+  };
+  usage?: null | {
+    used: number;
+    size: number;
+    usage: {
+      reported?: boolean;
+      cost?: null | number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      prompt_tokens_details?: null | {
+        cached_tokens: number;
+      };
+      completion_tokens_details?: null | {
+        reasoning_tokens: number;
+      };
+    };
+  };
+  agent_id?: string;
+  turn_id?: string;
+  invocation_id?: string;
+  host_status?: string;
+  id?: string;
+  name?: string;
+  text?: string;
+  args?: string;
+  result?: string;
   content: {
     reference_id: string;
     digest: string;
@@ -1131,6 +1171,10 @@ export interface PingResult {
   build_id: string;
 }
 
+export interface ProviderCatalogParams {
+  refresh?: boolean;
+}
+
 export interface ProviderCatalogsResult {
   models: {
     [k: string]: {
@@ -1144,6 +1188,7 @@ export interface ProviderCatalogsResult {
   providers: {
     [k: string]: {
       base_url: string;
+      available?: null | boolean;
     };
   };
   catalogs: {
@@ -1176,11 +1221,50 @@ export interface ProviderCatalogsResult {
   };
 }
 
+export interface ProviderDisconnectParams {
+  provider: string;
+  revision: string;
+}
+
 export interface ProviderKeySetup {
   revision: string;
   provider: string;
   key?: string;
   environment: boolean;
+}
+
+export interface ProviderList {
+  revision: string;
+  default_provider?: string;
+  providers:
+    | null
+    | {
+        id: string;
+        name: string;
+        custom: boolean;
+        methods: null | string[];
+        status: {
+          provider: string;
+          configured: boolean;
+          key_source: string;
+          available?: null | boolean;
+          disabled?: boolean;
+          environment_variable?: string;
+          auth_method?: string;
+          auth_state?: string;
+          account_id?: string;
+          plan?: string;
+          email?: string;
+          project_id?: string;
+          project_name?: string;
+          machine_key_name?: string;
+          warnings: null | string[];
+        };
+      }[];
+}
+
+export interface ProviderLoginBeginParams {
+  provider?: string;
 }
 
 export interface ProviderLoginCreateParams {
@@ -1193,6 +1277,7 @@ export interface ProviderLoginList {
     | null
     | {
         flow_id: string;
+        provider?: string;
         state: string;
         verification_url?: string;
         user_code?: string;
@@ -1227,6 +1312,7 @@ export interface ProviderLoginProjectParams {
 
 export interface ProviderLoginStatus {
   flow_id: string;
+  provider?: string;
   state: string;
   verification_url?: string;
   user_code?: string;
@@ -1262,6 +1348,13 @@ export interface ProviderStatus {
   provider: string;
   configured: boolean;
   key_source: string;
+  available?: null | boolean;
+  disabled?: boolean;
+  environment_variable?: string;
+  auth_method?: string;
+  auth_state?: string;
+  account_id?: string;
+  plan?: string;
   email?: string;
   project_id?: string;
   project_name?: string;
@@ -2097,6 +2190,7 @@ export interface RunConfigureParams {
 }
 
 export interface RuntimeConfiguration {
+  disabled_providers?: null | string[];
   remote_hosts?:
     | null
     | {
@@ -2294,6 +2388,9 @@ export interface StreamEvent {
     };
   };
   agent_id?: string;
+  turn_id?: string;
+  invocation_id?: string;
+  host_status?: string;
   id?: string;
   name?: string;
   text?: string;
@@ -2499,8 +2596,12 @@ export interface ContractTypes {
   PermissionDecisionResult: PermissionDecisionResult;
   PermissionRulesResult: PermissionRulesResult;
   PingResult: PingResult;
+  ProviderCatalogParams: ProviderCatalogParams;
   ProviderCatalogsResult: ProviderCatalogsResult;
+  ProviderDisconnectParams: ProviderDisconnectParams;
   ProviderKeySetup: ProviderKeySetup;
+  ProviderList: ProviderList;
+  ProviderLoginBeginParams: ProviderLoginBeginParams;
   ProviderLoginCreateParams: ProviderLoginCreateParams;
   ProviderLoginList: ProviderLoginList;
   ProviderLoginParams: ProviderLoginParams;
@@ -2622,6 +2723,7 @@ export interface EventPayloadTypes {
   "state.private.set": LifecycleEvent | ContentEventPayload;
   "stream.accounting": StreamEvent | ContentEventPayload;
   "stream.cell.host": StreamEvent | ContentEventPayload;
+  "stream.cell.host.started": StreamEvent | ContentEventPayload;
   "stream.notice": StreamEvent | ContentEventPayload;
   "stream.reasoning": StreamEvent | ContentEventPayload;
   "stream.terminal.awaiting": StreamEvent | ContentEventPayload;
@@ -2665,9 +2767,11 @@ export interface RpcMethods {
   "mailbox.read": { params: MailboxReadParams; result: MailboxInspection; execution: "query"; permission: "root-agent-association"; sensitive: false };
   "operation.invoke": { params: QueryParams; result: QueryResult; execution: "ephemeral"; permission: "operation-specific"; sensitive: true };
   "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "trusted-client-decision"; sensitive: false };
+  "provider.disconnect": { params: ProviderDisconnectParams; result: ProviderStatus; execution: "ephemeral"; permission: "configuration-revision"; sensitive: false };
   "provider.key.rotate": { params: ProviderNameParams; result: ProviderStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: true };
   "provider.key.set": { params: ProviderKeySetup; result: RuntimeConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
-  "provider.login.begin": { params: Empty; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.list": { params: Empty; result: ProviderList; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "provider.login.begin": { params: ProviderLoginBeginParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
   "provider.login.cancel": { params: ProviderLoginParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
   "provider.login.list": { params: Empty; result: ProviderLoginList; execution: "query"; permission: "host-configuration"; sensitive: false };
   "provider.login.project.create": { params: ProviderLoginCreateParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
@@ -2727,7 +2831,7 @@ export interface RuntimeOperations {
   "permission.forget": { params: IDParams; result: Empty; execution: "command"; permission: "rule-authority"; sensitive: false };
   "permission.mode": { params: PermissionConfigureParams; result: Empty; execution: "command"; permission: "trusted-client-mode"; sensitive: false };
   "permission.rules": { params: EmptyParams; result: PermissionRulesResult; execution: "query"; permission: "root-association"; sensitive: false };
-  "provider.catalogs": { params: EmptyParams; result: ProviderCatalogsResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "provider.catalogs": { params: ProviderCatalogParams; result: ProviderCatalogsResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "question.answer": { params: QuestionAnswerParams; result: Empty; execution: "command"; permission: "pending-question"; sensitive: false };
   "run.configure": { params: RunConfigureParams; result: Empty; execution: "command"; permission: "root-idle"; sensitive: false };
   "schedule.create": { params: ScheduleCreateParams; result: ScheduleResult; execution: "command"; permission: "schedule-budget"; sensitive: false };

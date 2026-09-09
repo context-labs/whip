@@ -12,6 +12,9 @@
           "flow_id": {
             "type": "string"
           },
+          "provider": {
+            "type": "string"
+          },
           "state": {
             "type": "string"
           },

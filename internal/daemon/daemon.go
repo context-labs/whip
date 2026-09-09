@@ -22,11 +22,12 @@ type rootEntry struct {
 
 // Daemon owns the durable store and exactly one live actor per opened root.
 type Daemon struct {
-	store   *session.Store
-	factory Factory
-	control *Control
-	ctx     context.Context
-	cancel  context.CancelFunc
+	providers *ProviderService
+	store     *session.Store
+	factory   Factory
+	control   *Control
+	ctx       context.Context
+	cancel    context.CancelFunc
 
 	mu      sync.Mutex
 	wg      sync.WaitGroup
@@ -37,7 +38,7 @@ type Daemon struct {
 }
 
 // New applies daemon-startup recovery before any root can be opened.
-func New(store *session.Store, factory Factory) (*Daemon, error) {
+func New(store *session.Store, factory Factory, providers ...*ProviderService) (*Daemon, error) {
 	if store == nil || factory == nil {
 		return nil, errors.New("daemon requires a store and root factory")
 	}
@@ -50,6 +51,9 @@ func New(store *session.Store, factory Factory) (*Daemon, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	daemon := &Daemon{store: store, factory: factory, ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
+	if len(providers) > 0 {
+		daemon.providers = providers[0]
+	}
 	daemon.control = newControl(ctx, store)
 	return daemon, nil
 }
@@ -230,6 +234,7 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 		return nil, errors.New("root factory returned no runner")
 	}
 	root = newSession(d.store, meta, authority, components, d.factory)
+	root.providers = d.providers
 	// Bind hooks may reconstruct durable child agents through actor-owned
 	// store operations, so the serialization boundary must exist first.
 	root.supervisor.startActor(root.run)

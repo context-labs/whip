@@ -53,6 +53,15 @@ export async function runBrowserSmoke() {
     const item = await waitFor(() => document.querySelector<HTMLElement>('[role="menuitem"]'));
     item.click();
     await waitFor(() => !document.querySelector('[role="menu"]'));
+    const exactCode = code.textContent;
+    button('Increase readability').click();
+    await waitFor(() => document.documentElement.dataset.contrast === 'more');
+    assert(getComputedStyle(code).fontSize === '24px' && getComputedStyle(code).whiteSpace === 'pre-wrap', 'Display preferences did not apply under CSP');
+    assert(code.textContent === exactCode, 'Wrapping changed original code text');
+    const rangeInput = document.querySelector<HTMLInputElement>('input[type="range"]');
+    assert(rangeInput?.getAttribute('aria-valuetext') === 'Compact', 'Slider has no named accessible value');
+    button('Reset display').click();
+    await waitFor(() => getComputedStyle(code).fontSize === '12px');
     await new Promise(resolve => setTimeout(resolve, 100));
     assert(!violations.length && !failures.length, JSON.stringify({violations, failures}));
     Object.assign(report, {passed: true, codeSelectionRetained: true, customChromaAttributes: true, scriptNodes: 0, cspViolations: 0});

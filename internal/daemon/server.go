@@ -122,8 +122,12 @@ func NewServer(value *Daemon, options ServerOptions) (*Server, error) {
 		cancel()
 		return nil, err
 	}
+	providers := value.providers
+	if providers == nil {
+		providers = NewProviderService(ctx, strconv.FormatInt(options.Generation, 10))
+	}
 	return &Server{
-		daemon: value, options: options, ctx: ctx, cancel: cancel, runtimeID: runtimeID, providers: NewProviderService(ctx, strconv.FormatInt(options.Generation, 10)),
+		daemon: value, options: options, ctx: ctx, cancel: cancel, runtimeID: runtimeID, providers: providers,
 		clients: make(map[*serverConn]struct{}), slots: make(chan struct{}, options.MaxConnections),
 		uploads: newUploadManager(value.store, options.RuntimeDir),
 	}, nil

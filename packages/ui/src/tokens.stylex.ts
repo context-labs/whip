@@ -1,6 +1,6 @@
 import * as stylex from '@stylexjs/stylex';
 
-// Fixed variable indirection is used only for validated, imported theme colors.
+// Fixed variable indirection is used only for validated theme/display preferences.
 // Built-in themes replace these values with statically compiled createTheme classes.
 export const colors = stylex.defineVars({
   background: 'var(--whip-background, #fafafa)', foreground: 'var(--whip-foreground, #1a1a1a)',
@@ -24,8 +24,27 @@ export const markdown = stylex.defineVars({
   code: 'var(--whip-markdown-code, #3d9a57)', quote: 'var(--whip-markdown-quote, #737373)',
 });
 export const typography = stylex.defineVars({
-  sans: "'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  mono: "'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace",
+  sans: "var(--whip-font-sans, 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif)",
+  mono: "var(--whip-font-mono, 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace)",
+  size10: 'var(--whip-size-10, 10px)',
+  size11: 'var(--whip-size-11, 11px)',
+  size12: 'var(--whip-size-12, 12px)',
+  size13: 'var(--whip-size-13, 13px)',
+  size14: 'var(--whip-size-14, 14px)',
+  size15: 'var(--whip-size-15, 15px)',
+  size16: 'var(--whip-size-16, 16px)',
+  size17: 'var(--whip-size-17, 17px)',
+  size18: 'var(--whip-size-18, 18px)',
+  size20: 'var(--whip-size-20, 20px)',
+  size24: 'var(--whip-size-24, 24px)',
+  size28: 'var(--whip-size-28, 28px)',
+  codeSize: 'var(--whip-code-size, 12px)',
+});
+export const appearance = stylex.defineVars({
+  codeWhiteSpace: 'var(--whip-code-white-space, pre)',
+  codeOverflowWrap: 'var(--whip-code-overflow-wrap, normal)',
+  motionFast: 'var(--whip-motion-fast, 100ms)',
+  motionNormal: 'var(--whip-motion-normal, 160ms)',
 });
 export const scale = stylex.defineConsts({
   space1: '4px', space2: '8px', space3: '12px', space4: '16px', space5: '20px', space6: '24px', space8: '32px',
@@ -38,6 +57,8 @@ export const scale = stylex.defineConsts({
 export const surface = stylex.defineVars({
   secondaryText: `color-mix(in srgb, ${colors.foreground} 76%, ${colors.background})`,
   quietBorder: `color-mix(in srgb, ${colors.border} 55%, ${colors.background})`,
+  // Interactive edges need a stronger floor than decorative separators.
+  controlBorder: colors.border,
   // applyTheme chooses the recessed surface for the palette's declared mode.
   navigation: `color-mix(in srgb, ${colors.background} 50%, ${colors.panel})`,
   inlineCode: colors.element,

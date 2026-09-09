@@ -34,6 +34,125 @@ class Notebook {
   snapshot() { return state(this.evidence, this.histories); }
 }
 
+test('host starts update in place, repeated invocations and caught failures stay distinct', () => {
+  const book = new Notebook();
+  book.emit('stream.tool.started', { id: 'same', name: 'rlm_exec', turn_id: 'turn-1' });
+  const scope = { id: 'same', turn_id: 'turn-1', name: 'files.read' };
+  book.emit('stream.cell.host.started', { ...scope, invocation_id: '1:1', args: 'path=one' });
+  const start = cells(book.snapshot())[0]!.hosts[0]!;
+  assert.equal(start.status, 'running');
+  assert.equal(start.duration, '');
+  book.emit('stream.cell.host', { ...scope, invocation_id: '1:1', text: '3ms', result: 'missing' });
+  book.emit('stream.cell.host.started', { ...scope, invocation_id: '1:2', args: 'path=two' });
+  // A duplicate completion or delayed start must not clear the newer operation.
+  book.emit('stream.cell.host', { ...scope, invocation_id: '1:1', text: '3ms', result: 'missing' });
+  book.emit('stream.cell.host.started', { ...scope, invocation_id: '1:1' });
+  let cell = cells(book.snapshot())[0]!;
+  assert.equal(cell.hosts.length, 2);
+  assert.equal(cell.hosts[0]!.id, start.id);
+  assert.deepEqual(cell.hosts.map(host => host.status), ['failed', 'running']);
+  assert.equal(cell.status, 'running', 'a caught host error is not a failed cell');
+  book.emit('stream.cell.host', { ...scope, invocation_id: '1:2', text: '2ms' });
+  book.emit('stream.tool.completed', { id: 'same', name: 'rlm_exec', result: success });
+  cell = cells(book.snapshot())[0]!;
+  assert.equal(cell.status, 'completed');
+  assert.deepEqual(cell.hosts.map(host => host.status), ['failed', 'completed']);
+});
+
+test('late host completions are scoped to their turn and occurrence, even with reused tool IDs', () => {
+  const book = new Notebook();
+  const start = (invocation: string) => {
+    book.emit('stream.tool.started', { id: 'same', name: 'rlm_exec' });
+    book.emit('stream.cell.host.started', { id: 'same', name: 'shell.run', invocation_id: invocation, turn_id: book.active.root });
+  };
+  start('1:1');
+  book.emit('stream.tool.completed', { id: 'same', name: 'rlm_exec', result: success });
+  start('2:1');
+  book.emit('stream.cell.host', { id: 'same', name: 'shell.run', invocation_id: '1:1', turn_id: 'turn-1', text: '1ms' });
+  assert.deepEqual(cells(book.snapshot()).map(cell => cell.hosts[0]!.status), ['completed', 'running']);
+  book.emit('turn.cancelled', { turn_id: 'turn-1' });
+  book.active.root = 'turn-2';
+  start('3:1');
+  book.emit('stream.cell.host', { id: 'same', name: 'shell.run', invocation_id: '2:1', turn_id: 'turn-1', text: '2ms' });
+  assert.equal(cells(book.snapshot()).at(-1)!.hosts[0]!.status, 'running');
+  assert.equal(cells(book.snapshot()).at(-1)!.turnId, 'turn-2');
+});
+
+test('reconnect cannot attach a reused tool ID with a missing prefix to an uncertain prior cell', () => {
+  const book = new Notebook();
+  book.emit('stream.tool.started', { id: 'same', name: 'rlm_exec', args: '{"code":"old_code()"}' });
+  book.emit('stream.cell.host.started', { id: 'same', name: 'files.read', invocation_id: '1:1', turn_id: 'turn-1' });
+  const before = cells(book.snapshot())[0]!;
+  book.evidence = settleExecutions(book.evidence);
+  book.evidence = seedExecutions(book.evidence, root({ cursor: '4', active_turns: book.active,
+    presentation: [{ seq: '4', kind: 'stream.cell.host.started', payload: {
+      id: 'same', name: 'agents.wait', invocation_id: '2:1', turn_id: 'turn-1',
+    } }],
+  }), book.histories);
+  const after = cells(book.snapshot());
+  assert.equal(after.length, 1);
+  assert.equal(after[0]!.id, before.id);
+  assert.equal(after[0]!.status, 'unknown');
+  assert.equal(after[0]!.code, 'old_code()');
+  assert.deepEqual(after[0]!.hosts.map(host => host.invocationId), ['1:1']);
+  assert.equal(book.evidence.truncated, true);
+});
+
+test('host activity remains bounded without dropping the current invocation', () => {
+  const book = new Notebook();
+  book.emit('stream.tool.started', { id: 'a', name: 'rlm_exec' });
+  for (let n = 0; n < 140; n++) {
+    book.emit('stream.cell.host.started', { id: 'a', name: 'files.read', invocation_id: `1:${n}` });
+    if (n < 139) book.emit('stream.cell.host', { id: 'a', name: 'files.read', invocation_id: `1:${n}`, text: '1ms' });
+  }
+  const cell = cells(book.snapshot())[0]!;
+  assert.equal(cell.hosts.length, 128);
+  assert.equal(cell.truncated, true);
+  assert.equal(cell.hosts.at(-1)!.status, 'running');
+  book.emit('turn.interrupted', { turn_id: 'turn-1' });
+  assert.equal(cells(book.snapshot())[0]!.hosts.at(-1)!.status, 'interrupted');
+});
+
+test('snapshot reconstructs active host starts without inventing client timing', () => {
+  const snapshot = root({ cursor: '2', active_turns: { root: 'turn-1' }, presentation: [
+    { seq: '1', kind: 'stream.tool.started', payload: { id: 'a', name: 'rlm_exec', turn_id: 'turn-1' } },
+    { seq: '2', kind: 'stream.cell.host.started', payload: { id: 'a', name: 'agents.wait', turn_id: 'turn-1', invocation_id: '1:1' } },
+  ] });
+  const evidence = seedExecutions(undefined, snapshot, history());
+  const cell = cells(state(evidence))[0]!;
+  assert.equal(cell.hosts[0]!.status, 'running');
+  assert.equal(cell.observedStartedAt, undefined);
+  const stale = cells(state(settleExecutions(evidence)))[0]!;
+  assert.equal(stale.hosts[0]!.status, 'unknown');
+  const recovered = cells(state(seedExecutions(settleExecutions(evidence), snapshot, history())))[0]!;
+  assert.equal(recovered.id, cell.id);
+  assert.equal(recovered.status, 'running');
+  assert.equal(recovered.hosts[0]!.status, 'running');
+  assert.equal(recovered.observedStartedAt, undefined);
+});
+
+test('an evicted host completion cannot contaminate a newer cell reusing the tool ID', () => {
+  const book = new Notebook();
+  book.emit('stream.tool.started', { id: 'a', name: 'rlm_exec' });
+  for (let n = 0; n < 130; n++) {
+    book.emit('stream.cell.host.started', { id: 'a', name: 'files.read', invocation_id: `1:${n}` });
+    book.emit('stream.cell.host', { id: 'a', name: 'files.read', invocation_id: `1:${n}`, text: '1ms' });
+  }
+  book.emit('stream.tool.completed', { id: 'a', name: 'rlm_exec', result: success });
+  book.emit('stream.tool.started', { id: 'a', name: 'rlm_exec' });
+  book.emit('stream.cell.host', { id: 'a', name: 'files.read', invocation_id: '1:0', result: 'old error' });
+  assert.equal(cells(book.snapshot()).at(-1)!.hosts.length, 0);
+});
+
+test('a cancelled host stays cancelled after the turn settles', () => {
+  const book = new Notebook();
+  book.emit('stream.tool.started', { id: 'a', name: 'rlm_exec' });
+  book.emit('stream.cell.host.started', { id: 'a', name: 'agents.wait', invocation_id: '1:1' });
+  book.emit('stream.cell.host', { id: 'a', name: 'agents.wait', invocation_id: '1:1', host_status: 'cancelled', result: 'context canceled' });
+  book.emit('turn.cancelled', { turn_id: 'turn-1' });
+  assert.equal(cells(book.snapshot())[0]!.hosts[0]!.status, 'cancelled');
+});
+
 test('partial arguments decode escaped prefixes, top-level keys and bounded Starlark', () => {
   assert.equal(executionCode('{"code":"print('), 'print(');
   assert.equal(executionCode('{"code":"x = \\"test\\"\\nprint(x)\\t\\u263a\\uD83D\\uDE80"}'), 'x = "test"\nprint(x)\t☺🚀');

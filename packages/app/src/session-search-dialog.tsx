@@ -1,3 +1,4 @@
+import { typography } from '@whip/ui/tokens.stylex';
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQueries } from '@tanstack/react-query';
@@ -162,12 +163,12 @@ function updatedLabel(value: string) {
 const styles = stylex.create({
   dialog: { width: 'min(680px, calc(100vw - 32px))', height: 'min(560px, calc(100dvh - 48px))', maxHeight: 'calc(100dvh - 48px)', padding: 16, gap: 12, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 12, backgroundColor: colors.panel, display: 'grid', gridTemplateRows: 'auto minmax(0, 1fr)', overflow: 'hidden' },
   searchHeader: { display: 'flex', alignItems: 'center', gap: 12, minHeight: 36, color: surface.secondaryText },
-  input: { borderWidth: 0, backgroundColor: 'transparent', boxShadow: 'none', fontSize: 16, flex: 1, minWidth: 0, paddingInline: 0 },
+  input: { borderWidth: 0, backgroundColor: 'transparent', boxShadow: 'none', fontSize: typography.size16, flex: 1, minWidth: 0, paddingInline: 0 },
   results: { minHeight: 0, height: '100%', overflowY: 'auto', borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, paddingTop: 10 },
-  host: { fontSize: 12, color: surface.secondaryText, fontWeight: 600, paddingInline: 12, marginBlock: 8 },
+  host: { fontSize: typography.size12, color: surface.secondaryText, fontWeight: 600, paddingInline: 12, marginBlock: 8 },
   result: { display: 'flex', alignItems: 'center', borderRadius: 8, minHeight: { default: 40, [scale.touch]: 48 }, color: surface.secondaryText },
   highlighted: { backgroundColor: colors.background, color: colors.foreground },
-  link: { display: 'flex', alignItems: 'center', gap: 12, paddingInline: 12, minHeight: { default: 40, [scale.touch]: 48 }, flex: 1, minWidth: 0, color: 'inherit', textDecoration: 'none', fontSize: 14, borderRadius: 8 },
-  date: { fontSize: 12, color: surface.secondaryText, flexShrink: 0, display: { default: 'block', [scale.phone]: 'none' } },
-  notice: { padding: 12, color: surface.secondaryText, fontSize: 13 },
+  link: { display: 'flex', alignItems: 'center', gap: 12, paddingInline: 12, minHeight: { default: 40, [scale.touch]: 48 }, flex: 1, minWidth: 0, color: 'inherit', textDecoration: 'none', fontSize: typography.size14, borderRadius: 8 },
+  date: { fontSize: typography.size12, color: surface.secondaryText, flexShrink: 0, display: { default: 'block', [scale.phone]: 'none' } },
+  notice: { padding: 12, color: surface.secondaryText, fontSize: typography.size13 },
 });

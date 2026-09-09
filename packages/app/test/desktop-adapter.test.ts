@@ -6,7 +6,7 @@ import { localProfile, urlProfile, type ConnectionProfile } from '../src/connect
 function fixture() {
   const listeners = new Set<(event: DesktopEvent) => void>();
   const bridge = {
-    version: 1, appVersion: '1.2.3', connectionKinds: ['local', 'url', 'ssh'],
+    version: 2, getSystemContrast: async () => false, appVersion: '1.2.3', connectionKinds: ['local', 'url', 'ssh'],
     onEvent(listener: (event: DesktopEvent) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     openTransport: vi.fn(async (_id: string, _connectionId: string) => {}),
     sendTransport: vi.fn(), closeTransport: vi.fn(), acknowledgeTransport: vi.fn(),
@@ -189,4 +189,35 @@ it('retains immutable native update state and forwards explicit actions without 
   f.emit({ kind: 'update', state: 'error', error: 'late result' }); expect(updates.getSnapshot()).toBe(downloaded);
   await expect(updates.check()).rejects.toThrow('closed'); await expect(updates.install()).rejects.toThrow('closed');
   await platform.notify!(message); expect(f.bridge.notify).toHaveBeenCalledOnce();
+});
+
+it('observes native contrast initially and on changes, rejects malformed flags and disposes listeners', async () => {
+  const f = fixture();
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  const changed = vi.fn();
+  const stop = platform.systemContrast!.subscribe(changed);
+  expect(platform.systemContrast!.getSnapshot()).toBeUndefined();
+  await Promise.resolve();
+  expect(platform.systemContrast!.getSnapshot()).toBe(false);
+  f.emit({ kind: 'system-contrast', highContrast: true });
+  expect(platform.systemContrast!.getSnapshot()).toBe(true);
+  expect(changed).toHaveBeenCalledTimes(2);
+  f.emit({ kind: 'system-contrast', highContrast: true });
+  f.emit({ kind: 'system-contrast', highContrast: 'true' } as unknown as DesktopEvent);
+  expect(changed).toHaveBeenCalledTimes(2);
+  stop(); platform.dispose?.();
+  f.emit({ kind: 'system-contrast', highContrast: false });
+  expect(platform.systemContrast!.getSnapshot()).toBe(true);
+  expect(f.listeners.size).toBe(0);
+});
+
+it('does not let a stale initial OS response overwrite a newer preference event', async () => {
+  const f = fixture();
+  let resolve!: (value: boolean) => void;
+  f.bridge.getSystemContrast = () => new Promise<boolean>(done => { resolve = done; });
+  const platform = createDesktopPlatform(f.api, vi.fn());
+  f.emit({ kind: 'system-contrast', highContrast: true });
+  resolve(false); await Promise.resolve();
+  expect(platform.systemContrast!.getSnapshot()).toBe(true);
+  platform.dispose?.();
 });

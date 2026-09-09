@@ -97,7 +97,7 @@ export class HostConnections {
     }
     this.snapshot = { ...this.snapshot, selectedId: selectedId && !selectedId.startsWith('url:') ? selectedId : 'local',
       legacyProfiles: this.deviceProfiles.filter(profile => profile.target.kind === 'url'),
-      notice: saved?.notice ?? (this.selected?.target.kind === 'url' ? 'Import your previously selected address in Execution hosts to reconnect. Its saved identity and tabs are preserved.' : undefined) };
+      notice: saved?.notice ?? (this.selected?.target.kind === 'url' ? 'Import your previously selected address in Settings → Servers to reconnect. Its saved identity and tabs are preserved.' : undefined) };
     this.publish();
   }
   getSnapshot = () => this.snapshot;
@@ -190,7 +190,8 @@ export class HostConnections {
     this.deviceProfiles = saveConnections(this.platform.storage, [profile, ...this.deviceProfiles.filter(item => item.id !== profile.id)], selected);
     this.selected = selected;
   }
-  async saveNative(profile: ConnectionProfile, acceptChangedIdentity = false): Promise<string> {
+  async saveNative(profile: ConnectionProfile, acceptChangedIdentity = false, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted();
     let target = validateProfile(profile);
     const duplicate = [...this.records.values()].find(record => record.device && JSON.stringify(record.target.target) === JSON.stringify(target.target));
     if (duplicate && !this.records.has(target.id)) target = { ...target, id: duplicate.target.id, runtimeId: duplicate.target.runtimeId };
@@ -205,11 +206,14 @@ export class HostConnections {
     const record = this.record({ id: target.id, name: target.label, url: '', runtime_id: remembered.runtimeId ?? '', connect_on_launch: true }, remembered, true);
     this.records.set(target.id, record);
     this.publish();
-    try { await this.connect(target.id); this.persistDevice(record.target); }
+    const cancel = () => { if (this.records.get(target.id) === record) this.disconnect(target.id); };
+    signal?.addEventListener('abort', cancel, { once: true });
+    try { await this.connect(target.id); signal?.throwIfAborted(); this.persistDevice(record.target); }
     catch (error) {
       if (this.records.get(target.id) === record) { this.detach(record); if (existing) { this.records.set(target.id, existing); existing.error = errorMessage(error); } else record.error = errorMessage(error); this.publish(); }
       throw error;
     }
+    finally { signal?.removeEventListener('abort', cancel); }
     return target.id;
   }
   select(id: string) {

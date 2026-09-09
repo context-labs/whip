@@ -325,8 +325,10 @@ type KernelOptions struct {
 	// OnRestore, when set, observes every completed restore (turn start or
 	// mid-turn). It runs while the kernel is locked, so it must return fast.
 	OnRestore func(context.Context, RestoreReport)
-	// OnHostCall, when set, observes every host call a cell makes. It runs
-	// while the kernel is locked, so it must return fast.
+	// OnHostStart observes an invocation immediately before entering the host.
+	// Both callbacks run while the kernel is locked and must return fast.
+	OnHostStart func(HostCall)
+	// OnHostCall observes completion, including host errors and cancellation.
 	OnHostCall func(HostCall)
 }
 
@@ -334,7 +336,12 @@ type KernelOptions struct {
 // model tool call it belongs to, what was called, a bounded argument summary
 // (never raw contents), how long it took, and the error text if it failed.
 type HostCall struct {
-	CallID    string
+	CallID string
+	// InvocationID distinguishes repeated operations and repeated model call IDs
+	// for this kernel's lifetime. Clients also scope it to the agent and turn.
+	InvocationID string
+	// Status is empty at start, then completed, failed, or cancelled.
+	Status    string
 	Module    string
 	Operation string
 	Summary   string
@@ -379,6 +386,7 @@ type Kernel struct {
 
 	scratch      ScratchStore
 	onRestore    func(context.Context, RestoreReport)
+	onHostStart  func(HostCall)
 	onHostCall   func(HostCall)
 	snapshotHash [32]byte
 	skippedHash  [32]byte
@@ -410,7 +418,11 @@ func NewKernel(options KernelOptions) (*Kernel, error) {
 	if options.Manager == nil {
 		options.Manager = NewManager(limits.MaxWorkers)
 	}
-	return &Kernel{command: command, limits: limits, manager: options.Manager, host: options.Host, scratch: options.Scratch, onRestore: options.OnRestore, onHostCall: options.OnHostCall}, nil
+	return &Kernel{
+		command: command, limits: limits, manager: options.Manager, host: options.Host,
+		scratch: options.Scratch, onRestore: options.OnRestore,
+		onHostStart: options.OnHostStart, onHostCall: options.OnHostCall,
+	}, nil
 }
 
 func (kernel *Kernel) Exec(ctx context.Context, code string) (Result, error) {
@@ -477,6 +489,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 	// bounded by its own limit and by turn cancellation.
 	budget := kernel.limits.Wall
 	var consumed time.Duration
+	var hostCalls uint64
 	onUpdate, callID := tools.OnUpdate(ctx), tools.ToolCallID(ctx)
 	exhausted := func() (Result, error) {
 		kernel.stop()
@@ -512,16 +525,30 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 			}
 			var value any
 			var callErr error
+			hostCalls++
+			call := HostCall{
+				CallID: callID, InvocationID: fmt.Sprintf("%d:%d", id, hostCalls),
+				Module: response.Module, Operation: response.Operation,
+				Summary: hostCallSummary(response.Arguments),
+			}
 			callStarted := time.Now()
+			if kernel.onHostStart != nil {
+				kernel.onHostStart(call)
+			}
 			if kernel.host == nil {
 				callErr = errors.New("RLM host is not bound")
 			} else {
 				value, callErr = kernel.host.Call(ctx, response.Module, response.Operation, response.Arguments)
 			}
 			if kernel.onHostCall != nil {
-				call := HostCall{CallID: callID, Module: response.Module, Operation: response.Operation, Summary: hostCallSummary(response.Arguments), Duration: time.Since(callStarted)}
+				call.Duration = time.Since(callStarted)
+				call.Status = "completed"
 				if callErr != nil {
 					call.Err = callErr.Error()
+					call.Status = "failed"
+					if errors.Is(callErr, context.Canceled) {
+						call.Status = "cancelled"
+					}
 				}
 				kernel.onHostCall(call)
 			}

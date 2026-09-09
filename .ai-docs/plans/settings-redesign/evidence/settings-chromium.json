@@ -1,0 +1,14 @@
+{
+  "engine": "chromium",
+  "checks": [
+    "dedicated Settings shell preserves the workspace without hidden conversation navigation/tabs",
+    "density is fetch-free; font size/family, wrapping, accessibility, and direct numeric input persist through reload",
+    "Back after reload restores the exact session and unsent draft",
+    "real host form keeps unsaved edits on Stay and discards only after the explicit action",
+    "all categories render; settings search focuses the target; reset and custom palette selection work",
+    "1024/768/767/390/320 widths, narrow category search keyboard focus, and maximum UI size reflow"
+  ],
+  "pageErrors": [],
+  "cspErrors": [],
+  "frameCount": 31
+}

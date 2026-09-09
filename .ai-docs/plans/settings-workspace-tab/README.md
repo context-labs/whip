@@ -2,7 +2,10 @@
 
 Branch: proposed `feat/settings-workspace-tab` (research performed on `codex/desktop-release`)
 
-Status: Proposed for review, 2026-09-08. No implementation has started.
+Status: Superseded, 2026-09-08. No implementation has started. The user selected
+dedicated full-window Settings with a Back button in the
+[Settings redesign plan](../settings-redesign/README.md). The proposal below is
+retained as historical research, not an implementation requirement.
 
 ## What this does
 

@@ -16,6 +16,12 @@ export interface TimelineRow {
   sentAt?: string;
   delivery?: string;
   queued?: boolean;
+  /** Tool identity is separate from its human-readable label. */
+  toolName?: string;
+  callId?: string;
+  turnId?: string;
+  eventSeq?: string;
+  activityBoundary?: string;
 }
 export interface ImagePart {
   url: string;
@@ -88,9 +94,10 @@ export function timelineRows(
     ) {
       calls.get(message.tool_call_id)!.text = parts.text;
       calls.get(message.tool_call_id)!.images = parts.images;
+      if (entry.body) calls.get(message.tool_call_id)!.body = entry.body;
       continue;
     }
-    if (parts.text || parts.images.length || !message.tool_calls?.length)
+    if (parts.text || parts.images.length || entry.body || (message.role !== 'assistant' && !message.tool_calls?.length))
       rows.push({
         id,
         seq: entry.seq,
@@ -101,12 +108,15 @@ export function timelineRows(
         ...(message.role === 'tool'
           ? { label: message.name || 'Tool output' }
           : {}),
+        ...(message.role === 'tool' ? { toolName: message.name, callId: message.tool_call_id } : {}),
       });
     for (const call of message.tool_calls ?? []) {
       const row: TimelineRow = {
         id: `${id}:${call.id}`,
         seq: entry.seq,
         role: 'tool',
+        toolName: call.function.name,
+        callId: call.id,
         label:
           call.function.name === 'rlm_exec'
             ? 'Starlark execution'
@@ -119,23 +129,37 @@ export function timelineRows(
     }
   }
   const liveCalls = new Map<string, TimelineRow>();
+  let activityBoundary: string | undefined;
   for (const event of presentation ?? []) {
-    const payload = event.payload as StreamEvent | undefined;
+    const payload = event.payload as (StreamEvent & { truncated?: boolean }) | undefined;
     if (!payload || typeof payload !== 'object') continue;
+    if (/^(agent\.)?turn\./.test(event.kind) || event.kind === 'scratch.restored') {
+      activityBoundary = event.seq;
+      liveCalls.clear();
+    }
     if (event.kind === 'stream.text' || event.kind === 'stream.reasoning') {
+      if (!payload.text?.trim()) continue;
       rows.push({
         id: `live:${event.seq}`,
         role: event.kind === 'stream.text' ? 'assistant' : 'reasoning',
         text: payload.text ?? '',
         live: true,
+        turnId: payload.turn_id,
       });
     } else if (event.kind.startsWith('stream.tool.')) {
-      const key = payload.id ?? event.seq;
+      if (!payload.id) continue;
+      const key = JSON.stringify([payload.turn_id, payload.id]);
       let row = liveCalls.get(key);
+      if (row && !row.live && ['stream.tool.call', 'stream.tool.started'].includes(event.kind)) row = undefined;
       if (!row) {
         row = {
-          id: `live-tool:${key}`,
+          id: `live-tool:${payload.id ?? event.seq}:${event.seq}`,
           role: 'tool',
+          toolName: payload.name,
+          callId: payload.id,
+          turnId: payload.turn_id,
+          eventSeq: event.seq,
+          activityBoundary,
           label:
             payload.name === 'rlm_exec'
               ? 'Starlark execution'
@@ -146,7 +170,12 @@ export function timelineRows(
         liveCalls.set(key, row);
         rows.push(row);
       }
+      if (payload.name) {
+        row.toolName = payload.name;
+        row.label = payload.name === 'rlm_exec' ? 'Starlark execution' : payload.name;
+      }
       if (payload.args !== undefined) row.args = payload.args;
+      else if (payload.truncated && ['stream.tool.call', 'stream.tool.started'].includes(event.kind)) row.args = undefined;
       if (payload.result !== undefined) row.text = payload.result;
       else if (
         event.kind === 'stream.tool.output' &&

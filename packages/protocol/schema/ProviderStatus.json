@@ -10,6 +10,30 @@
     "key_source": {
       "type": "string"
     },
+    "available": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    },
+    "disabled": {
+      "type": "boolean"
+    },
+    "environment_variable": {
+      "type": "string"
+    },
+    "auth_method": {
+      "type": "string"
+    },
+    "auth_state": {
+      "type": "string"
+    },
+    "account_id": {
+      "type": "string"
+    },
+    "plan": {
+      "type": "string"
+    },
     "email": {
       "type": "string"
     },

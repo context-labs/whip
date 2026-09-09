@@ -225,7 +225,7 @@ export class SessionTabs {
     }
     let initial = !restored ? previous.find(item => item.runtimeId === preferredRuntimeId) ?? previous.at(-1) : undefined;
     if (initial && bytes(serialize(initial.workspace, [initial.runtimeId])) > MAX_BYTES) {
-      onNotice('The previous layout exceeds this window’s metadata limit. Its tabs remain available individually in Execution hosts.');
+      onNotice('The previous layout exceeds this window’s metadata limit. Its tabs remain available individually in Settings → Servers.');
       initial = undefined;
     }
     if (initial) this.migrated.push(initial.runtimeId);

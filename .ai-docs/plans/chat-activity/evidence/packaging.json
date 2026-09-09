@@ -1,0 +1,18 @@
+{
+  "rendererDigest": "74c3a0abbe888d0d920bd364c63703cc189d6cb04db5564f5620b4ee52cbc169",
+  "compatibility": {
+    "protocolMajor": 5,
+    "protocolMinor": 1,
+    "schemaVersion": 12
+  },
+  "files": {
+    "whipcode": {
+      "bytes": 41597648,
+      "sha256": "4f99f6180cf30a7618b73dff8bccc5dc974855d6d4f8378cdea75069e67ec161"
+    },
+    "whip-computer": {
+      "bytes": 431456,
+      "sha256": "30a8eb0c6f07870fe9000fae078b41c1ea246ab1cdc1fe66b649620a7046b55f"
+    }
+  }
+}

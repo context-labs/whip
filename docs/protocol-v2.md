@@ -171,6 +171,15 @@ Large message bodies use content references. Human inspection of child history
 does not admit it to an agent's model context. Pending questions and permissions
 are included in reconnect state; answering resolves the shared pending item.
 
+Large stream payloads use `ContentEventPayload`: `content` references the full
+JSON event and `truncated: true` marks omitted fields. New emissions retain the
+stream's agent, turn, call and invocation identity plus complete small fields
+inline, so cumulative updates and completions remain attributable. Clients must
+also accept older content-only variants: advance the cursor and mark evidence
+unavailable, without attributing an unknown owner to the root. Missing results
+do not imply success. Accounting and usage have their own projections and do not
+consume the reconnect snapshot's presentation suffix.
+
 `history.rewind` and `session.fork` require `expected_revision`. `history.clear`
 also accepts this decimal-string precondition; applications should send their
 displayed history revision so a delayed clear cannot erase a different history.
@@ -355,6 +364,19 @@ roots. Archive and restore preserve running work, pending questions, and recency
 
 `provider.catalogs` is a genuinely rootless runtime query: no root actor is
 constructed and no model session is required for provider onboarding.
+Its optional `refresh: true` parameter forces upstream discovery; ordinary reads
+reuse fresh cache entries. Provider descriptors carry optional `available`
+metadata so clients can exclude unavailable model routes without deleting aliases.
+
+`provider.list` is the cheaper host-owned connection inventory: it returns safe
+source/readiness metadata, the resolved default provider and a configuration
+revision, without upstream requests or secret-command execution. `config.update`
+accepts `disabled_providers` under the same revision check as other settings.
+`provider.disconnect` requires `{ provider, revision }`, removes the selected
+WHIP-owned credential and disables the route. External/environment credentials
+can only be disabled. Legacy `provider.logout` retains account-only behavior.
+Disabling rejects subsequent model-request admissions, including helpers,
+subagents and compaction; already admitted calls keep their route snapshot.
 
 `host.directories.list` browses directories on the execution machine before a
 session exists. Its optional `path` is absolute or begins with `~/`; empty starts

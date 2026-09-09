@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { act, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
@@ -15,7 +15,7 @@ vi.mock('@tanstack/react-router', () => ({
   useLocation: () => routing.location, useParams: () => ({}), useNavigate: () => routing.navigate,
 }));
 vi.mock('@tanstack/react-hotkeys', () => ({ useHotkey: () => {} }));
-vi.mock('../src/session-sidebar', () => ({ SessionSidebar: () => null }));
+vi.mock('../src/session-sidebar', () => ({ SessionSidebar: ({ onConnect }: { onConnect(): void }) => <button onClick={onConnect}>Manage servers</button> }));
 vi.mock('../src/session-search-dialog', () => ({ SessionSearchDialog: () => null }));
 vi.mock('../src/host-dialog', () => ({ HostDialog: () => null }));
 vi.mock('../src/attention', () => ({ Attention: () => null, DesktopAttention: () => null }));
@@ -60,6 +60,17 @@ function fixture(path = '/h/mac/s/a', roots = ['a', 'b']) {
   };
 }
 
+it('server management uses Settings navigation without closing tabs, drafts or connections', () => {
+  const f = fixture();
+  const tabs = f.runtime.tabs.workspace().tabs;
+  fireEvent.click(screen.getByRole('button', { name: 'Manage servers', exact: true }));
+  expect(routing.navigate).toHaveBeenCalledWith({ to: '/settings', search: { section: 'connections', setting: 'hosts' } });
+  expect(f.runtime.tabs.workspace().tabs).toEqual(tabs);
+  expect(f.runtime.draft('mac:a:a')).toBe('Keep this draft');
+  expect(f.client.close).not.toHaveBeenCalled();
+  f.dispose();
+});
+
 it('Cmd-W closes the focused session tab through the existing action and preserves work and drafts', async () => {
   const f = fixture();
   f.closeTab();
@@ -78,8 +89,9 @@ it('Cmd-W returns to New session after the final tab, then hides the window on t
   f.closeTab(); expect(f.hideWindow).toHaveBeenCalledOnce(); expect(f.client.close).not.toHaveBeenCalled(); f.dispose();
 });
 
-it('Cmd-W hides a non-session page without closing background tabs or the SDK connection', () => {
+it('Cmd-W returns from Settings without closing background tabs or the SDK connection', () => {
   const f = fixture('/settings'); f.closeTab();
-  expect(f.hideWindow).toHaveBeenCalledOnce(); expect(f.runtime.tabs.workspace().tabs).toHaveLength(2);
+  expect(f.hideWindow).not.toHaveBeenCalled(); expect(f.runtime.tabs.workspace().tabs).toHaveLength(2);
+  expect(routing.navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'mac', rootId: 'a' } }));
   expect(f.client.close).not.toHaveBeenCalled(); f.dispose();
 });

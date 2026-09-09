@@ -139,5 +139,6 @@ export function creationModels(catalog?: ProviderCatalogsResult): CreationModel[
       model: model.id, provider, efforts: [...new Set(model.reasoning_efforts ?? [])].filter(Boolean),
     });
   }
-  return [...models.values()].sort((a, b) => a.model.localeCompare(b.model) || a.provider.localeCompare(b.provider));
+  return [...models.values()].filter(model => catalog?.providers?.[model.provider]?.available !== false)
+    .sort((a, b) => a.model.localeCompare(b.model) || a.provider.localeCompare(b.provider));
 }

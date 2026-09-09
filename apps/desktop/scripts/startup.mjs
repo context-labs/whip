@@ -208,7 +208,7 @@ async function selfTest() {
     wrong.window.webContents.emit('dom-ready'); await eventually(() => quit === 1, 'origin rejection', 2000);
     assert.equal(wrong.count(), 0); assert.equal(JSON.parse(await readFile(path.join(fixture, 'startup.json'), 'utf8')).state, 'unexpected-origin');
     const { JSDOM } = await import('jsdom');
-    const dom = new JSDOM('<aside aria-label="Session navigation"><button aria-label="Manage execution hosts">This Mac</button></aside><form><textarea data-whip-composer aria-label="Message WHIP"></textarea><button aria-label="Add context" disabled></button></form><section aria-label="Conversation"><div data-message-id="fixture">Verified Whip desktop startup fixture: 42</div></section>',
+    const dom = new JSDOM('<aside aria-label="Session navigation"><button aria-label="Manage servers">This Mac</button></aside><form><textarea data-whip-composer aria-label="Message WHIP"></textarea><button aria-label="Add context" disabled></button></form><section aria-label="Conversation"><div data-message-id="fixture">Verified Whip desktop startup fixture: 42</div></section>',
       { url: 'whip-app://bundle/h/runtime/s/root', runScripts: 'outside-only', pretendToBeVisual: true });
     try {
       Object.defineProperty(dom.window.document, 'fonts', { value: { status: 'loaded', ready: Promise.resolve() } });

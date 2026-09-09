@@ -80,6 +80,24 @@ func TestOpencodeHomePromptAndSidebarRemainUsable(t *testing.T) {
 	if home := opencodeHome(80, 20); !strings.Contains(home, "█") || lipgloss.Height(home) != 20 {
 		t.Fatalf("opencode home dimensions/content are invalid: height=%d", lipgloss.Height(home))
 	}
+	// The whipcode wordmark: every row is the full 37-cell glyph width, and
+	// the art spells whip|code (the h bowl and c rounds flank the split).
+	for i, row := range ocLogo {
+		if w := ansi.StringWidth(row); w != 37 {
+			t.Fatalf("logo row %d is %d cells wide, want 37: %q", i, w, row)
+		}
+	}
+	if !strings.Contains(ocLogo[1], "█▀▀█ █ █▀▀█") || !strings.Contains(ocLogo[3], "▀▄▄▄ ▀▄▄▀ ▀▄▄█ ▀▄▄▄") {
+		t.Fatalf("wordmark lost its whip|code shape: %q", ocLogo)
+	}
+	// The logo follows the active theme: under the light scheme it renders in
+	// the light text color (#1a1a1a), not the dark scheme's #eeeeee. Bold is
+	// merged into the same SGR, so match the color params, not a prefix.
+	SetLightTheme(true)
+	defer SetLightTheme(false)
+	if logo := opencodeLogo(); !strings.Contains(logo, "38;2;26;26;26m") || strings.Contains(logo, "38;2;238;238;238m") {
+		t.Fatalf("logo did not follow the light theme's text color: %q", logo)
+	}
 	m := &model{
 		input: newInput(), termWidth: sidebarMinWidth, sessTitle: "Recursive session",
 		clientView: clientPresentation{contextLimit: 1000},

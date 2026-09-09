@@ -246,6 +246,16 @@ replace earlier values; repeated host calls keep separate event identities.
 references and optional client-observed times. Recorded outcomes without enough
 evidence are marked unknown, and historical durations are not invented.
 
+Protocol 5.1 hosts emit `stream.cell.host.started` before dispatch and retain
+`stream.cell.host` for completion. `ExecutionHostCall.status` moves from running
+to completed/failed/cancelled; missing terminal evidence becomes unknown or
+interrupted. Each invocation is scoped to the cell, agent and turn. A host failure
+does not imply the cell failed, and a completed host invocation may have returned
+a background-process handle. Snapshot replay restores confirmed active operations;
+an evicted start is never guessed onto a newer cell with the same model call ID.
+Legacy completion-only events remain supported. Older SDK versions keep ordered
+delivery but mark the new event kind as unavailable detail until upgraded.
+
 Agent records also expose optional `last_turn` metadata, refreshed through the
 existing lifecycle/snapshot flow. It records the latest turn's status and error
 even when there are no execution cells. Agent lifecycle remains independent:
@@ -321,6 +331,14 @@ stay outside recovery storage and logging; the SDK does not log payloads.
 Provider/configuration helpers (`client.providers`, `client.configuration`) call
 host services. Login status/list allow reconnect; restart interrupts incomplete
 flows. Configuration updates require the last read revision and surface conflicts.
+`providers.list()` reads credential-free connection/source metadata and a
+configuration revision without model discovery. `providers.disconnect({ provider,
+revision })` removes WHIP-owned credentials and disables the route; environment
+or external credentials instead use `configuration.update({ revision,
+disabled_providers })`. These operations preserve model aliases and defaults.
+Catalogs reuse their existing freshness metadata; `providers.catalogs({ refresh:
+true })` requests an explicit upstream refresh. Unavailable provider descriptors
+must be excluded from selectable model routes.
 `client.providers.validate({ name, base_url, key })` checks a candidate key without
 saving it; `setKey` already validates before saving. `rotateKey('inference')`
 rotates the execution host's machine key. Both are ephemeral and sent once;

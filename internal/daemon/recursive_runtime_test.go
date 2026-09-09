@@ -997,13 +997,26 @@ func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
 		t.Fatal(err)
 	}
 	hostCount, outputSeen, completed := 0, false, false
+	starts := make(map[string]StreamEvent)
 	for _, envelope := range events {
 		var event StreamEvent
 		if json.Unmarshal(envelope.Payload.Inline, &event) != nil {
 			continue
 		}
 		switch envelope.Kind {
+		case "stream.cell.host.started":
+			if event.InvocationID == "" || event.TurnID == "" || event.AgentID != root.ID() {
+				t.Fatalf("missing host scope: %+v", event)
+			}
+			if _, exists := starts[event.InvocationID]; exists {
+				t.Fatalf("repeated host invocation: %s", event.InvocationID)
+			}
+			starts[event.InvocationID] = event
 		case "stream.cell.host":
+			start, exists := starts[event.InvocationID]
+			if !exists || start.ID != event.ID || start.TurnID != event.TurnID || start.Name != event.Name {
+				t.Fatalf("completion without a matching start: %+v", event)
+			}
 			if event.ID == "trace" && event.Name == "files.list" && strings.Contains(event.Args, "path=.") && event.Text != "" {
 				if event.Result != "" {
 					t.Errorf("host call failed: %s", event.Result)
@@ -1020,7 +1033,7 @@ func TestCellHostCallsAndOutputReachPresentation(t *testing.T) {
 			}
 		}
 	}
-	if hostCount != 3 || !outputSeen || !completed {
+	if hostCount != 3 || len(starts) != 3 || !outputSeen || !completed {
 		t.Fatalf("host events=%d live output=%v completed=%v", hostCount, outputSeen, completed)
 	}
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, protocol, screen, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, protocol, screen, session, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { readFile, writeFile, rename } from 'node:fs/promises';
@@ -136,6 +136,13 @@ async function start() {
     });
   };
   let runtimeActionPending = false;
+  handle('getSystemContrast', (...args: unknown[]) => {
+    if (args.length) throw new Error('System appearance does not accept arguments.');
+    return nativeTheme.shouldUseHighContrastColors;
+  });
+  const appearanceChanged = () => emit({ kind: 'system-contrast', highContrast: nativeTheme.shouldUseHighContrastColors });
+  nativeTheme.on('updated', appearanceChanged);
+  window.once('closed', () => nativeTheme.removeListener('updated', appearanceChanged));
   const runtimeAction = (name: string, action: (signal: AbortSignal) => Promise<unknown>) => handle(name, async (...args: unknown[]) => {
     if (args.length) throw new Error('Local runtime actions do not accept arguments.');
     if (runtimeActionPending) throw new Error('A local runtime action is already in progress.');

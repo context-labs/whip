@@ -71,6 +71,12 @@ in
 - [x] Durable acceptance/status, consistent reconnect and bounded transcript views.
 - [x] Generated TypeScript/Ajv contract for thin React and Electron clients.
 - [x] Host-owned providers/configuration and complete existing Go client cutover.
+- [x] Provider logos and connect/manage rows; host environment discovery for
+  Inference.net/OpenRouter, revision-checked disable/disconnect and local desktop
+  shell recovery. See the [provider connections plan](../.ai-docs/plans/provider-connections/README.md).
+- [x] Built-in ChatGPT subscription provider (`openai-codex`): host-owned login,
+  model discovery, Responses streaming and durable continuation; live account,
+  runtime and browser acceptance passed. See the [subscription plan](../.ai-docs/plans/openai-subscriptions/README.md).
 - [x] Attach-only TypeScript SDK, durable command handles, bounded synchronized
   views, scoped content, permission helpers and minimal React example.
 - [x] Trusted-client approvals: no enrollment, signer or first-run pairing prompt.
@@ -89,6 +95,13 @@ in
 - [x] Read-only session REPL notebook with tab-mode switching, independent split
   views and bounded live/recorded execution evidence. See the
   [session REPL implementation](../.ai-docs/plans/session-repl-viewer/README.md).
+- [x] Compact chat execution groups, shared current host-operation status,
+  named-agent activity, bounded disclosures and shared reduced-motion controls.
+  See the [chat activity implementation](../.ai-docs/plans/chat-activity/README.md).
+- [x] Dedicated full-window Settings with category navigation/search, guarded
+  host-specific forms, exact workspace return and working Appearance controls
+  for density, wrapping, fonts, contrast and motion. See the
+  [implementation and acceptance record](../.ai-docs/plans/settings-redesign/README.md).
 - [ ] Complete the web application's release acceptance: full workflow/recovery
   matrix, actual mobile devices, VoiceOver/keyboard review and documented
   performance gates. Implementation does not by itself complete this milestone.

@@ -18,22 +18,24 @@ func TestBuildModelItems(t *testing.T) {
 		},
 	}
 	items := buildModelItems(cfg, nil)
-	if len(items) != 4 {
+	if len(items) != 3 {
 		t.Fatalf("items: %+v", items)
 	}
 	// models sorted alphabetically
-	if items[0].model != "alpha" || items[2].model != "zeta" {
+	if items[0].model != "alpha" || items[1].model != "zeta" {
 		t.Fatalf("model order: %+v", items)
 	}
 	// provider order per model preserved
-	if items[2].provider != "b" || items[3].provider != "a" {
+	if items[1].provider != "b" || items[2].provider != "a" {
 		t.Fatalf("provider order: %+v", items)
 	}
 	if items[0].url != "https://a" {
 		t.Fatalf("url: %+v", items[0])
 	}
-	if items[1].provider != "ghost" || items[1].url != "" {
-		t.Fatalf("unknown provider should keep empty url: %+v", items[1])
+	for _, item := range items {
+		if item.provider == "ghost" {
+			t.Fatal("unavailable configured route remained selectable")
+		}
 	}
 	if got := buildModelItems(&config.Config{}, nil); len(got) != 0 {
 		t.Fatalf("empty config: %+v", got)

@@ -38,6 +38,13 @@ func (s *Session) BeginModelAttempt(ctx context.Context, attempt llm.ModelAttemp
 }
 
 func (s *Session) beginAgentModelAttempt(ctx context.Context, agentID string, attempt llm.ModelAttempt) (llm.ModelPermit, error) {
+	// Check at admission for roots, descendants, helpers, compaction and retries.
+	// An attempt already admitted keeps its immutable route and may finish.
+	if s.providers != nil {
+		if err := s.providers.checkModelProvider(attempt.Provider); err != nil {
+			return llm.ModelPermit{}, err
+		}
+	}
 	reservation, err := routeControlOwnedValue(s, ctx, func(actorCtx context.Context) (sessionstore.ModelCallReservation, error) {
 		// Never hold accountingMu while waiting for the actor: stopping a
 		// child can make that actor wait for a host call using the same lock.

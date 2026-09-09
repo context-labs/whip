@@ -121,6 +121,7 @@ test('host defaults omit optional steps and only catalog-supported reasoning lev
   expect(fixture.run).toHaveBeenCalledTimes(1);
   expect(fixture.run).toHaveBeenCalledWith('session.create', { cwd: '/host/project', kind: 'agent', model: '', provider: '' }, expect.anything());
   expect(creationModels({ models: { model: { providers: ['provider'] } }, providers: {}, catalogs: { provider: { fetched_at: '', base_url: '', models: [{ id: 'model', reasoning_efforts: ['low', 'high', 'high'] }] } } })).toEqual([{ model: 'model', provider: 'provider', efforts: ['low', 'high'] }]);
+  expect(creationModels({ models: { model: { providers: ['provider'] } }, providers: { provider: { base_url: '', available: false } }, catalogs: { provider: { fetched_at: '', base_url: '', models: [{ id: 'model' }] } } })).toEqual([]);
   expect(() => validateWorkflow(workflow(), 'another-runtime', 'client')).toThrow('unavailable identity');
 });
 

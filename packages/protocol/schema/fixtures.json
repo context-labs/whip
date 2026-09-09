@@ -366,9 +366,10 @@
     }
   },
   {
-    "type": "ProviderNameParams",
+    "type": "ProviderDisconnectParams",
     "value": {
-      "provider": ""
+      "provider": "",
+      "revision": ""
     }
   },
   {
@@ -381,12 +382,29 @@
     }
   },
   {
+    "type": "ProviderNameParams",
+    "value": {
+      "provider": ""
+    }
+  },
+  {
     "type": "ProviderKeySetup",
     "value": {
       "revision": "",
       "provider": "",
       "environment": false
     }
+  },
+  {
+    "type": "ProviderList",
+    "value": {
+      "revision": "",
+      "providers": []
+    }
+  },
+  {
+    "type": "ProviderLoginBeginParams",
+    "value": {}
   },
   {
     "type": "ProviderLoginStatus",
@@ -899,6 +917,10 @@
       "rules": [],
       "global": []
     }
+  },
+  {
+    "type": "ProviderCatalogParams",
+    "value": {}
   },
   {
     "type": "ProviderCatalogsResult",

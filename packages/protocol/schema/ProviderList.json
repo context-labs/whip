@@ -1,0 +1,122 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string"
+    },
+    "default_provider": {
+      "type": "string"
+    },
+    "providers": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "custom": {
+            "type": "boolean"
+          },
+          "methods": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "configured": {
+                "type": "boolean"
+              },
+              "key_source": {
+                "type": "string"
+              },
+              "available": {
+                "type": [
+                  "null",
+                  "boolean"
+                ]
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "environment_variable": {
+                "type": "string"
+              },
+              "auth_method": {
+                "type": "string"
+              },
+              "auth_state": {
+                "type": "string"
+              },
+              "account_id": {
+                "type": "string"
+              },
+              "plan": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              },
+              "project_name": {
+                "type": "string"
+              },
+              "machine_key_name": {
+                "type": "string"
+              },
+              "warnings": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "provider",
+              "configured",
+              "key_source",
+              "warnings"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "custom",
+          "methods",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v5/ProviderList",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderList",
+  "required": [
+    "revision",
+    "providers"
+  ],
+  "additionalProperties": false
+}

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/context-labs/whip/internal/openaiauth"
 )
 
 // CallAccounting fixes the owner and price snapshot for one logical model call.
@@ -306,6 +308,9 @@ func EstimateTokens(messages []Message) int {
 	for _, message := range messages {
 		add(4)
 		add((len(message.Content) + 3) / 4)
+		// Opaque Responses state also consumes context. Count its serialized
+		// size conservatively; visible text alone can hide a large history.
+		add((len(message.Continuation.Items) + 3) / 4)
 		for _, part := range message.Parts {
 			add(PartTokens(part))
 		}
@@ -347,6 +352,22 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 	if err := ctx.Err(); err != nil {
 		return Message{}, Usage{}, err
 	}
+	var authGeneration uint64
+	if c.openAI != nil {
+		authGeneration = c.openAI.Generation()
+		ceiling := SubscriptionOutputLimit(req.Model)
+		if ceiling <= 0 || (req.OutputLimitExplicit && req.MaxTokens > 0 && req.MaxTokens < ceiling) {
+			return Message{}, Usage{}, &HTTPError{
+				Status: "400 Bad Request", Body: "ChatGPT subscription calls require a verified natural output limit; smaller explicit output caps are unsupported",
+			}
+		}
+		credentials, err := c.openAI.Credentials(ctx)
+		if err != nil {
+			return Message{}, Usage{}, &HTTPError{Status: "401 Unauthorized", Body: err.Error()}
+		}
+		ctx = context.WithValue(ctx, subscriptionAuthKey{}, credentials)
+		req.MaxTokens = ceiling
+	}
 	deadline, _ := ctx.Deadline()
 	requestedMaxTokens := max(req.MaxTokens, 1)
 	permit := ModelPermit{MaxTokens: req.MaxTokens, Timeout: time.Until(deadline)}
@@ -378,9 +399,20 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 		err := &AccountingError{Err: errors.New("invalid model call permit")}
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, err)
 	}
-	req.Messages = stripAuthored(req.Messages)
 	req.PromptCacheKey = normalizeCacheKey(req.PromptCacheKey)
-	body, err := json.Marshal(req)
+	var body []byte
+	var err error
+	if c.openAI != nil {
+		if permit.MaxTokens < requestedMaxTokens {
+			err = &AccountingError{Err: errors.New("remaining token budget cannot cover the ChatGPT model's natural output limit")}
+			return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, err)
+		}
+		credentials := ctx.Value(subscriptionAuthKey{}).(openaiauth.Credentials)
+		body, err = encodeResponses(req, credentials.AccountID)
+	} else {
+		req.Messages = stripAuthored(req.Messages)
+		body, err = json.Marshal(req)
+	}
 	if err != nil {
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, nonRetryable{err})
 	}
@@ -389,6 +421,18 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 	}
 	if err := ctx.Err(); err != nil {
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, err)
+	}
+	if c.openAI != nil {
+		// Admission can wait behind another agent's budget reservation. Do not
+		// dispatch an account's prepared history after logout or replacement.
+		prepared := ctx.Value(subscriptionAuthKey{}).(openaiauth.Credentials)
+		current, err := c.openAI.Snapshot()
+		if err == nil && (c.openAI.Generation() != authGeneration || current.AccessToken == "" || current.AccountID != prepared.AccountID) {
+			err = openaiauth.ErrLoginChanged
+		}
+		if err != nil {
+			return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, nonRetryable{err})
+		}
 	}
 	if permit.Timeout <= 0 {
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, context.DeadlineExceeded)

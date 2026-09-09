@@ -15,6 +15,7 @@ import (
 )
 
 type v2Fixture struct {
+	server   *Server
 	store    *session.Store
 	rootID   string
 	dial     func(string, string) *Client
@@ -64,7 +65,7 @@ func newV2Fixture(t *testing.T, runner Runner, origins ...string) v2Fixture {
 		t.Fatal("missing persistent runtime identity")
 	}
 	_ = initial.Close()
-	return v2Fixture{endpoint: endpoint, store: store, rootID: rootID, dial: func(transport, clientID string) *Client {
+	return v2Fixture{server: server, endpoint: endpoint, store: store, rootID: rootID, dial: func(transport, clientID string) *Client {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()

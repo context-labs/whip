@@ -2,15 +2,15 @@
 /* Browser normalization only. Component visuals are authored in StyleX. */
 *, *::before, *::after { box-sizing: border-box; }
 html { min-height: 100%; text-size-adjust: 100%; -webkit-text-size-adjust: 100%; }
-body { margin: 0; min-width: 320px; }
-body, button, input, textarea, select { font-family: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+body { margin: 0; min-width: 320px; font-size: var(--whip-size-16, 16px); }
+body, button, input, textarea, select { font-family: var(--whip-font-sans, 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif); }
 button, input, textarea, select { font: inherit; }
 button, [role='button'] { -webkit-tap-highlight-color: transparent; }
 button { touch-action: manipulation; }
 a { color: inherit; }
 img, svg { vertical-align: middle; }
 button svg, [role='button'] svg { flex-shrink: 0; }
-pre, code, kbd { font-family: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace; }
+pre, code, kbd { font-family: var(--whip-font-mono, 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace); }
 [hidden] { display: none !important; }
 :focus-visible { outline: 1px solid var(--whip-focus-ring, currentColor); outline-offset: 2px; }
 /* Base UI CSPProvider disables its style element; these are its required
@@ -18,8 +18,16 @@ pre, code, kbd { font-family: 'JetBrains Mono Variable', ui-monospace, SFMono-Re
 [data-base-ui-scroll-area-viewport] { scrollbar-width: none; }
 [data-base-ui-scroll-area-viewport]::-webkit-scrollbar { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+html[data-motion='reduce'] *, html[data-motion='reduce'] *::before, html[data-motion='reduce'] *::after {
+  scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important;
 }
 
 ::selection { background: var(--whip-selection, #3b7dd8); color: var(--whip-selection-text, #ffffff); }
+@media (forced-colors: active) {
+  :focus-visible { outline: 2px solid Highlight; }
+  ::selection { background: Highlight; color: HighlightText; }
+}
 }
