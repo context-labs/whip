@@ -79,7 +79,14 @@ export async function publishGitHubAssets(filenames, env = process.env) {
     try { await run(['release', 'create', tag, '--repo', `github.com/${repository}`, '--verify-tag', '--title', tag, '--generate-notes', '--draft', `--latest=${latest}`,
       ...(prerelease ? ['--prerelease'] : [])]); }
     catch (error) { if (!conflict(error)) throw error; }
-    release = await getRelease(); assert(release, 'The created GitHub release is not readable');
+    // GitHub may acknowledge creation before the draft appears in its listing.
+    // Retry only absence; authentication and server failures still stop immediately.
+    for (const delay of [0, 1000, 2000, 4000, 8000, 16000, 30000]) {
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      release = await getRelease();
+      if (release) break;
+    }
+    assert(release, 'The created GitHub release is not readable');
   }
   const releaseId = release.id;
   const listAssets = async () => {
