@@ -233,6 +233,14 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	if components.Runner == nil {
 		return nil, errors.New("root factory returned no runner")
 	}
+	if runner, ok := components.Runner.(clientPermissionRunner); ok {
+		mode, err := d.store.PermissionMode(d.ctx, meta.ID)
+		if err != nil {
+			return nil, err
+		}
+		// Bind can restore and wake children, so restore their inherited policy first.
+		runner.SetExternalPermissions(mode == session.PermissionModePrompt)
+	}
 	root = newSession(d.store, meta, authority, components, d.factory)
 	root.providers = d.providers
 	// Bind hooks may reconstruct durable child agents through actor-owned

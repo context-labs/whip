@@ -10,7 +10,6 @@ import { RuntimeContext } from '../src/context';
 import { Settings } from '../src/settings';
 import { validateSettingsSearch } from '../src/settings/navigation';
 
-vi.mock('../src/attention', () => ({ Attention: () => null }));
 beforeEach(() => { vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })); vi.spyOn(window, 'scrollTo').mockImplementation(() => {}); });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -42,7 +41,8 @@ it('pins an implicit execution host and keeps its dirty draft when the host disa
   f.publish([f.local.record]);
   expect((screen.getByLabelText('Retry limit') as HTMLInputElement).value).toBe('5');
   expect((screen.getByLabelText('Retry limit') as HTMLInputElement).disabled).toBe(true);
-  expect(screen.getByText('Remote A · disconnected')).toBeTruthy();
+  expect(screen.getByText('Disconnected')).toBeTruthy();
+  expect(screen.getByRole('combobox', { name: 'Execution host' }).textContent).toContain('Remote A');
   expect(f.local.get).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'General', exact: true }));
   fireEvent.click(await screen.findByRole('button', { name: 'Stay' }));

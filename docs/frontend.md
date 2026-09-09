@@ -728,7 +728,11 @@ Query persistence, command-recovery storage, or logs. Configuration updates use
 revision checks; display conflicts instead of overwriting newer settings.
 `settings/provider-connections.tsx` reads the inexpensive `provider.list`
 inventory, scoped to the execution host, independently of model discovery.
-Rows use app-owned bundled SVGs, source labels and shared Dialog primitives.
+Rows and model controls share `ProviderLogo`, backed by bundled SVGs under
+`src/assets/` with source attribution. Unknown providers use the sparkle fallback.
+Rows use source labels and shared Dialog primitives.
+Provider marks align with the title line; the Inference.net mark retains its
+monorepo brand colors, with the neutral bar following the active theme.
 The daemon owns readiness, default-provider resolution, environment discovery,
 and durable `disabledProviders` opt-outs. The renderer never probes environment
 variables or infers connection state from the existence of a config entry.
@@ -738,9 +742,19 @@ The screen requires `provider.list`; it has no alternate editor for older hosts.
 The connection dialogs use `provider-login.tsx` for account login flows.
 Unavailable provider descriptors are filtered from model choices while aliases
 and saved defaults remain intact; an unavailable default offers explicit repair.
-Provider/runtime/recovery settings have an explicit execution-host selector,
-initially the last session's host or Local. Saved-host management always writes to
-Local. Pin the initially resolved host for the Settings visit: disappearance or
+Provider defaults use the composer’s `CatalogModelPicker`: one choice sets both
+model and provider, including when the same model has multiple routes. The picker
+is bounded to a 420px content width and shrinks on narrow screens. Model names
+truncate while a separate provider column stays aligned at the right; the selected
+control shows the routing provider’s logo. Search and accessible names retain the
+full model/provider pair. The
+shared effort helper offers catalog-supported levels or the model default when
+capabilities are unknown. Selecting a different route resets an unsupported
+effort; background catalog refreshes never change saved defaults or dirty drafts.
+
+Provider/runtime/recovery settings share `HostSelector` with new-session setup:
+the dropdown shows the host name and connection dot, followed by a status badge.
+The initial selection follows the last session's host or Local. Pin the resolved host for the Settings visit: disappearance or
 identity replacement preserves the old form disabled, rather than silently
 retargeting it. Wait for saved profile discovery before falling back to Local.
 Appearance and keyboard preferences remain viewing-device settings.
@@ -768,7 +782,17 @@ exit clears the record. Composer drafts, attachments, split layout and reading
 positions retain their existing owners.
 
 The category modules live under `settings/`: General, Appearance, Providers &
-models, Agents & execution, Servers, Recovery, and About & updates. Host forms
+models, Agents & execution, Servers, Recovery, and About & updates. Every category
+uses the Settings heading and shared groups; no category shows the Attention
+button. Dialog and AlertDialog bodies use the configurable size13 typography
+token, with size17 titles and size12 supporting text.
+
+Server renaming changes only the display label and never reconnects a client.
+Disconnect appears last in each connected server’s menu and requires confirmation
+through the shared AlertDialog; cancelling leaves the connection intact.
+Remote URL names live in Local’s revision-checked server configuration; native
+Local and SSH names use the existing device profiles. Browser Local’s name is a
+viewing-device preference (`whip.localHostName`). Host forms
 submit category-scoped revision-checked patches. `SettingsEditsProvider` guards
 category/host/Back navigation with Save, Discard, or Stay; secret inputs allow only
 Discard or Stay and never enter persisted recovery. Reverting fields to their
@@ -864,11 +888,13 @@ model ID. Root changes
 require an idle session, including options in an already-open popover; child composers display their own
 model without changing the root. `permission-mode.tsx` toggles the root
 session's consent mode (`permission.mode` with `external_permissions`) from a
-composer popover. The mode is runner state, not durable: the daemon reports it
-on the root snapshot as `permission_mode` and publishes
-`session.permission_mode.updated` when it changes; the SDK applies that event
-to the root snapshot. The toggle is root-only and applies while idle, matching
-the daemon's refusal to change mode during an active turn.
+composer popover. The mode belongs to the root session and is saved in SQLite;
+new and migrated sessions default to Ask for approval. The daemon commits the
+choice and `session.permission_mode.updated` event together, reports it on the
+root snapshot as `permission_mode`, and restores it before resumed work or child
+agents start. The SDK applies the event to the root snapshot. Reconnects and
+switching clients preserve the saved choice. The toggle is root-only and applies
+while idle, matching the daemon's refusal to change mode during an active turn.
 Drafts remain untouched by model selection, and host defaults are not changed.
 Standard text inputs use a single neutral focus border. The composer keeps its
 quiet outer border unchanged on focus and has no separate textarea outline.

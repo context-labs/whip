@@ -112,6 +112,17 @@ try {
       await page.screenshot({ path: join(results, `${engine}-narrow.png`) });
       const logo = page.locator('svg').filter({ has: page.locator('use[href$="#openrouter"]') });
       assert.ok(await logo.evaluate(node => node.getBBox().width > 0));
+      await page.setViewportSize({ width: 1280, height: 960 });
+      await categories.getByRole('button', { name: 'Appearance', exact: true }).click();
+      const fontSize = page.getByRole('textbox', { name: 'UI font size', exact: true });
+      await fontSize.fill('20'); await fontSize.press('Tab');
+      await categories.getByRole('button', { name: 'Providers & models', exact: true }).click();
+      await page.getByRole('button', { name: 'Manage OpenRouter' }).click();
+      await expect(environmentDialog).toHaveCSS('font-size', '20px');
+      await page.setViewportSize({ width: 320, height: 640 });
+      assert.equal(await environmentDialog.evaluate(element => element.scrollWidth > element.clientWidth), false, 'Provider dialog overflows at the largest text size');
+      await page.screenshot({ path: join(results, `${engine}-dialog-narrow-large-text.png`) });
+      checks.push('provider dialog uses configured typography and wraps actions at 320px with 20px text');
       assert.deepEqual(errors, []); assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
       checks.push('bundled SVGs, light/dark themes and narrow layout render under production CSP without browser errors');
       await writeFile(join(results, `${engine}.json`), JSON.stringify({ checks, errors }, null, 2));

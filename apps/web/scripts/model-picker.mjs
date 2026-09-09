@@ -52,14 +52,26 @@ try {
         { name: 'neither-side', width: 390, height: 700, x: 50 },
         { name: 'short', width: 640, height: 280, x: 85 },
         { name: 'small', width: 320, height: 240, x: 50 },
+        { name: 'large-text', width: 1200, height: 900, x: 40, size: 20 },
+        { name: 'narrow-large-text', width: 390, height: 800, x: 50, size: 20 },
       ]) {
         for (const theme of ['light', 'dark']) {
           await page.setViewportSize({ width: scenario.width, height: scenario.height });
-          await page.goto(`${origin}/?x=${scenario.x}&theme=${theme}`);
+          await page.goto(`${origin}/?x=${scenario.x}&theme=${theme}&size=${scenario.size ?? 13}`);
           console.log(`${engine}: ${scenario.name}, ${theme}`);
           await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
           await page.getByRole('button', { name: 'Model', exact: true }).click();
-          const options = page.getByRole('listbox', { name: 'Models', exact: true }).getByRole('option');
+          const list = page.getByRole('listbox', { name: 'Models', exact: true });
+          const options = list.getByRole('option');
+          const geometry = await options.evaluateAll(nodes => nodes.slice(0, 4).map(node => {
+            const model = node.querySelector('[data-model-name]'), provider = node.querySelector('[data-model-provider]');
+            return { right: provider.getBoundingClientRect().right, gap: provider.getBoundingClientRect().left - model.getBoundingClientRect().right,
+              truncated: model.scrollWidth > model.clientWidth, ellipsis: getComputedStyle(model).textOverflow };
+          }));
+          assert.ok(geometry.every(row => Math.abs(row.right - geometry[0].right) < 1), 'Provider column edges are not aligned');
+          assert.ok(geometry.every(row => row.gap >= 11 && row.truncated && row.ellipsis === 'ellipsis'), 'Model names must truncate and leave a gap before the provider');
+          if (scenario.width >= 640) assert.equal(Math.round((await list.boundingBox()).width), 420);
+          assert.equal(await list.evaluate(element => element.scrollWidth > element.clientWidth), false);
           await options.first().hover();
           await inside();
           if (scenario.side) await expect(card).toHaveAttribute('data-side', scenario.side);
@@ -86,6 +98,19 @@ try {
           report.push(`${engine}: ${scenario.name}, ${theme}: bounds, scroll, keyboard, live resize, Escape`);
         }
       }
+      await page.setViewportSize({ width: 1200, height: 800 });
+      for (const [provider, symbol] of Object.entries({ 'inference-net': 'inference', openrouter: 'openrouter', 'openai-codex': 'openai', anthropic: 'anthropic', google: 'google', deepseek: 'deepseek', mistral: 'mistral', xai: 'xai' })) {
+        await page.goto(`${origin}/?provider=${provider}&theme=dark`);
+        const logo = page.getByRole('button', { name: 'Model', exact: true }).locator('svg').first();
+        await expect(logo.locator('use')).toHaveAttribute('href', new RegExp(`#${symbol}$`));
+        await expect.poll(() => logo.evaluate(node => node.getBBox().width)).toBeGreaterThan(0);
+        assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
+      }
+      for (const provider of ['unknown-provider', 'constructor']) {
+        await page.goto(`${origin}/?provider=${provider}&theme=dark`);
+        await expect(page.getByRole('button', { name: 'Model', exact: true }).locator('svg.lucide-sparkles')).toBeVisible();
+      }
+      report.push(`${engine}: eight bundled provider marks and unknown-provider sparkle fallback under production CSP`);
       assert.deepEqual(errors, []);
     } finally { await browser.close(); }
   }

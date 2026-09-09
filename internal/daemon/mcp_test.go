@@ -53,6 +53,8 @@ func mcpRuntimeFixture(t *testing.T, url string, trusted bool) (*session.Store, 
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { streamText(w, "done") }))
 	t.Cleanup(model.Close)
 	store, root, runtime := openRecursiveRuntime(t, llm.New(model.URL, "key"), 4)
+	// Exercise native/remembered MCP consent separately from blanket approval.
+	runtime.rootNode.agent.Services.SetMCPAutomatic(false)
 	servers := map[string]mcp.ServerConfig{"local": {URL: url, Source: "fixture import", Origin: "claude", StartupTimeout: 2, ToolTimeout: 2}}
 	if trusted {
 		servers = mcp.FromConfigMap(map[string]config.MCPServer{"local": {URL: url, StartupTimeout: 2, ToolTimeout: 2}})

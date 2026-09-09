@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ArrowLeft, ChevronDown, Settings2, Palette, Cable, Bot, Network, LifeBuoy, Info, Search } from 'lucide-react';
-import { Button, Input, Select, Sheet } from '@whip/ui';
+import { Button, Input, Sheet } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface, typography, scale } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
-import { Attention } from './attention';
+import { HostSelector } from './host-selector';
 import { layout } from './styles';
 import { AppearanceSettings } from './settings/appearance';
 import { GeneralSettings, AboutSettings, ProvidersSettings, ExecutionSettings, RecoverySettings, ConnectionsSettings } from './settings/sections';
@@ -111,13 +111,11 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
       <div aria-hidden {...stylex.props(styles.mainTitlebar, runtime.platform.chrome === 'inset' && layout.windowDrag)} />
       <main ref={content} aria-labelledby="settings-title" {...stylex.props(styles.scroll)}>
         <div {...stylex.props(styles.content)}>
-          {section !== 'connections' && <div {...stylex.props(styles.titleRow)}><h1 id="settings-title" {...stylex.props(styles.heading)}>{category.label}</h1><Attention /></div>}
-          {section !== 'appearance' && section !== 'connections' && <p {...stylex.props(styles.description)}>{category.description}</p>}
-          {hostSection && <div {...stylex.props(styles.host)}>
-            <Select label="Execution host" value={host?.id ?? ''} options={hosts.map(item => ({ value: item.id, label: item.name }))}
-              onValueChange={id => void navigate({ to: '/settings', search: { section, host: id }, replace: true })} />
-            <span {...stylex.props(styles.hostStatus)}>{host ? `${host.name} · ${identityChanged ? 'identity changed' : observedHost?.state ?? 'disconnected'}` : target ? 'This execution host is unavailable.' : 'No execution host connected.'}</span>
-          </div>}
+          <h1 id="settings-title" {...stylex.props(styles.heading)}>{category.label}</h1>
+          {section !== 'appearance' && <p {...stylex.props(styles.description)}>{category.description}</p>}
+          {hostSection && <HostSelector hosts={hosts} host={host}
+            state={identityChanged ? 'identity changed' : observedHost?.state ?? 'closed'}
+            onValueChange={id => void navigate({ to: '/settings', search: { section, host: id }, replace: true })} />}
           {hostSection && !enabled && <p role="status" {...stylex.props(layout.notice)}>
             {identityChanged ? 'The execution host identity changed. Your edits are preserved. Leave this category and reopen it to review the new host.' : observedHost?.error ?? (host ? `Connect ${host.name} to change its configuration or check commands.` : 'Choose an execution host to use shared settings.')}
             {' '}<Button variant="ghost" onClick={() => navigateSection('connections')}>Manage servers</Button>
@@ -126,7 +124,7 @@ function SettingsLayout({ section = 'appearance', host: target, setting }: Setti
           {section === 'general' && <GeneralSettings />}
           {section === 'providers' && host?.client && <ProvidersSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
           {section === 'execution' && host?.client && <ExecutionSettings key={`${host.id}:${host.runtimeId}`} client={host.client} enabled={enabled} />}
-          {section === 'connections' && <ConnectionsSettings header={<Attention />} />}
+          {section === 'connections' && <ConnectionsSettings />}
           {section === 'recovery' && <RecoverySettings key={`${host?.id}:${host?.runtimeId}`} client={host?.client} enabled={enabled} />}
           {section === 'about' && <AboutSettings />}
         </div>
@@ -154,11 +152,8 @@ const styles = stylex.create({
   main: { display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, flex: 1 },
   scroll: { flex: 1, overflowY: 'auto', minWidth: 0, minHeight: 0 },
   content: { maxWidth: 936, marginInline: 'auto', paddingInline: { default: 48, '@media (max-width: 1100px)': 28, [scale.phone]: 16 }, paddingTop: 12, paddingBottom: 64, display: 'flex', flexDirection: 'column', gap: 24 },
-  titleRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   heading: { margin: 0, fontSize: typography.size20, fontWeight: 560, lineHeight: 1.4 },
   description: { margin: 0, marginTop: -12, fontSize: typography.size13, lineHeight: 1.6, color: surface.secondaryText },
-  host: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12 },
-  hostStatus: { fontSize: typography.size12, color: surface.secondaryText },
   mobileHeader: { display: { default: 'none', [scale.phone]: 'flex' }, justifyContent: 'space-between', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: 8, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
   mobileTitlebar: { display: { default: 'none', [scale.phone]: 'block' }, height: 36, flexShrink: 0 },
   sheetNavigation: { display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0, flex: 1 },

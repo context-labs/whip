@@ -272,13 +272,15 @@ widen a capability: the operation is still validated against the agent's
 grants. `/permissions` (or `/permissions list`) prints the tree rules and the
 global allowlist; `/permissions forget <id>` deletes a tree rule.
 
-`whip --yolo` starts the TUI with prompts off: every root it opens (and every
-root it reconnects to after a daemon restart) is put into the daemon's
-automatic permission mode through a durable `permission.mode` command, so each
-admission is approved as it arrives under the session's existing grants.
-Capabilities and budgets still apply; the mode cannot change while an agent
-is running. `--cautious` is the opposite and matches the default. The footer
-shows `yolo` while the mode is on.
+Permission mode belongs to the root session and persists across client and
+daemon restarts. `whip --yolo` saves automatic approval for the initially
+selected session, so each admission is approved as it arrives under the
+session's existing grants. `--cautious` saves approval prompts for that session;
+new sessions default to prompting. Switching sessions or reconnecting restores
+the selected session's saved mode. ACP also preserves the mode when loading a
+session and reflects changes made by other clients. Capabilities and budgets
+still apply; the mode cannot change while an agent is running. The terminal
+mode label shows `full access` while automatic approval is active.
 
 ## MCP
 
@@ -384,11 +386,15 @@ signal only to the PID currently holding that lock.
 
 `WHIP_HOME` replaces `~/.whip`. The pre-runtime-v2 database is not opened or
 migrated automatically; this is an intentional clean break. The current
-development schema is version 12 (`whip-recursive-runtime-v12`). Opening a
+development schema is version 13 (`whip-recursive-runtime-v13`). Opening a
 version 10 database performs a transactional, one-way upgrade that adds session
 archive state and updates catalog revision tracking in schema 11. The subsequent
 schema 11-to-12 transaction adds nullable, bounded last-turn outcomes per agent,
 backfills retained lifecycle evidence, and reconciles legacy stopped turns.
+Schema 12-to-13 adds the session's durable permission mode, defaulting to Ask
+for existing sessions. Historical mode events do not resurrect past live choices.
+The migration emits the new mode so clients reconnecting through event replay
+also learn the default.
 Runtime identity, agent IDs, history, configuration, command outcomes, and
 existing sessions are preserved; existing sessions start unarchived. Backfill
 leaves outcomes unknown when evidence is missing or pruned, externally stored

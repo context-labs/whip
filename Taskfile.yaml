@@ -40,6 +40,16 @@ tasks:
         mkdir -p "$dest"
         install -m 755 whipcode "$dest/whipcode"
 
+  update:local:
+    desc: Build, sign and install local macOS Desktop + whipcode, then restart the shared daemon
+    cmds:
+      - node scripts/update-local.mjs {{.CLI_ARGS}}
+
+  test:update-local:
+    desc: Test local installation staging and failure recovery with disposable files
+    cmds:
+      - node --test scripts/update-local.test.mjs
+
   install:
     desc: Install whip with the web app to $GOPATH/bin (run npm ci first)
     deps: [web-assets]
@@ -126,6 +136,7 @@ tasks:
       - task: contract
       - task: sdk
       - task: web
+      - task: test:update-local
 
   lint:
     desc: "golangci-lint with the repo's .golangci.yml (the CI lint gate)"

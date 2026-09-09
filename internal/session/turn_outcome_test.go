@@ -157,7 +157,9 @@ func TestLegacyTurnOutcomeMigration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := store.db.ExecContext(t.Context(), `ALTER TABLE agents DROP COLUMN last_turn; UPDATE runtime_schema SET identity='whip-recursive-runtime-v11'; PRAGMA user_version=11`); err != nil {
+	if _, err := store.db.ExecContext(t.Context(), `ALTER TABLE agents DROP COLUMN last_turn;
+		ALTER TABLE sessions DROP COLUMN permission_mode;
+		UPDATE runtime_schema SET identity='whip-recursive-runtime-v11'; PRAGMA user_version=11`); err != nil {
 		t.Fatal(err)
 	}
 	conn, err := store.db.Conn(t.Context())

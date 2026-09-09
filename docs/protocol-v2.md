@@ -258,6 +258,12 @@ does not automatically repeat decisions.
 
 Permission mode changes use the ordinary durable runtime `permission.mode`
 operation through `command.submit`, with typed `external_permissions` parameters.
+The root session stores this choice durably (`true` → `prompt`, `false` →
+`automatic`). Its update event and stored value commit together. Full and bounded
+root snapshots expose the saved value as `permission_mode`, and daemon restart
+restores it before root or child work resumes. New and migrated sessions default
+to `prompt`; attachment does not overwrite an existing choice. Headless and deny
+execution restrictions are separate from this consent preference.
 There is no separate `permission.mode` RPC. Mode changes and rules still obey
 runtime admission checks. `identity.enroll` and `identity.status` are removed.
 This trusted-client assumption does not expose an approval tool to agents or

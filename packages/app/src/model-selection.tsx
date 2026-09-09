@@ -2,47 +2,45 @@ import { typography } from '@whip/ui/tokens.stylex';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Button, Combobox, Field, Input, Popover, Select, Tooltip } from '@whip/ui';
-import { Check, ChevronDown, Search, SlidersHorizontal, Sparkles } from 'lucide-react';
+import type { WhipClient } from '@whip/sdk';
+import { Button, Combobox, Field, Input, Popover, Select, Tooltip, type Styled } from '@whip/ui';
+import { Check, ChevronDown, Search, SlidersHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
 import { Action, Empty, type InspectorProps } from './details/shared';
+import { ProviderLogo } from './provider-logo';
 import { modelOptions } from './model-options';
 
 type ModelProps = Pick<InspectorProps, 'view' | 'root' | 'connected'>;
 type CatalogResult = Awaited<ReturnType<ModelProps['view']['session']['client']['providers']['catalogs']>>['result'];
 type CatalogModel = NonNullable<CatalogResult>['catalogs'][string]['models'] extends (infer M)[] | null ? M : never;
 
-const effortOrder = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 const effortLabels: Record<string, string> = {
   off: 'Default', none: 'Default', minimal: 'Minimal', low: 'Low',
   medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max',
 };
 
-function useCatalog(view: ModelProps['view'], connected: boolean) {
+export function useProviderCatalog(client: WhipClient, connected: boolean) {
   return useQuery({
-    queryKey: ['provider-catalogs', view.session.client.getSnapshot().info?.runtime_id],
-    queryFn: ({ signal }) => view.session.client.providers.catalogs({ signal }),
+    queryKey: ['provider-catalogs', client.getSnapshot().info?.runtime_id],
+    queryFn: ({ signal }) => client.providers.catalogs({ signal }),
     enabled: connected,
   });
 }
 
-function catalogModels(catalog: CatalogResult | undefined, selectedProvider: string) {
+export function catalogModels(catalog: CatalogResult | undefined, selectedProvider: string) {
   return new Map(modelOptions(catalog).filter(option => option.provider === selectedProvider)
     .map(option => [option.name, option.model]));
 }
 
-/** Effort levels the daemon accepts for this model: its catalog list, or every level when unknown. */
+/** Offer only catalog-supported effort levels; an unknown model can use its default. */
 export function modelEfforts(models: Map<string, { reasoning_efforts?: null | string[] }>, model: string): string[] {
-  const listed = models.get(model)?.reasoning_efforts;
-  const known = listed?.filter(level => level !== 'none' && level !== 'off') ?? [];
-  const levels = known.length ? known : [...effortOrder];
-  return ['off', ...levels];
+  return ['off', ...new Set((models.get(model)?.reasoning_efforts ?? []).filter(level => level !== 'none' && level !== 'off'))];
 }
 
-function effortLabel(level: string): string {
+export function effortLabel(level: string): string {
   return effortLabels[level] ?? level;
 }
 
@@ -51,7 +49,7 @@ export function EffortPicker({ view, root, connected }: ModelProps) {
   const runtime = useRuntime();
   const [open, setOpen] = useState(false);
   const idle = !Object.keys(root.active_turns ?? {}).length;
-  const catalog = useCatalog(view, connected);
+  const catalog = useProviderCatalog(view.session.client, connected);
   const models = useMemo(() => catalogModels(catalog.data?.result, root.meta.provider), [catalog.data, root.meta.provider]);
   const levels = modelEfforts(models, root.meta.model);
   const current = root.meta.effort || 'off';
@@ -92,13 +90,22 @@ function ModelCard({ model }: { model: CatalogModel & { providers: string[] } })
 
 export function ModelPicker({ view, root, connected }: ModelProps) {
   const runtime = useRuntime();
+  const catalog = useProviderCatalog(view.session.client, connected);
+  return <CatalogModelPicker catalog={catalog.data?.result} loading={catalog.isLoading} error={catalog.error?.message}
+    model={root.meta.model} provider={root.meta.provider} disabled={!connected || !!Object.keys(root.active_turns ?? {}).length}
+    onChange={(model, provider) => { runtime.run(view.session.setModel(model, provider), 'Change model').catch(error => runtime.report(error)); }} />;
+}
+
+/** The same catalog picker can edit a session or a settings draft. */
+export function CatalogModelPicker({ catalog, loading, error, model, provider, disabled, onChange, label = 'Model', settings = false, xstyle }: {
+  catalog?: CatalogResult; loading?: boolean; error?: string; model: string; provider: string; disabled?: boolean;
+  onChange(model: string, provider: string): void; label?: string; settings?: boolean;
+} & Styled) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const current = JSON.stringify([root.meta.model, root.meta.provider]);
+  const current = JSON.stringify([model, provider]);
   const [highlighted, setHighlighted] = useState(current);
-  const idle = !Object.keys(root.active_turns ?? {}).length;
-  const catalog = useCatalog(view, connected);
-  const options = useMemo(() => modelOptions(catalog.data?.result), [catalog.data]);
+  const options = useMemo(() => modelOptions(catalog), [catalog]);
   const filtered = query.trim()
     ? options.filter(option => option.label.toLowerCase().includes(query.trim().toLowerCase()))
     : options;
@@ -110,14 +117,14 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
   const pick = (option: typeof options[number]) => {
     setOpen(false);
     if (option.value === current) return;
-    runtime.run(view.session.setModel(option.name, option.provider), 'Change model').catch(error => runtime.report(error));
+    onChange(option.name, option.provider);
   };
   return <Popover open={open} onOpenChange={setOpen} xstyle={styles.popupWide}
-    trigger={<Button variant="ghost" aria-label="Model" disabled={!connected || !idle}
-      title={`${root.meta.model || 'Model unavailable'}${root.meta.provider ? ` · ${root.meta.provider}` : ''}`}
-      xstyle={styles.trigger}>
-      <Sparkles size={14} {...stylex.props(styles.chevron)} />
-      <span {...stylex.props(layout.ellipsis)}>{root.meta.model || 'Choose model'}</span>
+    trigger={<Button variant={settings ? "secondary" : "ghost"} aria-label={label} disabled={disabled}
+      title={`${model || 'Model unavailable'}${provider ? ` · ${provider}` : ''}`}
+      xstyle={[styles.trigger, xstyle]}>
+      <ProviderLogo id={provider} size={14} />
+      <span {...stylex.props(layout.ellipsis)}>{model || 'Choose model'}</span>
       <ChevronDown size={14} {...stylex.props(styles.chevron)} />
     </Button>}>
     {open && <div {...stylex.props(layout.column, styles.pickerList)}>
@@ -128,26 +135,28 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
           onChange={event => setQuery(event.target.value)} />
       </div>
       <div role="listbox" aria-label="Models" aria-activedescendant={current} {...stylex.props(styles.list)}>
-        {catalog.isLoading && <p role="status" {...stylex.props(styles.listMeta)}>Loading models…</p>}
-        {!catalog.isLoading && !filtered.length && <p {...stylex.props(styles.listMeta)}>No matching models</p>}
+        {loading && <p role="status" {...stylex.props(styles.listMeta)}>Loading models…</p>}
+        {error && <p role="alert" {...stylex.props(styles.listMeta)}>{error}</p>}
+        {!loading && !error && !filtered.length && <p {...stylex.props(styles.listMeta)}>No matching models</p>}
         {ordered.slice(0, 200).map(option => <Tooltip key={option.value} label={<ModelCard model={{ ...option.model, providers: [option.provider] }} />}
           side="right" align="start" sideOffset={8} collisionPadding={8} delay={0} disableHoverablePopup xstyle={styles.card}
           collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'end' }}>
-          <button id={option.value} role="option" aria-selected={option.value === current}
-            disabled={!connected || !idle}
+          <button id={option.value} type="button" role="option" aria-label={option.label} aria-selected={option.value === current}
+            disabled={disabled}
             {...stylex.props(styles.option, option.value === highlighted && styles.optionActive)}
             onMouseEnter={() => setHighlighted(option.value)}
             onFocus={() => setHighlighted(option.value)}
             onClick={() => pick(option)}>
-            <span {...stylex.props(layout.ellipsis, layout.grow)}>{option.label}</span>
-            {option.value === current && <Check size={14} {...stylex.props(styles.check)} />}
+            <span data-model-name {...stylex.props(layout.ellipsis, layout.grow)}>{option.name}</span>
+            <span data-model-provider {...stylex.props(layout.ellipsis, styles.optionProvider)}>{option.provider}</span>
+            <span aria-hidden {...stylex.props(styles.checkSlot)}>{option.value === current && <Check size={14} {...stylex.props(styles.check)} />}</span>
         </button></Tooltip>)}
       </div>
-      <div {...stylex.props(styles.footer)}>
+      {!settings && <div {...stylex.props(styles.footer)}>
         <Link to="/settings" search={{ section: 'providers' }} {...stylex.props(styles.manage)} onClick={() => setOpen(false)}>
           <SlidersHorizontal size={14} /> Manage models
         </Link>
-      </div>
+      </div>}
     </div>}
   </Popover>;
 }
@@ -173,7 +182,7 @@ export function ModelSelection({ view, root, connected }: ModelProps) {
   const [provider, setProvider] = useState(root.meta.provider);
   const [effort, setEffort] = useState(root.meta.effort || 'off');
   const idle = !Object.keys(root.active_turns ?? {}).length;
-  const catalog = useCatalog(view, connected);
+  const catalog = useProviderCatalog(view.session.client, connected);
   const models = useMemo(() => catalogModels(catalog.data?.result, root.meta.provider), [catalog.data, root.meta.provider]);
   return <>
     {!idle && <Empty>Wait for active turns to finish before changing the model or reasoning.</Empty>}
@@ -201,19 +210,21 @@ export function ModelSelection({ view, root, connected }: ModelProps) {
 
 const styles = stylex.create({
   trigger: { minWidth: 0, maxWidth: 220, flexShrink: 1, paddingInline: 6, gap: 6 },
-  chevron: { flexShrink: 0 },
+  chevron: { flexShrink: 0, marginInlineStart: 'auto' },
   childModel: { color: surface.secondaryText, fontSize: typography.size12, paddingInline: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   popup: { padding: 4, maxHeight: 'min(320px, var(--available-height))', overflow: 'auto' },
   menu: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 140 },
   menuItem: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', paddingBlock: 5, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: typography.size13, textAlign: 'start', cursor: 'default', minHeight: 26 },
-  popupWide: { display: 'flex', padding: 4, maxHeight: 'min(420px, var(--available-height))', overflow: 'hidden' },
-  pickerList: { width: 'min(300px, calc(100vw - 48px))', minHeight: 0 },
+  popupWide: { display: 'flex', padding: 4, maxWidth: 'calc(100vw - 24px)', maxHeight: 'min(420px, var(--available-height))', overflow: 'hidden' },
+  pickerList: { width: 'min(420px, calc(100vw - 48px))', minHeight: 0 },
   searchBox: { display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, paddingInline: 8, paddingBlock: 6, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, marginBottom: 4 },
   searchIcon: { color: surface.secondaryText, flexShrink: 0 },
   searchInput: { borderWidth: 0, outline: 'none', backgroundColor: 'transparent', color: colors.foreground, font: 'inherit', fontSize: typography.size13, width: '100%', padding: 0 },
   list: { overflowY: 'auto', maxHeight: 320, minHeight: 0, paddingBottom: 12, maskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent)', WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent)' },
   listMeta: { color: surface.secondaryText, fontSize: typography.size12, padding: 8, margin: 0 },
-  option: { display: 'flex', alignItems: 'center', gap: 8, width: '100%', paddingBlock: 7, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: typography.size13, textAlign: 'start', cursor: 'default', minHeight: 30 },
+  option: { display: 'flex', alignItems: 'center', gap: 12, width: '100%', paddingBlock: 7, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: typography.size13, textAlign: 'start', cursor: 'default', minHeight: 30 },
+  optionProvider: { flexShrink: 0, maxWidth: '40%', textAlign: 'end', color: surface.secondaryText, fontSize: typography.size12 },
+  checkSlot: { display: 'flex', width: 14, flexShrink: 0 },
   optionActive: { backgroundColor: colors.hover },
   check: { color: surface.secondaryText, flexShrink: 0 },
   footer: { flexShrink: 0, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, boxShadow: '0 -6px 10px -6px rgb(0 0 0 / 0.12)' },

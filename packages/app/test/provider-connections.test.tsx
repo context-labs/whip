@@ -24,6 +24,7 @@ function fixture(entries: Entry[] = [entry('openrouter', 'environment', true, { 
   const client = {
     getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host' } }),
     providers: {
+      catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: {} } })),
       list: vi.fn(async () => ({ revision: '7', default_provider: 'openrouter', providers: entries })), setKey: vi.fn(async () => ({})),
       disconnect: vi.fn(async () => ({ warnings: [] })), rotateKey: vi.fn(async () => ({})),
       login: { list: vi.fn(async () => ({ flows: [] as ProviderLoginStatus[] })), begin: vi.fn(async () => ({})) },

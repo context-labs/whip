@@ -400,7 +400,6 @@ func (s *Session) Snapshot(ctx context.Context) (sessionstore.RootSnapshot, erro
 		snapshot, err := s.store.SnapshotRoot(actorCtx, s.meta.ID)
 		if err == nil {
 			snapshot.Questions = s.questions.openLocked() // in memory, not in the store: a mid-question client has no question.pending to replay
-			snapshot.PermissionMode = s.PermissionMode()  // runner state, not durable: the store cannot report the consent mode
 		}
 		return snapshot, err
 	})

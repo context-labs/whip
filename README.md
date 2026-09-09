@@ -143,6 +143,67 @@ For a CLI-first start with the desktop's fixed local web endpoint, use
 `WHIPCODE_LISTEN=127.0.0.1:8080 whipcode daemon start`. See the
 [desktop guide](docs/desktop.md) for packaging, setup, and backend upgrade details.
 
+### Update your local installation from source
+
+From this checkout on an Apple Silicon Mac, run:
+
+```sh
+task update:local
+# Equivalent without Task:
+npm run update:local
+```
+
+This updates the existing `/Applications/Whip.app` and its saved `whipcode`
+executable (falling back to `/usr/local/bin/whipcode`). It runs `npm ci`, builds
+the web UI, Swift helper, Go backend and desktop app from the **current working
+tree, including uncommitted changes**, then signs and verifies the package.
+It does not pull Git changes. Run `git pull` yourself first if desired.
+
+Once the build passes verification, the command quits Whip normally, retains the
+previous app and executable, installs the new app and its exact bundled backend,
+restarts the shared daemon, checks its build ID and reopens Whip. **Running this
+command interrupts active agent work across connected clients.** Sessions,
+configuration, credentials and app settings stay in place. If Whip has unsaved
+attachments, resolve its normal quit dialog; the script never force-quits it.
+An already open browser tab may need a reload to load the new web UI.
+
+Requirements: Node 24, Go 1.27+, Xcode/Swift and a Developer ID Application signing
+identity in your keychain. The script automatically selects the sole identity
+matching the installed app's signing team. If there are multiple identities, set
+`WHIP_DESKTOP_SIGN_IDENTITY` to the certificate name or SHA-1; use
+`WHIP_DESKTOP_TEAM_ID` when explicitly choosing another team. There is no `sudo`
+step: the existing app and executable directories must be writable by your user.
+
+The installed app's version and channel are retained by default. Each run gets a
+unique `local-<timestamp>-<commit>` backend build ID. `WHIP_DESKTOP_VERSION` and
+`WHIPCODE_VERSION` can override these values. Local builds have release updates
+disabled. Notarization is optional: set `WHIP_DESKTOP_NOTARIZE=1` and
+`WHIP_DESKTOP_NOTARY_PROFILE` to your saved `notarytool` keychain profile, or use
+the API credentials supported by [desktop packaging](apps/desktop/forge.config.cjs).
+
+```sh
+# Choose another installed app; its saved executable and channel are respected.
+task update:local -- --app "/Applications/Whip Beta.app"
+# Explicit backend path must match Desktop's saved choice, if one exists.
+task update:local -- --executable "$HOME/.local/bin/whipcode"
+task update:local -- --help
+```
+
+The normal runtime home is `~/.whipcode`; `WHIPCODE_HOME` remains supported.
+The daemon inherits your shell's runtime environment and defaults to
+`WHIPCODE_LISTEN=127.0.0.1:8080`, as Desktop does. Export any custom runtime
+environment before invoking the command.
+
+The command prints a `.whip-local-update-*` directory beside the installed app
+containing `previous.app` and `whipcode.previous`. These copies are retained until
+you remove them. Build or staging failures leave the installed app and daemon
+untouched. If a later step fails, fix the reported error and rerun the command;
+do not automatically restore an older backend after a database schema upgrade.
+Concurrent runs from the same checkout are refused. If an interrupted run leaves
+`apps/desktop/.update-local.lock`, inspect its `pid` file and remove the lock
+directory only after that process has exited. Test the workflow without touching
+your installation with `task test:update-local`.
+
 ## Documentation
 
 - [Manual](docs/README.md)

@@ -8,6 +8,7 @@ import * as stylex from '@stylexjs/stylex';
 import { useAppState, useRuntime } from './context';
 import { layout } from './styles';
 import type { WhipClient } from '@whip/sdk';
+import { HostSelector } from './host-selector';
 import { HostDialog } from './host-dialog';
 import type { HostConnection } from './hosts';
 import { DirectoryPicker } from './directory-picker';
@@ -41,7 +42,7 @@ export function Welcome() {
           <Button variant={remote ? 'secondary' : 'ghost'} aria-pressed={remote} onClick={() => setSelected(remotes[0]?.id ?? 'remote')}>Remote</Button>
         </div>
         {remote && <div {...stylex.props(layout.column)}>
-          {!!remotes.length && <Select label="Execution host" value={host?.id ?? ''} options={remotes.map(host => ({ value: host.id, label: host.name }))} onValueChange={setSelected} />}
+          {!!remotes.length && <HostSelector hosts={remotes} host={host} onValueChange={setSelected} />}
           <Button variant="ghost" onClick={() => setAdding(true)}>Add server</Button>
         </div>}
         {host?.client ? <NewSession key={`${host.id}:${host.runtimeId}`} client={host.client} host={host} />

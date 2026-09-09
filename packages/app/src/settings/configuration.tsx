@@ -5,6 +5,7 @@ import type { WhipClient } from '@whip/sdk';
 import type { ConfigurationUpdate, RuntimeConfiguration } from '@whip/protocol';
 import { Button, Input, Select, Switch } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
+import { CatalogModelPicker, catalogModels, effortLabel, modelEfforts, useProviderCatalog } from '../model-selection';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
 import { SettingsGroup, SettingRow, settingsSection } from './section-layout';
@@ -37,7 +38,7 @@ export function ExecutionSettings({ client, enabled = client.getSnapshot().state
   return <ConfigurationSettings client={client} enabled={enabled} category="execution" />;
 }
 
-export function ConfigurationSettings({ client, enabled, category }: { client: WhipClient; enabled: boolean; category: Category }) {
+export function ConfigurationSettings({ client, enabled, category, defaultProvider }: { client: WhipClient; enabled: boolean; category: Category; defaultProvider?: string }) {
   const runtimeId = client.getSnapshot().info?.runtime_id;
   const configuration = useQuery({
     queryKey: ['runtime-configuration', runtimeId],
@@ -50,12 +51,12 @@ export function ConfigurationSettings({ client, enabled, category }: { client: W
   return <>
     {configuration.isPending && enabled && !current && <p role="status">Loading host defaults…</p>}
     {configuration.error && <p role="alert">{configuration.error.message}</p>}
-    {current && <ConfigurationForm key={`${runtimeId}:${category}`} client={client} config={current} enabled={enabled} category={category} />}
+    {current && <ConfigurationForm key={`${runtimeId}:${category}`} client={client} config={current} enabled={enabled} category={category} defaultProvider={defaultProvider} />}
   </>;
 }
 
-function ConfigurationForm({ client, config, enabled, category }: {
-  client: WhipClient; config: RuntimeConfiguration; enabled: boolean; category: Category;
+function ConfigurationForm({ client, config, enabled, category, defaultProvider }: {
+  client: WhipClient; config: RuntimeConfiguration; enabled: boolean; category: Category; defaultProvider?: string;
 }) {
   const runtime = useRuntime();
   const [base, setBase] = useState(config);
@@ -91,6 +92,11 @@ function ConfigurationForm({ client, config, enabled, category }: {
       } finally { if (!controller.signal.aborted) request.current = null; }
     },
   });
+  const catalog = useProviderCatalog(client, enabled && category === 'providers');
+  const model = useStore(form.store, state => state.values.default_model);
+  const provider = useStore(form.store, state => state.values.default_provider) || defaultProvider || '';
+  const models = catalogModels(catalog.data?.result, provider);
+  const efforts = modelEfforts(models, model);
   const dirty = useStore(form.store, state => !state.isDefaultValue);
   const submitting = useStore(form.store, state => state.isSubmitting);
   useSettingsEdits({
@@ -99,7 +105,7 @@ function ConfigurationForm({ client, config, enabled, category }: {
     discard: () => { setBase(config); form.reset(values(config)); setError(''); },
     save: async () => { saved.current = false; await form.handleSubmit(); return saved.current; },
   });
-  const textField = (name: 'default_model' | 'default_provider' | 'compact_model' | 'compact_provider', label: string, description: string) => <form.Field key={name} name={name}>{field =>
+  const textField = (name: 'compact_model' | 'compact_provider', label: string, description: string) => <form.Field key={name} name={name}>{field =>
     <SettingRow id={name} label={label} description={description}>
       <Input aria-label={label} xstyle={settingsSection.control} disabled={!enabled || submitting} value={field.state.value}
         onBlur={field.handleBlur} onChange={event => field.handleChange(event.target.value)} />
@@ -113,12 +119,26 @@ function ConfigurationForm({ client, config, enabled, category }: {
   </form.Field>;
   return <form {...stylex.props(layout.column)} onSubmit={event => { event.preventDefault(); void form.handleSubmit(); }}>
     {category === 'providers' ? <SettingsGroup title="Defaults for new work">
-      {textField('default_model', 'Default model', 'Model identifier used when starting work without an explicit model.')}
-      {textField('default_provider', 'Default provider', 'Provider used for the default model.')}
-      <form.Field name="default_effort">{field => <SettingRow id="default_effort" label="Reasoning effort" description="The default effort for models that support it.">
-        <Select label="Reasoning effort" value={field.state.value} disabled={!enabled || submitting} xstyle={settingsSection.control} onValueChange={field.handleChange}
-          options={[...new Set(['', 'off', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', field.state.value])].map(value => ({ value, label: value || 'Model default' }))} />
-      </SettingRow>}</form.Field>
+      <SettingRow id="default_model" label="Default model" description="Choose the model and provider for new work.">
+        <CatalogModelPicker label="Default model" settings model={model} provider={provider} catalog={catalog.data?.result}
+          loading={catalog.isLoading} error={catalog.error?.message} disabled={!enabled || submitting} xstyle={settingsSection.control}
+          onChange={(model, provider) => {
+            form.setFieldValue('default_model', model); form.setFieldValue('default_provider', provider);
+            const supported = modelEfforts(catalogModels(catalog.data?.result, provider), model);
+            const effort = form.getFieldValue('default_effort');
+            if (effort && effort !== 'none' && !supported.includes(effort)) form.setFieldValue('default_effort', '');
+          }} />
+      </SettingRow>
+      <form.Field name="default_effort">{field => {
+        const current = field.state.value;
+        const levels = efforts;
+        const isDefault = !current || current === 'off' || current === 'none';
+        return <SettingRow id="default_effort" label="Reasoning effort" description="Available levels depend on the selected model and provider.">
+          <Select label="Reasoning effort" value={isDefault ? 'off' : current} disabled={!enabled || submitting || !catalog.data} xstyle={settingsSection.control} onValueChange={value => field.handleChange(value === 'off' ? '' : value)}
+            options={[...levels.map(value => ({ value, label: value === 'off' ? 'Model default' : effortLabel(value) })),
+              ...(!isDefault && !levels.includes(current) ? [{ value: current, label: `${effortLabel(current)} (unavailable)`, disabled: true }] : [])]} />
+        </SettingRow>;
+      }}</form.Field>
     </SettingsGroup> : <>
       <SettingsGroup title="Context compaction">
         {textField('compact_model', 'Compaction model', 'Model used to summarize conversation context.')}

@@ -702,8 +702,8 @@ func (m *model) ocModeLabel() string {
 		eff = "off"
 	}
 	label := strings.ToUpper(eff[:1]) + eff[1:]
-	if m.yolo {
-		label += " · yolo"
+	if m.clientView.permissionMode == "automatic" {
+		label += " · full access"
 	}
 	return label
 }

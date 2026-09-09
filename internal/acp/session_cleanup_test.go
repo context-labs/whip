@@ -24,7 +24,7 @@ func (b *seededACPBackend) LoadRoot(ctx context.Context, _, _ string, servers ma
 }
 
 func TestBridgeFailedSessionSetupClosesClientAndAllowsRetry(t *testing.T) {
-	for _, failure := range []string{"new permission", "load permission", "wrong identity", "wrong directory"} {
+	for _, failure := range []string{"new snapshot", "load snapshot", "wrong identity", "wrong directory"} {
 		t.Run(failure, func(t *testing.T) {
 			base := newFakeBackend(t)
 			cwd := t.TempDir()
@@ -35,15 +35,15 @@ func TestBridgeFailedSessionSetupClosesClientAndAllowsRetry(t *testing.T) {
 			t.Cleanup(bridge.CloseAll)
 			request := acpsdk.LoadSessionRequest{SessionId: acpsdk.SessionId(id), Cwd: cwd}
 			switch failure {
-			case "new permission", "load permission":
-				root.modeError = "permission configuration unavailable"
+			case "new snapshot", "load snapshot":
+				root.snapshotError = "session snapshot unavailable"
 			case "wrong identity":
 				request.SessionId = "different-root"
 			case "wrong directory":
 				request.Cwd = t.TempDir()
 			}
 			var err error
-			if failure == "new permission" {
+			if failure == "new snapshot" {
 				_, err = bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: cwd})
 			} else {
 				_, err = bridge.LoadSession(t.Context(), request)
@@ -56,7 +56,7 @@ func TestBridgeFailedSessionSetupClosesClientAndAllowsRetry(t *testing.T) {
 			}
 			root.mu.Lock()
 			closed := root.closeCount
-			root.modeError = ""
+			root.snapshotError = ""
 			root.mu.Unlock()
 			if closed != 1 {
 				t.Fatalf("failed setup closed %d connections, want 1", closed)

@@ -41,6 +41,10 @@ func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int) (*se
 	t.Helper()
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
 	rootID := createRoot(t, store)
+	// These fixtures exercise tools without a human approval client.
+	if err := store.SetPermissionMode(t.Context(), rootID, session.PermissionModeAutomatic); err != nil {
+		t.Fatal(err)
+	}
 	var runtime *RecursiveRuntime
 	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		value := agent.NewRuntime(client, "model", 1024, rlm.BuildPrompt(meta.CWD, nil), tools.NewServices())

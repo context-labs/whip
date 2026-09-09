@@ -1,3 +1,4 @@
+import * as stylex from '@stylexjs/stylex';
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useBlocker, type ShouldBlockFn } from '@tanstack/react-router';
 import { Button, Dialog } from '@whip/ui';
@@ -60,8 +61,8 @@ export function SettingsEditsProvider({ children }: { children: ReactNode }) {
         <Button variant="secondary" disabled={saving} onClick={discard}>Discard changes</Button>
         {canSave && <Button variant="primary" loading={saving} onClick={() => void save()}>Save changes</Button>}
       </>}>
-      {pending.map(edit => <p key={edit.id}>{edit.description}</p>)}
-      {error && <p role="alert">{error}</p>}
+      {pending.map(edit => <p key={edit.id} {...stylex.props(styles.copy)}>{edit.description}</p>)}
+      {error && <p role="alert" {...stylex.props(styles.copy)}>{error}</p>}
     </Dialog>
   </SettingsEdits.Provider>;
 }
@@ -82,3 +83,5 @@ export function useSettingsEdits(edit: SettingsEdit) {
     return () => register(key, null);
   }, [register, key, edit.dirty, edit.description, Boolean(edit.save)]);
 }
+
+const styles = stylex.create({ copy: { margin: 0 } });

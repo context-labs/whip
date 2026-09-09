@@ -1,3 +1,4 @@
+import userEvent from '@testing-library/user-event';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
@@ -26,7 +27,7 @@ function fixture() {
     server = { ...server, ...patch, revision: 'v2' };
     return server;
   });
-  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), configuration: { get, update } } as unknown as WhipClient;
+  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), configuration: { get, update }, providers: { catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: { openrouter: { models: ['model-a', 'model-b', 'host-a-draft', 'new-host-b-model', 'temporary-edit'].map(id => ({ id, reasoning_efforts: ['low', 'high'] })) }, subscription: { models: [{ id: 'model-a', reasoning_efforts: ['low', 'ultra'] }, { id: 'no-reasoning', reasoning_efforts: [] }] } } } })) } } as unknown as WhipClient;
   const state = { commands: [] };
   const runtime = { queries, report: vi.fn(), getSnapshot: () => state, subscribe: () => () => {}, discardDrafts: vi.fn() } as unknown as AppRuntime;
   function wrapper(children: ReactNode) { return <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={queries}>{children}</QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>; }
@@ -35,9 +36,14 @@ function fixture() {
   };
 }
 
+async function chooseModel(model: string, provider = 'openrouter') {
+  fireEvent.click(await screen.findByRole('button', { name: 'Default model', exact: true }));
+  fireEvent.click(await screen.findByRole('option', { name: `${model} · ${provider}`, exact: true }));
+}
+
 it('saves only the model defaults owned by Providers and models', async () => {
   const f = fixture(); f.render('providers');
-  fireEvent.change(await screen.findByLabelText('Default model'), { target: { value: 'model-b' } });
+  await chooseModel('model-b');
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
   expect(f.update).toHaveBeenCalledExactlyOnceWith({ revision: 'v1', default_model: 'model-b', default_provider: 'openrouter', default_effort: 'high' }, { signal: expect.any(AbortSignal) });
@@ -71,10 +77,10 @@ it('preserves a stale draft after conflict and requires an explicit reload befor
 
 it('does not save disconnected host drafts and cancels a local wait when the form unmounts', async () => {
   const f = fixture(); const view = f.render('providers');
-  fireEvent.change(await screen.findByLabelText('Default model'), { target: { value: 'model-b' } });
+  await chooseModel('model-b');
   view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled={false} category="providers" />));
   expect((screen.getByRole('button', { name: 'Save host defaults' }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByLabelText('Default model') as HTMLInputElement).value).toBe('model-b');
+  expect(screen.getByLabelText('Default model').textContent).toContain('model-b');
   view.rerender(f.wrapper(<ConfigurationSettings client={f.client} enabled category="providers" />));
   f.update.mockImplementationOnce(() => new Promise(() => {}));
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
@@ -108,11 +114,11 @@ it('never carries another host draft into a replacement host form', async () => 
   other.client.getSnapshot = () => ({ state: 'connected', info: { runtime_id: 'host-b' } } as ReturnType<WhipClient['getSnapshot']>);
   other.changeServer({ ...initial, default_model: 'host-b-model' });
   const view = f.render('providers');
-  fireEvent.change(await screen.findByLabelText('Default model'), { target: { value: 'host-a-draft' } });
+  await chooseModel('host-a-draft');
   view.rerender(f.wrapper(<ConfigurationSettings client={other.client} enabled category="providers" />));
-  await screen.findByDisplayValue('host-b-model');
-  expect(screen.queryByDisplayValue('host-a-draft')).toBeNull();
-  fireEvent.change(screen.getByLabelText('Default model'), { target: { value: 'new-host-b-model' } });
+  await screen.findByText('host-b-model');
+  expect(screen.queryByText('host-a-draft')).toBeNull();
+  await chooseModel('new-host-b-model');
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
   expect(f.update).not.toHaveBeenCalled();
@@ -121,10 +127,37 @@ it('never carries another host draft into a replacement host form', async () => 
 
 it('treats edited then restored values as unchanged rather than requiring a redundant save', async () => {
   const f = fixture(); f.render('providers');
-  const model = await screen.findByLabelText('Default model');
-  fireEvent.change(model, { target: { value: 'temporary-edit' } });
+  await chooseModel('temporary-edit');
   expect((screen.getByRole('button', { name: 'Save host defaults' }) as HTMLButtonElement).disabled).toBe(false);
-  fireEvent.change(model, { target: { value: 'model-a' } });
+  await chooseModel('model-a');
+  expect((screen.getByRole('button', { name: 'Save host defaults' }) as HTMLButtonElement).disabled).toBe(true);
+  expect(f.update).not.toHaveBeenCalled();
+});
+
+it('selects the provider with its model and resets unsupported reasoning only after a user choice', async () => {
+  const f = fixture(); f.render('providers');
+  await chooseModel('model-a', 'subscription');
+  expect(screen.queryByLabelText('Default provider')).toBeNull();
+  fireEvent.click(screen.getByRole('combobox', { name: 'Reasoning effort' }));
+  expect(screen.getByRole('option', { name: 'Model default' }).getAttribute('aria-selected')).toBe('true');
+  expect(screen.queryByRole('option', { name: 'High', exact: true })).toBeNull();
+  await userEvent.click(screen.getByRole('option', { name: 'ultra', exact: true }));
+  await waitFor(() => expect(screen.getByRole('combobox', { name: 'Reasoning effort' }).textContent).toContain('ultra'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0]).toEqual({ revision: 'v1', default_model: 'model-a', default_provider: 'subscription', default_effort: 'ultra' });
+  await chooseModel('no-reasoning', 'subscription');
+  fireEvent.click(screen.getByRole('combobox', { name: 'Reasoning effort' }));
+  expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['Model default']);
+});
+
+it('preserves an unavailable saved effort during catalog refresh and displays the resolved implicit provider', async () => {
+  const f = fixture();
+  f.changeServer({ ...initial, default_provider: '', default_effort: 'max' });
+  render(f.wrapper(<ConfigurationSettings client={f.client} enabled category="providers" defaultProvider="openrouter" />));
+  expect(await screen.findByText('model-a')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Default model' }).title).toBe('model-a · openrouter');
+  await screen.findByText('Max (unavailable)');
   expect((screen.getByRole('button', { name: 'Save host defaults' }) as HTMLButtonElement).disabled).toBe(true);
   expect(f.update).not.toHaveBeenCalled();
 });

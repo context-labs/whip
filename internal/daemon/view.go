@@ -18,7 +18,6 @@ func (s *Session) SnapshotView(ctx context.Context) (session.RootSnapshot, error
 		if err != nil {
 			return snapshot, err
 		}
-		snapshot.PermissionMode = s.PermissionMode()
 		budget := 96 << 10
 		snapshot.Questions = []session.LifecycleEvent{}
 		for _, question := range s.questions.openLocked() {

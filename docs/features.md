@@ -95,6 +95,15 @@ root prompt (`evals/rlm`).
 - Permission requests are durable and any connected client can approve or deny.
   The daemon revalidates authority before the exact operation resumes; there is
   no client pairing, signing key or first-run approver enrollment prompt.
+- Ask for approval / Full Access is saved per root session and inherited by its
+  child agents. Changing it while idle persists across daemon restarts, client
+  reconnects and session switches. New and migrated sessions, including new
+  forks, default to Ask. Explicit terminal launch flags update the initial
+  session; ACP loading preserves the saved mode and follows other clients'
+  changes. Remembered allow rules and headless/deny execution policies remain
+  separate. Implementation: `internal/session/permission_mode.go`, daemon
+  startup/control, ACP bridge and TUI client. Coverage: session and daemon
+  `permission_mode_test.go`, `migrations_test.go`, ACP bridge and TUI client tests.
 
 ## Provider loop and models
 
@@ -235,6 +244,7 @@ provider message passed; see the
 | --- | --- | --- |
 | One bootstrap and UI in browser and desktop, with independent SDK clients per host; native effects behind an adapter | `apps/web/src/{main,bootstrap}.tsx`, `apps/web/src/platform/`, `packages/app/src/{platform,desktop-bridge}.ts` | App architecture/bootstrap/desktop-adapter tests; packed app/UI consumer and production renderer native-import guard |
 | Exact shared renderer in Go embed and Electron ASAR, verified native companions and full DMG/ZIP contents | `scripts/{renderer-artifact,pack-web}.mjs`, `apps/desktop/scripts/{build,package,verify,distribution}.mjs`, `apps/desktop/forge.config.cjs` | Renderer/provenance/distribution tests, actual signed archive extraction/mount and signature/fuse checks |
+| One-command local source update of the signed app and shared backend; verify before quit, retain previous binaries, gracefully restart and check the running build | `scripts/update-local.mjs`, `Taskfile.yaml` (`update:local`), `cmd/whip/desktop_runtime_sync.go`; [usage](../README.md#update-your-local-installation-from-source) | `scripts/update-local.test.mjs` (real filesystem staging and failure preservation), `TestDesktopCompiledUpdate` (real backend handoff) |
 | Stable local/URL/SSH profiles, safe migration, explicit replacement identity and stale connection disposal | `packages/app/src/{connections,hosts,runtime}.ts`, `packages/app/src/{host-dialog,connection-dialog}.tsx`, `packages/sdk/src/client.ts` | App connections/runtime/replacement-runtime/session-navigator tests; SDK changed-runtime regression |
 | Canonical installed whipcode selection, compatible attach-before-start, owner-proven stale socket recovery, no daemon shutdown on GUI exit or backend replacement during an app update | `apps/desktop/src/{main,runtime,transport}.ts`, `cmd/whip/daemon_manage.go`, `cmd/whip/desktop_runtime.go` | `apps/desktop/tests/runtime.test.ts`: saved-path precedence, missing-path refusal, compatible reuse, explicit restart, port conflicts and bounded/cancelled processes; Go owner/socket tests |
 | Verified whipcode payload with source/build/distribution provenance and the matching embedded Swift helper; explicit installation refuses a different existing executable | `apps/desktop/scripts/{build,verify,distribution}.mjs`, `apps/desktop/src/runtime.ts`, `cmd/whip/desktop_runtime.go` | Native runtime manifest/integrity, explicit-install, concurrent-publication and cancelled-copy tests; distribution checks; signed/notarized installed artifact and matching canonical executable verified |

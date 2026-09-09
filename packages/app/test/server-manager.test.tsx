@@ -26,6 +26,7 @@ function fixture({ editing, hosts = [host('local'), host('remote')], platform = 
   const connections = {
     refreshProfiles: vi.fn().mockResolvedValue(undefined), save: vi.fn().mockResolvedValue('saved'), saveNative: vi.fn().mockResolvedValue('saved'),
     connect: vi.fn().mockResolvedValue(undefined), select: vi.fn(), disconnect: vi.fn(), remove: vi.fn().mockResolvedValue(undefined),
+    rename: vi.fn().mockResolvedValue(undefined),
     getSnapshot: () => ({ legacyProfiles: [] }),
   };
   const runtime = { platform, connections, getSnapshot: () => snapshot, subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
@@ -41,7 +42,7 @@ async function add() { fireEvent.click(screen.getByRole('button', { name: 'Add s
 
 it('shows a quiet list with addresses, status, and no inline form or local tools', () => {
   fixture();
-  expect(screen.getByRole('heading', { name: 'Servers' })).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Saved servers' })).toBeTruthy();
   expect(screen.getByText('https://remote.example/api/v3/ws')).toBeTruthy();
   expect(screen.getAllByText('Connected')).toHaveLength(2);
   expect(screen.queryByRole('textbox')).toBeNull();
@@ -131,6 +132,8 @@ it('keeps errors visible and cancellation reachable while connection setup is pe
 it('does not offer removal for Local and confirms remote removal with a surviving focus target', async () => {
   const f = fixture(); const local = await menu('Local'); expect(local.queryByRole('menuitem', { name: 'Remove server' })).toBeNull();
   fireEvent.click(local.getByRole('menuitem', { name: 'Disconnect' }));
+  fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Cancel', exact: true }));
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
   fireEvent.click((await menu('Build server')).getByRole('menuitem', { name: 'Remove server' }));
   const dialog = within(await screen.findByRole('alertdialog')); expect(f.connections.remove).not.toHaveBeenCalled();
   expect(dialog.getByText(/not daemon sessions/)).toBeTruthy();
@@ -186,4 +189,35 @@ it('opens local runtime tools only on request and prevents closing during an ope
   expect(f.connections.connect).not.toHaveBeenCalled();
   fireEvent.click(dialog.getByRole('button', { name: 'Close', exact: true }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+});
+
+it('renames Local from its menu without editing the connection and restores focus', async () => {
+  const f = fixture();
+  fireEvent.click((await menu('Local')).getByRole('menuitem', { name: 'Rename server' }));
+  const dialog = within(await screen.findByRole('dialog', { name: 'Rename server' }));
+  fireEvent.change(dialog.getByLabelText('Server name'), { target: { value: 'Studio' } });
+  fireEvent.click(dialog.getByRole('button', { name: 'Save name' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(f.connections.rename).toHaveBeenCalledExactlyOnceWith('local', 'Studio');
+  expect(f.connections.save).not.toHaveBeenCalled();
+  expect(f.connections.connect).not.toHaveBeenCalled();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions for Local' })));
+});
+
+it.each(['Local', 'Build server'])('puts Disconnect last and requires confirmation for %s', async name => {
+  const f = fixture();
+  const actions = await menu(name);
+  expect(actions.getAllByRole('menuitem').at(-1)!.textContent).toBe('Disconnect');
+  fireEvent.click(actions.getByRole('menuitem', { name: 'Disconnect' }));
+  const dialog = within(await screen.findByRole('alertdialog', { name: `Disconnect ${name}?` }));
+  expect(f.connections.disconnect).not.toHaveBeenCalled();
+  fireEvent.click(dialog.getByRole('button', { name: 'Cancel', exact: true }));
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+  expect(f.connections.disconnect).not.toHaveBeenCalled();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: `Actions for ${name}` })));
+  fireEvent.click((await menu(name)).getByRole('menuitem', { name: 'Disconnect' }));
+  fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Disconnect', exact: true }));
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
+  expect(f.connections.disconnect).toHaveBeenCalledExactlyOnceWith(name === 'Local' ? 'local' : 'remote');
+  expect(f.connections.remove).not.toHaveBeenCalled();
 });

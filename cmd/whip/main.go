@@ -65,8 +65,8 @@ func main() {
 	versionFlag := flag.Bool("version", false, "print version")
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
 	benchFlag := flag.Bool("bench", false, "measure configuration and provider routing startup, then exit; for `task benchmark`")
-	cautiousFlag := flag.Bool("cautious", false, "ask before running commands / writing files")
-	yoloFlag := flag.Bool("yolo", false, "approve every permission prompt automatically in this TUI's sessions")
+	cautiousFlag := flag.Bool("cautious", false, "require approval and save this mode for the initial session")
+	yoloFlag := flag.Bool("yolo", false, "approve automatically and save this mode for the initial session")
 	flag.Parse()
 	if *cautiousFlag && *yoloFlag {
 		fmt.Fprintln(os.Stderr, buildinfo.Text("whip: --cautious and --yolo are mutually exclusive"))

@@ -34,6 +34,7 @@
     "check:desktop": "npm run build && tsc -p apps/desktop/tsconfig.json --noEmit",
     "test:desktop": "node apps/desktop/scripts/test.mjs && node --test scripts/distribution.test.mjs scripts/release-candidate.test.mjs scripts/publish.test.mjs scripts/publish-github.test.mjs scripts/renderer-artifact.test.mjs && node apps/desktop/scripts/startup.mjs --self-test",
     "dev:desktop": "node apps/desktop/scripts/dev.mjs",
+    "update:local": "node scripts/update-local.mjs",
     "dev:mobile": "npm run build && npm run start -w @whip/mobile",
     "check:mobile": "npm run build && npm run check -w @whip/mobile",
     "test:mobile": "npm run test -w @whip/mobile",

@@ -456,3 +456,46 @@ it('does not evict old desktop addresses to persist the managed-local profile', 
   expect(f.hosts.getSnapshot().legacyProfiles).toHaveLength(16);
   expect(f.hosts.home().error).toContain('storage is full');
 });
+
+it('renames browser Local persistently without detaching its client or changing its identity', async () => {
+  const { hosts, values, effects } = fixture([]);
+  await start(hosts);
+  const client = hosts.home().client;
+  const signal = hosts.signal(client!);
+  await hosts.rename('local', '  My workstation  ');
+  expect(hosts.home()).toMatchObject({ name: 'My workstation', runtimeId: 'home', client, state: 'connected' });
+  expect(signal.aborted).toBe(false);
+  expect(effects.detached).not.toHaveBeenCalled();
+  expect(mocks.clients[0]!.configuration.update).not.toHaveBeenCalled();
+  expect(fixture([], {}, values).hosts.home().name).toBe('My workstation');
+});
+
+it('renames a remote URL through revision-checked configuration without probing or reconnecting', async () => {
+  const { hosts, effects } = fixture();
+  await start(hosts); await hosts.connect('a');
+  const client = hosts.host('a')!.client;
+  const count = mocks.clients.length;
+  await hosts.rename('a', 'Build server');
+  expect(hosts.host('a')).toMatchObject({ name: 'Build server', runtimeId: 'a', endpoint: 'http://a.test', client });
+  expect(mocks.configurations.remote_hosts[0]).toEqual({ ...remote('a'), name: 'Build server' });
+  expect(mocks.clients).toHaveLength(count);
+  expect(effects.detached).not.toHaveBeenCalled();
+  mocks.configurations.revision = 'newer';
+  await expect(hosts.rename('a', 'Stale name')).rejects.toThrow('revision conflict');
+  expect(hosts.host('a')!.name).toBe('Build server');
+});
+
+it('persists native Local names in the existing device profile storage', async () => {
+  const platform = { defaultConnection: localProfile, connectionKinds: ['local', 'ssh', 'url'] as const };
+  const { hosts, values } = fixture([], platform);
+  await hosts.rename('local', 'Studio Mac');
+  expect(fixture([], platform, values).hosts.home()).toMatchObject({ name: 'Studio Mac', profile: { label: 'Studio Mac' } });
+  expect(values.has('whip.localHostName')).toBe(false);
+});
+
+it('does not display a successful rename when storage fails, and rejects invalid names', async () => {
+  const { hosts } = fixture([], { storage: { keys: () => [], getItem: () => null, removeItem() {}, setItem() { throw new Error('Storage unavailable'); } } });
+  await expect(hosts.rename('local', 'New name')).rejects.toThrow('Storage unavailable');
+  expect(hosts.home().name).toBe('Local');
+  for (const name of ['', ' '.repeat(5), 'x'.repeat(257), 'bad\nname']) await expect(hosts.rename('local', name)).rejects.toThrow('server name');
+});

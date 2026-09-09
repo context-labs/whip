@@ -6,6 +6,10 @@ is in progress: the [evidence log](../.ai-docs/plans/desktop-app/progress.md) re
 which checks have passed and which still require a notarized release or hardware.
 Intel, Windows and Linux desktop packages are not part of this first release.
 
+For the routine source-build/install/restart workflow, use `task update:local`;
+see [local update instructions](../README.md#update-your-local-installation-from-source).
+It updates the existing app and shared backend together from the current checkout.
+
 ## One UI, one renderer artifact
 
 `apps/web/src/main.tsx` selects a platform adapter and calls the common
@@ -199,6 +203,7 @@ WHIPCODE_HOME="$PWD/apps/desktop/.dev/home" apps/desktop/.dev/bin/whipcode daemo
 | `npm run pack:web` | Build and copy verified assets into Go embed |
 | `npm run build:desktop` | Stage native binaries, renderer and main/preload |
 | `npm run package:desktop` | Build and verify the `.app` under `apps/desktop/out` |
+| `task update:local` / `npm run update:local` | Build, sign, verify and install the app plus its shared backend, then restart and reopen |
 | `npm run make:desktop` | Package, make and reopen/verify DMG and ZIP in `out/release` |
 | `npm run check:desktop` | Build SDK declarations, then check native TypeScript and bridge contracts |
 | `npm run test:desktop` | Native lifecycle/transport tests and packaging/publisher tests |

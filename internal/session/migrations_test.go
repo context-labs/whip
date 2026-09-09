@@ -240,6 +240,75 @@ func TestVersionTenUpgradePreservesStateAndRestarts(t *testing.T) {
 	}
 }
 
+func versionTwelveDatabase(t *testing.T) (string, *sql.DB) {
+	t.Helper()
+	path, db := versionTenDatabase(t)
+	conn, err := db.Conn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := upgradeV10(t.Context(), conn); err != nil {
+		t.Fatal(err)
+	}
+	if err := upgradeV11(t.Context(), conn, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path, db
+}
+
+func TestVersionTwelveUpgradePersistsPermissionMode(t *testing.T) {
+	path, db := versionTwelveDatabase(t)
+	// An old event was only a live choice, so migration must not resurrect it.
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO events(root_id,seq,kind,payload_inline,created_at)
+		VALUES('saved-root',1,'session.permission_mode.updated','{"permission_mode":"automatic"}','')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for attempt, want := range []string{PermissionModePrompt, PermissionModeAutomatic, PermissionModePrompt} {
+		store, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = store.Close() })
+		mode, err := store.PermissionMode(t.Context(), "saved-root")
+		if err != nil || mode != want {
+			t.Fatalf("open %d mode=%q error=%v", attempt, mode, err)
+		}
+		var identity, runtime string
+		if err := store.db.QueryRowContext(t.Context(), `SELECT identity,runtime_id FROM runtime_schema WHERE id=1`).Scan(&identity, &runtime); err != nil {
+			t.Fatal(err)
+		}
+		if identity != schemaIdentity || runtime != "persistent-runtime" {
+			t.Fatalf("identity=%s runtime=%s", identity, runtime)
+		}
+		if attempt == 0 {
+			// Reconnecting clients may replay from their old cursor without a snapshot.
+			events, _, err := store.ReplayEvents(t.Context(), "saved-root", 1, MaxEventReplay)
+			if err != nil || len(events) != 1 || events[0].Kind != "session.permission_mode.updated" ||
+				string(events[0].Payload.Inline) != `{"permission_mode":"prompt"}` {
+				t.Fatalf("migration replay=%+v error=%v", events, err)
+			}
+		}
+		if attempt < 2 {
+			next := PermissionModeAutomatic
+			if attempt == 1 {
+				next = PermissionModePrompt
+			}
+			if err := store.SetPermissionMode(t.Context(), "saved-root", next); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := store.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestVersionTenUpgradeRollsBackAndCanRetry(t *testing.T) {
 	path, db := versionTenDatabase(t)
 	// Fail after ALTER TABLE, while replacing the old catalog trigger.
@@ -272,4 +341,64 @@ func TestVersionTenUpgradeRollsBackAndCanRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.Close()
+}
+
+func TestVersionTwelveUpgradeRollsBackAndRetries(t *testing.T) {
+	path, db := versionTwelveDatabase(t)
+	if _, err := db.ExecContext(t.Context(), `CREATE TRIGGER reject_mode_upgrade BEFORE UPDATE ON runtime_schema
+		BEGIN SELECT RAISE(ABORT,'upgrade failed'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if store, err := Open(path); err == nil {
+		_ = store.Close()
+		t.Fatal("upgrade unexpectedly succeeded")
+	}
+	var version, columns int
+	if err := db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(t.Context(), `SELECT count(*) FROM pragma_table_info('sessions') WHERE name='permission_mode'`).Scan(&columns); err != nil {
+		t.Fatal(err)
+	}
+	if version != 12 || columns != 0 {
+		t.Fatalf("partial migration: version=%d mode columns=%d", version, columns)
+	}
+	if _, err := db.ExecContext(t.Context(), `DROP TRIGGER reject_mode_upgrade`); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if mode, err := store.PermissionMode(t.Context(), "saved-root"); err != nil || mode != PermissionModePrompt {
+		t.Fatalf("retried migration mode=%q error=%v", mode, err)
+	}
+}
+
+func TestVersionTwelveUpgradePreservesEventRetention(t *testing.T) {
+	path, db := versionTwelveDatabase(t)
+	if _, err := db.ExecContext(t.Context(), `WITH RECURSIVE retained(seq) AS (
+		VALUES(1) UNION ALL SELECT seq+1 FROM retained WHERE seq<?)
+		INSERT INTO events(root_id,seq,kind,payload_inline,created_at)
+		SELECT 'saved-root',seq,'session.title.updated','{}','' FROM retained`, EventRetention); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	var count int
+	var first, last int64
+	if err := store.db.QueryRowContext(t.Context(), `SELECT COUNT(*),MIN(seq),MAX(seq) FROM events
+		WHERE root_id='saved-root'`).Scan(&count, &first, &last); err != nil {
+		t.Fatal(err)
+	}
+	if count != EventRetention || first != 2 || last != EventRetention+1 {
+		t.Fatalf("migration pruned history: count=%d first=%d last=%d", count, first, last)
+	}
 }

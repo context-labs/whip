@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 12
-	schemaIdentity       = "whip-recursive-runtime-v12"
+	currentSchemaVersion = 13
+	schemaIdentity       = "whip-recursive-runtime-v13"
 )
 
 // SchemaVersion is the database schema supported by this executable. Reading it
@@ -19,8 +19,8 @@ func SchemaVersion() int { return currentSchemaVersion }
 // inbox input to the queue before the input is marked interrupted.
 const MaxInboxRetries = 3
 
-// cleanSchema defines a new runtime-v2 store. The v10 upgrade below adds
-// archive metadata without changing runtime identity or existing session state.
+// cleanSchema defines a new runtime-v2 store. Upgrades below preserve runtime
+// identity and existing session state while adding durable fields.
 const cleanSchema = `
 CREATE TABLE runtime_schema (
 	id INTEGER PRIMARY KEY CHECK(id=1), identity TEXT NOT NULL, runtime_id TEXT NOT NULL, catalog_revision INTEGER NOT NULL DEFAULT 0
@@ -43,6 +43,7 @@ CREATE TABLE sessions (
 	pinned INTEGER NOT NULL DEFAULT 0,
 	archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
 	effort TEXT NOT NULL DEFAULT '',
+	permission_mode TEXT NOT NULL DEFAULT 'prompt' CHECK(permission_mode IN ('prompt','automatic')),
 	usage_in INTEGER NOT NULL DEFAULT 0,
 	usage_cached INTEGER NOT NULL DEFAULT 0,
 	usage_out INTEGER NOT NULL DEFAULT 0,
@@ -352,10 +353,16 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 		if err := upgradeV10(ctx, conn); err != nil {
 			return err
 		}
-		return upgradeV11(ctx, conn, path)
+		version, identity = 11, "whip-recursive-runtime-v11"
 	}
 	if version == 11 && identityErr == nil && identity == "whip-recursive-runtime-v11" {
-		return upgradeV11(ctx, conn, path)
+		if err := upgradeV11(ctx, conn, path); err != nil {
+			return err
+		}
+		version, identity = 12, "whip-recursive-runtime-v12"
+	}
+	if version == 12 && identityErr == nil && identity == "whip-recursive-runtime-v12" {
+		return upgradeV12(ctx, conn)
 	}
 	return fmt.Errorf("incompatible development runtime database %q (schema version %d): archive or remove it, then restart WHIP", path, version)
 }
@@ -377,7 +384,9 @@ func upgradeV10(ctx context.Context, conn *sql.Conn) error {
 	if err := conn.QueryRowContext(ctx, `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil {
 		return fmt.Errorf("read upgrade identity: %w", err)
 	}
-	if version == currentSchemaVersion && identity == schemaIdentity || version == 11 && identity == "whip-recursive-runtime-v11" {
+	if version == currentSchemaVersion && identity == schemaIdentity ||
+		version == 12 && identity == "whip-recursive-runtime-v12" ||
+		version == 11 && identity == "whip-recursive-runtime-v11" {
 		return nil
 	}
 	if version != 10 || identity != "whip-recursive-runtime-v10" {
@@ -396,6 +405,40 @@ PRAGMA user_version=11;`); err != nil {
 		return fmt.Errorf("commit archive schema upgrade: %w", err)
 	}
 	return nil
+}
+
+func upgradeV12(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return fmt.Errorf("begin permission mode upgrade: %w", err)
+	}
+	defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), `ROLLBACK`) }()
+	var version int
+	var identity string
+	if err := conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil {
+		return err
+	}
+	if version == currentSchemaVersion && identity == schemaIdentity {
+		return nil
+	}
+	if version != 12 || identity != "whip-recursive-runtime-v12" {
+		return fmt.Errorf("permission mode upgrade requires version 12, found %d", version)
+	}
+	// Replay-only reconnects must learn the default chosen during migration.
+	if _, err := conn.ExecContext(ctx, `
+ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'prompt' CHECK(permission_mode IN ('prompt','automatic'));
+INSERT INTO events(root_id,seq,kind,payload_inline,created_at)
+SELECT s.id,COALESCE((SELECT MAX(seq) FROM events WHERE root_id=s.id),0)+1,
+ 'session.permission_mode.updated','{"permission_mode":"prompt"}',?1 FROM sessions s;
+DELETE FROM events WHERE seq<=(SELECT MAX(e.seq) FROM events e WHERE e.root_id=events.root_id)-?2;
+UPDATE runtime_schema SET identity='whip-recursive-runtime-v13' WHERE id=1;
+PRAGMA user_version=13;`, now(), EventRetention); err != nil {
+		return fmt.Errorf("upgrade permission mode: %w", err)
+	}
+	_, err := conn.ExecContext(ctx, `COMMIT`)
+	return err
 }
 
 func nullableString(value string) any {

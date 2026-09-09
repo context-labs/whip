@@ -1,4 +1,4 @@
-Provider logo SVGs extracted from OpenCode at 830d5eb5354874105cc31599635a80c1662609e8
+OpenAI and OpenRouter logo SVGs extracted from OpenCode at 830d5eb5354874105cc31599635a80c1662609e8
 https://github.com/anomalyco/opencode/tree/830d5eb5354874105cc31599635a80c1662609e8/packages/ui/src/components/provider-icons
 
 MIT License
@@ -22,3 +22,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Inference.net color mark: inference/apps/fast-web/public/graphics/brand/inference-mark-color-on-dark.svg in the Context Labs monorepo. The neutral bar uses currentColor to follow the active theme; brand colors and path geometry are preserved.
+
+Additional provider marks copied from the Context Labs monorepo, inference/apps/web/src/:
+- anthropic: lib/icons/AnthropicIcon.tsx
+- google: lib/icons/GoogleIcon.tsx
+- deepseek: lib/icons/DeepSeekIcon.tsx
+- mistral: lib/icons/MistralIcon.tsx
+- xai: components/marketing/icons/XaiIcon.tsx
+SVG path geometry and explicit brand colors are preserved. Monochrome paths inherit currentColor.

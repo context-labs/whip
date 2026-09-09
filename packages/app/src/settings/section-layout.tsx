@@ -3,10 +3,10 @@ import * as stylex from '@stylexjs/stylex';
 import { SettingsRow } from '@whip/ui';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 
-export function SettingsGroup({ title, children }: { title?: string; children: ReactNode }) {
+export function SettingsGroup({ title, action, children }: { title?: string; action?: ReactNode; children: ReactNode }) {
   const titleId = useId();
   return <section aria-labelledby={title ? titleId : undefined} {...stylex.props(settingsSection.group)}>
-    {title && <h2 id={titleId} {...stylex.props(settingsSection.heading)}>{title}</h2>}
+    {title && <div {...stylex.props(settingsSection.header)}><h2 id={titleId} {...stylex.props(settingsSection.heading)}>{title}</h2>{action}</div>}
     <div {...stylex.props(settingsSection.panel)}>{children}</div>
   </section>;
 }
@@ -21,6 +21,7 @@ export function SettingRow({ id, label, description, children }: {
 
 export const settingsSection = stylex.create({
   group: { display: 'flex', flexDirection: 'column', gap: scale.space2, minWidth: 0 },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: scale.space2 },
   heading: { color: surface.secondaryText, fontSize: typography.size13, fontWeight: 500, lineHeight: 1.5, margin: 0, paddingInline: scale.space2 },
   panel: { backgroundColor: colors.panel, borderRadius: scale.radiusDialog, padding: scale.space4, display: 'flex', flexDirection: 'column', gap: scale.space3, minWidth: 0 },
   row: { borderBottomWidth: { default: 1, ':last-child': 0 }, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, paddingBlock: scale.space2, minWidth: 0, scrollMarginBlock: scale.space6, outlineOffset: 4 },

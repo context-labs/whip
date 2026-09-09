@@ -61,7 +61,7 @@ export async function dependencyNotices(binary, directory, version) {
       'bom-ref': `pkg:golang/${module.name}@${module.version}`, purl: `pkg:golang/${module.name}@${module.version}`,
       properties: [{ name: 'go:module:sum', value: module.sum }] });
   }
-  await collect('OpenCode provider logos (MIT)', path.join(repositoryRoot, 'packages/app/src/settings/assets'));
+  notices.push('\n' + await readFile(path.join(repositoryRoot, 'packages/app/src/assets/provider-logos-NOTICE.txt'), 'utf8'));
   // The toolchain's runtime and standard library are linked too.
   await collect('Go runtime and standard library', (await command('go', ['env', 'GOROOT'])).trim());
   full.metadata.properties = [{ name: 'whip:license-declarations-without-files', value: missing.join(', ') }];

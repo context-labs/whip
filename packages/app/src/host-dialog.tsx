@@ -1,14 +1,14 @@
-import type { ReactNode, RefObject } from 'react';
+import type { RefObject } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDialog, Button, Collapsible, Dialog, Field, IconButton, Input, Menu, SettingsRow, StatusIndicator, Switch, Tabs, type MenuItem, type DialogProps } from '@whip/ui';
 import { Globe, Monitor, MoreHorizontal, Plus, Terminal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
-import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
+import { scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { errorMessage, type AppLocalRuntime, type LocalRuntimeStatus } from './platform';
 import type { HostConnection } from './hosts';
 import { layout } from './styles';
-import { settingsSection } from './settings/section-layout';
+import { SettingsGroup, settingsSection } from './settings/section-layout';
 import { SSHFields } from './connection-dialog';
 import { daemonEndpoint, localProfile, type ConnectionProfile, type ConnectionTarget } from './connections';
 
@@ -47,18 +47,19 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
   const nativeSSH = runtime.platform.connectionKinds?.includes('ssh') ?? false;
   const unsupported = kind === 'ssh' && !nativeSSH;
   const nameField = <Field label="Server name (optional)"><Input value={name} disabled={pending} onChange={event => setName(event.target.value)} placeholder={kind === 'ssh' ? 'Use the SSH host' : 'Use the server address'} /></Field>;
-  const connectionFields = <div {...stylex.props(layout.column)}>
+  const connectionFields = <div {...stylex.props(layout.column, styles.form)}>
     {kind === 'url' && <>
       <Field label="Server address" description="The HTTP or HTTPS address of a running Whip server."><Input ref={addressRef} value={endpoint} disabled={pending} onChange={event => setEndpoint(event.target.value)} placeholder="https://server.example.com" required /></Field>
       {nameField}
     </>}
+    {kind === 'local' && nameField}
     {kind === 'ssh' && (nativeSSH
       ? <SSHFields target={ssh} busy={pending} onChange={setSSH} hostRef={addressRef}>{nameField}</SSHFields>
       : <Alert title="SSH requires Whip desktop" action={<Button type="button" variant="secondary" onClick={() => setKind('url')}>Use server URL</Button>}>
           Connect with your SSH configuration and keys in the desktop app. Browsers cannot open SSH connections. To connect here, use the HTTP or HTTPS address of a running Whip server.
         </Alert>)}
   </div>;
-  return <form {...stylex.props(layout.column)} onSubmit={event => {
+  return <form {...stylex.props(layout.column, styles.form)} onSubmit={event => {
     event.preventDefault(); event.stopPropagation();
     if (submitting.current || unsupported || (kind === 'url' && !canSave)) return;
     submitting.current = true; onPendingChange(true); setError('');
@@ -69,7 +70,7 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
         nativeSave.current = kind === 'url' ? undefined : new AbortController();
         const id = kind === 'url'
           ? await runtime.connections.save({ id: editing?.id ?? crypto.randomUUID(), name: label, url, runtime_id: editing?.runtimeId ?? legacy?.runtimeId, connect_on_launch: connectOnLaunch }, acceptIdentity, legacy?.id)
-          : await runtime.connections.saveNative({ id: editing?.id ?? `ssh:${crypto.randomUUID()}`, label, target: ssh, runtimeId: editing?.runtimeId, ...(kind === 'local' ? { ...localProfile, runtimeId: editing?.runtimeId } : {}) }, acceptIdentity, nativeSave.current?.signal);
+          : await runtime.connections.saveNative({ id: editing?.id ?? `ssh:${crypto.randomUUID()}`, label, target: ssh, runtimeId: editing?.runtimeId, ...(kind === 'local' ? { ...localProfile, label: name.trim() || editing?.name || localProfile.label, runtimeId: editing?.runtimeId } : {}) }, acceptIdentity, nativeSave.current?.signal);
         if (legacy) await runtime.connections.forgetLegacyProfile(legacy.id);
         if (mounted.current) runtime.connections.select(id);
         void runtime.connections.connect(id).catch(() => {});
@@ -97,7 +98,7 @@ function ServerFormFields({ editing, legacy, endpoint: initialEndpoint, onSaved,
 }
 
 /** The canonical server list lives in Settings, never inside the add dialog. */
-export function ServerManager({ header }: { header?: ReactNode } = {}) {
+export function ServerManager() {
   const runtime = useRuntime();
   const state = useAppState();
   const tabs = useSessionTabs();
@@ -106,6 +107,8 @@ export function ServerManager({ header }: { header?: ReactNode } = {}) {
   const triggers = useRef<Record<string, HTMLButtonElement | null>>({});
   const [form, setForm] = useState<ServerForm>();
   const [local, setLocal] = useState<string>();
+  const [renaming, setRenaming] = useState<HostConnection>();
+  const [disconnecting, setDisconnecting] = useState<HostConnection>();
   const [removing, setRemoving] = useState<HostConnection>();
   const [pending, setPending] = useState(false);
   const [localPending, setLocalPending] = useState(false);
@@ -123,28 +126,30 @@ export function ServerManager({ header }: { header?: ReactNode } = {}) {
   };
   const localHost = state.hosts.find(host => host.id === local);
   return <div {...stylex.props(layout.column)}>
-    <div {...stylex.props(layout.row, layout.wrap)}>
-      <h1 id="settings-title" {...stylex.props(layout.grow, styles.heading)}>Servers</h1>
-      <Button variant="primary" disabled={pending || localPending} ref={addButton} onClick={event => { returnFocus.current = event.currentTarget; setForm({}); }}><Plus size={16} aria-hidden />Add server</Button>{header}
-    </div>
-    <div aria-label="Saved servers" {...stylex.props(layout.column)}>
+    <SettingsGroup title="Saved servers" action={<Button variant="secondary" disabled={pending || localPending} ref={addButton} onClick={event => { returnFocus.current = event.currentTarget; setForm({}); }}><Plus size={14} aria-hidden />Add server</Button>}>
       {state.hosts.map(host => {
+        const canDisconnect = !!host.client && host.state !== 'connecting';
         const items: MenuItem[] = [
-          { id: 'connect', label: host.state === 'connecting' ? 'Cancel connection' : host.client ? 'Disconnect' : 'Connect', onSelect: () => {
+          ...(!canDisconnect ? [{ id: 'connect', label: host.state === 'connecting' ? 'Cancel connection' : 'Connect', onSelect: () => {
             // Do not hold a pending lock across connection setup: Cancel must stay reachable.
-            if (host.client || host.state === 'connecting') runtime.connections.disconnect(host.id);
+            if (host.state === 'connecting') runtime.connections.disconnect(host.id);
             else { setError(''); void runtime.connections.connect(host.id).then(() => runtime.connections.select(host.id)).catch(error => { if (mounted.current) setError(errorMessage(error)); }); }
-          } },
+          } }] : []),
+          { id: 'rename', label: 'Rename server', disabled: !host.local && !host.device && !canSave, onSelect: () => setRenaming(host) },
           ...(!host.local || host.device ? [{ id: 'edit', label: 'Edit server', disabled: host.state === 'connecting', onSelect: () => setForm({ editing: host }) }] : []),
           ...(host.profile.target.kind === 'local' && runtime.platform.localRuntime ? [{ id: 'local', label: 'Local server settings', onSelect: () => setLocal(host.id) }] : []),
           ...(!host.local ? [{ id: 'remove', label: 'Remove server', danger: true, disabled: host.state === 'connecting' || (!host.device && !canSave), onSelect: () => { setError(''); setRemoving(host); } }] : []),
+          ...(canDisconnect ? [
+            { id: 'disconnect-separator', label: '', separator: true },
+            { id: 'disconnect', label: 'Disconnect', danger: true, onSelect: () => { setError(''); setDisconnecting(host); } },
+          ] : []),
         ];
         const address = host.profile.target.kind === 'local' ? 'This device' : host.profile.target.kind === 'ssh' ? `SSH · ${host.profile.target.host}` : host.endpoint;
         const status = host.state === 'closed' ? 'Disconnected' : host.state[0].toUpperCase() + host.state.slice(1);
         const HostIcon = host.local ? Monitor : host.profile.target.kind === 'ssh' ? Terminal : Globe;
         return <div key={host.id} {...stylex.props(styles.server)}>
           <SettingsRow xstyle={settingsSection.rowContent} label={<span {...stylex.props(styles.identity)}>
-            <HostIcon size={20} aria-hidden {...stylex.props(styles.icon)} />
+            <HostIcon size={14} aria-hidden {...stylex.props(styles.icon)} />
             <span {...stylex.props(styles.name)}>{host.name}</span>
           </span>} description={<span {...stylex.props(styles.address)}>{address}</span>}>
             <div {...stylex.props(layout.row, layout.wrap)}>
@@ -156,10 +161,17 @@ export function ServerManager({ header }: { header?: ReactNode } = {}) {
           {host.error && <p role="status" {...stylex.props(styles.runtimeMessage, styles.address)}>{host.error}</p>}
         </div>;
       })}
-    </div>
+    </SettingsGroup>
     {state.profileError && <p role="status">{state.profileError}</p>}
-    {error && !removing && <p role="alert">{error}</p>}
+    {error && !removing && !disconnecting && <p role="alert">{error}</p>}
+    {renaming && <RenameServerDialog host={renaming} finalFocus={returnFocus} close={() => setRenaming(undefined)} />}
     <HostDialog finalFocus={returnFocus} open={!!form} {...form} onOpenChange={open => { if (!open) setForm(undefined); }} />
+    <AlertDialog open={!!disconnecting} onOpenChange={open => { if (!open && !pending) setDisconnecting(undefined); }} title={`Disconnect ${disconnecting?.name ?? 'server'}?`}
+      description="Sessions keep running on this server. You can reconnect at any time." finalFocus={() => returnFocus.current?.isConnected ? returnFocus.current : addButton.current}
+      confirmLabel="Disconnect" danger loading={pending}
+      onConfirm={() => { if (disconnecting) void action(async () => { runtime.connections.disconnect(disconnecting.id); if (mounted.current) setDisconnecting(undefined); }); }}>
+      {error && <p role="alert">{error}</p>}
+    </AlertDialog>
     <AlertDialog open={!!removing} onOpenChange={open => { if (!open && !pending) setRemoving(undefined); }} title={`Remove ${removing?.name ?? 'server'}?`}
       description="This removes the saved connection, not daemon sessions. Tabs and drafts stay on their original server." finalFocus={() => returnFocus.current?.isConnected ? returnFocus.current : addButton.current} confirmLabel="Remove server" danger loading={pending}
       onConfirm={() => { if (removing) void action(async () => { await runtime.connections.remove(removing.id); if (mounted.current) setRemoving(undefined); }); }}>
@@ -188,6 +200,28 @@ export function ServerManager({ header }: { header?: ReactNode } = {}) {
       <p {...stylex.props(layout.muted)}>Select an address and save to verify and import it.</p>
     </Collapsible>}
   </div>;
+}
+
+function RenameServerDialog({ host, finalFocus, close }: { host: HostConnection; finalFocus: DialogProps['finalFocus']; close(): void }) {
+  const runtime = useRuntime();
+  const [name, setName] = useState(host.name);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  return <Dialog open title="Rename server" description="Choose the name shown for this server." finalFocus={finalFocus}
+    onOpenChange={open => { if (!open && !pending) close(); }}>
+    <form {...stylex.props(layout.column, styles.form)} onSubmit={event => {
+      event.preventDefault(); if (pending || !name.trim()) return;
+      setPending(true); setError('');
+      void runtime.connections.rename(host.id, name).then(close).catch(error => { setError(errorMessage(error)); setPending(false); });
+    }}>
+      <Field label="Server name"><Input autoFocus required maxLength={256} disabled={pending} value={name} onChange={event => setName(event.target.value)} /></Field>
+      {error && <Alert tone="error">{error}</Alert>}
+      <div {...stylex.props(layout.row, styles.footer)}>
+        <Button type="button" variant="ghost" disabled={pending} onClick={close}>Cancel</Button>
+        <Button type="submit" variant="primary" loading={pending} disabled={pending || !name.trim() || name.trim() === host.name}>Save name</Button>
+      </div>
+    </form>
+  </Dialog>;
 }
 
 export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange }: {
@@ -257,13 +291,13 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange }: {
 }
 
 const styles = stylex.create({
-  heading: { margin: 0, fontSize: typography.size20, fontWeight: 560, lineHeight: 1.4 },
-  identity: { display: 'flex', alignItems: 'center', gap: scale.space3, minWidth: 0 },
+  form: { gap: scale.space4 },
+  identity: { display: 'flex', alignItems: 'center', gap: scale.space2, minWidth: 0 },
   icon: { flexShrink: 0, color: surface.secondaryText },
-  name: { fontSize: typography.size14, fontWeight: 500, overflowWrap: 'anywhere' },
+  name: { fontSize: typography.size13, fontWeight: 500, overflowWrap: 'anywhere' },
   address: { overflowWrap: 'anywhere' },
-  footer: { justifyContent: 'flex-end' },
-  server: { minWidth: 0, padding: scale.space4, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: scale.radiusDialog, backgroundColor: colors.panel },
+  footer: { justifyContent: 'flex-end', paddingTop: scale.space2 },
+  server: { minWidth: 0, paddingBlock: scale.space2, borderBottomWidth: { default: 1, ':last-child': 0 }, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
   runtimeMessage: { margin: 0 },
   diagnostics: { display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 8, overflowWrap: 'anywhere' },
 });

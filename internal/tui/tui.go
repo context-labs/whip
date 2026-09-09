@@ -229,8 +229,6 @@ type model struct {
 	// initialPrompt (whip up <words>) is submitted as the first turn from
 	// Init — late enough that m.prog exists for the turn goroutine's p.Send.
 	initialPrompt string
-	yolo          bool   // --yolo: this TUI turns permission prompts off for every root it opens
-	yoloRoot      string // the root automatic permissions were last applied to
 }
 
 // picker is the /resume session browser. metas is newest-first; the list is

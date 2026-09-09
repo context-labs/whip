@@ -91,7 +91,9 @@ export class HostConnections {
     const focused = readPreference<unknown>(platform.storage, 'whip.selectedHost.v3', undefined);
     const selectedId = typeof focused === 'string' && focused.length <= 4096 ? focused : saved?.selected.id;
     const local = this.deviceProfiles.find(profile => profile.target.kind === 'local') ?? fallback;
-    this.records.set('local', this.record({ id: 'local', name: native ? 'This Mac' : 'Local', url: native ? '' : daemonEndpoint((fallback.target as { endpoint: string }).endpoint), runtime_id: local.runtimeId ?? '', connect_on_launch: true }, local, native));
+    const alias = readPreference<unknown>(platform.storage, 'whip.localHostName', undefined);
+    const localName = native ? local.label : typeof alias === 'string' && alias.trim() && alias.length <= 256 && !/[\u0000-\u001f\u007f]/.test(alias) ? alias : 'Local';
+    this.records.set('local', this.record({ id: 'local', name: localName, url: native ? '' : daemonEndpoint((fallback.target as { endpoint: string }).endpoint), runtime_id: local.runtimeId ?? '', connect_on_launch: true }, { ...local, label: localName }, native));
     for (const profile of this.deviceProfiles) if (profile.target.kind === 'ssh') {
       this.records.set(profile.id, this.record({ id: profile.id, name: profile.label, url: '', runtime_id: profile.runtimeId ?? '', connect_on_launch: profile.id === selectedId }, profile, true));
     }
@@ -398,6 +400,24 @@ export class HostConnections {
   }
   async setConnectOnLaunch(id: string, value: boolean) {
     await this.writeProfiles(this.snapshot.profiles.map(host => host.id === id ? { ...host, connect_on_launch: value } : host));
+  }
+  /** A display-name change preserves the attached client and daemon identity. */
+  async rename(id: string, value: string) {
+    const name = value.trim();
+    if (!name || name.length > 256 || /[\u0000-\u001f\u007f]/.test(name)) throw new Error('Enter a server name between 1 and 256 characters.');
+    const record = this.records.get(id);
+    if (!record || this.closed) throw new Error('This server is no longer available.');
+    if (name === record.profile.name) return;
+    if (!record.device && id !== 'local') {
+      await this.writeProfiles(this.snapshot.profiles.map(host => host.id === id ? { ...host, name } : host));
+      return;
+    }
+    const target = { ...record.target, label: name };
+    if (record.device) this.persistDevice(target);
+    else this.platform.storage.setItem('whip.localHostName', JSON.stringify(name));
+    record.target = target;
+    record.profile = Object.freeze({ ...record.profile, name });
+    this.publish();
   }
   async remove(id: string) {
     if (id === 'local') throw new Error('Local owns this workspace’s saved hosts');

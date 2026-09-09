@@ -54,6 +54,7 @@ type clientPresentation struct {
 	modelID            string
 	effort             string
 	workingDir         string
+	permissionMode     string
 	contextLimit       int
 	accounting         session.ModelAccounting
 	usage              llm.Usage
@@ -161,7 +162,6 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 		return "", err
 	}
 	if yolo {
-		m.yolo, m.yoloRoot = true, client.RootID()
 		m.append(dimStyle.Render("(yolo: permission prompts are approved automatically)"))
 	}
 	cancelPermission()
@@ -195,31 +195,6 @@ func setPermissionMode(ctx context.Context, client *Client, external bool) error
 		return fmt.Errorf("configure %s permission mode: %s", label, result.Error)
 	}
 	return nil
-}
-
-type clientYoloMsg struct {
-	rootID string
-	err    error
-}
-
-// yoloCommand re-applies automatic permissions when this TUI reaches a root it
-// has not configured: a session switch, or a daemon restart that forgot the
-// mode. nil when there is nothing to do.
-func (m *model) yoloCommand() bubbletea.Cmd {
-	if !m.yolo || m.clientState != ClientLive { // a live daemon connection; headless models never re-apply
-		return nil
-	}
-	rootID := m.client.RootID()
-	if rootID == "" || rootID == m.yoloRoot {
-		return nil
-	}
-	m.yoloRoot = rootID
-	client := m.client
-	return func() bubbletea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return clientYoloMsg{rootID: rootID, err: setPermissionMode(ctx, client, false)}
-	}
 }
 
 func configureInteractiveSession(ctx context.Context, client *Client, cautious, yolo bool) error {
@@ -317,6 +292,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 	m.applyClientRoute(snapshot.Meta.Model, snapshot.Meta.Provider)
 	m.goal, m.sessTitle = snapshot.Meta.Goal, snapshot.Meta.Title
 	m.clientView.workingDir = snapshot.Meta.CWD
+	m.clientView.permissionMode = snapshot.PermissionMode
 	m.applyStoredEffort(snapshot.Meta.Effort)
 	usage := llm.Usage{PromptTokens: snapshot.Meta.UsageIn, CompletionTokens: snapshot.Meta.UsageOut}
 	if snapshot.Meta.UsageCached > 0 {
@@ -832,6 +808,9 @@ func (m *model) applyClientLifecycle(kind string, payload []byte) (bool, bubblet
 		}
 		if event.WorkingDir != "" {
 			m.clientView.workingDir = event.WorkingDir
+		}
+		if event.PermissionMode != nil {
+			m.clientView.permissionMode = *event.PermissionMode
 		}
 		return true, nil
 	}

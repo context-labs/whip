@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
 import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
 
+process.env.OPENROUTER_API_KEY = 'fixture-settings-key';
+process.env.INFERENCE_API_KEY = '';
+
 const results = process.env.WHIP_SETTINGS_RESULTS ?? '/tmp/whip-settings-browser-results';
 await mkdir(results, { recursive: true });
 const axeSource = await readFile(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
@@ -35,6 +38,8 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await page.getByRole('option', { name: option, exact: true }).click();
   };
   try {
+    await writeFile(join(fixture.directory, 'home', 'config.json'), JSON.stringify({ defaultModel: 'settings-model', defaultProvider: 'openrouter', models: { 'settings-model': { providers: ['openrouter'] }, 'unsaved-settings-model': { providers: ['openrouter'] } } }));
+    await writeFile(join(fixture.directory, 'home', 'models.json'), JSON.stringify({ openrouter: { baseUrl: 'https://openrouter.ai/api/v1', fetchedAt: new Date().toISOString(), models: [{ id: 'settings-model' }, { id: 'unsaved-settings-model', reasoning_efforts: ['low', 'high'] }] } }));
     await page.goto(chatURL);
     const composer = page.locator('[data-whip-composer]');
     await composer.waitFor();
@@ -83,13 +88,17 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     checks.push('Back after reload restores the exact session and unsent draft');
     await page.locator('#whip-settings-link').click();
     await category('Providers & models').click();
-    const model = page.getByRole('textbox', { name: 'Default model', exact: true });
-    await model.fill('unsaved-settings-model');
+    const model = page.getByRole('button', { name: 'Default model', exact: true });
+    await model.click();
+    await page.getByRole('option', { name: 'unsaved-settings-model · openrouter', exact: true }).click();
+    await expect(page.getByRole('combobox', { name: 'Reasoning effort' })).toContainText('Model default');
     await category('Appearance').click();
     const guard = page.getByRole('dialog', { name: 'Unsaved settings' });
     await expect(guard).toBeVisible();
+    await expect(guard.locator('p').last()).toHaveCSS('font-size', '20px');
+    await page.screenshot({ path: join(results, `${engine}-unsaved-large.png`) });
     await guard.getByRole('button', { name: 'Stay', exact: true }).click();
-    await expect(model).toHaveValue('unsaved-settings-model');
+    await expect(model).toContainText('unsaved-settings-model');
     await category('Appearance').click();
     await guard.getByRole('button', { name: 'Discard changes', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
@@ -98,6 +107,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     for (const label of ['General', 'Agents & execution', 'Servers', 'Recovery', 'About & updates']) {
       await category(label).click();
       await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: /^Attention ·/ })).toHaveCount(0);
       if (label === 'Servers') {
         await expect(page.getByRole('heading', { name: 'Servers', exact: true })).toHaveCount(1);
         await expect(page.getByRole('textbox', { name: 'Server address' })).toHaveCount(0);
@@ -105,6 +115,35 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
         await page.mouse.move(1100, 80);
         await auditServers('main');
         await page.screenshot({ path: join(results, `${engine}-servers-light.png`) });
+        await page.getByRole('button', { name: 'Actions for Local' }).click();
+        await page.getByRole('menuitem', { name: 'Rename server' }).click();
+        const rename = page.getByRole('dialog', { name: 'Rename server' });
+        await rename.getByRole('textbox', { name: 'Server name', exact: true }).fill('Studio Mac');
+        await rename.getByRole('button', { name: 'Save name' }).click();
+        await expect(page.getByRole('button', { name: 'Actions for Studio Mac' })).toBeFocused();
+        await page.reload();
+        await expect(page.getByRole('button', { name: 'Actions for Studio Mac' })).toBeVisible();
+        await expect(page.getByText('Connected', { exact: true })).toBeVisible();
+        checks.push('Local server rename persists across reload and keeps its connection');
+        const serverActions = page.getByRole('button', { name: 'Actions for Studio Mac' });
+        await serverActions.click();
+        await expect(page.getByRole('menuitem').last()).toHaveText('Disconnect');
+        await page.getByRole('menuitem', { name: 'Disconnect', exact: true }).click();
+        const disconnect = page.getByRole('alertdialog', { name: 'Disconnect Studio Mac?' });
+        await expect(disconnect).toBeVisible();
+        await expect(page.getByText('Connected', { exact: true })).toBeVisible();
+        await disconnect.getByRole('button', { name: 'Cancel', exact: true }).click();
+        await expect(serverActions).toBeFocused();
+        await expect(page.getByText('Connected', { exact: true })).toBeVisible();
+        await serverActions.click();
+        await page.getByRole('menuitem', { name: 'Disconnect', exact: true }).click();
+        await disconnect.getByRole('button', { name: 'Disconnect', exact: true }).click();
+        await expect(disconnect).toBeHidden();
+        await expect(page.getByText('Disconnected', { exact: true })).toBeVisible();
+        await serverActions.click();
+        await page.getByRole('menuitem', { name: 'Connect', exact: true }).click();
+        await expect(page.getByText('Connected', { exact: true })).toBeVisible();
+        checks.push('Disconnect is last, cancellation preserves the connection, and confirmed disconnect allows reconnecting');
         const add = page.getByRole('button', { name: 'Add server', exact: true });
         await add.focus(); await page.keyboard.press('Enter');
         const dialog = page.getByRole('dialog', { name: 'Add server', exact: true });
@@ -113,6 +152,9 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
         await expect(dialog.getByRole('tab', { name: 'SSH', exact: true })).toHaveCount(0);
         await expect(dialog.getByRole('textbox')).toHaveCount(2);
         await expect(dialog.getByRole('button', { name: 'Advanced', exact: true })).toHaveAttribute('aria-expanded', 'false');
+        await dialog.getByRole('button', { name: 'Advanced', exact: true }).click();
+        await expect(dialog.getByRole('button', { name: 'Advanced', exact: true })).toHaveAttribute('aria-expanded', 'true');
+        await expect(dialog.getByRole('button', { name: 'Advanced', exact: true }).locator('svg')).toHaveCSS('transform', 'matrix(0, 1, -1, 0, 0, 0)');
         await auditServers('[role="dialog"]');
         await page.screenshot({ path: join(results, `${engine}-server-add.png`) });
         await page.keyboard.press('Escape'); await expect(dialog).not.toBeVisible();

@@ -53,7 +53,7 @@ export function validateProfile(value: unknown): ConnectionProfile {
     const canonical = urlProfile(target.endpoint);
     return { ...canonical, label, ...(runtimeId ? { runtimeId } : {}) };
   }
-  if (target.kind === 'local') return { ...localProfile, ...(runtimeId ? { runtimeId } : {}) };
+  if (target.kind === 'local') return { ...localProfile, label, ...(runtimeId ? { runtimeId } : {}) };
   if (target.kind !== 'ssh') throw new Error('Unsupported connection method');
   const host = text(target.host, 'SSH host', 255);
   if (!/^[a-zA-Z0-9\[][a-zA-Z0-9_.:\[\]-]*$/.test(host)) throw new Error('Enter an SSH alias or hostname; use the separate username field');

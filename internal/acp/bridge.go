@@ -73,21 +73,23 @@ type acpSession struct {
 	closeOnce sync.Once
 	turnCh    chan struct{}
 
-	mu        sync.Mutex
-	closed    bool
-	cancelled bool
-	mode      string
-	titleSent bool
-	toolArgs  map[string]toolInput
+	mu         sync.Mutex
+	closed     bool
+	cancelled  bool
+	mode       string
+	modeCursor int64
+	titleSent  bool
+	toolArgs   map[string]toolInput
 }
 
 type toolInput struct{ name, args string }
 
-func newACPSession(root *daemon.RootClient) *acpSession {
+func newACPSession(root *daemon.RootClient, snapshot session.RootSnapshot) *acpSession {
 	lifecycle, stop := context.WithCancel(context.Background())
 	return &acpSession{
 		id: acp.SessionId(root.RootID()), root: root, lifecycle: lifecycle, stop: stop,
-		done: make(chan struct{}), turnCh: make(chan struct{}, 1), mode: ModeAsk,
+		done: make(chan struct{}), turnCh: make(chan struct{}, 1),
+		mode: acpPermissionMode(snapshot.PermissionMode), modeCursor: snapshot.Cursor,
 		toolArgs: make(map[string]toolInput),
 	}
 }
@@ -212,13 +214,12 @@ func (b *Bridge) NewSession(ctx context.Context, params acp.NewSessionRequest) (
 	if err != nil {
 		return acp.NewSessionResponse{}, acp.NewInternalError(err.Error())
 	}
-	s := newACPSession(root)
-	if err := b.setPermissionMode(ctx, s, ModeAsk); err != nil {
-		s.stop()
+	snapshot, err := root.Snapshot(ctx)
+	if err != nil {
 		_ = root.Close()
-		close(s.done)
 		return acp.NewSessionResponse{}, acp.NewInternalError(err.Error())
 	}
+	s := newACPSession(root, snapshot)
 	if err := b.register(s); err != nil {
 		s.stop()
 		_ = root.Close()
@@ -228,7 +229,9 @@ func (b *Bridge) NewSession(ctx context.Context, params acp.NewSessionRequest) (
 	go b.consume(s)
 	return acp.NewSessionResponse{
 		SessionId: s.id,
-		Modes:     &acp.SessionModeState{CurrentModeId: ModeAsk, AvailableModes: modes},
+		Modes: &acp.SessionModeState{
+			CurrentModeId: acp.SessionModeId(acpPermissionMode(snapshot.PermissionMode)), AvailableModes: modes,
+		},
 	}, nil
 }
 
@@ -269,13 +272,10 @@ func (b *Bridge) LoadSession(ctx context.Context, params acp.LoadSessionRequest)
 		_ = root.Close()
 		return acp.LoadSessionResponse{}, acp.NewInvalidParams(fmt.Sprintf("cwd %q does not match session cwd %q", params.Cwd, snapshot.Meta.CWD))
 	}
-	s := newACPSession(root)
-	if err := b.setPermissionMode(ctx, s, ModeAsk); err != nil {
-		_ = root.Close()
-		return acp.LoadSessionResponse{}, acp.NewInternalError(err.Error())
-	}
+	s := newACPSession(root, snapshot)
 	for _, update := range replayUpdates(snapshot.Messages) {
 		if err := b.update(ctx, s.id, update); err != nil {
+			s.stop()
 			_ = root.Close()
 			return acp.LoadSessionResponse{}, acp.NewInternalError(err.Error())
 		}
@@ -284,6 +284,7 @@ func (b *Bridge) LoadSession(ctx context.Context, params acp.LoadSessionRequest)
 		b.consumeEvent(s, daemon.ProtocolEvent{RootID: snapshot.RootID, Seq: event.Seq, Kind: event.Kind, Payload: event.Payload})
 	}
 	if err := b.register(s); err != nil {
+		s.stop()
 		_ = root.Close()
 		return acp.LoadSessionResponse{}, err
 	}
@@ -304,7 +305,9 @@ func (b *Bridge) LoadSession(ctx context.Context, params acp.LoadSessionRequest)
 		}
 	}
 	return acp.LoadSessionResponse{
-		Modes: &acp.SessionModeState{CurrentModeId: ModeAsk, AvailableModes: modes},
+		Modes: &acp.SessionModeState{
+			CurrentModeId: acp.SessionModeId(acpPermissionMode(snapshot.PermissionMode)), AvailableModes: modes,
+		},
 	}, nil
 }
 
@@ -358,9 +361,6 @@ func (b *Bridge) SetSessionMode(ctx context.Context, params acp.SetSessionModeRe
 	if err := b.setPermissionMode(ctx, s, mode); err != nil {
 		return acp.SetSessionModeResponse{}, acp.NewInternalError(err.Error())
 	}
-	_ = b.update(context.Background(), s.id, acp.SessionUpdate{CurrentModeUpdate: &acp.SessionCurrentModeUpdate{
-		SessionUpdate: "current_mode_update", CurrentModeId: params.ModeId,
-	}})
 	return acp.SetSessionModeResponse{}, nil
 }
 
@@ -376,10 +376,33 @@ func (b *Bridge) setPermissionMode(ctx context.Context, s *acpSession, mode stri
 	if result.Status != "succeeded" {
 		return errors.New(result.Error)
 	}
+	return nil
+}
+
+func acpPermissionMode(mode string) string {
+	if mode == "automatic" {
+		return ModeAuto
+	}
+	return ModeAsk
+}
+
+func (b *Bridge) applyPermissionMode(s *acpSession, mode string, cursor int64) {
 	s.mu.Lock()
+	// Initial client updates can predate the snapshot read while attaching.
+	if cursor < s.modeCursor {
+		s.mu.Unlock()
+		return
+	}
+	s.modeCursor = cursor
+	mode = acpPermissionMode(mode)
+	changed := s.mode != mode
 	s.mode = mode
 	s.mu.Unlock()
-	return nil
+	if changed {
+		_ = b.update(s.lifecycle, s.id, acp.SessionUpdate{CurrentModeUpdate: &acp.SessionCurrentModeUpdate{
+			SessionUpdate: "current_mode_update", CurrentModeId: acp.SessionModeId(mode),
+		}})
+	}
 }
 
 func (b *Bridge) Prompt(_ context.Context, params acp.PromptRequest) (acp.PromptResponse, error) {
@@ -469,6 +492,9 @@ func (b *Bridge) consume(s *acpSession) {
 			if update.Event != nil {
 				b.consumeEvent(s, *update.Event)
 			}
+			if update.Snapshot != nil {
+				b.applyPermissionMode(s, update.Snapshot.PermissionMode, update.Snapshot.Cursor)
+			}
 		}
 	}
 }
@@ -481,6 +507,11 @@ func (b *Bridge) consumeEvent(s *acpSession, event daemon.ProtocolEvent) {
 		}
 	}
 	switch event.Kind {
+	case "session.permission_mode.updated":
+		var update daemon.SessionUpdateEvent
+		if json.Unmarshal(event.Payload, &update) == nil && update.PermissionMode != nil {
+			b.applyPermissionMode(s, *update.PermissionMode, event.Seq)
+		}
 	case "stream.text":
 		_ = b.update(s.lifecycle, s.id, acp.UpdateAgentMessageText(stream.Text))
 	case "stream.reasoning":

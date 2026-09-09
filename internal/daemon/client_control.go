@@ -880,13 +880,13 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if !ok {
 			return "", errors.New("session runner does not support external permissions")
 		}
+		if err := s.store.SetPermissionMode(ctx, s.meta.ID, permissionModeLabel(payload.ExternalPermissions)); err != nil {
+			return "", err
+		}
 		runner.SetExternalPermissions(payload.ExternalPermissions)
 		if runtime, ok := s.runtime.(interface{ SetExternalPermissions(bool) }); ok {
 			runtime.SetExternalPermissions(payload.ExternalPermissions)
 		}
-		s.emitSessionUpdate(ctx, "session.permission_mode.updated", SessionUpdateEvent{
-			PermissionMode: permissionModeLabel(payload.ExternalPermissions),
-		})
 		return "configured", nil
 	case "tool.configure":
 		runner, ok := s.runner.(clientToolRunner)
@@ -1510,22 +1510,12 @@ func compatibleEffort(model, provider, current string) string {
 // permissionModeLabel names the consent mode for protocol events. "prompt"
 // delegates decisions to connected clients; "automatic" approves prompts
 // without asking (the CLI's --yolo mode).
-func permissionModeLabel(externalPermissions bool) *string {
-	mode := "automatic"
+func permissionModeLabel(externalPermissions bool) string {
+	mode := sessionstore.PermissionModeAutomatic
 	if externalPermissions {
-		mode = "prompt"
+		mode = sessionstore.PermissionModePrompt
 	}
-	return &mode
-}
-
-// PermissionMode reports the session's consent mode: "prompt" when connected
-// clients answer permission requests, "automatic" when the daemon approves
-// them without prompting. Unknown when the runner does not expose the mode.
-func (s *Session) PermissionMode() string {
-	if runner, ok := s.runner.(clientPermissionRunner); ok {
-		return *permissionModeLabel(runner.ExternalPermissionsEnabled())
-	}
-	return ""
+	return mode
 }
 
 func (s *Session) emitSessionUpdate(ctx context.Context, kind string, event SessionUpdateEvent) {

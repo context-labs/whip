@@ -29,25 +29,29 @@ type fakeACPBackend struct {
 }
 
 type fakeRoot struct {
-	mu           sync.Mutex
-	id           string
-	cwd          string
-	title        string
-	messages     []llm.Message
-	events       []daemon.ProtocolEvent
-	presentation []session.SnapshotEvent
-	permissions  []session.PermissionSnapshot
-	remember     string
-	external     bool
-	modeError    string
-	lastSubmit   daemon.SubmitPayload
-	lastAnswer   questionAnswer
-	questions    []session.LifecycleEvent // open user.ask prompts a snapshot lists
-	cancel       chan struct{}
-	permission   chan bool
-	question     chan questionAnswer
-	decisions    int
-	closeCount   int
+	mu            sync.Mutex
+	id            string
+	cwd           string
+	title         string
+	messages      []llm.Message
+	events        []daemon.ProtocolEvent
+	presentation  []session.SnapshotEvent
+	permissions   []session.PermissionSnapshot
+	remember      string
+	external      bool
+	modeError     string
+	modeChanges   int
+	snapshotError string
+	snapshotCalls int
+	connections   []*fakeConnection
+	lastSubmit    daemon.SubmitPayload
+	lastAnswer    questionAnswer
+	questions     []session.LifecycleEvent // open user.ask prompts a snapshot lists
+	cancel        chan struct{}
+	permission    chan bool
+	question      chan questionAnswer
+	decisions     int
+	closeCount    int
 }
 
 func newFakeBackend(t *testing.T) *fakeACPBackend {
@@ -62,7 +66,8 @@ func (b *fakeACPBackend) NewRoot(ctx context.Context, cwd string, servers map[st
 	b.mu.Lock()
 	b.next++
 	id := fmt.Sprintf("root-%d", b.next)
-	root := &fakeRoot{id: id, cwd: cwd, cancel: make(chan struct{}, 1), permission: make(chan bool, 1), question: make(chan questionAnswer, 1)}
+	root := &fakeRoot{id: id, cwd: cwd, external: true,
+		cancel: make(chan struct{}, 1), permission: make(chan bool, 1), question: make(chan questionAnswer, 1)}
 	b.roots[id] = root
 	b.attached[id] = servers
 	b.mu.Unlock()
@@ -121,7 +126,8 @@ func (b *fakeACPBackend) seed(cwd string, messages ...llm.Message) string {
 	defer b.mu.Unlock()
 	b.next++
 	id := fmt.Sprintf("root-%d", b.next)
-	b.roots[id] = &fakeRoot{id: id, cwd: cwd, messages: messages, cancel: make(chan struct{}, 1), permission: make(chan bool, 1)}
+	b.roots[id] = &fakeRoot{id: id, cwd: cwd, messages: messages, external: true,
+		cancel: make(chan struct{}, 1), permission: make(chan bool, 1)}
 	return id
 }
 
@@ -133,7 +139,11 @@ type fakeConnection struct {
 }
 
 func newFakeConnection(root *fakeRoot) *fakeConnection {
-	return &fakeConnection{root: root, events: make(chan daemon.ProtocolEvent, 64), done: make(chan struct{})}
+	connection := &fakeConnection{root: root, events: make(chan daemon.ProtocolEvent, 64), done: make(chan struct{})}
+	root.mu.Lock()
+	root.connections = append(root.connections, connection)
+	root.mu.Unlock()
+	return connection
 }
 
 func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParams) (daemon.CommandResult, error) {
@@ -153,7 +163,14 @@ func (c *fakeConnection) Command(ctx context.Context, params daemon.CommandParam
 		_ = json.Unmarshal(params.Payload, &payload)
 		c.root.mu.Lock()
 		c.root.external = payload.External
+		c.root.modeChanges++
 		c.root.mu.Unlock()
+		mode := "automatic"
+		if payload.External {
+			mode = "prompt"
+		}
+		update, _ := json.Marshal(daemon.SessionUpdateEvent{PermissionMode: &mode})
+		c.emitRaw("session.permission_mode.updated", update)
 		return result, nil
 	case "cancel":
 		select {
@@ -244,10 +261,13 @@ func (c *fakeConnection) emitRaw(kind string, payload []byte) {
 	seq := int64(len(c.root.events) + 1)
 	event := daemon.ProtocolEvent{RootID: c.root.id, Seq: seq, Kind: kind, Payload: payload}
 	c.root.events = append(c.root.events, event)
+	connections := append([]*fakeConnection{}, c.root.connections...)
 	c.root.mu.Unlock()
-	select {
-	case <-c.done:
-	case c.events <- event:
+	for _, connection := range connections {
+		select {
+		case <-connection.done:
+		case connection.events <- event:
+		}
 	}
 }
 
@@ -266,13 +286,23 @@ func (c *fakeConnection) Replay(_ context.Context, params daemon.ReplayParams) (
 func (c *fakeConnection) Snapshot(context.Context, string) (session.RootSnapshot, error) {
 	c.root.mu.Lock()
 	defer c.root.mu.Unlock()
+	c.root.snapshotCalls++
+	// The root client takes its initial snapshot before the bridge reads it.
+	if c.root.snapshotError != "" && c.root.snapshotCalls > 1 {
+		return session.RootSnapshot{}, errors.New(c.root.snapshotError)
+	}
+	mode := "automatic"
+	if c.root.external {
+		mode = "prompt"
+	}
 	return session.RootSnapshot{
 		RootID: c.root.id, Cursor: int64(len(c.root.events)),
-		Meta:         session.Meta{ID: c.root.id, CWD: c.root.cwd, Title: c.root.title},
-		Messages:     append([]llm.Message(nil), c.root.messages...),
-		Presentation: append([]session.SnapshotEvent(nil), c.root.presentation...),
-		Permissions:  append([]session.PermissionSnapshot(nil), c.root.permissions...),
-		Questions:    append([]session.LifecycleEvent(nil), c.root.questions...),
+		PermissionMode: mode,
+		Meta:           session.Meta{ID: c.root.id, CWD: c.root.cwd, Title: c.root.title},
+		Messages:       append([]llm.Message(nil), c.root.messages...),
+		Presentation:   append([]session.SnapshotEvent(nil), c.root.presentation...),
+		Permissions:    append([]session.PermissionSnapshot(nil), c.root.permissions...),
+		Questions:      append([]session.LifecycleEvent(nil), c.root.questions...),
 	}, nil
 }
 
@@ -536,6 +566,139 @@ func TestBridgeLoadReplaysBeforeResponseAndLists(t *testing.T) {
 	}
 }
 
+func TestBridgeSessionAttachmentPreservesSavedPermissionMode(t *testing.T) {
+	for _, method := range []string{"new", "load"} {
+		t.Run(method, func(t *testing.T) {
+			backend := newFakeBackend(t)
+			cwd := t.TempDir()
+			id := backend.seed(cwd)
+			root := backend.roots[id]
+			root.external = false
+			root.modeError = "attachments must not change permissions"
+			bridge := NewBridge("test", &seededACPBackend{fakeACPBackend: backend, id: id}, false, nil)
+			t.Cleanup(bridge.CloseAll)
+			var modes *acpsdk.SessionModeState
+			switch method {
+			case "new":
+				response, err := bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: cwd})
+				if err != nil {
+					t.Fatal(err)
+				}
+				modes = response.Modes
+			case "load":
+				response, err := bridge.LoadSession(t.Context(), acpsdk.LoadSessionRequest{
+					SessionId: acpsdk.SessionId(id), Cwd: cwd,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				modes = response.Modes
+			}
+			if modes == nil || modes.CurrentModeId != ModeAuto {
+				t.Fatalf("attached session modes = %+v, want saved auto", modes)
+			}
+			root.mu.Lock()
+			defer root.mu.Unlock()
+			if root.external || root.modeChanges != 0 {
+				t.Fatalf("attachment changed permissions: external=%t changes=%d", root.external, root.modeChanges)
+			}
+		})
+	}
+}
+
+func waitACPMode(t *testing.T, fixture *acpFixture, id acpsdk.SessionId, want string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		s := fixture.bridge.getSession(id)
+		s.mu.Lock()
+		mode := s.mode
+		s.mu.Unlock()
+		fixture.client.mu.Lock()
+		var notified acpsdk.SessionModeId
+		for _, notification := range fixture.client.updates {
+			if notification.SessionId == id && notification.Update.CurrentModeUpdate != nil {
+				notified = notification.Update.CurrentModeUpdate.CurrentModeId
+			}
+		}
+		fixture.client.mu.Unlock()
+		if mode == want && string(notified) == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("mode=%q notified=%q, want %q", mode, notified, want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestBridgePermissionModeChangesReachOtherClients(t *testing.T) {
+	backend := newFakeBackend(t)
+	first := newACPFixture(t, backend, nil)
+	first.initialize(t)
+	id := first.newSession(t)
+	root := backend.roots[string(id)]
+	second := newACPFixture(t, backend, nil)
+	second.initialize(t)
+	if _, err := second.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{
+		SessionId: id, Cwd: root.cwd, McpServers: []acpsdk.McpServer{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{
+		SessionId: id, ModeId: ModeAuto,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitACPMode(t, first, id, ModeAuto)
+	waitACPMode(t, second, id, ModeAuto)
+	if _, err := second.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{
+		SessionId: id, ModeId: ModeAsk,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitACPMode(t, first, id, ModeAsk)
+	waitACPMode(t, second, id, ModeAsk)
+	response, err := first.conn.Prompt(t.Context(), acpsdk.PromptRequest{
+		SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("permission")},
+	})
+	if err != nil || response.StopReason != acpsdk.StopReasonEndTurn {
+		t.Fatalf("permission after remote mode change = %+v, %v", response, err)
+	}
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.modeChanges != 2 || !root.external {
+		t.Fatalf("mode changes=%d external=%t, want two explicit changes ending in ask", root.modeChanges, root.external)
+	}
+}
+
+func TestBridgeReconnectRestoresPermissionModeFromSnapshot(t *testing.T) {
+	backend := newFakeBackend(t)
+	id := backend.seed(t.TempDir())
+	root := backend.roots[id]
+	root.external = false
+	fixture := newACPFixture(t, backend, nil)
+	fixture.initialize(t)
+	if _, err := fixture.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{
+		SessionId: acpsdk.SessionId(id), Cwd: root.cwd, McpServers: []acpsdk.McpServer{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	root.mu.Lock()
+	root.external = true
+	connection := root.connections[0]
+	root.mu.Unlock()
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitACPMode(t, fixture, acpsdk.SessionId(id), ModeAsk)
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.modeChanges != 0 {
+		t.Fatalf("reconnect changed saved permissions %d times", root.modeChanges)
+	}
+}
+
 func TestBridgePermissionAndModesWithoutCredentials(t *testing.T) {
 	backend := newFakeBackend(t)
 	client := &fakeACPClient{answer: optAllowAlways}
@@ -566,6 +729,16 @@ func TestBridgePermissionAndModesWithoutCredentials(t *testing.T) {
 	}
 	if _, err := fixture.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: id, ModeId: ModeAuto}); err != nil {
 		t.Fatalf("auto mode: %v", err)
+	}
+	waitACPMode(t, fixture, id, ModeAuto)
+	if _, err := fixture.conn.CloseSession(t.Context(), acpsdk.CloseSessionRequest{SessionId: id}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := fixture.conn.LoadSession(t.Context(), acpsdk.LoadSessionRequest{
+		SessionId: id, Cwd: root.cwd, McpServers: []acpsdk.McpServer{},
+	})
+	if err != nil || loaded.Modes == nil || loaded.Modes.CurrentModeId != ModeAuto {
+		t.Fatalf("load after explicit auto mode = %+v, %v", loaded, err)
 	}
 }
 

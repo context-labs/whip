@@ -17,6 +17,7 @@ apps/*/dist/
 apps/desktop/out/
 apps/desktop/.stage/
 apps/desktop/.dev/
+apps/desktop/.update-local.lock/
 apps/web/renderer-manifest.json
 packages/ui/storybook-static/
 test-results/

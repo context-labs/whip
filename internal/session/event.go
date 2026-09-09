@@ -53,8 +53,7 @@ type RootSnapshot struct {
 	Schedules          []Schedule                 `json:"schedules"`
 	Permissions        []PermissionSnapshot       `json:"permissions"`
 	Questions          []LifecycleEvent           `json:"questions"` // open user.ask prompts (question.pending payloads); they live in daemon memory, so a client connecting mid-question learns of them only here
-	// PermissionMode names the consent mode ("prompt" or "automatic"); the
-	// daemon fills it from runner state because the mode is not durable.
+	// PermissionMode is the saved consent mode for this session tree.
 	PermissionMode string `json:"permission_mode,omitempty"`
 }
 
@@ -164,6 +163,19 @@ func (s *Store) ResolveRuntimeValue(ctx context.Context, rootID string, value Ru
 // AppendRootEvent appends an opaque, bounded client event. Daemon root
 // actors call it after worker callbacks cross the supervisor mailbox.
 func (s *Store) AppendRootEvent(ctx context.Context, rootID, kind string, payload RuntimePayload) (int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	seq, err := s.appendRootEventTx(ctx, tx, rootID, kind, payload)
+	if err != nil {
+		return 0, err
+	}
+	return seq, tx.Commit()
+}
+
+func (s *Store) appendRootEventTx(ctx context.Context, tx *sql.Tx, rootID, kind string, payload RuntimePayload) (int64, error) {
 	if rootID == "" || kind == "" {
 		return 0, errors.New("root event requires root and kind")
 	}
@@ -171,11 +183,6 @@ func (s *Store) AppendRootEvent(ctx context.Context, rootID, kind string, payloa
 	if err != nil {
 		return 0, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
 	stamp := now()
 	if err := insertRuntimeValue(ctx, tx, prepared, stamp); err != nil {
 		return 0, err
@@ -195,7 +202,7 @@ func (s *Store) AppendRootEvent(ctx context.Context, rootID, kind string, payloa
 	if err := s.projectTurnEvent(ctx, tx, rootID, kind, payload.Data, seq, stamp); err != nil {
 		return 0, err
 	}
-	return seq, tx.Commit()
+	return seq, nil
 }
 
 // SnapshotRoot reads the reconnect baseline and its final event cursor from
@@ -217,11 +224,11 @@ func (s *Store) snapshotRoot(ctx context.Context, rootID string, view *SnapshotV
 	var updated, tags string
 	var pinned int
 	if err := tx.QueryRowContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,
-		usage_in,usage_cached,usage_out,updated_at,history_revision FROM sessions WHERE id=?`, rootID).Scan(
+		usage_in,usage_cached,usage_out,updated_at,history_revision,permission_mode FROM sessions WHERE id=?`, rootID).Scan(
 		&snapshot.Meta.ID, &snapshot.Meta.Kind, &snapshot.Meta.Title, &snapshot.Meta.Model, &snapshot.Meta.Provider, &snapshot.Meta.CWD,
 		&snapshot.Meta.Goal, &snapshot.Meta.ForkedFrom, &snapshot.Meta.ForkSeq, &tags, &pinned, &snapshot.Meta.Archived,
 		&snapshot.Meta.Effort, &snapshot.Meta.UsageIn, &snapshot.Meta.UsageCached, &snapshot.Meta.UsageOut,
-		&updated, &snapshot.HistoryRevision); err != nil {
+		&updated, &snapshot.HistoryRevision, &snapshot.PermissionMode); err != nil {
 		return RootSnapshot{}, err
 	}
 	if tags != "" {

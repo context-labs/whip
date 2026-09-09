@@ -121,7 +121,7 @@ func TestInteractiveSetupAppliesCautiousModeBeforeAutomaticTitles(t *testing.T) 
 	}
 }
 
-func TestInteractiveSetupAppliesYoloModeAndReappliesOnForgottenRoots(t *testing.T) {
+func TestInteractiveSetupAppliesYoloModeOnlyToInitialSession(t *testing.T) {
 	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
@@ -142,22 +142,71 @@ func TestInteractiveSetupAppliesYoloModeAndReappliesOnForgottenRoots(t *testing.
 		t.Fatalf("yolo setup commands=%+v", commands)
 	}
 
-	m := &model{client: client, clientState: ClientLive, input: newInput(), yolo: true, yoloRoot: "root"}
-	if m.yoloCommand() != nil {
-		t.Fatal("a configured root was re-applied")
+	m := &model{client: client, clientState: ClientLive, input: newInput(), historyRequested: true}
+	for _, state := range []ClientState{ClientReconnecting, ClientSnapshotting, ClientLive} {
+		_, command := m.Update(clientUpdateMsg{
+			ClientUpdate: ClientUpdate{State: state, StateChanged: true}, closed: true,
+		})
+		if command != nil {
+			t.Fatalf("reconnect state %s created a command", state)
+		}
 	}
-	m.yoloRoot = "" // a reconnect: the daemon may have forgotten the mode
-	command := m.yoloCommand()
-	if command == nil || m.yoloRoot != "root" {
-		t.Fatalf("forgotten root was not re-applied (command=%v root=%q)", command != nil, m.yoloRoot)
-	}
-	if msg := command().(clientYoloMsg); msg.err != nil || msg.rootID != "root" {
-		t.Fatalf("yolo message=%+v", msg)
+	m.applyClientSnapshot(session.RootSnapshot{RootID: "other-root", PermissionMode: "prompt"})
+	_, command := m.Update(clientUpdateMsg{
+		ClientUpdate: ClientUpdate{State: ClientLive, StateChanged: true}, closed: true,
+	})
+	if command != nil {
+		t.Fatal("switching sessions created a command")
 	}
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
-	if len(connection.commands) != 3 || connection.commands[2].Operation != "permission.mode" || !strings.Contains(string(connection.commands[2].Payload), `"external_permissions":false`) {
-		t.Fatalf("re-applied commands=%+v", connection.commands)
+	if len(connection.commands) != 2 {
+		t.Fatalf("attaching changed saved permissions: %+v", connection.commands)
+	}
+}
+
+func TestInteractiveSetupWithoutFlagsPreservesSavedPermissions(t *testing.T) {
+	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root", PermissionMode: "automatic"})
+	client, err := NewClient(ClientOptions{
+		ClientID: "tui", RootID: "root",
+		Connector: func(context.Context, map[string]int64) (daemonConnection, error) { return connection, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Start()
+	t.Cleanup(func() { _ = client.Close() })
+	if err := configureInteractiveSession(t.Context(), client, false, false); err != nil {
+		t.Fatal(err)
+	}
+	connection.mu.Lock()
+	defer connection.mu.Unlock()
+	if len(connection.commands) != 1 || connection.commands[0].Operation != "session.autotitle" {
+		t.Fatalf("setup replaced saved permissions: %+v", connection.commands)
+	}
+}
+
+func TestClientPermissionLabelFollowsSessionSnapshotsAndEvents(t *testing.T) {
+	m := &model{input: newInput()}
+	m.applyClientSnapshot(session.RootSnapshot{RootID: "full-access", PermissionMode: "automatic"})
+	if !strings.Contains(m.ocModeLabel(), "full access") {
+		t.Fatalf("saved full access missing from mode label: %q", m.ocModeLabel())
+	}
+	m.applyClientSnapshot(session.RootSnapshot{RootID: "ask", PermissionMode: "prompt"})
+	if strings.Contains(m.ocModeLabel(), "full access") {
+		t.Fatalf("other session retained full access label: %q", m.ocModeLabel())
+	}
+	for _, mode := range []string{"automatic", "prompt"} {
+		payload, err := json.Marshal(daemon.SessionUpdateEvent{PermissionMode: &mode})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if handled, command := m.applyClientLifecycle("session.permission_mode.updated", payload); !handled || command != nil {
+			t.Fatal("permission mode event was not applied directly")
+		}
+		if got := strings.Contains(m.ocModeLabel(), "full access"); got != (mode == "automatic") {
+			t.Fatalf("mode %q produced label %q", mode, m.ocModeLabel())
+		}
 	}
 }
 

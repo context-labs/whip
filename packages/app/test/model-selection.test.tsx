@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import type { ProviderCatalogsResult } from '@whip/protocol';
-import type { ComponentProps } from 'react';
+import { useState, type ComponentProps } from 'react';
 import { modelOptions } from '../src/model-options';
-import { ModelPicker } from '../src/model-selection';
+import { CatalogModelPicker, ModelPicker } from '../src/model-selection';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 
@@ -70,4 +70,23 @@ it('switches the provider when the selected model name is unchanged', async () =
   expect(subscription.getAttribute('aria-selected')).toBe('false');
   fireEvent.click(subscription);
   await waitFor(() => expect(setModel).toHaveBeenCalledExactlyOnceWith('gpt-5.5', 'openai-codex'));
+});
+
+it('shows the routing provider logo and updates it when choosing another provider for the same model', async () => {
+  function Picker() {
+    const [route, setRoute] = useState({ model: 'gpt-5.5', provider: 'openrouter' });
+    return <CatalogModelPicker {...route} settings catalog={catalog} onChange={(model, provider) => setRoute({ model, provider })} />;
+  }
+  render(<ThemeProvider initialTheme="light"><UIProvider><Picker /></UIProvider></ThemeProvider>);
+  const trigger = screen.getByRole('button', { name: 'Model', exact: true });
+  expect(trigger.querySelector('use')?.getAttribute('href')).toMatch(/#openrouter$/);
+  expect(trigger.textContent).toBe('gpt-5.5');
+  fireEvent.click(trigger);
+  const option = await screen.findByRole('option', { name: 'gpt-5.5 · openai-codex' });
+  expect(option.querySelector('[data-model-name]')?.textContent).toBe('gpt-5.5');
+  expect(option.querySelector('[data-model-provider]')?.textContent).toBe('openai-codex');
+  fireEvent.click(option);
+  expect(trigger.querySelector('use')?.getAttribute('href')).toMatch(/#openai$/);
+  expect(trigger.textContent).toBe('gpt-5.5');
+  expect(trigger.title).toBe('gpt-5.5 · openai-codex');
 });
