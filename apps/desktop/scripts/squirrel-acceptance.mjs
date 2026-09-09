@@ -60,6 +60,14 @@ const signal = AbortSignal.timeout(15 * 60_000);
 await manager.install(executable, signal);
 let requests = 0; let held = false;
 const provider = createServer(async (request, response) => {
+  if (request.method === 'GET' && request.url === '/models') {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ data: [{ id: 'acceptance-model', context_length: 65536, max_completion_tokens: 256,
+      pricing: { prompt: '0', completion: '0' } }] })); return;
+  }
+  if (request.method !== 'POST' || request.url !== '/chat/completions') {
+    response.writeHead(404); response.end('Unknown fixture endpoint'); return;
+  }
   const chunks = []; for await (const chunk of request) chunks.push(chunk);
   const body = JSON.parse(Buffer.concat(chunks)); requests++;
   response.writeHead(200, { 'Content-Type': 'text/event-stream' });
