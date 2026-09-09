@@ -59,6 +59,26 @@ func TestInlineViewReturnsToBottomAfterTemporaryGrowth(t *testing.T) {
 	}
 }
 
+func TestInlineFrameHeightIsCappedByTerminal(t *testing.T) {
+	m := compactCmdModel()
+	m.Update(mkWinSize(80, 9))
+	m.View()
+
+	m.busy = true
+	m.layout()
+	m.View() // The busy frame is 10 rows tall, one more than the terminal.
+
+	m.busy = false
+	m.layout()
+	shrunk := m.View()
+	if got, want := lipgloss.Height(shrunk), m.height; got != want {
+		t.Fatalf("shrunk render must not retain an oversized frame: got %d rows, want %d", got, want)
+	}
+	if got, want := m.viewTop+m.viewH, m.height; got != want {
+		t.Fatalf("shrunk content must remain bottom-anchored: got bottom %d, want %d", got, want)
+	}
+}
+
 func stripAll(s string) string {
 	out := strings.Builder{}
 	i := 0

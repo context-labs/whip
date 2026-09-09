@@ -225,7 +225,7 @@ type model struct {
 	viewTop      int         // screen row of the view's content (mouse Y is absolute)
 	viewH        int         // height of the view's content, excluding inline anchor padding
 	frameTop     int         // screen row of Bubble Tea's physical inline render frame
-	frameH       int         // tallest inline frame since the last terminal resize
+	frameH       int         // tallest fitting inline frame since the last terminal resize
 	themeHow     string      // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
 	uiMode       string      // "" = default whip look; "opencode" = opencode render mode (see opencode.go)
 	sessTitle    string      // cached session title for the opencode sidebar (from the store; updated on title/rename)
@@ -5080,9 +5080,9 @@ func (m *model) View() string {
 		if m.uiMode == opencodeMode {
 			m.viewTop = 0 // altscreen: the view is drawn from row 0, so mouse Y maps directly
 		} else {
-			m.frameH = max(m.frameH, m.viewH)
+			m.frameH = min(max(m.frameH, m.viewH), m.height)
 			m.frameTop = max(min(m.frameTop, m.height-m.frameH), 0)
-			lead := m.frameH - m.viewH
+			lead := max(m.frameH-m.viewH, 0)
 			if lead > 0 {
 				v = strings.Repeat("\n", lead) + v
 			}
