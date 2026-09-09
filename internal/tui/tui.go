@@ -5044,7 +5044,8 @@ func (m *model) thinkViewCapped() string {
 // shrinking frame back down. Keep the physical frame at its tallest height
 // since the last resize and prepend blank anchor rows when content shrinks;
 // this returns the visible UI to the terminal bottom instead of leaving it
-// stranded toward the top. Mouse coordinates use viewTop, after that padding.
+// stranded toward the top. Bubble Tea clips oversized frames from the top, so
+// cap the tracked frame to the terminal before deriving mouse coordinates.
 func (m *model) View() string {
 	m.syncInputPlaceholder()
 	v := m.viewBody()

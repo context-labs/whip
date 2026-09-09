@@ -71,8 +71,15 @@ func TestInlineFrameHeightIsCappedByTerminal(t *testing.T) {
 	m.busy = false
 	m.layout()
 	shrunk := m.View()
-	if got, want := lipgloss.Height(shrunk), m.height; got != want {
-		t.Fatalf("shrunk render must not retain an oversized frame: got %d rows, want %d", got, want)
+
+	// Bubble Tea drops rows from the top when a frame exceeds the terminal.
+	// viewTop must describe the content after that clipping, not its position in
+	// the oversized string returned by View.
+	lead := len(shrunk) - len(strings.TrimLeft(shrunk, "\n"))
+	dropped := max(lipgloss.Height(shrunk)-m.height, 0)
+	physicalContentTop := max(lead-dropped, 0)
+	if m.viewTop != physicalContentTop {
+		t.Fatalf("viewTop must account for renderer clipping: got %d, want %d", m.viewTop, physicalContentTop)
 	}
 	if got, want := m.viewTop+m.viewH, m.height; got != want {
 		t.Fatalf("shrunk content must remain bottom-anchored: got bottom %d, want %d", got, want)
