@@ -19,7 +19,7 @@ export async function candidate(mode, directory, env = process.env) {
   const match = /^desktop-v(\d+\.\d+\.\d+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?)$/.exec(env.RELEASE_TAG ?? '');
   assert(match && /^[a-f0-9]{40}$/.test(env.SOURCE_SHA ?? ''), 'Invalid release identity');
   const names = (await readdir(directory)).sort();
-  assert(names.length <= 20 && names.every(name => /^[A-Za-z0-9][A-Za-z0-9._ -]{0,199}$/.test(name)), 'Invalid candidate filenames');
+  assert(names.length <= 20 && names.every(name => /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name)), 'Invalid candidate filenames');
   const json = async name => {
     assert((await lstat(path.join(directory, name))).size <= 2 << 20, 'Candidate metadata exceeds its limit');
     return JSON.parse(await readFile(path.join(directory, name), 'utf8'));

@@ -14,7 +14,7 @@ async function fixture(t) {
   const source = { commit: env.SOURCE_SHA, dirty: false };
   const compatibility = { protocolMajor: 4, protocolMinor: 1, schemaVersion: 10 };
   const files = {};
-  for (const [name, value] of Object.entries({ 'Whip Beta-1.2.3-beta.1.dmg': 'dmg fixture', 'Whip Beta-1.2.3-beta.1.zip': 'zip fixture',
+  for (const [name, value] of Object.entries({ 'Whip-Beta-1.2.3-beta.1.dmg': 'dmg fixture', 'Whip-Beta-1.2.3-beta.1.zip': 'zip fixture',
     'RELEASES.json': JSON.stringify({ currentRelease: version }) })) {
     const bytes = Buffer.from(value); await writeFile(path.join(directory, name), bytes);
     files[name] = { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
@@ -56,7 +56,7 @@ test('candidate cannot promote a different source, version, dirty or unsigned de
 
 test('candidate refuses missing or changed signed assets before manifest assembly', async t => {
   const f = await fixture(t);
-  const zip = path.join(f.directory, 'Whip Beta-1.2.3-beta.1.zip');
+  const zip = path.join(f.directory, 'Whip-Beta-1.2.3-beta.1.zip');
   await writeFile(zip, 'different');
   await assert.rejects(candidate('assemble', f.directory, f.env), /Signed artifact changed/);
   await rm(zip);
@@ -80,7 +80,7 @@ test('candidate refuses missing acceptance artifacts and failed or mismatched st
 
 test('candidate refuses signed evidence that omits an archive digest', async t => {
   const f = await fixture(t);
-  const files = { ...f.evidence.files }; delete files['Whip Beta-1.2.3-beta.1.zip'];
+  const files = { ...f.evidence.files }; delete files['Whip-Beta-1.2.3-beta.1.zip'];
   await f.json('evidence.json', { ...f.evidence, files });
   await assert.rejects(candidate('assemble', f.directory, f.env), /bind every installer/);
 });

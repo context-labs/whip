@@ -16,7 +16,7 @@ const conflict = error => httpStatus(error) ? [409, 422].includes(httpStatus(err
 async function localAsset(filename) {
   const file = path.resolve(filename); const name = path.basename(file); const stat = await lstat(file);
   // gh treats '#' as an asset label separator, including inside a parent path.
-  assert(/^[A-Za-z0-9][A-Za-z0-9._ -]{0,199}$/.test(name) && !/[#\u0000-\u001f\u007f]/.test(file), 'Invalid GitHub asset filename');
+  assert(/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name) && !/[#\u0000-\u001f\u007f]/.test(file), 'Invalid GitHub asset filename');
   assert(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= limit, `Invalid GitHub asset: ${name}`);
   const hash = createHash('sha256'); let size = 0;
   for await (const chunk of createReadStream(file)) {

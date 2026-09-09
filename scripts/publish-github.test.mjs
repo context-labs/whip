@@ -81,8 +81,8 @@ async function fixture(t, { existing = {}, release = true, mode = '' } = {}) {
 const writes = state => state.calls.filter(args => args[0] === 'release');
 
 test('identical GitHub reruns verify every asset and preserve all existing release metadata', async t => {
-  const f = await fixture(t, { existing: { 'whip-linux-x64': 'CLI', 'Whip Beta.zip': 'desktop', 'unrelated.txt': 'keep' } });
-  const files = [await f.local('whip-linux-x64', 'CLI'), await f.local('Whip Beta.zip', 'desktop')];
+  const f = await fixture(t, { existing: { 'whip-linux-x64': 'CLI', 'Whip-Beta.zip': 'desktop', 'unrelated.txt': 'keep' } });
+  const files = [await f.local('whip-linux-x64', 'CLI'), await f.local('Whip-Beta.zip', 'desktop')];
   await publishGitHubAssets(files, f.env); await publishGitHubAssets(files, f.env);
   const state = await f.state(); assert.deepEqual(state.release, f.metadata); assert.deepEqual(writes(state), []);
   assert.equal(state.calls.filter(args => args[0] === 'api' && /\/releases\/assets\/\d+$/.test(args[1])).length, 4);
@@ -148,8 +148,9 @@ test('bounds streamed downloads and rejects truncation or asset replacement afte
 });
 
 test('invalid names, duplicate names, symlinks and oversized local assets fail before GitHub access', async t => {
-  for (const kind of ['label', 'duplicate', 'symlink', 'oversized']) await t.test(kind, async t => {
+  for (const kind of ['label', 'space', 'duplicate', 'symlink', 'oversized']) await t.test(kind, async t => {
     const f = await fixture(t); let files;
+    if (kind === 'space') files = [await f.local('Whip Beta.zip')];
     if (kind === 'label') files = [await f.local('Whip.zip#label')];
     if (kind === 'duplicate') files = [await f.local('one/Whip.zip'), await f.local('two/Whip.zip')];
     if (kind === 'symlink') { const target = await f.local('original'); const link = path.join(f.root, 'Whip.zip'); await symlink(target, link); files = [link]; }

@@ -182,3 +182,5 @@ release's Linux artifact explicitly instead of following branch prereleases.
 Reference: [GitHub artifact verification](https://cli.github.com/manual/gh_attestation_verify),
 [environment protection](https://docs.github.com/en/rest/deployments/environments),
 [R2 token scopes](https://developers.cloudflare.com/r2/api/tokens/).
+
+Final downloadable filenames use hyphens instead of spaces so GitHub, R2, the update feed, and checksums name identical artifacts. The app inside the archive retains its normal display name (Whip or Whip Beta).
