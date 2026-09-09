@@ -1126,7 +1126,8 @@ func (m *model) setUIMode(mode string) tea.Cmd {
 	// WindowSizeMsg resets the re-anchor sentinel — without it viewTop stays
 	// at opencode's pinned 0 and every mouse row maps above the pointer until
 	// the next resize. View() recomputes viewTop from this sentinel.
-	m.viewTop = 1 << 30
+	m.viewTop, m.frameTop = 1<<30, 1<<30
+	m.frameH = 0
 	m.cfg.UIMode = mode
 	if m.cfgExtra == nil {
 		m.cfgExtra = map[string]string{}

@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // The transcript must render inline (no alt-screen) so native drag-to-copy
@@ -27,6 +29,33 @@ func TestInlineRendering(t *testing.T) {
 	// click/wheel-only reporting (no motion), asserted by TestMouseDefaultsOn
 	if !m.mouseOn {
 		t.Fatal("mouse capture must default on for wheel scroll")
+	}
+}
+
+func TestInlineViewReturnsToBottomAfterTemporaryGrowth(t *testing.T) {
+	m := compactCmdModel()
+	m.Update(mkWinSize(80, 30))
+	m.View()
+	bottom := m.viewTop
+
+	// Busy mode temporarily adds the spinner and its separator. Bubble Tea's
+	// inline renderer scrolls a growing frame upward but cannot move its top back
+	// down when the frame shrinks again.
+	m.busy = true
+	m.layout()
+	grown := m.View()
+	if m.viewTop >= bottom {
+		t.Fatalf("test setup: growing view must move up: %d -> %d", bottom, m.viewTop)
+	}
+
+	m.busy = false
+	m.layout()
+	shrunk := m.View()
+	if m.viewTop != bottom {
+		t.Fatalf("shrunk view must return to bottom: got top %d, want %d", m.viewTop, bottom)
+	}
+	if got, want := lipgloss.Height(shrunk), lipgloss.Height(grown); got != want {
+		t.Fatalf("shrunk render must retain the physical frame height: got %d, want %d", got, want)
 	}
 }
 
