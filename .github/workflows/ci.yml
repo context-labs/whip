@@ -39,7 +39,7 @@ jobs:
         with:
           name: whipcode-ci-renderer
           path: apps/web
-          run-id: 34291545971
+          run-id: 34295395906
           github-token: ${{ github.token }}
       - name: Load the release renderer reference for archive verification
         run: |
@@ -47,7 +47,7 @@ jobs:
           import assert from 'node:assert/strict';
           import { readFile } from 'node:fs/promises';
           const manifest = JSON.parse(await readFile('apps/web/renderer-manifest.json'));
-          assert.equal(manifest.source.commit, '0ec4a08b6f7e976f61ebed0e9b408830e2f39290');
+          assert.equal(manifest.source.commit, '2cea57c23b138284974226e9175d8bf1d8c9ba97');
           assert.equal(manifest.source.dirty, false);
           NODE
           node scripts/pack-web.mjs
