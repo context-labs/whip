@@ -1,0 +1,48 @@
+{
+  "recordedAt": "2026-09-09T04:28:55.377Z",
+  "scope": "Only agent-created temporary editor fixtures; no real editor home or keychain changes",
+  "results": [
+    {
+      "directory": "/tmp/whip-editor-qa-5bhzqE",
+      "removed": true,
+      "processReferences": 0,
+      "openFileReferences": 0
+    },
+    {
+      "directory": "/tmp/whip-editor-smoke-7mKXLN",
+      "removed": true,
+      "processReferences": 0,
+      "openFileReferences": 0
+    },
+    {
+      "directory": "/tmp/whip-editor-smoke-HBJ4rK",
+      "removed": true,
+      "processReferences": 0,
+      "openFileReferences": 0
+    },
+    {
+      "directory": "/tmp/whip-editor-smoke-IusMeM",
+      "removed": true,
+      "processReferences": 0,
+      "openFileReferences": 0
+    },
+    {
+      "directory": "/tmp/whip-editor-smoke-JFFfEV",
+      "removed": true,
+      "processReferences": 0,
+      "openFileReferences": 0
+    },
+    {
+      "directory": "/tmp/whip-editor-smoke-WeE9Lc",
+      "removed": true,
+      "processReferences": 0,
+      "openFileReferences": 0
+    },
+    {
+      "directory": "/tmp/whip-editor-smoke-lb4pJF",
+      "removed": true,
+      "processReferences": 0,
+      "openFileReferences": 0
+    }
+  ]
+}

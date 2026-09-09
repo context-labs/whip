@@ -1,9 +1,9 @@
-# WHIP protocol v4
+# WHIP protocol v5
 
 The Go daemon owns execution, admission, provider credentials, model context,
 configuration and SQLite persistence. Unix sockets and WebSockets use the same
 JSON-RPC 2.0 methods, typed payloads, validation and handlers. WHIP's protocol
-major is `4`; the JSON-RPC envelope version remains `"2.0"`. Compatible builds
+major is `5` (minor `0`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
 attach regardless of build ID. Replacement of a running daemon is explicit.
 
 The executable contract is `internal/protocol`: wire DTOs, operation registry,
@@ -16,12 +16,23 @@ files. Standalone validators require no runtime code generation or Ajv dependenc
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
 
-Protocol **4.0** adds explicit unlimited model budgets: `limit` and `remaining`
+Protocol **5.0** adds required `archived` metadata to sessions, snapshots, and
+navigation summaries, and requires a normalized status in catalog cursors.
+Catalog queries default to active sessions and may request archived or all
+sessions. These wire changes require clients and daemons to update together;
+older majors fail during `initialize`, before session reads or commands. There
+is no compatibility fallback. The existing `/api/v3/ws` transport path remains
+stable. Fresh runtime stores use schema 12. Schema 10 upgrades through the
+transactional archive migration to schema 11, then through the persisted
+last-turn migration to schema 12. Schema 11 stores run only the latter step.
+Both steps preserve existing IDs, history, configuration, and command state.
+Other older stores are rejected without mutation; upgraded stores cannot be
+opened by older binaries.
+
+Protocol **4.0** added explicit unlimited model budgets: `limit` and `remaining`
 are decimal strings or `null`, with separate `uncertain` and `incomplete` fields.
 This breaks the old finite-only contract, so clients and daemon update together.
-The existing `/api/v3/ws` transport path remains stable; the initialize handshake
-owns protocol compatibility. Fresh runtime stores use schema 10; older stores are
-rejected without mutation and are not migrated by this change.
+The initialize handshake owns protocol compatibility.
 
 Protocol **3.0** removes client enrollment, signing keys and connection nonces.
 All connected clients may answer permission requests and change permission modes.
@@ -40,8 +51,8 @@ identity and counts are preserved when presentation strings need shortening.
 These are advisory observations across descendants, not an atomic execution
 snapshot or completion guarantee. Lookup failures return errors rather than
 inventing missing roots. This query opens no actor/transcript, writes no journal,
-and requires no schema change. Protocol 3.0 hosts remain usable with tab activity
-explicitly unknown. Coverage: daemon/session `TestSessionSummaries*`, SDK summary
+and originally required no schema change. Current clients require protocol 5.
+Coverage: daemon/session `TestSessionSummaries*`, SDK summary
 and generated interoperability tests.
 
 `command_not_found` (`-32011`) identifies a missing command in the initialized
@@ -107,7 +118,7 @@ capabilities. Build equality is not required for compatibility. Older protocol
 majors are rejected without restarting the runtime.
 
 ```json
-{"jsonrpc":"2.0","id":"request-1","method":"initialize","params":{"protocol_major":4,"build_id":"browser-build","client_kind":"human","client_id":"browser-installation"}}
+{"jsonrpc":"2.0","id":"request-1","method":"initialize","params":{"protocol_major":5,"build_id":"browser-build","client_kind":"human","client_id":"browser-installation"}}
 ```
 
 Fields use snake_case. Signed 64-bit counters use decimal strings; JavaScript
@@ -319,15 +330,26 @@ SQLite mutations, independently of event publication.
 opening roots. `sessions.revision` supports inexpensive polling invalidation.
 Catalog cursors are invalidated when catalog metadata changes. Summary fields
 are limited to 128 Unicode characters, with `truncated: true` when applicable;
-complete root metadata remains available through root views. Both page APIs
+exact actionable metadata remains available through `sessions.get`. Both page APIs
 require `limit` and `max_bytes`.
 
 `sessions.list` accepts a bounded `search` string matched against the complete
-title and working directory. Its cursor also binds that filter. `workspace_id`
+title and working directory. Its optional `status` is `active` (the default),
+`archived`, or `all`; filtering happens before pagination. Its cursor binds the
+normalized status, search, and catalog revision. Refresh from the first page
+when that revision changes. `workspace_id`
 is a digest of the complete stored working directory, independent of its
 shortened display text. Clients namespace it by host runtime ID; they must not
 group workspaces by the shortened `cwd`. Paths beyond the defensive 4096-character
 read bound omit the workspace identity and remain distinguishable by session ID.
+
+`sessions.get({root_id})` returns exact title and working-directory strings,
+`history_revision` as a decimal string, and `archived` without opening an actor,
+transcript, or subscription. Its response is limited to 64 KiB; oversized
+metadata fails explicitly instead of returning truncated actionable values.
+`session.archive({archived})` is a durable command that changes catalog visibility.
+Explicit root snapshots, history, summaries, and Attention still include archived
+roots. Archive and restore preserve running work, pending questions, and recency.
 
 ### Host bootstrap, attention, and themes
 

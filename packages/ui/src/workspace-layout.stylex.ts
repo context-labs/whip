@@ -14,5 +14,4 @@ export const styles = stylex.create({
   verticalSeparator: { height: 1, cursor: 'row-resize' },
   separatorTarget: { position: 'absolute', inset: { default: -4, [scale.touch]: -9 } },
   preview: { position: 'absolute', zIndex: 4, pointerEvents: 'none', borderWidth: 2, borderStyle: 'solid', borderColor: colors.borderFocus, backgroundColor: `color-mix(in srgb, ${colors.borderFocus} 14%, transparent)`, borderRadius: 3 },
-  insertion: { borderRadius: 0, backgroundColor: colors.borderFocus, borderWidth: 0 },
 });

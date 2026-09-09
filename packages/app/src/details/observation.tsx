@@ -48,6 +48,7 @@ export function Agents(props: InspectorProps) {
               {agent.name || 'Root agent'}
             </Link>
             <Badge>{agent.lifecycle_phase || agent.status}</Badge>
+            {agent.last_turn?.status === 'failed' && !root.active_turns?.[agent.id] && <Badge tone="error">Last turn failed</Badge>}
           </div>
           {agent.parent_id && (
             <span {...stylex.props(layout.muted)}>

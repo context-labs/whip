@@ -80,6 +80,7 @@ var rpcOperations = []Operation{
 	rpc[MailboxPageParams, session.MailboxPage]("mailbox.list", Query, "root-agent-association", false),
 	rpc[MailboxReadParams, session.MailboxInspection]("mailbox.read", Query, "root-agent-association", false),
 	rpc[CompletionParams, CompletionResult]("workspace.complete", Query, "root-agent-association", false),
+	rpc[RootParams, session.SessionMetadata]("sessions.get", Query, "root-association", false),
 	rpc[SessionCatalogParams, session.SessionCatalogPage]("sessions.list", Query, "host-runtime", false),
 	rpc[SessionSummariesParams, SessionSummariesResult]("sessions.summaries", Query, "host-runtime", false),
 	rpc[EmptyParams, session.CatalogRevision]("sessions.revision", Query, "host-runtime", false),

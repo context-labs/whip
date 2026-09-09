@@ -6,8 +6,10 @@ the app combines SDK views with TanStack Query and local state. This README owns
 the SDK's public usage contract.
 
 Private, ESM client package for Node 24, browsers, React Native and future Electron clients.
-The SDK attaches to an existing WHIP v4 daemon. Execution, credentials, SQLite,
+The SDK attaches to an existing WHIP v5 daemon. Execution, credentials, SQLite,
 model context, permissions and schedules remain on the execution host.
+Protocol 5 requires archive metadata and status-bound catalog cursors. Update
+the daemon and clients together; older majors fail during initialization.
 
 ## Install and check in this repository
 
@@ -244,6 +246,16 @@ replace earlier values; repeated host calls keep separate event identities.
 references and optional client-observed times. Recorded outcomes without enough
 evidence are marked unknown, and historical durations are not invented.
 
+Agent records also expose optional `last_turn` metadata, refreshed through the
+existing lifecycle/snapshot flow. It records the latest turn's status and error
+even when there are no execution cells. Agent lifecycle remains independent:
+`status: 'idle'` can coexist with `last_turn.status: 'failed'`. A new turn replaces
+the previous outcome. Error previews are capped at 4 KiB; `error_details` is a
+scoped content handle for explicitly reading the full message. Missing summaries
+from compatible older hosts mean unknown, not success. Keep all agent/session
+IDs opaque: new IDs use 20 lowercase base32 characters, while legacy IDs and
+existing links remain valid. Hierarchy comes from `root_id` and `parent_id`.
+
 Supplemental execution evidence is capped at 256 entries per root, 128 host calls
 per cell and 1 MiB **inside** the view's payload budget. Truncation is explicit.
 History revisions and root changes invalidate incompatible observations. When
@@ -331,6 +343,13 @@ Directory and attention results have explicit pagination and truncation. Attenti
 is a live index: refresh from its first page for newly active roots. Session
 catalog searches use `client.sessions.list({ search })`; group displayed paths
 using `workspace_id` scoped to the host runtime, never the shortened `cwd` label.
+The catalog defaults to active sessions; pass `status: 'archived'` or `'all'`
+for other views. Cursors belong to their search and status. Use
+`client.sessions.get(rootId)` for the full title, working directory, archive flag,
+and decimal history revision without opening a transcript or subscription.
+`session.archive(true)` and `session.archive(false)` are durable commands for
+archive and restore. Archiving changes catalog visibility while open session
+views, execution, history, and pending human requests remain available.
 Custom theme JSON can be validated/resolved with `host.themes.resolveJSON(json)`;
 selected themes remain client preferences.
 

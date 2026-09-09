@@ -88,3 +88,69 @@ func TestSessionCatalogSearchAndWorkspaceIdentity(t *testing.T) {
 		t.Fatalf("untruncated path search %+v %v", page, err)
 	}
 }
+
+func TestSessionCatalogArchiveFilteringAndCursorScope(t *testing.T) {
+	store, root := collectionStore(t)
+	for range 4 {
+		if _, err := store.Create(SessionKindAgent, "/project", "model", "provider"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SetTitle(root, "needle"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetArchived(t.Context(), root, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, status, search string
+		count                int
+	}{
+		{"default active", "", "", 4},
+		{"active", "active", "", 4},
+		{"archived", "archived", "", 1},
+		{"all", "all", "", 5},
+		{"active search excludes archived", "active", "needle", 0},
+		{"archive search", "archived", "NEEDLE", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			opts := CatalogPageOptions{Limit: 1, MaxBytes: 4096, Status: test.status, Search: test.search}
+			count := 0
+			for {
+				page, err := store.SessionCatalog(t.Context(), opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				count += len(page.Items)
+				for _, item := range page.Items {
+					if item.Archived != (item.ID == root) {
+						t.Fatalf("wrong archive metadata: %+v", item)
+					}
+				}
+				if !page.HasMore {
+					break
+				}
+				opts.Cursor = page.NextCursor
+			}
+			if count != test.count {
+				t.Fatalf("got %d rows, want %d", count, test.count)
+			}
+		})
+	}
+	page, err := store.SessionCatalog(t.Context(), CatalogPageOptions{Limit: 1, MaxBytes: 4096, Status: "all"})
+	if err != nil || page.NextCursor == nil {
+		t.Fatalf("first all page %+v %v", page, err)
+	}
+	if _, err := store.SessionCatalog(t.Context(), CatalogPageOptions{Limit: 1, MaxBytes: 4096, Status: "active", Cursor: page.NextCursor}); !errors.Is(err, ErrCollectionChanged) {
+		t.Fatalf("cursor reused with different status: %v", err)
+	}
+	if err := store.SetArchived(t.Context(), root, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SessionCatalog(t.Context(), CatalogPageOptions{Limit: 1, MaxBytes: 4096, Status: "all", Cursor: page.NextCursor}); !errors.Is(err, ErrCollectionChanged) {
+		t.Fatalf("restore did not invalidate catalog cursor: %v", err)
+	}
+	if _, err := store.SessionCatalog(t.Context(), CatalogPageOptions{Limit: 1, MaxBytes: 4096, Status: "deleted"}); err == nil {
+		t.Fatal("invalid status accepted")
+	}
+}

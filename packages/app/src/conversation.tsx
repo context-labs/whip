@@ -8,8 +8,6 @@ import {
   Button,
   CodeBlock,
   Dialog,
-  Field,
-  Input,
   Menu,
   Sheet,
   Spinner,
@@ -18,6 +16,7 @@ import { GitBranch, MoreHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
+import { useSessionActions } from './session-actions';
 import { layout } from './styles';
 import {
   Timeline,
@@ -28,6 +27,7 @@ import {
 } from './timeline';
 import { Composer } from './composer';
 import { ReplView } from './repl-view';
+import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
 import { SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
 import { admittedText, isChatInput } from './input-presentation';
@@ -122,9 +122,8 @@ export function SessionContent({
   useEffect(() => {
     if (root?.meta.title) runtime.tabs.titles(expectedRuntimeId, new Map([[session.rootId, root.meta.title]]));
   }, [runtime, expectedRuntimeId, session.rootId, root?.meta.title]);
-  const [rename, setRename] = useState(false);
-  const [title, setTitle] = useState('');
-  const [confirm, setConfirm] = useState<'delete' | 'clear'>();
+  const actions = useSessionActions();
+  const [confirm, setConfirm] = useState<'clear'>();
   const clearRevision = useRef<string | undefined>(undefined);
   const [historyAction, setHistoryAction] = useState<{
     action: 'fork' | 'rewind';
@@ -207,28 +206,13 @@ export function SessionContent({
     }, 250);
     return () => { current = false; clearTimeout(timer); };
   }, [runtime, view, pendingInputIds, connection.state, wrongRuntime]);
-  const agent = root?.agents?.find((item) => item.id === agentId);
+  const agent = useSelectedAgent(view, state, agentId, connected);
   const activeTurn = root?.active_turns[agentId];
   useEffect(() => {
     if (agentId === session.rootId || wrongRuntime) return;
     // The recipient history exposes failures without leaking into another tab.
     return runtime.acquireAgent(view, agentId);
   }, [view, agentId, session.rootId, runtime, wrongRuntime]);
-  async function fork() {
-    if (!root || !canCreateTab()) return;
-    const location = navigationRevision.current;
-    try {
-      const outcome = await runtime.run(
-        session.fork({ expected_revision: root.history_revision }),
-        'Fork session',
-      );
-      const id = outcome.result?.root_id;
-      if (id && stillHere(location))
-        await openCreated(id);
-    } catch {
-      /* The command notice retains errors and uncertain delivery. */
-    }
-  }
   async function readBody(row: TimelineRow) {
     if (!row.body) return;
     bodyRequest.current?.abort();
@@ -296,7 +280,8 @@ export function SessionContent({
           </Button>
         </p>
       )}
-      {kind === 'repl' ? <ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected}
+      <AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />
+      {kind === 'repl' ? <ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn}
         onAgentChange={next => {
           const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
           void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.report(error));
@@ -385,22 +370,9 @@ export function SessionContent({
               <MoreHorizontal size={16} />
             </Button>
           }
+          onOpenChange={actions.prepare}
           items={[
-            {
-              id: 'Rename',
-              label: 'Rename',
-              onSelect: () => {
-                setTitle(root?.meta.title || '');
-                setRename(true);
-              },
-              disabled: !connected,
-            },
-            {
-              id: 'Fork session',
-              label: 'Fork session',
-              onSelect: () => void fork(),
-              disabled: !connected,
-            },
+            ...actions.items({ runtimeId: expectedRuntimeId, rootId: session.rootId, title: root?.meta.title ?? '', archived: root?.meta.archived }),
             {
               id: 'Compact history',
               label: 'Compact history',
@@ -420,12 +392,6 @@ export function SessionContent({
               },
               disabled: !connected,
             },
-            {
-              id: 'Delete session…',
-              label: 'Delete session…',
-              onSelect: () => setConfirm('delete'),
-              disabled: !connected,
-            },
           ]}
         />
         {root && (
@@ -442,70 +408,20 @@ export function SessionContent({
         )}
       </Sheet>
       <Dialog
-        open={rename}
-        onOpenChange={setRename}
-        title="Rename session"
-        footer={
-          <Button
-            disabled={!title.trim() || !connected}
-            onClick={() =>
-              void runtime
-                .run(session.rename(title.trim()), 'Rename session')
-                .then(() => setRename(false))
-                .catch(() => {})
-            }
-          >
-            Save
-          </Button>
-        }
-      >
-        <Field label="Session name">
-          <Input
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            autoFocus
-          />
-        </Field>
-      </Dialog>
-      <Dialog
         open={!!confirm}
         onOpenChange={(open) => {
           if (!open) setConfirm(undefined);
         }}
-        title={
-          confirm === 'delete'
-            ? 'Delete this session?'
-            : 'Clear conversation history?'
-        }
-        description={
-          confirm === 'delete'
-            ? 'The daemon will delete this session and its owned work. This cannot be undone.'
-            : 'This removes the session’s conversation history. Fork it first if you want to keep a copy.'
-        }
+        title="Clear conversation history?"
+        description="This removes the session’s conversation history. Fork it first if you want to keep a copy."
         footer={
           <Button
             variant="danger"
             disabled={!connected}
             onClick={async () => {
-              const location = navigationRevision.current;
               try {
-                const action = confirm;
-                await runtime.run(
-                  action === 'delete'
-                    ? session.delete()
-                    : session.history.clear(clearRevision.current),
-                  action === 'delete' ? 'Delete session' : 'Clear history',
-                );
+                await runtime.run(session.history.clear(clearRevision.current), 'Clear history');
                 setConfirm(undefined);
-                if (action === 'delete' && runtime.connections.isAttached(session.client)) {
-                  const active = selectedSessionTab(runtime.tabs.workspace());
-                  runtime.tabs.close(expectedRuntimeId, [session.rootId], active?.rootId);
-                  if (active?.runtimeId === expectedRuntimeId && active.rootId === session.rootId) {
-                    const next = selectedSessionTab(runtime.tabs.workspace());
-                    if (next) await navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: next.runtimeId, rootId: next.rootId }, search: sessionSearch(next), state: { whipViewId: next.id }, replace: true });
-                    else await navigate({ to: '/', replace: true });
-                  }
-                }
               } catch {}
             }}
           >

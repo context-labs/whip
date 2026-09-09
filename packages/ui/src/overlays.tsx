@@ -4,7 +4,7 @@ import { AlertDialog as BaseAlertDialog } from '@base-ui/react/alert-dialog';
 import { Menu as BaseMenu } from '@base-ui/react/menu';
 import { ContextMenu as BaseContextMenu } from '@base-ui/react/context-menu';
 import { Popover as BasePopover } from '@base-ui/react/popover';
-import { X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import { useRef } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { styles } from './styles.stylex';
@@ -21,13 +21,23 @@ export function Sheet({xstyle, ...props}: DialogProps) {return <Dialog {...props
 export function AlertDialog({open, onOpenChange, title, description, children, confirmLabel = 'Continue', onConfirm, loading, danger = false, xstyle}: Omit<DialogProps, 'footer' | 'closeLabel' | 'initialFocus'> & {confirmLabel?: string; onConfirm: () => void; loading?: boolean; danger?: boolean}) {
   return <BaseAlertDialog.Root open={open} onOpenChange={onOpenChange}><BaseAlertDialog.Portal><BaseAlertDialog.Backdrop {...stylex.props(styles.backdrop)}/><BaseAlertDialog.Popup {...stylex.props(styles.dialog, xstyle)}><BaseAlertDialog.Title {...stylex.props(styles.dialogTitle)}>{title}</BaseAlertDialog.Title>{description && <BaseAlertDialog.Description {...stylex.props(styles.dialogDescription)}>{description}</BaseAlertDialog.Description>}{children}<div {...stylex.props(styles.footer)}><BaseAlertDialog.Close render={<Button disabled={loading}>Cancel</Button>}/><Button variant={danger ? 'danger' : 'primary'} loading={loading} onClick={onConfirm}>{confirmLabel}</Button></div></BaseAlertDialog.Popup></BaseAlertDialog.Portal></BaseAlertDialog.Root>;
 }
-export interface MenuItem {id: string; label: ReactNode; onSelect?: () => void; disabled?: boolean; danger?: boolean; shortcut?: string; icon?: ReactNode; separator?: boolean}
-function MenuItems({items}: {items: readonly MenuItem[]}) {return items.map(item => item.separator ? <BaseMenu.Separator key={item.id} {...stylex.props(styles.separator)}/> : <BaseMenu.Item key={item.id} disabled={item.disabled} onClick={item.onSelect} className={state => stylex.props(styles.item, state.highlighted && styles.highlighted, state.disabled && styles.disabled, item.danger && styles.danger).className}>{item.icon}<span {...stylex.props(styles.grow)}>{item.label}</span>{item.shortcut && <Kbd>{item.shortcut}</Kbd>}</BaseMenu.Item>);}
-export function Menu({trigger, items, align = 'end'}: {trigger: ReactElement; items: readonly MenuItem[]; align?: 'start' | 'end'}) {
-  return <BaseMenu.Root><BaseMenu.Trigger render={trigger}/><BaseMenu.Portal><BaseMenu.Positioner align={align} sideOffset={6} {...stylex.props(styles.positioner)}><BaseMenu.Popup {...stylex.props(styles.popup)}><MenuItems items={items}/></BaseMenu.Popup></BaseMenu.Positioner></BaseMenu.Portal></BaseMenu.Root>;
+export interface MenuItem {id: string; label: ReactNode; onSelect?: () => void; disabled?: boolean; danger?: boolean; shortcut?: string; icon?: ReactNode; separator?: boolean; items?: readonly MenuItem[]}
+function MenuItems({items}: {items: readonly MenuItem[]}) {
+  return items.map(item => {
+    if (item.separator) return <BaseMenu.Separator key={item.id} {...stylex.props(styles.separator)}/>;
+    const content = <>{item.icon}<span {...stylex.props(styles.grow)}>{item.label}</span>{item.shortcut && <Kbd>{item.shortcut}</Kbd>}</>;
+    if (item.items) return <BaseMenu.SubmenuRoot key={item.id}>
+      <BaseMenu.SubmenuTrigger disabled={item.disabled} className={state => stylex.props(styles.item, state.highlighted && styles.highlighted, state.disabled && styles.disabled).className}>{content}<ChevronRight size={14} aria-hidden="true"/></BaseMenu.SubmenuTrigger>
+      <BaseMenu.Portal><BaseMenu.Positioner sideOffset={4} {...stylex.props(styles.positioner)}><BaseMenu.Popup {...stylex.props(styles.popup)}><MenuItems items={item.items}/></BaseMenu.Popup></BaseMenu.Positioner></BaseMenu.Portal>
+    </BaseMenu.SubmenuRoot>;
+    return <BaseMenu.Item key={item.id} disabled={item.disabled} onClick={item.onSelect} className={state => stylex.props(styles.item, state.highlighted && styles.highlighted, state.disabled && styles.disabled, item.danger && styles.danger).className}>{content}</BaseMenu.Item>;
+  });
 }
-export function ContextMenu({children, items}: {children: ReactElement; items: readonly MenuItem[]}) {
-  return <BaseContextMenu.Root><BaseContextMenu.Trigger render={children}/><BaseContextMenu.Portal><BaseContextMenu.Positioner {...stylex.props(styles.positioner)}><BaseContextMenu.Popup {...stylex.props(styles.popup)}><MenuItems items={items}/></BaseContextMenu.Popup></BaseContextMenu.Positioner></BaseContextMenu.Portal></BaseContextMenu.Root>;
+export function Menu({trigger, items, align = 'end', onOpenChange}: {trigger: ReactElement; items: readonly MenuItem[]; align?: 'start' | 'end'; onOpenChange?: (open: boolean) => void}) {
+  return <BaseMenu.Root onOpenChange={onOpenChange}><BaseMenu.Trigger render={trigger}/><BaseMenu.Portal><BaseMenu.Positioner align={align} sideOffset={6} {...stylex.props(styles.positioner)}><BaseMenu.Popup {...stylex.props(styles.popup)}><MenuItems items={items}/></BaseMenu.Popup></BaseMenu.Positioner></BaseMenu.Portal></BaseMenu.Root>;
+}
+export function ContextMenu({children, items, onOpenChange}: {children: ReactElement; items: readonly MenuItem[]; onOpenChange?: (open: boolean) => void}) {
+  return <BaseContextMenu.Root onOpenChange={onOpenChange}><BaseContextMenu.Trigger render={children}/><BaseContextMenu.Portal><BaseContextMenu.Positioner {...stylex.props(styles.positioner)}><BaseContextMenu.Popup {...stylex.props(styles.popup)}><MenuItems items={items}/></BaseContextMenu.Popup></BaseContextMenu.Positioner></BaseContextMenu.Portal></BaseContextMenu.Root>;
 }
 export function Popover({trigger, title, children, open, onOpenChange, xstyle}: {trigger: ReactElement; title?: ReactNode; children: ReactNode; open?: boolean; onOpenChange?: (value: boolean) => void} & Styled) {
   return <BasePopover.Root open={open} onOpenChange={onOpenChange}><BasePopover.Trigger render={trigger}/><BasePopover.Portal><BasePopover.Positioner sideOffset={8} {...stylex.props(styles.positioner)}><BasePopover.Popup {...stylex.props(styles.popup, xstyle)}>{title && <BasePopover.Title {...stylex.props(styles.label)}>{title}</BasePopover.Title>}{children}</BasePopover.Popup></BasePopover.Positioner></BasePopover.Portal></BasePopover.Root>;

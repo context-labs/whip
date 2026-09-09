@@ -36,6 +36,7 @@ func TestRuntimeRegistryEveryOperationOverUnixRPC(t *testing.T) {
 		"cancel":   {`{"turn_id":"stale"}`, true},
 		"goal.set": {`{"text":"ship"}`, false}, "goal.run": {`{"text":"ship"}`, false}, "goal.from-context": {`{"window":2}`, true},
 		"schedule.list": {`{}`, false}, "schedule.create": {`{"schedule":"@every 10m","prompt":"inspect"}`, false}, "schedule.delete": {`{"schedule_id":1}`, false},
+		"session.archive":   {`{"archived":true}`, false},
 		"session.fork":      {`{"title":"fork","expected_revision":"0"}`, false},
 		"workspace.inspect": {`{}`, false}, "workspace.set": {`{"path":"nested"}`, false},
 		"session.effort": {`{"effort":"off","persist_default":false}`, false}, "session.effort.get": {`{}`, false},

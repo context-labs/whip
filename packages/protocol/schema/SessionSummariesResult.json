@@ -12,6 +12,9 @@
           "missing": {
             "type": "boolean"
           },
+          "archived": {
+            "type": "boolean"
+          },
           "title": {
             "type": "string"
           },
@@ -48,6 +51,7 @@
         "required": [
           "root_id",
           "missing",
+          "archived",
           "title",
           "cwd",
           "running_agents",
@@ -61,7 +65,7 @@
       "maxItems": 32
     }
   },
-  "$id": "https://whip.dev/protocol/v4/SessionSummariesResult",
+  "$id": "https://whip.dev/protocol/v5/SessionSummariesResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SessionSummariesResult",
   "required": [

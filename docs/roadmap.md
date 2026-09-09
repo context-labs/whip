@@ -111,6 +111,7 @@ in
   and Android acceptance in the [mobile plan](../.ai-docs/plans/mobile-app/IMPLEMENTATION.md).
 - [ ] Mobile follow-ups: authenticated device pairing/QR and push notifications,
   after the private-host companion is accepted.
+- [x] Conversation row actions: shared rename, same-directory fork, archive/restore, delete, and local/SSH editor opening. See [features](features.md#conversation-row-actions).
 - [ ] Editing, code review and standalone terminal product surfaces (later work).
 - [ ] Hosted execution, connection authentication and relay infrastructure.
 

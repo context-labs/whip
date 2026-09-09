@@ -39,7 +39,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/HostDirectoryResult",
+  "$id": "https://whip.dev/protocol/v5/HostDirectoryResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "HostDirectoryResult",
   "required": [

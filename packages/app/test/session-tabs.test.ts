@@ -41,6 +41,42 @@ describe('window session tabs', () => {
     expect(update).toHaveBeenCalledTimes(1);
     expect(state.workspace().tabs.map(x => x.rootId)).toEqual(['c']); off();
   });
+  it('purges every view and closed entry for a deleted root while preserving other hosts and focus', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    state.visit('mac', 'root', { agent: 'child' });
+    const duplicate = state.split('root', 'right');
+    state.closeViews([duplicate]);
+    const remote = state.open('remote', 'root');
+    state.visit('remote', 'root', {}, remote);
+    const surviving = selectedSessionTab(state.workspace());
+    const update = vi.fn(); state.subscribe(update);
+    state.purge('mac', 'root');
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(state.workspace().tabs).toEqual([surviving]);
+    expect(selectedSessionTab(state.workspace())).toEqual(surviving);
+    expect(state.workspace().closed).toEqual([]);
+    expect(state.reopenView()).toBeUndefined();
+    expect(new SessionTabs(disk).workspace()).toEqual(state.workspace());
+    state.purge('remote', 'root');
+    expect(state.workspace().tabs).toEqual([]);
+    expect(state.workspace().restoreSelection).toBe(false);
+  });
+  it('purges closed-only and recoverable legacy roots without discarding unrelated layouts', () => {
+    const disk = storage();
+    disk.setItem(LEGACY_TAB_STORAGE_KEY, JSON.stringify({ version: 1, workspaces: [
+      { runtimeId: 'mac', tabs: [{ rootId: 'root' }, { rootId: 'keep' }], closed: [{ tab: { rootId: 'root' } }] },
+      { runtimeId: 'remote', tabs: [{ rootId: 'root' }] },
+    ] }));
+    const state = new SessionTabs(disk, undefined, 'remote');
+    state.purge('mac', 'root');
+    expect(state.getSnapshot().previous[0]?.workspace.tabs.map(tab => tab.rootId)).toEqual(['keep']);
+    const restored = new SessionTabs(disk);
+    expect(restored.getSnapshot().previous[0]?.workspace.tabs.map(tab => tab.rootId)).toEqual(['keep']);
+    expect(restored.getSnapshot().previous[0]?.workspace.closed).toEqual([]);
+    state.close('remote', ['root']);
+    state.purge('remote', 'root');
+    expect(state.reopenView()).toBeUndefined();
+  });
   it('bounds open tabs without silently evicting work and bounds closed history', () => {
     const state = new SessionTabs();
     for (let i = 0; i < 32; i++) state.open('mac', `root-${i}`);

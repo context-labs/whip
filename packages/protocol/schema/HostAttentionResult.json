@@ -399,7 +399,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/HostAttentionResult",
+  "$id": "https://whip.dev/protocol/v5/HostAttentionResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "HostAttentionResult",
   "required": [

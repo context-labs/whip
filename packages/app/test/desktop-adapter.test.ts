@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { DesktopBridge, DesktopEvent } from '../src/desktop-bridge';
 import { createDesktopPlatform, desktopTransport } from '../../../apps/web/src/platform/desktop';
-import { localProfile } from '../src/connections';
+import { localProfile, urlProfile, type ConnectionProfile } from '../src/connections';
 
 function fixture() {
   const listeners = new Set<(event: DesktopEvent) => void>();
@@ -10,11 +10,13 @@ function fixture() {
     onEvent(listener: (event: DesktopEvent) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     openTransport: vi.fn(async (_id: string, _connectionId: string) => {}),
     sendTransport: vi.fn(), closeTransport: vi.fn(), acknowledgeTransport: vi.fn(),
-    prepareConnection: vi.fn(async () => {}), releaseConnection: vi.fn(),
+    prepareConnection: vi.fn(async (_id: string, _profile: ConnectionProfile) => {}), releaseConnection: vi.fn(),
     beginSave: vi.fn(async () => 'save'), writeSave: vi.fn(async () => {}),
     finishSave: vi.fn(async () => {}), cancelSave: vi.fn(async () => {}),
     checkForUpdates: vi.fn(async () => {}), installUpdate: vi.fn(async () => {}),
     pickDirectory: vi.fn(async () => '/native/project'),
+    listProjectEditors: vi.fn(async () => [{ id: 'cursor', label: 'Cursor', installed: true }]),
+    openProject: vi.fn(async () => {}),
     testLocalRuntime: vi.fn(async () => ({ state: 'stopped', home: '/home/.whipcode', message: 'Ready to start.', canInstall: false })),
     chooseLocalRuntime: vi.fn(async () => ({ state: 'missing', home: '/home/.whipcode', message: 'Choose whipcode.', canInstall: true })),
     installLocalRuntime: vi.fn(async () => ({ state: 'stopped', home: '/home/.whipcode', message: 'Installed.', canInstall: false })),
@@ -26,6 +28,37 @@ function fixture() {
     emit(event: DesktopEvent) { for (const listener of listeners) listener(event); } };
 }
 afterEach(() => { localStorage.clear(); sessionStorage.clear(); });
+
+it('surfaces inset window chrome only when the bridge reports it', () => {
+  expect(createDesktopPlatform(fixture().api, vi.fn()).chrome).toBeUndefined();
+  const inset = { ...fixture().api, chrome: 'inset' as const };
+  expect(createDesktopPlatform(inset, vi.fn()).chrome).toBe('inset');
+});
+
+it('binds editor opening to the requested prepared host, including renderer-owned URL connections', async () => {
+  const f = fixture(); const platform = createDesktopPlatform(f.api, vi.fn());
+  const request = { app: 'cursor' as const, directory: '/full/project', connectionId: 'local', runtimeId: 'runtime-local' };
+  await expect(platform.projectEditors!.open(request)).rejects.toThrow('source host is disconnected');
+  expect(await platform.projectEditors!.list()).toEqual([{ id: 'cursor', label: 'Cursor', installed: true }]);
+  const options = { signal: new AbortController().signal, onProgress() {} };
+  const local = await platform.resolveConnection!(localProfile, options);
+  const remoteProfile = urlProfile('https://remote.ts.net');
+  const remote = await platform.resolveConnection!(remoteProfile, options);
+  expect(remote.endpoint).toBe('https://remote.ts.net/');
+  const localHandle = f.bridge.prepareConnection.mock.calls[0]![0];
+  expect(f.bridge.prepareConnection).toHaveBeenCalledOnce();
+  await platform.projectEditors!.open(request);
+  expect(f.bridge.openProject).toHaveBeenLastCalledWith({ ...request, connectionId: localHandle }, undefined);
+  const remoteRequest = { ...request, connectionId: remoteProfile.id, runtimeId: 'runtime-remote', sshAlias: 'gpu-4090-sam' };
+  await platform.projectEditors!.open(remoteRequest);
+  expect(f.bridge.openProject).toHaveBeenLastCalledWith({ ...remoteRequest, connectionId: expect.any(String) }, remoteProfile);
+  remote.dispose();
+  await expect(platform.projectEditors!.open(remoteRequest)).rejects.toThrow('source host is disconnected');
+  await platform.projectEditors!.open(request);
+  local.dispose(); platform.dispose?.();
+  await expect(platform.projectEditors!.open(request)).rejects.toThrow('closed');
+  await expect(platform.projectEditors!.list()).rejects.toThrow('closed');
+});
 
 it('forwards local runtime actions separately without starting or installing during a read-only test', async () => {
   const f = fixture(); const platform = createDesktopPlatform(f.api, vi.fn());

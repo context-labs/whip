@@ -17,7 +17,7 @@ interface Connection {
 
 function initialize(): InitializeResult {
   return {
-    protocol_major: 4, protocol_minor: 0, runtime_id: 'runtime-fixture',
+    protocol_major: manifest.major, protocol_minor: manifest.minor, runtime_id: 'runtime-fixture',
     connection_id: 'connection-fixture', host_platform: 'darwin', host_architecture: 'arm64',
     build_id: 'different-daemon-build', generation: '9007199254740993',
     capabilities: [], negotiated_capabilities: [],
@@ -62,6 +62,33 @@ test('an already-aborted connect does not create a transport', async t => {
   await assert.rejects(client.connect({ signal: AbortSignal.abort() }), { name: 'AbortError' });
   assert.equal(server.connections.length, 0);
   assert.equal(client.getSnapshot().state, 'closed');
+});
+
+test('an incompatible daemon is rejected during initialization before session reads or reconnect retries', async t => {
+  const server = harness((request, connection) => {
+    assert.equal(request.method, 'initialize');
+    assert.equal(request.params.protocol_major, manifest.major);
+    connection.reply(request, { ...initialize(), protocol_major: 4, protocol_minor: 1 });
+  });
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'old-daemon' });
+  t.after(() => client.close());
+  await assert.rejects(client.connect(), { kind: 'unsupported_protocol' });
+  assert.equal(client.getSnapshot().state, 'incompatible');
+  assert.equal(server.current.closed, true);
+  await assert.rejects(client.sessions.list(), { kind: 'unsupported_protocol' });
+  assert.deepEqual(server.current.requests.map(request => request.method), ['initialize']);
+});
+
+test('an old daemon’s initialization rejection remains an incompatible connection', async t => {
+  const server = harness((request, connection) => {
+    assert.equal(request.method, 'initialize');
+    connection.error(request, 'unsupported_protocol', -32001);
+  });
+  const client = new WhipClient({ endpoint: server.factory, clientId: 'old-server-rejection' });
+  t.after(() => client.close());
+  await assert.rejects(client.connect(), { kind: 'unsupported_protocol' });
+  assert.equal(client.getSnapshot().state, 'incompatible');
+  assert.deepEqual(server.current.requests.map(request => request.method), ['initialize']);
 });
 
 test('a remembered runtime identity is checked before any connected state or host query', async t => {

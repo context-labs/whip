@@ -3,9 +3,7 @@ package session
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,9 +40,10 @@ type Meta struct {
 	Provider    string      `json:"provider"`
 	CWD         string      `json:"cwd"`
 	Goal        string      `json:"goal"`
-	ForkedFrom  string      `json:"forked_from"`  // source session id when created by /fork ("" = root)
-	ForkSeq     int         `json:"fork_seq"`     // conversation index the fork branched at
-	Tags        []string    `json:"tags"`         // freeform labels, for filtering /resume
+	ForkedFrom  string      `json:"forked_from"` // source session id when created by /fork ("" = root)
+	ForkSeq     int         `json:"fork_seq"`    // conversation index the fork branched at
+	Tags        []string    `json:"tags"`        // freeform labels, for filtering /resume
+	Archived    bool        `json:"archived"`
 	Pinned      bool        `json:"pinned"`       // pinned sessions sort first and survive cleanup
 	Effort      string      `json:"effort"`       // reasoning effort for this session ("" = use the global default)
 	UsageIn     int         `json:"usage_in"`     // cumulative input tokens across the session's API calls
@@ -171,12 +170,22 @@ func (s *Store) Create(kind SessionKind, cwd, model, provider string) (string, e
 	if err := validateSessionIdentity(kind, cwd, model, provider); err != nil {
 		return "", err
 	}
-	b := make([]byte, 4)
-	rand.Read(b)
-	id := hex.EncodeToString(b)
-	_, err := s.db.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider) VALUES (?,?,?,?,?,?,?)`,
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tx.Rollback() }()
+	id, err := unusedAgentID(ctx, tx, NewAgentID)
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider) VALUES (?,?,?,?,?,?,?)`,
 		id, kind, now(), now(), cwd, model, provider)
-	return id, err
+	if err != nil {
+		return "", err
+	}
+	return id, tx.Commit()
 }
 
 func validateSessionIdentity(kind SessionKind, cwd, model, provider string) error {
@@ -237,7 +246,7 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 
 // Load resolves idOrPrefix to a session and returns its metadata and messages.
 func (s *Store) Load(idOrPrefix string) (Meta, []llm.Message, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,effort,usage_in,usage_cached,usage_out,updated_at FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
 	if err != nil {
 		return Meta{}, nil, err
 	}
@@ -406,7 +415,7 @@ func (s *Store) RecentContext(ctx context.Context, n int) ([]Meta, error) {
 	if n < 1 || n > 500 {
 		return nil, errors.New("recent sessions limit must be between 1 and 500")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,effort,usage_in,usage_cached,usage_out,updated_at FROM sessions
+	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at FROM sessions
 		WHERE EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)
 		ORDER BY updated_at DESC LIMIT ?`, n)
 	if err != nil {
@@ -567,6 +576,9 @@ func (s *Store) ClearMessages(id string) error {
 	if _, err := tx.ExecContext(context.Background(), `DELETE FROM messages WHERE session_id=?`, id); err != nil {
 		return err
 	}
+	if err := clearRootTurnOutcome(context.Background(), tx, id); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(context.Background(), `UPDATE sessions SET history_revision=history_revision+1 WHERE id=?`, id); err != nil {
 		return err
 	}
@@ -593,6 +605,9 @@ func (s *Store) DeleteFrom(id string, from int) error {
 		if _, err := tx.ExecContext(ctx, statement, id, from); err != nil {
 			return err
 		}
+	}
+	if err := clearRootTurnOutcome(ctx, tx, id); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET history_revision=history_revision+1 WHERE id=?`, id); err != nil {
 		return err
@@ -621,6 +636,9 @@ func (s *Store) RewindHistory(ctx context.Context, id string, from int) ([]llm.M
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM compactions WHERE session_id=? AND agent_id=?`, id, id); err != nil {
+		return nil, err
+	}
+	if err := clearRootTurnOutcome(ctx, tx, id); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET history_revision=history_revision+1 WHERE id=?`, id); err != nil {
@@ -890,14 +908,15 @@ func (s *Store) SetTitleIf(id, current, title string) (bool, error) {
 // readable by the source root. It shares immutable references, preserving their
 // scopes, but inherits no live recursive runtime state.
 func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
-	b := make([]byte, 4)
-	rand.Read(b)
-	newID := hex.EncodeToString(b)
 	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = tx.Rollback() }()
+	newID, err := unusedAgentID(context.Background(), tx, NewAgentID)
+	if err != nil {
+		return "", err
+	}
 	result, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort)
 		SELECT ?,kind,?,?,cwd,model,provider,?,goal,?,?,effort FROM sessions WHERE id=? AND kind='agent'`,
 		newID, now(), now(), title, srcID, uptoSeq, srcID)
@@ -957,7 +976,7 @@ func (s *Store) SetPinned(id string, pinned bool) error {
 // ForksOf lists sessions forked from id, newest first — the session tree's
 // children of one node.
 func (s *Store) ForksOf(id string) ([]Meta, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,effort,usage_in,usage_cached,usage_out,updated_at
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at
 		FROM sessions WHERE forked_from=? ORDER BY updated_at DESC`, id)
 	if err != nil {
 		return nil, err
@@ -1020,7 +1039,7 @@ func scanMetas(rows *sql.Rows) ([]Meta, error) {
 		var updated, tags string
 		var pinned int
 		if err := rows.Scan(&m.ID, &m.Kind, &m.Title, &m.Model, &m.Provider, &m.CWD, &m.Goal,
-			&m.ForkedFrom, &m.ForkSeq, &tags, &pinned, &m.Effort,
+			&m.ForkedFrom, &m.ForkSeq, &tags, &pinned, &m.Archived, &m.Effort,
 			&m.UsageIn, &m.UsageCached, &m.UsageOut, &updated); err != nil {
 			return nil, err
 		}

@@ -23,13 +23,15 @@ function Status({ item, stale }: { item?: SessionNavigationSummary; stale: boole
   return <MessageSquare size={13} aria-hidden="true" />;
 }
 
-export function SessionTabStrip({ compact, onManageHosts, utilities, children, notices, ref }: {
+export function SessionTabStrip({ compact, onManageHosts, utilities, children, notices, ref, sidebarHidden = false }: {
   compact: boolean;
   onManageHosts(): void;
   utilities: ReactNode;
   children?: ReactNode;
   notices?: ReactNode;
   ref?: Ref<SessionTabActions>;
+  /** Sidebar is hidden: the strip's leading edge must clear the traffic lights. */
+  sidebarHidden?: boolean;
 }) {
   const runtime = useRuntime();
   const { hosts } = useAppState();
@@ -48,6 +50,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState('');
   const [small, setSmall] = useState(compact);
+  const inset = runtime.platform.chrome === 'inset';
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   useEffect(() => { const change = () => setVisible(document.visibilityState !== 'hidden'); document.addEventListener('visibilitychange', change); return () => document.removeEventListener('visibilitychange', change); }, []);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(timer); }, [notice]);
@@ -191,6 +194,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   }));
   const add = <IconButton variant="ghost" label="New session tab" onClick={() => void navigate({ to: '/' })}><Plus size={17} /></IconButton>;
   const renderStrip = (pane: SessionPane, shared: boolean) => <WorkspaceTabs groupId={shared ? pane.id : undefined} label={panes.length > 1 ? `Open sessions in pane ${panes.indexOf(pane) + 1}` : 'Open sessions'}
+    windowDrag={inset && pane.id === panes[0]?.id} trafficLightInset={inset && sidebarHidden}
     leading={(!matched || pane.id === visiblePanes[0]?.id) ? utilities : undefined}
     value={matched ? pane.selected ?? null : null} onClose={id => close([id])} panelId={pane.selected ? workspacePanelId(pane.selected) : undefined}
     onReorder={order => runtime.tabs.reorderPane(pane.id, order)} utilities={<>{add}{matched && <Menu trigger={<IconButton label={`Pane ${panes.indexOf(pane) + 1} actions`} variant="ghost"><Columns2 size={16} /></IconButton>} items={[

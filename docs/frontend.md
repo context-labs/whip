@@ -250,6 +250,26 @@ changes. Cancellation preserves the directory; unavailable native choosers fall
 back to browsing directories on the original host.
 Bootstrap calls `platform.dispose()` after the shared application unmounts.
 
+The desktop window hides its native title bar on macOS (`titleBarStyle:
+'hiddenInset'` in [`main.ts`](../apps/desktop/src/main.ts)) and the renderer
+owns the top chrome. The bridge reports this as `chrome: 'inset'`
+([`desktop-bridge.ts`](../packages/app/src/desktop-bridge.ts)), surfaced as
+`AppPlatform.chrome`; the browser adapter leaves it undefined and is unaffected.
+The sidebar's 48px brand row and the 48px tab strip double as the window drag
+region via `-webkit-app-region` (the `windowDrag`/`windowNoDrag` entries in
+[`styles.ts`](../packages/app/src/styles.ts) and
+[`workspace-tabs.stylex.ts`](../packages/ui/src/workspace-tabs.stylex.ts));
+interactive children opt out — the tab list itself stays draggable so the
+strip's empty stretch moves the window, while individual tabs and utility
+buttons opt out to protect tab reordering and clicks. The traffic lights are
+vertically centered in
+that strip (`trafficLightPosition: {x: 12, y: 18}`); the sidebar carries the
+theme-colored `WhipcodeWordmark` (`@whip/ui`) in both shells — a home link in
+the browser's brand row, an inert mark below the empty traffic-light strip
+(aligned with the nav icons) when inset — and when the sidebar is hidden the
+leftmost tab strip reserves the light zone instead (`trafficLightInset`). Only the leftmost pane's strip is a drag region.
+Hiding the title bar removes the native double-click-to-zoom gesture.
+
 Desktop's optional `localRuntime` capability provides `test`, `choose`, `install`
 and `restart`. Electron main owns executable discovery, compatibility checks,
 installation and process effects through [`LocalRuntime`](../apps/desktop/src/runtime.ts).
@@ -495,6 +515,22 @@ keyboard controls retain their focus-visible outlines.
 
 ### Session REPL viewer
 
+Each agent's optional `last_turn` is a bounded daemon-owned projection, separate
+from agent lifecycle: an idle agent can have a failed last turn. Lifecycle events
+use the SDK's existing coalesced snapshot refresh; app does not synthesize an
+execution or assistant message when a request fails before producing output.
+`agent-turn-notice.tsx` shares the named-agent outcome notice between chat and REPL,
+and the agent inspector displays a distinct last-turn failure badge. Starting a
+new turn hides the old notice; success replaces the failed outcome. Long errors
+have a 4 KiB preview and an explicitly opened scoped content reference. A selected
+agent outside the SDK's bounded agent page uses a cancellable detail read,
+invalidated with lifecycle snapshots rather than individual streaming deltas.
+Older compatible snapshots may omit the summary; absence means unknown.
+
+New root/session, fork, and child IDs are opaque 20-character lowercase base32
+identifiers. Existing IDs remain valid. Use `root_id`/`parent_id` for hierarchy;
+never parse an ID prefix or rely on a fixed legacy hex length.
+
 A session tab's **Open REPL** menu action switches its existing descriptor to
 `kind: 'repl'`; **Open chat** reverses it. The same actions are available in the
 context menu and mobile picker. `sessionSearch` is the shared URL serializer:
@@ -643,6 +679,17 @@ delegated MCP authority. Competing decisions resolve once. After an uncertain
 decision acknowledgement, refresh pending state before another attempt.
 Explicit permission retries retain the original decision `command_id`.
 
+Within each session pane, permission approvals appear one at a time above the
+composer, matching its constrained width and 20px corners. The theme's warning tint
+marks the card; transparent, lightly outlined decision buttons and the scope
+dropdown sit together in a wrapping action row. Agent names come from the
+existing root snapshot, with readable root/unnamed fallbacks. A waiting count
+describes the loaded pending requests and qualifies omitted results. The first
+pending request stays visible until authoritative
+state resolves it, including decisions made by another client. Advancing resets
+the scope choice to this request only; uncertain decisions keep their refresh
+flow. The daemon/SDK remain the queue owner.
+
 Provider onboarding, tokens, machine keys, and shared configuration writes remain
 host-owned. API-key entry is an ephemeral UI input: never place it in drafts,
 Query persistence, command-recovery storage, or logs. Configuration updates use
@@ -784,7 +831,7 @@ unsupported/stale summaries fall back to the plain dot.
 Directory headings have no hover fill; session hover uses `colors.element` and
 selection uses `colors.hover` for the reference design’s stronger selected fill.
 Session links retain native modified clicks and saved
-agent/inspector locations; sibling menus expose Open in background tab.
+agent/inspector locations; sibling menus use the shared conversation actions.
 
 Directory + links carry validated `cwd` and `runtimeId` home-route search values.
 New session first selects Local or Remote, then a saved host or Add remote host,
@@ -809,6 +856,39 @@ Catalog refresh preserves the visible anchor; explicit session navigation
 expands/reveals its loaded directory without polling undoing manual collapse.
 Below 768 px the existing Sheet contains a bounded list and footer, uses >=44 px
 targets, and has no resize handle. Colors remain theme-derived.
+
+### Conversation row actions
+
+[`session-actions.tsx`](../packages/app/src/session-actions.tsx) owns the shared
+Open in, Rename, Fork, Archive/Restore, and Delete flows used by sidebar rows,
+search results, and Session details. Its provider lives in `AppShell`, above
+virtualized rows, so dialogs retain the clicked runtime/root and client identity
+when a row moves or disappears. Opening a menu never creates a SessionView.
+Exact titles, directories, archive state, and history revisions come from the
+bounded `sessions.get` query; catalog abbreviations are presentation only.
+
+All mutations use existing SDK command handles and `AppRuntime.run`. Fork copies
+committed root history in the same directory using the freshly read history
+revision; late completion does not steal navigation. Delete confirms first,
+then `AppRuntime.forgetSession` purges the root's views, closed-tab history,
+drafts, uploads, and local previews without touching other hosts. It navigates
+only when the current route displays the deleted root.
+
+Archive is durable metadata, independent of execution and recency. Active SDK
+catalogs exclude archived roots; explicit root reads and Attention include them.
+Archiving never closes tabs, clears drafts, or stops work. Archived sessions are
+available through the search dialog's Active/Archived/All filter and sidebar
+entry. Undo issues a restore command. Search observes the existing catalogs'
+revision changes to refresh affected hosts and invalidate old page cursors,
+including changes from another client; it adds no background catalog poller.
+
+Desktop exposes the optional typed `AppPlatform.projectEditors` capability.
+Electron discovers a fixed set of installed applications and validates the
+connected runtime before launching a full directory with argument arrays.
+URL/Tailscale hosts require an explicit, device-local runtime-to-SSH-alias
+preference; native SSH hosts can reuse a simple alias. Finder is local-only.
+The browser offers Copy directory. Shared UI never imports Electron or launches
+arbitrary commands, and generic `openExternal` remains restricted to web/mail URLs.
 
 ## Component and styling contract
 
@@ -854,7 +934,15 @@ Runtime inline styles are reserved for measured geometry (virtual rows, overlay
 positioning), not authored colors/spacing. Validated theme data updates a fixed
 CSS-variable allowlist. UIProvider disables Base UI's injected style elements;
 the tab drag implementation uses native Web Animations instead of injected drag
-feedback CSS. Preserve the production CSP and existing geometry exceptions.
+feedback CSS. A shared, inert tab preview follows the pointer outside the
+scroller; temporary sibling transforms reveal the insertion gap without changing
+the saved order or remounting content. Headers use this gap without a separate
+insertion marker; content-area move and split targets retain their drop previews.
+Tabs use a shared contour with 12px upper
+corners and outward-curving lower shoulders. The active tab's quiet border follows
+the top and sides, leaving its bottom open into the content surface and covering
+the strip baseline. The drag preview keeps that contour without a drop shadow.
+Preserve the production CSP and existing geometry exceptions.
 
 ### Themes are foundational
 
@@ -1000,11 +1088,14 @@ Run from the repository root with Node 24 and the Go toolchain in `go.mod`.
 ```sh
 npm ci
 npm run build                  # SDK artifacts used by the app
-# Substitute the running daemon's reported network endpoint; allow the web origin.
-WHIP_WEB_DAEMON=http://127.0.0.1:8080 npm run dev:web
+# Proxies to the local daemon on 127.0.0.1:8080; its allowlist must include port 3000.
+npm run dev:web
 ```
 
-The development app is on port 3000. Use [web-app.md](web-app.md) for daemon
+The development app is on port 3000; Vite forwards `/api` HTTP and WebSocket
+requests to `http://127.0.0.1:8080` by default. Set `WHIP_WEB_DAEMON` when the
+daemon reports a different endpoint. Production keeps same-origin attachment.
+Use [web-app.md](web-app.md) for daemon
 setup, production assets, trusted-network access, and troubleshooting. A daemon
 restart interrupts work; do not restart or reset a developer's runtime as a
 casual frontend test fixture.
@@ -1048,6 +1139,11 @@ Automated viewport, Axe, and WebKit tests do not establish physical-mobile,
 VoiceOver, or actual Safari coverage. State the exact coverage and remaining
 checks. Documentation-only edits need link/consistency checks, not a fresh runtime
 acceptance run.
+
+`node apps/web/scripts/permission-requests.mjs` builds an isolated fixture with
+the shared permission card and composer. It checks the request queue, scope reset,
+keyboard controls and light/dark/narrow geometry in Chromium and Firefox without
+starting a daemon or executing the displayed commands.
 
 ## Maintaining one canonical resource
 

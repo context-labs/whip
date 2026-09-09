@@ -45,6 +45,15 @@ function fixture(messages: NonNullable<SessionViewSnapshot['history'][string]>['
   </ThemeProvider></UIProvider></RuntimeContext.Provider>;
   return { app, state, view, copy };
 }
+
+it('explains a saved failure with no execution cells instead of the ordinary empty state', () => {
+  const f = fixture();
+  f.state.root!.agents = [{ id: 'root', name: 'Research', last_turn: { status: 'failed', event_seq: '14', error: 'Invalid prompt_cache_key' } }] as NonNullable<SessionViewSnapshot['root']>['agents'];
+  render(f.app());
+  expect(screen.getByText('The last turn failed')).toBeDefined();
+  expect(screen.queryByText('No executions in the loaded history')).toBeNull();
+  expect(screen.queryAllByRole('article')).toHaveLength(0);
+});
 it('renders a read-only cell, expands output, copies exact text and does not invent historical timing', async () => {
   const f = fixture([
     { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"print(42)"}' } }] } },

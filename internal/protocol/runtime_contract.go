@@ -89,6 +89,9 @@ type PathResult struct {
 type TitleResult struct {
 	Title string `json:"title"`
 }
+type ArchiveResult struct {
+	Archived bool `json:"archived"`
+}
 type GoalResult struct {
 	Goal string `json:"goal"`
 }

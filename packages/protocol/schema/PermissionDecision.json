@@ -20,7 +20,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/PermissionDecision",
+  "$id": "https://whip.dev/protocol/v5/PermissionDecision",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "PermissionDecision",
   "required": [

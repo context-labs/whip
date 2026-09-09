@@ -273,3 +273,52 @@ func (r *sdkFixtureRunner) scratchResult(ctx context.Context, started func()) (s
 	r.mu.Unlock()
 	return "The cell failed after printing; do not replay its effects.", nil
 }
+
+func seedSDKTurnFailures(t *testing.T, store *session.Store, rootID, cwd string) {
+	t.Helper()
+	if _, err := store.EnsureAuthority(t.Context(), rootID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"turn-failed-empty", "turn-failed-history", "turn-failed-long"} {
+		if _, err := store.AdmitAgent(t.Context(), session.AgentAdmission{
+			RootID: rootID, ParentAgentID: rootID, ChildAgentID: id, Name: "Architecture researcher " + id, Model: "model", Provider: "provider", CWD: cwd,
+			Prompt: session.RuntimePayload{Data: []byte("Inspect tab behavior")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		turn := id + "-turn"
+		if _, err := store.StartAgentTurn(t.Context(), rootID, id, turn); err != nil {
+			t.Fatal(err)
+		}
+		message := `400 Bad Request: Invalid 'prompt_cache_key': maximum length 64, received 82.`
+		var messages []llm.Message
+		if id == "turn-failed-history" {
+			messages = sdkREPLMessages(t, "Prior", 1)
+		}
+		if id == "turn-failed-long" {
+			message += strings.Repeat("\nProvider diagnostic: "+strings.Repeat("long-detail-", 40), 24)
+		}
+		if err := store.FinishAgentTurn(t.Context(), rootID, id, session.AgentTurnCommit{TurnID: turn, Status: "failed", Error: message, Messages: messages}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func registerSDKTurnOutcomeProbe(mux *http.ServeMux, store *session.Store, rootID string) {
+	mux.HandleFunc("POST /control/turn-outcome/succeed", func(w http.ResponseWriter, r *http.Request) {
+		const id, turn = "turn-failed-empty", "successful-followup"
+		if _, err := store.EnqueueInbox(r.Context(), session.InboxEnqueue{RootID: rootID, AgentID: id, Kind: "submit", Payload: session.RuntimePayload{Data: []byte("Continue")}}); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		if _, err := store.StartAgentTurn(r.Context(), rootID, id, turn); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		if err := store.FinishAgentTurn(r.Context(), rootID, id, session.AgentTurnCommit{TurnID: turn, Status: "succeeded", Messages: []llm.Message{{Role: "assistant", Content: "Follow-up completed."}}}); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+}

@@ -239,7 +239,7 @@ func (s *Store) FinishAgentTurn(ctx context.Context, rootID, agentID string, com
 		return err
 	}
 	if _, err := s.insertActorEventTx(ctx, tx, rootID, "agent.turn."+status, actorEvent{
-		AgentID: agentID, Phase: "idle", Status: status, TerminalCause: status,
+		TurnID: commit.TurnID, AgentID: agentID, Phase: "idle", Status: status, TerminalCause: status,
 		Error: commit.Error, Acknowledged: commit.AcknowledgedInbox,
 	}, stamp); err != nil {
 		return err
@@ -285,7 +285,7 @@ func (s *Store) LoadAgent(ctx context.Context, rootID, agentID string) (RuntimeA
 }
 
 func (s *Store) LoadRetainedAgents(ctx context.Context, rootID string) ([]RuntimeAgent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status
+	rows, err := s.db.QueryContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status,last_turn
 		FROM agents WHERE root_id=? AND parent_id IS NOT NULL AND status NOT IN ('stopped','deleted','failed') ORDER BY created_at,id`, rootID)
 	if err != nil {
 		return nil, err
@@ -294,7 +294,7 @@ func (s *Store) LoadRetainedAgents(ctx context.Context, rootID string) ([]Runtim
 	var result []RuntimeAgent
 	for rows.Next() {
 		var value RuntimeAgent
-		if err := rows.Scan(&value.ID, &value.RootID, &value.ParentID, &value.Name, &value.Model, &value.Provider, &value.Effort, &value.CWD, &value.Report, &value.Status); err != nil {
+		if err := rows.Scan(&value.ID, &value.RootID, &value.ParentID, &value.Name, &value.Model, &value.Provider, &value.Effort, &value.CWD, &value.Report, &value.Status, &value.LastTurn); err != nil {
 			return nil, err
 		}
 		result = append(result, value)

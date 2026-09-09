@@ -1,5 +1,6 @@
 import './polyfills';
 import { WhipError } from '@whip/sdk';
+import { manifest } from '@whip/protocol';
 import { connectionIssue, testConnection } from './connection-test';
 
 const mockConnect = jest.fn();
@@ -10,7 +11,7 @@ jest.mock('expo-crypto', () => ({ randomUUID: () => 'probe-client' }));
 jest.mock('@whip/sdk', () => ({ ...jest.requireActual('@whip/sdk'), createWhipClient: (...args: unknown[]) => mockCreate(...args) }));
 const mockFetch = jest.fn();
 jest.mock('expo/fetch', () => ({ fetch: (...args: unknown[]) => mockFetch(...args) }));
-function response(body: unknown = { available: true, protocol_major: 4, websocket_path: '/api/v3/ws' }, status = 200, contentType = 'application/json') {
+function response(body: unknown = { available: true, protocol_major: manifest.major, websocket_path: '/api/v3/ws' }, status = 200, contentType = 'application/json') {
   return { ok: status >= 200 && status < 300, status, headers: { get: (name: string) => name === 'content-type' ? contentType : null }, body: { getReader: () => { let read = false; return { read: async () => { if (read) return { done: true }; read = true; return { done: false, value: new TextEncoder().encode(JSON.stringify(body)) }; }, releaseLock: jest.fn() }; } } };
 }
 function options(signal = new AbortController().signal) { return { signal, onProgress: jest.fn() }; }
@@ -50,7 +51,7 @@ test('a web page is not a successful API probe', async () => {
 test('protocol mismatch remains distinct from a network failure', async () => {
   mockFetch.mockResolvedValue(response({ available: true, protocol_major: 99, websocket_path: '/api/v3/ws' }));
   const error = await testConnection('https://host', options()).catch(e => e);
-  expect(connectionIssue(error)).toMatchObject({ title: 'Whip versions do not match', detail: 'App protocol 4; server protocol 99.' });
+  expect(connectionIssue(error)).toMatchObject({ title: 'Whip versions do not match', detail: `App protocol ${manifest.major}; server protocol 99.` });
 });
 
 test('WSS failure preserves the native reason and reports that HTTPS passed', async () => {
@@ -96,7 +97,7 @@ test('a pre-cancelled probe never contacts the host', async () => {
 
 
 test('a headless daemon without embedded web assets can serve the mobile API', async () => {
-  mockFetch.mockResolvedValue(response({ available: false, protocol_major: 4, websocket_path: '/api/v3/ws' }));
+  mockFetch.mockResolvedValue(response({ available: false, protocol_major: manifest.major, websocket_path: '/api/v3/ws' }));
   await expect(testConnection('https://host', options())).resolves.toEqual({ runtimeId: 'runtime', empty: true });
 });
 

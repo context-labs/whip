@@ -1,11 +1,11 @@
 import {
-  assertValid, rpcOperations, runtimeOperations,
+  assertValid, manifest, rpcOperations, runtimeOperations,
   type InitializeParams, type SubscribeParams, type RpcMethods, type RpcMethod,
   type RuntimeOperations, type RuntimeOperation, type QueryOperation,
   type CommandOperation, type EphemeralOperation, type RootEvent,
 } from './generated/index.js';
 
-const initialize: InitializeParams = { protocol_major: 4, build_id: 'fixture', client_kind: 'human', client_id: 'browser' };
+const initialize: InitializeParams = { protocol_major: manifest.major, build_id: 'fixture', client_kind: 'human', client_id: 'browser' };
 const subscription: SubscribeParams = { root_id: 'root', subscription_id: 'view', cursor: '9007199254740993' };
 assertValid('InitializeParams', initialize);
 assertValid('SubscribeParams', subscription);

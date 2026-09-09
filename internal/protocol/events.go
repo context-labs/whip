@@ -19,7 +19,7 @@ func EventPayloads() map[string]reflect.Type {
 	}
 	for _, kind := range []string{
 		"session.cwd.updated", "session.effort.updated", "session.title.updated", "session.model.updated",
-		"session.permission_mode.updated",
+		"session.permission_mode.updated", "session.archived.updated",
 	} {
 		result[kind] = reflect.TypeFor[SessionUpdateEvent]()
 	}

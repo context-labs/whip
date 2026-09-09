@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 10
-	schemaIdentity       = "whip-recursive-runtime-v10"
+	currentSchemaVersion = 12
+	schemaIdentity       = "whip-recursive-runtime-v12"
 )
 
 // SchemaVersion is the database schema supported by this executable. Reading it
@@ -19,9 +19,8 @@ func SchemaVersion() int { return currentSchemaVersion }
 // inbox input to the queue before the input is marked interrupted.
 const MaxInboxRetries = 3
 
-// cleanSchema is the only schema supported by the pre-release runtime-v2
-// store. The persisted model mirrors the runtime: sessions own recursive
-// agents, not legacy tasks or one-shot child executions.
+// cleanSchema defines a new runtime-v2 store. The v10 upgrade below adds
+// archive metadata without changing runtime identity or existing session state.
 const cleanSchema = `
 CREATE TABLE runtime_schema (
 	id INTEGER PRIMARY KEY CHECK(id=1), identity TEXT NOT NULL, runtime_id TEXT NOT NULL, catalog_revision INTEGER NOT NULL DEFAULT 0
@@ -42,6 +41,7 @@ CREATE TABLE sessions (
 	fork_seq INTEGER NOT NULL DEFAULT 0,
 	tags TEXT NOT NULL DEFAULT '',
 	pinned INTEGER NOT NULL DEFAULT 0,
+	archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
 	effort TEXT NOT NULL DEFAULT '',
 	usage_in INTEGER NOT NULL DEFAULT 0,
 	usage_cached INTEGER NOT NULL DEFAULT 0,
@@ -72,7 +72,7 @@ CREATE TABLE agents (
 	name TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL DEFAULT '',
 	effort TEXT NOT NULL DEFAULT '', cwd TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
 	report TEXT NOT NULL DEFAULT 'notice' CHECK(report IN ('notice','inline','message')),
-	created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(root_id,id),
+	last_turn BLOB, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(root_id,id),
 	FOREIGN KEY(root_id,parent_id) REFERENCES agents(root_id,id)
 );
 CREATE INDEX agents_root_parent ON agents(root_id,parent_id);
@@ -297,7 +297,7 @@ CREATE TRIGGER collection_agent_messages_delete AFTER DELETE ON agent_messages
 BEGIN UPDATE sessions SET collection_revision=collection_revision+1 WHERE id=OLD.root_id; END;
 CREATE TRIGGER session_catalog_insert AFTER INSERT ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
 CREATE TRIGGER session_catalog_delete AFTER DELETE ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
-CREATE TRIGGER session_catalog_update AFTER UPDATE OF title,model,provider,cwd,pinned,updated_at ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
+CREATE TRIGGER session_catalog_update AFTER UPDATE OF title,model,provider,cwd,pinned,archived,updated_at ON sessions BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
 
 `
 
@@ -348,7 +348,54 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 	if version == currentSchemaVersion && identityErr == nil && identity == schemaIdentity {
 		return nil
 	}
+	if version == 10 && identityErr == nil && identity == "whip-recursive-runtime-v10" {
+		if err := upgradeV10(ctx, conn); err != nil {
+			return err
+		}
+		return upgradeV11(ctx, conn, path)
+	}
+	if version == 11 && identityErr == nil && identity == "whip-recursive-runtime-v11" {
+		return upgradeV11(ctx, conn, path)
+	}
 	return fmt.Errorf("incompatible development runtime database %q (schema version %d): archive or remove it, then restart WHIP", path, version)
+}
+
+// upgradeV10 is deliberately one-way. The version and identity move only after
+// the column and catalog trigger are committed together.
+func upgradeV10(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return fmt.Errorf("begin archive schema upgrade: %w", err)
+	}
+	defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), `ROLLBACK`) }()
+	// A second process may have finished the upgrade while we waited for its
+	// write lock. Recheck under that lock before changing the schema.
+	var version int
+	var identity string
+	if err := conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("read upgrade version: %w", err)
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil {
+		return fmt.Errorf("read upgrade identity: %w", err)
+	}
+	if version == currentSchemaVersion && identity == schemaIdentity || version == 11 && identity == "whip-recursive-runtime-v11" {
+		return nil
+	}
+	if version != 10 || identity != "whip-recursive-runtime-v10" {
+		return fmt.Errorf("archive schema upgrade requires version 10, found %d", version)
+	}
+	if _, err := conn.ExecContext(ctx, `
+ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1));
+DROP TRIGGER session_catalog_update;
+CREATE TRIGGER session_catalog_update AFTER UPDATE OF title,model,provider,cwd,pinned,archived,updated_at ON sessions
+BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;
+UPDATE runtime_schema SET identity='whip-recursive-runtime-v11' WHERE id=1;
+PRAGMA user_version=11;`); err != nil {
+		return fmt.Errorf("upgrade archive schema: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return fmt.Errorf("commit archive schema upgrade: %w", err)
+	}
+	return nil
 }
 
 func nullableString(value string) any {

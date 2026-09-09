@@ -192,6 +192,9 @@ func (s *Store) AppendRootEvent(ctx context.Context, rootID, kind string, payloa
 	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE root_id=? AND seq<=?`, rootID, seq-EventRetention); err != nil {
 		return 0, err
 	}
+	if err := s.projectTurnEvent(ctx, tx, rootID, kind, payload.Data, seq, stamp); err != nil {
+		return 0, err
+	}
 	return seq, tx.Commit()
 }
 
@@ -213,10 +216,10 @@ func (s *Store) snapshotRoot(ctx context.Context, rootID string, view *SnapshotV
 	snapshot := RootSnapshot{RootID: rootID, view: view, Omitted: map[string]bool{}}
 	var updated, tags string
 	var pinned int
-	if err := tx.QueryRowContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,effort,
+	if err := tx.QueryRowContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,
 		usage_in,usage_cached,usage_out,updated_at,history_revision FROM sessions WHERE id=?`, rootID).Scan(
 		&snapshot.Meta.ID, &snapshot.Meta.Kind, &snapshot.Meta.Title, &snapshot.Meta.Model, &snapshot.Meta.Provider, &snapshot.Meta.CWD,
-		&snapshot.Meta.Goal, &snapshot.Meta.ForkedFrom, &snapshot.Meta.ForkSeq, &tags, &pinned,
+		&snapshot.Meta.Goal, &snapshot.Meta.ForkedFrom, &snapshot.Meta.ForkSeq, &tags, &pinned, &snapshot.Meta.Archived,
 		&snapshot.Meta.Effort, &snapshot.Meta.UsageIn, &snapshot.Meta.UsageCached, &snapshot.Meta.UsageOut,
 		&updated, &snapshot.HistoryRevision); err != nil {
 		return RootSnapshot{}, err
@@ -372,7 +375,7 @@ func readSnapshotMessages(ctx context.Context, tx *sql.Tx, rootID string, snapsh
 }
 
 func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot *RootSnapshot) error {
-	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.root_id,COALESCE(a.parent_id,''),a.name,a.model,a.provider,a.effort,a.cwd,a.report,a.status,
+	rows, err := tx.QueryContext(ctx, `SELECT a.id,a.root_id,COALESCE(a.parent_id,''),a.name,a.model,a.provider,a.effort,a.cwd,a.report,a.status,a.last_turn,
 		(SELECT count(*) FROM agent_messages m WHERE m.root_id=a.root_id AND m.recipient_agent_id=a.id AND m.status='pending')
 		FROM agents a WHERE a.root_id=? ORDER BY a.created_at,a.id LIMIT ?`, rootID, snapshot.collectionLimit())
 	if err != nil {
@@ -381,7 +384,7 @@ func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var agent RuntimeAgent
-		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status, &agent.PendingMail); err != nil {
+		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status, &agent.LastTurn, &agent.PendingMail); err != nil {
 			return err
 		}
 		snapshot.Agents = append(snapshot.Agents, agent)

@@ -7,6 +7,8 @@ const invoke = (method: string, ...args: unknown[]) => ipcRenderer.invoke(`whip:
 const send = (method: string, ...args: unknown[]) => ipcRenderer.send(`whip:${method}`, ...args);
 const bridge: DesktopBridge = {
   version: 1, appVersion: __APP_VERSION__, connectionKinds: ['local', 'url', 'ssh'],
+  // Keep in sync with the BrowserWindow hiddenInset setup in main.ts.
+  ...(process.platform === 'darwin' ? { chrome: 'inset' as const } : {}),
   sessionScheme: __APP_NAME__ === 'Whip Beta' ? 'whip-beta' : 'whip',
   onEvent(listener) {
     const receive = (_event: Electron.IpcRendererEvent, value: DesktopEvent) => listener(value);
@@ -25,6 +27,8 @@ const bridge: DesktopBridge = {
   copy: text => invoke('copy', text),
   openExternal: url => invoke('openExternal', url),
   pickDirectory: () => invoke('pickDirectory'),
+  listProjectEditors: () => invoke('listProjectEditors'),
+  openProject: (request, urlSource) => invoke('openProject', request, urlSource),
   testLocalRuntime: () => invoke('testLocalRuntime'),
   chooseLocalRuntime: () => invoke('chooseLocalRuntime'),
   installLocalRuntime: () => invoke('installLocalRuntime'),

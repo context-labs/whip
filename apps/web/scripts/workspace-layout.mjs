@@ -105,11 +105,20 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     // Real cross-pane drag keeps the selected view mounted and supports Escape.
     const before = JSON.stringify((await workspace()).layout);
     const source = await tab(lower).boundingBox();
+    const sourceShell = await page.locator(`[data-workspace-tab="${lower}"]`).boundingBox();
+    const grabOffset = source.x + Math.min(40, source.width / 2) - sourceShell.x;
     const target = await panel(root).boundingBox();
     await page.mouse.move(source.x + Math.min(40, source.width / 2), source.y + source.height / 2);
     await page.mouse.down(); await page.mouse.move(source.x + Math.min(40, source.width / 2) + 8, source.y + source.height / 2);
     await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 16 });
     await page.locator('[data-workspace-drop]').waitFor();
+    const feedback = page.locator('[data-workspace-drag-preview]');
+    await feedback.waitFor();
+    assert.equal(await feedback.count(), 1);
+    await eventually(async () => Math.abs((await feedback.boundingBox()).x + grabOffset - (target.x + target.width / 2)) < 2,
+      { description: 'Production drag preview follows the pointer' });
+    assert.equal(JSON.stringify((await workspace()).layout), before, 'Pointer movement persisted an unfinished transfer');
+    await page.screenshot({ path: join(directory, `${name}-dragging.png`) });
     await page.keyboard.press('Escape'); await page.mouse.up();
     await page.locator('[data-dragging]').waitFor({ state: 'hidden' });
     assert.equal(JSON.stringify((await workspace()).layout), before);

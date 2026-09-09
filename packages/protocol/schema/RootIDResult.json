@@ -5,7 +5,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/RootIDResult",
+  "$id": "https://whip.dev/protocol/v5/RootIDResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RootIDResult",
   "required": [

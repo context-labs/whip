@@ -385,6 +385,7 @@ export class SessionView {
         ...(typeof payload.provider === 'string' ? { provider: payload.provider } : {}),
         ...(payload.effort_changed && typeof payload.effort === 'string' ? { effort: payload.effort } : {}),
         ...(typeof payload.working_directory === 'string' ? { cwd: payload.working_directory } : {}),
+        ...(typeof payload.archived === 'boolean' ? { archived: payload.archived } : {}),
       };
       // permission_mode is a top-level RootSnapshot field, not session meta.
       if (typeof payload.permission_mode === 'string') root = { ...root, permission_mode: payload.permission_mode };
@@ -687,7 +688,7 @@ export class SessionListView {
         if (revision.revision === previous.revision) { this.set({ ...this.current, status: 'live', error: undefined }); return; }
       }
       const page = await this.client.call('sessions.list', {
-        ...(more && previous?.next_cursor ? { cursor: previous.next_cursor } : {}), limit: 128, max_bytes: 256 * 1024,
+        ...(more && previous?.next_cursor ? { cursor: previous.next_cursor } : {}), status: 'active', limit: 128, max_bytes: 256 * 1024,
       }, { signal: this.lifetime.signal });
       if (epoch !== this.epoch || this.lifetime.signal.aborted) return;
       if (more && previous && previous.revision !== page.revision) throw new WhipError('resynchronization_required', 'Session list revision changed');

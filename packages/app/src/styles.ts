@@ -47,7 +47,6 @@ export const layout = stylex.create({
     display: 'flex',
     height: '100%',
   },
-  brand: { fontWeight: 760, letterSpacing: '0.07em', fontSize: 15 },
   grow: { flex: 1, minWidth: 0, minHeight: 0 },
   row: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 },
   wrap: { flexWrap: 'wrap' },
@@ -59,6 +58,10 @@ export const layout = stylex.create({
     minWidth: 0,
     minHeight: 0,
   },
+  // Window chrome (desktop 'inset' hosts): the sidebar and tab strip double as
+  // the hidden title bar's drag region; interactive children opt out.
+  windowDrag: { WebkitAppRegion: 'drag' },
+  windowNoDrag: { WebkitAppRegion: 'no-drag' },
   header: {
     minHeight: 58,
     paddingInline: { default: 24, [scale.phone]: 12 },

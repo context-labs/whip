@@ -150,6 +150,26 @@ when hidden or when its source host disconnects. An unavailable host/capability 
 authoritative missing roots show unavailable. A quiet tab is not a promise that
 all descendants, schedules or future work are complete.
 
+## Conversation actions
+
+Use a saved session row's overflow button or right-click menu for Rename, Fork,
+Archive/Restore, Delete, and Open in. Search results and Session details share
+the same actions. Fork creates a separate conversation in the same working
+directory from committed history; it does not create a Git worktree.
+
+Archive hides a session from the active sidebar without stopping work, closing
+its tabs, or discarding drafts. Use **Archived sessions**, the search status
+filter, or **Undo archive** to restore it. Pending questions and permissions
+remain in Attention. Delete requires confirmation and removes the session and
+owned work plus this client's associated tabs and drafts; project files stay
+on disk. Closing a tab remains a separate operation.
+
+The web app offers **Copy directory**; desktop adds installed local and SSH
+editors as described in the [desktop guide](desktop.md#open-a-session-in-an-editor).
+The bounded metadata query preserves full names and paths even when the visible
+catalog abbreviates them. Reproduce the browser acceptance checks with
+`npm run pack:web && node apps/web/scripts/session-actions.mjs`.
+
 ## Run the packaged application locally
 
 Release binaries contain the web application. Start a daemon with its optional
@@ -213,28 +233,43 @@ WHIP_NETWORK=1 ./whip daemon restart
 
 ## Develop against an existing daemon
 
-The Vite workspace reads `WHIP_WEB_DAEMON` for its `/api` proxy. Start or explicitly
-restart your development daemon with a known loopback port and allow the exact
-browser development origin. Example values:
+Vite proxies `/api`, including WebSockets, to `http://127.0.0.1:8080` by default,
+matching the desktop-managed local whipcode endpoint. Set `WHIP_WEB_DAEMON` to
+override that address. The browser still connects to port 3000; Vite forwards
+those API requests to the daemon. Starting Vite does not start or restart a daemon.
+
+For the installed `whipcode` CLI, check `whipcode daemon status --json` for its
+`network_endpoint`. Start a stopped daemon with the development origins allowed:
+
+```sh
+WHIPCODE_LISTEN=127.0.0.1:8080 \
+  WHIPCODE_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000 \
+  whipcode daemon start
+npm run dev:web
+```
+
+The source-built `whip` binary uses the `WHIP_` environment prefix instead:
 
 ```sh
 WHIP_NETWORK=1 WHIP_LISTEN=127.0.0.1:8080 \
   WHIP_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000 \
   WHIP_ALLOWED_HOSTS=127.0.0.1:8080 \
   ./whip daemon start
-WHIP_WEB_DAEMON=http://127.0.0.1:8080 npm run dev:web
+npm run dev:web
 ```
 
 Open `http://localhost:3000` or `http://127.0.0.1:3000`. These are distinct browser
 origins, so both are explicitly allowed above. An existing daemon retains the
 configuration it was started with; substitute `daemon restart` explicitly when changing listener
-settings. Local same-origin attachment needs no copied port or separately
-configured browser Origin. Additional remote daemons must explicitly allow the
-Origin where this web app is open.
+settings, retaining any other origins your clients use. Vite preserves the browser
+Origin, so port 3000 must be allowed even though the API uses a proxy. When the
+daemon serves the production web app itself, its same-origin attachment needs no
+separate browser Origin configuration. Additional remote daemons must explicitly
+allow the Origin where this web app is open.
 
 If Vite reports WebSocket proxy errors (`EPIPE`) and the app stays reconnecting,
 check the daemon's protocol and allowed origins. A running older daemon is not
-upgraded by starting Vite: this app requires protocol 4. Build it with `task build`,
+upgraded by starting Vite: this app requires protocol 5. Build it with `task build`,
 stop the old daemon using its original binary, and start `./whip` with the network
 settings above. Use the same `WHIP_HOME` on both commands to retain the same
 runtime. Stopping a daemon interrupts active work. Do not reset a compatible

@@ -22,6 +22,7 @@ const (
 type SessionNavigationSummary struct {
 	RootID             string `json:"root_id"`
 	Missing            bool   `json:"missing"`
+	Archived           bool   `json:"archived"`
 	Title              string `json:"title"`
 	CWD                string `json:"cwd"`
 	WorkspaceID        string `json:"workspace_id,omitempty"`
@@ -61,7 +62,7 @@ func (s *Store) SessionSummaries(ctx context.Context, rootIDs []string) ([]Sessi
  SELECT root_id,COUNT(*) AS pending FROM permission_requests
  WHERE status='pending' AND root_id IN (SELECT id FROM requested) GROUP BY root_id
 )
- SELECT r.id,s.id IS NULL,substr(COALESCE(s.title,''),1,128),substr(COALESCE(s.cwd,''),1,4096),
+ SELECT r.id,s.id IS NULL,COALESCE(s.archived,0),substr(COALESCE(s.title,''),1,128),substr(COALESCE(s.cwd,''),1,4096),
  COALESCE(length(s.title)>128 OR length(s.cwd)>128,0),COALESCE(length(s.cwd)>4096,0),
  (SELECT COUNT(DISTINCT a.id) FROM agents a WHERE a.root_id=s.id AND (a.status='running' OR EXISTS(
    SELECT 1 FROM turns t WHERE t.root_id=s.id AND t.agent_id=a.id AND t.status='running'))),
@@ -77,7 +78,7 @@ func (s *Store) SessionSummaries(ctx context.Context, rootIDs []string) ([]Sessi
 	for rows.Next() {
 		var item SessionNavigationSummary
 		var pathTruncated bool
-		if err := rows.Scan(&item.RootID, &item.Missing, &item.Title, &item.CWD,
+		if err := rows.Scan(&item.RootID, &item.Missing, &item.Archived, &item.Title, &item.CWD,
 			&item.Truncated, &pathTruncated, &item.RunningAgents, &item.QueuedAgents,
 			&item.PendingPermissions); err != nil {
 			return nil, fmt.Errorf("scan session summary: %w", err)

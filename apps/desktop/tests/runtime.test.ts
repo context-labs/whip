@@ -21,7 +21,7 @@ async function fixture(t: TestContext, options: { distribution?: string; initial
   const log = path.join(directory, 'commands.log');
   const socket = '/tmp/whip-fixture.sock';
   const env = { HOME: directory, WHIPCODE_HOME: home, WHIPCODE_NETWORK: '0', PATH: '/usr/bin:/bin' };
-  const info = { distribution: options.distribution || 'whipcode', buildId: 'local-test', protocolMajor: 4, protocolMinor: 1, schemaVersion: 10 };
+  const info = { distribution: options.distribution || 'whipcode', buildId: 'local-test', protocolMajor: 5, protocolMinor: 0, schemaVersion: 11 };
   const running = { state: 'running', socket, pid: 123, client_build: 'local-test', daemon_build: 'local-test' };
   await mkdir(source);
   const script = `#!/bin/sh
@@ -56,7 +56,7 @@ esac
   }
   const manifest: RuntimeManifest = { schema: 1, version: '1.2.3', buildId: info.buildId, distribution: 'whipcode', architecture: 'arm64', rendererDigest: 'a'.repeat(64),
     source: { commit: 'a'.repeat(40), dirty: false, lockfile: 'b'.repeat(64) },
-    compatibility: { protocolMajor: 4, protocolMinor: 1, schemaVersion: 10 }, files };
+    compatibility: { protocolMajor: 5, protocolMinor: 0, schemaVersion: 11 }, files };
   const opts = { source, manifest, settingsFile, env, defaultExecutable: executable };
   const runtime = new LocalRuntime(opts);
   return { directory, source, executable, home, settingsFile, state, log, socket, manifest, runtime, opts };

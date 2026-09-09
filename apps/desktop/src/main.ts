@@ -1,14 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, protocol, screen, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerMonitor, protocol, screen, session, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
-import { validateProfile } from '@whip/app/platform';
+import { validateProfile, type ConnectionProfile } from '@whip/app/platform';
+import { unixSocket } from '@whip/sdk/node';
 import type { DesktopEvent, HostPrompt } from '@whip/app/desktop-bridge';
 import { createAssetHandler, desktopScheme, desktopURL, isDesktopURL, type RendererManifest } from './assets';
 import { LocalRuntime, readRuntimeManifest, runtimeEnvironment } from './runtime';
 import { DesktopTransports, validHandle } from './transport';
 import { NativeEffects } from './native';
+import { ProjectEditors, validateOpenProject, verifyProjectRuntime } from './project-open';
 import { SSHConnection } from './ssh';
 import { DesktopUpdates, readDesktopConfig } from './updates';
 import { sessionLinkPath } from './links';
@@ -83,15 +85,21 @@ async function start() {
         screen.getAllDisplays().some(({ workArea: area }) => saved.x < area.x + area.width && saved.y < area.y + area.height &&
           saved.x + saved.width > area.x + 80 && saved.y + saved.height > area.y + 80)) bounds = saved;
   } catch { /* A missing or invalid viewing preference uses normal window placement. */ }
+  // On macOS the native title bar hides (hiddenInset) and the renderer's top
+  // chrome owns window dragging; the dots are vertically centered in the 48px
+  // sidebar brand row / tab strip and clear the sidebar's 8px padding.
   const window = new BrowserWindow({ width: 1200, height: 800, minWidth: 800, minHeight: 600, ...bounds,
     show: false, backgroundColor: '#111111', title: 'Whip',
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 12, y: 18 } } : {}),
     webPreferences: { preload: path.join(root, 'preload.cjs'), sandbox: true, contextIsolation: true,
       nodeIntegration: false, webSecurity: true, webviewTag: false, spellcheck: true } });
   await attachStartupProbe(window, { userData: app.getPath('userData'), rendererDigest: renderer.digest, quit: () => app.quit() });
   const emit = (event: DesktopEvent) => { if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('whip:event', event); };
   const transports = new DesktopTransports(emit);
   const native = new NativeEffects(window, emit);
-  const connections = new Map<string, { controller: AbortController; socket?: string; ssh?: SSHConnection }>();
+  const projectEditors = new ProjectEditors(directory => shell.openPath(directory));
+  const connections = new Map<string, { profile: ConnectionProfile; controller: AbortController; socket?: string; ssh?: SSHConnection }>();
+  let openingProject: { id: string; controller: AbortController } | undefined;
   const prompts = new Map<string, { fields: number; finish(value: string[] | null): void }>();
   const prompt = (attemptId: string, value: Omit<HostPrompt, 'id' | 'attemptId'>, signal: AbortSignal) =>
     new Promise<string[] | null>((resolve, reject) => {
@@ -109,6 +117,7 @@ async function start() {
     });
   const release = (id: string) => {
     validHandle(id); const connection = connections.get(id); connections.delete(id);
+    if (openingProject?.id === id) openingProject.controller.abort();
     transports.release(id); connection?.controller.abort();
     return connection?.ssh?.dispose();
   };
@@ -154,7 +163,7 @@ async function start() {
     const profile = validateProfile(input);
     if (profile.target.kind === 'url') throw new Error('URL connections belong to the shared renderer');
     if (connections.has(id) || connections.size >= 16) throw new Error('Desktop connection limit reached');
-    const connection = { controller: new AbortController() } as { controller: AbortController; socket?: string; ssh?: SSHConnection };
+    const connection = { profile, controller: new AbortController() } as NonNullable<ReturnType<typeof connections.get>>;
     connections.set(id, connection);
     try {
       const progress = (message: string) => { if (connections.get(id) === connection) emit({ kind: 'progress', attemptId: id, message }); };
@@ -191,6 +200,33 @@ async function start() {
   handle('pickDirectory', () => {
     if (![...connections.values()].some(connection => connection.socket && !connection.ssh)) throw new Error('Select This Mac to choose a local directory');
     return native.pickDirectory();
+  });
+  let editorList: ReturnType<ProjectEditors['list']> | undefined;
+  handle('listProjectEditors', (...args: unknown[]) => {
+    if (args.length) throw new Error('Editor discovery does not accept arguments.');
+    return editorList ??= projectEditors.list(runtimeLifetime.signal).finally(() => { editorList = undefined; });
+  });
+  handle('openProject', async (input: unknown, urlSource?: unknown) => {
+    const request = validateOpenProject(input);
+    validHandle(request.connectionId);
+    const connection = connections.get(request.connectionId);
+    const source = urlSource === undefined ? connection?.profile : validateProfile(urlSource);
+    if (!source) throw new Error('The source host is disconnected. Reconnect it before opening this folder.');
+    if (urlSource !== undefined && source.target.kind !== 'url') throw new Error('An external source must use a Whip server URL.');
+    if (openingProject) throw new Error('Wait for the current editor request to finish.');
+    if (source.runtimeId && source.runtimeId !== request.runtimeId)
+      throw new Error('This conversation belongs to a different runtime. Reconnect the source host.');
+    openingProject = { id: request.connectionId, controller: new AbortController() };
+    const signal = AbortSignal.any([openingProject.controller.signal, ...(connection ? [connection.controller.signal] : []), runtimeLifetime.signal, AbortSignal.timeout(15_000)]);
+    try {
+      const socket = connection?.ssh ? await connection.ssh.getSocket() : connection?.socket;
+      const endpoint = source.target.kind === 'url' ? source.target.endpoint : socket ? unixSocket(socket) : undefined;
+      if (!endpoint) throw new Error('The source host is not ready. Reconnect it before opening this folder.');
+      await verifyProjectRuntime(endpoint, request.runtimeId, signal);
+      signal.throwIfAborted();
+      if (connections.get(request.connectionId) !== connection) throw new Error('The source host changed. Reopen the conversation menu.');
+      await projectEditors.open(request, source.target, signal);
+    } finally { openingProject = undefined; }
   });
   handle('answerPrompt', (id: string, values: string[] | null) => {
     validHandle(id); const pending = prompts.get(id);

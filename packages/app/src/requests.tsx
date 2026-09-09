@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { Session } from '@whip/sdk';
 import type { DeepReadonly } from '@whip/sdk/state';
 import type { LifecycleEvent, RootSnapshot } from '@whip/protocol';
-import { Badge, Button, IconButton, Input, Select } from '@whip/ui';
+import { Button, IconButton, Input, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
-import { CircleHelp, PenLine, X } from 'lucide-react';
+import { CircleHelp, PenLine, ShieldAlert, X } from 'lucide-react';
 import { colors, surface, scale } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { layout } from './styles';
@@ -30,20 +30,25 @@ export function PendingRequests({
 }) {
   const permissions =
     root.permissions?.filter((item) => item.status === 'pending') ?? [];
+  const permission = permissions[0];
   return (
     <section
       aria-label="Needs your attention"
       {...stylex.props(layout.column, layout.requestDock)}
     >
-      {permissions.map((permission) => (
+      {permission && (
         <PermissionRequest
-          key={permission.id}
+          key={`${session.rootId}:${permission.id}`}
           permission={permission}
+          agentName={root.agents?.find(agent => agent.id === permission.agent_id)?.name?.trim()
+            || (permission.agent_id === session.rootId ? 'Root agent' : 'Unnamed agent')}
+          waiting={permissions.length - 1}
+          hasMore={!!root.omitted?.permissions}
           session={session}
           disabled={disabled}
           refresh={refresh}
         />
-      ))}
+      )}
       {root.questions
         ?.filter((question) => question.question_id)
         .map((question) => (
@@ -59,20 +64,28 @@ export function PendingRequests({
 }
 function PermissionRequest({
   permission,
+  agentName,
+  waiting,
+  hasMore,
   session,
   disabled,
   refresh,
 }: {
   permission: NonNullable<DeepReadonly<RootSnapshot['permissions']>>[number];
+  agentName: string;
+  waiting: number;
+  hasMore: boolean;
   session: Session;
   disabled: boolean;
   refresh(): Promise<void>;
 }) {
   const runtime = useRuntime();
+  const titleId = useId();
   const [pending, setPending] = useState(false);
   const [remember, setRemember] = useState('');
   const [uncertain, setUncertain] = useState(false);
   async function decide(allow: boolean) {
+    if (disabled || pending) return;
     const restoreFocus = captureAnswerFocus();
     setPending(true);
     try {
@@ -92,71 +105,79 @@ function PermissionRequest({
     }
   }
   return (
-    <div {...stylex.props(layout.notice, layout.column)}>
-      <div {...stylex.props(layout.row)}>
-        <Badge tone="warning">Permission requested</Badge>
-        <span>{permission.operation}</span>
-      </div>
-      <pre {...stylex.props(layout.pre)}>
-        {permission.command || permission.canonical_path}
-      </pre>
-      <span {...stylex.props(layout.muted)}>
-        Agent{' '}
-        {permission.agent_id === session.rootId ? 'root' : permission.agent_id}
-      </span>
-      {permission.rule && (
-        <>
-          <Select
-            label="Permission scope"
-            placeholder="This request only"
-            value={remember}
-            onValueChange={setRemember}
-            options={[
-              { value: '', label: 'This request only' },
-              {
-                value: 'tree',
-                label: 'Remember for this session and children',
-              },
-              { value: 'global', label: 'Remember on this host' },
-            ]}
-          />
-          {remember && <p>Rule: {permission.rule}</p>}
-        </>
-      )}
-      {uncertain ? (
-        <Button
-          disabled={disabled || pending}
-          onClick={() => {
-            setPending(true);
-            void refresh()
-              .then(() => setUncertain(false))
-              .catch((error) => runtime.report(error))
-              .finally(() => setPending(false));
-          }}
-        >
-          Refresh permission state before retrying
-        </Button>
-      ) : (
-        <div {...stylex.props(layout.row)}>
-          <Button
-            disabled={disabled || pending}
-            onClick={() => void decide(true)}
-          >
-            {remember ? 'Allow and remember' : 'Allow once'}
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={disabled || pending}
-            onClick={() => void decide(false)}
-          >
-            Deny
-          </Button>
+    <div {...stylex.props(requestStyles.region)}>
+      <section aria-labelledby={titleId} aria-busy={pending || undefined} {...stylex.props(permissionStyles.card)}>
+        <div {...stylex.props(permissionStyles.header)}>
+          <h2 id={titleId} {...stylex.props(permissionStyles.title)}>
+            Your approval is needed
+            <ShieldAlert size={14} aria-hidden {...stylex.props(permissionStyles.icon)} />
+          </h2>
+          {(waiting > 0 || hasMore) && <span role="status" {...stylex.props(permissionStyles.waiting)}>
+            {waiting > 0 ? `${hasMore ? 'At least ' : ''}${waiting} more waiting` : 'More approvals pending'}
+          </span>}
         </div>
-      )}
+        <div {...stylex.props(permissionStyles.identity)}>
+          <span title={agentName} {...stylex.props(permissionStyles.agent)}>{agentName}</span>
+          <span aria-hidden>·</span>
+          <span {...stylex.props(permissionStyles.operation)}>{permission.operation}</span>
+        </div>
+        <pre aria-label="Requested operation" tabIndex={0} {...stylex.props(layout.pre, permissionStyles.command)}>
+          {permission.command || permission.canonical_path || permission.operation}
+        </pre>
+        {permission.rule && remember && <p {...stylex.props(permissionStyles.rule)}>Rule: {permission.rule}</p>}
+        {uncertain ? (
+          <Button
+            xstyle={[permissionStyles.control, permissionStyles.recovery]}
+            disabled={disabled || pending}
+            loading={pending}
+            onClick={() => {
+              setPending(true);
+              void refresh()
+                .then(() => setUncertain(false))
+                .catch((error) => runtime.report(error))
+                .finally(() => setPending(false));
+            }}
+          >
+            Refresh permission state before retrying
+          </Button>
+        ) : (
+          <div {...stylex.props(permissionStyles.footer)}>
+            <div {...stylex.props(layout.row, layout.wrap)}>
+              <Button
+                xstyle={permissionStyles.control}
+                disabled={disabled || pending}
+                onClick={() => void decide(true)}
+              >
+                {remember ? 'Allow and remember' : 'Allow once'}
+              </Button>
+              <Button
+                xstyle={permissionStyles.control}
+                disabled={disabled || pending}
+                onClick={() => void decide(false)}
+              >
+                Deny
+              </Button>
+            </div>
+            {permission.rule && <Select
+              label="Permission scope"
+              placeholder="This request only"
+              value={remember}
+              onValueChange={setRemember}
+              disabled={disabled || pending}
+              xstyle={[permissionStyles.control, permissionStyles.scope]}
+              options={[
+                { value: '', label: 'This request only' },
+                { value: 'tree', label: 'Remember for this session and children' },
+                { value: 'global', label: 'Remember on this host' },
+              ]}
+            />}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
-const questionStyles = stylex.create({
+const requestStyles = stylex.create({
   region: {
     width: '100%',
     maxWidth: 864,
@@ -164,6 +185,48 @@ const questionStyles = stylex.create({
     paddingInline: { default: 24, [scale.phone]: 12 },
     flexShrink: 0,
   },
+});
+const permissionStyles = stylex.create({
+  card: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: scale.space2,
+    padding: scale.space3,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: `color-mix(in srgb, ${colors.warning} 30%, ${colors.background})`,
+    borderRadius: 20,
+    backgroundColor: `color-mix(in srgb, ${colors.warning} 12%, ${colors.background})`,
+    color: colors.foreground,
+    fontSize: 13,
+    lineHeight: 1.5,
+  },
+  header: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: scale.space2 },
+  title: {
+    display: 'flex', alignItems: 'center', gap: scale.space2,
+    margin: 0, fontSize: 13, fontWeight: 550,
+    color: `color-mix(in srgb, ${colors.warning} 70%, ${colors.foreground})`,
+  },
+  icon: { flexShrink: 0 },
+  waiting: { marginInlineStart: 'auto', color: surface.secondaryText, fontSize: 12 },
+  identity: { display: 'flex', alignItems: 'baseline', gap: scale.space2, color: surface.secondaryText, fontSize: 12, minWidth: 0, overflowWrap: 'anywhere' },
+  agent: { fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  operation: { flexShrink: 0, maxWidth: '50%' },
+  command: { maxHeight: 'min(24dvh, 200px)', paddingBlock: scale.space1 },
+  rule: { margin: 0, overflowWrap: 'anywhere', fontSize: 12, color: surface.secondaryText },
+  footer: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: scale.space2, paddingTop: scale.space1 },
+  control: {
+    maxWidth: '100%', whiteSpace: 'normal', textAlign: 'start',
+    borderColor: `color-mix(in srgb, ${colors.warning} 30%, ${colors.background})`,
+    backgroundColor: { default: 'transparent', ':hover': `color-mix(in srgb, ${colors.foreground} 5%, transparent)` },
+  },
+  scope: {
+    flexShrink: 1, minWidth: 0, fontSize: 12, fontWeight: 400,
+    color: surface.secondaryText, borderColor: 'transparent',
+  },
+  recovery: { alignSelf: 'flex-start' },
+});
+const questionStyles = stylex.create({
   card: {
     borderWidth: 1,
     borderStyle: 'solid',
@@ -371,7 +434,7 @@ function QuestionRequest({
   const hasInput = !!draft.selected.length || !!draft.text.trim();
   const canAdvance = !disabled && !pending && (hasInput || draft.skipped);
   return (
-    <div {...stylex.props(questionStyles.region)}>
+    <div {...stylex.props(requestStyles.region)}>
       <div {...stylex.props(questionStyles.card)}>
         <div {...stylex.props(questionStyles.header)}>
           <CircleHelp size={14} />

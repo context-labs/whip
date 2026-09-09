@@ -355,6 +355,16 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 	}
 
 	switch request.Method {
+	case "sessions.get":
+		var params protocol.RootParams
+		if err := decodeProviderParams(request.Params, &params); err != nil {
+			return nil, rpcFailure(-32602, err.Error())
+		}
+		if params.RootID == "" || len(params.RootID) > session.MaxSessionSummaryIDBytes {
+			return nil, rpcFailure(-32602, "session metadata requires a root ID of 1..256 UTF-8 bytes")
+		}
+		result, err := s.daemon.store.SessionMetadata(connection.ctx, params.RootID)
+		return result, rpcFromError(err)
 	case "sessions.summaries":
 		var params protocol.SessionSummariesParams
 		if err := decodeProviderParams(request.Params, &params); err != nil {

@@ -106,15 +106,42 @@ CI and security checks. Stable whip continues to use `v*` releases. Source build
 use `npm ci && task build:whipcode`; `task install:whipcode` installs into GOBIN
 or GOPATH/bin. These local builds report `dev` unless `WHIPCODE_VERSION` is set.
 
-The macOS desktop app uses the same installed **whipcode** backend. In
-**Execution hosts → This Mac**, choose the canonical executable (normally
-`/usr/local/bin/whipcode`), or explicitly install the verified bundled payload.
+### Desktop installation and upgrades
+
+Every macOS desktop release, including betas, bundles its matching **whipcode**
+backend. It uses that bundled build for installation and managed upgrades;
+it does not fetch the latest independently published standalone CLI release.
+Copying the app into Applications alone does not replace an existing binary.
+
+In **Execution hosts → This Mac**, choose an existing executable (for example,
+`/usr/local/bin/whipcode`), or use **Install whipcode** for a fresh installation
+(default: `~/.local/bin/whipcode`). Desktop and terminal share that executable.
 **Test Connection** reports installation and daemon status without starting it;
 **Connect** starts or attaches to that installation under `~/.whipcode`.
-Desktop updates preserve the backend and its work. For a CLI-first start with
-the desktop's fixed local web endpoint, use
+
+Backend upgrades depend on how the installation is managed:
+
+- **Installed through Desktop:** **Install whipcode** records the executable as
+  desktop-managed. After an app upgrade, Desktop updates that same executable
+  to the bundled build and brings its daemon to the matching version. Use
+  Desktop updates to upgrade this installation.
+- **Existing or manually selected executable:** Desktop uses it if compatible,
+  but does not automatically replace or update it. Continue using its standalone
+  installer/update command or source-build workflow. Installing a beta does not
+  automatically enroll an existing binary in desktop-managed updates.
+- **Remote SSH or URL backend:** Update the backend explicitly on the remote
+  machine; upgrading Desktop does not upgrade remote hosts.
+
+Downloading an app update leaves running work alone. **Restart and update**
+approves the backend restart as well; after a manual app upgrade, Desktop asks
+before interrupting a running daemon. A restart can interrupt active work from
+Desktop, terminal, web, or mobile, while sessions and configuration remain on
+disk. Stable and beta installations cannot silently take over each other's
+managed backend.
+
+For a CLI-first start with the desktop's fixed local web endpoint, use
 `WHIPCODE_LISTEN=127.0.0.1:8080 whipcode daemon start`. See the
-[desktop guide](docs/desktop.md) for packaging, setup and explicit backend upgrades.
+[desktop guide](docs/desktop.md) for packaging, setup, and backend upgrade details.
 
 ## Documentation
 

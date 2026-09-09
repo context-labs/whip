@@ -49,8 +49,28 @@ export interface AppLocalRuntime {
   /** Explicitly interrupts the local daemon's work. */
   restart(): Promise<LocalRuntimeStatus>;
 }
+export type ProjectEditorID = 'cursor' | 'vscode' | 'zed' | 'finder';
+export interface ProjectEditor { id: ProjectEditorID; label: string; installed: boolean }
+export interface OpenProjectRequest {
+  app: ProjectEditorID;
+  /** Exact, untruncated directory from the selected session's metadata. */
+  directory: string;
+  /** Source profile identity, independent of the currently focused host. */
+  connectionId: string;
+  runtimeId: string;
+  /** Explicit viewing-device preference for remote editor connections. */
+  sshAlias?: string;
+}
+export interface AppProjectEditors {
+  list(): Promise<readonly ProjectEditor[]>;
+  open(request: OpenProjectRequest): Promise<void>;
+}
 export interface AppPlatform {
   storage: AppStorage;
+  /** 'inset' when the host hides the native title bar and insets its window
+   * controls into the app chrome (macOS hiddenInset); the shell reserves the
+   * traffic-light zone and marks the top strips as window drag regions. */
+  readonly chrome?: 'inset';
   /** Independent per-window layout storage; omitted shells retain tabs in memory. */
   windowStorage?: AppStorage;
   defaultEndpoint?: string;
@@ -64,6 +84,7 @@ export interface AppPlatform {
   pickDirectory?(): Promise<string | undefined>;
   updates?: AppUpdates;
   localRuntime?: AppLocalRuntime;
+  projectEditors?: AppProjectEditors;
   notify?(notification: AppNotification): Promise<void>;
   setNotificationsEnabled?(enabled: boolean): void;
   onCloseTab?(listener: () => void): () => void;

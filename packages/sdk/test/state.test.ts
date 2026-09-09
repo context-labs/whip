@@ -18,7 +18,7 @@ function snapshot(cursor = '10', revision = '1'): RootSnapshot {
   return {
     root_id: 'root', cursor, history_revision: revision, active_turns: {},
     meta: { id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/',
-      goal: '', forked_from: '', fork_seq: 0, tags: [], pinned: false, effort: '',
+      goal: '', forked_from: '', fork_seq: 0, tags: [], archived: false, pinned: false, effort: '',
       usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
     messages: [{ role: 'user', content: 'hello' }], message_seqs: [1],
     presentation: [], agent_presentations: {}, agents: [], inbox: [], blackboard: [],
@@ -57,7 +57,7 @@ class Host {
   root = snapshot();
   streams: Stream[] = [];
   listeners = new Set<() => void>();
-  commands = new Set<() => void>();
+  commands = new Set<(outcome: { command_id: string; status: string }) => void>();
   calls: { method: string; params: Record<string, unknown> }[] = [];
   connection = { state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection-1' } };
   history?: (params: Record<string, unknown>) => Promise<unknown>;
@@ -66,7 +66,7 @@ class Host {
   catalogItems = [{ id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', pinned: false, updated_at: '', truncated: false }];
   getSnapshot = () => this.connection;
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
-  onCommand = (fn: () => void) => { this.commands.add(fn); return () => { this.commands.delete(fn); }; };
+  onCommand = (fn: (outcome: { command_id: string; status: string }) => void) => { this.commands.add(fn); return () => { this.commands.delete(fn); }; };
   events = { subscribe: async (_rootId: string, cursor: string) => {
     const stream = new Stream();
     stream.cursor = cursor;
@@ -130,6 +130,24 @@ test('permission mode updates survive snapshot refreshes without changing sessio
       assert.equal(view.getSnapshot().root?.permission_mode, mode);
     }
   } finally { await view.dispose(); }
+});
+
+test('archive and restore events update metadata without interrupting an open root or replacing its history', async t => {
+  const host = new Host();
+  host.root.active_turns = { root: 'running-turn' };
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  const before = view.getSnapshot();
+  host.streams[0]!.push('11', 'session.archived.updated', { archived: true });
+  await until(() => view.getSnapshot().root?.meta.archived === true);
+  assert.equal(before.root?.meta.archived, false);
+  assert.equal(view.getSnapshot().status, 'live');
+  assert.deepEqual(view.getSnapshot().root?.active_turns, { root: 'running-turn' });
+  assert.deepEqual(view.getSnapshot().history, before.history);
+  host.streams[0]!.push('12', 'session.archived.updated', { archived: false });
+  await until(() => view.getSnapshot().root?.meta.archived === false);
+  assert.equal(host.streams.length, 1);
 });
 
 for (const agentId of ['root', 'child']) {
@@ -646,6 +664,26 @@ test('catalog polling is observed, revision-based, and never opens roots', async
   await list.dispose();
 });
 
+test('archive completion refreshes the active catalog once without waiting for the poll or opening a root', async t => {
+  const host = new Host();
+  const list = createSessionListView(host as unknown as WhipClient, { pollIntervalMs: 60_000 });
+  const stop = list.subscribe(() => {});
+  t.after(async () => { stop(); await list.dispose(); });
+  await list.start();
+  host.catalogRevision = '2'; host.catalogItems = [];
+  for (const notify of host.commands) notify({ command_id: 'archive-root', status: 'running' });
+  assert.equal(list.getSnapshot().page?.revision, '1');
+  for (const notify of host.commands) notify({ command_id: 'archive-root', status: 'succeeded' });
+  await until(() => list.getSnapshot().page?.revision === '2');
+  assert.deepEqual(list.getSnapshot().page?.items, []);
+  const calls = host.calls.length;
+  for (const notify of host.commands) notify({ command_id: 'archive-root', status: 'succeeded' });
+  await pause();
+  assert.equal(host.calls.length, calls);
+  assert.ok(host.calls.filter(call => call.method === 'sessions.list').every(call => call.params.status === 'active'));
+  assert.equal(host.streams.length, 0);
+});
+
 test('an observed catalog stops its timer while paused and resumes polling on reconnect', async t => {
   const host = new Host();
   const list = createSessionListView(host as unknown as WhipClient, { pollIntervalMs: 10 });
@@ -830,4 +868,31 @@ test('model attempt lifecycle events use the existing coalesced snapshot refresh
   assert.equal(host.calls.filter(call => call.method === 'root.snapshot').length, 2, 'one refresh handles the burst');
   assert.equal(host.streams.length, 2);
   assert.deepEqual(view.getSnapshot().root?.presentation, []);
+});
+
+test('saved child failure survives refresh without inventing an execution cell', async t => {
+  const host = new Host();
+  const child: NonNullable<RootSnapshot['agents']>[number] = {
+    id: 'child', root_id: 'root', parent_id: 'root', name: 'Research', model: 'model', provider: 'provider', effort: '', cwd: '/', report: 'notice', status: 'idle',
+    pending_mail: 0, lifecycle_phase: 'idle', blocking_reason: '', terminal_cause: '', allowed_controls: [],
+  };
+  host.root.agents = [child];
+  const view = createSessionView(host.session(), { notificationIntervalMs: 1 });
+  t.after(() => view.dispose());
+  await view.start();
+  host.streams.at(-1)!.push('11', 'agent.turn.started', { agent_id: 'child', turn_id: 'child-turn', status: 'running' });
+  await until(() => view.getSnapshot().root?.active_turns.child === 'child-turn');
+  host.root = { ...host.root, cursor: '12', active_turns: {}, agents: [{ ...child, last_turn: { turn_id: 'child-turn', status: 'failed', event_seq: '12', error: 'Invalid prompt_cache_key' } }] };
+  host.streams.at(-1)!.push('12', 'agent.turn.failed', { agent_id: 'child', turn_id: 'child-turn', status: 'failed', error: 'Invalid prompt_cache_key' });
+  await until(() => view.getSnapshot().root?.agents?.[0]?.last_turn?.status === 'failed');
+  assert.equal(view.getSnapshot().root?.active_turns.child, undefined);
+  assert.deepEqual(executionRows(view.getSnapshot(), 'child'), []);
+  await view.refresh();
+  assert.equal(view.getSnapshot().root?.agents?.[0]?.last_turn?.error, 'Invalid prompt_cache_key');
+  assert.equal(host.streams.filter(stream => !stream.closed).length, 1);
+  host.root = { ...host.root, cursor: '14', agents: [{ ...child, last_turn: { turn_id: 'next-turn', status: 'succeeded', event_seq: '14' } }] };
+  host.streams.at(-1)!.push('13', 'agent.turn.started', { agent_id: 'child', turn_id: 'next-turn', status: 'running' });
+  host.streams.at(-1)!.push('14', 'agent.turn.succeeded', { agent_id: 'child', turn_id: 'next-turn', status: 'succeeded' });
+  await until(() => view.getSnapshot().root?.agents?.[0]?.last_turn?.status === 'succeeded');
+  assert.equal(view.getSnapshot().root?.agents?.[0]?.last_turn?.error, undefined);
 });

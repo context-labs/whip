@@ -20,6 +20,9 @@ type PathParams struct {
 type TitleParams struct {
 	Title string `json:"title"`
 }
+type ArchiveParams struct {
+	Archived bool `json:"archived"`
+}
 type ForkParams struct {
 	ExpectedRevision *int64 `json:"expected_revision,string"`
 	Title            string `json:"title,omitempty"`

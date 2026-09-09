@@ -167,3 +167,109 @@ func TestSessionKindsEnforceModelContract(t *testing.T) {
 		t.Fatalf("tool-host meta=%+v err=%v", meta, err)
 	}
 }
+
+// This fixture is the exact v10 schema, independent of the current initializer.
+func versionTenDatabase(t *testing.T) (string, *sql.DB) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	schema, err := os.ReadFile("testdata/schema_v10.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(t.Context(), string(schema)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(t.Context(), `
+ INSERT INTO runtime_schema VALUES(1,'whip-recursive-runtime-v10','persistent-runtime',17);
+ INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider,title,goal,pinned,effort,usage_in,history_revision)
+ VALUES('saved-root','agent','2026-09-01T00:00:00Z','2026-09-02T00:00:00Z','/project/界','model','provider','Saved title','ship',1,'high',123,9);
+ INSERT INTO messages VALUES('saved-root',1,'user','{"role":"user","content":"retained conversation"}');
+ INSERT INTO schedules VALUES('saved-root',1,'@every 1h','keep working','2026-09-01T00:00:00Z','','2026-09-01T00:00:00Z');
+ INSERT INTO commands(client_id,command_id,scope,root_id,operation,request_digest,status,payload_inline,outcome_inline,ingress_seq,created_at,updated_at)
+ VALUES('client','saved-command','root','saved-root','session.rename','digest','succeeded','{"title":"Saved title"}','{"title":"Saved title"}',1,'','');
+ PRAGMA user_version=10;`); err != nil {
+		t.Fatal(err)
+	}
+	return path, db
+}
+
+func TestVersionTenUpgradePreservesStateAndRestarts(t *testing.T) {
+	path, db := versionTenDatabase(t)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := range 2 {
+		store, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata, err := store.SessionMetadata(t.Context(), "saved-root")
+		if err != nil || metadata.Title != "Saved title" || metadata.CWD != "/project/界" || metadata.HistoryRevision != 9 || metadata.Archived != (attempt == 1) {
+			t.Fatalf("metadata after open %d = %+v, %v", attempt, metadata, err)
+		}
+		meta, messages, err := store.Load("saved-root")
+		if err != nil || meta.Goal != "ship" || !meta.Pinned || meta.Effort != "high" || meta.UsageIn != 123 || len(messages) != 1 || messages[0].Content != "retained conversation" {
+			t.Fatalf("session changed during upgrade: %+v %+v %v", meta, messages, err)
+		}
+		var identity, runtime string
+		var revision int64
+		if err := store.db.QueryRowContext(t.Context(), `SELECT identity,runtime_id,catalog_revision FROM runtime_schema WHERE id=1`).Scan(&identity, &runtime, &revision); err != nil {
+			t.Fatal(err)
+		}
+		if identity != schemaIdentity || runtime != "persistent-runtime" || revision != int64(18+attempt) {
+			t.Fatalf("runtime identity/revision changed: %s %s %d", identity, runtime, revision)
+		}
+		command, err := store.LoadCommand(t.Context(), "client", "saved-command")
+		if err != nil || command.Status != "succeeded" || string(command.Outcome.Inline) != `{"title":"Saved title"}` {
+			t.Fatalf("command recovery lost: %+v %v", command, err)
+		}
+		if schedules := store.Schedules("saved-root"); len(schedules) != 1 || schedules[0].Prompt != "keep working" {
+			t.Fatalf("schedule lost: %+v", schedules)
+		}
+		if attempt == 0 {
+			if err := store.SetArchived(t.Context(), "saved-root", true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		store.Close()
+	}
+}
+
+func TestVersionTenUpgradeRollsBackAndCanRetry(t *testing.T) {
+	path, db := versionTenDatabase(t)
+	// Fail after ALTER TABLE, while replacing the old catalog trigger.
+	if _, err := db.ExecContext(t.Context(), `DROP TRIGGER session_catalog_update`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(path); err == nil {
+		t.Fatal("upgrade with missing v10 trigger succeeded")
+	}
+	var version, columns int
+	var identity string
+	if err := db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(t.Context(), `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(t.Context(), `SELECT count(*) FROM pragma_table_info('sessions') WHERE name='archived'`).Scan(&columns); err != nil {
+		t.Fatal(err)
+	}
+	if version != 10 || identity != "whip-recursive-runtime-v10" || columns != 0 {
+		t.Fatalf("partial schema upgrade: version=%d identity=%s archived columns=%d", version, identity, columns)
+	}
+	if _, err := db.ExecContext(t.Context(), `CREATE TRIGGER session_catalog_update AFTER UPDATE OF title,model,provider,cwd,pinned,updated_at ON sessions
+ BEGIN UPDATE runtime_schema SET catalog_revision=catalog_revision+1 WHERE id=1; END;`); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+}

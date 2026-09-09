@@ -44,6 +44,33 @@ function fixture() {
 }
 
 describe('transient compositions', () => {
+  it('deleting one root cancels all recipient uploads and submission locks without clearing another root', async () => {
+    const f = fixture();
+    const other = { ...f.session, rootId: 'other' } as Session;
+    await f.store.add('host:other:child', other, 'host', 'child', [file('keep.txt')]);
+    const transfer = deferred<ReturnType<typeof f.uploaded>>();
+    f.upload.mockImplementationOnce(() => transfer.promise);
+    const done = f.store.add(f.key, f.session, 'host', 'child', [file()]);
+    const queued = f.store.add('host:root:root', f.session, 'host', 'root', [file('queued.txt')]);
+    await vi.waitFor(() => expect(f.upload).toHaveBeenCalledTimes(2));
+    const signal = (f.upload.mock.calls[1]![1] as { signal: AbortSignal }).signal;
+    const submission = f.store.beginSubmission(f.key)!;
+    f.store.rememberSelection('host:view:child', { start: 1, end: 2 });
+    f.store.rememberSelection('host:other-view:child', { start: 3, end: 4 });
+    f.store.clearSession('host', 'root', ['view']);
+    await Promise.all([done, queued]);
+    expect(signal.aborted).toBe(true);
+    expect(f.store.get(f.key)).toEqual({ attachments: [], sending: false });
+    expect(f.store.get('host:root:root').attachments).toEqual([]);
+    expect(f.store.get('host:other:child').attachments).toHaveLength(1);
+    expect(f.store.selection('host:view:child')).toBeUndefined();
+    expect(f.store.selection('host:other-view:child')).toEqual({ start: 3, end: 4 });
+    transfer.resolve(f.uploaded()); await Promise.resolve();
+    f.store.finishSubmission(f.key, submission);
+    expect(f.store.get(f.key)).toEqual({ attachments: [], sending: false });
+    expect(f.store.getSnapshot().attachmentCount).toBe(1);
+    f.store.dispose();
+  });
   it('serializes source reads and exact-recipient uploads across drafts, retaining only ready references', async () => {
     const f = fixture();
     const transfer = deferred<ReturnType<typeof f.uploaded>>();

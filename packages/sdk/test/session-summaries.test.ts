@@ -5,11 +5,11 @@ import { WhipClient } from '../src/client.js';
 import { transportFixture } from './transport-fixture.js';
 
 const summary = {
-  root_id: 'root', missing: false, title: 'Working session', cwd: '/project', workspace_id: 'workspace',
+  root_id: 'root', missing: false, archived: false, title: 'Working session', cwd: '/project', workspace_id: 'workspace',
   running_agents: '9007199254740993', queued_agents: '2', pending_permissions: '1', pending_questions: '3', truncated: false,
 };
 const result: SessionSummariesResult = { items: [summary, {
-  root_id: 'absent', missing: true, title: '', cwd: '', running_agents: '0', queued_agents: '0',
+  root_id: 'absent', missing: true, archived: false, title: '', cwd: '', running_agents: '0', queued_agents: '0',
   pending_permissions: '0', pending_questions: '0', truncated: false,
 }] };
 

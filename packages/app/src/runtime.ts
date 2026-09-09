@@ -219,6 +219,42 @@ export class AppRuntime {
     )
       return { runtimeId: saved.runtimeId, rootId: saved.rootId };
   }
+  /** Remove local state only after deletion has succeeded on this runtime. */
+  forgetSession(runtimeId: string, rootId: string) {
+    const prefix = `${runtimeId}:${rootId}:`;
+    const matches = (tab: { runtimeId: string; rootId: string }) => tab.runtimeId === runtimeId && tab.rootId === rootId;
+    const workspace = this.tabs.workspace();
+    const viewIds = [...workspace.tabs, ...workspace.closed.map(item => item.tab)].filter(matches).map(tab => tab.id);
+    this.compositions.clearSession(runtimeId, rootId, viewIds);
+    this.tabs.purge(runtimeId, rootId);
+    const viewKey = JSON.stringify([runtimeId, rootId]);
+    const lease = this.views.get(viewKey);
+    if (lease) this.dropView(viewKey, lease);
+    this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId && query.queryKey[2] === rootId });
+    for (const input of this.submittedInputs.getSnapshot())
+      if (matches(input)) this.submittedInputs.remove(input.id, runtimeId);
+    const keys = new Set([...this.draftIdentities, ...this.drafts.keys(), ...this.dirtyDrafts, ...this.durableDrafts]);
+    try {
+      for (const key of this.platform.storage.keys())
+        if (key.startsWith(draftStoragePrefix + prefix)) keys.add(key.slice(draftStoragePrefix.length));
+    } catch (error) {
+      this.report(new Error('The session was deleted, but some saved drafts could not be found in device storage.', { cause: error }));
+    }
+    for (const key of keys) {
+      if (!key.startsWith(prefix)) continue;
+      this.drafts.delete(key);
+      this.draftIdentities.delete(key);
+      this.dirtyDrafts.add(key);
+      for (const listener of this.draftListeners.get(key) ?? []) listener();
+    }
+    this.flushDrafts();
+    const last = this.lastSession();
+    if (last && matches(last)) {
+      try { this.platform.storage.removeItem('whip.web.last-session.v1'); }
+      catch (error) { this.report(new Error('The session was deleted, but its last-session shortcut could not be cleared from device storage.', { cause: error })); }
+    }
+    this.update({});
+  }
   clearError() {
     this.update({ error: undefined });
   }

@@ -1,0 +1,59 @@
+{
+  "recordedAt": "2026-09-09T04:28:18.837Z",
+  "scope": "Prior actual installed editor launches, before stopping GUI tests after the temporary HOME/keychain incident",
+  "local": [
+    {
+      "app": "cursor",
+      "version": "3.19.13",
+      "openedExactSpecialCharacterFolder": true,
+      "evidence": "Isolated window storage retained the exact file URI"
+    },
+    {
+      "app": "vscode",
+      "version": "1.113.0",
+      "openedExactSpecialCharacterFolder": true,
+      "evidence": "Isolated window storage retained the exact file URI"
+    },
+    {
+      "app": "zed",
+      "version": "1.18.1",
+      "openedExactSpecialCharacterFolder": true,
+      "evidence": "macOS accessibility confirmed Project # % ü with spaces — README.md; only that test window was closed"
+    }
+  ],
+  "remote": [
+    {
+      "app": "cursor",
+      "handoffAccepted": true,
+      "sshAuthenticated": true,
+      "directory": "/tmp/whip-editor-smoke-HBJ4rK/Project # % ü with spaces",
+      "evidence": "AnySphere Remote SSH resolved whip-editor-fixture using temporary -F config and received the isolated sshd ForceCommand response after authentication",
+      "remoteServerSetup": false,
+      "remoteBrowsing": false
+    },
+    {
+      "app": "vscode",
+      "handoffAccepted": true,
+      "sshAuthenticated": true,
+      "directory": "/tmp/whip-editor-smoke-HBJ4rK/Project # % ü with spaces",
+      "evidence": "Installed Microsoft Remote SSH logged public-key authentication to the temporary localhost sshd; exact authority/path retained",
+      "remoteServerSetup": false,
+      "remoteBrowsing": false
+    },
+    {
+      "app": "zed",
+      "remoteTestCompleted": false,
+      "reason": "Existing Zed windows plus macOS singleton prevented an isolated remote configuration; user editor was preserved"
+    }
+  ],
+  "incident": {
+    "syntheticHome": "<fixture>/<editor>/home",
+    "symptom": "macOS missing keychain prompts while trying to store Cursor Key",
+    "orphanFixtureCursorPID": 58359,
+    "orphanStoppedByCoordinatingTask": true,
+    "realCursorPIDPreserved": 55077,
+    "cause": "SIGTERM was sent but detached GUI exit was not confirmed before deleting synthetic HOME",
+    "mitigation": "No further editor launches; smoke now requires explicit opt-in, preserves real OS HOME, includes fixture-only password-store/mock-keychain switches, and waits or force-stops only confirmed fixture GUIs before deleting data",
+    "macOSCursorKeychainSuppressionVerified": false
+  }
+}

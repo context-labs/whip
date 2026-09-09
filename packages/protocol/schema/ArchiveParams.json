@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "properties": {
+    "archived": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v5/ArchiveParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ArchiveParams",
+  "required": [
+    "archived"
+  ],
+  "additionalProperties": false
+}

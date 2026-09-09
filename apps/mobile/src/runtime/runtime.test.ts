@@ -22,7 +22,7 @@ function rootSnapshot(): RootSnapshot {
   return {
     root_id: 'root', cursor: '10', history_revision: '1', active_turns: {},
     meta: { id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', goal: '', forked_from: '', fork_seq: 0,
-      tags: [], pinned: false, effort: '', usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
+      tags: [], archived: false, pinned: false, effort: '', usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
     messages: [], message_seqs: [], presentation: [], agent_presentations: {}, agents: [], inbox: [], blackboard: [],
     budgets: [], capabilities: [], schedules: [], permissions: [], questions: [],
   };
@@ -58,7 +58,7 @@ async function fixture(queryTimeoutMs = 30) {
       const request = JSON.parse(text) as Request; peer.requests.push(request);
       if (override?.(request, peer)) return;
       if (request.method === 'initialize') peer.reply(request, {
-        protocol_major: 4, protocol_minor: 1, runtime_id: 'runtime', connection_id: `connection-${peers.length}`,
+        protocol_major: manifest.major, protocol_minor: manifest.minor, runtime_id: 'runtime', connection_id: `connection-${peers.length}`,
         generation: '1', build_id: 'fixture', host_platform: 'darwin', host_architecture: 'arm64', capabilities: [], negotiated_capabilities: [],
         operations: manifest.operations.map(operation => ({ ...operation })),
         limits: { frame_bytes: 1 << 20, connections: 64, in_flight_requests: 32, outbound_messages: 1024, outbound_bytes: String(8 << 20), root_subscriptions: 16, content_chunk_bytes: 256 << 10, upload_bytes: String(64 << 20) },

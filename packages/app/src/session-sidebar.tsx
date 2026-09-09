@@ -6,8 +6,8 @@ import type { WhipClient } from '@whip/sdk';
 import type { DeepReadonly, SessionListView } from '@whip/sdk/state';
 import type { SessionCatalogPage } from '@whip/protocol';
 import { useQuery } from '@tanstack/react-query';
-import { Button, IconButton, Menu, ContextMenu, Spinner } from '@whip/ui';
-import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquareWarning } from 'lucide-react';
+import { Button, IconButton, Menu, ContextMenu, Spinner, WhipcodeWordmark } from '@whip/ui';
+import { Archive, Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquareWarning } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { styles, sessionMarker, directoryMarker } from './session-sidebar.stylex';
 import { layout } from './styles';
@@ -16,15 +16,18 @@ import { sessionBusy, sessionNeedsInput } from './session-status';
 import { sidebarRows, setDirectoryCollapsed, type SidebarState } from './sidebar-state';
 import { sessionDestination } from './session-tab-routing';
 import type { HostConnection } from './hosts';
+import { useSessionActions } from './session-actions';
 import { sessionSearch } from './session-tabs';
 
 const noCollapsedDirectories: readonly string[] = [];
 
 interface SidebarProps {
   headerAction?: ReactNode;
+  /** Inset window chrome: the brand row doubles as the window drag strip. */
+  inset?: boolean;
   state: SidebarState;
   setState: Dispatch<SetStateAction<SidebarState>>;
-  onSearch(): void;
+  onSearch(status?: 'active' | 'archived' | 'all'): void;
   onConnect(): void;
   onNavigate(): void;
 }
@@ -33,7 +36,7 @@ export function SessionSidebar(props: SidebarProps) {
   const scroll = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   return <>
-    <SidebarDestinations onNavigate={props.onNavigate} onSearch={props.onSearch} headerAction={props.headerAction} />
+    <SidebarDestinations onNavigate={props.onNavigate} onSearch={props.onSearch} headerAction={props.headerAction} inset={props.inset} />
     <div ref={scroll} aria-label="Saved sessions" {...stylex.props(layout.sessionList, styles.list)}>
       <div ref={content} {...stylex.props(styles.hosts)}>
         {app.hosts.map(host => <HostSection key={host.id} host={host} {...props} scroll={scroll} content={content} />)}
@@ -58,12 +61,21 @@ function HostSection({ host, ...props }: SidebarProps & SidebarScroll & { host: 
     </>}
   </section>;
 }
-function SidebarDestinations({ onNavigate, onSearch, headerAction }: { onNavigate(): void; onSearch(): void; headerAction?: ReactNode; }) {
+function SidebarDestinations({ onNavigate, onSearch, headerAction, inset }: { onNavigate(): void; onSearch(status?: 'active' | 'archived' | 'all'): void; headerAction?: ReactNode; inset?: boolean; }) {
+  // Inset window chrome (desktop): the brand row is an empty drag strip for
+  // the traffic lights and the wordmark sits below it in the sidebar body,
+  // aligned with the nav icons. Browsers keep it as the home link in the row.
+  const wordmark = <WhipcodeWordmark aria-label="Whipcode" {...stylex.props(styles.wordmark)} />;
   return <>
-    <div {...stylex.props(styles.brandRow)}><Link to="/" search={{}} onClick={onNavigate} {...stylex.props(layout.brand, styles.destination, layout.grow)}>WHIP</Link>{headerAction}</div>
+    <div {...stylex.props(styles.brandRow, inset && styles.brandRowInset, inset && layout.windowDrag)}>
+      {!inset && <Link to="/" search={{}} onClick={onNavigate} {...stylex.props(styles.wordmarkLink, layout.grow)}>{wordmark}</Link>}
+      {inset ? <div {...stylex.props(styles.brandRowAction, layout.windowNoDrag)}>{headerAction}</div> : headerAction}
+    </div>
+    {inset && <div {...stylex.props(styles.wordmarkBelow)}>{wordmark}</div>}
     <nav aria-label="Main navigation" {...stylex.props(styles.destinations)}>
       <Link to="/" search={{}} onClick={onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Plus size={16} />New session</Link>
-      <button onClick={onSearch} {...stylex.props(styles.destination, styles.primaryDestination)}><Search size={16} />Search sessions</button>
+      <button onClick={() => onSearch()} {...stylex.props(styles.destination, styles.primaryDestination)}><Search size={16} />Search sessions</button>
+      <button onClick={() => onSearch('archived')} {...stylex.props(styles.destination, styles.primaryDestination)}><Archive size={16} />Archived sessions</button>
       <Link to="/settings" onClick={onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Settings2 size={16} />Settings</Link>
     </nav>
   </>;
@@ -104,6 +116,7 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, scrol
   onCollapse?(cwd: string, closed: boolean): void;
 }) {
   const runtime = useRuntime();
+  const actions = useSessionActions();
   useSessionTabs();
   const connection = useWhipConnection(client);
   const runtimeId = connection.info?.runtime_id ?? '';
@@ -228,12 +241,10 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, scrol
         const session = item.session;
         const saved = runtime.tabs.preferred(runtimeId, session.id);
         const active = selected?.runtimeId === runtimeId && selected.rootId === session.id;
-        const menuItems = [{ id: 'open-background', label: 'Open in background tab', onSelect: () => {
-          try { runtime.tabs.open(runtimeId, session.id, session.title); } catch (error) { runtime.report(error); }
-        } }];
+        const menuItems = actions.items({ runtimeId, rootId: session.id, title: session.title, archived: session.archived });
         return <div key={item.key} data-sidebar-session={session.id} data-sidebar-cwd={session.cwd}
           style={{ position: 'absolute', width: '100%', top: 0, height: row.size, transform: `translateY(${row.start - scrollMargin}px)` }}>
-          <ContextMenu items={menuItems}><div {...stylex.props(styles.sessionRow, sessionMarker, active && styles.selected)}>
+          <ContextMenu items={menuItems} onOpenChange={actions.prepare}><div {...stylex.props(styles.sessionRow, sessionMarker, active && styles.selected)}>
             <Link to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: session.id }} search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
               aria-current={active ? 'page' : undefined} title={`${session.title || 'Untitled session'}\n${session.cwd}`}
               onClick={event => {
@@ -248,7 +259,7 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, scrol
               <span {...stylex.props(layout.grow)}><span {...stylex.props(styles.title, layout.ellipsis)}>{session.title || 'Untitled session'}</span>
               </span>
             </Link>
-            <Menu trigger={<IconButton variant="ghost" label={`Actions for ${session.title || 'Untitled session'}`} xstyle={[styles.icon, styles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} />
+            <Menu trigger={<IconButton variant="ghost" label={`Actions for ${session.title || 'Untitled session'}`} xstyle={[styles.icon, styles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
           </div></ContextMenu>
         </div>;
       })}

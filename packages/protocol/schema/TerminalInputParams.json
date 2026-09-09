@@ -13,7 +13,7 @@
       "contentEncoding": "base64"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/TerminalInputParams",
+  "$id": "https://whip.dev/protocol/v5/TerminalInputParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "TerminalInputParams",
   "required": [

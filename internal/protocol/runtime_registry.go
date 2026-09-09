@@ -35,6 +35,7 @@ var runtimeOperations = []Operation{
 	action[EmptyParams, ModelResult]("session.model.get", Query, "root-association", false),
 	action[ListParams, SessionListResult]("session.list", Query, "host-runtime", false),
 	action[IDParams, RootIDResult]("session.open", Query, "root-association", false),
+	action[ArchiveParams, ArchiveResult]("session.archive", Command, "root-association", false),
 	action[TitleParams, TitleResult]("session.rename", Command, "root-association", false),
 	action[EmptyParams, ModelResult]("session.reload", Command, "root-idle", false),
 	action[EmptyParams, Empty]("session.autotitle", Command, "root-association", false),

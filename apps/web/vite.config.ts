@@ -28,7 +28,7 @@ export default defineConfig({
   optimizeDeps: { include: ['use-sync-external-store/shim', 'use-sync-external-store/shim/with-selector'] },
   server: {
     strictPort: true,
-    ...(process.env.WHIP_WEB_DAEMON ? { proxy: { '/api': { target: process.env.WHIP_WEB_DAEMON, ws: true, changeOrigin: true } } } : {}),
+    proxy: { '/api': { target: process.env.WHIP_WEB_DAEMON || 'http://127.0.0.1:8080', ws: true, changeOrigin: true } },
   },
   build: { target: 'es2022', sourcemap: false, assetsInlineLimit: 0 },
 });

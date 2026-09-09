@@ -38,6 +38,9 @@
           "pinned": {
             "type": "boolean"
           },
+          "archived": {
+            "type": "boolean"
+          },
           "updated_at": {
             "type": "string"
           },
@@ -53,6 +56,7 @@
           "provider",
           "cwd",
           "pinned",
+          "archived",
           "updated_at",
           "truncated"
         ],
@@ -77,11 +81,20 @@
         },
         "search": {
           "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "archived",
+            "all"
+          ]
         }
       },
       "required": [
         "revision",
-        "offset"
+        "offset",
+        "status"
       ],
       "additionalProperties": false
     },
@@ -89,7 +102,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/SessionCatalogPage",
+  "$id": "https://whip.dev/protocol/v5/SessionCatalogPage",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SessionCatalogPage",
   "required": [

@@ -5,7 +5,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/TitleResult",
+  "$id": "https://whip.dev/protocol/v5/TitleResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "TitleResult",
   "required": [

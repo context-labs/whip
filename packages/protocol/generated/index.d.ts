@@ -41,6 +41,25 @@ export interface AgentInputParams {
 export type AgentListResult =
   | null
   | {
+      last_turn?: null | {
+        turn_id?: string;
+        status: string;
+        started_at?: string;
+        finished_at?: string;
+        event_seq: string;
+        error?: string;
+        error_truncated?: boolean;
+        error_details?: null | {
+          inline?: unknown;
+          text?: null | string;
+          binary?: string | null;
+          reference_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          source: string;
+        };
+      };
       id: string;
       root_id: string;
       parent_id: string;
@@ -82,6 +101,25 @@ export interface AgentTranscriptResult {
   };
   cursor: string;
   agent: {
+    last_turn?: null | {
+      turn_id?: string;
+      status: string;
+      started_at?: string;
+      finished_at?: string;
+      event_seq: string;
+      error?: string;
+      error_truncated?: boolean;
+      error_details?: null | {
+        inline?: unknown;
+        text?: null | string;
+        binary?: string | null;
+        reference_id: string;
+        digest: string;
+        size: string;
+        media_type: string;
+        source: string;
+      };
+    };
     id: string;
     root_id: string;
     parent_id: string;
@@ -192,6 +230,14 @@ export interface AgentTranscriptResult {
           source: string;
         };
       }[];
+}
+
+export interface ArchiveParams {
+  archived: boolean;
+}
+
+export interface ArchiveResult {
+  archived: boolean;
 }
 
 export interface BoundedTranscriptPage {
@@ -1397,6 +1443,25 @@ export interface RootCollectionPage {
     | null
     | ({
         agent?: null | {
+          last_turn?: null | {
+            turn_id?: string;
+            status: string;
+            started_at?: string;
+            finished_at?: string;
+            event_seq: string;
+            error?: string;
+            error_truncated?: boolean;
+            error_details?: null | {
+              inline?: unknown;
+              text?: null | string;
+              binary?: string | null;
+              reference_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              source: string;
+            };
+          };
           id: string;
           root_id: string;
           parent_id: string;
@@ -1511,6 +1576,25 @@ export interface RootCollectionPage {
       } & (
         | {
             agent: null | {
+              last_turn?: null | {
+                turn_id?: string;
+                status: string;
+                started_at?: string;
+                finished_at?: string;
+                event_seq: string;
+                error?: string;
+                error_truncated?: boolean;
+                error_details?: null | {
+                  inline?: unknown;
+                  text?: null | string;
+                  binary?: string | null;
+                  reference_id: string;
+                  digest: string;
+                  size: string;
+                  media_type: string;
+                  source: string;
+                };
+              };
               id: string;
               root_id: string;
               parent_id: string;
@@ -1691,6 +1775,7 @@ export interface RootSnapshot {
     forked_from: string;
     fork_seq: number;
     tags: null | string[];
+    archived: boolean;
     pinned: boolean;
     effort: string;
     usage_in: number;
@@ -1763,6 +1848,25 @@ export interface RootSnapshot {
   agents:
     | null
     | {
+        last_turn?: null | {
+          turn_id?: string;
+          status: string;
+          started_at?: string;
+          finished_at?: string;
+          event_seq: string;
+          error?: string;
+          error_truncated?: boolean;
+          error_details?: null | {
+            inline?: unknown;
+            text?: null | string;
+            binary?: string | null;
+            reference_id: string;
+            digest: string;
+            size: string;
+            media_type: string;
+            source: string;
+          };
+        };
         id: string;
         root_id: string;
         parent_id: string;
@@ -2051,6 +2155,7 @@ export interface SessionCatalogPage {
         cwd: string;
         workspace_id?: string;
         pinned: boolean;
+        archived: boolean;
         updated_at: string;
         truncated: boolean;
       }[];
@@ -2058,16 +2163,19 @@ export interface SessionCatalogPage {
     revision: string;
     offset: string;
     search?: string;
+    status: "active" | "archived" | "all";
   };
   has_more: boolean;
 }
 
 export interface SessionCatalogParams {
   search?: string;
+  status?: "active" | "archived" | "all";
   cursor?: null | {
     revision: string;
     offset: string;
     search?: string;
+    status: "active" | "archived" | "all";
   };
   limit: number;
   max_bytes: number;
@@ -2086,6 +2194,7 @@ export type SessionListResult =
       forked_from: string;
       fork_seq: number;
       tags: null | string[];
+      archived: boolean;
       pinned: boolean;
       effort: string;
       usage_in: number;
@@ -2093,6 +2202,14 @@ export type SessionListResult =
       usage_out: number;
       updated_at: string;
     }[];
+
+export interface SessionMetadata {
+  root_id: string;
+  title: string;
+  cwd: string;
+  history_revision: string;
+  archived: boolean;
+}
 
 export interface SessionPreviewResult {
   root_id: string;
@@ -2114,6 +2231,7 @@ export interface SessionSummariesResult {
   items: {
     root_id: string;
     missing: boolean;
+    archived: boolean;
     title: string;
     cwd: string;
     workspace_id?: string;
@@ -2126,6 +2244,7 @@ export interface SessionSummariesResult {
 }
 
 export interface SessionUpdateEvent {
+  archived?: null | boolean;
   title?: string;
   model?: string;
   provider?: string;
@@ -2307,6 +2426,8 @@ export interface ContractTypes {
   AgentListResult: AgentListResult;
   AgentSubmitResult: AgentSubmitResult;
   AgentTranscriptResult: AgentTranscriptResult;
+  ArchiveParams: ArchiveParams;
+  ArchiveResult: ArchiveResult;
   BoundedTranscriptPage: BoundedTranscriptPage;
   BrowserDriverParams: BrowserDriverParams;
   BrowserStatusResult: BrowserStatusResult;
@@ -2415,6 +2536,7 @@ export interface ContractTypes {
   SessionCatalogPage: SessionCatalogPage;
   SessionCatalogParams: SessionCatalogParams;
   SessionListResult: SessionListResult;
+  SessionMetadata: SessionMetadata;
   SessionPreviewResult: SessionPreviewResult;
   SessionSummariesParams: SessionSummariesParams;
   SessionSummariesResult: SessionSummariesResult;
@@ -2488,6 +2610,7 @@ export interface EventPayloadTypes {
   "root.stopped": LifecycleEvent | ContentEventPayload;
   "schedule.fired": LifecycleEvent | ContentEventPayload;
   "scratch.restored": LifecycleEvent | ContentEventPayload;
+  "session.archived.updated": SessionUpdateEvent | ContentEventPayload;
   "session.cwd.updated": SessionUpdateEvent | ContentEventPayload;
   "session.effort.updated": SessionUpdateEvent | ContentEventPayload;
   "session.model.updated": SessionUpdateEvent | ContentEventPayload;
@@ -2557,6 +2680,7 @@ export interface RpcMethods {
   "query": { params: QueryParams; result: QueryResult; execution: "query"; permission: "operation-specific"; sensitive: false };
   "root.collection": { params: RootCollectionParams; result: RootCollectionPage; execution: "query"; permission: "root-association"; sensitive: false };
   "root.snapshot": { params: SnapshotParams; result: RootSnapshot; execution: "query"; permission: "root-association"; sensitive: false };
+  "sessions.get": { params: RootParams; result: SessionMetadata; execution: "query"; permission: "root-association"; sensitive: false };
   "sessions.list": { params: SessionCatalogParams; result: SessionCatalogPage; execution: "query"; permission: "host-runtime"; sensitive: false };
   "sessions.revision": { params: EmptyParams; result: CatalogRevision; execution: "query"; permission: "host-runtime"; sensitive: false };
   "sessions.summaries": { params: SessionSummariesParams; result: SessionSummariesResult; execution: "query"; permission: "host-runtime"; sensitive: false };
@@ -2609,6 +2733,7 @@ export interface RuntimeOperations {
   "schedule.create": { params: ScheduleCreateParams; result: ScheduleResult; execution: "command"; permission: "schedule-budget"; sensitive: false };
   "schedule.delete": { params: ScheduleDeleteParams; result: ScheduleResult; execution: "command"; permission: "root-association"; sensitive: false };
   "schedule.list": { params: EmptyParams; result: ScheduleListResult; execution: "query"; permission: "root-association"; sensitive: false };
+  "session.archive": { params: ArchiveParams; result: ArchiveResult; execution: "command"; permission: "root-association"; sensitive: false };
   "session.autotitle": { params: EmptyParams; result: Empty; execution: "command"; permission: "root-association"; sensitive: false };
   "session.create": { params: CreateSessionParams; result: RootIDResult; execution: "command"; permission: "host-runtime"; sensitive: false };
   "session.delete": { params: RootParams; result: RootIDResult; execution: "command"; permission: "root-association"; sensitive: false };

@@ -42,6 +42,9 @@
           "type": "string"
         }
       },
+      "archived": {
+        "type": "boolean"
+      },
       "pinned": {
         "type": "boolean"
       },
@@ -72,6 +75,7 @@
       "forked_from",
       "fork_seq",
       "tags",
+      "archived",
       "pinned",
       "effort",
       "usage_in",
@@ -81,7 +85,7 @@
     ],
     "additionalProperties": false
   },
-  "$id": "https://whip.dev/protocol/v4/SessionListResult",
+  "$id": "https://whip.dev/protocol/v5/SessionListResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SessionListResult"
 }

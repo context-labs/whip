@@ -384,9 +384,19 @@ signal only to the PID currently holding that lock.
 
 `WHIP_HOME` replaces `~/.whip`. The pre-runtime-v2 database is not opened or
 migrated automatically; this is an intentional clean break. The current
-development schema is version 10 (`whip-recursive-runtime-v10`). Incompatible
-databases are rejected without modification. WHIP does not automatically
-archive or delete them; use a fresh database for this schema.
+development schema is version 12 (`whip-recursive-runtime-v12`). Opening a
+version 10 database performs a transactional, one-way upgrade that adds session
+archive state and updates catalog revision tracking in schema 11. The subsequent
+schema 11-to-12 transaction adds nullable, bounded last-turn outcomes per agent,
+backfills retained lifecycle evidence, and reconciles legacy stopped turns.
+Runtime identity, agent IDs, history, configuration, command outcomes, and
+existing sessions are preserved; existing sessions start unarchived. Backfill
+leaves outcomes unknown when evidence is missing or pruned, externally stored
+events exceed 8 MiB, or edited legacy root history has no safe reset boundary.
+Child history is unaffected by that root-history restriction. Each failed
+upgrade step rolls back and can be retried.
+Older binaries cannot open the upgraded database. Other incompatible schemas
+are rejected without modification; WHIP never automatically deletes them.
 
 ## Recovery
 

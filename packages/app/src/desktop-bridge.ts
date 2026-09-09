@@ -1,5 +1,5 @@
 import type { ConnectionProfile, ConnectionTarget } from './connections';
-import type { LocalRuntimeStatus } from './platform';
+import type { LocalRuntimeStatus, OpenProjectRequest, ProjectEditor } from './platform';
 export type { LocalRuntimeStatus } from './platform';
 
 /** Serialized contract only. Electron implementation and IPC objects stay in the host. */
@@ -28,6 +28,9 @@ export type DesktopEvent =
 export interface DesktopBridge {
   readonly version: 1;
   readonly appVersion: string;
+  /** 'inset' when the host hides the native title bar (macOS hiddenInset) and
+   * the renderer owns the top chrome, including window drag regions. */
+  readonly chrome?: 'inset';
   readonly sessionScheme?: 'whip' | 'whip-beta';
   readonly connectionKinds: readonly ConnectionTarget['kind'][];
   onEvent(listener: (event: DesktopEvent) => void): () => void;
@@ -40,6 +43,9 @@ export interface DesktopBridge {
   copy(text: string): Promise<void>;
   openExternal(url: string): Promise<void>;
   pickDirectory(): Promise<string | undefined>;
+  listProjectEditors(): Promise<readonly ProjectEditor[]>;
+  /** connectionId is a native handle. URL sources never gain local folder authority. */
+  openProject(request: OpenProjectRequest, urlSource?: ConnectionProfile): Promise<void>;
   testLocalRuntime(): Promise<LocalRuntimeStatus>;
   chooseLocalRuntime(): Promise<LocalRuntimeStatus>;
   installLocalRuntime(): Promise<LocalRuntimeStatus>;

@@ -112,7 +112,7 @@ root prompt (`evals/rlm`).
 
 - The daemon is the only runtime/store owner.
 - TUI, `whip run`, sessions commands, ACP, and MCP stdio are protocol clients.
-- WHIP v4 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
+- WHIP v5 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
   WebSockets; compatible builds attach without replacing the daemon. The operation
   and event registry generates TypeScript declarations and Ajv validators.
 - Command submission returns committed acceptance. Stable client/command IDs
@@ -231,6 +231,21 @@ Closing a page detaches the client. It neither cancels accepted work nor sends
 unsent drafts. A command outcome is separate from completion of descendant agents,
 mailboxes or schedules. See [web-app.md](web-app.md) for exact startup commands,
 trusted-network setup and current browser evidence.
+
+## Conversation row actions
+
+Sidebar, search, and Session details share Open in, Rename, same-directory Fork,
+Archive/Restore, and confirmed Delete. Archived roots retain execution, Attention,
+open tabs, and drafts; active/archived/all search and Undo restore their visibility.
+Desktop opens local folders or remote SSH aliases in installed Cursor, VS Code,
+and Zed; Finder is local-only and browsers can copy the exact directory.
+
+| Behavior | Implementation | Verification |
+| --- | --- | --- |
+| Bounded full metadata without transcript hydration | `internal/session/metadata.go`, `sessions.get`, `packages/sdk/src/session.ts` | Metadata bounds/store tests, SDK command tests, browser frame assertions |
+| Durable archive, filtered cursor revisions, one-way v10→v11 preservation | `internal/session/{migrations,metadata,catalog_page}.go`, `internal/daemon/client_control.go` | Migration rollback/reopen and catalog tests, busy archive/dedup/event tests, race suite |
+| Shared host-bound actions and deletion cleanup | `packages/app/src/session-actions.tsx`, `session-search-dialog.tsx`, `runtime.ts`, `session-tabs.ts`, `compositions.ts` | `session-actions.test.tsx`, runtime/tabs/compositions tests, `apps/web/scripts/session-actions.mjs` |
+| Fixed native editor launchers and verified runtime identity | `apps/desktop/src/project-open.ts`, main/preload bridge and web desktop adapter | Project opening/adapter tests, real Electron IPC, local launches and Cursor/VS Code SSH handoff; [native acceptance limits](../.ai-docs/plans/conversation-row-actions/README.md#implementation-record--2026-09-08) |
 
 ## Terminal UI behavior
 

@@ -131,6 +131,33 @@ body. Completion notifications are not implemented because the current metadata
 does not provide a durable completion event. Fully quitting ends observation.
 An unchanged permission count cannot identify a replacement pending request.
 
+## Open a session in an editor
+
+Conversation row menus and Session details offer **Open in → Cursor, VS Code,
+Zed, Finder**. Whip discovers installed macOS applications; missing applications
+are disabled. Local folders use the installed application's bundled launcher.
+Finder opens local folders only. Launch errors appear in Whip with their cause.
+
+For a remote daemon reached through a URL (including Tailscale), choose
+**Configure SSH for editors…** and enter an alias from this Mac's OpenSSH config,
+for example `gpu-4090-sam`. The alias is stored for that daemon's verified runtime
+identity on this device. It does not change the Whip connection or SSH config.
+The alias must reach the same machine as the daemon. Editors handle SSH login and
+their required Remote SSH extensions. A simple native SSH profile can reuse its
+host alias; profiles with separate user, port, or identity-file overrides require
+an explicit alias that contains those options. URLs never imply an SSH identity.
+
+The main process verifies the requested runtime against the prepared connection
+or URL before launching, and remote paths cannot fall through to local Finder.
+Only the fixed editor registry is supported; shell command templates and
+arbitrary external URI schemes are not accepted.
+
+The [implementation record](../.ai-docs/plans/conversation-row-actions/README.md#implementation-record--2026-09-08)
+tracks native acceptance: local launches and Cursor/VS Code SSH handoff were
+verified, while completed remote folder browsing and Zed SSH remain release-QA
+items. The IPC diagnostic defaults to no external application launches; the
+installed-editor diagnostic requires explicit opt-in.
+
 ## Build and develop
 
 Building requires macOS arm64, Node 24, Go from `go.mod`, and Xcode command-line

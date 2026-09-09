@@ -279,7 +279,7 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v4/BoundedTranscriptPage",
+  "$id": "https://whip.dev/protocol/v5/BoundedTranscriptPage",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "BoundedTranscriptPage",
   "required": [

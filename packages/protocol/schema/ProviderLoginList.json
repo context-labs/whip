@@ -92,7 +92,7 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v4/ProviderLoginList",
+  "$id": "https://whip.dev/protocol/v5/ProviderLoginList",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ProviderLoginList",
   "required": [

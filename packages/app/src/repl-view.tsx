@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { RootSnapshot } from '@whip/protocol';
 import { executionRows, type DeepReadonly, type ExecutionCell, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
 import { Badge, Button, CodeBlock, CopyButton, Select, Tooltip } from '@whip/ui';
 import { Code2, Info, RotateCcw } from 'lucide-react';
@@ -10,13 +11,14 @@ import { styles } from './repl-view.stylex';
 
 const historyHelp = 'Saved cells include code, output, results and recorded restart information. Details of individual host calls may be unavailable for older cells.';
 
-export function ReplView({ view, state, agentId, runtimeId, viewId, connected, onAgentChange }: {
+export function ReplView({ view, state, agentId, runtimeId, viewId, connected, lastTurn, onAgentChange }: {
   view: SessionView;
   state: DeepReadonly<SessionViewSnapshot>;
   agentId: string;
   runtimeId: string;
   viewId: string;
   connected: boolean;
+  lastTurn?: DeepReadonly<NonNullable<RootSnapshot['agents']>[number]['last_turn']>;
   onAgentChange(agentId: string): void;
 }) {
   const root = state.root;
@@ -41,6 +43,7 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, o
   });
   const loading = state.status === 'loading' || history?.loading;
   const missing = !!history?.error || (!root && state.status === 'error');
+  const failed = !root?.active_turns?.[agentId] && (lastTurn ?? agents.find(agent => agent.id === agentId)?.last_turn)?.status === 'failed';
   return <div {...stylex.props(styles.root)} data-session-view="repl">
     <div {...stylex.props(styles.toolbar)}>
       <span {...stylex.props(styles.title)}><Code2 size={16} /> REPL
@@ -59,7 +62,7 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, o
       loadOlder={() => view.loadOlder(agentId)} historyRevision={history?.revision ?? root?.history_revision}
       historyReady={!!history && !history.loading} bookmarkKey={`${runtimeId}:${viewId}:${agentId}:repl`}
       contentStyle={styles.content}
-      empty={<div {...stylex.props(styles.empty)}><Code2 size={24} /><strong>{loading ? 'Loading executions…' : missing ? 'This agent’s executions are unavailable' : 'No executions in the loaded history'}</strong><span>{loading ? 'Reading the session’s recorded work.' : missing ? 'Use Refresh above to try again, or select another agent.' : history?.hasMore ? 'Load an older page to look for earlier cells.' : 'Cells appear here when this agent runs Starlark.'}</span></div>}
+      empty={<div {...stylex.props(styles.empty)}><Code2 size={24} /><strong>{loading ? 'Loading executions…' : missing ? 'This agent’s executions are unavailable' : failed ? 'The last turn failed' : 'No executions in the loaded history'}</strong><span>{loading ? 'Reading the session’s recorded work.' : missing ? 'Use Refresh above to try again, or select another agent.' : failed ? 'No executions are present in the loaded history. See the recorded error above.' : history?.hasMore ? 'Load an older page to look for earlier cells.' : 'Cells appear here when this agent runs Starlark.'}</span></div>}
       renderRow={row => row.kind === 'restart'
         ? <div {...stylex.props(styles.restart)} data-repl-restart><RotateCcw size={14} /><span>{row.text}{row.historyUnmatched ? ' · observed; historical match unavailable' : ''}</span></div>
         : <Cell row={row} number={ordinals.get(row.id)!} view={view} connected={connected} expanded={expanded.has(row.id)} onToggle={() => toggle(row.id)} />}

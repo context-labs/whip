@@ -495,6 +495,22 @@ type HTTPError struct {
 
 func (e *HTTPError) Error() string { return e.Status + ": " + e.Body }
 
+// IsPermanentRequestError identifies provider rejections that another identical
+// agent turn cannot fix. Callers should apply their own recovery (for example,
+// context compaction) before deciding whether to requeue the input.
+func IsPermanentRequestError(err error) bool {
+	var response *HTTPError
+	if !errors.As(err, &response) {
+		return false
+	}
+	fields := strings.Fields(response.Status)
+	if len(fields) == 0 {
+		return false
+	}
+	code, _ := strconv.Atoi(fields[0])
+	return code >= 400 && code < 500 && code != http.StatusRequestTimeout && code != http.StatusTooManyRequests
+}
+
 // DefaultMaxAttempts is the built-in retry budget for transient request
 // failures (one initial try plus retries). Client.MaxRetries overrides it;
 // exported so the UI can show "attempt N/M".

@@ -2,7 +2,7 @@
   {
     "type": "InitializeParams",
     "value": {
-      "protocol_major": 4,
+      "protocol_major": 5,
       "build_id": "fixture",
       "client_kind": "human",
       "client_id": "browser-fixture"
@@ -490,6 +490,7 @@
         "forked_from": "",
         "fork_seq": 0,
         "tags": [],
+        "archived": false,
         "pinned": false,
         "effort": "",
         "usage_in": 0,
@@ -522,6 +523,22 @@
       "schedules": [],
       "permissions": [],
       "questions": []
+    }
+  },
+  {
+    "type": "RootParams",
+    "value": {
+      "root_id": ""
+    }
+  },
+  {
+    "type": "SessionMetadata",
+    "value": {
+      "root_id": "",
+      "title": "",
+      "cwd": "",
+      "history_revision": "0",
+      "archived": false
     }
   },
   {
@@ -927,6 +944,18 @@
     "value": []
   },
   {
+    "type": "ArchiveParams",
+    "value": {
+      "archived": false
+    }
+  },
+  {
+    "type": "ArchiveResult",
+    "value": {
+      "archived": false
+    }
+  },
+  {
     "type": "CreateSessionParams",
     "value": {
       "kind": "",
@@ -937,12 +966,6 @@
   },
   {
     "type": "RootIDResult",
-    "value": {
-      "root_id": ""
-    }
-  },
-  {
-    "type": "RootParams",
     "value": {
       "root_id": ""
     }

@@ -9,14 +9,18 @@ import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { styles as sidebarStyles, sessionMarker } from './session-sidebar.stylex';
 import { layout } from './styles';
 import { useAppState, useRuntime, useSessionTabs } from './context';
+import { useSessionActions } from './session-actions';
 import { sessionSearch } from './session-tabs';
 
-type Props = { open: boolean; onOpenChange(open: boolean): void; finalFocus: DialogProps['finalFocus'] };
+type Props = { initialStatus?: 'active' | 'archived' | 'all'; open: boolean; onOpenChange(open: boolean): void; finalFocus: DialogProps['finalFocus'] };
 export function SessionSearchDialog(props: Props) {
   return props.open ? <SearchDialog {...props} /> : null;
 }
-function SearchDialog({ onOpenChange, finalFocus }: Props) {
+function SearchDialog({ onOpenChange, finalFocus, initialStatus = 'active' }: Props) {
   const runtime = useRuntime();
+  const actions = useSessionActions();
+  const [status, setStatus] = useState(initialStatus);
+  const filtered = status !== 'active';
   const { hosts } = useAppState();
   useSessionTabs();
   const [filter, setFilter] = useState('');
@@ -44,26 +48,38 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
     };
   }, [visibleHosts]);
   const recent = useSyncExternalStore(catalogs.subscribe, catalogs.getSnapshot, catalogs.getSnapshot);
+  const revisions = JSON.stringify(visibleHosts.map((host, index) => [host.runtimeId, recent[index]?.page?.revision]));
+  const previousRevisions = useRef(new Map<string, string>());
+  useEffect(() => {
+    const current = new Map<string, string>(JSON.parse(revisions));
+    const changed = new Set([...current].filter(([id, revision]) => revision && previousRevisions.current.has(id) && previousRevisions.current.get(id) !== revision).map(([id]) => id));
+    previousRevisions.current = current;
+    if (!changed.size) return;
+    // Reuse catalog observation; other clients invalidate only their host's
+    // on-demand search and cursors, without a second background list poller.
+    setCursors(cursors => Object.fromEntries(Object.entries(cursors).filter(([id]) => !changed.has(id))));
+    void runtime.queries.invalidateQueries({ predicate: query => query.queryKey[0] === 'session-search' && changed.has(query.queryKey[1] as string) });
+  }, [runtime, revisions]);
   useEffect(() => {
     const timer = setTimeout(() => { setTerm(search.trim()); setCursors({}); setSelected(undefined); }, 200);
     return () => clearTimeout(timer);
   }, [search]);
   const queries = useQueries({ queries: visibleHosts.map(host => ({
-    queryKey: ['session-search', host.runtimeId, term, cursors[host.runtimeId ?? '']],
-    queryFn: ({ signal }: { signal: AbortSignal }) => host.client!.sessions.list({ search: term, cursor: cursors[host.runtimeId!], limit: 64, max_bytes: 256 << 10 }, { signal }),
-    enabled: !!term && !!host.client && host.state === 'connected',
+    queryKey: ['session-search', host.runtimeId, term, status, cursors[host.runtimeId ?? '']],
+    queryFn: ({ signal }: { signal: AbortSignal }) => host.client!.sessions.list({ search: term, status, cursor: cursors[host.runtimeId!], limit: 64, max_bytes: 256 << 10 }, { signal }),
+    enabled: (!!term || filtered) && !!host.client && host.state === 'connected',
     gcTime: 0,
   })) });
   const groups = visibleHosts.map((host, index) => {
     const query = queries[index]!;
     const catalog = recent[index];
     const connected = !!host.client && host.state === 'connected';
-    const page = connected ? (term ? query.data : catalog?.page) : undefined;
+    const page = connected ? ((term || filtered) ? query.data : catalog?.page) : undefined;
     return {
       host, query, page,
       items: connected ? (page?.items ?? []).slice(0, 64) : [],
-      loading: connected && (term ? query.isFetching : catalog?.status === 'loading'),
-      error: connected ? (term ? query.error?.message : catalog?.error?.message) : host.error ?? `${host.name} is ${host.state}. Connect it to include its sessions.`,
+      loading: connected && ((term || filtered) ? query.isFetching : catalog?.status === 'loading'),
+      error: connected ? ((term || filtered) ? query.error?.message : catalog?.error?.message) : host.error ?? `${host.name} is ${host.state}. Connect it to include its sessions.`,
     };
   });
   const items = groups.flatMap(group => group.items.map(session => ({ session, host: group.host, key: JSON.stringify([group.host.runtimeId, session.id]) })));
@@ -81,7 +97,7 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
     results.current?.scrollTo(0, 0);
   };
   let offset = 0;
-  return <Dialog open onOpenChange={onOpenChange} title="Search sessions" initialFocus={input} finalFocus={finalFocus} xstyle={styles.dialog}
+  return <Dialog open onOpenChange={onOpenChange} title={status === 'archived' ? 'Archived sessions' : 'Search sessions'} initialFocus={input} finalFocus={finalFocus} xstyle={styles.dialog}
     header={<div {...stylex.props(layout.column)}><div {...stylex.props(styles.searchHeader)}><Search size={20} aria-hidden="true" />
       <Input ref={input} value={search} onChange={event => setSearch(event.target.value)} aria-label={hosts.length > 1 ? 'Search sessions across hosts' : 'Search sessions on this host'}
         placeholder="Search sessions and directories" xstyle={styles.input} aria-controls={resultId}
@@ -93,7 +109,7 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
             event.preventDefault(); results.current?.querySelector<HTMLAnchorElement>(`[data-search-index="${current}"] a`)?.click();
           }
         }} />
-    </div>{hosts.length > 1 && <Select label="Search host" value={filter} options={[{ value: '', label: 'All hosts' }, ...hosts.map(host => ({ value: host.id, label: host.name }))]}
+    </div><Select label="Session status" value={status} options={[{ value: 'active', label: 'Active sessions' }, { value: 'archived', label: 'Archived sessions' }, { value: 'all', label: 'All sessions' }]} onValueChange={value => { setStatus(value as typeof status); setCursors({}); setSelected(undefined); }} />{hosts.length > 1 && <Select label="Search host" value={filter} options={[{ value: '', label: 'All hosts' }, ...hosts.map(host => ({ value: host.id, label: host.name }))]}
       onValueChange={value => { setFilter(value); setSelected(undefined); }} />}</div>}>
     <div ref={results} id={resultId} {...stylex.props(styles.results)} aria-label="Session search results" aria-busy={loading}>
       {groups.map(group => {
@@ -106,10 +122,8 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
           {group.items.map((session, position) => {
             const index = start + position;
             const saved = runtime.tabs.preferred(runtimeId, session.id);
-            const actions = [{ id: 'background', label: 'Open in background tab', onSelect: () => {
-              try { runtime.tabs.open(runtimeId, session.id, session.title); } catch (error) { runtime.report(error); }
-            } }];
-            return <ContextMenu key={session.id} items={actions}><div data-search-index={index} {...stylex.props(styles.result, sessionMarker, index === current && styles.highlighted)}
+            const menuItems = actions.items({ runtimeId, rootId: session.id, title: session.title, archived: session.archived });
+            return <ContextMenu key={session.id} items={menuItems} onOpenChange={actions.prepare}><div data-search-index={index} {...stylex.props(styles.result, sessionMarker, index === current && styles.highlighted)}
               onPointerMove={() => setSelected(items[index]!.key)} onFocus={() => setSelected(items[index]!.key)}>
               <Link to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: session.id }} search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
                 title={`${host.name}\n${session.title || 'Untitled session'}\n${session.cwd}`} aria-label={`${session.title || 'Untitled session'} · ${host.name}${session.cwd ? ` · ${session.cwd}` : ''}`}
@@ -118,20 +132,20 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
                   try { runtime.tabs.open(runtimeId, session.id, session.title); close(); }
                   catch (error) { event.preventDefault(); runtime.report(error); }
                 }}>
-                <Code2 size={18} aria-hidden="true" /><span {...stylex.props(layout.grow, layout.ellipsis)}>{session.title || 'Untitled session'}</span>
+                <Code2 size={18} aria-hidden="true" /><span {...stylex.props(layout.grow, layout.ellipsis)}>{session.title || 'Untitled session'}{session.archived ? ' · Archived' : ''}</span>
                 {index === current ? <CornerDownLeft size={16} aria-hidden="true" /> : <span {...stylex.props(styles.date)}>{updatedLabel(session.updated_at)}</span>}
               </Link>
-              <Menu trigger={<IconButton label={`Actions for ${session.title || 'Untitled session'} on ${host.name}`} variant="ghost" xstyle={[sidebarStyles.icon, sidebarStyles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={actions} />
+              <Menu trigger={<IconButton label={`Actions for ${session.title || 'Untitled session'} on ${host.name}`} variant="ghost" xstyle={[sidebarStyles.icon, sidebarStyles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
             </div></ContextMenu>;
           })}
-          {!group.items.length && !group.error && <p role="status" {...stylex.props(styles.notice)}>{group.loading ? 'Loading sessions…' : term ? 'No matching sessions.' : 'No recent sessions yet.'}</p>}
+          {!group.items.length && !group.error && <p role="status" {...stylex.props(styles.notice)}>{group.loading ? 'Loading sessions…' : term ? 'No matching sessions.' : status === 'archived' ? 'No archived sessions.' : 'No recent sessions yet.'}</p>}
           {group.error && <div role="alert" {...stylex.props(styles.notice)}>{host.name}: {group.error}{host.client && host.state === 'connected' && <Button variant="ghost" onClick={() => {
-            if (term) { if (cursors[runtimeId]) cursor(runtimeId, undefined); else void query.refetch(); }
+            if (term || filtered) { if (cursors[runtimeId]) cursor(runtimeId, undefined); else void query.refetch(); }
             else void host.list?.refresh().catch(error => runtime.report(error));
           }}>Retry {hosts.length > 1 ? host.name : ''}</Button>}</div>}
-          {term && page?.has_more && <Button variant="ghost" disabled={settling || group.loading} onClick={() => cursor(runtimeId, page.next_cursor)}>Load more sessions{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
+          {(term || filtered) && page?.has_more && <Button variant="ghost" disabled={settling || group.loading} onClick={() => cursor(runtimeId, page.next_cursor)}>Load more sessions{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
           {cursors[runtimeId] && <Button variant="ghost" onClick={() => cursor(runtimeId, undefined)}>First results{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
-          {!term && ((page?.items?.length ?? 0) > 64 || page?.has_more) && <p {...stylex.props(styles.notice)}>Showing 64 recent sessions{hosts.length > 1 ? ` on ${host.name}` : ''}. Search to find older sessions.</p>}
+          {!term && !filtered && ((page?.items?.length ?? 0) > 64 || page?.has_more) && <p {...stylex.props(styles.notice)}>Showing 64 recent sessions{hosts.length > 1 ? ` on ${host.name}` : ''}. Search to find older sessions.</p>}
         </section>;
       })}
       {!groups.length && <p role="status" {...stylex.props(styles.notice)}>No hosts selected.</p>}

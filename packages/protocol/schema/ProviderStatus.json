@@ -32,7 +32,7 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v4/ProviderStatus",
+  "$id": "https://whip.dev/protocol/v5/ProviderStatus",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ProviderStatus",
   "required": [

@@ -16,6 +16,7 @@ import {
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
 import { Attention, DesktopAttention } from './attention';
+import { SessionActionsProvider } from './session-actions';
 import { SessionSearchDialog } from './session-search-dialog';
 import { SessionSidebar } from './session-sidebar';
 import { SidebarResize, useSidebarLayout } from './sidebar-layout';
@@ -37,10 +38,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => { const query = window.matchMedia('(max-width: 767px)'); const update = () => setCompact(query.matches); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, []);
   const [navigation, setNavigation] = useState(false);
   const sidebar = useSidebarLayout();
+  const inset = runtime.platform.chrome === 'inset';
   const toggleRef = useRef<HTMLButtonElement>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchStatus, setSearchStatus] = useState<'active' | 'archived' | 'all'>('active');
   const searchOpener = useRef<HTMLElement | null>(null);
-  const openSearch = () => {
+  const openSearch = (status: 'active' | 'archived' | 'all' = 'active') => {
+    setSearchStatus(status);
     searchOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setNavigation(false);
     setSearchOpen(true);
@@ -98,17 +102,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
   </>;
   return (
-    <div {...stylex.props(layout.shell)}>
+    <SessionActionsProvider><div {...stylex.props(layout.shell)}>
       {runtime.platform.notify && state.preferences.desktopNotifications && state.hosts.filter(host => host.client).map(host => <DesktopAttention key={`${host.id}:${host.runtimeId}`} client={host.client!} />)}
       {!compact && !sidebar.state.hidden && <aside id="whip-session-navigation" {...stylex.props(layout.sidebar)} style={{ width: sidebar.width }} aria-label="Session navigation">
         <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch} headerAction={navigationToggle}
-          onConnect={() => setConnection(true)} onNavigate={() => {}} />
+          inset={inset} onConnect={() => setConnection(true)} onNavigate={() => {}} />
         <SidebarResize width={sidebar.width} maxWidth={sidebar.maxWidth}
           onResize={width => sidebar.setState(value => ({ ...value, width }))}
           onHide={() => { sidebar.setState(value => ({ ...value, hidden: true })); requestAnimationFrame(() => toggleRef.current?.focus()); }} toggleRef={toggleRef} />
       </aside>}
       <div {...stylex.props(layout.main)}>
-        <SessionTabStrip ref={tabActions} compact={compact} onManageHosts={() => setConnection(true)}
+        <SessionTabStrip ref={tabActions} compact={compact} onManageHosts={() => setConnection(true)} sidebarHidden={sidebar.state.hidden}
           utilities={<>{(compact || sidebar.state.hidden) && navigationToggle}<Attention /></>} notices={notices}>{children}</SessionTabStrip>
       </div>
       <Sheet xstyle={layout.sidebarSheet} open={compact && navigation} onOpenChange={setNavigation} title="WHIP">
@@ -124,7 +128,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </Sheet>
       <HostDialog open={connection} onOpenChange={setConnection} />
       <SessionSearchDialog
-        open={searchOpen} onOpenChange={setSearchOpen}
+        open={searchOpen} initialStatus={searchStatus} onOpenChange={setSearchOpen}
         finalFocus={() => searchOpener.current?.isConnected ? searchOpener.current : toggleRef.current} />
       <CommandPicker
         open={commands}
@@ -161,6 +165,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           else void navigate({ to: '/settings', search: { section: action } });
         }}
       />
-    </div>
+    </div></SessionActionsProvider>
   );
 }

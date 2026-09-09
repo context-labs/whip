@@ -379,6 +379,7 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, err)
 	}
 	req.Messages = stripAuthored(req.Messages)
+	req.PromptCacheKey = normalizeCacheKey(req.PromptCacheKey)
 	body, err := json.Marshal(req)
 	if err != nil {
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, nonRetryable{err})

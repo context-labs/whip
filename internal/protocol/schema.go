@@ -183,6 +183,9 @@ func applyWireTags(schema *jsonschema.Schema, t reflect.Type) {
 			// JSON tag non-optional so persisted false still means unreported.
 			schema.Required = slices.DeleteFunc(schema.Required, func(name string) bool { return name == "reported" })
 		}
+		if t == reflect.TypeFor[SessionCatalogParams]() || t == reflect.TypeFor[session.CatalogCursor]() {
+			schema.Properties["status"].Enum = []any{"active", "archived", "all"}
+		}
 		if t == reflect.TypeFor[InputAttachment]() {
 			schema.Properties["kind"].Enum = []any{"image", "text"}
 		}

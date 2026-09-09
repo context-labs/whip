@@ -14,7 +14,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/ProviderKeySetup",
+  "$id": "https://whip.dev/protocol/v5/ProviderKeySetup",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ProviderKeySetup",
   "required": [

@@ -263,6 +263,21 @@ export class CompositionStore {
   clearAll() {
     for (const key of this.entries.keys()) this.clear(key);
   }
+  /** Forget all recipients after the owning root has been deleted. */
+  clearSession(runtimeId: string, rootId: string, viewIds: readonly string[] = []) {
+    const prefix = `${runtimeId}:${rootId}:`;
+    for (const [key, entry] of this.entries) {
+      if (!key.startsWith(prefix)) continue;
+      for (const item of entry.state.attachments) this.cancelUpload(item.id);
+      entry.submission = undefined;
+      this.update(key, empty);
+    }
+    for (const viewId of viewIds) {
+      const viewPrefix = `${runtimeId}:${viewId}:`;
+      for (const key of this.selections.keys())
+        if (key.startsWith(viewPrefix)) this.selections.delete(key);
+    }
+  }
   beginSubmission(key: string): symbol | undefined {
     const entry = this.entry(key);
     if (entry.state.sending) return;

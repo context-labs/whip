@@ -149,3 +149,33 @@ func TestMultimodalMessageSchemaMatchesMarshalJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestArchiveAndCatalogParametersAreExplicit(t *testing.T) {
+	for _, test := range []struct {
+		name, operation, raw string
+		runtime, valid       bool
+	}{
+		{"archive", "session.archive", `{"archived":true}`, true, true},
+		{"restore", "session.archive", `{"archived":false}`, true, true},
+		{"missing archive state", "session.archive", `{}`, true, false},
+		{"null archive state", "session.archive", `{"archived":null}`, true, false},
+		{"string archive state", "session.archive", `{"archived":"false"}`, true, false},
+		{"default active catalog", "sessions.list", `{"limit":1,"max_bytes":4096}`, false, true},
+		{"archived catalog", "sessions.list", `{"status":"archived","limit":1,"max_bytes":4096}`, false, true},
+		{"invalid catalog status", "sessions.list", `{"status":"deleted","limit":1,"max_bytes":4096}`, false, false},
+		{"missing metadata root", "sessions.get", `{}`, false, false},
+		{"metadata root", "sessions.get", `{"root_id":"root"}`, false, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var err error
+			if test.runtime {
+				err = ValidateRuntime(test.operation, json.RawMessage(test.raw))
+			} else {
+				err = ValidateRPC(test.operation, json.RawMessage(test.raw))
+			}
+			if (err == nil) != test.valid {
+				t.Fatalf("valid=%v, error=%v", test.valid, err)
+			}
+		})
+	}
+}

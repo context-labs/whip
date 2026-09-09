@@ -102,6 +102,14 @@ bound highlighting and DOM work. Larger bodies show a visible excerpt notice;
 the caller supplies the authorized full-content/download action. Resolved Chroma
 backgrounds and token bold, italic, underline and backgrounds are retained.
 
+## Nested menus
+
+`MenuItem.items` defines a submenu shared by `Menu` and `ContextMenu`; use
+`onOpenChange` for on-demand preparation. Base UI owns keyboard traversal,
+Escape, focus, and collision positioning. The wrapper uses existing item,
+popup, disabled, and danger tokens; product-specific actions belong in
+`@whip/app`. Do not implement nested hover panels manually.
+
 ## Workspace tabs
 
 Import the browser-only control from `@whip/ui/workspace-tabs`; this keeps its DOM
@@ -131,16 +139,27 @@ Tabs retain 144–224px widths within a horizontal scroller and a 48px row. Sele
 and keyboard focus reveal the relevant tab; status changes do not scroll it.
 The strip uses the theme-derived `surface.navigation` role: a quiet panel blend
 in light palettes and a recessed canvas in dark palettes. Selected tabs use the
-canvas with a fine border and a 6px radius. Equal-width slots reserve room for
-status, title, and close, while inactive close controls appear on hover or focus.
-The application keeps secondary actions in the context menu and open-session
-picker instead of adding an ellipsis button to every tab. Keep border width,
+canvas and meet the content edge, with 12px upper corners and outward-curving
+lower shoulders masking the strip baseline. A quiet one-pixel border follows
+the top and sides, leaving the bottom open. Fixed-width SVG ends and a stretching
+center preserve the curves at every tab width; scroller padding leaves room for
+the first and last shoulders. Inactive separators disappear beside the
+selected tab. Reserved slots keep status, title, host metadata and sibling
+menu/close controls stable on hover. Application actions also remain in the
+context menu and open-session picker. Keep border width,
 style, and color explicit so the StyleX compiler preserves the declarations.
 Pointer sorting starts after 6px and preserves the controlled selection. Touch
 dragging is disabled; expose explicit move actions in the menu. Sorting uses
-native Web Animations (including reduced-motion handling), with explicit pointer
-collision refresh instead of dnd-kit's CSS-injecting floating feedback. All authored
-visuals remain compiled StyleX. Applications own their alternative mobile sheet.
+one shared visual placement path for standalone and split-pane strips. An inert
+portal shows the same tab contour without a shadow under the grabbed pointer
+offset; siblings slide into logical
+slots with native Web Animations. Logical geometry excludes these transforms,
+including during auto-scroll and zoom. Order and pane membership commit only on a
+valid drop; cancellation restores the source and clears all feedback. The preview
+contains no duplicate tab IDs, live controls, or sortable registrations. Movement
+and settling respect reduced motion, and the existing strict CSP remains intact.
+All authored visuals remain compiled StyleX. Applications own their alternative
+mobile sheet.
 
 ## Themes
 

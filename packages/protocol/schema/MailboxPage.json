@@ -164,7 +164,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/MailboxPage",
+  "$id": "https://whip.dev/protocol/v5/MailboxPage",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "MailboxPage",
   "required": [

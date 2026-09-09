@@ -74,6 +74,9 @@ func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := checkAgentID(ctx, tx, admission.ChildAgentID); err != nil {
+		return 0, err
+	}
 	parent, err := loadAgentTx(ctx, tx, admission.RootID, admission.ParentAgentID)
 	if err != nil {
 		return 0, err
@@ -204,12 +207,12 @@ func (s *Store) ListAgentRelatives(ctx context.Context, rootID, callerAgentID st
 			return AgentRelatives{}, err
 		}
 		result.Parent = &parent
-		result.Siblings, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status FROM agents WHERE root_id=? AND parent_id=? AND id<>? ORDER BY name,id`, rootID, caller.ParentID, callerAgentID)
+		result.Siblings, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status,last_turn FROM agents WHERE root_id=? AND parent_id=? AND id<>? ORDER BY name,id`, rootID, caller.ParentID, callerAgentID)
 		if err != nil {
 			return AgentRelatives{}, err
 		}
 	}
-	result.Children, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status FROM agents WHERE root_id=? AND parent_id=? ORDER BY name,id`, rootID, callerAgentID)
+	result.Children, err = loadAgentsTx(ctx, tx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status,last_turn FROM agents WHERE root_id=? AND parent_id=? ORDER BY name,id`, rootID, callerAgentID)
 	if err != nil {
 		return AgentRelatives{}, err
 	}
@@ -259,6 +262,9 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 	if err := s.settleInterruptedModelCallsTx(ctx, tx, rootID, targetAgentID); err != nil {
 		return 0, err
 	}
+	if err := s.emitInterruptedTurnEventsTx(ctx, tx, rootID, targetAgentID, status+" subtree", stamp); err != nil {
+		return 0, err
+	}
 	agentWhere := `status NOT IN ('failed','stopped','cancelled','interrupted','deleted','succeeded')`
 	if status == "deleted" {
 		agentWhere = `status!='deleted'`
@@ -299,8 +305,8 @@ func (s *Store) TerminalizeSubtree(ctx context.Context, rootID, callerAgentID, t
 
 func loadAgentTx(ctx context.Context, tx *sql.Tx, rootID, agentID string) (RuntimeAgent, error) {
 	var agent RuntimeAgent
-	err := tx.QueryRowContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status FROM agents WHERE root_id=? AND id=?`, rootID, agentID).
-		Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status)
+	err := tx.QueryRowContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status,last_turn FROM agents WHERE root_id=? AND id=?`, rootID, agentID).
+		Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status, &agent.LastTurn)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RuntimeAgent{}, ErrAgentAccess
 	}
@@ -316,7 +322,7 @@ func loadAgentsTx(ctx context.Context, tx *sql.Tx, query string, args ...any) ([
 	var agents []RuntimeAgent
 	for rows.Next() {
 		var agent RuntimeAgent
-		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status); err != nil {
+		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status, &agent.LastTurn); err != nil {
 			return nil, err
 		}
 		agents = append(agents, agent)

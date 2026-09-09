@@ -5,7 +5,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/GoalContextParams",
+  "$id": "https://whip.dev/protocol/v5/GoalContextParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "GoalContextParams",
   "additionalProperties": false

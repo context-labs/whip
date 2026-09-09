@@ -1,4 +1,5 @@
 import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {expect, it, vi} from 'vitest';
 import {UIProvider} from '@whip/ui';
 import type {Session} from '@whip/sdk';
@@ -6,6 +7,87 @@ import type {RootSnapshot} from '@whip/protocol';
 import {PendingRequests} from '../src/requests';
 import {RuntimeContext} from '../src/context';
 import type {AppRuntime} from '../src/runtime';
+
+function permissionQueue() {
+  const root = {
+    agents: [{id: 'root:explorer', name: 'Explore repository'}, {id: 'root:reviewer', name: 'Review changes'}],
+    permissions: [
+      {id: 'first', agent_id: 'root:explorer', status: 'pending', operation: 'bash', command: 'git status --short', rule: 'bash:git *'},
+      {id: 'second', agent_id: 'root:reviewer', status: 'pending', operation: 'read', canonical_path: '/project/README.md', rule: 'read:/project/*'},
+    ],
+  } as RootSnapshot;
+  const decide = vi.fn(async (_decision: unknown) => {});
+  const refresh = vi.fn(async () => {});
+  const session = {rootId: 'root', client: {permissions: {decide}}} as unknown as Session;
+  const runtime = {report: vi.fn()} as unknown as AppRuntime;
+  const ui = (snapshot = root, disabled = false) => <RuntimeContext.Provider value={runtime}><UIProvider>
+    <PendingRequests root={snapshot} session={session} disabled={disabled} refresh={refresh}/>
+  </UIProvider></RuntimeContext.Provider>;
+  return {root, decide, refresh, ui};
+}
+
+it('shows one approval with the agent name and advances only when the snapshot resolves it', async () => {
+  const f = permissionQueue();
+  const {rerender} = render(f.ui());
+  expect(screen.getAllByRole('region', {name: 'Your approval is needed'})).toHaveLength(1);
+  expect(screen.getByText('Explore repository')).toBeTruthy();
+  expect(screen.queryByText('root:explorer')).toBeNull();
+  expect(screen.queryByText('/project/README.md')).toBeNull();
+  expect(screen.getByRole('status').textContent).toBe('1 more waiting');
+  fireEvent.click(screen.getByRole('button', {name: 'Allow once'}));
+  await waitFor(() => expect(f.refresh).toHaveBeenCalledOnce());
+  expect(f.decide).toHaveBeenCalledExactlyOnceWith({root_id: 'root', permission_id: 'first', allow: true});
+  expect(screen.getByText('git status --short')).toBeTruthy();
+  rerender(f.ui({...f.root, permissions: [{...f.root.permissions![0], status: 'allowed'}, f.root.permissions![1]]}));
+  expect(screen.queryByText('git status --short')).toBeNull();
+  expect(screen.getByText('Review changes')).toBeTruthy();
+  expect(screen.getByText('/project/README.md')).toBeTruthy();
+  expect(screen.queryByRole('status')).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name: 'Deny'}));
+  await waitFor(() => expect(f.decide).toHaveBeenLastCalledWith({root_id: 'root', permission_id: 'second', allow: false}));
+});
+
+it('resets the permission scope when another client resolves the displayed request', async () => {
+  const f = permissionQueue();
+  const user = userEvent.setup();
+  const {rerender} = render(f.ui());
+  await user.click(screen.getByRole('combobox', {name: 'Permission scope'}));
+  await user.click(await screen.findByRole('option', {name: 'Remember on this host'}));
+  expect(screen.getByRole('button', {name: 'Allow and remember'})).toBeTruthy();
+  rerender(f.ui({...f.root, permissions: f.root.permissions!.slice(1)}));
+  expect(screen.getByRole('combobox', {name: 'Permission scope'}).textContent).toContain('This request only');
+  fireEvent.click(screen.getByRole('button', {name: 'Allow once'}));
+  await waitFor(() => expect(f.decide).toHaveBeenCalledExactlyOnceWith({root_id: 'root', permission_id: 'second', allow: true}));
+});
+
+it('holds an uncertain decision on its original request until an explicit state refresh', async () => {
+  const f = permissionQueue();
+  let reject!: (error: Error) => void;
+  f.decide.mockImplementationOnce(() => new Promise((_, fail) => {reject = fail;}));
+  render(f.ui());
+  fireEvent.click(screen.getByRole('button', {name: 'Allow once'}));
+  expect(screen.getByRole('combobox', {name: 'Permission scope'})).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', {name: 'Deny'})).toHaveProperty('disabled', true);
+  await act(async () => reject(new Error('Connection lost')));
+  expect(screen.getByText('Explore repository')).toBeTruthy();
+  expect(screen.queryByRole('button', {name: 'Allow once'})).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name: 'Refresh permission state before retrying'}));
+  await screen.findByRole('button', {name: 'Allow once'});
+  expect(f.refresh).toHaveBeenCalledOnce();
+  expect(f.decide).toHaveBeenCalledOnce();
+});
+
+it('uses readable missing-name fallbacks and qualifies an incomplete permission queue', () => {
+  const f = permissionQueue();
+  const root = {...f.root, agents: [], permissions: [f.root.permissions![0]], omitted: {permissions: true}};
+  const {rerender} = render(f.ui(root, true));
+  expect(screen.getByText('Unnamed agent')).toBeTruthy();
+  expect(screen.queryByText('root:explorer')).toBeNull();
+  expect(screen.getByRole('status').textContent).toBe('More approvals pending');
+  expect(screen.getByRole('button', {name: 'Allow once'})).toHaveProperty('disabled', true);
+  rerender(f.ui({...root, permissions: [{...root.permissions[0], agent_id: 'root'}]}));
+  expect(screen.getByText('Root agent')).toBeTruthy();
+});
 
 function fixture(multiple: boolean) {
   const question = {question_id: 'question', question: 'Choose an approach', multiple, options: [{label: 'Inspect', description: 'Read the current state.'}, {label: 'Implement', description: 'Apply the agreed changes.'}]};

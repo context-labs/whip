@@ -258,3 +258,50 @@ func TestChildCommitFailureInterruptsRootWithoutFalseSuccess(t *testing.T) {
 		t.Fatalf("unrelated child could not finish: %+v, %v", otherAgent, err)
 	}
 }
+
+func TestPermanentChildRequestFailureDoesNotRetryInput(t *testing.T) {
+	started := make(chan struct{}, 4)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		if strings.Contains(string(body), "permanent-child-request") {
+			calls.Add(1)
+			started <- struct{}{}
+			http.Error(w, `{"error":{"message":"Invalid prompt_cache_key"}}`, http.StatusBadRequest)
+			return
+		}
+		streamText(w, "noted")
+	}))
+	t.Cleanup(server.Close)
+	store, root, runtime := openRecursiveRuntime(t, llm.New(server.URL, "key"), 2)
+	result, err := runtime.rootNode.host.Call(t.Context(), "agents", "spawn", map[string]any{"name": "request-failure", "prompt": "permanent-child-request"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := result.(map[string]any)["id"].(string)
+	if len(id) != 20 || strings.Contains(id, ":") {
+		t.Fatalf("child ID=%q", id)
+	}
+	receiveActorValue(t, started)
+	runtime.mu.RLock()
+	child := runtime.agents[id]
+	runtime.mu.RUnlock()
+	waitAgentIdle(t, child)
+	items, err := store.LoadQueuedInbox(t.Context(), root.ID(), id, 0, 10)
+	if err != nil || len(items) != 0 || calls.Load() != 1 {
+		t.Fatalf("calls=%d queued=%d err=%v", calls.Load(), len(items), err)
+	}
+	durable, err := store.LoadAgent(t.Context(), root.ID(), id)
+	if err != nil || durable.LastTurn == nil || durable.LastTurn.Status != "failed" || !strings.Contains(durable.LastTurn.Error, "Invalid prompt_cache_key") {
+		t.Fatalf("agent=%+v err=%v", durable, err)
+	}
+	history, err := store.LoadAgentTranscript(t.Context(), root.ID(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range history {
+		if message.Role == "assistant" || message.Role == "tool" {
+			t.Fatalf("invented execution: %+v", message)
+		}
+	}
+}

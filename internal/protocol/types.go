@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	Major = 4
-	Minor = 1
+	Major = 5
+	Minor = 0
 )
 
 type ErrorData struct {
@@ -164,6 +164,7 @@ type SessionPreviewResult struct {
 }
 
 type SessionUpdateEvent struct {
+	Archived      *bool  `json:"archived,omitempty"`
 	Title         string `json:"title,omitempty"`
 	Model         string `json:"model,omitempty"`
 	Provider      string `json:"provider,omitempty"`

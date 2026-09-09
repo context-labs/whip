@@ -23,6 +23,7 @@ export class Session {
   submit(payload: SubmitPayload, options: Omit<CommandOptions, 'rootId'> = {}) { return this.command('submit', payload, options); }
   steer(payload: SubmitPayload, options: Omit<CommandOptions, 'rootId'> = {}) { return this.command('steer', payload, options); }
   rename(title: string) { return this.command('session.rename', { title }); }
+  archive(archived: boolean) { return this.command('session.archive', { archived }); }
   fork(params: RuntimeOperations['session.fork']['params']) { return this.command('session.fork', params); }
   delete() { return this.client.sessions.delete(this.rootId); }
   snapshot(options: CallOptions = {}) { return this.client.call('root.snapshot', { root_id: this.rootId }, options); }
@@ -76,6 +77,8 @@ export class Sessions {
     return this.client.submit('session.create', { kind: 'agent', model: '', provider: '', ...params }, options);
   }
   list(params: Partial<SessionCatalogParams> = {}, options: CallOptions = {}) { return this.client.call('sessions.list', { limit: 128, max_bytes: 512 << 10, ...params }, options); }
+  /** Full metadata for one root, without opening its transcript or a subscription. */
+  get(rootId: string, options: CallOptions = {}) { return this.client.call('sessions.get', { root_id: rootId }, options); }
   /** Advisory metadata for up to 32 roots, without opening their views. Check missing before using counts. */
   summaries(rootIds: readonly string[], options: CallOptions = {}) { return this.client.call('sessions.summaries', { root_ids: [...rootIds] }, options); }
   open(rootId: string, options: CallOptions = {}) { return this.client.query('session.open', { id: rootId }, options); }

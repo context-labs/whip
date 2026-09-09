@@ -1,0 +1,15 @@
+{
+  "recordedAt": "2026-09-09T04:27:29.514Z",
+  "scope": "Current production renderer with real sandboxed preload/native IPC in isolated stock Electron; not signed installed-app acceptance",
+  "rendererDigest": "be7376fa02f71e74262ef2ffc167a7dde4a9b4d723d15bbc0f1fab065affa75d",
+  "protocolMajor": 5,
+  "schemaVersion": 12,
+  "editorDiscovery": true,
+  "localFinderLaunch": false,
+  "staleRuntimeRejected": true,
+  "missingDirectoryActionable": true,
+  "urlSourceNeverLocal": true,
+  "urlSourceNeedsAlias": true,
+  "urlSourceReleaseCancelsVerification": true,
+  "detachedNativeSourceRejected": true
+}

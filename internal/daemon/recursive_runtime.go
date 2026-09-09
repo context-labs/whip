@@ -536,7 +536,7 @@ func (node *AgentSession) run() {
 	finishErr := node.root.FinishAgentTurn(context.Background(), node.id, sessionstore.AgentTurnCommit{
 		TurnID: turnID, Status: status, AcknowledgedInbox: ack, DeliveredMessages: journal.DeliveredMessages,
 		Messages: journal.Messages, Compactions: journalCompactions(journal), Error: errorText(turnErr),
-		RetryInput: !errors.Is(turnErr, sessionstore.ErrInvalidInput),
+		RetryInput: !errors.Is(turnErr, sessionstore.ErrInvalidInput) && !llm.IsPermanentRequestError(turnErr),
 	})
 	if finishErr != nil {
 		// A rolled-back commit still owns a durable running claim. Fail the
@@ -1077,6 +1077,16 @@ func (host *recursiveHost) agents(ctx context.Context, operation string, argumen
 }
 
 func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession, name, prompt string, arguments map[string]any) (any, error) {
+	for range 3 {
+		result, err := runtime.spawnAttempt(ctx, parent, name, prompt, arguments)
+		if !errors.Is(err, sessionstore.ErrAgentIDCollision) {
+			return result, err
+		}
+	}
+	return nil, sessionstore.ErrAgentIDCollision
+}
+
+func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *AgentSession, name, prompt string, arguments map[string]any) (any, error) {
 	capabilities, err := requestedCapabilities(arguments["capabilities"], parent.capabilities)
 	if err != nil {
 		return nil, err
@@ -1085,7 +1095,7 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 	if err != nil {
 		return nil, err
 	}
-	id := parent.root.ID() + ":" + randomRuntimeSuffix()
+	id := sessionstore.NewAgentID()
 	authority := capability.Authority{
 		RootID: parent.root.ID(), AgentID: id,
 		Files: capability.Reference{ID: "files:" + id, Generation: 1},

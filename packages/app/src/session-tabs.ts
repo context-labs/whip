@@ -96,6 +96,26 @@ function freeze(workspace: Omit<TabWorkspace, 'tabs'>): TabWorkspace {
   return Object.freeze({ ...workspace, layout, focusedPaneId: panes.some(p => p.id === workspace.focusedPaneId) ? workspace.focusedPaneId : panes[0]!.id,
     tabs: Object.freeze(panes.flatMap(p => p.tabs)), closed: Object.freeze(workspace.closed.map(item => Object.freeze({ ...item, tab: Object.freeze({ ...item.tab, location: location(item.tab.location) }) }))) });
 }
+function removeViews(workspace: TabWorkspace, viewIds: readonly string[], remember: boolean): TabWorkspace {
+  const removed = sessionPanes(workspace.layout).flatMap(p => p.tabs.flatMap((tab, index) => viewIds.includes(tab.id) ? [{ tab, index, paneId: p.id }] : []));
+  if (!removed.length) return workspace;
+  let layout = mapPanes(workspace.layout, p => {
+    const tabs = p.tabs.filter(t => !viewIds.includes(t.id));
+    const index = p.tabs.findIndex(t => t.id === p.selected);
+    const selected = viewIds.includes(p.selected ?? '') ? (p.tabs.slice(index + 1).find(t => !viewIds.includes(t.id)) ?? tabs.at(-1))?.id : p.selected;
+    return { ...p, tabs, selected };
+  });
+  layout = prune(layout) ?? { type: 'pane', id: workspace.focusedPaneId, tabs: [] };
+  const closed = workspace.closed.filter(item => !viewIds.includes(item.tab.id));
+  const next = freeze({ ...workspace, layout, closed: remember ? [...closed, ...removed].slice(-20) : closed });
+  return freeze({ ...next, restoreSelection: workspace.restoreSelection && !!selectedSessionTab(next) });
+}
+function purgeRoot(workspace: TabWorkspace, runtimeId: string, rootId: string): TabWorkspace {
+  const matches = (tab: SessionTab) => tab.runtimeId === runtimeId && tab.rootId === rootId;
+  const next = removeViews(workspace, workspace.tabs.filter(matches).map(tab => tab.id), false);
+  const closed = next.closed.filter(item => !matches(item.tab));
+  return closed.length === next.closed.length ? next : freeze({ ...next, closed });
+}
 function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTab | undefined {
   if (!object(value) || !identity(value.rootId) || (!legacy && !identity(value.id))) return;
   const kind = legacy && value.kind === undefined ? 'chat' : value.kind;
@@ -158,6 +178,32 @@ function restore(raw: string | null): readonly PreviousWorkspace[] {
 function serialize(workspace: TabWorkspace, migrated: readonly string[]) {
   const { tabs: _derived, ...saved } = workspace;
   return JSON.stringify({ version: 3, workspace: saved, migrated });
+}
+function purgeSavedRoot(raw: string | null, runtimeId: string, rootId: string): string | undefined {
+  if (!raw || bytes(raw) > MAX_BYTES) return;
+  let saved: unknown;
+  try { saved = JSON.parse(raw); } catch { return; }
+  if (!object(saved) || ![1, 2].includes(saved.version as number) || !Array.isArray(saved.workspaces)) return;
+  let changed = false;
+  const keep = (tab: unknown) => {
+    if (object(tab) && tab.rootId === rootId) { changed = true; return false; }
+    return true;
+  };
+  const layout = (node: unknown, depth = 0): unknown => {
+    if (!object(node) || depth > 3) return node;
+    if (node.type === 'pane' && Array.isArray(node.tabs)) return { ...node, tabs: node.tabs.filter(keep) };
+    if (node.type === 'split') return { ...node, first: layout(node.first, depth + 1), second: layout(node.second, depth + 1) };
+    return node;
+  };
+  const workspaces = saved.workspaces.map(entry => {
+    if (!object(entry) || entry.runtimeId !== runtimeId) return entry;
+    return { ...entry,
+      ...(Array.isArray(entry.tabs) ? { tabs: entry.tabs.filter(keep) } : {}),
+      ...(entry.layout ? { layout: layout(entry.layout) } : {}),
+      ...(Array.isArray(entry.closed) ? { closed: entry.closed.filter(item => !object(item) || keep(item.tab)) } : {}),
+    };
+  });
+  return changed ? JSON.stringify({ ...saved, workspaces }) : undefined;
 }
 
 /** One immutable owner for window-local view identities, panes and tab order. */
@@ -290,19 +336,29 @@ export class SessionTabs {
   }
   closeViews(viewIds: readonly string[], activeViewId?: string): string | null | undefined {
     const workspace = this.workspace();
-    const removed = sessionPanes(workspace.layout).flatMap(p => p.tabs.flatMap((tab, index) => viewIds.includes(tab.id) ? [{ tab, index, paneId: p.id }] : []));
-    if (!removed.length) return;
-    let layout = mapPanes(workspace.layout, p => {
-      const tabs = p.tabs.filter(t => !viewIds.includes(t.id));
-      const index = p.tabs.findIndex(t => t.id === p.selected);
-      const selected = viewIds.includes(p.selected ?? '') ? (p.tabs.slice(index + 1).find(t => !viewIds.includes(t.id)) ?? tabs.at(-1))?.id : p.selected;
-      return { ...p, tabs, selected };
-    });
-    layout = prune(layout) ?? { type: 'pane', id: workspace.focusedPaneId, tabs: [] };
-    const next = freeze({ ...workspace, layout, closed: [...workspace.closed.filter(item => !viewIds.includes(item.tab.id)), ...removed].slice(-20) });
+    const next = removeViews(workspace, viewIds, true);
+    if (next === workspace) return;
     const selected = selectedSessionTab(next);
-    this.write({ ...next, restoreSelection: workspace.restoreSelection && !!selected });
+    this.write(next);
     return activeViewId && viewIds.includes(activeViewId) ? selected?.id ?? null : undefined;
+  }
+  /** Deleted roots cannot remain in open views or Reopen closed tab history. */
+  purge(runtimeId: string, rootId: string) {
+    const workspace = purgeRoot(this.workspace(), runtimeId, rootId);
+    const previous = this.snapshot.previous.map(entry => {
+      const next = purgeRoot(entry.workspace, runtimeId, rootId);
+      return next === entry.workspace ? entry : { ...entry, workspace: next };
+    });
+    const previousChanged = previous.some((entry, index) => entry !== this.snapshot.previous[index]);
+    this.write(workspace, previousChanged ? previous : this.snapshot.previous);
+    // Old layouts remain available for explicit recovery. Apply the same deletion
+    // there so reopening the app cannot revive a deleted root from those layouts.
+    try {
+      for (const key of [PREVIOUS_TAB_STORAGE_KEY, LEGACY_TAB_STORAGE_KEY]) {
+        const changed = purgeSavedRoot(this.storage?.getItem(key) ?? null, runtimeId, rootId);
+        if (changed !== undefined) this.storage?.setItem(key, changed);
+      }
+    } catch { this.onNotice('The session was deleted, but its previous tab layout could not be cleared from device storage.'); }
   }
   close(runtimeId: string, rootIds: readonly string[], activeRootId?: string): string | null | undefined {
     const workspace = this.workspace();

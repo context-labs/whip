@@ -73,7 +73,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/ProviderLoginStatus",
+  "$id": "https://whip.dev/protocol/v5/ProviderLoginStatus",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ProviderLoginStatus",
   "required": [

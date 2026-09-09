@@ -31,6 +31,7 @@ type clientActionPayload struct {
 	TurnID              string                         `json:"turn_id,omitempty"`
 	TargetCommandID     string                         `json:"target_command_id,omitempty"`
 	Title               string                         `json:"title,omitempty"`
+	Archived            bool                           `json:"archived,omitempty"`
 	Path                string                         `json:"path,omitempty"`
 	Effort              string                         `json:"effort,omitempty"`
 	Model               string                         `json:"model,omitempty"`
@@ -126,7 +127,7 @@ type clientGoal struct {
 func isClientOperation(operation string) bool {
 	switch operation {
 	case "cancel", "goal.set", "goal.run", "goal.from-context", "schedule.list", "schedule.create", "schedule.delete", "session.fork", "workspace.inspect", "workspace.set",
-		"session.effort", "session.model", "session.effort.get", "session.model.get", "session.list", "session.open", "session.rename", "session.reload", "session.autotitle", "run.configure",
+		"session.effort", "session.model", "session.effort.get", "session.model.get", "session.list", "session.open", "session.rename", "session.archive", "session.reload", "session.autotitle", "run.configure",
 		"history.clear", "history.rewind", "history.compact",
 		"history.compact.log", "history.compact.retry", "compaction.configure",
 		"history.user.list", "session.preview", "agents.list", "agent.transcript", "agent.submit", "agent.turn.cancel", "question.answer",
@@ -956,7 +957,15 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if cut <= 0 {
 			cut = int(^uint(0) >> 1)
 		}
-		id, err := s.store.Fork(s.meta.ID, cut, strings.TrimSpace(payload.Title))
+		title := strings.TrimSpace(payload.Title)
+		if title == "" {
+			var err error
+			title, err = s.store.ForkTitle(s.meta.Title)
+			if err != nil {
+				return "", err
+			}
+		}
+		id, err := s.store.Fork(s.meta.ID, cut, title)
 		return id, err
 	case "workspace.inspect":
 		if runner, ok := s.runner.(clientWorkspaceRunner); ok {
@@ -1046,6 +1055,19 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		s.meta.Title = title
 		s.emitSessionUpdate(ctx, "session.title.updated", SessionUpdateEvent{Title: title})
 		return title, nil
+	case "session.archive":
+		if err := s.store.SetArchived(ctx, s.meta.ID, payload.Archived); err != nil {
+			return "", err
+		}
+		s.meta.Archived = payload.Archived
+		output, err := marshalClientOutput(protocol.ArchiveResult{Archived: payload.Archived}, nil)
+		if err != nil {
+			return "", err
+		}
+		_, err = s.store.AppendRootEvent(ctx, s.meta.ID, "session.archived.updated", sessionstore.RuntimePayload{
+			Data: []byte(output), MediaType: "application/json", Source: "session.archive",
+		})
+		return output, err
 	case "history.clear":
 		if s.running != nil || s.clientBusy {
 			return "", errors.New("history cannot change while a turn is running")

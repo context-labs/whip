@@ -10,6 +10,19 @@ export const styles = stylex.create({
   collapsedHost: { flex: '0 0 auto', minHeight: 0 },
   hostHeading: { flexShrink: 0, color: colors.foreground },
   brandRow: { minHeight: 40, display: 'flex', alignItems: 'center', flexShrink: 0 },
+  // Inset window chrome: the brand row is an empty window drag strip whose
+  // height matches the tab strip so the traffic lights sit centered in both;
+  // only the collapse toggle opts out of dragging at the trailing edge.
+  brandRowInset: { minHeight: 48, marginInline: -8, paddingInline: 8, justifyContent: 'flex-end', userSelect: 'none' },
+  // The wordmark sits below the traffic-light strip, aligned with the nav
+  // item icons below it (their left edge: aside padding 8 + destination
+  // paddingInline 8 + icon offset 1 = 17px from the sidebar's border box).
+  wordmarkBelow: { display: 'flex', paddingInlineStart: 9, paddingBlockEnd: 10 },
+  brandRowAction: { display: 'flex', alignItems: 'center', flexShrink: 0 },
+  wordmark: { fontSize: 28 },
+  // The wordmark link is a plain graphic home link — no destination row's
+  // hover container, just the mark itself.
+  wordmarkLink: { display: 'flex', alignItems: 'center', paddingInline: 8, borderRadius: 6, color: colors.foreground },
   destinations: { display: 'flex', flexDirection: 'column', flexShrink: 0, marginBottom: 12 },
   destination: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, minHeight: { default: 28, [scale.touch]: 44 }, paddingBlock: 0, paddingInline: 8, borderWidth: 0, borderRadius: 6, font: 'inherit', fontSize: 13, lineHeight: '18px', textAlign: 'left', textDecoration: 'none', cursor: 'pointer', color: surface.secondaryText, backgroundColor: { default: 'transparent', ':hover': colors.hover } },
   primaryDestination: { color: colors.foreground },

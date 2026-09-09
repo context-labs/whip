@@ -46,6 +46,7 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:root.collection` | Web | Conversation pagination and inspector collections through the shared SDK view; bounded references remain explicit. |
 | `rpc:root.snapshot` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:sessions.list` | Web | Session sidebar/search and paged host attention; inactive roots are not opened. |
+| `rpc:sessions.get` | Web | Exact bounded title, working directory, history revision and archive state for conversation row actions without hydrating transcripts. |
 | `rpc:sessions.summaries` | Web | One bounded query supplies title, project, descendant activity and human-attention counts for open session tabs without opening roots. |
 | `rpc:sessions.revision` | Internal | SDK connection and synchronized views, owned by AppRuntime. No application protocol reducer. |
 | `rpc:upload.begin` | Web | Composer attachments and explicit content previews/downloads through SDK content helpers. HTTP transfers on WebSocket; chunks on Unix. |
@@ -107,6 +108,7 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `runtime:session.open` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
 | `runtime:session.preview` | Internal | Web navigation uses lightweight paged sessions.list metadata and selected-session history; no global prompt-history mirror. |
 | `runtime:session.reload` | Web | Inspector → Context & model → Model & reasoning, with idle checks and explicit advanced runtime overrides. |
+| `runtime:session.archive` | Web | Archive/restore from sidebar, search and Session details; Undo preserves open work and drafts. |
 | `runtime:session.rename` | Web | Welcome/sidebar/session menu and conversation history controls. Fork/rewind/clear use displayed history revision; rewind confirms possible file restoration. |
 | `runtime:shell.run` | Deferred | Shell commands and interactive terminals are explicitly excluded from this web milestone. |
 | `runtime:steer` | Web | Root/child composer with explicit delivery, application-owned drafts, and scoped attachments. |

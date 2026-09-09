@@ -41,7 +41,7 @@ function initialization(): InitializeResult {
   };
 }
 
-test('protocol 4.0 session usage does not disconnect the current client', async t => {
+test('session usage without optional provenance does not disconnect the current client', async t => {
   const snapshot = fixture('RootSnapshot');
   // Do not type this older wire value as current usage: that would hide a
   // regression if a future additive field accidentally becomes required.
@@ -55,7 +55,7 @@ test('protocol 4.0 session usage does not disconnect the current client', async 
   const client = new WhipClient({ endpoint: server.factory, clientId: 'legacy-reader', reconnect: false });
   t.after(() => client.close());
   await client.connect();
-  assert.equal(client.getSnapshot().info?.protocol_minor, 0);
+  assert.equal(client.getSnapshot().info?.protocol_minor, manifest.minor);
   const root = await client.session('root').snapshot();
   assert.deepEqual(root.messages?.[0]?.usage, usage);
   assert.equal(root.accounting, undefined);

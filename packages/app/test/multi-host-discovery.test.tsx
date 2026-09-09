@@ -7,10 +7,13 @@ import type { SessionCatalogPage, HostAttentionResult } from '@whip/protocol';
 import type { AppRuntime } from '../src/runtime';
 import type { HostConnection } from '../src/hosts';
 import { RuntimeContext } from '../src/context';
+import { SessionActionsProvider } from '../src/session-actions';
 import { SessionSearchDialog } from '../src/session-search-dialog';
 import { Attention } from '../src/attention';
 
+const route = vi.hoisted(() => ({ location: { pathname: '/' }, navigate: vi.fn() }));
 vi.mock('@tanstack/react-router', () => ({
+  useLocation: () => route.location, useNavigate: () => route.navigate,
   Link: ({ children, params, search: _search, state: _state, preload: _preload, to: _to, onClick, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { children: ReactNode; params: { runtimeId: string; rootId: string }; search: unknown; state: unknown; preload: unknown; to: string }) =>
     <a href={`/h/${params.runtimeId}/s/${params.rootId}`} {...props} onClick={event => { onClick?.(event); event.preventDefault(); }}>{children}</a>,
 }));
@@ -23,7 +26,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 function page(title: string, cursor?: string): SessionCatalogPage {
-  return { revision: '1', items: [{ id: 'same-root', kind: 'interactive', title, model: 'm', provider: 'p', cwd: '/repo', pinned: false, updated_at: '2026-09-08T00:00:00Z', truncated: false }], has_more: !!cursor,
+  return { revision: '1', items: [{ id: 'same-root', kind: 'interactive', title, model: 'm', provider: 'p', cwd: '/repo', pinned: false, archived: false, updated_at: '2026-09-08T00:00:00Z', truncated: false }], has_more: !!cursor,
     ...(cursor ? { next_cursor: { revision: '1', offset: cursor } } : {}) };
 }
 function attention(title: string, next?: string): HostAttentionResult {
@@ -37,7 +40,7 @@ function fixture() {
     const search = vi.fn(async (params: { cursor?: { offset: string } | null }, _options: { signal: AbortSignal }) => page(`${name} ${params.cursor ? 'next' : 'match'}`, params.cursor ? undefined : `${runtimeId}-cursor`));
     const index = vi.fn(async (params: { after_id?: string }, _options: { signal: AbortSignal }) => attention(`${name} ${params.after_id ? 'next request' : 'request'}`, params.after_id ? undefined : `${runtimeId}-after`));
     const client = { sessions: { list: search }, host: { attention: index }, session: vi.fn() };
-    const host = { id: runtimeId, name, runtimeId, state: 'connected', client, list } as unknown as HostConnection;
+    const host = { profile: { target: { kind: 'url' } }, id: runtimeId, name, runtimeId, state: 'connected', client, list } as unknown as HostConnection;
     return { host, subscribers, list, search, index, client };
   };
   const local = createHost('Local', 'local-runtime');
@@ -47,9 +50,11 @@ function fixture() {
   const tabSnapshot = {};
   const openTab = vi.fn();
   const runtime = { subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn); }, getSnapshot: () => snapshot,
+    platform: { storage: { getItem: () => null } }, connections: { host: (id: string) => snapshot.hosts.find(host => host.runtimeId === id) },
     tabs: { subscribe: () => () => {}, getSnapshot: () => tabSnapshot, preferred: vi.fn(), open: openTab }, report: vi.fn() } as unknown as AppRuntime;
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 10000 } } });
-  const tree = (children: ReactNode) => <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={query}>{children}</QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>;
+  Object.assign(runtime, { queries: query });
+  const tree = (children: ReactNode) => <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={query}><SessionActionsProvider>{children}</SessionActionsProvider></QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>;
   return { local, remote, runtime, query, openTab,
     render: (children: ReactNode) => { const result = render(tree(children)); return { ...result, rerender: (next: ReactNode) => result.rerender(tree(next)) }; },
     disconnect: () => { snapshot = { ...snapshot, hosts: [local.host, { ...remote.host, state: 'disconnected', client: undefined, list: undefined }] }; listeners.forEach(fn => fn()); },
@@ -87,7 +92,7 @@ it('keeps pagination and search failures independent, and filters hosts without 
   await screen.findByRole('link', { name: 'Local next · Local · /repo' });
   expect(screen.getByRole('link', { name: 'Kuzco match · Kuzco · /repo' })).toBeTruthy();
   expect(f.remote.search).toHaveBeenCalledTimes(2);
-  expect(f.local.search.mock.lastCall?.[0]).toEqual({ search: 'match', cursor: { revision: '1', offset: 'local-runtime-cursor' }, limit: 64, max_bytes: 256 << 10 });
+  expect(f.local.search.mock.lastCall?.[0]).toEqual({ search: 'match', status: 'active', cursor: { revision: '1', offset: 'local-runtime-cursor' }, limit: 64, max_bytes: 256 << 10 });
   fireEvent.click(screen.getByRole('combobox', { name: 'Search host' }));
   const option = await screen.findByRole('option', { name: 'Kuzco' }); fireEvent.pointerDown(option); fireEvent.click(option);
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Local search results' })).toBeNull());

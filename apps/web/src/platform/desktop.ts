@@ -1,4 +1,4 @@
-import { localProfile, resolveURLConnection, type AppPlatform, type AppUpdateSnapshot } from '@whip/app/platform';
+import { localProfile, resolveURLConnection, type AppPlatform, type AppUpdateSnapshot, type ConnectionProfile } from '@whip/app/platform';
 import type { DesktopBridge } from '@whip/app/desktop-bridge';
 import type { TransportFactory } from '@whip/sdk';
 import { browserStorage } from './storage';
@@ -91,6 +91,7 @@ export function desktopTransport(bridge: DesktopBridge, connectionId: string): T
 
 export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => void): AppPlatform {
   let disposed = false;
+  const prepared = new Map<string, { id: string; urlSource?: ConnectionProfile }>();
   let notificationsEnabled = false;
   let update: AppUpdateSnapshot = Object.freeze({ state: 'idle' });
   const updateListeners = new Set<() => void>();
@@ -103,11 +104,11 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
   return {
     storage: browserStorage(() => window.localStorage, unavailable),
     windowStorage: browserStorage(() => window.localStorage, unavailable, 'whip.desktop.window.main.'),
+    ...(bridge.chrome === 'inset' ? { chrome: 'inset' as const } : {}),
     defaultConnection: localProfile,
     connectionKinds: bridge.connectionKinds,
     async resolveConnection(profile, options) {
       options.signal.throwIfAborted();
-      if (profile.target.kind === 'url') return resolveURLConnection(profile, options);
       const id = crypto.randomUUID();
       let released = false;
       const unsubscribe = bridge.onEvent(event => {
@@ -116,19 +117,39 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
       const dispose = () => {
         if (released) return;
         released = true;
+        if (prepared.get(profile.id)?.id === id) prepared.delete(profile.id);
         unsubscribe(); options.signal.removeEventListener('abort', dispose);
         bridge.releaseConnection(id);
       };
       options.signal.addEventListener('abort', dispose, { once: true });
       try {
+        if (profile.target.kind === 'url') {
+          const resolved = await resolveURLConnection(profile, options);
+          options.signal.throwIfAborted();
+          prepared.set(profile.id, { id, urlSource: profile });
+          return { endpoint: resolved.endpoint, dispose };
+        }
         await abortable(bridge.prepareConnection(id, profile), options.signal);
         options.signal.throwIfAborted();
+        prepared.set(profile.id, { id });
         return { endpoint: desktopTransport(bridge, id), dispose };
       } catch (error) { dispose(); throw error; }
     },
     openExternal: url => bridge.openExternal(url),
     copy: text => bridge.copy(text),
     pickDirectory: () => bridge.pickDirectory(),
+    projectEditors: {
+      async list() {
+        if (disposed) throw new Error('The desktop application has closed');
+        return bridge.listProjectEditors();
+      },
+      async open(request) {
+        if (disposed) throw new Error('The desktop application has closed');
+        const source = prepared.get(request.connectionId);
+        if (!source) throw new Error('The source host is disconnected. Reconnect it before opening this folder.');
+        return bridge.openProject({ ...request, connectionId: source.id }, source.urlSource);
+      },
+    },
     localRuntime: {
       async test() {
         if (disposed) throw new Error('The desktop application has closed');
@@ -180,6 +201,7 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
       if (disposed) return;
       if (notificationsEnabled) bridge.setNotificationsEnabled(false);
       disposed = true; unsubscribeUpdates(); updateListeners.clear();
+      prepared.clear();
     },
     async download(bytes, filename, mediaType) {
       if (bytes.byteLength > 64 << 20) throw new Error('Downloads are limited to 64 MiB');

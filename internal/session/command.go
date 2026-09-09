@@ -215,7 +215,7 @@ func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID
 	if record.Status != "queued" {
 		return record, nil
 	}
-	rootID, err := runtimeID()
+	rootID, err := unusedAgentID(ctx, tx, NewAgentID)
 	if err != nil {
 		return CommandRecord{}, err
 	}

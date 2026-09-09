@@ -45,6 +45,10 @@ try {
         await page.mouse.move(from.x + 48, from.y + from.height / 2);
         await expect(page.locator(`[data-workspace-tab="${value}"][data-dragging]`)).toBeVisible();
         await page.mouse.move(point.x, point.y, { steps: 20 });
+        const preview = page.locator('[data-workspace-drag-preview]');
+        await expect(preview).toHaveCount(1);
+        await expect.poll(async () => Math.abs((await preview.boundingBox()).x + 40 - point.x)).toBeLessThan(2);
+        assert.equal(await preview.locator('button,a,[role=tab],[id]').count(), 0, 'Drag preview duplicated live controls or IDs');
       };
       await visit();
       await page.getByRole('textbox', { name: 'Workspace notes' }).fill('An independent renderer with its own state.');
@@ -76,7 +80,7 @@ try {
       for (let attempt = 0; attempt < 3; attempt++) {
         const target = await tab('beta').boundingBox();
         await drag('delta', { x: target.x + 30, y: target.y + 12 });
-        await expect(page.locator('[data-workspace-drop]')).toBeVisible();
+        await expect(page.locator('[data-workspace-drop]')).toHaveCount(0);
         await page.keyboard.press('Escape'); await page.mouse.up();
       await expect(page.locator('[data-dragging]')).toHaveCount(0);
       }
@@ -85,7 +89,7 @@ try {
       await page.evaluate(() => { window.__draft = document.querySelector('[aria-label="Draft alpha"]'); });
       const target = await tab('gamma').boundingBox();
       await drag('alpha', { x: target.x + target.width - 10, y: target.y + target.height / 2 });
-      await expect(page.locator('[data-workspace-drop="tab"]')).toBeVisible();
+      await expect(page.locator('[data-workspace-drop]')).toHaveCount(0);
       await page.mouse.up();
       await expect(page.locator('[data-workspace-view="alpha"]')).toHaveAttribute('data-workspace-pane', 'three');
       assert(await page.evaluate(() => window.__draft === document.querySelector('[aria-label="Draft alpha"]')), 'Dragging a selected view remounted it');
@@ -94,10 +98,12 @@ try {
       const lower = await tab('delta').boundingBox();
       const savedDrop = await page.getByLabel('Last drop').textContent();
       await drag('alpha', { x: lower.x + 60, y: lower.y + 12 });
-      await expect(page.locator('[data-workspace-drop]')).toBeVisible();
+      await expect(page.locator('[data-workspace-drop]')).toHaveCount(0);
       await page.keyboard.press('Escape'); await page.mouse.up();
       await expect(page.locator('[data-dragging]')).toHaveCount(0);
       await expect(page.locator('[data-workspace-drop]')).toHaveCount(0);
+      await expect(page.locator('[data-workspace-drag-preview]')).toHaveCount(0);
+      await expect(page.locator('[data-tab-settling]')).toHaveCount(0);
       await expect(page.getByLabel('Last drop')).toHaveText(savedDrop);
       await expect(page.locator('[data-workspace-view="alpha"]')).toHaveAttribute('data-workspace-pane', 'three');
       // Nested separators expose values, keyboard resizing, and explicit commit callbacks.

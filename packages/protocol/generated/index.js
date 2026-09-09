@@ -2,8 +2,8 @@
 import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
-  "major": 4,
-  "minor": 1,
+  "major": 5,
+  "minor": 0,
   "operations": [
     {
       "name": "command.status",
@@ -304,6 +304,14 @@ export const manifest = {
       "permission": "root-association",
       "params_type": "SnapshotParams",
       "result_type": "RootSnapshot"
+    },
+    {
+      "name": "sessions.get",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "root-association",
+      "params_type": "RootParams",
+      "result_type": "SessionMetadata"
     },
     {
       "name": "sessions.list",
@@ -707,6 +715,14 @@ export const manifest = {
       "result_type": "ScheduleListResult"
     },
     {
+      "name": "session.archive",
+      "surface": "runtime",
+      "execution": "command",
+      "permission": "root-association",
+      "params_type": "ArchiveParams",
+      "result_type": "ArchiveResult"
+    },
+    {
       "name": "session.autotitle",
       "surface": "runtime",
       "execution": "command",
@@ -936,6 +952,7 @@ export const manifest = {
     "root.stopped": "LifecycleEvent",
     "schedule.fired": "LifecycleEvent",
     "scratch.restored": "LifecycleEvent",
+    "session.archived.updated": "SessionUpdateEvent",
     "session.cwd.updated": "SessionUpdateEvent",
     "session.effort.updated": "SessionUpdateEvent",
     "session.model.updated": "SessionUpdateEvent",

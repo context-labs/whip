@@ -77,21 +77,22 @@ type ContentGrant struct {
 }
 
 type RuntimeAgent struct {
-	ID              string   `json:"id"`
-	RootID          string   `json:"root_id"`
-	ParentID        string   `json:"parent_id"`
-	Name            string   `json:"name"`
-	Model           string   `json:"model"`
-	Provider        string   `json:"provider"`
-	Effort          string   `json:"effort"`
-	CWD             string   `json:"cwd"`
-	Report          string   `json:"report"`
-	Status          string   `json:"status"`
-	PendingMail     int      `json:"pending_mail"`
-	LifecyclePhase  string   `json:"lifecycle_phase"`
-	BlockingReason  string   `json:"blocking_reason"`
-	TerminalCause   string   `json:"terminal_cause"`
-	AllowedControls []string `json:"allowed_controls"`
+	LastTurn        *TurnOutcome `json:"last_turn,omitempty"`
+	ID              string       `json:"id"`
+	RootID          string       `json:"root_id"`
+	ParentID        string       `json:"parent_id"`
+	Name            string       `json:"name"`
+	Model           string       `json:"model"`
+	Provider        string       `json:"provider"`
+	Effort          string       `json:"effort"`
+	CWD             string       `json:"cwd"`
+	Report          string       `json:"report"`
+	Status          string       `json:"status"`
+	PendingMail     int          `json:"pending_mail"`
+	LifecyclePhase  string       `json:"lifecycle_phase"`
+	BlockingReason  string       `json:"blocking_reason"`
+	TerminalCause   string       `json:"terminal_cause"`
+	AllowedControls []string     `json:"allowed_controls"`
 }
 
 type RuntimeCommand struct {
@@ -877,7 +878,7 @@ func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason,
 	if err := s.settleInterruptedOperationReservations(ctx, tx, rootID, ""); err != nil {
 		return err
 	}
-	if err := s.emitInterruptedTurnEventsTx(ctx, tx, rootID, reason, stamp); err != nil {
+	if err := s.emitInterruptedTurnEventsTx(ctx, tx, rootID, "", reason, stamp); err != nil {
 		return err
 	}
 	for _, table := range []string{"turns", "operations", "leases"} {
@@ -912,13 +913,17 @@ func (s *Store) interruptRootTx(ctx context.Context, tx *sql.Tx, rootID, reason,
 // turn about to be marked interrupted, so reconnecting clients close the
 // in-progress presentation instead of showing a phantom turn. An empty rootID
 // covers every root (daemon restart).
-func (s *Store) emitInterruptedTurnEventsTx(ctx context.Context, tx *sql.Tx, rootID, reason, stamp string) error {
+func (s *Store) emitInterruptedTurnEventsTx(ctx context.Context, tx *sql.Tx, rootID, targetID, reason, stamp string) error {
 	query := `SELECT t.id,t.root_id,t.agent_id,COALESCE(a.parent_id,'') FROM turns t
 		JOIN agents a ON a.root_id=t.root_id AND a.id=t.agent_id WHERE t.status='running'`
 	args := []any{}
 	if rootID != "" {
 		query += ` AND t.root_id=?`
 		args = append(args, rootID)
+	}
+	if targetID != "" {
+		query = subtreeCTE + query + ` AND t.agent_id IN (SELECT id FROM subtree)`
+		args = append([]any{rootID, targetID, rootID}, args...)
 	}
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1085,6 +1090,9 @@ func (s *Store) insertActorEventTx(ctx context.Context, tx *sql.Tx, rootID, kind
 	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE root_id=? AND seq<=?`, rootID, seq-EventRetention); err != nil {
 		return 0, err
 	}
+	if err := s.projectTurnEvent(ctx, tx, rootID, kind, payload, seq, stamp); err != nil {
+		return 0, err
+	}
 	return seq, nil
 }
 
@@ -1213,6 +1221,9 @@ func (s *Store) commitRuntime(ctx context.Context, transition RuntimeTransition,
 		inline, reference := runtimeValueColumns(prepared.event.RuntimeValue)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO events(root_id,seq,kind,payload_inline,payload_ref,created_at) VALUES(?,?,?,?,?,?)`,
 			v.RootID, v.Seq, v.Kind, inline, reference, stamp); err != nil {
+			return RuntimeResult{}, err
+		}
+		if err := s.projectTurnEvent(ctx, tx, v.RootID, v.Kind, v.Payload.Data, v.Seq, stamp); err != nil {
 			return RuntimeResult{}, err
 		}
 	}
@@ -1467,7 +1478,7 @@ func (s *Store) prepareContentReference(payload RuntimePayload, grant ContentGra
 	return preparedRuntimeValue{RuntimeValue: value, grant: grant}, nil
 }
 
-func insertRuntimeValue(ctx context.Context, tx *sql.Tx, value preparedRuntimeValue, stamp string) error {
+func insertRuntimeValue(ctx context.Context, tx runtimeValueWriter, value preparedRuntimeValue, stamp string) error {
 	if value.ReferenceID == "" {
 		return nil
 	}
@@ -1577,7 +1588,7 @@ func recoverRuntime(ctx context.Context, s *Store) error {
 	if err := settleInterruptedBudgetReservations(ctx, tx); err != nil {
 		return err
 	}
-	if err := s.emitInterruptedTurnEventsTx(ctx, tx, "", "interrupted by daemon restart", stamp); err != nil {
+	if err := s.emitInterruptedTurnEventsTx(ctx, tx, "", "", "interrupted by daemon restart", stamp); err != nil {
 		return err
 	}
 	for _, table := range []string{"turns", "operations", "leases"} {

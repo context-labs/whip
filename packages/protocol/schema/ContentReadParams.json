@@ -19,7 +19,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/ContentReadParams",
+  "$id": "https://whip.dev/protocol/v5/ContentReadParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ContentReadParams",
   "required": [

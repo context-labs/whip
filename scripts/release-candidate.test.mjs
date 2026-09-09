@@ -12,7 +12,7 @@ async function fixture(t) {
   const env = { RELEASE_TAG: 'desktop-v1.2.3-beta.1', SOURCE_SHA: 'a'.repeat(40) };
   const version = '1.2.3-beta.1';
   const source = { commit: env.SOURCE_SHA, dirty: false };
-  const compatibility = { protocolMajor: 4, protocolMinor: 1, schemaVersion: 10 };
+  const compatibility = { protocolMajor: 5, protocolMinor: 0, schemaVersion: 11 };
   const files = {};
   for (const [name, value] of Object.entries({ 'Whip-Beta-1.2.3-beta.1.dmg': 'dmg fixture', 'Whip-Beta-1.2.3-beta.1.zip': 'zip fixture',
     'RELEASES.json': JSON.stringify({ currentRelease: version }) })) {

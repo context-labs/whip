@@ -88,27 +88,61 @@ try {
       await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('gamma,alpha,delta');
       await selected('alpha');
 
+      for (const theme of ['light', 'dark', 'claude-code']) {
+        await visit(`?theme=${theme}`);
+        const shape = await tab('alpha').evaluate(element => {
+          const item = element.closest('[data-workspace-tab]');
+          const strip = item.closest('[data-workspace-tab-strip]');
+          const surface = item.querySelector('[data-workspace-tab-shape]');
+          const center = getComputedStyle(surface.firstElementChild);
+          return { bottom: item.getBoundingClientRect().bottom, stripBottom: strip.getBoundingClientRect().bottom,
+            borderTop: center.borderTopWidth, borderBottom: center.borderBottomWidth,
+            shoulder: surface.querySelector('svg').getBoundingClientRect().left, stripLeft: strip.getBoundingClientRect().left,
+            body: getComputedStyle(document.getElementById('workspace-panel').parentElement.parentElement).backgroundColor,
+            fill: center.backgroundColor };
+        });
+        assert(Math.abs(shape.bottom - shape.stripBottom) < 1, 'Active tab does not reach the content edge');
+        assert.equal(shape.borderTop, '1px', 'Active tab is missing its upper border');
+        assert.equal(shape.borderBottom, '0px', 'Active tab must stay open to the content below');
+        assert(shape.shoulder >= shape.stripLeft, 'First tab shoulder is clipped by the scroller');
+        assert.equal(shape.fill, shape.body);
+        await page.screenshot({ path: resolve(output, `${name}-${theme}.png`) });
+        await tab('beta').click();
+        await page.mouse.move(1100, 600);
+        await page.screenshot({ path: resolve(output, `${name}-${theme}-middle.png`) });
+      }
       await visit();
       const originalDraft = await page.getByRole('textbox', { name: 'Conversation draft' }).inputValue();
-      const from = await tab('alpha').boundingBox(); const to = await tab('gamma').boundingBox();
+      const from = await tab('alpha').boundingBox(); const to = await page.locator('[data-workspace-tab="gamma"]').boundingBox();
       await page.mouse.move(from.x + 40, from.y + from.height / 2); await page.mouse.down();
       await page.mouse.move(from.x + 43, from.y + from.height / 2);
       await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('');
       await page.mouse.up();
       await page.mouse.move(from.x + 40, from.y + from.height / 2); await page.mouse.down();
       await page.mouse.move(from.x + 48, from.y + from.height / 2);
-      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 15 });
-      await expect.poll(() => page.locator('[data-workspace-tab]').evaluateAll(elements => elements.map(el => el.dataset.workspaceTab).join(','))).toBe('beta,gamma,alpha,delta');
+      const preview = page.locator('[data-workspace-drag-preview]');
+      await expect(preview).toHaveCount(1);
+      assert.equal(await preview.evaluate(element => getComputedStyle(element).boxShadow), 'none', 'Dragged tab should glide without a shadow');
+      const grabbed = await preview.boundingBox();
+      assert(Math.abs(grabbed.x - (from.x + 8)) < 2, `Preview lost the original pointer offset: ${JSON.stringify({from, grabbed})}`);
+      await page.mouse.move(from.x + 68, from.y + from.height / 2);
+      await expect.poll(async () => (await preview.boundingBox()).x).toBeGreaterThan(grabbed.x + 15);
+      await page.mouse.move(to.x + to.width / 2 + 4, to.y + to.height / 2, { steps: 15 });
+      await expect.poll(async () => (await tab('beta').boundingBox()).x).toBeLessThan(from.x + 2);
+      assert.deepEqual(await page.locator('[data-workspace-tab]').evaluateAll(elements => elements.map(el => el.dataset.workspaceTab)), ['alpha','beta','gamma','delta'], 'Dragging mutated the committed DOM order');
+      await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('');
+      await page.screenshot({ path: resolve(output, `${name}-dragging.png`) });
       await page.mouse.up();
       await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('beta,gamma,alpha,delta');
       await selected('alpha');
       await expect(page.getByRole('textbox', { name: 'Conversation draft' })).toHaveValue(originalDraft);
       await expect(page.getByLabel('Navigation count', { exact: true })).toHaveText('1');
       // Dragging a background tab must not activate its link; Escape restores its previous order.
-      const background = await tab('beta').boundingBox(); const last = await tab('delta').boundingBox();
+      const background = await tab('beta').boundingBox(); const last = await page.locator('[data-workspace-tab="delta"]').boundingBox();
       await page.mouse.move(background.x + 40, background.y + background.height / 2); await page.mouse.down();
-      await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2, { steps: 20 });
-      await expect.poll(() => page.locator('[data-workspace-tab]').evaluateAll(elements => elements.map(el => el.dataset.workspaceTab).join(','))).toBe('gamma,alpha,delta,beta');
+      await page.mouse.move(last.x + last.width / 2 + 4, last.y + last.height / 2, { steps: 20 });
+      await expect(preview).toHaveCount(1);
+      await expect.poll(async () => (await tab('gamma').boundingBox()).x).toBeLessThan(background.x + 2);
       await page.keyboard.press('Escape'); await page.mouse.up();
       await expect(page.locator('[data-dragging]')).toHaveCount(0);
       await expect.poll(() => page.locator('[data-workspace-tab]').evaluateAll(elements => elements.map(el => el.dataset.workspaceTab).join(','))).toBe('beta,gamma,alpha,delta');
@@ -116,10 +150,66 @@ try {
       await expect(page.getByLabel('Navigation count', { exact: true })).toHaveText('1'); await selected('alpha');
       assert.deepEqual(await page.evaluate(() => window.__cspErrors), [], `${name}: drag caused a CSP violation`);
 
+      // Drop to the left, RTL, and browser zoom share the same pointer/slot geometry.
+      for (const { rtl, zoom, reduced = false } of [{ rtl: false, zoom: 1 }, { rtl: true, zoom: 1 }, { rtl: false, zoom: 1.25 }, { rtl: false, zoom: 1.5 }, { rtl: false, zoom: 2 }, { rtl: false, zoom: 1, reduced: true }]) {
+        await visit(rtl ? '?rtl' : '');
+        await page.emulateMedia({ reducedMotion: reduced ? 'reduce' : 'no-preference' });
+        await page.evaluate(zoom => { document.documentElement.style.zoom = String(zoom); }, zoom);
+        const source = await page.locator('[data-workspace-tab="beta"]').boundingBox();
+        const destination = await page.locator('[data-workspace-tab="alpha"]').boundingBox();
+        const handle = await tab('beta').boundingBox();
+        const grabX = handle.x + handle.width / 2;
+        const offset = grabX - source.x;
+        await page.mouse.move(grabX, source.y + source.height / 2); await page.mouse.down();
+        await page.mouse.move(grabX + 8, source.y + source.height / 2);
+        await expect(preview).toHaveCount(1);
+        await expect.poll(async () => Math.abs((await preview.boundingBox()).width - source.width)).toBeLessThan(2);
+        const x = destination.x + destination.width / 2 + (rtl ? 8 : -8);
+        await page.mouse.move(x, destination.y + destination.height / 2, { steps: 10 });
+        await expect.poll(async () => Math.abs((await preview.boundingBox()).x + offset - x)).toBeLessThan(2);
+        if (reduced) assert(await page.locator('[data-workspace-tab]').evaluateAll(items => items.every(item => item.getAnimations().every(animation => animation.effect.getTiming().duration === 0))), 'Reduced motion animated neighboring tabs');
+        await page.mouse.up();
+        await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('beta,alpha,gamma,delta');
+        await expect(preview).toHaveCount(0);
+        await expect(page.locator('[data-tab-settling]')).toHaveCount(0);
+      }
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      for (const cancel of ['outside', 'blur', 'capture', 'removed']) {
+        await visit();
+        const box = await tab('alpha').boundingBox();
+        await page.mouse.move(box.x + 40, box.y + box.height / 2); await page.mouse.down();
+        await page.mouse.move(box.x + 70, box.y + box.height / 2);
+        await expect(preview).toHaveCount(1);
+        if (cancel === 'outside') await page.mouse.move(500, 600);
+        if (cancel === 'blur') await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        if (cancel === 'capture') await page.evaluate(() => window.dispatchEvent(new PointerEvent('lostpointercapture', { buttons: 1 })));
+        if (cancel === 'removed') await page.getByRole('button', { name: /^Close Inspect event/ }).evaluate(button => button.click());
+        await page.mouse.up();
+        await expect(preview).toHaveCount(0);
+        await expect(page.locator('[data-tab-settling]')).toHaveCount(0);
+        await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('');
+        assert(await page.locator('[data-workspace-tab]').evaluateAll(items => items.every(item => !item.style.transform)), 'Cancellation left tab transforms behind');
+      }
+      await visit('?many');
+      const scrollStrip = page.locator('[data-workspace-tab-strip]');
+      const start = await tab('session-0').boundingBox();
+      const edge = await scrollStrip.boundingBox();
+      await page.mouse.move(start.x + 40, start.y + start.height / 2); await page.mouse.down();
+      await page.mouse.move(start.x + 48, start.y + start.height / 2);
+      await page.mouse.move(edge.x + edge.width - 8, start.y + start.height / 2, { steps: 10 });
+      await expect.poll(() => scrollStrip.evaluate(element => element.scrollLeft)).toBeGreaterThan(200);
+      await expect(preview).toHaveCount(1);
+      await page.mouse.up();
+      await expect(preview).toHaveCount(0);
+      assert.notEqual(await page.getByLabel('Reordered sessions', { exact: true }).textContent(), '', 'Auto-scroll did not commit its final destination');
+
       await visit('?many');
       const list = page.locator('[data-workspace-tab-strip]');
       await page.getByRole('button', { name: 'Select last', exact: true }).click();
       await expect(tab('session-31')).toBeInViewport();
+      const lastShoulder = await page.locator('[data-workspace-tab="session-31"] [data-workspace-tab-shape] svg').last().boundingBox();
+      const visibleStrip = await list.boundingBox();
+      assert(lastShoulder.x + lastShoulder.width <= visibleStrip.x + visibleStrip.width + 1, 'Revealing the last tab clips its shoulder');
       const before = await list.evaluate(el => el.scrollLeft);
       await page.getByRole('button', { name: 'Change status', exact: true }).click();
       assert.equal(await list.evaluate(el => el.scrollLeft), before, 'Status update changed the strip scroll position');
@@ -157,18 +247,21 @@ try {
           const appearance = await tab('alpha').evaluate(element => {
             const item = element.closest('[data-workspace-tab]');
             const row = item.closest('[data-workspace-tab-strip]').parentElement;
+            const center = getComputedStyle(item.querySelector('[data-workspace-tab-shape]').firstElementChild);
             return {
-              canvas: getComputedStyle(item).backgroundColor,
+              canvas: center.backgroundColor,
               navigation: getComputedStyle(row).backgroundColor,
-              borderWidth: getComputedStyle(item).borderTopWidth,
-              borderStyle: getComputedStyle(item).borderTopStyle,
+              borderWidth: center.borderTopWidth,
+              borderStyle: center.borderTopStyle,
+              borderBottomWidth: center.borderBottomWidth,
               closeBorderWidth: getComputedStyle(item.querySelector('button[aria-label^="Close "]')).borderTopWidth,
             };
           });
           assert.notEqual(appearance.navigation, 'rgba(0, 0, 0, 0)', `${theme.id}: navigation surface is missing`);
           assert.notEqual(appearance.navigation, appearance.canvas, `${theme.id}: selected tab has no surface separation`);
-          assert.equal(appearance.borderWidth, '1px', `${theme.id}: selected tab border is missing`);
+          assert.equal(appearance.borderWidth, '1px', `${theme.id}: active tab is missing its upper outline`);
           assert.equal(appearance.borderStyle, 'solid');
+          assert.equal(appearance.borderBottomWidth, '0px', `${theme.id}: active tab must stay open along the bottom`);
           assert.equal(appearance.closeBorderWidth, '0px', `${theme.id}: close button has a browser-default border`);
           await tab('alpha').focus();
           await page.addScriptTag({ url: `${origin}/axe.js` });

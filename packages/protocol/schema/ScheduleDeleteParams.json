@@ -5,7 +5,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/ScheduleDeleteParams",
+  "$id": "https://whip.dev/protocol/v5/ScheduleDeleteParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ScheduleDeleteParams",
   "required": [

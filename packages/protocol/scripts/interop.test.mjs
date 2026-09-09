@@ -9,7 +9,7 @@ test('bounded navigation summaries validate without coercing counters or requiri
   for (const root_ids of [null, [''], ['root', 'root'], ['a'.repeat(257)], Array.from({ length: 33 }, (_, index) => String(index))]) {
     assert.equal(validate('SessionSummariesParams', { root_ids }), false);
   }
-  const item = { root_id: 'root', missing: false, title: '', cwd: '', running_agents: '9007199254740993', queued_agents: '0', pending_permissions: '1', pending_questions: '2', truncated: false };
+  const item = { root_id: 'root', missing: false, archived: false, title: '', cwd: '', running_agents: '9007199254740993', queued_agents: '0', pending_permissions: '1', pending_questions: '2', truncated: false };
   assertValid('SessionSummariesResult', { items: [item] });
   assertValid('SessionSummariesResult', { items: [{ ...item, root_id: 'missing', missing: true, running_agents: '0', pending_permissions: '0', pending_questions: '0' }] });
   assert.equal(validate('SessionSummariesResult', { items: null }), false);
@@ -107,7 +107,7 @@ test('model budgets preserve explicit unlimited and exact uncertainty', () => {
   assert.equal(validate('BudgetState', { ...state, uncertain: 23883863 }), false);
 });
 
-test('protocol 4.0 usage remains valid without the additive reported field', async () => {
+test('session usage remains valid without optional provenance', async () => {
   const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
   for (const type of ['RootSnapshot', 'AgentTranscriptResult', 'BoundedTranscriptPage', 'CompactionResult', 'StreamEvent']) {
     const value = structuredClone(fixtures.find(fixture => fixture.type === type)?.value ?? {});

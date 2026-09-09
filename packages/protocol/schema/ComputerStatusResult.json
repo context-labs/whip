@@ -44,7 +44,7 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v4/ComputerStatusResult",
+  "$id": "https://whip.dev/protocol/v5/ComputerStatusResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ComputerStatusResult",
   "required": [

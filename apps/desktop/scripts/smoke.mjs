@@ -6,6 +6,8 @@ import { lstat, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
+import { expect } from '@playwright/test';
+import { createWhipClient } from '../../../packages/sdk/dist/index.js';
 import { fileDigest, LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
 import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
@@ -33,7 +35,10 @@ try {
     .install(executable, AbortSignal.timeout(15_000));
   runtimeInstalled = true;
   remote = await startFixture({ allowedOrigins: ['whip-app://bundle'] });
-  const launch = () => _electron.launch({ args: [path.join(stage, 'app')], env, timeout: 30_000 });
+  const artifacts = process.env.WHIP_DESKTOP_SMOKE_ARTIFACTS;
+  if (artifacts) await mkdir(artifacts, { recursive: true });
+  const launch = () => _electron.launch({ args: [path.join(stage, 'app')], env, timeout: 30_000,
+    ...(artifacts ? { recordVideo: { dir: artifacts, size: { width: 1280, height: 800 } } } : {}) });
   electron = await launch();
   let diagnostics = '';
   electron.process().stderr?.on('data', bytes => { diagnostics = (diagnostics + bytes.toString()).slice(-8192); });
@@ -56,6 +61,62 @@ try {
   const remoteLink = page.locator(`a[href="/h/${remote.info.runtime_id}/s/${remote.info.root_id}"]`).first();
   await remoteLink.waitFor(); await remoteLink.click();
   await page.getByLabel('Message WHIP', { exact: true }).waitFor();
+  const client = createWhipClient({ endpoint: remote.info.endpoint, clientId: `desktop-tabs-${crypto.randomUUID()}`, clientKind: 'human' });
+  try {
+    await client.connect();
+    for (const title of ['Review changes', 'Check the implementation']) {
+      const created = await client.sessions.create({ cwd: remote.directory, model: 'model', provider: 'provider' }).result();
+      assert.equal(created.status, 'succeeded');
+      const id = created.result.root_id;
+      await client.session(id).rename(title).result();
+      const link = page.locator(`a[href="/h/${remote.info.runtime_id}/s/${id}"]`).first();
+      await link.waitFor(); await link.click();
+      await page.getByLabel('Message WHIP', { exact: true }).waitFor();
+    }
+  } finally { client.close(); }
+  await page.evaluate(() => localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'claude-code' })));
+  await page.reload();
+  await expect(page.getByRole('tab')).toHaveCount(3);
+  await page.getByLabel('Message WHIP', { exact: true }).fill('Preserve this desktop draft while moving the tab.');
+  const tabs = page.locator('[data-workspace-tab]');
+  const order = await tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab));
+  const source = await tabs.last().boundingBox(), target = await tabs.first().boundingBox();
+  if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-tabs.png') });
+  await page.mouse.move(source.x + 40, source.y + source.height / 2); await page.mouse.down();
+  await page.mouse.move(source.x + 48, source.y + source.height / 2);
+  const x = target.x + target.width / 2 - 8;
+  await page.mouse.move(x, target.y + target.height / 2, { steps: 20 });
+  const preview = page.locator('[data-workspace-drag-preview]');
+  await expect(preview).toHaveCount(1);
+  await expect.poll(async () => Math.abs((await preview.boundingBox()).x + 40 - x)).toBeLessThan(2).catch(async error => {
+    if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-drag-failure.png') });
+    throw error;
+  });
+  assert.deepEqual(await tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab)), order);
+  if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-tabs-dragging.png') });
+  await page.mouse.up();
+  await expect(preview).toHaveCount(0);
+  await expect.poll(() => tabs.evaluateAll(items => items.map(item => item.dataset.workspaceTab))).toEqual([order[2], order[0], order[1]]);
+  await expect(page.getByLabel('Message WHIP', { exact: true })).toHaveValue('Preserve this desktop draft while moving the tab.');
+  if (process.env.WHIP_WEB_TURN_FAILURE_FIXTURE === '1') {
+    const route = new URL(page.url());
+    route.pathname = `/h/${remote.info.runtime_id}/s/${remote.info.root_id}`;
+    route.search = '?agent=turn-failed-empty&view=repl';
+    await page.goto(route.href);
+    const notice = page.locator('[data-agent-turn-outcome="failed"]').filter({ visible: true });
+    await expect(notice).toHaveCount(1);
+    await expect(notice).toContainText('Architecture researcher');
+    await expect(page.getByText('The last turn failed', { exact: true })).toBeVisible();
+    if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-turn-failure.png') });
+    await page.reload();
+    await expect(notice).toHaveCount(1);
+    const response = await fetch(`${remote.info.frontend}/control/turn-outcome/succeed`, { method: 'POST' });
+    assert.ok(response.ok, await response.text());
+    await expect(notice).toHaveCount(0);
+    route.search = '?agent=turn-failed-empty';
+    await page.goto(route.href);
+    await expect(page.getByText('Follow-up completed.', { exact: true })).toBeVisible();
+  }
   await page.getByRole('button', { name: 'Manage execution hosts', exact: true }).click();
   const row = name => hosts.getByText(name, { exact: true }).locator('..').locator('..');
   await row('Smoke URL').getByRole('button', { name: 'Disconnect', exact: true }).click();
@@ -88,8 +149,9 @@ try {
   assert.equal(attached.pid, initial.pid);
   const result = { purpose: 'Staged host integration; not signed/fused installed-app acceptance or a startup benchmark',
     recordedAt: new Date().toISOString(),
+    ...(process.env.WHIP_WEB_TURN_FAILURE_FIXTURE === '1' ? { savedTurnFailure: true, failureClearsOnSuccess: true } : {}),
     noNetwork: !initial.network_endpoint, canonicalRuntimeInstalled: true, noRetainedRuntime: true, noLegacyHome: true, daemonSurvivedGUIExit: true,
-    relaunchAttachedSameDaemon: true, settingsReload: true, desktopOriginURL: true, independentHostDisconnect: true, multipleHostsRestored: true, rendererErrors: errors };
+    relaunchAttachedSameDaemon: true, settingsReload: true, desktopOriginURL: true, independentHostDisconnect: true, multipleHostsRestored: true, movingTabPreview: true, tabReorderPreservesDraft: true, rendererErrors: errors };
   await writeFile(process.env.WHIP_DESKTOP_SMOKE_OUTPUT ?? path.join(repositoryRoot, '.ai-docs/plans/desktop-app/evidence/local-smoke.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result, null, 2));
 } finally {
