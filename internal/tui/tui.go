@@ -222,8 +222,10 @@ type model struct {
 	inputTop     int
 	inputLines   []string    // the input box's rendered lines, ANSI-stripped
 	vpLead       int         // top blank rows viewportView last dropped (selection row mapping)
-	viewTop      int         // screen row of the view's first line (View tracks it; mouse Y is absolute)
-	viewH        int         // height of the last rendered view
+	viewTop      int         // screen row of the view's content (mouse Y is absolute)
+	viewH        int         // height of the view's content, excluding inline anchor padding
+	frameTop     int         // screen row of Bubble Tea's physical inline render frame
+	frameH       int         // tallest fitting inline frame since the last terminal resize
 	themeHow     string      // how auto theme detection resolved (env var, OSC query, …) — captured at startup/theme change for /report; never re-queried
 	uiMode       string      // "" = default whip look; "opencode" = opencode render mode (see opencode.go)
 	sessTitle    string      // cached session title for the opencode sidebar (from the store; updated on title/rename)
@@ -2171,10 +2173,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		resized := w != m.width // width change → re-wrap the whole transcript
 		m.width, m.height = w, msg.Height
-		// re-anchor the view position: after a resize (and on the first size
-		// at startup) assume the view sits at the bottom — the next View()
-		// computes viewTop = height - viewH from this sentinel.
-		m.viewTop = 1 << 30
+		// Re-anchor the view after a resize (and on the first size). The next
+		// View computes both the physical inline frame and its content from
+		// the terminal bottom; frameH starts a new high-water mark.
+		m.viewTop, m.frameTop = 1<<30, 1<<30
+		m.frameH = 0
 		m.input.SetWidth(w - 2)
 		if resized {
 			m.refreshVP() // every block re-renders at the new width (floored at minRenderWidth)
@@ -5036,14 +5039,13 @@ func (m *model) thinkViewCapped() string {
 	return streamTail(m.thinkView(), liveCap)
 }
 
-// View renders the frame and tracks WHERE it sits on the screen. Mouse events
-// arrive in absolute screen coordinates, so every click/drag mapping needs the
-// view's top row. The inline view starts bottom-anchored (Run moves the cursor
-// to the last row before the first paint); bubbletea's renderer scrolls the
-// top UP when the view grows past the bottom and keeps it FIXED when the view
-// shrinks — so the top row only ever decreases between resizes:
-// viewTop = min(viewTop, height - viewH). A resize resets the sentinel
-// (WindowSizeMsg handler) and the next render re-anchors to the bottom.
+// View renders the frame and tracks WHERE its content sits on the screen.
+// Bubble Tea's inline renderer can move a growing frame up but cannot move a
+// shrinking frame back down. Keep the physical frame at its tallest height
+// since the last resize and prepend blank anchor rows when content shrinks;
+// this returns the visible UI to the terminal bottom instead of leaving it
+// stranded toward the top. Bubble Tea clips oversized frames from the top, so
+// cap the tracked frame to the terminal before deriving mouse coordinates.
 func (m *model) View() string {
 	m.syncInputPlaceholder()
 	v := m.viewBody()
@@ -5079,7 +5081,13 @@ func (m *model) View() string {
 		if m.uiMode == opencodeMode {
 			m.viewTop = 0 // altscreen: the view is drawn from row 0, so mouse Y maps directly
 		} else {
-			m.viewTop = max(min(m.viewTop, m.height-m.viewH), 0)
+			m.frameH = min(max(m.frameH, m.viewH), m.height)
+			m.frameTop = max(min(m.frameTop, m.height-m.frameH), 0)
+			lead := max(m.frameH-m.viewH, 0)
+			if lead > 0 {
+				v = strings.Repeat("\n", lead) + v
+			}
+			m.viewTop = m.frameTop + lead
 		}
 	}
 	// Record the input box's absolute screen rows for drag-select. The input is
