@@ -1,0 +1,37 @@
+{
+  "bucket": "whipcode-releases",
+  "endpoint": "https://b0c6d69f10b59b4d5b3a1a6d882d95ba.r2.cloudflarestorage.com",
+  "publicRoot": "https://whipcode-releases.inference.net",
+  "createOnly": true,
+  "wrongETagRejected": true,
+  "matchingETagAccepted": true,
+  "publicBytesVerified": true,
+  "byteRanges": true,
+  "cacheControlVerified": true,
+  "verifiedAt": "2026-09-08T23:41:25Z",
+  "minimumTLS": "1.2",
+  "customDomainStatus": "active",
+  "publicR2Dev": false,
+  "publicClients": [
+    "curl",
+    "Python urllib",
+    "Whip CFNetwork"
+  ],
+  "browserIntegrityRule": {
+    "id": "fad01c2ba11649f097b9b2499e1f4b7b",
+    "hostname": "whipcode-releases.inference.net",
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "browserIntegrityCheck": false
+  },
+  "token": {
+    "name": "whipcode-releases-github-actions",
+    "scope": "Object Read & Write",
+    "buckets": [
+      "whipcode-releases"
+    ]
+  },
+  "probeObjectsRemoved": true
+}

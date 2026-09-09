@@ -1,8 +1,10 @@
 # Desktop release implementation record
 
-2026-09-08. Work is on `codex/desktop-release`. No desktop release tag, public
-release, or update feed has been published. The installed `/Applications/Whip.app`
-and `/usr/local/bin/whipcode` remain unchanged.
+2026-09-08. The implementation landed through
+[PR #138](https://github.com/context-labs/whip/pull/138). The first protected tag,
+`desktop-v0.2.0-beta.1`, identifies `0ec4a08b6f7e976f61ebed0e9b408830e2f39290`.
+[Its release run](https://github.com/context-labs/whip/actions/runs/34291545971)
+is the authoritative record of candidate creation, staging, and promotion.
 
 ## Implemented
 
@@ -25,8 +27,18 @@ and `/usr/local/bin/whipcode` remain unchanged.
 - Release-tag rules prevent update/deletion and restrict creation to admins.
 - `whip-rlm` requires the GitHub Actions `go`, `govulncheck`, and `codeql` checks
   with strict current-base validation and no deletion/force pushes.
-- Public signing identity, team, notary key ID, and issuer variables are set.
-  Private credentials and download URLs are not configured.
+- Developer ID P12, its password, and the Apple notary API key were transferred
+  from HALO directly into `desktop-signing` as ciphertext sealed to GitHub's
+  environment public key. The temporary source branch was removed. No plaintext
+  secret was emitted in logs or artifacts.
+- CI successfully imported the Developer ID identity from those secrets.
+- The `whipcode-releases` bucket and its TLS 1.2 custom domain are active. Both
+  channels use separate paths within this bucket. The dedicated object token is
+  configured in all four stage/promote environments, alongside channel feed URLs.
+  [R2 acceptance](evidence/cloudflare-r2.json) records byte/range delivery, cache
+  headers, create-only uploads, rejected stale ETags, and successful conditional
+  updates. The initial non-browser HTTP 1010 response was fixed with a GET/HEAD
+  Browser Integrity Check exception scoped to the release hostname.
 
 ## Validation
 
@@ -57,36 +69,35 @@ Local validation artifacts use `0.2.0-beta.1` with dirty development provenance
 and no update feed. They are test builds, not publishable release candidates.
 Actual release packaging requires a clean tagged commit and configured feed.
 
-## Remaining release gates and inputs
+## First release execution
 
-1. Supply working signing credentials for `desktop-signing`: Developer ID P12
-   including its private key, P12 password, and raw Apple notary API `.p8` key.
-   Local Keychain signing/notarization works, but the configured API-key file is
-   missing. Retrieve credentials from their original vault or set environment
-   secrets directly; never paste secrets into chat or logs.
-2. Supply working R2 credentials and select two bucket/custom-domain pairs.
-   Existing local credentials fail authentication. Configure bucket-scoped keys
-   and matching feed URLs in the environments listed in the runbook. Verify
-   public TLS, byte/range delivery, caching, and conditional writes on real R2.
-3. Land the implementation through green CI on the actual source. The checkout
-   also contains earlier mobile/canonical-install commits not yet on remote
-   `whip-rlm`. [Draft PR #138](https://github.com/context-labs/whip/pull/138)
-   contains the implementation. Initial CI passed Linux coverage (90.0%), lint,
-   security, mobile, platform builds, and runtime checks; a stale packed-app
-   test expected the replaced connection dialog. Its selector now exercises the
-   current Execution hosts flow; isolated production/development packed tests
-   pass locally and in CI. The first native CI job then exposed a missing SDK
-   build prerequisite on clean runners. Desktop checking now builds declarations,
-   and packaging with a reused renderer also builds the SDK for the main process.
-   Final-source CI is rerunning with that correction.
-4. Run the signed CI candidate, Linux runtime smoke, and actual Squirrel app
-   N-to-N+1 installation in an isolated QA channel. Backend handoff integration
-   and mock updater tests do not substitute for Squirrel replacing the app.
-5. Test quarantined download/install and macOS 14/current macOS on physical Apple
-   Silicon. Review the declared MIT dependency `@tanstack/markdown@0.0.13`, which
-   lacks an upstream/package license file; the inventory records the omission.
-6. Review the exact candidate and approve promotion. Record its workflow URL,
-   tag, source, artifact hashes, final feed URL, and device acceptance evidence.
+[PR #139](https://github.com/context-labs/whip/pull/139) corrects two test timing
+assumptions exposed by release CI. The SDK test now waits for committed history
+as well as replayed cursor convergence; all 33 race-enabled acceptance tests pass.
+The SSH test applies its 100 ms deadline only to the deadline scenario; normal
+local process startup gets a realistic allowance while bounded cleanup remains
+required. The SSH suite passed five race-enabled repetitions. Production behavior
+and coverage requirements are unchanged.
+
+The first desktop run's failed SDK job was retried after root-cause analysis;
+its CI and security gates passed, and signed packaging started. Its Linux payload
+also passed the embedded-renderer and daemon smoke test. Consult the release run
+for the final packaging/publication result rather than interpreting this dated
+progress record as a release authorization.
+
+A clean signed/notarized `0.2.0-beta.0` QA build from the same source is available
+only under the isolated `qa-20260908` R2 prefix for the first real updater test.
+Its renderer digest matches the release CI artifact. It passed all 61 measured
+launches on an Apple M1 virtual machine running macOS 14, including retained
+session startup, with fixture cleanup confirmed. The native dialog automation
+permission preflight also passed. [Baseline run and full evidence](https://github.com/context-labs/whip/actions/runs/34292930904).
+This establishes actual macOS 14 VM coverage, not a physical-device TCC review.
+
+Before the initial feed is promoted, the final CI candidate must pass the actual
+signed Squirrel app/backend update on a clean runner and be reviewed with its
+checksums and attestations. The runbook retains the manual download, device,
+helper-permission, and distribution-notice review checklist. The candidate's
+GitHub release and acceptance runs should carry the final evidence links.
 
 Unrelated permission-card UI work in the shared checkout is excluded from this
 release implementation change.

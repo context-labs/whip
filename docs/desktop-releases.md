@@ -70,29 +70,47 @@ Set these independently in each channel's stage and promote environments:
 
 | Type | Name | Value |
 | --- | --- | --- |
-| Secret | `WHIP_DESKTOP_R2_ACCESS_KEY_ID` | Object read/write key scoped to the channel bucket |
+| Secret | `WHIP_DESKTOP_R2_ACCESS_KEY_ID` | Object read/write key scoped to `whipcode-releases` |
 | Secret | `WHIP_DESKTOP_R2_SECRET_ACCESS_KEY` | Matching S3 secret |
-| Variable | `WHIP_DESKTOP_BUCKET` | Dedicated Whip channel bucket |
+| Variable | `WHIP_DESKTOP_BUCKET` | `whipcode-releases` |
 | Variable | `WHIP_DESKTOP_R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
 | Variable | `WHIP_DESKTOP_UPDATE_URL` | Exactly the same channel feed URL embedded at signing |
 
-R2 credentials are bucket-scoped, not prefix-scoped. Separate channel buckets and
-tokens isolate beta from stable; stage credentials still have write authority
-within their bucket. The publisher uses region `auto` and removes any inherited
-AWS session token. There is no AWS role/OIDC assumption in this R2 path.
+Both channels use the `whipcode-releases` bucket in the Inference.net Cloudflare
+account. R2 credentials are bucket-scoped, not prefix-scoped: the publishing token
+can write both channels. GitHub environment review and the publisher enforce the
+channel boundary; they do not provide storage-level credential isolation. Separate
+buckets/tokens can add that isolation later. The publisher uses region `auto` and
+removes any inherited AWS session token. There is no AWS role/OIDC assumption in this R2 path.
 
-Use an R2 custom domain for each bucket, with no path rewrite. For example,
-`https://<beta-domain>/desktop/beta/darwin/arm64/RELEASES.json` maps directly to
-the key `desktop/beta/darwin/arm64/RELEASES.json`. The stable channel has its own
-domain and path. ZIP/DMG responses are immutable; feed responses must revalidate.
+The bucket uses `https://whipcode-releases.inference.net` with no path rewrite:
+
+- Beta: `https://whipcode-releases.inference.net/desktop/beta/darwin/arm64/RELEASES.json`
+- Stable: `https://whipcode-releases.inference.net/desktop/stable/darwin/arm64/RELEASES.json`
+
+The URL path maps directly to the R2 object key. The custom domain requires TLS
+1.2 or newer; the public `r2.dev` endpoint is disabled. A configuration rule disables
+Browser Integrity Check only for GET/HEAD requests to this exact hostname, so
+non-browser download clients do not receive Cloudflare error 1010. ZIP/DMG
+responses are immutable; feed responses must revalidate.
 Verify TLS, public downloads, range requests, content types, and no login/bot
 challenge. An empty feed may return 404 for the first release; a DNS/TLS failure
 is a configuration failure, not an empty feed.
 
 Use the GitHub environment settings page or `gh secret set --env NAME` reading
 from stdin. Never put secrets in command history, release evidence, or chat.
-Existing GitHub secret values cannot be read back: retrieve their original
-secret-manager export or issue a new scoped credential.
+Existing GitHub secret values cannot be read back through the API. Retrieve their
+original secret-manager export, issue a new scoped credential, or use a reviewed
+one-time workflow that seals selected source secrets to the destination GitHub
+environment public key. Never expose plaintext through logs or artifacts.
+
+The initial Apple identity and notarization key were transferred from HALO using
+that encrypted workflow. The dedicated Cloudflare account token
+`whipcode-releases-github-actions` has Object Read & Write permission on this
+bucket only. Rotate it by creating a replacement with the same scope, updating
+both R2 secrets in all four publishing environments, validating an isolated upload
+and download, and then revoking the old token. GitHub stores the persistent copy;
+delete local transfer files after validation.
 
 ## Cut and validate a release
 
@@ -164,3 +182,5 @@ release's Linux artifact explicitly instead of following branch prereleases.
 Reference: [GitHub artifact verification](https://cli.github.com/manual/gh_attestation_verify),
 [environment protection](https://docs.github.com/en/rest/deployments/environments),
 [R2 token scopes](https://developers.cloudflare.com/r2/api/tokens/).
+
+Final downloadable filenames use hyphens instead of spaces so GitHub, R2, the update feed, and checksums name identical artifacts. The app inside the archive retains its normal display name (Whip or Whip Beta).

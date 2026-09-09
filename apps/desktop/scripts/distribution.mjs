@@ -164,12 +164,24 @@ export async function prepareDistribution(artifacts, directory, packageEvidence)
   assert.equal(artifacts.filter(file => file.endsWith('.dmg')).length, 1);
   assert.equal(artifacts.filter(file => file.endsWith('.zip')).length, 1);
   for (const source of artifacts) {
-    const name = path.basename(source);
+    // GitHub normalizes spaces in uploads. Final filenames must match R2 and checksums.
+    const name = path.basename(source).replaceAll(' ', '-');
     if (!/\.(?:dmg|zip)$/.test(name) && name !== 'RELEASES.json') throw new Error(`Unexpected distribution artifact ${name}`);
     assert(!Object.hasOwn(files, name), `Duplicate distribution artifact ${name}`);
     const stat = await lstat(source);
     assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= maxFileBytes, `Invalid distribution artifact ${name}`);
     const target = path.join(directory, name); await copyFile(source, target);
+    if (name === 'RELEASES.json') {
+      const feed = JSON.parse(await readFile(target, 'utf8'));
+      const current = feed.releases.filter(release => release.version === packageEvidence.version);
+      assert.equal(current.length, 1, 'Feed must identify exactly one current release');
+      const url = new URL(current[0].updateTo.url);
+      const archive = path.basename(artifacts.find(file => file.endsWith('.zip')));
+      assert.equal(decodeURIComponent(url.pathname.split('/').at(-1)), archive, 'Feed names a different ZIP');
+      url.pathname = url.pathname.slice(0, url.pathname.lastIndexOf('/') + 1) + encodeURIComponent(archive.replaceAll(' ', '-'));
+      current[0].updateTo.url = url.href;
+      await writeFile(target, JSON.stringify(feed) + '\n');
+    }
     if (name.endsWith('.dmg') && process.env.WHIP_DESKTOP_NOTARIZE === '1') {
       assert(packageEvidence.notarized, 'The ZIP must already contain the stapled application');
       await exec('/usr/bin/codesign', ['--force', '--sign', process.env.WHIP_DESKTOP_SIGN_IDENTITY, '--timestamp', target]);

@@ -27,7 +27,8 @@ if (args[0] === 'api') {
     if (!state.release || state.release.draft) fail('gh: Not Found (HTTP 404)');
     json(state.release);
   } else if (endpoint.includes('/releases?per_page=')) {
-    json(state.release ? [state.release] : []);
+    if (mode === 'create-delayed' && state.release && state.hiddenListings-- > 0) json([]);
+    else json(state.release ? [state.release] : []);
   } else if (/\\/releases\\/\\d+\\/assets\\?/.test(endpoint)) {
     if (mode === 'list-auth') fail('gh: Forbidden (HTTP 403)');
     const assets = state.assets.map(({ body, ...metadata }) => metadata);
@@ -46,7 +47,7 @@ if (args[0] === 'api') {
   if (mode === 'create-auth') fail('gh: Forbidden (HTTP 403)');
   state.release = { id: 10, tag_name: args[2], name: mode === 'create-race' ? 'Human title' : args[2], body: 'Generated or existing notes', draft: args.includes('--draft'), prerelease: args.includes('--prerelease') };
   if (mode === 'create-race') fail('gh: Validation failed (HTTP 422): already_exists');
-  save(); console.log('created');
+  state.hiddenListings = 2; save(); console.log('created');
 } else if (args[0] === 'release' && args[1] === 'upload') {
   if (args.includes('--clobber')) fail('Never clobber');
   if (mode === 'upload-auth') fail('gh: Forbidden (HTTP 403)');
@@ -80,8 +81,8 @@ async function fixture(t, { existing = {}, release = true, mode = '' } = {}) {
 const writes = state => state.calls.filter(args => args[0] === 'release');
 
 test('identical GitHub reruns verify every asset and preserve all existing release metadata', async t => {
-  const f = await fixture(t, { existing: { 'whip-linux-x64': 'CLI', 'Whip Beta.zip': 'desktop', 'unrelated.txt': 'keep' } });
-  const files = [await f.local('whip-linux-x64', 'CLI'), await f.local('Whip Beta.zip', 'desktop')];
+  const f = await fixture(t, { existing: { 'whip-linux-x64': 'CLI', 'Whip-Beta.zip': 'desktop', 'unrelated.txt': 'keep' } });
+  const files = [await f.local('whip-linux-x64', 'CLI'), await f.local('Whip-Beta.zip', 'desktop')];
   await publishGitHubAssets(files, f.env); await publishGitHubAssets(files, f.env);
   const state = await f.state(); assert.deepEqual(state.release, f.metadata); assert.deepEqual(writes(state), []);
   assert.equal(state.calls.filter(args => args[0] === 'api' && /\/releases\/assets\/\d+$/.test(args[1])).length, 4);
@@ -107,12 +108,13 @@ test('different existing bytes fail before any missing asset is uploaded', async
 });
 
 test('creates an absent release with the existing notes behavior and safely accepts a create race', async t => {
-  for (const mode of ['', 'create-race']) await t.test(mode || 'created', async t => {
+  for (const mode of ['', 'create-race', 'create-delayed']) await t.test(mode || 'created', async t => {
     const f = await fixture(t, { release: false, mode });
     await publishGitHubAssets([await f.local('Whip.zip')], f.env);
     const state = await f.state(); const create = writes(state).find(args => args[1] === 'create');
     assert(create.includes('--generate-notes') && create.includes('--verify-tag'));
-    assert.equal(state.release.name, mode ? 'Human title' : 'v1.2.3');
+    assert.equal(state.release.name, mode === 'create-race' ? 'Human title' : 'v1.2.3');
+    assert.equal(writes(state).filter(args => args[1] === 'create').length, 1);
     assert(!state.calls.some(args => args[1] === 'edit'));
   });
 });
@@ -146,8 +148,9 @@ test('bounds streamed downloads and rejects truncation or asset replacement afte
 });
 
 test('invalid names, duplicate names, symlinks and oversized local assets fail before GitHub access', async t => {
-  for (const kind of ['label', 'duplicate', 'symlink', 'oversized']) await t.test(kind, async t => {
+  for (const kind of ['label', 'space', 'duplicate', 'symlink', 'oversized']) await t.test(kind, async t => {
     const f = await fixture(t); let files;
+    if (kind === 'space') files = [await f.local('Whip Beta.zip')];
     if (kind === 'label') files = [await f.local('Whip.zip#label')];
     if (kind === 'duplicate') files = [await f.local('one/Whip.zip'), await f.local('two/Whip.zip')];
     if (kind === 'symlink') { const target = await f.local('original'); const link = path.join(f.root, 'Whip.zip'); await symlink(target, link); files = [link]; }

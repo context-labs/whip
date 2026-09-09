@@ -571,9 +571,16 @@ test('actual process crash preserves outcomes and never repeats uncertain effect
   try {
     await eventually(() => observer.getSnapshot().state === 'connected' && observer.getSnapshot().info.generation === String(previousGeneration + 1));
     const authoritative = await observer.call('root.snapshot', { root_id: rootId });
-    await eventually(() => view.getSnapshot().status === 'live' && BigInt(view.getSnapshot().root.cursor) >= BigInt(authoritative.cursor));
-    assert.deepEqual(view.getSnapshot().root.messages, authoritative.messages);
-    assert.deepEqual(view.getSnapshot().root.active_turns, authoritative.active_turns);
+    await eventually(() => {
+      const snapshot = view.getSnapshot();
+      assert.equal(snapshot.status, 'live');
+      assert.ok(BigInt(snapshot.root.cursor) >= BigInt(authoritative.cursor));
+      // Replayed lifecycle events advance the cursor before their coalesced
+      // snapshot refresh supplies committed message bodies.
+      assert.deepEqual(snapshot.root.messages, authoritative.messages);
+      assert.deepEqual(snapshot.root.active_turns, authoritative.active_turns);
+      return true;
+    }, { description: 'reconnected history and active turns to converge' });
     reconnectRecoveryMs = performance.now() - recoveryStarted;
   } finally { await view.dispose(); observer.close(); }
   assert.equal((await fixture.effects()).filter(value => value === `hold:${key}`).length, 1);

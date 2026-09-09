@@ -29,7 +29,13 @@ func TestDesktopSSHLocalExitAndParentLifetime(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = output.Close() }()
-			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			// Only the deadline scenario should race a short timer. A loaded CI
+			// runner can take over 100 ms to start even the local ssh -V command.
+			timeout := 5 * time.Second
+			if kind == "deadline" {
+				timeout = 100 * time.Millisecond
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), timeout)
 			defer cancel()
 			args := []string{"-V"} // Print local version; never contact an external host.
 			switch kind {

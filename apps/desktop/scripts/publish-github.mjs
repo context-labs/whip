@@ -16,7 +16,7 @@ const conflict = error => httpStatus(error) ? [409, 422].includes(httpStatus(err
 async function localAsset(filename) {
   const file = path.resolve(filename); const name = path.basename(file); const stat = await lstat(file);
   // gh treats '#' as an asset label separator, including inside a parent path.
-  assert(/^[A-Za-z0-9][A-Za-z0-9._ -]{0,199}$/.test(name) && !/[#\u0000-\u001f\u007f]/.test(file), 'Invalid GitHub asset filename');
+  assert(/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name) && !/[#\u0000-\u001f\u007f]/.test(file), 'Invalid GitHub asset filename');
   assert(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= limit, `Invalid GitHub asset: ${name}`);
   const hash = createHash('sha256'); let size = 0;
   for await (const chunk of createReadStream(file)) {
@@ -79,7 +79,14 @@ export async function publishGitHubAssets(filenames, env = process.env) {
     try { await run(['release', 'create', tag, '--repo', `github.com/${repository}`, '--verify-tag', '--title', tag, '--generate-notes', '--draft', `--latest=${latest}`,
       ...(prerelease ? ['--prerelease'] : [])]); }
     catch (error) { if (!conflict(error)) throw error; }
-    release = await getRelease(); assert(release, 'The created GitHub release is not readable');
+    // GitHub may acknowledge creation before the draft appears in its listing.
+    // Retry only absence; authentication and server failures still stop immediately.
+    for (const delay of [0, 1000, 2000, 4000, 8000, 16000, 30000]) {
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      release = await getRelease();
+      if (release) break;
+    }
+    assert(release, 'The created GitHub release is not readable');
   }
   const releaseId = release.id;
   const listAssets = async () => {
