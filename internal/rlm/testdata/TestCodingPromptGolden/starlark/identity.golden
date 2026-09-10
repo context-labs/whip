@@ -1,0 +1,16 @@
+
+
+Identity: root agent (id root-id, name "root").
+---
+
+
+Identity: agent "worker" (id child-id), depth 1; parent "root" (id root-id). When your turn ends your parent gets an agent.completed notice with a 160-byte preview of your last text (plus an evidence handle to the rest when it is longer); answer with messages.send(recipient="parent", ...) only when the task needs more than that.
+---
+
+
+Identity: agent "worker" (id child-id), depth 1; parent "root" (id root-id). When your turn ends your parent gets a notice carrying up to 4 KiB of your last text; put your answer in that final text and do not also send it as a message.
+---
+
+
+Identity: agent "scout" (id grandchild-id), depth 2; parent "worker" (id child-id). Your parent gets no completion notice when you succeed; it hears from you only through messages.send(recipient="parent", ...), so always send your answer.
+---
