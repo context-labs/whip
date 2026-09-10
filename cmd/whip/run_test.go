@@ -563,6 +563,35 @@ func TestRunExecutionEngineSelectionAndResume(t *testing.T) {
 	}
 }
 
+func TestRunAgentSelectionAndResume(t *testing.T) {
+	runFixture(t, "done", nil)
+	if _, err := runCapture(t, "", "--agent", "junior-developer", "--permission-mode", "automatic", "--max-tokens", "10000", "select agent"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := session.Open(filepath.Join(os.Getenv("WHIP_HOME"), "runtime-v2", "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	sessions, err := store.Recent(10)
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("sessions=%+v %v", sessions, err)
+	}
+	root := sessions[0]
+	if root.Definition != "junior-developer" {
+		t.Fatalf("definition=%s", root.Definition)
+	}
+	if _, err := runCapture(t, "", "--resume", root.ID, "--agent", "coding", "conflict"); err == nil || !strings.Contains(err.Error(), "cannot resume") {
+		t.Fatalf("resume conflict=%v", err)
+	}
+	if _, err := runCapture(t, "", "--resume", root.ID, "--agent", "junior-developer", "matching assertion"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCapture(t, "", "--agent", "architect", "prompt"); err == nil || !strings.Contains(err.Error(), "junior-developer") {
+		t.Fatalf("unknown agent accepted: %v", err)
+	}
+}
+
 func TestRunRejectsInvalidEngineAndLimits(t *testing.T) {
 	for _, args := range [][]string{{"--rlm-engine", "node"}, {"--permission-mode", "yes"}, {"--max-cost", "NaN"}, {"--max-cost", "-1"}, {"--max-tokens", "-1"}} {
 		if _, err := runCapture(t, "", append(args, "prompt")...); err == nil {

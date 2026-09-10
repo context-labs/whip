@@ -73,7 +73,7 @@ type clientPresentation struct {
 
 // Run starts the presentation-only TUI. Agent loops, persistence, schedulers,
 // providers, permissions, and child processes remain in the daemon.
-func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yolo bool, initialPrompt, engine string) (string, error) {
+func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yolo bool, initialPrompt, engine, definition string) (string, error) {
 	// The execution host resolves defaults and validates model/provider routes.
 	// Local settings are presentation preferences, not execution authority.
 	home, err := config.Dir()
@@ -92,12 +92,21 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 			ClientID: clientID, Capabilities: []string{"commands", "events", "snapshots", "permissions"},
 			Cursors: cursors,
 		}, func() error { return daemon.LaunchSelfDaemon(paths) })
-		if err != nil || resumeID == "" || engine == "" || resumeChecked {
+		if err != nil || resumeID == "" || (engine == "" && definition == "") || resumeChecked {
 			return connection, err
 		}
 		snapshot, err := connection.Snapshot(ctx, resumeID)
-		if err == nil && snapshot.Meta.ExecutionEngine != engine {
+		if err == nil && engine != "" && snapshot.Meta.ExecutionEngine != engine {
 			err = fmt.Errorf("session uses execution engine %q; requested %q", snapshot.Meta.ExecutionEngine, engine)
+		}
+		if err == nil && definition != "" {
+			actual := snapshot.Meta.Definition
+			if actual == "" {
+				actual = "coding"
+			}
+			if actual != definition {
+				err = fmt.Errorf("session uses agent %q; requested %q", actual, definition)
+			}
 		}
 		if err != nil {
 			_ = connection.Close()
@@ -108,7 +117,7 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 	}
 	var create *daemon.CreateSession
 	if resumeID == "" {
-		create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName, ExecutionEngine: engine}
+		create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName, ExecutionEngine: engine, Definition: definition}
 	}
 	client, err := NewClient(ClientOptions{
 		ClientID: clientID,

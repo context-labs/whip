@@ -224,11 +224,11 @@ func (s *Store) snapshotRoot(ctx context.Context, rootID string, view *SnapshotV
 	var updated, tags string
 	var pinned int
 	if err := tx.QueryRowContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,
-		usage_in,usage_cached,usage_out,updated_at,history_revision,permission_mode,execution_engine FROM sessions WHERE id=?`, rootID).Scan(
+		usage_in,usage_cached,usage_out,updated_at,history_revision,permission_mode,execution_engine,definition FROM sessions WHERE id=?`, rootID).Scan(
 		&snapshot.Meta.ID, &snapshot.Meta.Kind, &snapshot.Meta.Title, &snapshot.Meta.Model, &snapshot.Meta.Provider, &snapshot.Meta.CWD,
 		&snapshot.Meta.Goal, &snapshot.Meta.ForkedFrom, &snapshot.Meta.ForkSeq, &tags, &pinned, &snapshot.Meta.Archived,
 		&snapshot.Meta.Effort, &snapshot.Meta.UsageIn, &snapshot.Meta.UsageCached, &snapshot.Meta.UsageOut,
-		&updated, &snapshot.HistoryRevision, &snapshot.PermissionMode, &snapshot.Meta.ExecutionEngine); err != nil {
+		&updated, &snapshot.HistoryRevision, &snapshot.PermissionMode, &snapshot.Meta.ExecutionEngine, &snapshot.Meta.Definition); err != nil {
 		return RootSnapshot{}, err
 	}
 	if tags != "" {

@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/buildinfo"
 
 	"github.com/context-labs/whip/internal/config"
@@ -35,6 +36,7 @@ func runCLI(args []string) error {
 	effortFlag := fs.String("effort", "", "reasoning effort for this run")
 	permissionFlag := fs.String("permission-mode", "", "session permission mode: prompt or automatic")
 	engineFlag := fs.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
+	agentFlag := fs.String("agent", "", "agent definition for a new session: "+strings.Join(agentdef.IDs(), " or ")+" (default coding; immutable on resume)")
 	resumeFlag := fs.String("resume", "", buildinfo.Text("continue this session id (see `whip sessions`) instead of starting fresh"))
 	systemFlag := fs.String("system", "", "override the system prompt for this run")
 	systemFileFlag := fs.String("system-file", "", "read the system prompt from this file (wins over -system)")
@@ -44,7 +46,7 @@ func runCLI(args []string) error {
 	noSessionFlag := fs.Bool("no-session", false, buildinfo.Text("run without retaining a session (one-off jobs don't clutter whip sessions)"))
 	cacheKeyFlag := fs.String("cache-key", "", "prompt_cache_key for provider prefix caching; defaults to the session id. Pass a STABLE value (e.g. repo/reviewer) to reuse the cached system prefix across runs.")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, buildinfo.Text("usage: whip run [--format text|json] [-m model] [-p provider] [-resume id] [-system text | -system-file path] [-max-turns N] [-timeout dur] [-quiet] [-no-session] [-cache-key key] \"prompt\""))
+		fmt.Fprintln(os.Stderr, buildinfo.Text("usage: whip run [--format text|json] [-m model] [-p provider] [-agent id] [-resume id] [-system text | -system-file path] [-max-turns N] [-timeout dur] [-quiet] [-no-session] [-cache-key key] \"prompt\""))
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -71,6 +73,9 @@ func runCLI(args []string) error {
 	}
 	if *engineFlag != "" && *engineFlag != "starlark" && *engineFlag != "quickjs" {
 		return fmt.Errorf("unknown --rlm-engine %q", *engineFlag)
+	}
+	if _, ok := agentdef.Lookup(*agentFlag); *agentFlag != "" && !ok {
+		return fmt.Errorf("unknown --agent %q (available: %s)", *agentFlag, strings.Join(agentdef.IDs(), ", "))
 	}
 	if *format != "text" && *format != "json" {
 		return fmt.Errorf("unknown --format %q (want text|json)", *format)
@@ -141,7 +146,7 @@ func runCLI(args []string) error {
 		Connector: daemonConnector("automation", clientID),
 	}
 	if *resumeFlag == "" {
-		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: providerName, ExecutionEngine: *engineFlag, PermissionMode: *permissionFlag}
+		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: providerName, ExecutionEngine: *engineFlag, PermissionMode: *permissionFlag, Definition: *agentFlag}
 	}
 	client, err := daemon.NewRootClient(options)
 	if err != nil {
@@ -153,13 +158,16 @@ func runCLI(args []string) error {
 		return runContextError(err, *timeoutFlag)
 	}
 
-	if *resumeFlag != "" && *engineFlag != "" {
+	if *resumeFlag != "" && (*engineFlag != "" || *agentFlag != "") {
 		snapshot, err := client.Snapshot(ctx)
 		if err != nil {
 			return err
 		}
-		if snapshot.Meta.ExecutionEngine != *engineFlag {
+		if *engineFlag != "" && snapshot.Meta.ExecutionEngine != *engineFlag {
 			return fmt.Errorf("session uses %s; cannot resume with %s", snapshot.Meta.ExecutionEngine, *engineFlag)
+		}
+		if *agentFlag != "" && sessionDefinition(snapshot.Meta.Definition) != *agentFlag {
+			return fmt.Errorf("session uses agent %s; cannot resume with %s", sessionDefinition(snapshot.Meta.Definition), *agentFlag)
 		}
 	}
 
@@ -413,4 +421,13 @@ func deleteDaemonSession(clientID, rootID string) error {
 		return errors.New(result.Error)
 	}
 	return nil
+}
+
+// sessionDefinition names a session's agent definition; rows from before
+// definitions existed ran the coding agent.
+func sessionDefinition(id string) string {
+	if id == "" {
+		return "coding"
+	}
+	return id
 }

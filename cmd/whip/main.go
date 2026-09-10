@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/buildinfo"
 
 	"github.com/context-labs/whip/internal/config"
@@ -64,6 +65,7 @@ func main() {
 	providerFlag := flag.String("p", "", "provider to route the model through (default: model's first provider)")
 	versionFlag := flag.Bool("version", false, "print version")
 	engineFlag := flag.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
+	agentFlag := flag.String("agent", "", "agent definition for a new session: "+strings.Join(agentdef.IDs(), " or ")+" (default coding; immutable on resume)")
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
 	benchFlag := flag.Bool("bench", false, "measure configuration and provider routing startup, then exit; for `task benchmark`")
 	cautiousFlag := flag.Bool("cautious", false, "require approval and save this mode for the initial session")
@@ -198,7 +200,11 @@ func main() {
 	// notice still shows on the next launch.
 	go update.Check(version)
 	tui.Version = version // /report names the build in the bug-report bundle
-	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, initialPrompt, *engineFlag)
+	if _, ok := agentdef.Lookup(*agentFlag); *agentFlag != "" && !ok {
+		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), fmt.Sprintf("unknown --agent %q (available: %s)", *agentFlag, strings.Join(agentdef.IDs(), ", ")))
+		os.Exit(2)
+	}
+	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, initialPrompt, *engineFlag, *agentFlag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 		os.Exit(1)

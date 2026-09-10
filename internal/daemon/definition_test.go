@@ -182,6 +182,9 @@ func TestJuniorDeveloperSessionIsConstrained(t *testing.T) {
 	if node.definition.ID != "junior-developer" || !slices.Equal(node.capabilities, []string{"read", "write", "shell"}) {
 		t.Fatalf("root definition = %+v capabilities = %v", node.definition.ID, node.capabilities)
 	}
+	if snapshot, err := root.Snapshot(t.Context()); err != nil || snapshot.Meta.Definition != "junior-developer" {
+		t.Fatalf("snapshot definition=%q error=%v", snapshot.Meta.Definition, err)
+	}
 	if _, err := node.host.Call(t.Context(), "mcp", "list_servers", nil); err == nil || err.Error() != `module "mcp" is not available to this agent` {
 		t.Fatalf("unselected module reached the host: %v", err)
 	}
