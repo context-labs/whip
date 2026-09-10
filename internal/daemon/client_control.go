@@ -928,11 +928,8 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if err != nil {
 			return "", err
 		}
-		denyInteractive := payload.Headless && permissionMode != sessionstore.PermissionModeAutomatic
-		runner.ConfigureRun(payload.System, payload.MaxTurns, denyInteractive, payload.CacheKey)
-		if runtime, ok := s.runtime.(interface{ SetHeadlessPermissions(bool) }); ok {
-			runtime.SetHeadlessPermissions(denyInteractive)
-		}
+		s.runConfig = &runConfiguration{system: payload.System, maxTurns: payload.MaxTurns, headless: payload.Headless, cacheKey: payload.CacheKey}
+		s.applyRunConfiguration(runner, s.runtime, permissionMode)
 		return "configured", nil
 	case "cancel":
 		if err := s.checkTurnTarget(ctx, s.authority.AgentID, payload.TurnID); err != nil {
@@ -1402,6 +1399,21 @@ func (s *Session) prepareReplacement(ctx context.Context, factory Factory, rootI
 	return &clientReplacement{meta: meta, components: components}, nil
 }
 
+// applyRunConfiguration pushes the retained run.configure payload onto a
+// runner and runtime. Headless mode prevents waiting for new consent; automatic
+// mode is already a durable user authorization and keeps that same policy.
+func (s *Session) applyRunConfiguration(runner clientRunRunner, runtime any, permissionMode string) {
+	config := s.runConfig
+	if config == nil {
+		return
+	}
+	denyInteractive := config.headless && permissionMode != sessionstore.PermissionModeAutomatic
+	runner.ConfigureRun(config.system, config.maxTurns, denyInteractive, config.cacheKey)
+	if runtime, ok := runtime.(interface{ SetHeadlessPermissions(bool) }); ok {
+		runtime.SetHeadlessPermissions(denyInteractive)
+	}
+}
+
 func (s *Session) installReplacement(ctx context.Context, replacement *clientReplacement) (string, error) {
 	meta, components := replacement.meta, replacement.components
 	model, provider := meta.Model, meta.Provider
@@ -1429,10 +1441,19 @@ func (s *Session) installReplacement(ctx context.Context, replacement *clientRep
 		}
 	}
 	configureMCP(s, components)
+	if runner, ok := components.Runner.(clientRunRunner); ok && s.runConfig != nil {
+		permissionMode, err := s.store.PermissionMode(ctx, s.meta.ID)
+		if err != nil {
+			cleanup()
+			return "", err
+		}
+		s.applyRunConfiguration(runner, components.Runtime, permissionMode)
+	}
 	if err := s.store.SetModelSelection(s.meta.ID, model, provider, meta.Effort); err != nil {
 		cleanup()
 		return "", err
 	}
+	s.definition = effectiveDefinition(components)
 	oldRunner, oldRuntime := s.runner, s.runtime
 	oldMCP := s.swapMCP(components.MCP)
 	s.runner, s.runtime = components.Runner, components.Runtime

@@ -44,7 +44,13 @@ func (session *AgentSession) refreshPrompt(ctx context.Context) error {
 }
 
 func (session *AgentSession) promptOptions(ctx context.Context) (rlm.PromptOptions, error) {
-	options := agentdef.Coding().PromptOptions(rlm.PromptOptions{Engine: session.executionEngine(), WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()})
+	// A node outside a runtime has the zero definition; like RecursiveRuntimeOptions
+	// and Components, the zero value means the coding agent.
+	definition := session.definition
+	if definition.ID == "" {
+		definition = agentdef.Coding()
+	}
+	options := definition.PromptOptions(rlm.PromptOptions{Engine: session.executionEngine(), WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()})
 	if session.root == nil {
 		return options, nil
 	}

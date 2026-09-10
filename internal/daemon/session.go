@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
@@ -31,10 +32,13 @@ type Runner interface {
 type Closeable interface{ Close() }
 
 type Components struct {
-	Runner        Runner
-	MCP           Closeable
-	Runtime       Closeable
-	Bind          func(context.Context, *Session) error
+	Runner  Runner
+	MCP     Closeable
+	Runtime Closeable
+	Bind    func(context.Context, *Session) error
+	// Definition is the root agent's effective definition. The zero value
+	// selects the coding agent.
+	Definition    agentdef.Definition
 	GoalMaxRounds int
 }
 
@@ -251,6 +255,7 @@ type Session struct {
 	store      *sessionstore.Store
 	meta       sessionstore.Meta
 	authority  capability.Authority
+	definition agentdef.Definition
 	runner     Runner
 	mcpMu      sync.RWMutex
 	mcp        Closeable
@@ -272,6 +277,7 @@ type Session struct {
 
 	running            *rootTurn
 	turnCancel         context.CancelFunc
+	runConfig          *runConfiguration // last run.configure, re-applied to a replacement runtime
 	clientBusy         bool
 	clientIntegrations int
 	clientPreparing    bool
@@ -286,13 +292,31 @@ type Session struct {
 	questions questionRegistry // open user.ask prompts, keyed by question id
 }
 
+// effectiveDefinition selects the coding agent when a factory names none.
+func effectiveDefinition(components Components) agentdef.Definition {
+	if components.Definition.ID == "" {
+		return agentdef.Coding()
+	}
+	return components.Definition
+}
+
+// runConfiguration is the last accepted run.configure payload. It is applied
+// to the live runner and re-applied when a model change replaces the runtime,
+// so per-session run behavior has one owner.
+type runConfiguration struct {
+	system   string
+	maxTurns int
+	headless bool
+	cacheKey string
+}
+
 func newSession(store *sessionstore.Store, meta sessionstore.Meta, authority capability.Authority, components Components, factories ...Factory) *Session {
 	goalMax := components.GoalMaxRounds
 	if goalMax <= 0 {
 		goalMax = config.DefaultGoalMaxRounds
 	}
 	root := &Session{
-		store: store, meta: meta, authority: authority, runner: components.Runner, mcp: components.MCP, runtime: components.Runtime,
+		store: store, meta: meta, authority: authority, definition: effectiveDefinition(components), runner: components.Runner, mcp: components.MCP, runtime: components.Runtime,
 		supervisor: newSupervisor(), mailbox: make(chan inboxReady, 1), done: make(chan struct{}),
 		receipts: make(map[int64][]*Receipt), goalMax: goalMax,
 	}
@@ -935,7 +959,7 @@ func (s *Session) completeTurn(completion workerCompletion) error {
 	}
 	clearGoal := false
 	goalContinuation := ""
-	if completion.err == nil && s.meta.Goal != "" {
+	if completion.err == nil && s.meta.Goal != "" && s.definition.Surface.GoalLoop {
 		if agent.GoalMet(completion.output) {
 			clearGoal = true
 		} else if s.goalRounds < s.goalMax {
@@ -996,7 +1020,7 @@ func (s *Session) applyPendingReloadAfterAgent() {
 }
 
 func (s *Session) maybeGenerateTitle() {
-	if !s.autoTitle || s.titleAttempted || s.meta.Kind != sessionstore.SessionKindAgent {
+	if !s.autoTitle || s.titleAttempted || s.meta.Kind != sessionstore.SessionKindAgent || !s.definition.Surface.AutoTitle {
 		return
 	}
 	runner, ok := s.runner.(interface {

@@ -69,7 +69,7 @@ async function firstMessageScenario() {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       assert.equal(body.model, model, 'Title, compaction, and turns must stay on the selected OpenRouter model');
       if (!body.stream) {
-        const naming = body.messages[0].content.startsWith('Name this coding session.');
+        const naming = body.messages[0].content.startsWith('Name this session.');
         requests.push({ kind: naming ? 'title' : 'compaction', model: body.model });
         response.writeHead(200, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: naming ? title : 'The user asked to calculate 6 * 7. The Starlark tool returned 42.' }, finish_reason: 'stop' }],

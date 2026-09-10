@@ -409,7 +409,7 @@ func (session *AgentSession) GenerateTitle(ctx context.Context) (string, llm.Usa
 	output, usage, err := client.Complete(ctx, llm.Request{
 		Model: model, MaxTokens: 24, Accounting: session.agent.CompactAccounting("title"),
 		Messages: []llm.Message{
-			{Role: "system", Content: "Name this coding session. Reply with a plain 3-6 word title: no quotes and no trailing period."},
+			{Role: "system", Content: "Name this session. Reply with a plain 3-6 word title: no quotes and no trailing period."},
 			{Role: "user", Content: "Request: " + boundedTitleText(userText, 300) + "\nResponse: " + boundedTitleText(assistantText, 200)},
 		},
 	})

@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
@@ -26,7 +27,10 @@ import (
 )
 
 type RecursiveRuntimeOptions struct {
-	Engine        string
+	Engine string
+	// Definition describes the root agent; children narrow it. The zero value
+	// selects the coding agent.
+	Definition    agentdef.Definition
 	Agent         *agent.Agent
 	History       []llm.Message
 	Limits        rlm.Limits
@@ -38,6 +42,7 @@ type RecursiveRuntimeOptions struct {
 // root actor remains the durable serialization boundary for the whole tree.
 type RecursiveRuntime struct {
 	engine      string
+	definition  agentdef.Definition
 	mu          sync.RWMutex
 	root        *Session
 	rootNode    *AgentSession
@@ -74,6 +79,7 @@ type AgentSession struct {
 	host         *recursiveHost
 	kernel       *rlm.Kernel
 	authority    capability.Authority
+	definition   agentdef.Definition
 	id           string
 	parentID     string
 	name         string
@@ -108,11 +114,18 @@ func NewRecursiveRuntime(options RecursiveRuntimeOptions) (*RecursiveRuntime, er
 	if options.Kernels == nil {
 		options.Kernels = rlm.NewManager(options.Limits.MaxWorkers)
 	}
+	definition := options.Definition
+	if definition.ID == "" {
+		definition = agentdef.Coding()
+	}
+	if err := definition.Validate(); err != nil {
+		return nil, err
+	}
 	runtime := &RecursiveRuntime{
-		engine: descriptor.ID, agents: make(map[string]*AgentSession), limits: options.Limits, kernels: options.Kernels,
+		engine: descriptor.ID, definition: definition, agents: make(map[string]*AgentSession), limits: options.Limits, kernels: options.Kernels,
 		command: append([]string(nil), options.KernelCommand...),
 	}
-	node, err := runtime.newNode(options.Agent, "", "root", nil, capability.Authority{})
+	node, err := runtime.newNode(options.Agent, definition, "", "root", nil, capability.Authority{})
 	if err != nil {
 		return nil, err
 	}
@@ -220,9 +233,9 @@ func (store scratchStore) Save(ctx context.Context, snapshot string, manifest rl
 	return node.root.SaveAgentScratch(ctx, node.id, snapshot, encoded)
 }
 
-func (runtime *RecursiveRuntime) newNode(value *agent.Agent, parentID, name string, capabilities []string, authority capability.Authority) (*AgentSession, error) {
+func (runtime *RecursiveRuntime) newNode(value *agent.Agent, definition agentdef.Definition, parentID, name string, capabilities []string, authority capability.Authority) (*AgentSession, error) {
 	node := &AgentSession{
-		runtime: runtime, agent: value, parentID: parentID, name: name,
+		runtime: runtime, agent: value, definition: definition, parentID: parentID, name: name,
 		capabilities: append([]string(nil), capabilities...), authority: authority,
 	}
 	host := &recursiveHost{session: node}
@@ -258,7 +271,7 @@ func (runtime *RecursiveRuntime) Bind(ctx context.Context, root *Session) error 
 	runtime.root = root
 	node := runtime.rootNode
 	node.root, node.id, node.authority = root, root.AgentID(), root.authority
-	node.capabilities = []string{"read", "write", "shell", "browser", "computer", "mcp"}
+	node.capabilities = slices.Clone(runtime.definition.Capabilities)
 	runtime.agents[node.id] = node
 	runtime.mu.Unlock()
 	node.agent.SetModelCallBudget(agentModelBudget{node: node})
@@ -400,6 +413,12 @@ func (runtime *RecursiveRuntime) restoreChildren(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			definition, err := parent.definition.Child("", agentdef.ChildOverrides{
+				Capabilities: capabilities, Model: agentdef.ModelDefaults{Model: record.Model, Provider: record.Provider, Effort: record.Effort},
+			})
+			if err != nil {
+				return err
+			}
 			services, err := parent.agent.Services.CloneForAuthority(runtime.root.store, runtime.root.store.Workspaces(), runtime.root.store.Processes(), authority)
 			if err != nil {
 				return err
@@ -417,7 +436,7 @@ func (runtime *RecursiveRuntime) restoreChildren(ctx context.Context) error {
 			if record.CWD != "" {
 				child.WorkingDir = record.CWD
 			}
-			node, err := runtime.newNode(child, record.ParentID, record.Name, capabilities, authority)
+			node, err := runtime.newNode(child, definition, record.ParentID, record.Name, definition.Capabilities, authority)
 			if err != nil {
 				services.Close()
 				return err
@@ -1116,10 +1135,20 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 			return nil, fmt.Errorf("agents.spawn does not accept %s; descendants inherit session execution engine %s", key, runtime.engine)
 		}
 	}
-	capabilities, err := requestedCapabilities(arguments["capabilities"], parent.capabilities)
+	requested, err := requestedCapabilities(arguments["capabilities"])
 	if err != nil {
 		return nil, err
 	}
+	modelName, _ := stringArgument(arguments, "model")
+	providerName, _ := stringArgument(arguments, "provider")
+	requestedEffort, _ := stringArgument(arguments, "effort")
+	definition, err := parent.definition.Child("", agentdef.ChildOverrides{
+		Capabilities: requested, Model: agentdef.ModelDefaults{Model: modelName, Provider: providerName, Effort: requestedEffort},
+	})
+	if err != nil {
+		return nil, err
+	}
+	capabilities := definition.Capabilities
 	budgets, err := requestedBudgets(arguments["budgets"])
 	if err != nil {
 		return nil, err
@@ -1151,7 +1180,7 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 		services.Close()
 		return nil, err
 	}
-	node, err := runtime.newNode(child, parent.id, name, capabilities, authority)
+	node, err := runtime.newNode(child, definition, parent.id, name, capabilities, authority)
 	if err != nil {
 		services.Close()
 		return nil, err
@@ -1723,9 +1752,11 @@ func (host *recursiveHost) boundedText(ctx context.Context, source, value string
 	}, nil
 }
 
-func requestedCapabilities(value any, inherited []string) ([]string, error) {
+// requestedCapabilities decodes the spawn argument; nil means inherit. The
+// parent's definition narrows the result.
+func requestedCapabilities(value any) ([]string, error) {
 	if value == nil {
-		return append([]string(nil), inherited...), nil
+		return nil, nil
 	}
 	items, ok := value.([]any)
 	if !ok {
@@ -1734,12 +1765,10 @@ func requestedCapabilities(value any, inherited []string) ([]string, error) {
 	result := make([]string, 0, len(items))
 	for _, item := range items {
 		name, ok := item.(string)
-		if !ok || !slices.Contains(inherited, name) {
+		if !ok {
 			return nil, fmt.Errorf("capability %q is not available to the parent", name)
 		}
-		if !slices.Contains(result, name) {
-			result = append(result, name)
-		}
+		result = append(result, name)
 	}
 	sort.Strings(result)
 	return result, nil
