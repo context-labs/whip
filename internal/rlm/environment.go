@@ -28,13 +28,26 @@ const (
 // through WorkingDirectory is read. Unrelated roots are ignored; with no
 // applicable root only WorkingDirectory is considered.
 type PromptOptions struct {
-	Engine           string
-	WorkingDirectory string
-	ProjectRoots     []string
-	Identity         Identity
-	Now              time.Time
-	Platform         string
-	Username         string
+	Engine string
+	// Persona and Rules are the agent definition's instruction text: the
+	// persona leads the runtime guide and the rules follow the identity block.
+	Persona string
+	Rules   string
+	// Modules selects the host modules the runtime guide describes.
+	Modules []string
+	// ProjectFiles are read at each directory of the authorized project chain
+	// in this order. Empty disables project instruction discovery.
+	ProjectFiles []string
+	// SkillDiscovery scans the default skill directories when SkillDirs is nil.
+	SkillDiscovery bool
+	// StandingInstructions appends the user's me.md rules.
+	StandingInstructions bool
+	WorkingDirectory     string
+	ProjectRoots         []string
+	Identity             Identity
+	Now                  time.Time
+	Platform             string
+	Username             string
 	// ProjectDirectoryAllowed filters automatic project context using canonical
 	// paths. Nil trusts the caller's project boundaries. User rules and user
 	// skill directories remain global context.
@@ -65,13 +78,9 @@ type PromptSnapshot struct {
 	AppliedAt        time.Time
 }
 
-const operatingRules = `Operating rules:
-- When the user tags a file with @, inspect the listed path with files.read.
-- Bias toward acting on reasonable assumptions. After repeated failures on one blocker, escalate it plainly instead of looping.
-- For child collaboration, use messages and the configured report mode; do not assume the parent receives the full child transcript.
-- Git hygiene: inspect staged changes for secrets, stage intentional files only, and never force-push.
-
-Instruction scope and precedence:
+// instructionScopeRules accompany project instruction discovery so the model
+// knows how discovered files rank against the user and each other.
+const instructionScopeRules = `Instruction scope and precedence:
 - Explicit user instructions are authoritative over project and skill guidance. Standing instructions below are user rules.
 - Project instructions apply to files in their stated directory and its descendants. More specific directories take precedence; at the same directory AGENTS.md takes precedence over CLAUDE.md.
 - Before working in a narrower authorized subtree or another repository, use files.list/files.read to check for its CLAUDE.md and AGENTS.md and follow applicable rules. The catalog does not contain every nested instruction file.
@@ -124,13 +133,24 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 		snapshot.Sources = append(snapshot.Sources, PromptSource{Kind: kind, Path: path, Scope: scope, Bytes: len(text)})
 		return nil
 	}
-	if err := appendSource("runtime", "", "all", BuildPromptForEngine(options.Engine, cwd, nil)); err != nil {
+	guide, err := SystemPrompt(options.Engine, options.Persona, options.Modules, cwd, nil)
+	if err != nil {
+		return PromptSnapshot{}, err
+	}
+	if err := appendSource("runtime", "", "all", guide); err != nil {
 		return PromptSnapshot{}, err
 	}
 	if err := appendSource("identity", "", "all", strings.TrimSpace(IdentityBlockForEngine(options.Engine, options.Identity))); err != nil {
 		return PromptSnapshot{}, err
 	}
-	if err := appendSource("operating_rules", "", "all", operatingRules); err != nil {
+	rules := options.Rules
+	if len(options.ProjectFiles) > 0 {
+		if rules != "" {
+			rules += "\n\n"
+		}
+		rules += instructionScopeRules
+	}
+	if err := appendSource("operating_rules", "", "all", rules); err != nil {
 		return PromptSnapshot{}, err
 	}
 	environment := fmt.Sprintf("Environment:\n<env>\n  Platform: %s\n  Current date/time: %s\n  User: %s\n</env>",
@@ -143,7 +163,7 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 		return PromptSnapshot{}, err
 	}
 	for _, directory := range chain {
-		for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
+		for _, name := range options.ProjectFiles {
 			path := filepath.Join(directory, name)
 			content, err := readProjectInstructions(path, chain[0])
 			if err != nil {
@@ -179,9 +199,11 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 			})
 		}
 	}
-	standing, err := config.LoadMeInstructions()
-	if err != nil {
-		return PromptSnapshot{}, err
+	standing := ""
+	if options.StandingInstructions {
+		if standing, err = config.LoadMeInstructions(); err != nil {
+			return PromptSnapshot{}, err
+		}
 	}
 	if standing != "" {
 		path := config.MePath()
@@ -236,6 +258,9 @@ func authorizedProjectChain(cwd string, options PromptOptions) ([]string, error)
 
 func loadPromptSkills(options PromptOptions, chain []string) ([]skills.Skill, error) {
 	dirs := options.SkillDirs
+	if dirs == nil && !options.SkillDiscovery {
+		dirs = []string{}
+	}
 	if dirs == nil {
 		var err error
 		dirs, err = promptSkillDirs(chain)

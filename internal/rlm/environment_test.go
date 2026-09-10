@@ -21,6 +21,8 @@ func promptFixture(t *testing.T) PromptOptions {
 		t.Fatal(err)
 	}
 	return PromptOptions{
+		Persona: "You are a fixture agent.", Rules: "Operating rules:\n- Git hygiene: keep the fixture tidy.", Modules: ModuleNames(),
+		ProjectFiles: []string{"CLAUDE.md", "AGENTS.md"}, SkillDiscovery: true, StandingInstructions: true,
 		WorkingDirectory: cwd, Now: time.Date(2026, 9, 5, 12, 34, 56, 0, time.FixedZone("PDT", -7*60*60)),
 		Platform: "fixture-platform", Username: "fixture-user",
 	}

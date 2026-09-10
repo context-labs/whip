@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
@@ -520,7 +521,7 @@ const excerpt = await context.read({handle:hits.matches[0].handle,offset:hits.ma
 			if !slices.Equal(host.calls, []string{"context.search", "context.read"}) {
 				t.Fatalf("host calls=%v", host.calls)
 			}
-			prompt := rlm.BuildPromptForEngine(engineID, "/workspace", &rlm.ContextHandle{ReferenceID: "smoke-corpus", Size: int64(len(corpus)), Source: "fixture"})
+			prompt := codingPrompt(t, engineID, "/workspace", &rlm.ContextHandle{ReferenceID: "smoke-corpus", Size: int64(len(corpus)), Source: "fixture"})
 			if strings.Contains(prompt, spec.Needle) || len(prompt) >= len(corpus) {
 				t.Fatal("corpus leaked into root prompt")
 			}
@@ -539,7 +540,7 @@ func TestDeterministicRLMEvaluationReport(t *testing.T) {
 			pricing := llm.Pricing{Prompt: strconv.FormatFloat(spec.InputPrice, 'g', -1, 64), Completion: strconv.FormatFloat(spec.OutputPrice, 'g', -1, 64)}
 			host := &smokeHost{corpus: corpus, handle: "comparison-corpus", budget: budget, pricing: pricing}
 			kernel := smokeKernel(t, engineID, host)
-			prompt := rlm.BuildPromptForEngine(engineID, "/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"})
+			prompt := codingPrompt(t, engineID, "/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"})
 			value := agent.NewRuntime(llm.New(server.URL, "scripted"), "scripted", spec.MaxOutputTokens, prompt, tools.NewServices())
 			value.Pricing = pricing
 			value.SetExclusiveTool(rlm.Tool(kernel), "rlm")
@@ -668,7 +669,7 @@ func TestLiveOversizedContextSmoke(t *testing.T) {
 	if maxOutput == 0 {
 		maxOutput = 4_096
 	}
-	ag := agent.NewRuntime(client, apiID, maxOutput, rlm.BuildPromptForEngine(engineID, "/workspace", &rlm.ContextHandle{ReferenceID: "smoke-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
+	ag := agent.NewRuntime(client, apiID, maxOutput, codingPrompt(t, engineID, "/workspace", &rlm.ContextHandle{ReferenceID: "smoke-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
 	ag.MaxTurns = 8
 	ag.SetExclusiveTool(rlm.Tool(kernel), "rlm")
 	output, err := ag.Turn(context.Background(), task, agent.Events{})
@@ -725,7 +726,7 @@ func TestLiveRLMEvaluation(t *testing.T) {
 	host := &smokeHost{corpus: corpus, handle: "comparison-corpus", client: newClient(), model: apiID, maxTokens: min(maxOutput, 256), budget: rlmBudget, pricing: pricing}
 	kernel := smokeKernel(t, engineID, host)
 	rlmAgent := agent.NewRuntime(newClient(), apiID, maxOutput,
-		rlm.BuildPromptForEngine(engineID, "/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
+		codingPrompt(t, engineID, "/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
 	rlmAgent.Pricing = pricing
 	rlmAgent.SetExclusiveTool(rlm.Tool(kernel), "rlm")
 	rlmMetrics, rlmOutput, err := evaluateAgent(t.Context(), spec, task, rlmAgent, rlmBudget, host)
@@ -788,4 +789,14 @@ func TestLiveEvalEngineSelection(t *testing.T) {
 			}
 		})
 	}
+}
+
+// codingPrompt is the coding agent's standalone system prompt for one engine.
+func codingPrompt(t testing.TB, engine, workingDirectory string, handle *rlm.ContextHandle) string {
+	t.Helper()
+	prompt, err := agentdef.Coding().SystemPrompt(engine, workingDirectory, handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return prompt
 }

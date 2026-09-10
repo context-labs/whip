@@ -268,7 +268,7 @@ func TestPermissionModeRestoresChildrenBeforeResumedWork(t *testing.T) {
 				t.Helper()
 				runs, firstModes = &sync.Map{}, &sync.Map{}
 				owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
-					value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, rlm.BuildPrompt(meta.CWD, nil), tools.NewServices())
+					value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 					value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 					value.Services.SetExternalPermissions(!external)
 					limits := rlm.DefaultLimits()

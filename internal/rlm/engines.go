@@ -51,7 +51,8 @@ func Engines() []EngineDescriptor {
 		} else {
 			d.Limits["starlark_steps_per_cell"] = defaultSteps
 		}
-		digest := sha256.Sum256([]byte(BuildPromptForEngine(d.ID, "", nil)))
+		guide, _ := RuntimeGuide(d.ID, ModuleNames(), "", nil)
+		digest := sha256.Sum256([]byte(guide))
 		d.GuideSHA256 = hex.EncodeToString(digest[:])
 	}
 	return descriptors

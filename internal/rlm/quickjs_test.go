@@ -402,7 +402,10 @@ func TestEngineDescriptorsAndJavaScriptGuide(t *testing.T) {
 	if _, err := ResolveEngine("node"); err == nil {
 		t.Fatal("unbundled engine accepted")
 	}
-	guide := BuildPromptForEngine(EngineQuickJS, "/workspace", nil)
+	guide, err := RuntimeGuide(EngineQuickJS, ModuleNames(), "/workspace", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{"await files.read({path:", "BigInt", "Proxy construction is disabled", "complete JavaScript heap", "100,000", "40 MiB"} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("guide missing %q", want)

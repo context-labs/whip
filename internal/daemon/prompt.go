@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/rlm"
 )
@@ -43,7 +44,7 @@ func (session *AgentSession) refreshPrompt(ctx context.Context) error {
 }
 
 func (session *AgentSession) promptOptions(ctx context.Context) (rlm.PromptOptions, error) {
-	options := rlm.PromptOptions{Engine: session.executionEngine(), WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()}
+	options := agentdef.Coding().PromptOptions(rlm.PromptOptions{Engine: session.executionEngine(), WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()})
 	if session.root == nil {
 		return options, nil
 	}

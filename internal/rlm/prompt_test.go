@@ -34,8 +34,11 @@ func TestFocusedHistoryBoundsSummaryAndRecentExchanges(t *testing.T) {
 	}
 }
 
-func TestBuildPromptReferencesHandleWithoutInliningCorpus(t *testing.T) {
-	prompt := BuildPrompt("/workspace", &ContextHandle{ReferenceID: "ref-history", Size: 1 << 20, Source: "history"})
+func TestRuntimeGuideReferencesHandleWithoutInliningCorpus(t *testing.T) {
+	prompt, err := RuntimeGuide(EngineStarlark, ModuleNames(), "/workspace", &ContextHandle{ReferenceID: "ref-history", Size: 1 << 20, Source: "history"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, contract := range []string{"ref-history", "rlm_exec", `context.search(handle="...", query="...")`, `models.batch(prompts=[...]`, `messages.complete(ids=[...])`, `mcp.call(server="..."`} {
 		if !strings.Contains(prompt, contract) {
 			t.Fatalf("prompt is missing %q: %q", contract, prompt)

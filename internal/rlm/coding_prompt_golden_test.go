@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/x/exp/golden"
 
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/rlm"
 )
 
@@ -29,10 +30,10 @@ func TestCodingPromptGolden(t *testing.T) {
 	}
 	for _, engine := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
 		t.Run(engine+"/guide", func(t *testing.T) {
-			golden.RequireEqual(t, rlm.BuildPromptForEngine(engine, "/workspace", nil))
+			golden.RequireEqual(t, codingPrompt(t, engine, nil))
 		})
 		t.Run(engine+"/guide-with-handle", func(t *testing.T) {
-			golden.RequireEqual(t, rlm.BuildPromptForEngine(engine, "/workspace", handle))
+			golden.RequireEqual(t, codingPrompt(t, engine, handle))
 		})
 		t.Run(engine+"/identity", func(t *testing.T) {
 			var b strings.Builder
@@ -70,10 +71,10 @@ func composedPrompt(t *testing.T, engine string, identity rlm.Identity) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := rlm.ComposePrompt(rlm.PromptOptions{
+	snapshot, err := rlm.ComposePrompt(agentdef.Coding().PromptOptions(rlm.PromptOptions{
 		Engine: engine, WorkingDirectory: cwd, Identity: identity,
 		Now: time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC), Platform: "golden-platform", Username: "golden-user",
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,4 +85,13 @@ func composedPrompt(t *testing.T, engine string, identity rlm.Identity) string {
 	b.WriteString("\n")
 	b.WriteString(strings.ReplaceAll(snapshot.Prompt, cwd, "<cwd>"))
 	return b.String()
+}
+
+func codingPrompt(t *testing.T, engine string, handle *rlm.ContextHandle) string {
+	t.Helper()
+	prompt, err := agentdef.Coding().SystemPrompt(engine, "/workspace", handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return prompt
 }
