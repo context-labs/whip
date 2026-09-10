@@ -1279,25 +1279,7 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 }
 
 func capabilityDelegations(parent *AgentSession, child capability.Authority, names []string) []sessionstore.CapabilityDelegation {
-	var fileOps, shellOps []string
-	for _, name := range names {
-		switch name {
-		case "read":
-			fileOps = append(fileOps, "read")
-		case "write":
-			fileOps = append(fileOps, "read", "write", "edit", "workspace.write")
-		case "shell":
-			shellOps = append(shellOps, "bash", "shell_start", "workspace_process")
-		case "browser":
-			shellOps = append(shellOps, "browser_exec")
-		case "computer":
-			shellOps = append(shellOps, "computer_exec")
-		}
-	}
-	sort.Strings(fileOps)
-	fileOps = slices.Compact(fileOps)
-	sort.Strings(shellOps)
-	shellOps = slices.Compact(shellOps)
+	fileOps, shellOps, _ := agentdef.Operations(names)
 	var result []sessionstore.CapabilityDelegation
 	if len(fileOps) > 0 {
 		result = append(result, sessionstore.CapabilityDelegation{ID: child.Files.ID, Issuer: parent.authority.Files, AgentID: child.AgentID, Operations: fileOps, InheritScope: true})
