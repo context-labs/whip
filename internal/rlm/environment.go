@@ -28,6 +28,7 @@ const (
 // through WorkingDirectory is read. Unrelated roots are ignored; with no
 // applicable root only WorkingDirectory is considered.
 type PromptOptions struct {
+	Engine           string
 	WorkingDirectory string
 	ProjectRoots     []string
 	Identity         Identity
@@ -123,10 +124,10 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 		snapshot.Sources = append(snapshot.Sources, PromptSource{Kind: kind, Path: path, Scope: scope, Bytes: len(text)})
 		return nil
 	}
-	if err := appendSource("runtime", "", "all", BuildPrompt(cwd, nil)); err != nil {
+	if err := appendSource("runtime", "", "all", BuildPromptForEngine(options.Engine, cwd, nil)); err != nil {
 		return PromptSnapshot{}, err
 	}
-	if err := appendSource("identity", "", "all", strings.TrimSpace(IdentityBlock(options.Identity))); err != nil {
+	if err := appendSource("identity", "", "all", strings.TrimSpace(IdentityBlockForEngine(options.Engine, options.Identity))); err != nil {
 		return PromptSnapshot{}, err
 	}
 	if err := appendSource("operating_rules", "", "all", operatingRules); err != nil {

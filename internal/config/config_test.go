@@ -41,7 +41,7 @@ func TestRLMRuntimeLimits(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".whip"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	data := `{"defaultModel":"m","rlm":{"steps":99,"maxWorkers":2},"providers":{"p":{"baseUrl":"https://example.test","api":"openai-completions"}},"models":{"m":{"providers":["p"]}}}`
+	data := `{"defaultModel":"m","rlm":{"steps":99,"maxWorkers":2,"defaultEngine":"quickjs","maxConcurrentHostCalls":1},"providers":{"p":{"baseUrl":"https://example.test","api":"openai-completions"}},"models":{"m":{"providers":["p"]}}}`
 	if err := os.WriteFile(filepath.Join(home, ".whip", "config.json"), []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestRLMRuntimeLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.RLM.Steps != 99 || cfg.RLM.MaxWorkers != 2 {
+	if cfg.RLM.Steps != 99 || cfg.RLM.MaxWorkers != 2 || cfg.RLM.Engine() != "quickjs" || cfg.RLM.MaxConcurrentHostCalls != 1 {
 		t.Fatalf("RLM config = %+v", cfg.RLM)
 	}
 }
@@ -569,5 +569,28 @@ func TestSourcesOnlyRecoveryPreservesProviderOptOuts(t *testing.T) {
 				t.Fatal("discovery ignored recovered provider opt-out")
 			}
 		})
+	}
+}
+
+func TestRLMRejectsUnknownEngineAndConcurrency(t *testing.T) {
+	for _, value := range []RLMConfig{{DefaultEngine: "node"}, {MaxConcurrentHostCalls: -1}, {MaxConcurrentHostCalls: 17}} {
+		if err := value.Validate(); err == nil {
+			t.Fatalf("accepted %+v", value)
+		}
+	}
+	if (RLMConfig{}).Engine() != "starlark" {
+		t.Fatal("default engine changed")
+	}
+}
+
+func TestEngineOnlyConfigurationPreservesPreference(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("WHIP_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"rlm":{"defaultEngine":"quickjs","maxConcurrentHostCalls":1}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil || cfg.RLM.Engine() != "quickjs" || cfg.RLM.MaxConcurrentHostCalls != 1 {
+		t.Fatalf("config=%+v %v", cfg, err)
 	}
 }

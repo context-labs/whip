@@ -22,7 +22,7 @@ does not execute the operation twice.
 
 ## Recursive agents
 
-Each live agent has one serialized kernel because its Starlark globals belong
+Each live agent has one serialized kernel because its guest heap belongs
 to that worker. Different agents can progress concurrently up to the shared
 `rlm.maxWorkers` pool. Children are admitted durably and queue for a worker;
 idle workers can be evicted, while a running turn pins its worker.
@@ -146,7 +146,7 @@ No filesystem watcher or mid-turn prompt mutation is involved.
   ceiling through shell. Ask preserves its ordinary project-writer requirement
   and shell still runs with OS-user authority. Keeping parallel editors off the
   same files is the parent's decomposition job, not the coordinator's.
-- A cell's 30 s wall clock charges Starlark compute only. Time inside host
+- A cell's 30 s compute clock excludes time waiting for host results. Time inside host
   calls (shell, permission prompts, `agents.wait`, MCP) is not counted; each
   host call is bounded by its own limit and by turn cancellation.
 - `models.batch` fans out stateless calls and returns results in input order.
@@ -168,10 +168,20 @@ code. The repository’s analyzer and race tests enforce this ownership rule.
 
 ## Kernel containment
 
-Kernel cells have limits for Starlark steps, host requests, wall time, memory,
+Kernel cells have limits for Starlark steps or QuickJS jobs, host requests, compute time, memory,
 captured output, and frame size. Workers receive an allowlisted environment,
 closed unintended descriptors, and no daemon or provider credentials. Useful
 work crosses the typed host boundary.
+
+QuickJS has one VM owner and one protocol reader. Correlated host requests run
+through the same daemon authority/accounting gate, with at most 16 outstanding
+requests and `rlm.maxConcurrentHostCalls` active host calls (default 16,
+configurable 1–16). Excess admitted requests queue; Starlark uses one active
+host call. Mutable host groups retain their existing ordering. Cancellation
+stops admission and settles already admitted calls before releasing ownership.
+Only terminal cells with no unresolved owned jobs or host calls can publish
+a checkpoint. The QuickJS profile additionally bounds guest memory to 32 MiB,
+WASM memory to 64 MiB, jobs to 100,000/cell, and total cell lifetime to 10 minutes.
 
 Shell and kernel subprocesses run in managed process groups. This is
 operational containment, not a security sandbox against another hostile

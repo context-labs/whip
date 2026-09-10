@@ -1,6 +1,12 @@
 {
   "type": "object",
   "properties": {
+    "default_execution_engine": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
     "disabled_providers": {
       "type": [
         "null",
@@ -108,7 +114,7 @@
       ]
     }
   },
-  "$id": "https://whip.dev/protocol/v5/ConfigurationUpdate",
+  "$id": "https://whip.dev/protocol/v6/ConfigurationUpdate",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ConfigurationUpdate",
   "required": [

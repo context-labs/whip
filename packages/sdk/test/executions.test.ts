@@ -23,6 +23,58 @@ const completed = (seq: number, id: string, content: string): HistoryView['messa
 });
 const success = JSON.stringify({ value: 42, output: 'printed\n', steps: 7 });
 
+test('result v2 completes either engine without invented metrics and preserves explicit null', () => {
+  for (const execution_engine of ['starlark', 'quickjs']) {
+    const language = execution_engine === 'quickjs' ? 'javascript' : 'starlark';
+    for (const has_value of [true, false]) {
+      const payload = { format_version: 2, execution_engine, language, has_value, value: null, output: 'printed' };
+      const row = cells(state(undefined, history([call(1, 'a', 'null'), completed(2, 'a', JSON.stringify(payload))])))[0]!;
+      assert.equal(row.status, 'completed');
+      assert.equal(row.hasValue, has_value);
+      assert.equal(row.value, has_value ? 'null' : undefined);
+      assert.equal(row.executionEngine, execution_engine);
+      assert.equal(row.language, language);
+      assert.equal(row.steps, undefined);
+      assert.equal(row.quickjsJobs, undefined);
+    }
+  }
+});
+
+test('result v2 carries QuickJS jobs and lossless numeric tags in live and recorded evidence', () => {
+  const value = { integer: { type: 'bigint', value: '900719925474099312345' }, decimal: { type: 'number', value: '1.0000000000000001' } };
+  const payload = JSON.stringify({ format_version: 2, execution_engine: 'quickjs', language: 'javascript', has_value: true, value, metrics: { quickjs_jobs: 4 } });
+  const book = new Notebook();
+  book.emit('stream.tool.started', { id: 'a', name: 'rlm_exec' });
+  book.emit('stream.tool.completed', { id: 'a', name: 'rlm_exec', result: payload });
+  for (const row of [cells(book.snapshot())[0]!, cells(state(undefined, history([call(1, 'a', '42n'), completed(2, 'a', payload)])))[0]!]) {
+    assert.equal(row.status, 'completed');
+    assert.deepEqual(JSON.parse(row.value!), value);
+    assert.equal(row.quickjsJobs, 4);
+    assert.equal(row.steps, undefined);
+  }
+});
+
+test('unknown and malformed result versions do not masquerade as completed legacy results', () => {
+  const valid = { format_version: 2, execution_engine: 'quickjs', language: 'javascript', has_value: true, value: 42, steps: 0 };
+  for (const patch of [{ format_version: 3 }, { language: 'starlark' }, { has_value: 'yes' }, { execution_engine: 'unknown' }, { metrics: { quickjs_jobs: -1 } }]) {
+    const row = cells(state(undefined, history([call(1, 'a', '42'), completed(2, 'a', JSON.stringify({ ...valid, ...patch }))])))[0]!;
+    assert.equal(row.status, 'unknown');
+  }
+});
+
+test('session language supplies unfinished root and descendant cells independently across sessions', () => {
+  const book = new Notebook();
+  book.emit('stream.tool.started', { id: 'a', name: 'rlm_exec', args: '{"code":"await files.read({path: \'a\'})"}' });
+  book.emit('stream.tool.started', { id: 'b', agent_id: 'child', name: 'rlm_exec', args: '{"code":"42"}' });
+  const javascript = book.snapshot();
+  javascript.root = root({ meta: { execution_engine: 'quickjs' } as RootSnapshot['meta'] });
+  assert.equal(cells(javascript)[0]!.language, 'javascript');
+  assert.equal(cells(javascript, 'child')[0]!.language, 'javascript');
+  assert.equal(cells(book.snapshot())[0]!.language, 'starlark');
+  javascript.root = root({ meta: { execution_engine: 'unsupported' } as RootSnapshot['meta'] });
+  assert.equal(cells(javascript)[0]!.language, undefined);
+});
+
 class Notebook {
   evidence = emptyExecutionEvidence('root', '1');
   seq = 0n;

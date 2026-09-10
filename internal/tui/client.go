@@ -55,6 +55,7 @@ type clientPresentation struct {
 	effort             string
 	workingDir         string
 	permissionMode     string
+	executionEngine    string
 	contextLimit       int
 	accounting         session.ModelAccounting
 	usage              llm.Usage
@@ -72,7 +73,7 @@ type clientPresentation struct {
 
 // Run starts the presentation-only TUI. Agent loops, persistence, schedulers,
 // providers, permissions, and child processes remain in the daemon.
-func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yolo bool, initialPrompt string) (string, error) {
+func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yolo bool, initialPrompt, engine string) (string, error) {
 	// The execution host resolves defaults and validates model/provider routes.
 	// Local settings are presentation preferences, not execution authority.
 	home, err := config.Dir()
@@ -84,16 +85,30 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 		return "", err
 	}
 	clientID := "tui-" + rand.Text()
+	resumeChecked := false
 	connector := func(ctx context.Context, cursors map[string]int64) (daemonConnection, error) {
-		return daemon.EnsureClient(ctx, paths, daemon.InitializeParams{
+		connection, err := daemon.EnsureClient(ctx, paths, daemon.InitializeParams{
 			ProtocolMajor: daemon.ProtocolMajor, BuildID: Version, ClientKind: "tui",
 			ClientID: clientID, Capabilities: []string{"commands", "events", "snapshots", "permissions"},
 			Cursors: cursors,
 		}, func() error { return daemon.LaunchSelfDaemon(paths) })
+		if err != nil || resumeID == "" || engine == "" || resumeChecked {
+			return connection, err
+		}
+		snapshot, err := connection.Snapshot(ctx, resumeID)
+		if err == nil && snapshot.Meta.ExecutionEngine != engine {
+			err = fmt.Errorf("session uses execution engine %q; requested %q", snapshot.Meta.ExecutionEngine, engine)
+		}
+		if err != nil {
+			_ = connection.Close()
+			return nil, err
+		}
+		resumeChecked = true
+		return connection, nil
 	}
 	var create *daemon.CreateSession
 	if resumeID == "" {
-		create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName}
+		create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: provName, ExecutionEngine: engine}
 	}
 	client, err := NewClient(ClientOptions{
 		ClientID: clientID,
@@ -284,6 +299,7 @@ func (m *model) applyClientSnapshot(snapshot session.RootSnapshot) {
 	m.goal, m.sessTitle = snapshot.Meta.Goal, snapshot.Meta.Title
 	m.clientView.workingDir = snapshot.Meta.CWD
 	m.clientView.permissionMode = snapshot.PermissionMode
+	m.clientView.executionEngine = snapshot.Meta.ExecutionEngine
 	m.applyStoredEffort(snapshot.Meta.Effort)
 	usage := llm.Usage{PromptTokens: snapshot.Meta.UsageIn, CompletionTokens: snapshot.Meta.UsageOut}
 	if snapshot.Meta.UsageCached > 0 {
@@ -1214,6 +1230,9 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 	case "ctrl+p":
 		m.openThinPalette()
 		return m, nil
+	case "ctrl+r":
+		next, command, _ := m.ocLeaderChord("r")
+		return next, command
 	case "tab":
 		if m.menu != nil {
 			m.menuCycle(1)
@@ -1230,6 +1249,9 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 		return m.thinCommand("/clear")
 	case "ctrl+t":
 		m.leftPane = paneAgents
+		if !m.leftVisible() {
+			m.dockShow = true // asking for the tree shows it
+		}
 		if len(children) > 0 {
 			m.agentsFocus = true
 			m.agentSel = max(m.agentSel, m.firstChildSel())
@@ -1241,8 +1263,8 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 			m.menu.idx = (m.menu.idx + 1) % len(m.menu.cands)
 			return m, nil
 		}
-		if strings.TrimSpace(m.input.Value()) == "" && len(children) > 0 {
-			m.agentsFocus = true
+		if strings.TrimSpace(m.input.Value()) == "" && len(children) > 0 && (m.leftVisible() || m.dockShow) {
+			m.agentsFocus = true // only a tree that is showing somewhere
 			m.agentSel = m.firstChildSel()
 			return m, nil
 		}
@@ -1888,6 +1910,12 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 		m.recalcWidth()
 		if !m.replVisible() {
 			m.append(dimStyle.Render("(the REPL panel needs a terminal at least 120 columns wide)"))
+		}
+		return m, nil
+	case "dock":
+		m.dockShow = !m.dockShow
+		if m.dockShow && m.leftVisible() {
+			m.append(dimStyle.Render("(the dock shows under the input when the left column is hidden; ctrl+x b hides the column)"))
 		}
 		return m, nil
 	case "quit", "exit", "q":

@@ -46,11 +46,15 @@ export class WelcomeSubmissions {
       item.create.version !== 1 || item.input.version !== 1 || item.create.operation !== 'session.create' || item.input.operation !== 'submit' ||
       !identity(item.create.commandId) || !identity(item.input.commandId) || !identity(item.create.clientId) || item.create.clientId !== item.input.clientId ||
       typeof item.params?.cwd !== 'string' || !item.params.cwd.trim() || typeof item.params.model !== 'string' || typeof item.params.provider !== 'string' ||
+      (item.params.execution_engine !== undefined && item.params.execution_engine !== 'starlark' && item.params.execution_engine !== 'quickjs') ||
       typeof item.draftRevision !== 'string' || item.draftRevision.length > 128 ||
       (item.rootId !== undefined && !identity(item.rootId)) || (item.state === 'accepted' && !item.rootId) ||
       item.input.rootId !== item.rootId || !['creating', 'sending', 'accepted', 'absent', 'failed'].includes(item.state))
       throw new Error('The saved first-message recovery record is invalid.');
-    return item;
+    // Journals written before language selection could only create Starlark.
+    // Status recovery sends no payload; an explicitly retried absent creation
+    // must retain that language even if the host now defaults to QuickJS.
+    return item.params.execution_engine === undefined ? { ...item, params: { ...item.params, execution_engine: 'starlark' } } : item;
   }
   /** Includes closed/evicted drafts: recovery is not bounded by workspace history. */
   list(): readonly WelcomeSubmission[] {
@@ -155,7 +159,9 @@ export class WelcomeSubmissions {
     // Freeze click-time bytes and revision, not later edits while admission waits.
     if (text && !this.runtime.draftRevision(welcomeDraftKey(id))) this.runtime.setDraft(welcomeDraftKey(id), text);
     const draftRevision = this.runtime.draftRevision(welcomeDraftKey(id));
-    const frozenParams: CreateSessionParams = JSON.parse(JSON.stringify({ kind: 'agent', model: '', provider: '', ...params }));
+    const executionEngine = params.execution_engine ?? client.getSnapshot().info?.default_execution_engine ?? 'starlark';
+    if (executionEngine !== 'starlark' && executionEngine !== 'quickjs') throw new Error('This host’s default execution language is unsupported. Choose a supported language.');
+    const frozenParams: CreateSessionParams = JSON.parse(JSON.stringify({ kind: 'agent', model: '', provider: '', ...params, execution_engine: executionEngine }));
     return this.track(id, async () => {
       const prepare = () => {
         if (this.identity(client) !== runtimeId) throw new Error('The execution host changed before submission.');

@@ -23,16 +23,17 @@ beforeEach(() => { vi.stubGlobal('matchMedia', () => ({ matches: false, addEvent
 afterEach(() => vi.unstubAllGlobals());
 const provider = (id: string, available: boolean) => ({ id, name: id === 'inference-net' ? 'Inference.net' : 'OpenRouter', custom: false, recommended: id === 'inference-net', suggested_model: available ? 'coding-model' : '', methods: ['api_key'], status: { provider: id, available, configured: available, key_source: available ? 'environment' : 'none', auth_state: available ? 'connected' : 'key_required', warnings: [] } });
 function fixture(ready = true, entries = [provider('inference-net', ready), provider('openrouter', false)], selectionMissing = false) {
-  const snapshot = { state: 'connected', info: { runtime_id: 'host' } };
+  const execution_engines = [{ id: 'starlark', language: 'starlark', label: 'Starlark' }, { id: 'quickjs', language: 'javascript', label: 'JavaScript (QuickJS)' }];
+  const snapshot = { state: 'connected', info: { runtime_id: 'host', default_execution_engine: 'starlark', execution_engines } };
   const inventory: ProviderList = { revision: '1', default_provider: 'inference-net', selection: selectionMissing ? undefined : { ready, model: 'coding-model', provider: 'inference-net', reason: ready ? 'ready' : 'provider_required' }, providers: entries };
   const client = { subscribe: () => () => {}, getSnapshot: () => snapshot,
-    configuration: { update: vi.fn(async (patch: { default_model: string; default_provider: string }) => { inventory.selection = { ready: true, model: patch.default_model, provider: patch.default_provider, reason: 'ready' }; return {}; }) },
+    configuration: { get: vi.fn(async () => ({ default_execution_engine: 'starlark' })), update: vi.fn(async (patch: { default_model: string; default_provider: string }) => { inventory.selection = { ready: true, model: patch.default_model, provider: patch.default_provider, reason: 'ready' }; return {}; }) },
     providers: {
       list: vi.fn(async () => ({ ...inventory })), catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: {} } })),
       login: { list: vi.fn(async () => ({ flows: [] })) },
       setKey: vi.fn(async (params: { provider: string }) => { const entry = inventory.providers!.find(entry => entry.id === params.provider)!; entry.status.available = true; entry.status.key_source = 'literal'; entry.suggested_model = 'coding-model'; }),
     } };
-  const otherConnection = { state: 'connected', info: { runtime_id: 'another' } };
+  const otherConnection = { state: 'connected', info: { runtime_id: 'another', default_execution_engine: 'starlark', execution_engines } };
   const other = { ...client, getSnapshot: () => otherConnection };
   const state = { commands: [], hosts: [
     { id: 'local', name: 'Local', local: true, runtimeId: 'host', state: 'connected', client, profile: { target: { kind: 'url' } } },
@@ -87,9 +88,32 @@ it('sends the edited folder, explicit ready pair, prompt and default Ask only af
   fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Explain auth' } });
   fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }));
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.start).toHaveBeenCalledExactlyOnceWith(f.first.id, f.client, { cwd: '/edited', model: 'coding-model', provider: 'inference-net', permission_mode: 'prompt' }));
+  await waitFor(() => expect(f.start).toHaveBeenCalledExactlyOnceWith(f.first.id, f.client, { cwd: '/edited', model: 'coding-model', provider: 'inference-net', permission_mode: 'prompt', execution_engine: 'starlark' }));
   expect(f.drafts.get(welcomeDraftKey(f.first.id))).toBe('Explain auth');
   expect(route.navigate).not.toHaveBeenCalled(); // App-owned completion promotes; a panel never navigates on acceptance.
+});
+
+it('retains the selected execution language in its draft and sends it explicitly', async () => {
+  const f = fixture();
+  await screen.findByRole('button', { name: 'Send first message' });
+  fireEvent.click(screen.getByRole('combobox', { name: 'Execution language' }));
+  const option = await screen.findByRole('option', { name: 'JavaScript (QuickJS)' });
+  fireEvent.pointerDown(option); fireEvent.click(option);
+  expect((f.tabs.workspace().tabs[0] as NewChatTab).executionEngine).toBe('quickjs');
+  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Use this language' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.start).toHaveBeenCalledWith(f.first.id, f.client, expect.objectContaining({ execution_engine: 'quickjs' })));
+});
+
+it('does not offer unadvertised execution engines or send with missing discovery', async () => {
+  const f = fixture();
+  f.client.getSnapshot().info.execution_engines = [];
+  f.rerender();
+  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Keep this task' } });
+  expect((await screen.findByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.keyDown(screen.getByLabelText('Your first message'), { key: 'Enter' });
+  expect(f.start).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert').textContent).toContain('does not advertise');
 });
 it('offers only one default confirmation for the detected OpenRouter route with no promotion detour', async () => {
   const f = fixture(false, [provider('inference-net', false), provider('openrouter', true)]);

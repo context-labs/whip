@@ -1,24 +1,24 @@
                                                                                 
                                                                                 
-     ← Read internal/config/config.go                                          █
-                                                                               █
-       Question                                                        esc     █
-                                                                               █
-       Which build file should the scaffold generate for the new service?      █
-       Which build file should the scaffold generate for the new service?      █
-       Which build file should the scaffold generate for the new service?      █
-                                                                               █
-       4 mage                                                                  █
-         a long description of the mage option that does not fit beside        █
-         its label and so wraps under it                                       █
-       5 bazel                                                                 █
+   ❯ find the config loader                                                     
+                                                                                
+       Question                                                        esc      
+                                                                                
+       Which build file should the scaffold generate for the new service?       
+       Which build file should the scaffold generate for the new service?       
+       Which build file should the scaffold generate for the new service?       
+                                                                                
+       4 mage                                                                   
+         a long description of the mage option that does not fit beside         
+         its label and so wraps under it                                        
+       5 bazel                                                                  
          a long description of the bazel option that does not fit beside        
-  ┃      its label and so wraps under it                                        
-  ┃    6 none                                                                   
+         its label and so wraps under it                                        
+       6 none                                                                   
   ┃      a long description of the none option that does not fit beside         
   ┃      its label and so wraps under it                                        
   ┃                                                                             
-   r   ↑↓ select  enter answer  esc dismiss  1-6 jump                           
-   i                                                                            
+  ┃    ↑↓ select  enter answer  esc dismiss  1-6 jump                           
+  ┃                                                                             
                                                                                 
- /work/whip                    ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar 
+ /work/whip                                        ctrl+r repl  ctrl+p commands 

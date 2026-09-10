@@ -22,16 +22,39 @@ contract easier to locate.
 - Restart reconstructs retained nodes, transcripts, authority, route, and
   kernels (`TestRecursiveRuntimeRestoresRetainedAgentAndTranscript`).
 
-## Starlark execution
+## Selectable execution engines
 
-`internal/rlm` owns the framed worker protocol and module registry.
+Each root session chooses `starlark` (the default) or `quickjs` (JavaScript).
+The choice is immutable and inherited by every descendant, preserved by forks,
+and asserted on an explicit resume. `rlm.defaultEngine` affects future sessions.
+CLI creation uses `--rlm-engine`; web and mobile creation use the daemon's
+advertised engine list. Retry journals retain the original choice.
+
+`internal/rlm` owns both trusted bundled engines, private worker protocol 2,
+and one daemon-hosted module registry. QuickJS runs bundled WASM in wazero
+inside the existing stripped-environment worker subprocess.
 
 - Each kernel serializes its cells so small globals persist within a worker.
-- Cells are bounded by steps, host requests, wall time, memory, output bytes,
-  and frame bytes.
+- Cells are bounded by engine compute, host requests, memory, output bytes,
+  and frame bytes. JavaScript supports top-level await and bounded asynchronous
+  host calls; `rlm.maxConcurrentHostCalls` defaults to 16 (Starlark stays serial).
 - The worker has no ambient daemon/provider credentials or host I/O API.
-- A crash discards globals, not durable host state.
+- Completed cells save engine-qualified checkpoints. Starlark retains its
+  tagged partial codec; QuickJS restores the settled heap, including closures,
+  lexical bindings, classes, and cycles. Active operations are not checkpointed.
 - Large cell results and host outputs become content handles.
+- Result version 2 carries engine/language, explicit value presence, and
+  engine-specific metrics. SDK, web, mobile, and TUI accept legacy Starlark
+  history; JavaScript completion does not depend on Starlark step counts.
+- Public protocol major 6 requires compatible clients and advertises the
+  `execution_engines` capability. The language picker is a creation control.
+
+Implementation and validation: `internal/rlm/quickjs_test.go`,
+`internal/session/execution_engine_test.go`,
+`internal/daemon/execution_engine_test.go`, SDK execution tests, web creation
+and REPL tests, mobile creation tests, and `internal/tui/repl_result_test.go`.
+See [runtime semantics](rlm-runtime.md#execution-language-and-checkpoints) and
+the [benchmark workflow](../evals/runtime-ab/README.md).
 
 Available modules are summarized in [tools.md](tools.md).
 
@@ -540,15 +563,16 @@ and Zed; Finder is local-only and browsers can copy the exact directory.
   root heads the tree. `ctrl+t` or ↓ on an empty input focuses the panel
   (its bar lights up), ↑/↓ select, enter opens an agent, `ctrl+x s` stops
   the selected one, esc leaves; enter on the root, or esc with an empty
-  input, returns from a child to the main transcript. On narrow terminals the
-  same rows sit under the input.
-- `ctrl+x r` (or `/repl`, config key `repl`) opens the REPL panel on the
-  right: the open agent's live Starlark cells, code as the model writes it,
-  print output as it happens, each host call from start to outcome, results,
-  errors, and worker restarts. Below 150 columns the panel takes the left
-  column's place; from 150 the two share the screen. The panel takes half of
-  the width right of the left column (half the terminal when the column is
-  hidden). The wheel over the panel scrolls it
+  input, returns from a child to the main transcript. When the left column
+  is hidden or the terminal is narrow, `/dock` shows the same rows under the
+  input; they are hidden by default, and `ctrl+t` shows them to focus them.
+- `ctrl+r` (or `ctrl+x r`, `/repl`, config key `repl`) opens the REPL panel
+  on the right: the open agent's live Starlark cells, code as the model
+  writes it, print output as it happens, each host call from start to
+  outcome, results, errors, and worker restarts. Below 150 columns the panel
+  takes the left column's place; from 150 the two share the screen. The panel
+  takes half of the width right of the left column (half the terminal when
+  the column is hidden). The wheel over the panel scrolls it
   independently of the chat (it follows the newest cell until you scroll up,
   then a "↓ N more lines" chip and a scrollbar mark the position). The panel
   keeps every cell seen during the TUI session, even after snapshots drop
@@ -566,8 +590,8 @@ and Zed; Finder is local-only and browsers can copy the exact directory.
   line notes what was chosen.
 - The frame has a one-row margin above the columns and a two-row footer band
   at the bottom (a blank row, then the key hints on the last row) under the
-  prompt or, on narrow terminals, under the agents dock. The hints' right side
-  lists the global chords; the left side follows the
+  prompt or, when `/dock` shows the agents dock, under it. The hints' right
+  side lists `ctrl+r repl` and `ctrl+p commands`; the left side follows the
   keyboard's owner: the running turn (spinner, `esc interrupt`), an armed
   `ctrl+x` leader (every chord), the focused Agents panel, or the working
   directory.

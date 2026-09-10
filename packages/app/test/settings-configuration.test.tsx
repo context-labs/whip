@@ -14,7 +14,7 @@ import { RecoverySettings } from '../src/settings/recovery';
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
 const initial: RuntimeConfiguration = {
-  revision: 'v1', default_model: 'model-a', default_provider: 'openrouter', default_effort: 'high',
+  revision: 'v1', default_model: 'model-a', default_provider: 'openrouter', default_effort: 'high', default_execution_engine: 'starlark',
   compact_model: 'small-a', compact_provider: 'inference', compact_percent: 75, goal_max_rounds: 8,
   max_retries: 2, import_claude: true, import_codex: false,
 };
@@ -55,8 +55,23 @@ it('saves only execution-owned fields and retains model defaults from the host',
   fireEvent.change(await screen.findByLabelText('Retry limit'), { target: { value: '4' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
-  expect(f.update).toHaveBeenCalledExactlyOnceWith({ revision: 'v1', compact_model: 'small-a', compact_provider: 'inference', compact_percent: 75, goal_max_rounds: 8, max_retries: 4, import_claude: true, import_codex: false }, { signal: expect.any(AbortSignal) });
+  expect(f.update).toHaveBeenCalledExactlyOnceWith({ revision: 'v1', default_execution_engine: 'starlark', compact_model: 'small-a', compact_provider: 'inference', compact_percent: 75, goal_max_rounds: 8, max_retries: 4, import_claude: true, import_codex: false }, { signal: expect.any(AbortSignal) });
   expect((f.queries.getQueryData(['runtime-configuration', 'host-a']) as RuntimeConfiguration).default_model).toBe('model-a');
+});
+
+it('saves the execution language as a future-session default through the existing revisioned form', async () => {
+  const f = fixture();
+  vi.spyOn(f.client, 'getSnapshot').mockReturnValue({ state: 'connected', info: { runtime_id: 'host-a', execution_engines: [
+    { id: 'starlark', language: 'starlark', label: 'Starlark' }, { id: 'quickjs', language: 'javascript', label: 'JavaScript (QuickJS)' },
+  ] } } as ReturnType<WhipClient['getSnapshot']>);
+  f.render('execution');
+  fireEvent.click(await screen.findByRole('combobox', { name: 'Execution language' }));
+  const option = await screen.findByRole('option', { name: 'JavaScript (QuickJS)' });
+  fireEvent.pointerDown(option); fireEvent.click(option);
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update).toHaveBeenCalledWith(expect.objectContaining({ revision: 'v1', default_execution_engine: 'quickjs' }), expect.anything());
+  expect((f.queries.getQueryData(['runtime-configuration', 'host-a']) as RuntimeConfiguration).default_execution_engine).toBe('quickjs');
 });
 
 it('preserves a stale draft after conflict and requires an explicit reload before a new revision is used', async () => {

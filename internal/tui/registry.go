@@ -56,7 +56,8 @@ var registry = []registryEntry{
 	{Name: "/rewind", Hint: "[message-index] — rewind conversation and workspace state", Category: "Session"},
 	{Name: "/schedule", Hint: "@every 10m|@at <time> <prompt> — schedule a wakeup; list | cancel", Category: "Session"},
 	{Name: "/theme", Hint: buildinfo.Text("[light|dark|auto|<name>] — color theme (user themes: ~/.whip/themes/<name>.json)"), Category: "Display"},
-	{Name: "/repl", Hint: "— toggle the REPL panel for the open agent", Keybind: "ctrl+x r", Category: "Display"},
+	{Name: "/repl", Hint: "— toggle the REPL panel for the open agent", Keybind: "ctrl+r", Category: "Display"},
+	{Name: "/dock", Hint: "— toggle the agent tree under the input when the left column is hidden", Category: "Display"},
 	{Name: "!cmd", Hint: "— run a shell command; output joins the conversation", Category: "App"},
 }
 
@@ -101,7 +102,8 @@ func helpText() string {
 	b.WriteString("tab — complete")
 	for _, hint := range []string{
 		"ctrl+k — clear the conversation",
-		"ctrl+t — focus the recursive agents dock (↑/↓ select, enter opens, esc returns to root)",
+		"ctrl+t — focus the agent tree, showing the dock if nothing else does (↑/↓ select, enter opens, esc returns to root)",
+		"ctrl+r — toggle the REPL panel",
 		palHintThinking + " — toggle thinking tokens",
 		"ctrl+e — expand the last tool result",
 		"ctrl+j / shift+enter — newline",

@@ -9,7 +9,7 @@
     },
     "payload": true
   },
-  "$id": "https://whip.dev/protocol/v5/QueryParams",
+  "$id": "https://whip.dev/protocol/v6/QueryParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "QueryParams",
   "required": [

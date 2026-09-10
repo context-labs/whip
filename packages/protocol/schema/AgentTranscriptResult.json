@@ -83,6 +83,9 @@
     "agent": {
       "type": "object",
       "properties": {
+        "execution_engine": {
+          "type": "string"
+        },
         "last_turn": {
           "type": [
             "null",
@@ -219,6 +222,7 @@
         }
       },
       "required": [
+        "execution_engine",
         "id",
         "root_id",
         "parent_id",
@@ -635,7 +639,7 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v5/AgentTranscriptResult",
+  "$id": "https://whip.dev/protocol/v6/AgentTranscriptResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "AgentTranscriptResult",
   "required": [

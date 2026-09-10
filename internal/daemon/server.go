@@ -252,7 +252,7 @@ func (s *Server) serveTransport(raw messageTransport) {
 	}
 	defer s.unregister(connection)
 	_ = raw.SetReadDeadline(time.Time{})
-	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries"}
+	capabilities := []string{"commands", "events", "snapshots", "uploads", "permissions", "history_pages", "collections", "host_configuration", "workspace_completion", "host_views", "themes", "mailbox_inspection", "input_attachments", "session_summaries", "execution_engines"}
 	negotiated := []string{}
 	for _, feature := range initialize.Capabilities {
 		if slices.Contains(capabilities, feature) && !slices.Contains(negotiated, feature) {
@@ -261,6 +261,7 @@ func (s *Server) serveTransport(raw messageTransport) {
 	}
 	if err := writeTransportMessage(raw, rpcMessage{ID: message.ID, Result: InitializeResult{
 		Operations: protocol.Operations(), NegotiatedCapabilities: negotiated,
+		ExecutionEngines: executionEngines(), DefaultExecutionEngine: configuredExecutionEngine(),
 		Limits:        protocol.ProtocolLimits{FrameBytes: MaxFrameSize, Connections: s.options.MaxConnections, InFlightRequests: s.options.MaxInFlight, OutboundMessages: s.options.MaxOutbound, OutboundBytes: s.options.MaxOutboundBytes, RootSubscriptions: MaxSubscriptions, ContentChunkBytes: MaxContentChunk, UploadBytes: MaxUploadSize},
 		ProtocolMajor: ProtocolMajor, ProtocolMinor: ProtocolMinor, RuntimeID: s.runtimeID, ConnectionID: connection.id, HostPlatform: runtime.GOOS, HostArchitecture: runtime.GOARCH, NetworkEndpoint: s.networkEndpoint, BuildID: s.options.BuildID, Generation: s.options.Generation,
 		PID: s.options.PID, StartedAt: s.options.StartedAt.Format(time.RFC3339Nano),

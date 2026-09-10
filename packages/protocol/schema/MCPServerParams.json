@@ -5,7 +5,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/MCPServerParams",
+  "$id": "https://whip.dev/protocol/v6/MCPServerParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "MCPServerParams",
   "required": [

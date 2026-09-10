@@ -10,8 +10,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -28,6 +30,11 @@ func runCLI(args []string) error {
 	format := fs.String("format", "text", "output format: text (stream the reply) or json (newline-delimited event stream)")
 	modelFlag := fs.String("m", "", buildinfo.Text("model name from ~/.whip/config.json (default: defaultModel)"))
 	providerFlag := fs.String("p", "", "provider to route the model through (default: model's first provider)")
+	maxCostFlag := fs.Float64("max-cost", 0, "maximum whole-session model cost in USD (0 = unlimited)")
+	maxTokensFlag := fs.Int64("max-tokens", 0, "maximum whole-session model tokens (0 = unlimited)")
+	effortFlag := fs.String("effort", "", "reasoning effort for this run")
+	permissionFlag := fs.String("permission-mode", "", "session permission mode: prompt or automatic")
+	engineFlag := fs.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
 	resumeFlag := fs.String("resume", "", buildinfo.Text("continue this session id (see `whip sessions`) instead of starting fresh"))
 	systemFlag := fs.String("system", "", "override the system prompt for this run")
 	systemFileFlag := fs.String("system-file", "", "read the system prompt from this file (wins over -system)")
@@ -42,6 +49,28 @@ func runCLI(args []string) error {
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if math.IsNaN(*maxCostFlag) || math.IsInf(*maxCostFlag, 0) || *maxCostFlag < 0 {
+		return errors.New("--max-cost must be finite and nonnegative")
+	}
+	if *maxCostFlag > 0 && *maxCostFlag < 0.000001 {
+		return errors.New("--max-cost must be at least $0.000001 when nonzero")
+	}
+	maxCostMicros := math.Round(*maxCostFlag * 1e6)
+	if maxCostMicros >= float64(math.MaxInt64) {
+		return errors.New("--max-cost is too large to represent in microUSD")
+	}
+	if *maxTokensFlag < 0 {
+		return errors.New("--max-tokens must be nonnegative")
+	}
+	if *permissionFlag != "" && *permissionFlag != "prompt" && *permissionFlag != "automatic" {
+		return fmt.Errorf("unknown --permission-mode %q", *permissionFlag)
+	}
+	if *resumeFlag != "" && *permissionFlag != "" {
+		return errors.New("--permission-mode selects a new session; cannot combine with --resume")
+	}
+	if *engineFlag != "" && *engineFlag != "starlark" && *engineFlag != "quickjs" {
+		return fmt.Errorf("unknown --rlm-engine %q", *engineFlag)
 	}
 	if *format != "text" && *format != "json" {
 		return fmt.Errorf("unknown --format %q (want text|json)", *format)
@@ -112,7 +141,7 @@ func runCLI(args []string) error {
 		Connector: daemonConnector("automation", clientID),
 	}
 	if *resumeFlag == "" {
-		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: providerName}
+		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd(), Model: modelName, Provider: providerName, ExecutionEngine: *engineFlag, PermissionMode: *permissionFlag}
 	}
 	client, err := daemon.NewRootClient(options)
 	if err != nil {
@@ -122,6 +151,16 @@ func runCLI(args []string) error {
 	defer func() { _ = client.Close() }()
 	if err := client.WaitLive(ctx); err != nil {
 		return runContextError(err, *timeoutFlag)
+	}
+
+	if *resumeFlag != "" && *engineFlag != "" {
+		snapshot, err := client.Snapshot(ctx)
+		if err != nil {
+			return err
+		}
+		if snapshot.Meta.ExecutionEngine != *engineFlag {
+			return fmt.Errorf("session uses %s; cannot resume with %s", snapshot.Meta.ExecutionEngine, *engineFlag)
+		}
 	}
 
 	configure, err := client.NewAction("run.configure", map[string]any{
@@ -136,6 +175,43 @@ func runCLI(args []string) error {
 	}
 	if configured.Status != "succeeded" {
 		return errors.New(configured.Error)
+	}
+
+	for _, cap := range []struct {
+		kind  string
+		limit int64
+	}{{"cost", int64(maxCostMicros)}, {"tokens", *maxTokensFlag}} {
+		if cap.limit == 0 {
+			continue
+		}
+		snapshot, err := client.Snapshot(ctx)
+		if err != nil {
+			return err
+		}
+		action, err := client.NewAction("budget.cap", map[string]string{"id": snapshot.RootID, "kind": cap.kind, "limit": strconv.FormatInt(cap.limit, 10)})
+		if err != nil {
+			return err
+		}
+		result, err := client.Command(ctx, action)
+		if err != nil {
+			return err
+		}
+		if result.Status != "succeeded" {
+			return fmt.Errorf("budget cap: %s", result.Error)
+		}
+	}
+	if *effortFlag != "" {
+		action, err := client.NewAction("session.effort", map[string]any{"effort": *effortFlag, "persist_default": false})
+		if err != nil {
+			return err
+		}
+		result, err := client.Command(ctx, action)
+		if err != nil {
+			return err
+		}
+		if result.Status != "succeeded" {
+			return fmt.Errorf("reasoning effort: %s", result.Error)
+		}
 	}
 
 	baseline := client.Cursor()

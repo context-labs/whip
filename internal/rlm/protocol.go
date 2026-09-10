@@ -9,22 +9,36 @@ import (
 	"io"
 )
 
-const protocolVersion = 1
+const protocolVersion = 2
 
 var ErrFrameLimit = errors.New("RLM protocol frame exceeds limit")
 
 type frame struct {
-	Version   int            `json:"version"`
-	Type      string         `json:"type"`
-	ID        uint64         `json:"id,omitempty"`
-	Code      string         `json:"code,omitempty"`
-	Module    string         `json:"module,omitempty"`
-	Operation string         `json:"operation,omitempty"`
-	Arguments map[string]any `json:"arguments,omitempty"`
-	Value     any            `json:"value,omitempty"`
-	Output    string         `json:"output,omitempty"`
-	Error     string         `json:"error,omitempty"`
-	Steps     uint64         `json:"steps,omitempty"`
+	Version       int            `json:"version"`
+	Termination   string         `json:"termination,omitempty"`
+	ComputeNanos  uint64         `json:"compute_nanos,omitempty"`
+	HostWaitNanos uint64         `json:"host_wait_nanos,omitempty"`
+	CellID        uint64         `json:"cell_id,omitempty"`
+	Engine        string         `json:"engine,omitempty"`
+	Build         string         `json:"build,omitempty"`
+	ABI           string         `json:"abi,omitempty"`
+	Profile       string         `json:"profile,omitempty"`
+	HasValue      bool           `json:"has_value,omitempty"`
+	Jobs          uint64         `json:"jobs,omitempty"`
+	Bytes         int            `json:"bytes,omitempty"`
+	SHA256        string         `json:"sha256,omitempty"`
+	Data          []byte         `json:"data,omitempty"`
+	Offset        int            `json:"offset,omitempty"`
+	Type          string         `json:"type"`
+	ID            uint64         `json:"id,omitempty"`
+	Code          string         `json:"code,omitempty"`
+	Module        string         `json:"module,omitempty"`
+	Operation     string         `json:"operation,omitempty"`
+	Arguments     map[string]any `json:"arguments,omitempty"`
+	Value         any            `json:"value,omitempty"`
+	Output        string         `json:"output,omitempty"`
+	Error         string         `json:"error,omitempty"`
+	Steps         uint64         `json:"steps,omitempty"`
 }
 
 func writeFrame(w io.Writer, limit int, value frame) error {
@@ -67,7 +81,7 @@ func readFrame(r *bufio.Reader, limit int, exactValue ...bool) (frame, error) {
 		return frame{}, fmt.Errorf("decode RLM route: %w", err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	if route.Module == "state" || route.Module == "mcp" && route.Operation == "call" || len(exactValue) > 0 && exactValue[0] {
+	if route.Module == "state" || route.Module == "messages" || route.Module == "mcp" && route.Operation == "call" || len(exactValue) > 0 && exactValue[0] {
 		decoder.UseNumber()
 	}
 	var value frame

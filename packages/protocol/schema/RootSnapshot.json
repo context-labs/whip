@@ -41,6 +41,9 @@
     "meta": {
       "type": "object",
       "properties": {
+        "execution_engine": {
+          "type": "string"
+        },
         "id": {
           "type": "string"
         },
@@ -100,6 +103,7 @@
         }
       },
       "required": [
+        "execution_engine",
         "id",
         "kind",
         "title",
@@ -372,6 +376,9 @@
       "items": {
         "type": "object",
         "properties": {
+          "execution_engine": {
+            "type": "string"
+          },
           "last_turn": {
             "type": [
               "null",
@@ -508,6 +515,7 @@
           }
         },
         "required": [
+          "execution_engine",
           "id",
           "root_id",
           "parent_id",
@@ -1387,7 +1395,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/RootSnapshot",
+  "$id": "https://whip.dev/protocol/v6/RootSnapshot",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RootSnapshot",
   "required": [

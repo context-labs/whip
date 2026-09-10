@@ -1,7 +1,7 @@
 # Recursive runtime
 
 RLM is whip’s execution model, not an optional mode. Every root and child
-model sees `rlm_exec`; its Starlark cells call daemon-hosted modules. There is
+model sees `rlm_exec`; its Starlark or JavaScript cells call daemon-hosted modules. There is
 no direct-tool agent mode and no mode field on a session.
 
 The design has four goals:
@@ -17,7 +17,7 @@ Root and child nodes use the same `AgentSession` type. Each has:
 
 - a provider route and reasoning effort;
 - exactly one model-facing tool;
-- one bounded kernel and disposable Starlark global scope;
+- one bounded kernel using its root session's immutable execution engine;
 - a durable transcript and private state;
 - an agent ID, parent ID, capabilities, and effective budgets.
 
@@ -176,8 +176,18 @@ fail the turn explicitly instead of applying partial constraints. Existing
 inspection reports the actual applied sources and application time, with file
 and cwd changes identified as taking effect next turn.
 
+## Execution language and checkpoints
+
+New roots select `starlark` or `quickjs` through creation metadata or
+`--rlm-engine`. The default is Starlark; `rlm.defaultEngine` changes future
+negotiated creations. Legacy sessions and unnegotiated creations stay Starlark.
+Descendants derive the root's persisted selection. Forks inherit it, retries
+retain it, and a conflicting resume selector fails. Running sessions cannot
+switch language.
+
 Starlark globals persist in a live worker. After each cell the kernel saves a
-structured scratch checkpoint in `agent_scratch`. A fresh worker reconstructs
+structured checkpoint in `agent_checkpoints`. Legacy `agent_scratch` rows are
+retained as a read fallback and migrate on the next successful save. A fresh worker reconstructs
 supported data directly and compiles validated helper definitions before use.
 Restoration never replays data assignments or host effects.
 
@@ -211,7 +221,43 @@ Every restore produces a bounded runtime notice and a `scratch.restored` actor
 event naming restored and omitted bindings. The daemon owns audit delivery;
 there is no detached notification goroutine. Important durable information
 belongs in `state`, `artifacts`, messages, files, or child transcripts. The
-development schema has no migration or legacy scratch replay path.
+schema migration preserves legacy Starlark records without replaying host effects.
+
+QuickJS runs a pinned bundled WASM build inside wazero in its own worker.
+Its settled checkpoint captures the entire guest heap: lexical bindings,
+closures, object identity, cycles, classes, and BigInts survive eviction and
+daemon restart. Ordinary language errors preserve preceding mutations once
+owned work settles. A failed `const` initializer and lexical redeclaration
+follow JavaScript rules; cells are not wrapped in a new local scope.
+
+Host functions accept an options object and return Promises, for example
+`await files.read({path: "README.md"})`. Top-level await is supported. The
+worker drains owned requests even after early rejection or a forgotten await;
+an unresolved promise, unhandled rejection, cancellation, or job limit is
+reported explicitly. Images never claim to preserve an active provider call,
+host operation, or pending stack. Restoring an image performs no host effects.
+
+Host payloads have a narrower contract than the guest heap: passive objects,
+arrays, strings, booleans, null, finite Numbers (integers must be safe), and BigInts. Exact host
+decimal/exponent/negative-zero tokens use frozen wrappers; explicit conversion
+to Number can lose precision. Unsupported values, cycles, accessors, and unsafe
+integer Numbers are rejected at the host boundary. The runtime disables Proxy
+to keep validation passive. Result previews are separately tagged and bounded;
+undefined has no value, while null is an explicit result.
+
+Checkpoint envelopes bind root/agent ownership, engine build/ABI/profile,
+sequence, settled boundary, fidelity, byte count, and SHA-256. Storage publishes
+one latest image atomically, with 40 MiB/image, 256 MiB/root, and 1 GiB/store
+ceilings. A failure preserves the previous image; a corrupt or incompatible
+image fails visibly and remains retained for explicit recovery. There is no
+automatic cross-build or cross-language migration. SHA-256 checks integrity;
+these are trusted internal artifacts, never guest-controlled handles.
+
+Result version 2 carries `execution_engine`, `language`, `has_value`, and
+`metrics`. Starlark reports steps; QuickJS reports jobs and host/compute timing.
+Public protocol major 6 deliberately requires updated clients. Current views
+read legacy Starlark results and result-v2 across live updates, history, and
+reconnect, and derive unfinished descendant cells' language from the root.
 
 Model-facing results use one JSON object containing `value`, `output`, `steps`,
 and any `scratch` or `restored` notices. Output and value previews are bounded

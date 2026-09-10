@@ -37,7 +37,7 @@ the nearest working example. These principles apply throughout:
 ## Product intent and visual philosophy
 
 WHIP is a workspace for directing recursive coding work: sessions, child agents,
-mailboxes, Starlark execution, budgets, goals, schedules, and human decisions.
+mailboxes, Starlark or JavaScript execution, budgets, goals, schedules, and human decisions.
 The person should be able to read calmly, understand what is happening, and
 intervene precisely. Conversation is the main working surface; inspection reveals
 the evidence and recursive structure behind it.
@@ -209,6 +209,9 @@ A status failure is not evidence of non-admission. Retried runtime commands reta
 original bytes/identity and require an explicit action after authoritative missing
 status; restored records contain no payload and cannot replay automatically.
 Creation journals retain the created root across effort/input partial failures.
+They also retain the selected execution engine before creation. Native creation
+offers the host's advertised languages, locks that choice for a created root,
+and restores legacy workflows as Starlark without inheriting a newer default.
 
 Only an explicit full-message sheet fetches content, at most 256 KiB through SDK
 scope/hash checks. Recycled transcript rows cannot initiate reads. Native text
@@ -504,7 +507,7 @@ exceed the aggregate storage budget; subsequent writes require clearing drafts.
 a direction and ratio; pane leaves carry ordered chat/REPL/New Chat descriptors, a selected
 view ID, and stable pane IDs. Session-backed descriptors store runtime/root identity;
 New Chat descriptors store an independent draft ID, optional host profile/runtime,
-working directory and permission mode. Prompt text and recovery payloads never enter
+working directory, permission mode and optional execution engine selection. Prompt text and recovery payloads never enter
 the v3 layout. Draft tabs consume the same 32-view capacity but no root observation
 leases, summaries or session actions. Splitting a draft moves it rather than duplicating it.
 The global session view ID identifies one presentation of that host’s session. Duplicates share
@@ -596,8 +599,13 @@ only the reader/composer branch, without starting another root subscription.
 Drafts and attachments remain recipient-scoped; REPL displays no composer.
 
 `ReplView` consumes `executionRows(snapshot, agentId)` from SDK state. It shows
-Starlark code, individual observed host calls, print output, return values,
-errors, steps and restart markers. No app-owned event cache or raw subscription
+code in the session's execution language, individual observed host calls, print output,
+return values, errors, engine-specific metrics and restart markers. The SDK reads
+legacy Starlark results and result format 2: `has_value` distinguishes an explicit
+null result from no result, and QuickJS completion never requires Starlark steps.
+Starlark steps and QuickJS jobs are distinct diagnostics. Root metadata supplies
+the language for unfinished cells and every descendant; recorded results retain
+their engine identity. No app-owned event cache or raw subscription
 is permitted. The SDK merges loaded history with bounded observed evidence,
 replaces cumulative output, and keeps live keys through history commits. Revision
 changes discard incompatible evidence. If a child was observed before its history
@@ -832,6 +840,17 @@ that budget; unresolved frozen copies survive ordinary cross-window draft cleanu
 Durable draft revisions distinguish later edits even when text becomes identical.
 Revision-only metadata is removed on startup; keys and tokens never enter either
 store. Storage failure prevents sending instead of leaving an unrecorded request.
+
+Welcome offers **Execution language** only before session creation, using the
+host's advertised `execution_engines`. Starlark is the initial default; JavaScript
+(QuickJS) is opt-in. The selected value survives draft navigation and is frozen
+as an explicit `execution_engine` in the creation journal before admission.
+Legacy journals without a language retain Starlark. Status recovery never sends
+a payload; an explicit retry of an absent creation retains the original language.
+The host owns the immutable session selection, inherited by all descendants.
+Execution settings change `default_execution_engine` for future sessions only,
+through the existing revisioned configuration query and editor. Missing discovery
+disables creation instead of assuming a language is supported.
 
 Create and submit retain separate original command identities. Reload/reattach
 checks status; a confirmed absent request requires explicit retry with the original
@@ -1328,8 +1347,10 @@ accounting for explicit consumers; its totals are separate from tree totals.
 
 ## Protocol and build boundaries
 
-The current wire protocol is JSON-RPC major **5**, minor **1**. This additive minor
-adds correlated host-operation starts while preserving completion-only events.
+The current wire protocol is JSON-RPC major **6**, minor **0**. The major upgrade
+adds session execution-engine identity, discovery and engine-neutral result format 2;
+older clients are rejected during initialization. Legacy persisted Starlark result
+bodies remain readable by the SDK.
 The older filename [`protocol-v2.md`](protocol-v2.md) is retained for
 the reference; it does not mean the app should speak v2. Capabilities and protocol
 compatibility determine availability, not matching build strings. Do not restore

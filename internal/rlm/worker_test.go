@@ -75,7 +75,7 @@ func TestWorkerRunFramesAndProtocolFailures(t *testing.T) {
 		t.Fatalf("result frame = %+v, %v", result, err)
 	}
 
-	bad, _ := newUnitWorker("{\"version\":1,\"type\":\"host_response\",\"id\":1}\n")
+	bad, _ := newUnitWorker("{\"version\":2,\"type\":\"host_response\",\"id\":1}\n")
 	if err := bad.run(); err == nil || !strings.Contains(err.Error(), "unexpected RLM frame") {
 		t.Fatalf("unexpected frame error = %v", err)
 	}
@@ -186,8 +186,8 @@ func TestWorkerHostCallValidatesResponsesAndLimits(t *testing.T) {
 	}{
 		{name: "unknown operation", setup: func(w *worker) {}, want: "unknown RLM operation"},
 		{name: "request limit", setup: func(w *worker) { w.hostRequests = 0 }, want: "host request limit"},
-		{name: "mismatch", input: `{"version":1,"type":"host_response","id":99}` + "\n", setup: func(w *worker) {}, want: "mismatched RLM host response"},
-		{name: "host error", input: `{"version":1,"type":"host_response","id":1,"error":"denied"}` + "\n", setup: func(w *worker) {}, want: "denied"},
+		{name: "mismatch", input: `{"version":2,"type":"host_response","id":99}` + "\n", setup: func(w *worker) {}, want: "mismatched RLM host response"},
+		{name: "host error", input: `{"version":2,"type":"host_response","id":1,"error":"denied"}` + "\n", setup: func(w *worker) {}, want: "denied"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

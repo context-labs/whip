@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -158,9 +159,10 @@ func runtimeConfiguration(c *config.Config, revision string) RuntimeConfiguratio
 	}
 	disabled := append([]string{}, c.DisabledProviders...)
 	return RuntimeConfiguration{
-		DisabledProviders: &disabled,
-		RemoteHosts:       &hosts,
-		ImportClaude:      claude, ImportCodex: codex, Revision: revision, DefaultModel: c.DefaultModel,
+		DisabledProviders:      &disabled,
+		DefaultExecutionEngine: c.RLM.Engine(),
+		RemoteHosts:            &hosts,
+		ImportClaude:           claude, ImportCodex: codex, Revision: revision, DefaultModel: c.DefaultModel,
 		DefaultProvider: c.DefaultProvider, DefaultEffort: c.DefaultEffort,
 		CompactModel: c.CompactModel, CompactProvider: c.CompactProvider, CompactPercent: c.CompactPct,
 		GoalMaxRounds: c.GoalMaxRounds, MaxRetries: c.MaxRetries,
@@ -232,6 +234,12 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 		}
 		if p.MaxRetries != nil && *p.MaxRetries < 0 {
 			return errors.New("invalid retry limit")
+		}
+		if p.DefaultExecutionEngine != nil {
+			if *p.DefaultExecutionEngine != "starlark" && *p.DefaultExecutionEngine != "quickjs" {
+				return fmt.Errorf("unknown execution engine %q", *p.DefaultExecutionEngine)
+			}
+			c.RLM.DefaultEngine = *p.DefaultExecutionEngine
 		}
 		if p.DefaultModel != nil {
 			c.DefaultModel = *p.DefaultModel

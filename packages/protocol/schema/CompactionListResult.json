@@ -23,7 +23,7 @@
     ],
     "additionalProperties": false
   },
-  "$id": "https://whip.dev/protocol/v5/CompactionListResult",
+  "$id": "https://whip.dev/protocol/v6/CompactionListResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CompactionListResult"
 }

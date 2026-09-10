@@ -63,6 +63,7 @@ func main() {
 	modelFlag := flag.String("m", "", buildinfo.Text("model name from ~/.whip/config.json (default: defaultModel)"))
 	providerFlag := flag.String("p", "", "provider to route the model through (default: model's first provider)")
 	versionFlag := flag.Bool("version", false, "print version")
+	engineFlag := flag.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
 	benchFlag := flag.Bool("bench", false, "measure configuration and provider routing startup, then exit; for `task benchmark`")
 	cautiousFlag := flag.Bool("cautious", false, "require approval and save this mode for the initial session")
@@ -197,7 +198,7 @@ func main() {
 	// notice still shows on the next launch.
 	go update.Check(version)
 	tui.Version = version // /report names the build in the bug-report bundle
-	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, initialPrompt)
+	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, initialPrompt, *engineFlag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 		os.Exit(1)

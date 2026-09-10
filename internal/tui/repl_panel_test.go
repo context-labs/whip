@@ -109,6 +109,16 @@ func TestReplPanelToggleChordAndCommand(t *testing.T) {
 	if m.replPanel || m.width != term-(1+leftWidth+1)-1 {
 		t.Fatalf("command toggle replPanel=%v width=%d", m.replPanel, m.width)
 	}
+	next, _ = m.thinKey(ctrlKey('r'))
+	m = next.(*model)
+	if !m.replPanel || m.width != term-(1+leftWidth+1)-1-(term-(1+leftWidth+1))/2-1 {
+		t.Fatalf("ctrl+r toggle replPanel=%v width=%d", m.replPanel, m.width)
+	}
+	next, _ = m.thinKey(ctrlKey('r'))
+	m = next.(*model)
+	if m.replPanel {
+		t.Fatal("ctrl+r did not toggle the REPL panel back off")
+	}
 	if sidebar := ansi.Strip(m.sidebarView(20)); !strings.Contains(sidebar, "Context") {
 		t.Fatalf("left column did not return after toggling off: %q", sidebar)
 	}
@@ -383,6 +393,10 @@ func TestReplPanelKeepsRowsOnOneLineAndWrapsCodeLosslessly(t *testing.T) {
 
 func TestAgentsDockReturnsWhenThePanelCannotShowTheTree(t *testing.T) {
 	m := replTestModel(t, sidebarMinWidth-1)
+	if m.agentsDock() != "" {
+		t.Fatal("the dock stays hidden until /dock shows it")
+	}
+	m.dockShow = true
 	if m.agentsDock() == "" {
 		t.Fatal("narrow opencode terminal has no agent tree anywhere")
 	}
@@ -483,4 +497,28 @@ func TestReplHostLifecycle(t *testing.T) {
 		return
 	}
 	t.Fatal("the new cell's host row was not rendered")
+}
+
+func TestDockCommandAndTreeFocusFollowVisibility(t *testing.T) {
+	m := replTestModel(t, sidebarMinWidth-1)
+	next, _ := m.thinCommand("/dock")
+	m = next.(*model)
+	if !m.dockShow || m.agentsDock() == "" {
+		t.Fatal("/dock did not show the dock")
+	}
+	next, _ = m.thinCommand("/dock")
+	m = next.(*model)
+	if m.dockShow || m.agentsDock() != "" {
+		t.Fatal("/dock did not hide the dock")
+	}
+	next, _ = m.thinKey(keyMsg(tea.KeyDown)) // ↓ on an empty input: nothing shows the tree
+	m = next.(*model)
+	if m.agentsFocus {
+		t.Fatal("↓ focused a tree that nothing shows")
+	}
+	next, _ = m.thinKey(ctrlKey('t'))
+	m = next.(*model)
+	if !m.dockShow || !m.agentsFocus || m.agentsDock() == "" {
+		t.Fatalf("ctrl+t must show the dock and focus it: dock=%v focus=%v", m.dockShow, m.agentsFocus)
+	}
 }

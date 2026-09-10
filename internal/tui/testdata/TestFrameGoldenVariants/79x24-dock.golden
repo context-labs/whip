@@ -21,4 +21,4 @@
    running root                                                                
    idle      file-reader                                                       
                                                                                
- /work/whip                   ctrl+x r repl  ctrl+x t themes  ctrl+x b sidebar 
+ /work/whip                                       ctrl+r repl  ctrl+p commands 

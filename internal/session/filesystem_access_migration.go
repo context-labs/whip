@@ -25,7 +25,8 @@ func upgradeV13(ctx context.Context, conn *sql.Conn) error {
 		return fmt.Errorf("read filesystem access upgrade identity: %w", err)
 	}
 	// Another opener may have completed the migration while this one waited.
-	if version == currentSchemaVersion && identity == schemaIdentity {
+	if version == 14 && identity == "whip-recursive-runtime-v14" ||
+		version == currentSchemaVersion && identity == schemaIdentity {
 		return nil
 	}
 	if version != 13 || identity != "whip-recursive-runtime-v13" {

@@ -48,11 +48,11 @@ func localMCPFixture(t *testing.T, instructions string, extraTools ...string) (s
 	return httpServer.URL, effects
 }
 
-func mcpRuntimeFixture(t *testing.T, url string, trusted bool) (*session.Store, *Session, *RecursiveRuntime) {
+func mcpRuntimeFixture(t *testing.T, url string, trusted bool, engines ...string) (*session.Store, *Session, *RecursiveRuntime) {
 	t.Helper()
 	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { streamText(w, "done") }))
 	t.Cleanup(model.Close)
-	store, root, runtime := openRecursiveRuntime(t, llm.New(model.URL, "key"), 4)
+	store, root, runtime := openRecursiveRuntime(t, llm.New(model.URL, "key"), 4, engines...)
 	// Exercise native/remembered MCP consent separately from blanket approval.
 	runtime.rootNode.agent.Services.SetMCPAutomatic(false)
 	servers := map[string]mcp.ServerConfig{"local": {URL: url, Source: "fixture import", Origin: "claude", StartupTimeout: 2, ToolTimeout: 2}}
@@ -96,8 +96,15 @@ func mcpCell(t *testing.T, node *AgentSession, tool string) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	_, err := node.kernel.Exec(ctx, fmt.Sprintf(`mcp.call(server="local", tool=%q, arguments={})`, tool))
+	_, err := node.kernel.Exec(ctx, mcpCellCode(node, tool))
 	return err
+}
+
+func mcpCellCode(node *AgentSession, tool string) string {
+	if node.kernel.Describe().ID == "quickjs" {
+		return fmt.Sprintf(`await mcp.call({server: "local", tool: %q, arguments: {}})`, tool)
+	}
+	return fmt.Sprintf(`mcp.call(server="local", tool=%q, arguments={})`, tool)
 }
 
 func TestMCPRLMAdmissionBoundary(t *testing.T) {
@@ -332,95 +339,97 @@ func waitMCPPermission(t *testing.T, store *session.Store, root *Session) sessio
 }
 
 func TestMCPDurableConsentAndLifecycleWaiters(t *testing.T) {
-	for _, action := range []string{"remember", "reject", "revoke", "replace", "disable"} {
-		t.Run(action, func(t *testing.T) {
-			t.Setenv("WHIP_HOME", t.TempDir())
-			url, effects := localMCPFixture(t, "imported guidance")
-			store, root, runtime := mcpRuntimeFixture(t, url, false)
-			runtime.SetExternalPermissions(true)
-			node := runtime.rootNode
-			if action == "revoke" {
-				node = spawnMCPChild(t, node, map[string]any{"name": "child"})
-			}
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-			defer cancel()
-			done := make(chan error, 1)
-			go func() {
-				_, err := node.kernel.Exec(ctx, `mcp.call(server="local", tool="mutate", arguments={})`)
-				done <- err
-			}()
-			pending := waitMCPPermission(t, store, root)
-			if effects.Load() != 0 {
-				t.Fatal("server called before consent")
-			}
-			if !strings.Contains(pending.Command, "local") || !strings.Contains(pending.Command, "mutate") || !strings.Contains(pending.Command, "fixture import") {
-				t.Fatalf("permission lacks exact target/source: %+v", pending)
-			}
-			switch action {
-			case "revoke":
-				result := clientCommand(t, root, "human", "revoke-mcp", "capability.revoke", clientActionPayload{ID: root.authority.MCP.ID})
-				if result.Status != "succeeded" {
-					t.Fatalf("revoke=%+v", result)
+	for _, engine := range []string{"starlark", "quickjs"} {
+		for _, action := range []string{"remember", "reject", "revoke", "replace", "disable"} {
+			t.Run(engine+"/"+action, func(t *testing.T) {
+				t.Setenv("WHIP_HOME", t.TempDir())
+				url, effects := localMCPFixture(t, "imported guidance")
+				store, root, runtime := mcpRuntimeFixture(t, url, false, engine)
+				runtime.SetExternalPermissions(true)
+				node := runtime.rootNode
+				if action == "revoke" {
+					node = spawnMCPChild(t, node, map[string]any{"name": "child"})
 				}
-			case "replace":
-				result := clientCommand(t, root, "acp", "replace-pending", "mcp.attach", protocol.MCPAttachParams{Servers: map[string]mcp.ServerConfig{"local": {URL: url}}})
-				if result.Status != "succeeded" {
-					t.Fatalf("replace=%+v", result)
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				done := make(chan error, 1)
+				go func() {
+					_, err := node.kernel.Exec(ctx, mcpCellCode(node, "mutate"))
+					done <- err
+				}()
+				pending := waitMCPPermission(t, store, root)
+				if effects.Load() != 0 {
+					t.Fatal("server called before consent")
 				}
-			case "disable":
-				result := clientCommand(t, root, "human", "disable-pending", "mcp.disable", clientActionPayload{Name: "local"})
-				if result.Status != "succeeded" {
-					t.Fatalf("disable=%+v", result)
+				if !strings.Contains(pending.Command, "local") || !strings.Contains(pending.Command, "mutate") || !strings.Contains(pending.Command, "fixture import") {
+					t.Fatalf("permission lacks exact target/source: %+v", pending)
 				}
-			default:
-				payload := json.RawMessage(`{"command_id":"mcp-consent"}`)
-				digest, err := requestDigest("root", root.ID(), "permission.decide", payload)
+				switch action {
+				case "revoke":
+					result := clientCommand(t, root, "human", "revoke-mcp", "capability.revoke", clientActionPayload{ID: root.authority.MCP.ID})
+					if result.Status != "succeeded" {
+						t.Fatalf("revoke=%+v", result)
+					}
+				case "replace":
+					result := clientCommand(t, root, "acp", "replace-pending", "mcp.attach", protocol.MCPAttachParams{Servers: map[string]mcp.ServerConfig{"local": {URL: url}}})
+					if result.Status != "succeeded" {
+						t.Fatalf("replace=%+v", result)
+					}
+				case "disable":
+					result := clientCommand(t, root, "human", "disable-pending", "mcp.disable", clientActionPayload{Name: "local"})
+					if result.Status != "succeeded" {
+						t.Fatalf("disable=%+v", result)
+					}
+				default:
+					payload := json.RawMessage(`{"command_id":"mcp-consent"}`)
+					digest, err := requestDigest("root", root.ID(), "permission.decide", payload)
+					if err != nil {
+						t.Fatal(err)
+					}
+					decision := capability.Decision{Allow: action == "remember", PrincipalID: "paired-human", Reason: "test choice"}
+					if decision.Allow {
+						decision.Remember = "tree"
+					}
+					_, err = root.DecidePermissionCommand(t.Context(), session.CommandAdmission{
+						ClientID: "human", CommandID: "mcp-consent", RequestDigest: digest,
+						Payload: session.RuntimePayload{Data: payload, MediaType: "application/json", Source: "permission decision"},
+					}, pending.ID, decision)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				select {
+				case err := <-done:
+					if (err == nil) != (action == "remember") {
+						t.Fatalf("%s call error=%v", action, err)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("permission waiter was not released")
+				}
+				if pending, err := store.ListPendingPermissions(t.Context(), root.ID()); err != nil || len(pending) != 0 {
+					t.Fatalf("pending=%+v, err=%v", pending, err)
+				}
+				if action == "remember" {
+					runtime.SetHeadlessPermissions(true)
+					if err := mcpCell(t, node, "mutate"); err != nil {
+						t.Fatal(err)
+					}
+					if effects.Load() != 2 {
+						t.Fatalf("effects=%d", effects.Load())
+					}
+				} else if effects.Load() != 0 {
+					t.Fatalf("denied effects=%d", effects.Load())
+				}
+				budgets, err := store.InspectBudgets(t.Context(), root.ID(), root.AgentID())
 				if err != nil {
 					t.Fatal(err)
 				}
-				decision := capability.Decision{Allow: action == "remember", PrincipalID: "paired-human", Reason: "test choice"}
-				if decision.Allow {
-					decision.Remember = "tree"
+				for _, budget := range budgets {
+					if budget.Kind == session.BudgetActiveOperations && budget.Reserved != 0 {
+						t.Fatalf("leaked operation capacity: %+v", budget)
+					}
 				}
-				_, err = root.DecidePermissionCommand(t.Context(), session.CommandAdmission{
-					ClientID: "human", CommandID: "mcp-consent", RequestDigest: digest,
-					Payload: session.RuntimePayload{Data: payload, MediaType: "application/json", Source: "permission decision"},
-				}, pending.ID, decision)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			select {
-			case err := <-done:
-				if (err == nil) != (action == "remember") {
-					t.Fatalf("%s call error=%v", action, err)
-				}
-			case <-time.After(2 * time.Second):
-				t.Fatal("permission waiter was not released")
-			}
-			if pending, err := store.ListPendingPermissions(t.Context(), root.ID()); err != nil || len(pending) != 0 {
-				t.Fatalf("pending=%+v, err=%v", pending, err)
-			}
-			if action == "remember" {
-				runtime.SetHeadlessPermissions(true)
-				if err := mcpCell(t, node, "mutate"); err != nil {
-					t.Fatal(err)
-				}
-				if effects.Load() != 2 {
-					t.Fatalf("effects=%d", effects.Load())
-				}
-			} else if effects.Load() != 0 {
-				t.Fatalf("denied effects=%d", effects.Load())
-			}
-			budgets, err := store.InspectBudgets(t.Context(), root.ID(), root.AgentID())
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, budget := range budgets {
-				if budget.Kind == session.BudgetActiveOperations && budget.Reserved != 0 {
-					t.Fatalf("leaked operation capacity: %+v", budget)
-				}
-			}
-		})
+			})
+		}
 	}
 }

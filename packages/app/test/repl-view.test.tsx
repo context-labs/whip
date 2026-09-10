@@ -98,6 +98,21 @@ it('does not render a panel for a null return value', () => {
   expect(screen.queryByRole('region', { name: 'Return value' })).toBeNull();
 });
 
+it('renders JavaScript completion with explicit null and jobs, without Starlark labels', () => {
+  const f = fixture([
+    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"null"}' } }] } },
+    { seq: 2, message: { role: 'tool', name: 'rlm_exec', tool_call_id: 'call', content: JSON.stringify({ format_version: 2, execution_engine: 'quickjs', language: 'javascript', has_value: true, value: null, metrics: { quickjs_jobs: 3 } }) } },
+  ]);
+  f.state.root!.meta = { execution_engine: 'quickjs' } as NonNullable<SessionViewSnapshot['root']>['meta'];
+  render(f.app());
+  expect(screen.getByText('Completed')).toBeDefined();
+  expect(screen.getByText('3 jobs')).toBeDefined();
+  expect(screen.getByRole('region', { name: 'Return value' }).textContent).toBe('null');
+  expect(screen.getByRole('region', { name: 'Cell 1 · JavaScript (QuickJS)' })).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Copy JavaScript (QuickJS) code' })).toBeDefined();
+  expect(screen.queryByText(/steps/)).toBeNull();
+});
+
 it('shows failed-cell output and checkpoint warnings together', () => {
   const f = fixture([
     { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"fail()"}' } }] } },

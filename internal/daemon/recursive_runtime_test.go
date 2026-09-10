@@ -37,10 +37,28 @@ func TestRecursiveRuntimeKernelWorker(t *testing.T) {
 	}
 }
 
-func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int) (*session.Store, *Session, *RecursiveRuntime) {
+func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int, engines ...string) (*session.Store, *Session, *RecursiveRuntime) {
 	t.Helper()
 	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
-	rootID := createRoot(t, store)
+	var rootID string
+	if len(engines) == 0 {
+		rootID = createRoot(t, store)
+	} else {
+		if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "engine", CommandID: "create", Scope: session.CommandScopeDaemon, RequestDigest: "create"}); err != nil {
+			t.Fatal(err)
+		}
+		record, err := store.CreateSessionForCommandWithEngine(t.Context(), "engine", "create", session.SessionKindAgent, t.TempDir(), "model", "provider", "", engines[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result struct {
+			RootID string `json:"root_id"`
+		}
+		if err := json.Unmarshal(record.Outcome.Inline, &result); err != nil {
+			t.Fatal(err)
+		}
+		rootID = result.RootID
+	}
 	// These fixtures exercise tools without a human approval client.
 	if err := store.SetPermissionMode(t.Context(), rootID, session.PermissionModeAutomatic); err != nil {
 		t.Fatal(err)
@@ -53,7 +71,7 @@ func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int) (*se
 		limits.MaxWorkers = maxWorkers
 		var runtimeErr error
 		runtime, runtimeErr = NewRecursiveRuntime(RecursiveRuntimeOptions{
-			Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(maxWorkers), KernelCommand: recursiveKernelCommand,
+			Engine: meta.ExecutionEngine, Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(maxWorkers), KernelCommand: recursiveKernelCommand,
 		})
 		if runtimeErr != nil {
 			return Components{}, runtimeErr
@@ -760,7 +778,7 @@ func TestSuspendedKernelRestoresScratchWithEphemeralNotice(t *testing.T) {
 	if err != nil || waitReceipt(t, first).Err != nil {
 		t.Fatalf("first turn err=%v", err)
 	}
-	program, _, err := store.LoadAgentScratch(t.Context(), root.ID(), root.AgentID())
+	program, _, err := loadPersistedScratch(store, t.Context(), root.ID(), root.AgentID())
 	if err != nil || !json.Valid([]byte(program)) || !strings.Contains(program, "kids") || !strings.Contains(program, "def pick(i):") {
 		t.Fatalf("stored scratch = %q err=%v", program, err)
 	}
@@ -923,12 +941,12 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 	}
 	deadline = time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err == nil && (json.Valid([]byte(program)) && strings.Contains(program, `"memo"`)) {
+		if program, _, err := loadPersistedScratch(store, t.Context(), rootID, childID); err == nil && (json.Valid([]byte(program)) && strings.Contains(program, `"memo"`)) {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if program, _, err := store.LoadAgentScratch(t.Context(), rootID, childID); err != nil || !json.Valid([]byte(program)) || !strings.Contains(program, `"memo"`) {
+	if program, _, err := loadPersistedScratch(store, t.Context(), rootID, childID); err != nil || !json.Valid([]byte(program)) || !strings.Contains(program, `"memo"`) {
 		t.Fatalf("child scratch = %q err=%v", program, err)
 	}
 	waitAgentIdle(t, (*firstRef).agents[childID])

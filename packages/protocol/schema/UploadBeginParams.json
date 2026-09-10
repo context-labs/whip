@@ -25,7 +25,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/UploadBeginParams",
+  "$id": "https://whip.dev/protocol/v6/UploadBeginParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "UploadBeginParams",
   "required": [

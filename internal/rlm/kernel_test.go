@@ -1,6 +1,7 @@
 package rlm
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,13 @@ func TestWorkerProcess(t *testing.T) {
 	}
 	args := os.Args[separator+1:]
 	if len(args) >= 2 && args[0] == "-test-protocol-response" {
+		if args[1] != "stderr" {
+			reader := bufio.NewReader(os.Stdin)
+			hello, _ := readFrame(reader, 1<<20)
+			descriptor, _ := ResolveEngine(hello.Engine)
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: hello.ID, Engine: descriptor.ID, Build: descriptor.Build, ABI: descriptor.ABI, Profile: descriptor.Profile})
+			_, _ = readFrame(reader, 1<<20)
+		}
 		switch args[1] {
 		case "mismatch":
 			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: 99})

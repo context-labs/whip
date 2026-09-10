@@ -53,7 +53,12 @@ func TestFrameGoldenVariants(t *testing.T) {
 		t.Helper()
 		golden.RequireEqual(t, []byte(ansi.Strip(viewStr(m))))
 	}
-	t.Run("79x24-dock", func(t *testing.T) { plain(t, goldenModel(79, 24)) })
+	t.Run("79x24-dock", func(t *testing.T) { // /dock shows the tree under the input
+		m := goldenModel(79, 24)
+		m.dockShow = true
+		m.layout()
+		plain(t, m)
+	})
 	t.Run("160x40-repl", func(t *testing.T) {
 		m := goldenModel(160, 40)
 		m.replPanel = true

@@ -6,9 +6,9 @@ the app combines SDK views with TanStack Query and local state. This README owns
 the SDK's public usage contract.
 
 Private, ESM client package for Node 24, browsers, React Native and future Electron clients.
-The SDK attaches to an existing WHIP v5 daemon. Execution, credentials, SQLite,
+The SDK attaches to an existing WHIP v6 daemon. Execution, credentials, SQLite,
 model context, permissions and schedules remain on the execution host.
-Protocol 5 requires archive metadata and status-bound catalog cursors. Update
+Protocol 6 adds immutable session execution-engine identity and result format 2. Update
 the daemon and clients together; older majors fail during initialization.
 
 ## Install and check in this repository
@@ -39,7 +39,7 @@ const client = createWhipClient({
 });
 try {
   await client.connect();
-  const creation = client.sessions.create({ cwd: '/path/on/execution/host' });
+  const creation = client.sessions.create({ cwd: '/path/on/execution/host', execution_engine: 'starlark' });
   const created = await creation.result();
   if (created.status !== 'succeeded' || !created.result) throw new Error(created.failure?.message);
   const session = client.session(created.result.root_id);
@@ -238,13 +238,26 @@ catalog view polls revisions only while observed and never opens all roots.
 There are at most 16 active root subscriptions per connection.
 
 `executionRows(view.getSnapshot(), agentId)` from `@whip/sdk/state` projects
-read-only Starlark cells and restart markers for one agent. It merges loaded
+read-only Starlark or JavaScript cells and restart markers for one agent. It merges loaded
 history with `snapshot.executions`, which the existing session subscription
 maintains. Calls retain stable keys across commit; cumulative arguments/output
 replace earlier values; repeated host calls keep separate event identities.
-`ExecutionCell` exposes code, output, result/error, status, steps, scoped body
+`ExecutionCell` exposes code, output, result/error, status, executionEngine,
+language, hasValue, optional Starlark steps or QuickJS quickjsJobs, scoped body
 references and optional client-observed times. Recorded outcomes without enough
 evidence are marked unknown, and historical durations are not invented.
+Legacy Starlark result bodies remain readable. Format 2 uses `has_value`, so
+an explicit JavaScript `null` remains distinct from no result, and completion
+does not depend on Starlark steps. Numeric tags and bounded previews retain their
+exact text. Engine-specific metrics are diagnostics, not comparable work units.
+
+The initialization snapshot advertises `execution_engines` and
+`default_execution_engine`. Session creation accepts `execution_engine` as
+`starlark` or `quickjs`; root metadata is authoritative thereafter and every
+descendant inherits that engine. Persist an explicit selection alongside a
+creation retry journal so changing host defaults cannot change a missing request.
+`configuration.update({revision, default_execution_engine: 'quickjs'})` changes
+future-session defaults only.
 
 Protocol 5.1 hosts emit `stream.cell.host.started` before dispatch and retain
 `stream.cell.host` for completion. `ExecutionHostCall.status` moves from running

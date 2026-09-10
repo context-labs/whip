@@ -22,7 +22,7 @@ import (
 )
 
 // The REPL panel is a mode of the opencode right sidebar (ctrl+x r or /repl)
-// that shows the visible agent's Starlark cells as they happen, notebook
+// that shows the visible agent's execution cells as they happen, notebook
 // style: the code as the model writes it (stream.tool.call snapshots), live
 // print output (stream.tool.output), each host call as it starts and its
 // outcome (stream.cell.host.started, stream.cell.host), the result, and
@@ -47,9 +47,12 @@ type replCell struct {
 	value   string
 	errText string
 	steps   uint64
+	jobs    *uint64
+	engine  string
 	// restart is a marker row ("restarted · restored 9") instead of a cell.
-	restart  string
-	finished bool // stream.tool.completed seen (replayed cells have no ended time)
+	restart           string
+	finished          bool // stream.tool.completed seen (replayed cells have no ended time)
+	resultUnavailable bool
 }
 
 type replAgent struct {
@@ -112,7 +115,7 @@ func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
 		return nil
 	}
 	add := func() *replCell {
-		agent.cells = append(agent.cells, replCell{id: event.ID})
+		agent.cells = append(agent.cells, replCell{id: event.ID, engine: m.clientView.executionEngine})
 		return &agent.cells[len(agent.cells)-1]
 	}
 	ensure := func() *replCell {
@@ -202,23 +205,7 @@ func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
 		if !m.replReplaying {
 			cell.ended = m.replNow()
 		}
-		if rest, failed := strings.CutPrefix(event.Result, "Error:"); failed {
-			cell.errText = strings.TrimSpace(rest)
-			return
-		}
-		var result struct {
-			Value  any    `json:"value"`
-			Output string `json:"output"`
-			Steps  uint64 `json:"steps"`
-		}
-		if json.Unmarshal([]byte(event.Result), &result) != nil {
-			return
-		}
-		cell.output, cell.steps = result.Output, result.Steps
-		if result.Value != nil {
-			encoded, _ := json.Marshal(result.Value)
-			cell.value = string(encoded)
-		}
+		cell.decodeResult(event.Result)
 	}
 }
 
@@ -466,6 +453,8 @@ func (m *model) replCellRows(cell replCell, st replStyles, inner int) []string {
 	switch {
 	case cell.errText != "":
 		gutter = st.gutterFail
+	case cell.resultUnavailable:
+		gutter = st.warn
 	case cell.ended.IsZero():
 		gutter = st.gutterRun
 	}
@@ -483,16 +472,32 @@ func (m *model) replCellRows(cell replCell, st replStyles, inner int) []string {
 	case !cell.started.IsZero():
 		header += "  " + shortDur(m.replNow().Sub(cell.started)) + " …"
 	}
+	if cell.resultUnavailable && cell.errText == "" {
+		header += " · outcome unavailable"
+	}
 	if cell.steps > 0 {
 		header += fmt.Sprintf(" · %d steps", cell.steps)
+	}
+	if cell.jobs != nil {
+		header += fmt.Sprintf(" · %d jobs", *cell.jobs)
+	}
+	if cell.engine == "quickjs" {
+		header += " · JavaScript"
 	}
 	rows := []string{"", row(st.head.Render(cut(header, content)))}
 
 	var hl starlarkHighlighter
-	for line := range strings.SplitSeq(strings.TrimRight(cell.code, "\n"), "\n") {
+	source := cell.code
+	if cell.engine == "quickjs" {
+		source = ui.CodeBlock{Source: source, Lang: "javascript"}.Highlight(currentTheme())
+	}
+	for line := range strings.SplitSeq(strings.TrimRight(source, "\n"), "\n") {
 		line = strings.NewReplacer("\t", "    ", "\r", "").Replace(line)
 		for index, segment := range strings.Split(ansi.Hardwrap(line, max(content-2, 1), true), "\n") {
 			styled := hl.line(segment, st)
+			if cell.engine == "quickjs" {
+				styled = segment
+			}
 			if index > 0 {
 				styled = st.dim.Render("↪ ") + styled
 			}

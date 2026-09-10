@@ -30,13 +30,31 @@ func modelAccountingRuntime(t *testing.T, handler http.HandlerFunc, history []ll
 	return modelAccountingRuntimeAt(t, filepath.Join(t.TempDir(), "sessions.db"), handler, history, configure)
 }
 
-func modelAccountingRuntimeAt(t *testing.T, path string, handler http.HandlerFunc, history []llm.Message, configure func(*agent.Agent)) (*session.Store, *Session, *RecursiveRuntime) {
+func modelAccountingRuntimeAt(t *testing.T, path string, handler http.HandlerFunc, history []llm.Message, configure func(*agent.Agent), engines ...string) (*session.Store, *Session, *RecursiveRuntime) {
 	t.Helper()
 	provider := httptest.NewServer(handler)
 	t.Cleanup(provider.Close)
 	store := openStore(t, path)
 	t.Cleanup(func() { _ = store.Close() })
-	rootID := createRoot(t, store)
+	var rootID string
+	if len(engines) == 0 {
+		rootID = createRoot(t, store)
+	} else {
+		if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "accounting", CommandID: "create", Scope: session.CommandScopeDaemon, RequestDigest: "create"}); err != nil {
+			t.Fatal(err)
+		}
+		record, err := store.CreateSessionForCommandWithEngine(t.Context(), "accounting", "create", session.SessionKindAgent, t.TempDir(), "model", "provider", "", engines[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result struct {
+			RootID string `json:"root_id"`
+		}
+		if err := json.Unmarshal(record.Outcome.Inline, &result); err != nil {
+			t.Fatal(err)
+		}
+		rootID = result.RootID
+	}
 	if len(history) > 0 {
 		if err := store.Save(rootID, 1, history, "model", "provider"); err != nil {
 			t.Fatal(err)
@@ -56,7 +74,7 @@ func modelAccountingRuntimeAt(t *testing.T, path string, handler http.HandlerFun
 		limits.MaxWorkers = 4
 		var err error
 		runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{
-			Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(4), KernelCommand: recursiveKernelCommand,
+			Engine: meta.ExecutionEngine, Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(4), KernelCommand: recursiveKernelCommand,
 		})
 		if err != nil {
 			return Components{}, err
@@ -329,111 +347,120 @@ func TestModelAccountingAcceptanceOverageRetainsResponseAndStopsEffects(t *testi
 }
 
 func TestModelAccountingAcceptanceHelperFailureStopsCurrentCell(t *testing.T) {
-	for _, failure := range []string{"overage", "settlement"} {
-		for _, operation := range []string{"call", "batch"} {
-			t.Run(failure+"/"+operation, func(t *testing.T) {
-				path := filepath.Join(t.TempDir(), "sessions.db")
-				var requests atomic.Int32
-				call := `models.call(prompt="nested helper")`
-				if operation == "batch" {
-					call = `models.batch(prompts=["nested helper"])[0]`
-				}
-				code := "result = " + call + "\nprint(result[\"output\"])\n" + `state.private_set(key="helper-budget-write", value="must not exist")`
-				store, root, _ := modelAccountingRuntimeAt(t, path, func(w http.ResponseWriter, r *http.Request) {
-					request, ok := modelAccountingRequest(t, w, r)
-					if !ok {
-						return
+	for _, engine := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
+		for _, failure := range []string{"overage", "settlement"} {
+			for _, operation := range []string{"call", "batch"} {
+				t.Run(engine+"/"+failure+"/"+operation, func(t *testing.T) {
+					path := filepath.Join(t.TempDir(), "sessions.db")
+					var requests atomic.Int32
+					call := `models.call(prompt="nested helper")`
+					if operation == "batch" {
+						call = `models.batch(prompts=["nested helper"])[0]`
 					}
-					count := requests.Add(1)
-					usage := modelAccountingUsage()
-					usage["cost"] = 0
-					if count == 1 {
-						modelAccountingToolReply(w, "nested-helper-cell", code, "", usage)
-						return
+					code := "result = " + call + "\nprint(result[\"output\"])\n" + `state.private_set(key="helper-budget-write", value="must not exist")`
+					if engine == rlm.EngineQuickJS {
+						call = `await models.call({prompt: "nested helper"})`
+						if operation == "batch" {
+							call = `(await models.batch({prompts: ["nested helper"]}))[0]`
+						}
+						code = "const result = " + call + `; print(result.output); await state.private_set({key: "helper-budget-write", value: "must not exist"});`
 					}
-					if count == 2 {
-						if failure == "settlement" {
+					store, root, _ := modelAccountingRuntimeAt(t, path, func(w http.ResponseWriter, r *http.Request) {
+						request, ok := modelAccountingRequest(t, w, r)
+						if !ok {
+							return
+						}
+						count := requests.Add(1)
+						usage := modelAccountingUsage()
+						usage["cost"] = 0
+						if count == 1 {
+							modelAccountingToolReply(w, "nested-helper-cell", code, "", usage)
+							return
+						}
+						if count == 2 {
+							if failure == "settlement" {
+								db, err := sql.Open("sqlite", path)
+								if err != nil {
+									t.Error(err)
+									return
+								}
+								defer db.Close()
+								if _, err := db.ExecContext(t.Context(), `CREATE TRIGGER helper_settlement_failure BEFORE UPDATE ON model_calls BEGIN SELECT RAISE(ABORT,'injected helper settlement failure'); END`); err != nil {
+									t.Error(err)
+									return
+								}
+								usage["cost"] = 0.00019
+							} else {
+								usage["cost"] = 3.25
+							}
+							modelAccountingReply(w, request, "Completed helper output remains available.", usage)
+							return
+						}
+						modelAccountingReply(w, request, "unexpected model continuation", usage)
+					}, nil, nil, engine)
+					if failure == "settlement" {
+						// Remove the injector before shutdown so cleanup can retry only the
+						// saved settlement, without a provider replay.
+						t.Cleanup(func() {
 							db, err := sql.Open("sqlite", path)
 							if err != nil {
 								t.Error(err)
 								return
 							}
 							defer db.Close()
-							if _, err := db.ExecContext(t.Context(), `CREATE TRIGGER helper_settlement_failure BEFORE UPDATE ON model_calls BEGIN SELECT RAISE(ABORT,'injected helper settlement failure'); END`); err != nil {
+							// Test contexts are already cancelled when cleanup begins.
+							cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+							defer cancel()
+							if _, err := db.ExecContext(cleanupCtx, `DROP TRIGGER IF EXISTS helper_settlement_failure`); err != nil {
 								t.Error(err)
-								return
 							}
-							usage["cost"] = 0.00019
-						} else {
-							usage["cost"] = 3.25
-						}
-						modelAccountingReply(w, request, "Completed helper output remains available.", usage)
-						return
+						})
 					}
-					modelAccountingReply(w, request, "unexpected model continuation", usage)
-				}, nil, nil)
-				if failure == "settlement" {
-					// Remove the injector before shutdown so cleanup can retry only the
-					// saved settlement, without a provider replay.
-					t.Cleanup(func() {
+					if err := store.SetBudgetLimit(t.Context(), root.ID(), "", session.BudgetCost, 2_000_000); err != nil {
+						t.Fatal(err)
+					}
+					receipt, err := root.Submit(t.Context(), "run the helper and then update state")
+					if err != nil {
+						t.Fatal(err)
+					}
+					if completion := waitReceipt(t, receipt); completion.Err == nil {
+						t.Fatal("helper accounting failure did not stop the model turn")
+					}
+					if requests.Load() != 2 {
+						t.Fatalf("model continued after helper accounting failure: %d HTTP requests", requests.Load())
+					}
+					if _, err := store.GetPrivateState(t.Context(), root.ID(), root.AgentID(), "helper-budget-write"); !errors.Is(err, session.ErrStateNotFound) {
+						t.Fatalf("the current cell executed an effect after helper accounting failed: %v", err)
+					}
+					_, history, err := store.Load(root.ID())
+					if err != nil {
+						t.Fatal(err)
+					}
+					var retained bool
+					for _, message := range history {
+						retained = retained || message.Role == "tool" && strings.Contains(message.Content, "Completed helper output remains available.")
+					}
+					if !retained {
+						t.Fatalf("completed helper output was discarded from the interrupted cell: %+v", history)
+					}
+					if failure == "settlement" {
 						db, err := sql.Open("sqlite", path)
 						if err != nil {
-							t.Error(err)
-							return
+							t.Fatal(err)
 						}
-						defer db.Close()
-						// Test contexts are already cancelled when cleanup begins.
-						cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
-						defer cancel()
-						if _, err := db.ExecContext(cleanupCtx, `DROP TRIGGER IF EXISTS helper_settlement_failure`); err != nil {
-							t.Error(err)
+						_, err = db.ExecContext(t.Context(), `DROP TRIGGER helper_settlement_failure`)
+						_ = db.Close()
+						if err != nil {
+							t.Fatal(err)
 						}
-					})
-				}
-				if err := store.SetBudgetLimit(t.Context(), root.ID(), "", session.BudgetCost, 2_000_000); err != nil {
-					t.Fatal(err)
-				}
-				receipt, err := root.Submit(t.Context(), "run the helper and then update state")
-				if err != nil {
-					t.Fatal(err)
-				}
-				if completion := waitReceipt(t, receipt); completion.Err == nil {
-					t.Fatal("helper accounting failure did not stop the model turn")
-				}
-				if requests.Load() != 2 {
-					t.Fatalf("model continued after helper accounting failure: %d HTTP requests", requests.Load())
-				}
-				if _, err := store.GetPrivateState(t.Context(), root.ID(), root.AgentID(), "helper-budget-write"); !errors.Is(err, session.ErrStateNotFound) {
-					t.Fatalf("the current cell executed an effect after helper accounting failed: %v", err)
-				}
-				_, history, err := store.Load(root.ID())
-				if err != nil {
-					t.Fatal(err)
-				}
-				var retained bool
-				for _, message := range history {
-					retained = retained || message.Role == "tool" && strings.Contains(message.Content, "Completed helper output remains available.")
-				}
-				if !retained {
-					t.Fatalf("completed helper output was discarded from the interrupted cell: %+v", history)
-				}
-				if failure == "settlement" {
-					db, err := sql.Open("sqlite", path)
-					if err != nil {
-						t.Fatal(err)
+						root.Stop()
+						summary := modelAccountingSummary(t, store, root, "", true)
+						if summary.ReportedCalls != 2 || summary.EstimatedCalls != 0 || summary.ReportedCostMicros != 190 || requests.Load() != 2 {
+							t.Fatalf("shutdown lost the retained actual settlement or replayed the provider: %+v, requests=%d", summary, requests.Load())
+						}
 					}
-					_, err = db.ExecContext(t.Context(), `DROP TRIGGER helper_settlement_failure`)
-					_ = db.Close()
-					if err != nil {
-						t.Fatal(err)
-					}
-					root.Stop()
-					summary := modelAccountingSummary(t, store, root, "", true)
-					if summary.ReportedCalls != 2 || summary.EstimatedCalls != 0 || summary.ReportedCostMicros != 190 || requests.Load() != 2 {
-						t.Fatalf("shutdown lost the retained actual settlement or replayed the provider: %+v, requests=%d", summary, requests.Load())
-					}
-				}
-			})
+				})
+			}
 		}
 	}
 }

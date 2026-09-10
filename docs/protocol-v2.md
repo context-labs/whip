@@ -1,9 +1,9 @@
-# WHIP protocol v5
+# WHIP protocol v6
 
 The Go daemon owns execution, admission, provider credentials, model context,
 configuration and SQLite persistence. Unix sockets and WebSockets use the same
 JSON-RPC 2.0 methods, typed payloads, validation and handlers. WHIP's protocol
-major is `5` (minor `0`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
+major is `6` (minor `0`); the JSON-RPC envelope version remains `"2.0"`. Compatible builds
 attach regardless of build ID. Replacement of a running daemon is explicit.
 
 The executable contract is `internal/protocol`: wire DTOs, operation registry,
@@ -15,6 +15,27 @@ editing Go types with `npm run generate`; drift checks compare without rewriting
 files. Standalone validators require no runtime code generation or Ajv dependency.
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
+
+Protocol **6.0** adds immutable session execution languages and cell result format 2.
+Older clients are rejected during `initialize`, before they can subscribe to JavaScript
+cells whose completion no longer depends on Starlark `steps`. `execution_engines`
+advertises bundled descriptors (`id`, `language`, `label`) and initialization includes
+`default_execution_engine`. `session.create.execution_engine` selects `starlark` or
+`quickjs`; an omitted value resolves on the execution host. Clients freeze the
+resolved language with the create command before its first submission. Session
+metadata and agent views expose `execution_engine`; descendants always derive it
+from the root. Child selection overrides are rejected, and forks preserve the
+source language without copying guest checkpoints. `configuration.get` and
+`configuration.update` expose `default_execution_engine`, backed by `rlm.defaultEngine`.
+
+Fresh stores use schema 15. Versions 10–14 migrate transactionally through each
+required upgrade, preserving identity, history, command receipts and legacy Starlark
+scratch. Version 15 adds a root engine column guarded against updates and an internal
+BLOB checkpoint table keyed by root/agent. Checkpoint publication preserves the last
+good image on failure, validates ownership, engine and SHA-256, and enforces 40 MiB
+per image, 256 MiB per session tree and 1 GiB daemon-wide. One generation per agent
+is retained; deleting an agent subtree or session removes its guest images.
+Engine build/ABI/profile incompatibility fails restore explicitly and retains the image.
 
 Protocol **5.0** adds required `archived` metadata to sessions, snapshots, and
 navigation summaries, and requires a normalized status in catalog cursors.

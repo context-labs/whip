@@ -26,12 +26,16 @@ export interface ExecutionCell {
   readonly code: string;
   readonly output: string;
   readonly value?: string;
+  readonly hasValue?: boolean;
+  readonly executionEngine?: string;
+  readonly language?: string;
   readonly error?: string;
   /** Bounded checkpoint warning and omitted-binding details. */
   readonly scratch?: string;
   readonly status: 'writing' | 'running' | 'completed' | 'failed' | 'interrupted' | 'cancelled' | 'unknown';
   readonly hosts: readonly ExecutionHostCall[];
   readonly steps?: number;
+  readonly quickjsJobs?: number;
   /** Wall time observed by this client, never inferred from replay. */
   readonly observedStartedAt?: number;
   readonly observedEndedAt?: number;
@@ -155,7 +159,7 @@ export function executionCode(args: string): string {
   return '';
 }
 
-type Result = Pick<ExecutionCell, 'status' | 'output' | 'value' | 'error' | 'scratch' | 'steps' | 'truncated'> & { restart?: string; hasResult?: boolean };
+type Result = Pick<ExecutionCell, 'status' | 'output' | 'value' | 'hasValue' | 'executionEngine' | 'language' | 'error' | 'scratch' | 'steps' | 'quickjsJobs' | 'truncated'> & { restart?: string; hasResult?: boolean };
 function result(raw: string): Result {
   const failed = raw.startsWith('Error:');
   // The dispatcher appends one JSON result after its possibly multiline error.
@@ -167,16 +171,29 @@ function result(raw: string): Result {
   if (bounded !== payload) return { ...fallback, truncated: true };
   let parsed: Record<string, unknown> | undefined;
   try { parsed = record(JSON.parse(bounded)); } catch { /* Incomplete or unavailable result. */ }
-  if (!parsed || !('value' in parsed) || typeof parsed.steps !== 'number' || !Number.isInteger(parsed.steps) || parsed.steps < 0
-    || (parsed.output !== undefined && typeof parsed.output !== 'string')) return fallback;
+  if (!parsed || (parsed.output !== undefined && typeof parsed.output !== 'string')) return fallback;
+  const versioned = parsed.format_version !== undefined;
+  const metrics = record(parsed.metrics);
+  if (versioned) {
+    if (parsed.format_version !== 2 || typeof parsed.has_value !== 'boolean' || (parsed.has_value && !('value' in parsed))
+      || !((parsed.execution_engine === 'starlark' && parsed.language === 'starlark') || (parsed.execution_engine === 'quickjs' && parsed.language === 'javascript'))
+      || (parsed.metrics !== undefined && !metrics)) return fallback;
+    if (metrics && Object.values(metrics).some(value => typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) return fallback;
+  } else if (!('value' in parsed) || typeof parsed.steps !== 'number' || !Number.isInteger(parsed.steps) || parsed.steps < 0) return fallback;
+  const hasValue = versioned ? parsed.has_value === true : parsed.value !== null || typeof parsed.value_preview === 'string';
   const output = text(parsed.output);
-  const value = typeof parsed.value_preview === 'string' ? parsed.value_preview : JSON.stringify(parsed.value);
+  const value = hasValue ? typeof parsed.value_preview === 'string' ? parsed.value_preview : JSON.stringify(parsed.value) : '';
   const scratch = record(parsed.scratch);
   return {
-    hasResult: true, status: failed ? 'failed' : 'completed', output: excerpt(output, FIELD_BYTES, true), value: excerpt(value),
+    hasResult: true, status: failed ? 'failed' : 'completed', output: excerpt(output, FIELD_BYTES, true), hasValue,
+    ...(hasValue ? { value: excerpt(value) } : {}),
+    executionEngine: versioned ? text(parsed.execution_engine) : 'starlark', language: versioned ? text(parsed.language) : 'starlark',
     ...(error ? { error } : {}),
     ...(scratch ? { scratch: scratchText(scratch) } : {}),
-    ...(Number.isSafeInteger(parsed.steps) ? { steps: parsed.steps } : { truncated: true }),
+    ...(versioned ? {
+      ...(parsed.execution_engine === 'starlark' && typeof metrics?.starlark_steps === 'number' ? { steps: metrics.starlark_steps } : {}),
+      ...(parsed.execution_engine === 'quickjs' && typeof metrics?.quickjs_jobs === 'number' ? { quickjsJobs: metrics.quickjs_jobs } : {}),
+    } : Number.isSafeInteger(parsed.steps) ? { steps: parsed.steps as number } : { truncated: true }),
     ...(parsed.truncated === true || output !== excerpt(output, FIELD_BYTES, true) || value !== excerpt(value) ? { truncated: true } : {}),
     ...(record(parsed.restored) ? { restart: restartText(record(parsed.restored)!) } : {}),
   };
@@ -442,6 +459,8 @@ export function seedExecutions(previous: ExecutionEvidence | undefined, root: Ro
 export function executionRows(snapshot: DeepReadonly<SessionViewSnapshot>, agentId: string): readonly ExecutionRow[] {
   const root = snapshot.root;
   if (!root) return [];
+  const engine = root.meta?.execution_engine ?? 'starlark';
+  const language = engine === 'quickjs' ? 'javascript' : engine === 'starlark' ? 'starlark' : undefined;
   const history = historyRows(root.root_id, agentId, snapshot.history[agentId]);
   const evidence = snapshot.executions;
   const observed = evidence?.revision === root.history_revision && evidence.rootId === root.root_id ? evidence.rows.filter(row => row.agentId === agentId) : [];
@@ -470,7 +489,8 @@ export function executionRows(snapshot: DeepReadonly<SessionViewSnapshot>, agent
     rows.splice(following < 0 ? rows.length : following, 0, row);
   }
   return Object.freeze(rows.map(row => Object.freeze(row.kind === 'cell'
-    ? { ...row, hosts: Object.freeze(row.hosts.map(host => Object.freeze(host))),
+    ? { ...row, executionEngine: row.executionEngine ?? engine,
+      language: row.language ?? language, hosts: Object.freeze(row.hosts.map(host => Object.freeze(host))),
       ...(row.presentationSeqs ? { presentationSeqs: Object.freeze([...row.presentationSeqs]) } : {}),
       ...(row.body ? { body: Object.freeze(row.body) } : {}) } : row)));
 }

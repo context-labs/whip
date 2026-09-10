@@ -26,6 +26,37 @@ type CodeBlock struct {
 }
 
 func (c CodeBlock) Render(th *theme.Theme) string {
+	bg := th.Surface.Element
+	lines := strings.Split(strings.TrimRight(c.Highlight(th), "\n"), "\n")
+
+	var footer string
+	if c.MaxLines > 0 && len(lines) > c.MaxLines {
+		footer = th.On(th.Muted, bg).Italic(true).Render(fmt.Sprintf("… %d more lines", len(lines)-c.MaxLines))
+		lines = lines[:c.MaxLines]
+	}
+	gutter := 0
+	if c.LineNumbers {
+		gutter = len(strconv.Itoa(len(lines))) + 1
+	}
+	pad := th.Space.PadX
+	inner := max(1, c.Width-2*pad-gutter)
+	num := th.On(th.Muted, bg)
+	out := make([]string, 0, len(lines)+1)
+	for i, l := range lines {
+		row := strings.Repeat(" ", pad)
+		if c.LineNumbers {
+			row += num.Render(fmt.Sprintf("%*d ", gutter-1, i+1))
+		}
+		out = append(out, row+ansi.Truncate(l, inner, "…"))
+	}
+	if footer != "" {
+		out = append(out, strings.Repeat(" ", pad)+footer)
+	}
+	return Fill(strings.Join(out, "\n"), c.Width, bg)
+}
+
+// Highlight preserves complete source lines, without layout padding or truncation.
+func (c CodeBlock) Highlight(th *theme.Theme) string {
 	lex := lexers.Get(c.Lang)
 	if lex == nil {
 		lex = lexers.Analyse(c.Source)
@@ -59,30 +90,5 @@ func (c CodeBlock) Render(th *theme.Theme) string {
 			}
 		}
 	}
-	lines := strings.Split(strings.TrimRight(sb.String(), "\n"), "\n")
-
-	var footer string
-	if c.MaxLines > 0 && len(lines) > c.MaxLines {
-		footer = th.On(th.Muted, bg).Italic(true).Render(fmt.Sprintf("… %d more lines", len(lines)-c.MaxLines))
-		lines = lines[:c.MaxLines]
-	}
-	gutter := 0
-	if c.LineNumbers {
-		gutter = len(strconv.Itoa(len(lines))) + 1
-	}
-	pad := th.Space.PadX
-	inner := max(1, c.Width-2*pad-gutter)
-	num := th.On(th.Muted, bg)
-	out := make([]string, 0, len(lines)+1)
-	for i, l := range lines {
-		row := strings.Repeat(" ", pad)
-		if c.LineNumbers {
-			row += num.Render(fmt.Sprintf("%*d ", gutter-1, i+1))
-		}
-		out = append(out, row+ansi.Truncate(l, inner, "…"))
-	}
-	if footer != "" {
-		out = append(out, strings.Repeat(" ", pad)+footer)
-	}
-	return Fill(strings.Join(out, "\n"), c.Width, bg)
+	return sb.String()
 }

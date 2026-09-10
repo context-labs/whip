@@ -85,6 +85,36 @@ it('recovers an uncertain created session without allocating another and preserv
   f.app.dispose();
 });
 
+it('freezes the execution language before admission and preserves it across default changes and retry', async () => {
+  const f = fixture(); f.lose('session.create', false);
+  const info = { runtime_id: 'host', default_execution_engine: 'quickjs' };
+  f.raw.getSnapshot = () => ({ state: 'connected', info });
+  await expect(f.app.welcome.start('host', f.client, { cwd: '/project' })).rejects.toThrow('Status unavailable');
+  expect(f.app.welcome.get('host')!.params.execution_engine).toBe('quickjs');
+  info.default_execution_engine = 'starlark';
+  f.restore();
+  await expect(f.app.welcome.resume('host', f.client)).rejects.toThrow('Original request absent');
+  expect(await f.app.welcome.resume('host', f.client, true)).toBe('created');
+  expect(f.sends[1]).toEqual(f.sends[0]);
+  expect(f.sends[1].payload.execution_engine).toBe('quickjs');
+  f.app.dispose();
+});
+
+it('retries a legacy absent creation as Starlark after the host changes its default', async () => {
+  const f = fixture(); f.lose('session.create', false);
+  await expect(f.app.welcome.start('host', f.client, { cwd: '/project' })).rejects.toThrow('Status unavailable');
+  const journalKey = 'whip.web.welcome.v2:host';
+  const legacy = JSON.parse(f.storage.getItem(journalKey)!);
+  delete legacy.params.execution_engine;
+  f.storage.setItem(journalKey, JSON.stringify(legacy));
+  f.raw.getSnapshot = () => ({ state: 'connected', info: { runtime_id: 'host', default_execution_engine: 'quickjs' } });
+  f.restore();
+  await expect(f.app.welcome.resume('host', f.client)).rejects.toThrow('Original request absent');
+  await f.app.welcome.resume('host', f.client, true);
+  expect(f.sends[1].payload.execution_engine).toBe('starlark');
+  f.app.dispose();
+});
+
 it('recovers an accepted first input after reload without sending it again', async () => {
   const f = fixture(); f.lose('submit');
   await expect(f.app.welcome.start('host', f.client, { cwd: '/project' })).rejects.toThrow('Status unavailable');

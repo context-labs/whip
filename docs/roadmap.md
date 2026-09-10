@@ -37,6 +37,11 @@ direct-tool and RLM agents.
 
 ## Effectiveness work
 
+- [x] Selectable Starlark/QuickJS engines with immutable session selection,
+  shared host authority, settled checkpoints, and language-aware clients.
+  See [runtime semantics](rlm-runtime.md#execution-language-and-checkpoints).
+- [x] Complete the matched Kimi K3 runtime benchmark and report all attempts
+  in [the results](../evals/runtime-ab/RESULTS.md), with [reproduction](../evals/runtime-ab/README.md).
 - [ ] Add realistic multi-agent benchmark tasks: repository survey, parallel
   review, implementation plus verification, and adversarial message volume.
 - [ ] Measure useful work per root token, child utilization, time-to-first

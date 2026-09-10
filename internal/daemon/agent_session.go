@@ -105,7 +105,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		return "", fmt.Errorf("%w: turn has no input", sessionstore.ErrInvalidInput)
 	}
 	events.OnBoundary = func() ([]llm.Message, error) { return session.pullSteers(ctx, turnID) }
-	if notice := scratchNotice(start); notice != "" {
+	if notice := scratchNotice(start, session.agent.ExecutionLanguage); notice != "" {
 		events.EphemeralSystem = notice
 	}
 	if session.root != nil {
@@ -191,16 +191,20 @@ func (session *AgentSession) recordToolMetadata(calls []llm.ToolCall) {
 
 // scratchNotice tells the model what a replaced worker revived. It is
 // ephemeral: it rides with this turn's requests and never enters history.
-func scratchNotice(start rlm.TurnStart) string {
+func scratchNotice(start rlm.TurnStart, language ...string) string {
+	name := "Starlark"
+	if len(language) > 0 && language[0] == "javascript" {
+		name = "JavaScript (QuickJS)"
+	}
 	const tail = " Durable state, messages, artifacts, transcripts, and workspace files remain available."
 	if start.Restore == nil {
 		if !start.Restarted {
 			return ""
 		}
-		return "Runtime notice: this session's Starlark worker was replaced and no scratch snapshot existed, so its globals were cleared." + tail
+		return "Runtime notice: this session's " + name + " worker was replaced and no checkpoint existed, so its globals were cleared." + tail
 	}
 	var b strings.Builder
-	b.WriteString("Runtime notice: your Starlark worker restarted.")
+	fmt.Fprintf(&b, "Runtime notice: your %s worker restarted.", name)
 	if names := start.Restore.Restored; len(names) > 0 {
 		fmt.Fprintf(&b, " Scratch restored: %s (%d).", boundedNames(names, 30), len(names))
 	} else {
@@ -473,7 +477,7 @@ func (session *AgentSession) ContextAudit() ContextAuditResult {
 		}
 		result.Rows = append(result.Rows, ContextAuditRow{
 			Label: "MCP host schemas", Bytes: mcpBytes,
-			Note: fmt.Sprintf("%d tool(s) behind the Starlark mcp module", len(mcpTools)),
+			Note: fmt.Sprintf("%d tool(s) behind the mcp module", len(mcpTools)),
 		})
 	}
 	return result

@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 14
-	schemaIdentity       = "whip-recursive-runtime-v14"
+	currentSchemaVersion = 15
+	schemaIdentity       = "whip-recursive-runtime-v15"
 )
 
 // SchemaVersion is the database schema supported by this executable. Reading it
@@ -44,12 +44,15 @@ CREATE TABLE sessions (
 	archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
 	effort TEXT NOT NULL DEFAULT '',
 	permission_mode TEXT NOT NULL DEFAULT 'prompt' CHECK(permission_mode IN ('prompt','automatic')),
+	execution_engine TEXT NOT NULL DEFAULT 'starlark' CHECK(execution_engine IN ('starlark','quickjs')),
 	usage_in INTEGER NOT NULL DEFAULT 0,
 	usage_cached INTEGER NOT NULL DEFAULT 0,
 	usage_out INTEGER NOT NULL DEFAULT 0,
 	todos TEXT NOT NULL DEFAULT '',
 	CHECK((kind='agent' AND model<>'' AND provider<>'') OR (kind='tool_host' AND model='' AND provider=''))
 );
+CREATE TRIGGER session_engine_immutable BEFORE UPDATE OF execution_engine ON sessions
+WHEN NEW.execution_engine<>OLD.execution_engine BEGIN SELECT RAISE(ABORT,'session execution engine is immutable'); END;
 CREATE TABLE messages (
 	session_id TEXT NOT NULL REFERENCES sessions(id), seq INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
 	PRIMARY KEY(session_id,seq)
@@ -204,6 +207,11 @@ CREATE TABLE leases (
 	created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
 	FOREIGN KEY(root_id,agent_id) REFERENCES agents(root_id,id),
 	FOREIGN KEY(root_id,operation_id) REFERENCES operations(root_id,id)
+);
+CREATE TABLE agent_checkpoints (
+ root_id TEXT NOT NULL, agent_id TEXT NOT NULL, envelope BLOB NOT NULL, image BLOB NOT NULL,
+ bytes INTEGER NOT NULL CHECK(bytes>0 AND bytes<=41943040), updated_at TEXT NOT NULL,
+ PRIMARY KEY(root_id,agent_id), FOREIGN KEY(root_id,agent_id) REFERENCES agents(root_id,id)
 );
 CREATE TABLE blackboard (
 	root_id TEXT NOT NULL REFERENCES sessions(id), key TEXT NOT NULL, version INTEGER NOT NULL, author_agent_id TEXT NOT NULL,
@@ -368,7 +376,13 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 		version, identity = 13, "whip-recursive-runtime-v13"
 	}
 	if version == 13 && identityErr == nil && identity == "whip-recursive-runtime-v13" {
-		return upgradeV13(ctx, conn)
+		if err := upgradeV13(ctx, conn); err != nil {
+			return err
+		}
+		version, identity = 14, "whip-recursive-runtime-v14"
+	}
+	if version == 14 && identityErr == nil && identity == "whip-recursive-runtime-v14" {
+		return upgradeV14(ctx, conn)
 	}
 	return fmt.Errorf("incompatible development runtime database %q (schema version %d): archive or remove it, then restart WHIP", path, version)
 }
@@ -390,7 +404,8 @@ func upgradeV10(ctx context.Context, conn *sql.Conn) error {
 	if err := conn.QueryRowContext(ctx, `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil {
 		return fmt.Errorf("read upgrade identity: %w", err)
 	}
-	if version == currentSchemaVersion && identity == schemaIdentity ||
+	if version == 14 && identity == "whip-recursive-runtime-v14" ||
+		version == currentSchemaVersion && identity == schemaIdentity ||
 		version == 13 && identity == "whip-recursive-runtime-v13" ||
 		version == 12 && identity == "whip-recursive-runtime-v12" ||
 		version == 11 && identity == "whip-recursive-runtime-v11" {
@@ -427,7 +442,8 @@ func upgradeV12(ctx context.Context, conn *sql.Conn) error {
 	if err := conn.QueryRowContext(ctx, `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil {
 		return err
 	}
-	if version == currentSchemaVersion && identity == schemaIdentity ||
+	if version == 14 && identity == "whip-recursive-runtime-v14" ||
+		version == currentSchemaVersion && identity == schemaIdentity ||
 		version == 13 && identity == "whip-recursive-runtime-v13" {
 		return nil
 	}

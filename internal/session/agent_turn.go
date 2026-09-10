@@ -285,7 +285,7 @@ func (s *Store) LoadAgent(ctx context.Context, rootID, agentID string) (RuntimeA
 }
 
 func (s *Store) LoadRetainedAgents(ctx context.Context, rootID string) ([]RuntimeAgent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status,last_turn
+	rows, err := s.db.QueryContext(ctx, `SELECT id,root_id,COALESCE(parent_id,''),name,model,provider,effort,cwd,report,status,last_turn,(SELECT execution_engine FROM sessions WHERE id=agents.root_id)
 		FROM agents WHERE root_id=? AND parent_id IS NOT NULL AND status NOT IN ('stopped','deleted','failed') ORDER BY created_at,id`, rootID)
 	if err != nil {
 		return nil, err
@@ -294,7 +294,7 @@ func (s *Store) LoadRetainedAgents(ctx context.Context, rootID string) ([]Runtim
 	var result []RuntimeAgent
 	for rows.Next() {
 		var value RuntimeAgent
-		if err := rows.Scan(&value.ID, &value.RootID, &value.ParentID, &value.Name, &value.Model, &value.Provider, &value.Effort, &value.CWD, &value.Report, &value.Status, &value.LastTurn); err != nil {
+		if err := rows.Scan(&value.ID, &value.RootID, &value.ParentID, &value.Name, &value.Model, &value.Provider, &value.Effort, &value.CWD, &value.Report, &value.Status, &value.LastTurn, &value.ExecutionEngine); err != nil {
 			return nil, err
 		}
 		result = append(result, value)

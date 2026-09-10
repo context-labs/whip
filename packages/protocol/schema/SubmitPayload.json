@@ -101,7 +101,7 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v5/SubmitPayload",
+  "$id": "https://whip.dev/protocol/v6/SubmitPayload",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SubmitPayload",
   "required": [

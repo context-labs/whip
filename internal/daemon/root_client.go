@@ -139,6 +139,10 @@ func NewRootClient(options RootClientOptions) (*RootClient, error) {
 	if options.RetryMax < options.RetryMin {
 		options.RetryMax = time.Second
 	}
+	if options.Create != nil {
+		create := *options.Create
+		options.Create = &create
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &RootClient{
 		clientID: options.ClientID, instanceID: rand.Text(),
@@ -527,9 +531,18 @@ func (c *RootClient) run() {
 func (c *RootClient) synchronize(connection RootConnection) error {
 	rootID, cursor := c.position()
 	if rootID == "" {
-		c.mu.RLock()
-		deferred, create := c.deferCreate, c.create
-		c.mu.RUnlock()
+		c.mu.Lock()
+		deferred := c.deferCreate
+		if !deferred && c.create != nil && c.create.ExecutionEngine == "" {
+			if initialized, ok := connection.(interface{ InitializeResult() InitializeResult }); ok {
+				c.create.ExecutionEngine = initialized.InitializeResult().DefaultExecutionEngine
+			}
+			if c.create.ExecutionEngine == "" {
+				c.create.ExecutionEngine = "starlark"
+			}
+		}
+		create := c.create
+		c.mu.Unlock()
 		if deferred {
 			return nil
 		}

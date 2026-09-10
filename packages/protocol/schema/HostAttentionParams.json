@@ -11,7 +11,7 @@
       "type": "integer"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/HostAttentionParams",
+  "$id": "https://whip.dev/protocol/v6/HostAttentionParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "HostAttentionParams",
   "required": [

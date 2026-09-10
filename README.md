@@ -111,8 +111,23 @@ whip auth openrouter
 whip run -p openrouter -m moonshotai/kimi-k3 "inspect this repository and explain its architecture"
 ```
 
+Select an execution language once when creating a session:
+
+```sh
+whip --rlm-engine quickjs
+whip run --rlm-engine quickjs --permission-mode automatic --max-cost 2 --max-tokens 50000 --effort high "inspect this repository"
+```
+
+`starlark` remains the default; configure `rlm.defaultEngine` to change the
+preference for new sessions. JavaScript runs in bundled QuickJS/WASM, without
+Node.js or npm. Children inherit their root's language. Forks preserve it;
+`--resume ID --rlm-engine NAME` asserts the existing selection and rejects a
+conflict. Headless `--max-cost` (USD) and `--max-tokens` cap the entire session
+model ledger, including descendants; `--permission-mode automatic` explicitly
+selects the existing Full Access policy for a new session.
+
 Drop a `.mcp.json` in a repository to make its servers available through the
-Starlark `mcp` module. Use `/mcp` for connection status and `/agents` for the
+selected execution language’s `mcp` module. Use `/mcp` for connection status and `/agents` for the
 durable recursive tree.
 
 Manage the local runtime daemon directly when testing or upgrading a checkout:

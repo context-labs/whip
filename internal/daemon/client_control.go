@@ -274,7 +274,7 @@ func (r *AgentSession) FormGoal(ctx context.Context, window int) (string, llm.Us
 	if err != nil {
 		return "", r.agent.Usage(), err
 	}
-	goal, _, err := r.complete(ctx, agent.BuildGoalFromContextPrompt(tail), 8192)
+	goal, _, err := r.complete(ctx, agent.BuildGoalFromContextPrompt(tail, r.agent.ExecutionLanguage), 8192)
 	goal = strings.TrimSpace(goal)
 	if err == nil && goal == "" {
 		err = errors.New("model returned an empty goal")
@@ -922,9 +922,16 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if !ok {
 			return "", errors.New("session runner does not support run configuration")
 		}
-		runner.ConfigureRun(payload.System, payload.MaxTurns, payload.Headless, payload.CacheKey)
+		// Headless mode prevents waiting for new consent. Automatic mode is
+		// already a durable user authorization and keeps that same policy.
+		permissionMode, err := s.store.PermissionMode(ctx, s.meta.ID)
+		if err != nil {
+			return "", err
+		}
+		denyInteractive := payload.Headless && permissionMode != sessionstore.PermissionModeAutomatic
+		runner.ConfigureRun(payload.System, payload.MaxTurns, denyInteractive, payload.CacheKey)
 		if runtime, ok := s.runtime.(interface{ SetHeadlessPermissions(bool) }); ok {
-			runtime.SetHeadlessPermissions(payload.Headless)
+			runtime.SetHeadlessPermissions(denyInteractive)
 		}
 		return "configured", nil
 	case "cancel":

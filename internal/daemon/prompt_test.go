@@ -397,7 +397,7 @@ func openPromptRuntime(t *testing.T, store *session.Store, rootID string, client
 		limits := rlm.DefaultLimits()
 		var err error
 		runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{
-			Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
+			Engine: meta.ExecutionEngine, Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
 		})
 		if err != nil {
 			return Components{}, err

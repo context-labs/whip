@@ -315,20 +315,16 @@ func (m *model) footerView(width int) string {
 	return ui.StatusBar{Left: " " + m.footerLeft(th), Right: ui.Hints(th, nil, m.footerRight(width)...) + " ", Width: width}.Render(th)
 }
 
-// footerRight lists the global chords; "ctrl+p commands" joins on terminals
-// wide enough to hold four hints beside the left side.
-func (m *model) footerRight(width int) []string {
+// footerRight is opencode's: the palette key and the REPL toggle. The ctrl+x
+// chords stay discoverable through the leader footer and the palette.
+func (m *model) footerRight(int) []string {
 	if m.beforeSession() {
 		return []string{"/connect", "providers", "ctrl+p", "commands"}
 	}
 	if m.leaderPending() {
 		return nil // the left side lists every chord; the right would only repeat and crowd it
 	}
-	pairs := []string{"ctrl+x r", "repl", "ctrl+x t", "themes", "ctrl+x b", "sidebar"}
-	if width >= sidebarMinWidth {
-		pairs = append(pairs, "ctrl+p", "commands")
-	}
-	return pairs
+	return []string{"ctrl+r", "repl", "ctrl+p", "commands"}
 }
 
 // footerLeft follows the keyboard's owner: the running turn, an armed leader

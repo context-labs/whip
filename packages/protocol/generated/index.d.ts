@@ -41,6 +41,7 @@ export interface AgentInputParams {
 export type AgentListResult =
   | null
   | {
+      execution_engine: string;
       last_turn?: null | {
         turn_id?: string;
         status: string;
@@ -101,6 +102,7 @@ export interface AgentTranscriptResult {
   };
   cursor: string;
   agent: {
+    execution_engine: string;
     last_turn?: null | {
       turn_id?: string;
       status: string;
@@ -502,6 +504,7 @@ export interface ComputerStatusResult {
 }
 
 export interface ConfigurationUpdate {
+  default_execution_engine?: null | string;
   disabled_providers?: null | string[];
   remote_hosts?:
     | null
@@ -614,6 +617,7 @@ export interface ContextAuditResult {
 }
 
 export interface CreateSessionParams {
+  execution_engine?: string;
   kind: string;
   cwd: string;
   model: string;
@@ -832,6 +836,24 @@ export interface InitializeParams {
 }
 
 export interface InitializeResult {
+  execution_engines:
+    | null
+    | {
+        bridge_sha256?: string;
+        build?: string;
+        abi?: string;
+        profile?: string;
+        fidelity?: string;
+        guide_sha256?: string;
+        features?: null | string[];
+        default_limits?: {
+          [k: string]: number;
+        };
+        id: string;
+        language: string;
+        label: string;
+      }[];
+  default_execution_engine: string;
   operations:
     | null
     | {
@@ -1647,6 +1669,7 @@ export interface RootCollectionPage {
     | null
     | ({
         agent?: null | {
+          execution_engine: string;
           last_turn?: null | {
             turn_id?: string;
             status: string;
@@ -1783,6 +1806,7 @@ export interface RootCollectionPage {
       } & (
         | {
             agent: null | {
+              execution_engine: string;
               last_turn?: null | {
                 turn_id?: string;
                 status: string;
@@ -1975,6 +1999,7 @@ export interface RootSnapshot {
   root_id: string;
   cursor: string;
   meta: {
+    execution_engine: string;
     id: string;
     kind: string;
     title: string;
@@ -2058,6 +2083,7 @@ export interface RootSnapshot {
   agents:
     | null
     | {
+        execution_engine: string;
         last_turn?: null | {
           turn_id?: string;
           status: string;
@@ -2310,6 +2336,7 @@ export interface RunConfigureParams {
 }
 
 export interface RuntimeConfiguration {
+  default_execution_engine: string;
   disabled_providers?: null | string[];
   discovery?: null | {
     status: string;
@@ -2403,6 +2430,7 @@ export interface SessionCatalogParams {
 export type SessionListResult =
   | null
   | {
+      execution_engine: string;
       id: string;
       kind: string;
       title: string;

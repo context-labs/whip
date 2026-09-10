@@ -203,6 +203,18 @@ func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID
 // CreateSessionForCommandWithPermission persists the initial consent choice in
 // the same transaction as session creation and the durable command outcome.
 func (s *Store) CreateSessionForCommandWithPermission(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode string) (CommandRecord, error) {
+	return s.CreateSessionForCommandWithEngine(ctx, clientID, commandID, kind, cwd, model, provider, permissionMode, "")
+}
+
+// CreateSessionForCommandWithEngine pins language with creation and its command receipt.
+func (s *Store) CreateSessionForCommandWithEngine(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode, engine string) (CommandRecord, error) {
+	if engine == "" {
+		engine = "starlark"
+	}
+	if engine != "starlark" && engine != "quickjs" {
+		return CommandRecord{}, fmt.Errorf("unknown execution engine %q", engine)
+	}
+
 	if err := validateSessionIdentity(kind, cwd, model, provider); err != nil {
 		return CommandRecord{}, err
 	}
@@ -232,8 +244,8 @@ func (s *Store) CreateSessionForCommandWithPermission(ctx context.Context, clien
 		return CommandRecord{}, err
 	}
 	stamp := now()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider,permission_mode) VALUES(?,?,?,?,?,?,?,?)`,
-		rootID, kind, stamp, stamp, cwd, model, provider, permissionMode); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider,permission_mode,execution_engine) VALUES(?,?,?,?,?,?,?,?,?)`,
+		rootID, kind, stamp, stamp, cwd, model, provider, permissionMode, engine); err != nil {
 		return CommandRecord{}, err
 	}
 	outcome, _ := json.Marshal(struct {

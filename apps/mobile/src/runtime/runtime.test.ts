@@ -21,7 +21,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(
 function rootSnapshot(): RootSnapshot {
   return {
     root_id: 'root', cursor: '10', history_revision: '1', active_turns: {},
-    meta: { id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', goal: '', forked_from: '', fork_seq: 0,
+    meta: { execution_engine: 'starlark', id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', goal: '', forked_from: '', fork_seq: 0,
       tags: [], archived: false, pinned: false, effort: '', usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
     messages: [], message_seqs: [], presentation: [], agent_presentations: {}, agents: [], inbox: [], blackboard: [],
     budgets: [], capabilities: [], schedules: [], permissions: [], questions: [],
@@ -60,6 +60,7 @@ async function fixture(queryTimeoutMs = 30) {
       if (request.method === 'initialize') peer.reply(request, {
         protocol_major: manifest.major, protocol_minor: manifest.minor, runtime_id: 'runtime', connection_id: `connection-${peers.length}`,
         generation: '1', build_id: 'fixture', host_platform: 'darwin', host_architecture: 'arm64', capabilities: [], negotiated_capabilities: [],
+        execution_engines: [{ id: 'starlark', language: 'starlark', label: 'Starlark' }, { id: 'quickjs', language: 'javascript', label: 'JavaScript (QuickJS)' }], default_execution_engine: 'starlark',
         operations: manifest.operations.map(operation => ({ ...operation })),
         limits: { frame_bytes: 1 << 20, connections: 64, in_flight_requests: 32, outbound_messages: 1024, outbound_bytes: String(8 << 20), root_subscriptions: 16, content_chunk_bytes: 256 << 10, upload_bytes: String(64 << 20) },
       });

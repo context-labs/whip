@@ -11,7 +11,7 @@
       "uniqueItems": true
     }
   },
-  "$id": "https://whip.dev/protocol/v5/SessionSummariesParams",
+  "$id": "https://whip.dev/protocol/v6/SessionSummariesParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SessionSummariesParams",
   "required": [

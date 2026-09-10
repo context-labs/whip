@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -114,8 +113,8 @@ func (view historyView) source(message llm.Message) map[string]any {
 func (host *recursiveHost) history(ctx context.Context, operation string, arguments map[string]any) (any, error) {
 	for _, key := range []string{"seq", "after_seq", "through_seq", "offset", "length", "limit"} {
 		if raw, present := arguments[key]; present {
-			value, ok := raw.(float64)
-			if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value != math.Trunc(value) || math.Abs(value) > (1<<53)-1 {
+			value, ok := runtimeInteger(raw)
+			if !ok || value < -((1<<53)-1) || value > (1<<53)-1 {
 				return nil, fmt.Errorf("history %s must be an exactly representable integer", key)
 			}
 		}
@@ -125,7 +124,11 @@ func (host *recursiveHost) history(ctx context.Context, operation string, argume
 		return nil, err
 	}
 	if operation == "inspect" {
-		return view.cursor(map[string]any{"source": "agent history", "agent_id": view.node.id, "committed_through_seq": view.committed, "retained_messages": view.count, "read": "context.history(after_seq=0) or context.history(seq=N, offset=0, length=8192)"}), nil
+		read := "context.history(after_seq=0) or context.history(seq=N, offset=0, length=8192)"
+		if view.node.agent.ExecutionLanguage == "javascript" {
+			read = "await context.history({after_seq: 0}) or await context.history({seq: N, offset: 0, length: 8192})"
+		}
+		return view.cursor(map[string]any{"source": "agent history", "agent_id": view.node.id, "committed_through_seq": view.committed, "retained_messages": view.count, "read": read}), nil
 	}
 	if operation == "search" {
 		return view.search(ctx, arguments)

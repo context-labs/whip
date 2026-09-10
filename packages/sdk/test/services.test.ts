@@ -289,7 +289,7 @@ test('provider secrets, configuration updates, and terminal input never enter re
   const fixture = transportFixture({ request(request, connection) {
     if (request.method === 'provider.key.set') connection.reply(request, {
       import_claude: false, import_codex: false, revision: '4', default_model: '', default_provider: 'openrouter',
-      default_effort: '', compact_model: '', compact_provider: '', compact_percent: 70, goal_max_rounds: 1, max_retries: 1,
+      default_effort: '', default_execution_engine: 'starlark', compact_model: '', compact_provider: '', compact_percent: 70, goal_max_rounds: 1, max_retries: 1,
       discovery: { status: 'unverified', message: 'Using the bundled model list; try a model to verify access.', model_count: 2 },
     });
     else if (request.method === 'config.update') connection.error(request, 'conflict');

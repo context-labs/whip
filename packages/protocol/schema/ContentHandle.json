@@ -19,7 +19,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/ContentHandle",
+  "$id": "https://whip.dev/protocol/v6/ContentHandle",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ContentHandle",
   "required": [

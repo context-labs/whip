@@ -47,7 +47,7 @@ test('creates, applies nondefault-persisting effort, and submits with independen
   expect(fixture.saves.map(save => [save.pendingStep, save.rootId])).toEqual([
     ['create', undefined], [undefined, 'root'], ['effort', 'root'], [undefined, 'root'], ['submit', 'root'], [undefined, 'root'],
   ]);
-  expect(fixture.run).toHaveBeenNthCalledWith(1, 'session.create', { cwd: '/host/project', kind: 'agent', model: 'model', provider: 'provider' }, { intent: { workflowId: 'workflow', step: 'create' } });
+  expect(fixture.run).toHaveBeenNthCalledWith(1, 'session.create', { cwd: '/host/project', kind: 'agent', model: 'model', provider: 'provider', execution_engine: 'starlark' }, { intent: { workflowId: 'workflow', step: 'create' } });
   expect(fixture.run).toHaveBeenNthCalledWith(2, 'session.effort', { effort: 'high', persist_default: false }, { rootId: 'root', intent: { workflowId: 'workflow', step: 'effort', agentId: 'root' } });
   expect(fixture.run).toHaveBeenNthCalledWith(3, 'submit', { text: 'First message' }, {
     rootId: 'root', intent: { workflowId: 'workflow', step: 'submit', agentId: 'root', draftKey: creationDraftKey(workflow()), draftRevision: 'revision-1' },
@@ -119,10 +119,22 @@ test('host defaults omit optional steps and only catalog-supported reasoning lev
   const fixture = runner();
   await advanceCreation({ ...workflow(), model: undefined, provider: undefined, effort: undefined }, { ...fixture.deps, draft: () => ({ text: '', revision: '' }) });
   expect(fixture.run).toHaveBeenCalledTimes(1);
-  expect(fixture.run).toHaveBeenCalledWith('session.create', { cwd: '/host/project', kind: 'agent', model: '', provider: '' }, expect.anything());
+  expect(fixture.run).toHaveBeenCalledWith('session.create', { cwd: '/host/project', kind: 'agent', model: '', provider: '', execution_engine: 'starlark' }, expect.anything());
   expect(creationModels({ models: { model: { providers: ['provider'] } }, providers: {}, catalogs: { provider: { fetched_at: '', base_url: '', models: [{ id: 'model', reasoning_efforts: ['low', 'high', 'high'] }] } } })).toEqual([{ model: 'model', provider: 'provider', efforts: ['low', 'high'] }]);
   expect(creationModels({ models: { model: { providers: ['provider'] } }, providers: { provider: { base_url: '', available: false } }, catalogs: { provider: { fetched_at: '', base_url: '', models: [{ id: 'model' }] } } })).toEqual([]);
   expect(() => validateWorkflow(workflow(), 'another-runtime', 'client')).toThrow('unavailable identity');
+});
+
+test('persists the selected engine before creation and retains it when resuming a failed workflow', async () => {
+  const fixture = runner(); fixture.fail('session.create');
+  await expect(advanceCreation({ ...workflow(), executionEngine: 'quickjs' }, fixture.deps)).rejects.toThrow('Session creation failed');
+  expect(fixture.saves[0].executionEngine).toBe('quickjs');
+  const saved = validateWorkflow(fixture.saves[0], 'runtime', 'client');
+  const resumed = runner();
+  await advanceCreation({ ...saved, pendingStep: undefined }, resumed.deps);
+  expect(resumed.run).toHaveBeenNthCalledWith(1, 'session.create', expect.objectContaining({ execution_engine: 'quickjs' }), expect.anything());
+  expect(validateWorkflow(workflow(), 'runtime', 'client').executionEngine).toBe('starlark');
+  expect(() => validateWorkflow({ ...workflow(), executionEngine: 'unknown' }, 'runtime', 'client')).toThrow('unsupported');
 });
 
 

@@ -13,11 +13,12 @@ import { useSettingsEdits } from './unsaved';
 
 type Category = 'providers' | 'execution';
 const providerFields = ['default_model', 'default_provider', 'default_effort'] as const;
-const executionFields = ['compact_model', 'compact_provider', 'compact_percent', 'goal_max_rounds', 'max_retries', 'import_claude', 'import_codex'] as const;
+const executionFields = ['default_execution_engine', 'compact_model', 'compact_provider', 'compact_percent', 'goal_max_rounds', 'max_retries', 'import_claude', 'import_codex'] as const;
 type Values = Pick<RuntimeConfiguration, typeof providerFields[number] | typeof executionFields[number]>;
 function values(config: RuntimeConfiguration): Values {
   return {
     default_model: config.default_model, default_provider: config.default_provider, default_effort: config.default_effort,
+    default_execution_engine: config.default_execution_engine,
     compact_model: config.compact_model, compact_provider: config.compact_provider, compact_percent: config.compact_percent,
     goal_max_rounds: config.goal_max_rounds, max_retries: config.max_retries, import_claude: config.import_claude, import_codex: config.import_codex,
   };
@@ -29,6 +30,7 @@ export function configurationPatch(category: Category, value: Values, revision: 
     revision, default_model: value.default_model, default_provider: value.default_provider, default_effort: value.default_effort,
   };
   return {
+    default_execution_engine: value.default_execution_engine,
     revision, compact_model: value.compact_model, compact_provider: value.compact_provider, compact_percent: value.compact_percent,
     goal_max_rounds: value.goal_max_rounds, max_retries: value.max_retries, import_claude: value.import_claude, import_codex: value.import_codex,
   };
@@ -140,6 +142,13 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
         </SettingRow>;
       }}</form.Field>
     </SettingsGroup> : <>
+      <SettingsGroup title="Defaults for new sessions">
+        <form.Field name="default_execution_engine">{field => <SettingRow id="default_execution_engine" label="Execution language" description="Used for future sessions and all their child agents. Existing sessions keep their language.">
+          <Select label="Execution language" value={field.state.value} xstyle={settingsSection.control} disabled={!enabled || submitting || !client.getSnapshot().info?.execution_engines?.length}
+            options={(client.getSnapshot().info?.execution_engines ?? []).filter(engine => engine.id === 'starlark' || engine.id === 'quickjs').map(engine => ({ value: engine.id, label: engine.label }))}
+            onValueChange={field.handleChange} />
+        </SettingRow>}</form.Field>
+      </SettingsGroup>
       <SettingsGroup title="Context compaction">
         {textField('compact_model', 'Compaction model', 'Model used to summarize conversation context.')}
         {textField('compact_provider', 'Compaction provider', 'Provider used for context compaction.')}

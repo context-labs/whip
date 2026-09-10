@@ -20,6 +20,7 @@ export function transportFixture(options: {
     protocol_major: manifest.major, protocol_minor: manifest.minor, runtime_id: 'fixture-runtime', connection_id: 'fixture-connection',
     generation: '9007199254740993', build_id: 'fixture', host_platform: 'darwin', host_architecture: 'arm64',
     capabilities: [], negotiated_capabilities: [],
+    execution_engines: [{ id: 'starlark', language: 'starlark', label: 'Starlark' }, { id: 'quickjs', language: 'javascript', label: 'JavaScript (QuickJS)' }], default_execution_engine: 'starlark',
     operations: manifest.operations.map(operation => ({ ...operation })),
     limits: { frame_bytes: 1 << 20, connections: 64, in_flight_requests: 32, outbound_messages: 1024,
       outbound_bytes: String(8 << 20), root_subscriptions: 16, content_chunk_bytes: 4, upload_bytes: String(64 << 20) },

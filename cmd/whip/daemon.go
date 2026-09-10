@@ -165,7 +165,7 @@ func runDaemon(ctx context.Context, args []string) error {
 			mcpManager.SetBlocked(discovery.Blocked)
 		}
 		runtime, err := daemon.NewRecursiveRuntime(daemon.RecursiveRuntimeOptions{
-			Agent: ag, History: history, Limits: limits, Kernels: kernels,
+			Engine: meta.ExecutionEngine, Agent: ag, History: history, Limits: limits, Kernels: kernels,
 			KernelCommand: daemonKernelCommand,
 		})
 		if err != nil {
@@ -322,6 +322,9 @@ func resolvedRuntimeEffort(catalogs map[string]config.Catalog, provider, modelID
 
 func rlmLimits(value config.RLMConfig) rlm.Limits {
 	limits := rlm.DefaultLimits()
+	if value.MaxConcurrentHostCalls != 0 {
+		limits.MaxConcurrentHostCalls = value.MaxConcurrentHostCalls
+	}
 	if value.Steps > 0 {
 		limits.Steps = value.Steps
 	}

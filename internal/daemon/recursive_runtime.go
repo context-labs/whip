@@ -26,6 +26,7 @@ import (
 )
 
 type RecursiveRuntimeOptions struct {
+	Engine        string
 	Agent         *agent.Agent
 	History       []llm.Message
 	Limits        rlm.Limits
@@ -36,6 +37,7 @@ type RecursiveRuntimeOptions struct {
 // RecursiveRuntime owns one tree of identical RLM agent sessions. The daemon
 // root actor remains the durable serialization boundary for the whole tree.
 type RecursiveRuntime struct {
+	engine      string
 	mu          sync.RWMutex
 	root        *Session
 	rootNode    *AgentSession
@@ -96,6 +98,10 @@ type recursiveHost struct {
 }
 
 func NewRecursiveRuntime(options RecursiveRuntimeOptions) (*RecursiveRuntime, error) {
+	descriptor, err := rlm.ResolveEngine(options.Engine)
+	if err != nil {
+		return nil, err
+	}
 	if options.Agent == nil {
 		return nil, errors.New("recursive runtime requires an agent")
 	}
@@ -103,7 +109,7 @@ func NewRecursiveRuntime(options RecursiveRuntimeOptions) (*RecursiveRuntime, er
 		options.Kernels = rlm.NewManager(options.Limits.MaxWorkers)
 	}
 	runtime := &RecursiveRuntime{
-		agents: make(map[string]*AgentSession), limits: options.Limits, kernels: options.Kernels,
+		engine: descriptor.ID, agents: make(map[string]*AgentSession), limits: options.Limits, kernels: options.Kernels,
 		command: append([]string(nil), options.KernelCommand...),
 	}
 	node, err := runtime.newNode(options.Agent, "", "root", nil, capability.Authority{})
@@ -221,13 +227,14 @@ func (runtime *RecursiveRuntime) newNode(value *agent.Agent, parentID, name stri
 	}
 	host := &recursiveHost{session: node}
 	kernel, err := rlm.NewKernel(rlm.KernelOptions{
-		Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
+		Engine: runtime.engine, Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
 		OnRestore: node.recordScratchRestore, OnHostStart: node.emitHostStart, OnHostCall: node.emitHostCall,
 	})
 	if err != nil {
 		return nil, err
 	}
 	node.host, node.kernel = host, kernel
+	value.ExecutionLanguage = kernel.Describe().Language
 	value.SetExclusiveTool(rlm.Tool(kernel), "rlm")
 	if runtime.root != nil {
 		node.bindPresentation(runtime.root)
@@ -243,6 +250,10 @@ func (runtime *RecursiveRuntime) Bind(ctx context.Context, root *Session) error 
 	if runtime.closed {
 		runtime.mu.Unlock()
 		return errors.New("recursive runtime is closed")
+	}
+	if root.meta.ExecutionEngine != runtime.engine {
+		runtime.mu.Unlock()
+		return fmt.Errorf("session execution engine %s does not match runtime %s", root.meta.ExecutionEngine, runtime.engine)
 	}
 	runtime.root = root
 	node := runtime.rootNode
@@ -1100,6 +1111,11 @@ func (runtime *RecursiveRuntime) spawn(ctx context.Context, parent *AgentSession
 }
 
 func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *AgentSession, name, prompt string, arguments map[string]any) (any, error) {
+	for _, key := range []string{"execution_engine", "engine", "rlm_engine"} {
+		if _, present := arguments[key]; present {
+			return nil, fmt.Errorf("agents.spawn does not accept %s; descendants inherit session execution engine %s", key, runtime.engine)
+		}
+	}
 	capabilities, err := requestedCapabilities(arguments["capabilities"], parent.capabilities)
 	if err != nil {
 		return nil, err
@@ -1599,7 +1615,7 @@ func (host *recursiveHost) state(ctx context.Context, operation string, argument
 	if strings.HasSuffix(operation, "_set") || strings.HasSuffix(operation, "_append") || strings.HasSuffix(operation, "_cas") {
 		value, exists := arguments["value"]
 		if !exists {
-			return nil, errors.New("state mutation requires value (use None for JSON null)")
+			return nil, errors.New("state mutation requires value (use the selected language's null literal for JSON null)")
 		}
 		var err error
 		payload, err = runtimeStatePayload(value)
@@ -1744,11 +1760,11 @@ func requestedBudgets(value any) ([]sessionstore.BudgetLimit, error) {
 	sort.Strings(keys)
 	result := make([]sessionstore.BudgetLimit, 0, len(keys))
 	for _, key := range keys {
-		limit, ok := items[key].(float64)
-		if !ok || math.IsNaN(limit) || math.IsInf(limit, 0) || limit < 0 || limit >= float64(math.MaxInt64) || math.Trunc(limit) != limit {
+		limit, ok := runtimeInteger(items[key])
+		if !ok || limit < 0 || limit == math.MaxInt64 {
 			return nil, fmt.Errorf("budget %q must be a non-negative integer", key)
 		}
-		result = append(result, sessionstore.BudgetLimit{Kind: sessionstore.BudgetKind(key), Limit: int64(limit)})
+		result = append(result, sessionstore.BudgetLimit{Kind: sessionstore.BudgetKind(key), Limit: limit})
 	}
 	return result, nil
 }
@@ -1797,20 +1813,37 @@ func stringListArgument(arguments map[string]any, key string) ([]string, error) 
 	return result, nil
 }
 
+func runtimeInteger(value any) (int64, bool) {
+	switch value := value.(type) {
+	case json.Number:
+		number, err := value.Int64()
+		return number, err == nil
+	case int:
+		return int64(value), true
+	case int64:
+		return value, true
+	case float64:
+		if value >= -0x1p63 && value < 0x1p63 && value == math.Trunc(value) {
+			return int64(value), true
+		}
+	}
+	return 0, false
+}
+
 func intArgument(arguments map[string]any, key string, fallback int) int {
-	value, ok := arguments[key].(float64)
-	if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value != math.Trunc(value) || value < math.MinInt || value > math.MaxInt {
+	value, ok := runtimeInteger(arguments[key])
+	if !ok || value < math.MinInt || value > math.MaxInt {
 		return fallback
 	}
 	return int(value)
 }
 
 func int64Argument(arguments map[string]any, key string, fallback int64) int64 {
-	value, ok := arguments[key].(float64)
-	if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value != math.Trunc(value) || value < math.MinInt64 || value > math.MaxInt64 {
+	value, ok := runtimeInteger(arguments[key])
+	if !ok {
 		return fallback
 	}
-	return int64(value)
+	return value
 }
 
 func utf8PrefixRuntime(value string, bytes int) string {

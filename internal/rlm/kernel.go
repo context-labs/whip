@@ -32,18 +32,19 @@ var (
 )
 
 type Limits struct {
-	Steps        uint64
-	HostRequests int
-	Wall         time.Duration
-	MemoryBytes  uint64
-	OutputBytes  int
-	FrameBytes   int
-	MaxWorkers   int
+	Steps                  uint64
+	MaxConcurrentHostCalls int
+	HostRequests           int
+	Wall                   time.Duration
+	MemoryBytes            uint64
+	OutputBytes            int
+	FrameBytes             int
+	MaxWorkers             int
 }
 
 func DefaultLimits() Limits {
 	return Limits{
-		Steps: defaultSteps, HostRequests: defaultHostRequests, Wall: 30 * time.Second,
+		Steps: defaultSteps, MaxConcurrentHostCalls: maxOutstandingCalls, HostRequests: defaultHostRequests, Wall: 30 * time.Second,
 		MemoryBytes: defaultMemoryBytes, OutputBytes: defaultOutputBytes,
 		FrameBytes: defaultFrameBytes, MaxWorkers: 4,
 	}
@@ -51,6 +52,9 @@ func DefaultLimits() Limits {
 
 func (limits Limits) normalized() Limits {
 	defaults := DefaultLimits()
+	if limits.MaxConcurrentHostCalls == 0 {
+		limits.MaxConcurrentHostCalls = defaults.MaxConcurrentHostCalls
+	}
 	if limits.Steps == 0 {
 		limits.Steps = defaults.Steps
 	}
@@ -313,6 +317,8 @@ func (manager *Manager) Close() {
 }
 
 type KernelOptions struct {
+	Engine      string
+	Checkpoints CheckpointStore
 	// Command is the executable plus any hidden-mode prefix. Production uses
 	// [current executable, "_kernel"]; tests may use a test helper prefix.
 	Command []string
@@ -355,10 +361,16 @@ type ScratchReport struct {
 }
 
 type Result struct {
-	Scratch *ScratchReport `json:"scratch,omitempty"`
-	Value   any            `json:"value"`
-	Output  string         `json:"output,omitempty"`
-	Steps   uint64         `json:"steps"`
+	Termination     string            `json:"termination,omitempty"`
+	FormatVersion   int               `json:"format_version"`
+	ExecutionEngine string            `json:"execution_engine"`
+	Language        string            `json:"language"`
+	HasValue        bool              `json:"has_value"`
+	Metrics         map[string]uint64 `json:"metrics"`
+	Scratch         *ScratchReport    `json:"scratch,omitempty"`
+	Value           any               `json:"value"`
+	Output          string            `json:"output,omitempty"`
+	Steps           uint64            `json:"steps"`
 	// Restored is set when this cell ran on a worker that was restarted
 	// mid-turn and had its scratch revived first.
 	Restored *RestoreReport `json:"restored,omitempty"`
@@ -373,6 +385,8 @@ type TurnStart struct {
 }
 
 type Kernel struct {
+	engine      EngineDescriptor
+	checkpoints CheckpointStore
 	execMu      sync.Mutex
 	mu          sync.Mutex
 	command     []string
@@ -393,18 +407,29 @@ type Kernel struct {
 	needsRestore bool // a fresh process has not loaded the stored scratch yet
 }
 
+type frameOutcome struct {
+	frame frame
+	err   error
+}
+
 type workerProcess struct {
-	command *exec.Cmd
-	input   io.WriteCloser
-	output  *bufio.Reader
-	done    chan struct{}
-	dir     string
-	stderr  *limitedBuffer
+	frames   chan frameOutcome
+	readDone chan struct{}
+	command  *exec.Cmd
+	input    io.WriteCloser
+	output   *bufio.Reader
+	done     chan struct{}
+	dir      string
+	stderr   *limitedBuffer
 }
 
 func NewKernel(options KernelOptions) (*Kernel, error) {
+	descriptor, err := ResolveEngine(options.Engine)
+	if err != nil {
+		return nil, err
+	}
 	limits := options.Limits.normalized()
-	if limits.HostRequests < 1 || limits.Wall < time.Millisecond || limits.MemoryBytes > math.MaxInt64/4 || limits.OutputBytes < 1 || limits.FrameBytes < 1 || limits.MaxWorkers < 1 {
+	if limits.MaxConcurrentHostCalls < 1 || limits.MaxConcurrentHostCalls > maxOutstandingCalls || limits.HostRequests < 1 || limits.Wall < time.Millisecond || limits.MemoryBytes > math.MaxInt64/4 || limits.OutputBytes < 1 || limits.FrameBytes < 1 || limits.MaxWorkers < 1 {
 		return nil, errors.New("invalid RLM kernel limits")
 	}
 	command := append([]string(nil), options.Command...)
@@ -419,6 +444,7 @@ func NewKernel(options KernelOptions) (*Kernel, error) {
 		options.Manager = NewManager(limits.MaxWorkers)
 	}
 	return &Kernel{
+		engine: descriptor, checkpoints: options.Checkpoints,
 		command: command, limits: limits, manager: options.Manager, host: options.Host,
 		scratch: options.Scratch, onRestore: options.OnRestore,
 		onHostStart: options.OnHostStart, onHostCall: options.OnHostCall,
@@ -469,6 +495,7 @@ func (kernel *Kernel) Exec(ctx context.Context, code string) (Result, error) {
 		restored = report
 	}
 	result, err := kernel.evalLocked(ctx, code)
+	result.FormatVersion, result.ExecutionEngine, result.Language = 2, kernel.engine.ID, kernel.engine.Language
 	result.Restored = restored
 	result.Scratch = kernel.snapshotLocked(ctx)
 	return result, err
@@ -477,6 +504,9 @@ func (kernel *Kernel) Exec(ctx context.Context, code string) (Result, error) {
 // evalLocked runs one cell on the resident worker, serving host requests
 // until the result frame arrives. The caller holds kernel.mu.
 func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, error) {
+	if kernel.engine.ID == EngineQuickJS {
+		return kernel.evalQuickJSLocked(ctx, code)
+	}
 	kernel.nextID++
 	id := kernel.nextID
 	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, frame{Type: "eval", ID: id, Code: code}); err != nil {
@@ -566,7 +596,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 				kernel.stop()
 				return Result{}, errors.New("mismatched RLM evaluation result")
 			}
-			result := Result{Value: response.Value, Output: response.Output, Steps: response.Steps}
+			result := Result{Value: response.Value, Output: response.Output, Steps: response.Steps, HasValue: response.HasValue, Metrics: map[string]uint64{"starlark_steps": response.Steps}}
 			if response.Error != "" {
 				return result, errors.New(response.Error)
 			}
@@ -663,7 +693,13 @@ func (kernel *Kernel) restoreLocked(ctx context.Context) (*RestoreReport, error)
 	if !kernel.needsRestore {
 		return nil, nil //nolint:nilnil // nil report means nothing to report
 	}
-	if kernel.scratch == nil {
+	if kernel.checkpoints != nil {
+		report, found, err := kernel.restoreCheckpointLocked(ctx)
+		if err != nil || found {
+			return report, err
+		}
+	}
+	if kernel.scratch == nil || kernel.engine.ID != EngineStarlark {
 		kernel.needsRestore = false
 		return nil, nil //nolint:nilnil // no store configured
 	}
@@ -723,6 +759,9 @@ func scratchSkippedHash(skipped []SkippedName) [32]byte {
 // snapshotLocked persists changed scratch after a cell. Persistence failures
 // preserve the cell result and are retried after the next cell.
 func (kernel *Kernel) snapshotLocked(ctx context.Context) *ScratchReport {
+	if kernel.checkpoints != nil {
+		return kernel.captureCheckpointLocked(ctx)
+	}
 	if kernel.scratch == nil || kernel.worker == nil {
 		return nil
 	}
@@ -778,7 +817,11 @@ func (kernel *Kernel) roundTripLocked(ctx context.Context, request frame) (frame
 		kernel.stop()
 		return frame{}, err
 	}
-	callCtx, cancel := context.WithTimeout(ctx, kernel.limits.Wall)
+	timeout := kernel.limits.Wall
+	if request.Type == "hello" {
+		timeout = max(timeout, 5*time.Second)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	response, err := kernel.read(callCtx)
 	if err != nil {
@@ -813,20 +856,11 @@ func (kernel *Kernel) Start() error {
 
 func (kernel *Kernel) read(ctx context.Context) (frame, error) {
 	process := kernel.worker
-	type outcome struct {
-		frame frame
-		err   error
-	}
-	result := make(chan outcome, 1)
-	go func() {
-		value, err := readFrame(process.output, kernel.limits.FrameBytes)
-		result <- outcome{frame: value, err: err}
-	}()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
-		case value := <-result:
+		case value := <-process.frames:
 			if value.err != nil {
 				if errors.Is(value.err, io.EOF) {
 					<-process.done
@@ -873,6 +907,8 @@ func (kernel *Kernel) startProcess() (err error) {
 		}
 	}()
 	args := append(append([]string(nil), kernel.command[1:]...),
+		"-engine", kernel.engine.ID,
+		"-wall-nanos", strconv.FormatInt(int64(kernel.limits.Wall), 10),
 		"-steps", strconv.FormatUint(kernel.limits.Steps, 10),
 		"-host-requests", strconv.Itoa(kernel.limits.HostRequests),
 		"-memory-bytes", strconv.FormatUint(kernel.limits.MemoryBytes, 10),
@@ -901,10 +937,24 @@ func (kernel *Kernel) startProcess() (err error) {
 	}
 	process := &workerProcess{
 		command: command, input: input, output: bufio.NewReaderSize(output, min(kernel.limits.FrameBytes, 64<<10)),
-		done: make(chan struct{}), dir: dir, stderr: stderr,
+		done: make(chan struct{}), readDone: make(chan struct{}), frames: make(chan frameOutcome, 1), dir: dir, stderr: stderr,
 	}
 	kernel.worker = process
-	kernel.needsRestore = kernel.scratch != nil
+	go func() {
+		defer close(process.readDone)
+		for {
+			value, readErr := readFrame(process.output, kernel.limits.FrameBytes, kernel.engine.ID == EngineQuickJS)
+			select {
+			case process.frames <- frameOutcome{frame: value, err: readErr}:
+			case <-process.done:
+				return
+			}
+			if readErr != nil {
+				return
+			}
+		}
+	}()
+	kernel.needsRestore = kernel.scratch != nil || kernel.checkpoints != nil
 	go func() {
 		_ = command.Wait()
 		// A crashed worker may have descendants in its dedicated group. Reap the
@@ -929,6 +979,14 @@ func (kernel *Kernel) startProcess() (err error) {
 		kernel.mu.Unlock()
 	}()
 	failed = false
+	response, handshakeErr := kernel.roundTripLocked(context.Background(), frame{Type: "hello", Engine: kernel.engine.ID, Build: kernel.engine.Build, ABI: kernel.engine.ABI, Profile: kernel.engine.Profile})
+	if handshakeErr != nil {
+		return handshakeErr
+	}
+	if response.Engine != kernel.engine.ID || response.Build != kernel.engine.Build || response.ABI != kernel.engine.ABI || response.Profile != kernel.engine.Profile {
+		kernel.stop()
+		return errors.New("RLM engine handshake mismatch")
+	}
 	return nil
 }
 
@@ -947,6 +1005,7 @@ func (kernel *Kernel) stopProcess(depart bool) {
 		_ = killProcessGroup(process.command.Process.Pid)
 		<-process.done
 	}
+	<-process.readDone
 	_ = os.RemoveAll(process.dir)
 	if depart {
 		kernel.manager.depart(kernel)

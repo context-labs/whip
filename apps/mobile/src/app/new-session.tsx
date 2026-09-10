@@ -41,17 +41,20 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
   useEffect(() => {
     mounted.current = true;
     let cancelled = false;
+    const controller = new AbortController();
     void (async () => {
       const saved = await runtime.storage.get<CreationWorkflow>('settings', creationSettingsKey(host.id));
+      const defaults = saved ? undefined : await client.configuration.get({ signal: controller.signal });
       const next = saved ? validateWorkflow(saved, runtimeId, host.clientId) : {
         version: 1 as const, id: Crypto.randomUUID(), runtimeId, clientId: host.clientId, cwd: initialPath,
+        executionEngine: defaults!.default_execution_engine,
         effortDone: false, promptSent: false,
       };
       if (cancelled) return;
       if (!saved) await runtime.storage.set('settings', creationSettingsKey(host.id), next);
       if (!cancelled) { workflowRef.current = next; setWorkflow(next); }
     })().catch(e => { if (!cancelled) setLoadError(errorText(e)); });
-    return () => { cancelled = true; mounted.current = false; };
+    return () => { cancelled = true; mounted.current = false; controller.abort(); };
   }, [runtime, host.id, runtimeId, host.clientId, initialPath]);
   useEffect(() => {
     if (!workflow || busy) return;
@@ -71,6 +74,8 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
     } });
   const models = useMemo(() => creationModels(catalogs.data?.result), [catalogs.data]);
   const selected = models.find(item => item.model === workflow?.model && item.provider === workflow?.provider);
+  const engines = (client.getSnapshot().info?.execution_engines ?? []).filter(engine => engine.id === 'starlark' || engine.id === 'quickjs');
+  const engineAvailable = engines.some(engine => engine.id === workflow?.executionEngine);
   const matchingModels = useMemo(() => models.filter(item => `${item.model} ${item.provider}`.toLowerCase().includes(modelSearch.trim().toLowerCase())), [models, modelSearch]);
   if (loadError) return <Screen><Connection /><Notice danger>{loadError}</Notice></Screen>;
   if (!workflow) return <Screen><Loading label="Restoring creation draft…" /></Screen>;
@@ -91,6 +96,7 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
     if (busyRef.current || !current() || locked) return;
     busyRef.current = true; setBusy(true); setError(undefined);
     try {
+      if (!workflowRef.current?.rootId && !engineAvailable) throw new Error('The host does not advertise the selected execution language. Reconnect to an updated host or choose an available language.');
       const next = await advanceCreation(workflowRef.current!, { run: runtime.run.bind(runtime), current, save, saveDraft: (key, value) => runtime.storage.setDraft(key, value), draft: key => runtime.draft(key) });
       if (current() && next.rootId && !nextCreationStep(next, runtime.draft(creationDraftKey(next)))) openCreated();
     } catch (e) { if (mounted.current) setError(errorText(e)); }
@@ -111,8 +117,15 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
   const startAnother = async () => {
     if (busyRef.current || locked || !workflow.rootId || draft.text.trim() && !workflow.promptSent) return;
     setError(undefined);
-    await save({ version: 1, id: Crypto.randomUUID(), runtimeId, clientId: host.clientId, cwd: workflow.cwd,
-      model: workflow.model, provider: workflow.provider, effort: workflow.effort, effortDone: false, promptSent: false }).catch(e => setError(errorText(e)));
+    busyRef.current = true; setBusy(true);
+    try {
+      const defaults = await client.configuration.get();
+      if (!current()) return;
+      await save({ version: 1, id: Crypto.randomUUID(), runtimeId, clientId: host.clientId, cwd: workflow.cwd,
+        executionEngine: defaults.default_execution_engine,
+        model: workflow.model, provider: workflow.provider, effort: workflow.effort, effortDone: false, promptSent: false });
+    } catch (e) { if (mounted.current) setError(errorText(e)); }
+    finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   };
   const step = nextCreationStep(workflow, draft);
   const proceedLabel = !workflow.rootId ? 'Create session' : step === 'effort' ? 'Apply reasoning and continue' : 'Send first message';
@@ -158,6 +171,12 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
         <Actions items={[{ label: 'Refresh models', secondary: true, disabled: !enabled || catalogs.isFetching, onPress: () => { void catalogs.refetch(); } }]} />
       </Stack>}
     </Stack>
+    <Stack><Label muted>Execution language</Label>
+      <Label muted>Fixed for this session and all its child agents.</Label>
+      {workflow.rootId ? <Label>{workflow.executionEngine === 'quickjs' ? 'JavaScript (QuickJS)' : 'Starlark'}</Label> : engines.map(engine =>
+        <RowButton key={engine.id} title={engine.label} selected={workflow.executionEngine === engine.id} disabled={!enabled || !editable} onPress={() => update({ executionEngine: engine.id })} />)}
+      {!workflow.rootId && !engineAvailable && <Notice>The selected execution language is unavailable on this host.</Notice>}
+    </Stack>
     <Stack><Label muted>Reasoning effort</Label>
       {workflow.rootId ? <Label>{workflow.effort ?? 'Host default'}{workflow.effortDone ? ' · Applied' : ''}</Label> : <>
         <RowButton title="Use host default effort" selected={!workflow.effort} disabled={locked} onPress={() => update({ effort: undefined })} />
@@ -176,7 +195,7 @@ function CreationForm({ host, client, initialPath }: { host: SavedHost; client: 
       <Label muted>Resolving preserves your draft. Continuing uses a new command ID for this step and keeps any session already created.</Label>
     </Stack>}
     {!workflow.pendingStep && activeCommand && <Notice>The previous step is still {activeCommand.status}. Whip will keep its result here.</Notice>}
-    {step && <Actions items={[{ label: busy ? 'Starting your session…' : proceedLabel, disabled: !enabled || locked || !workflow.cwd.trim(), onPress: () => { void start(); }, testID: 'create-session' }]} />}
+    {step && <Actions items={[{ label: busy ? 'Starting your session…' : proceedLabel, disabled: !enabled || locked || !workflow.cwd.trim() || !workflow.rootId && !engineAvailable, onPress: () => { void start(); }, testID: 'create-session' }]} />}
     {workflow.rootId && !locked && (!draft.text.trim() || workflow.promptSent) && <Actions items={[{ label: 'Prepare another session', secondary: true, onPress: () => { void startAnother(); } }]} />}
     <Label muted>Drafts stay encrypted on this phone. Leaving the app keeps accepted work running; saved creation steps never continue automatically after a restart.</Label>
   </Screen>;

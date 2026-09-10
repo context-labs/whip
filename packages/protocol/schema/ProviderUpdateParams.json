@@ -69,7 +69,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/ProviderUpdateParams",
+  "$id": "https://whip.dev/protocol/v6/ProviderUpdateParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ProviderUpdateParams",
   "required": [

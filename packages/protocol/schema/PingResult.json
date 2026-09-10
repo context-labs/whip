@@ -10,7 +10,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/PingResult",
+  "$id": "https://whip.dev/protocol/v6/PingResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "PingResult",
   "required": [

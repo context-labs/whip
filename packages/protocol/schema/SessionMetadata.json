@@ -19,7 +19,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/SessionMetadata",
+  "$id": "https://whip.dev/protocol/v6/SessionMetadata",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SessionMetadata",
   "required": [

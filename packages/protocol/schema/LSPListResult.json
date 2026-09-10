@@ -25,7 +25,7 @@
     ],
     "additionalProperties": false
   },
-  "$id": "https://whip.dev/protocol/v5/LSPListResult",
+  "$id": "https://whip.dev/protocol/v6/LSPListResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "LSPListResult"
 }

@@ -210,7 +210,8 @@ type model struct {
 	agentSel      int  // selected row in the dock (index into newest-first agents)
 	agentOpen     string
 	agentMessages map[string][]llm.Message
-	replPanel     bool                  // the REPL panel shows on the right (ctrl+x r, /repl)
+	dockShow      bool                  // /dock: the agent tree under the input when the left column is hidden
+	replPanel     bool                  // the REPL panel shows on the right (ctrl+r, ctrl+x r, /repl)
 	repl          map[string]*replAgent // per-agent cell history for the REPL panel
 	replScroll    int                   // REPL panel rows scrolled up from the newest cell (0 follows)
 	replViewAgent string                // agent the REPL panel last rendered (a switch resets the scroll)

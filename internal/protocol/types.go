@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	Major = 5
-	Minor = 1
+	Major = 6
+	Minor = 0
 )
 
 type ErrorData struct {
@@ -45,22 +45,38 @@ type ProtocolLimits struct {
 	UploadBytes       int64 `json:"upload_bytes,string"`
 }
 
+type ExecutionEngine struct {
+	BridgeSHA256  string            `json:"bridge_sha256,omitempty"`
+	Build         string            `json:"build,omitempty"`
+	ABI           string            `json:"abi,omitempty"`
+	Profile       string            `json:"profile,omitempty"`
+	Fidelity      string            `json:"fidelity,omitempty"`
+	GuideSHA256   string            `json:"guide_sha256,omitempty"`
+	Features      []string          `json:"features,omitempty"`
+	DefaultLimits map[string]uint64 `json:"default_limits,omitempty"`
+	ID            string            `json:"id"`
+	Language      string            `json:"language"`
+	Label         string            `json:"label"`
+}
+
 type InitializeResult struct {
-	Operations             []Operation    `json:"operations"`
-	Limits                 ProtocolLimits `json:"limits"`
-	NegotiatedCapabilities []string       `json:"negotiated_capabilities"`
-	ProtocolMinor          int            `json:"protocol_minor"`
-	RuntimeID              string         `json:"runtime_id"`
-	ConnectionID           string         `json:"connection_id"`
-	HostPlatform           string         `json:"host_platform"`
-	HostArchitecture       string         `json:"host_architecture"`
-	NetworkEndpoint        string         `json:"network_endpoint,omitempty"`
-	ProtocolMajor          int            `json:"protocol_major"`
-	BuildID                string         `json:"build_id"`
-	Generation             int64          `json:"generation,string"`
-	PID                    int            `json:"pid,omitempty"`
-	StartedAt              string         `json:"started_at,omitempty"`
-	Capabilities           []string       `json:"capabilities"`
+	ExecutionEngines       []ExecutionEngine `json:"execution_engines"`
+	DefaultExecutionEngine string            `json:"default_execution_engine"`
+	Operations             []Operation       `json:"operations"`
+	Limits                 ProtocolLimits    `json:"limits"`
+	NegotiatedCapabilities []string          `json:"negotiated_capabilities"`
+	ProtocolMinor          int               `json:"protocol_minor"`
+	RuntimeID              string            `json:"runtime_id"`
+	ConnectionID           string            `json:"connection_id"`
+	HostPlatform           string            `json:"host_platform"`
+	HostArchitecture       string            `json:"host_architecture"`
+	NetworkEndpoint        string            `json:"network_endpoint,omitempty"`
+	ProtocolMajor          int               `json:"protocol_major"`
+	BuildID                string            `json:"build_id"`
+	Generation             int64             `json:"generation,string"`
+	PID                    int               `json:"pid,omitempty"`
+	StartedAt              string            `json:"started_at,omitempty"`
+	Capabilities           []string          `json:"capabilities"`
 }
 
 type CommandParams struct {
@@ -320,7 +336,8 @@ type UnsubscribeParams struct {
 func (e *RPCError) Error() string { return e.Message }
 
 type RuntimeConfiguration struct {
-	DisabledProviders *[]string `json:"disabled_providers,omitempty"`
+	DefaultExecutionEngine string    `json:"default_execution_engine"`
+	DisabledProviders      *[]string `json:"disabled_providers,omitempty"`
 	// Discovery reports the catalog outcome of provider.key.set; configuration reads omit it.
 	Discovery *ProviderDiscovery `json:"discovery,omitempty"`
 	// Presence identifies support even when no remote hosts have been saved.
@@ -339,19 +356,20 @@ type RuntimeConfiguration struct {
 }
 
 type ConfigurationUpdate struct {
-	DisabledProviders *[]string            `json:"disabled_providers,omitempty"`
-	RemoteHosts       *[]config.RemoteHost `json:"remote_hosts,omitempty"`
-	ImportClaude      *bool                `json:"import_claude,omitempty"`
-	ImportCodex       *bool                `json:"import_codex,omitempty"`
-	Revision          string               `json:"revision"`
-	DefaultModel      *string              `json:"default_model,omitempty"`
-	DefaultProvider   *string              `json:"default_provider,omitempty"`
-	DefaultEffort     *string              `json:"default_effort,omitempty"`
-	CompactModel      *string              `json:"compact_model,omitempty"`
-	CompactProvider   *string              `json:"compact_provider,omitempty"`
-	CompactPercent    *int                 `json:"compact_percent,omitempty"`
-	GoalMaxRounds     *int                 `json:"goal_max_rounds,omitempty"`
-	MaxRetries        *int                 `json:"max_retries,omitempty"`
+	DefaultExecutionEngine *string              `json:"default_execution_engine,omitempty"`
+	DisabledProviders      *[]string            `json:"disabled_providers,omitempty"`
+	RemoteHosts            *[]config.RemoteHost `json:"remote_hosts,omitempty"`
+	ImportClaude           *bool                `json:"import_claude,omitempty"`
+	ImportCodex            *bool                `json:"import_codex,omitempty"`
+	Revision               string               `json:"revision"`
+	DefaultModel           *string              `json:"default_model,omitempty"`
+	DefaultProvider        *string              `json:"default_provider,omitempty"`
+	DefaultEffort          *string              `json:"default_effort,omitempty"`
+	CompactModel           *string              `json:"compact_model,omitempty"`
+	CompactProvider        *string              `json:"compact_provider,omitempty"`
+	CompactPercent         *int                 `json:"compact_percent,omitempty"`
+	GoalMaxRounds          *int                 `json:"goal_max_rounds,omitempty"`
+	MaxRetries             *int                 `json:"max_retries,omitempty"`
 }
 
 type ProviderKeySetup struct {

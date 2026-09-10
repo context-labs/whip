@@ -13,6 +13,7 @@ export interface CreationWorkflow {
   model?: string;
   provider?: string;
   effort?: string;
+  executionEngine?: string;
   rootId?: string;
   pendingStep?: CreationStep;
   effortDone: boolean;
@@ -29,7 +30,8 @@ export function validateWorkflow(value: CreationWorkflow, runtimeId: string, cli
     if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key]!.length > 2048)) throw new Error('The saved creation settings are unreadable; existing data has been preserved.');
   }
   if (value.pendingStep && !['create', 'effort', 'submit'].includes(value.pendingStep)) throw new Error('The saved creation step is unreadable; existing data has been preserved.');
-  return value;
+  if (value.executionEngine !== undefined && value.executionEngine !== 'starlark' && value.executionEngine !== 'quickjs') throw new Error('The saved execution language is unsupported; existing data has been preserved.');
+  return value.executionEngine === undefined ? { ...value, executionEngine: 'starlark' } : value;
 }
 export function creationCommands(workflow: CreationWorkflow, commands: readonly CommandState[]) {
   return commands.filter(command => command.record.runtimeId === workflow.runtimeId && command.record.clientId === workflow.clientId && command.intent?.workflowId === workflow.id);
@@ -89,7 +91,7 @@ interface CreationRunner {
 export async function advanceCreation(initial: CreationWorkflow, runner: CreationRunner): Promise<CreationWorkflow> {
   if (initial.pendingStep) throw new Error('Resolve the previous creation step before continuing.');
   if (!runner.current()) return initial;
-  let workflow = initial;
+  let workflow = { ...validateWorkflow(initial, initial.runtimeId, initial.clientId) };
   const firstDraft = { ...runner.draft(creationDraftKey(initial)) };
   if (firstDraft.text) await runner.saveDraft(creationDraftKey(initial), firstDraft);
   for (let count = 0; count < 3; count++) {
@@ -103,7 +105,7 @@ export async function advanceCreation(initial: CreationWorkflow, runner: Creatio
     if (!runner.current()) return workflow;
     const intent = { workflowId: workflow.id, step };
     if (step === 'create') {
-      const outcome = await runner.run('session.create', { cwd: workflow.cwd.trim(), kind: 'agent', model: workflow.model ?? '', provider: workflow.provider ?? '' }, { intent });
+      const outcome = await runner.run('session.create', { cwd: workflow.cwd.trim(), kind: 'agent', model: workflow.model ?? '', provider: workflow.provider ?? '', execution_engine: workflow.executionEngine }, { intent });
       requireCreationSuccess(step, outcome);
       if (!outcome.result?.root_id) throw new Error('Session creation succeeded without a session identity. Check the original command before continuing.');
       workflow = { ...workflow, rootId: outcome.result.root_id, pendingStep: undefined };

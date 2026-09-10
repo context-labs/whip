@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,8 +12,28 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 )
+
+// loadPersistedScratch follows the same migration preference as the kernel:
+// new opaque checkpoints are authoritative, with legacy tagged scratch fallback.
+func loadPersistedScratch(store *session.Store, ctx context.Context, rootID, agentID string) (string, []byte, error) {
+	envelope, image, err := store.LoadAgentCheckpoint(ctx, rootID, agentID)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(envelope) == 0 {
+		return store.LoadAgentScratch(ctx, rootID, agentID)
+	}
+	var metadata struct {
+		Manifest json.RawMessage `json:"manifest"`
+	}
+	if err := json.Unmarshal(envelope, &metadata); err != nil {
+		return "", nil, err
+	}
+	return string(image), metadata.Manifest, nil
+}
 
 func TestScratchCorruptDurableManifestPreservesCheckpoint(t *testing.T) {
 	store, root, runtime := openRecursiveRuntime(t, llm.New("http://127.0.0.1:1", "key"), 1)
@@ -20,12 +41,20 @@ func TestScratchCorruptDurableManifestPreservesCheckpoint(t *testing.T) {
 	if _, err := node.kernel.Exec(t.Context(), "good = 42"); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, manifest, err := store.LoadAgentScratch(t.Context(), root.ID(), node.id)
+	envelope, image, err := store.LoadAgentCheckpoint(t.Context(), root.ID(), node.id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	broken := []byte("{corrupt")
-	if err := root.SaveAgentScratch(t.Context(), node.id, snapshot, broken); err != nil {
+	var corrupt map[string]json.RawMessage
+	if err := json.Unmarshal(envelope, &corrupt); err != nil {
+		t.Fatal(err)
+	}
+	corrupt["manifest"] = json.RawMessage(`"corrupt"`)
+	broken, err := json.Marshal(corrupt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveAgentCheckpoint(t.Context(), root.ID(), node.id, broken, image); err != nil {
 		t.Fatal(err)
 	}
 	if err := node.kernel.Suspend(); err != nil {
@@ -38,12 +67,12 @@ func TestScratchCorruptDurableManifestPreservesCheckpoint(t *testing.T) {
 		if node.kernel.Started() || runtime.kernels.Active() != 0 {
 			t.Fatal("failed restore retained a worker or its reservation")
 		}
-		kept, encoded, err := store.LoadAgentScratch(t.Context(), root.ID(), node.id)
-		if err != nil || kept != snapshot || !bytes.Equal(encoded, broken) {
-			t.Fatalf("failed restore changed the checkpoint: same=%v manifest=%q err=%v", kept == snapshot, encoded, err)
+		kept, body, err := store.LoadAgentCheckpoint(t.Context(), root.ID(), node.id)
+		if err != nil || !bytes.Equal(body, image) || !bytes.Equal(kept, broken) {
+			t.Fatalf("failed restore changed the checkpoint: %v", err)
 		}
 	}
-	if err := root.SaveAgentScratch(t.Context(), node.id, snapshot, manifest); err != nil {
+	if err := store.SaveAgentCheckpoint(t.Context(), root.ID(), node.id, envelope, image); err != nil {
 		t.Fatal(err)
 	}
 	if result, err := node.kernel.Exec(t.Context(), "good == 42"); err != nil || result.Value != true {
@@ -169,5 +198,32 @@ func TestScratchStateContractReachesProvider(t *testing.T) {
 		if !strings.Contains(string(encoded), want) {
 			t.Fatalf("actual provider request omitted %q", want)
 		}
+	}
+}
+
+func TestLegacyScratchMigratesToOpaqueCheckpoint(t *testing.T) {
+	store, root, runtime := openRecursiveRuntime(t, llm.New("http://127.0.0.1:1", "key"), 1)
+	node := runtime.rootNode
+	legacy, err := rlm.NewKernel(rlm.KernelOptions{Command: recursiveKernelCommand, Scratch: scratchStore{node: node}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(t.Context(), "legacy_value = 42"); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Close()
+	before, manifest, err := store.LoadAgentScratch(t.Context(), root.ID(), node.id)
+	if err != nil || before == "" {
+		t.Fatalf("legacy fixture=%q %v", before, err)
+	}
+	if result, err := node.kernel.Exec(t.Context(), "legacy_value == 42"); err != nil || result.Value != true {
+		t.Fatalf("legacy restore=%+v %v", result, err)
+	}
+	if envelope, _, err := store.LoadAgentCheckpoint(t.Context(), root.ID(), node.id); err != nil || len(envelope) == 0 {
+		t.Fatalf("new checkpoint missing: %v", err)
+	}
+	after, encoded, err := store.LoadAgentScratch(t.Context(), root.ID(), node.id)
+	if err != nil || after != before || !bytes.Equal(manifest, encoded) {
+		t.Fatal("legacy original was discarded")
 	}
 }

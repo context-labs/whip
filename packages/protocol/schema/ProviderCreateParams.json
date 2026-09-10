@@ -74,7 +74,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/ProviderCreateParams",
+  "$id": "https://whip.dev/protocol/v6/ProviderCreateParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ProviderCreateParams",
   "required": [

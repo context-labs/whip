@@ -505,3 +505,12 @@ func TestResolveRuntimeModelPreservesCatalogDefaultPair(t *testing.T) {
 		t.Fatal("explicit provider did not override the default pair")
 	}
 }
+
+func TestRLMHostConcurrencyConfiguration(t *testing.T) {
+	if got := rlmLimits(config.RLMConfig{MaxConcurrentHostCalls: 1}).MaxConcurrentHostCalls; got != 1 {
+		t.Fatalf("configured concurrency=%d", got)
+	}
+	if got := rlmLimits(config.RLMConfig{}).MaxConcurrentHostCalls; got != 16 {
+		t.Fatalf("default concurrency=%d", got)
+	}
+}

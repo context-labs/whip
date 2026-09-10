@@ -17,7 +17,7 @@ async function until(predicate: () => boolean): Promise<void> {
 function snapshot(cursor = '10', revision = '1'): RootSnapshot {
   return {
     root_id: 'root', cursor, history_revision: revision, active_turns: {},
-    meta: { id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/',
+    meta: { id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', execution_engine: 'starlark',
       goal: '', forked_from: '', fork_seq: 0, tags: [], archived: false, pinned: false, effort: '',
       usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
     messages: [{ role: 'user', content: 'hello' }], message_seqs: [1],
@@ -901,6 +901,7 @@ test('model attempt lifecycle events use the existing coalesced snapshot refresh
 test('saved child failure survives refresh without inventing an execution cell', async t => {
   const host = new Host();
   const child: NonNullable<RootSnapshot['agents']>[number] = {
+    execution_engine: 'starlark',
     id: 'child', root_id: 'root', parent_id: 'root', name: 'Research', model: 'model', provider: 'provider', effort: '', cwd: '/', report: 'notice', status: 'idle',
     pending_mail: 0, lifecycle_phase: 'idle', blocking_reason: '', terminal_cause: '', allowed_controls: [],
   };

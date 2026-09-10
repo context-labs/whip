@@ -1,6 +1,69 @@
 {
   "type": "object",
   "properties": {
+    "execution_engines": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "bridge_sha256": {
+            "type": "string"
+          },
+          "build": {
+            "type": "string"
+          },
+          "abi": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "fidelity": {
+            "type": "string"
+          },
+          "guide_sha256": {
+            "type": "string"
+          },
+          "features": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "default_limits": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "language",
+          "label"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "default_execution_engine": {
+      "type": "string"
+    },
     "operations": {
       "type": [
         "null",
@@ -132,10 +195,12 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v5/InitializeResult",
+  "$id": "https://whip.dev/protocol/v6/InitializeResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "InitializeResult",
   "required": [
+    "execution_engines",
+    "default_execution_engine",
     "operations",
     "limits",
     "negotiated_capabilities",

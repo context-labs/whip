@@ -50,6 +50,9 @@ func applySoftMemoryLimit(bytes uint64) error {
 func workerMain(args []string, input io.Reader, output io.Writer, limitMemory func(uint64) error) error {
 	fs := flag.NewFlagSet("_kernel", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	describe := fs.Bool("describe", false, "print bundled engine descriptor and exit")
+	wallNanos := fs.Int64("wall-nanos", int64(30*time.Second), "maximum guest compute time per cell")
+	engineID := fs.String("engine", EngineStarlark, "bundled execution engine")
 	steps := fs.Uint64("steps", defaultSteps, "maximum Starlark steps per cell")
 	hostRequests := fs.Int("host-requests", defaultHostRequests, "maximum host requests per cell")
 	memoryBytes := fs.Uint64("memory-bytes", defaultMemoryBytes, "worker address-space limit")
@@ -58,11 +61,21 @@ func workerMain(args []string, input io.Reader, output io.Writer, limitMemory fu
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *steps == 0 || *hostRequests < 1 || *memoryBytes == 0 || *memoryBytes > math.MaxInt64/4 || *outputBytes < 1 || *frameBytes < 1 {
+	if fs.NArg() != 0 || *wallNanos < 1 || *steps == 0 || *hostRequests < 1 || *memoryBytes == 0 || *memoryBytes > math.MaxInt64/4 || *outputBytes < 1 || *frameBytes < 1 {
 		return errors.New("invalid RLM worker limits")
+	}
+	descriptor, err := ResolveEngine(*engineID)
+	if err != nil {
+		return err
+	}
+	if *describe {
+		return json.NewEncoder(output).Encode(descriptor)
 	}
 	if err := limitMemory(*memoryBytes); err != nil {
 		return fmt.Errorf("apply RLM memory limit: %w", err)
+	}
+	if descriptor.ID == EngineQuickJS {
+		return runQuickJSWorker(input, output, Limits{Wall: time.Duration(*wallNanos), Steps: *steps, HostRequests: *hostRequests, MemoryBytes: *memoryBytes, OutputBytes: *outputBytes, FrameBytes: *frameBytes})
 	}
 	worker := worker{
 		input: bufio.NewReaderSize(input, min(*frameBytes, 64<<10)), output: output,
@@ -126,7 +139,7 @@ func (w *worker) installModules() {
 						return nil, errors.New("RLM keyword name is not a string")
 					}
 					convert := starlarkToGo
-					if module == "state" {
+					if module == "state" || module == "mcp" && operation == "call" {
 						convert = stateToGo
 					}
 					value, err := convert(item[1])
@@ -158,10 +171,30 @@ func (w *worker) run() error {
 		}
 		var result frame
 		switch request.Type {
+		case "hello":
+			descriptor, _ := ResolveEngine(EngineStarlark)
+			if request.Engine != descriptor.ID || request.Build != descriptor.Build || request.ABI != descriptor.ABI || request.Profile != descriptor.Profile {
+				return errors.New("RLM engine handshake mismatch")
+			}
+			result = frame{Engine: descriptor.ID, Build: descriptor.Build, ABI: descriptor.ABI, Profile: descriptor.Profile}
 		case "eval":
 			w.currentEval = request.ID
 			result = w.evaluate(request.Code)
 			w.currentEval = 0
+		case "checkpoint":
+			result = w.snapshot()
+			if result.Error == "" {
+				if err := writeBlob(w.output, w.frameBytes, request.ID, []byte(result.Code)); err != nil {
+					return err
+				}
+				result.Code = ""
+			}
+		case "restore_checkpoint":
+			data, err := readBlob(w.input, w.frameBytes, request)
+			if err != nil {
+				return err
+			}
+			result = w.restore(string(data))
 		case "snapshot":
 			result = w.snapshot()
 		case "restore":
@@ -208,8 +241,10 @@ func (w *worker) evaluate(code string) frame {
 	}
 	statements := file.Stmts
 	var value starlark.Value = starlark.None
+	hasValue := false
 	if count := len(file.Stmts); count > 0 {
 		if expression, ok := file.Stmts[count-1].(*syntax.ExprStmt); ok {
+			hasValue = true
 			file.Stmts = file.Stmts[:count-1]
 			if len(file.Stmts) > 0 {
 				err = starlark.ExecREPLChunk(file, thread, w.globals)
@@ -222,7 +257,7 @@ func (w *worker) evaluate(code string) frame {
 		}
 	}
 	w.recordSources(code, statements)
-	result := frame{Output: w.cellOutput.String(), Steps: thread.ExecutionSteps()}
+	result := frame{Output: w.cellOutput.String(), Steps: thread.ExecutionSteps(), HasValue: hasValue}
 	if err != nil {
 		result.Error = err.Error()
 		return result
@@ -270,10 +305,10 @@ func (w *worker) hostCall(module, operation string, arguments map[string]any) (s
 	}
 	w.nextRequest++
 	id := w.nextRequest
-	if err := writeFrame(w.output, w.frameBytes, frame{Type: "host_request", ID: id, Module: module, Operation: operation, Arguments: arguments}); err != nil {
+	if err := writeFrame(w.output, w.frameBytes, frame{Type: "host_request", ID: id, CellID: w.currentEval, Module: module, Operation: operation, Arguments: arguments}); err != nil {
 		return nil, err
 	}
-	response, err := readFrame(w.input, w.frameBytes, module == "state")
+	response, err := readFrame(w.input, w.frameBytes, module == "state" || module == "mcp" && operation == "call" || module == "messages")
 	if err != nil {
 		return nil, err
 	}

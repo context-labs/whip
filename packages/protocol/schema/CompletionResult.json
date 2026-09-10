@@ -36,7 +36,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/CompletionResult",
+  "$id": "https://whip.dev/protocol/v6/CompletionResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CompletionResult",
   "required": [

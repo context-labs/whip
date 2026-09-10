@@ -1,0 +1,1 @@
+Read /app/events.jsonl. Deduplicate records by id, subtract refunds from purchases, and write /app/summary.json with one key per customer and that customer's net amount in cents. Ask a child agent to independently verify your result, wait for its verification, and report completion. No human is available.

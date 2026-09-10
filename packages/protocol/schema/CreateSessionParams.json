@@ -1,6 +1,9 @@
 {
   "type": "object",
   "properties": {
+    "execution_engine": {
+      "type": "string"
+    },
     "kind": {
       "type": "string"
     },
@@ -17,7 +20,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/CreateSessionParams",
+  "$id": "https://whip.dev/protocol/v6/CreateSessionParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CreateSessionParams",
   "required": [

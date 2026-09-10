@@ -11,7 +11,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/MailboxReadParams",
+  "$id": "https://whip.dev/protocol/v6/MailboxReadParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "MailboxReadParams",
   "required": [

@@ -8,7 +8,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/ProviderRemoveParams",
+  "$id": "https://whip.dev/protocol/v6/ProviderRemoveParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ProviderRemoveParams",
   "required": [

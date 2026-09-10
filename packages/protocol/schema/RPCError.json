@@ -23,7 +23,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/RPCError",
+  "$id": "https://whip.dev/protocol/v6/RPCError",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RPCError",
   "required": [

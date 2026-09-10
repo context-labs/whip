@@ -26,7 +26,7 @@ var connectDaemon = func(ctx context.Context, clientKind, clientID string, curso
 		BuildID:       version,
 		ClientKind:    clientKind,
 		ClientID:      clientID,
-		Capabilities:  []string{"commands", "events", "snapshots"},
+		Capabilities:  []string{"commands", "events", "snapshots", "execution_engines"},
 		Cursors:       cursors,
 	}, func() error { return daemon.LaunchSelfDaemon(paths) })
 }

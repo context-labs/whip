@@ -33,23 +33,24 @@ func (kind SessionKind) valid() bool {
 
 // Meta is a session's bookkeeping row.
 type Meta struct {
-	ID          string      `json:"id"`
-	Kind        SessionKind `json:"kind"`
-	Title       string      `json:"title"`
-	Model       string      `json:"model"`
-	Provider    string      `json:"provider"`
-	CWD         string      `json:"cwd"`
-	Goal        string      `json:"goal"`
-	ForkedFrom  string      `json:"forked_from"` // source session id when created by /fork ("" = root)
-	ForkSeq     int         `json:"fork_seq"`    // conversation index the fork branched at
-	Tags        []string    `json:"tags"`        // freeform labels, for filtering /resume
-	Archived    bool        `json:"archived"`
-	Pinned      bool        `json:"pinned"`       // pinned sessions sort first and survive cleanup
-	Effort      string      `json:"effort"`       // reasoning effort for this session ("" = use the global default)
-	UsageIn     int         `json:"usage_in"`     // cumulative input tokens across the session's API calls
-	UsageCached int         `json:"usage_cached"` // of UsageIn, tokens served from the provider's prompt cache
-	UsageOut    int         `json:"usage_out"`    // cumulative output tokens
-	UpdatedAt   time.Time   `json:"updated_at"`
+	ExecutionEngine string      `json:"execution_engine"`
+	ID              string      `json:"id"`
+	Kind            SessionKind `json:"kind"`
+	Title           string      `json:"title"`
+	Model           string      `json:"model"`
+	Provider        string      `json:"provider"`
+	CWD             string      `json:"cwd"`
+	Goal            string      `json:"goal"`
+	ForkedFrom      string      `json:"forked_from"` // source session id when created by /fork ("" = root)
+	ForkSeq         int         `json:"fork_seq"`    // conversation index the fork branched at
+	Tags            []string    `json:"tags"`        // freeform labels, for filtering /resume
+	Archived        bool        `json:"archived"`
+	Pinned          bool        `json:"pinned"`       // pinned sessions sort first and survive cleanup
+	Effort          string      `json:"effort"`       // reasoning effort for this session ("" = use the global default)
+	UsageIn         int         `json:"usage_in"`     // cumulative input tokens across the session's API calls
+	UsageCached     int         `json:"usage_cached"` // of UsageIn, tokens served from the provider's prompt cache
+	UsageOut        int         `json:"usage_out"`    // cumulative output tokens
+	UpdatedAt       time.Time   `json:"updated_at"`
 }
 
 type Store struct {
@@ -246,7 +247,7 @@ func (s *Store) Save(id string, from int, msgs []llm.Message, model, provider st
 
 // Load resolves idOrPrefix to a session and returns its metadata and messages.
 func (s *Store) Load(idOrPrefix string) (Meta, []llm.Message, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at,execution_engine FROM sessions WHERE id LIKE ?||'%' LIMIT 3`, idOrPrefix)
 	if err != nil {
 		return Meta{}, nil, err
 	}
@@ -415,7 +416,7 @@ func (s *Store) RecentContext(ctx context.Context, n int) ([]Meta, error) {
 	if n < 1 || n > 500 {
 		return nil, errors.New("recent sessions limit must be between 1 and 500")
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at FROM sessions
+	rows, err := s.db.QueryContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at,execution_engine FROM sessions
 		WHERE EXISTS (SELECT 1 FROM messages WHERE session_id = sessions.id)
 		ORDER BY updated_at DESC LIMIT ?`, n)
 	if err != nil {
@@ -461,6 +462,7 @@ func (s *Store) DeleteSession(ctx context.Context, rootID string) error {
 		`DELETE FROM budgets WHERE root_id=?`,
 		`DELETE FROM capabilities WHERE root_id=?`,
 		`DELETE FROM agent_scratch WHERE root_id=?`,
+		`DELETE FROM agent_checkpoints WHERE root_id=?`,
 		`DELETE FROM agent_state WHERE root_id=?`,
 		`DELETE FROM agent_messages WHERE root_id=?`,
 		`DELETE FROM transcript_messages WHERE root_id=?`,
@@ -917,8 +919,8 @@ func (s *Store) Fork(srcID string, uptoSeq int, title string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	result, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort)
-		SELECT ?,kind,?,?,cwd,model,provider,?,goal,?,?,effort FROM sessions WHERE id=? AND kind='agent'`,
+	result, err := tx.ExecContext(context.Background(), `INSERT INTO sessions (id,kind,created_at,updated_at,cwd,model,provider,title,goal,forked_from,fork_seq,effort,execution_engine)
+		SELECT ?,kind,?,?,cwd,model,provider,?,goal,?,?,effort,execution_engine FROM sessions WHERE id=? AND kind='agent'`,
 		newID, now(), now(), title, srcID, uptoSeq, srcID)
 	if err != nil {
 		return "", err
@@ -976,7 +978,7 @@ func (s *Store) SetPinned(id string, pinned bool) error {
 // ForksOf lists sessions forked from id, newest first — the session tree's
 // children of one node.
 func (s *Store) ForksOf(id string) ([]Meta, error) {
-	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at
+	rows, err := s.db.QueryContext(context.Background(), `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,usage_in,usage_cached,usage_out,updated_at,execution_engine
 		FROM sessions WHERE forked_from=? ORDER BY updated_at DESC`, id)
 	if err != nil {
 		return nil, err
@@ -1040,7 +1042,7 @@ func scanMetas(rows *sql.Rows) ([]Meta, error) {
 		var pinned int
 		if err := rows.Scan(&m.ID, &m.Kind, &m.Title, &m.Model, &m.Provider, &m.CWD, &m.Goal,
 			&m.ForkedFrom, &m.ForkSeq, &tags, &pinned, &m.Archived, &m.Effort,
-			&m.UsageIn, &m.UsageCached, &m.UsageOut, &updated); err != nil {
+			&m.UsageIn, &m.UsageCached, &m.UsageOut, &updated, &m.ExecutionEngine); err != nil {
 			return nil, err
 		}
 		if tags != "" {

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useWhipConnection } from '@whip/sdk/react';
-import { Alert, Button, Textarea } from '@whip/ui';
+import { useQuery } from '@tanstack/react-query';
+import { Alert, Button, Select, Textarea } from '@whip/ui';
 import { ArrowUp, FolderOpen } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
@@ -90,6 +91,8 @@ export function WelcomeComposer({ client, host, tab, focused = true }: {
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const connected = connection.state === 'connected';
+  const engines = connection.info?.execution_engines;
+  const configuration = useQuery({ queryKey: ['runtime-configuration', runtimeId], queryFn: ({ signal }) => client.configuration.get({ signal }), enabled: connected });
   const providers = useProviderConnections(client, connected);
   const selection = providers.inventory.data?.selection;
   const ready = selection?.ready === true;
@@ -99,18 +102,23 @@ export function WelcomeComposer({ client, host, tab, focused = true }: {
   let recovery: ReturnType<typeof runtime.welcome.get>;
   let recoveryError = '';
   try { recovery = runtime.welcome.get(tab.id); } catch (error) { recoveryError = errorMessage(error); }
+  const executionEngine = recovery?.params?.execution_engine ?? tab.executionEngine ?? configuration.data?.default_execution_engine ?? connection.info?.default_execution_engine ?? 'starlark';
+  const engineOptions = (engines ?? []).filter(engine => engine.id === 'starlark' || engine.id === 'quickjs')
+    .map(engine => ({ value: engine.id, label: engine.label }));
+  const engineAvailable = engineOptions.some(engine => engine.value === executionEngine);
   const unresolved = app.commands.find(command => command.draftKey === key && command.delivery);
   function openProviders() { setShowProviders(true); requestAnimationFrame(() => { if (!isFocused.current) return; const setup = panel.current?.querySelector<HTMLElement>('[aria-label="Provider setup"]'); setup?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); (setup?.querySelector<HTMLButtonElement>('[data-provider-confirm]:not(:disabled)') ?? setup?.querySelector<HTMLButtonElement>('[data-provider-choice]'))?.focus(); }); }
   function focusComposer() { setShowProviders(false); requestAnimationFrame(() => { if (isFocused.current) input.current?.focus(); }); }
   async function submit(mode: 'start' | 'check' | 'retry' = 'start') {
     if (!connected || busy) return;
     if (mode === 'start' && requiresUpdate) return;
+    if (mode === 'start' && !engineAvailable) { setError('This host does not advertise the selected execution language. Reconnect to an updated host or select an available language.'); return; }
     if (mode === 'start' && !ready) { openProviders(); return; }
     if (mode === 'start' && !cwd.trim()) { setError('Choose a project folder on this host before sending.'); return; }
     setBusy(true); setError('');
     try {
       mode === 'start'
-        ? await runtime.welcome.start(tab.id, client, { cwd: cwd.trim(), model: selection!.model, provider: selection!.provider, permission_mode: permission })
+        ? await runtime.welcome.start(tab.id, client, { cwd: cwd.trim(), model: selection!.model, provider: selection!.provider, permission_mode: permission, execution_engine: executionEngine })
         : await runtime.welcome.resume(tab.id, client, mode === 'retry');
     } catch (error) { if (mounted.current) setError(errorMessage(error)); }
     finally { if (mounted.current) setBusy(false); }
@@ -127,13 +135,19 @@ export function WelcomeComposer({ client, host, tab, focused = true }: {
           value={cwd} onSelect={path => { updateSetup({ cwd: path }); setError(''); }} disabled={!connected || busy || !!recovery} />
       </div>
       <div {...stylex.props(styles.toolbar)}>
+        <Select label="Execution language" value={executionEngine} disabled={!connected || busy || !!recovery || !!recoveryError || !engines?.length}
+          options={engineAvailable ? engineOptions : [...engineOptions, { value: executionEngine, label: `${executionEngine === 'quickjs' ? 'JavaScript (QuickJS)' : 'Starlark'} (unavailable)`, disabled: true }]}
+          onValueChange={executionEngine => updateSetup({ executionEngine: executionEngine as NewChatTab['executionEngine'] })} />
+        <span {...stylex.props(styles.note)}>Fixed for this session and its child agents.</span>
+      </div>
+      <div {...stylex.props(styles.toolbar)}>
         <Button variant="ghost" disabled={!connected || busy} onClick={() => showProviders ? setShowProviders(false) : openProviders()} aria-label={ready ? 'Change provider or model' : 'Connect a provider'}>
           {ready && <ProviderLogo id={selection.provider} size={14} />}<span {...stylex.props(layout.ellipsis)}>{ready ? `${selection.model} · ${selection.provider}` : 'Connect a provider'}</span>
         </Button>
         <PermissionModeControl value={permission} disabled={busy || !!recovery} onChange={permissionMode => updateSetup({ permissionMode: permissionMode as NewChatTab['permissionMode'] })} />
         <span {...stylex.props(layout.grow)} />
         <Button type="submit" variant="primary" aria-label={ready ? 'Send first message' : 'Set up provider'} xstyle={ready ? styles.send : undefined}
-          loading={busy} disabled={!connected || requiresUpdate || !!recovery || !!recoveryError || (ready && (!draft.trim() || !cwd.trim()))}>{ready ? <ArrowUp size={16} /> : 'Connect'}</Button>
+          loading={busy} disabled={!connected || requiresUpdate || !engineAvailable || !!recovery || !!recoveryError || (ready && (!draft.trim() || !cwd.trim()))}>{ready ? <ArrowUp size={16} /> : 'Connect'}</Button>
       </div>
     </form>
     {(recovery || recoveryError) && <div role="status" {...stylex.props(layout.notice, layout.column)}>

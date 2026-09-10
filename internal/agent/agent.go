@@ -102,14 +102,16 @@ type CompactInfo struct {
 
 // Agent holds one conversation.
 type Agent struct {
-	Pricing   llm.Pricing
-	Client    *llm.Client
-	Model     string // model id sent to the API
-	ModelName string // config model name (may differ from Model via id mapping)
-	Provider  string // config provider name
-	MaxTokens int
-	Effort    string // reasoning effort: "" = parameter omitted from requests
-	Vision    bool   // model accepts image content parts
+	// ExecutionLanguage selects syntax in transcript retrieval guidance.
+	ExecutionLanguage string
+	Pricing           llm.Pricing
+	Client            *llm.Client
+	Model             string // model id sent to the API
+	ModelName         string // config model name (may differ from Model via id mapping)
+	Provider          string // config provider name
+	MaxTokens         int
+	Effort            string // reasoning effort: "" = parameter omitted from requests
+	Vision            bool   // model accepts image content parts
 	// Temperature/TopP are optional per-model sampling knobs for outbound
 	// requests. nil omits the field, preserving provider defaults.
 	Temperature *float64
@@ -914,7 +916,7 @@ func (a *Agent) compact(ctx context.Context) (summary string, cutoff int, info C
 		prior = strings.TrimPrefix(history[0].Content, summaryPrefix)
 		history = history[1:] // don't re-transcript the summary itself
 	}
-	summaryPrompt := buildSummaryPrompt(history, prior)
+	summaryPrompt := buildSummaryPrompt(history, prior, a.ExecutionLanguage)
 	cli, mdl := a.CompactClient, a.CompactModel
 	dedicated := cli != nil
 	if cli == nil {
@@ -994,7 +996,7 @@ func RawCompactionCutoff(before []llm.Message, cutoff int) int {
 // new transcript into the running summary rather than starting over — each
 // fold then stays small and nothing the summary already captured is
 // re-derived from (lossy) truncated tool output.
-func buildSummaryPrompt(msgs []llm.Message, prior string) string {
+func buildSummaryPrompt(msgs []llm.Message, prior string, language ...string) string {
 	var b strings.Builder
 	if prior != "" {
 		b.WriteString("Here is the running summary of the earlier conversation:\n\n<summary>\n")
@@ -1013,7 +1015,7 @@ func buildSummaryPrompt(msgs []llm.Message, prior string) string {
 	b.WriteString("Be concise; use bullet points for code/files. Do not include verbatim tool output. For incomplete excerpts, retain the raw history reference and mark what still needs inspection. ")
 	b.WriteString("End with a single line: \"Open task: <what the assistant was doing last, or none>\".\n\n")
 	b.WriteString("---\n\n")
-	writeTranscript(&b, msgs)
+	writeTranscript(&b, msgs, language...)
 	b.WriteString("\n---\n\nWrite the summary now.")
 	return b.String()
 }
@@ -1021,10 +1023,14 @@ func buildSummaryPrompt(msgs []llm.Message, prior string) string {
 // writeTranscript renders messages as a role-tagged transcript for a
 // meta-prompt (compaction summary, goal formulation). Tool results are
 // truncated so a giant file read doesn't blow up the request.
-func writeTranscript(b *strings.Builder, msgs []llm.Message) {
+func writeTranscript(b *strings.Builder, msgs []llm.Message, language ...string) {
 	for _, m := range msgs {
 		if m.RawSequence > 0 && m.Role != "system" {
-			fmt.Fprintf(b, "[raw source: context.history(seq=%d)]\n", m.RawSequence)
+			if len(language) > 0 && language[0] == "javascript" {
+				fmt.Fprintf(b, "[raw source: await context.history({seq: %d})]\n", m.RawSequence)
+			} else {
+				fmt.Fprintf(b, "[raw source: context.history(seq=%d)]\n", m.RawSequence)
+			}
 		}
 		switch m.Role {
 		case "user":
@@ -1070,13 +1076,13 @@ func GoalFromContextMessages(msgs []llm.Message, n int) ([]llm.Message, error) {
 // BuildGoalFromContextPrompt asks the model to distill the given tail
 // messages into a concrete, verifiable goal statement suitable for /goal.
 // The reply must be the bare goal text — the TUI sets it verbatim.
-func BuildGoalFromContextPrompt(tail []llm.Message) string {
+func BuildGoalFromContextPrompt(tail []llm.Message, language ...string) string {
 	var b strings.Builder
 	b.WriteString("Distill the end of this conversation into a detailed goal the assistant should keep working on until it is verifiably done.\n\n")
 	b.WriteString("Reply with ONLY the goal: a first line stating the concrete outcome, then a short bullet list of the specific, checkable completion criteria ")
 	b.WriteString("(files to change, commands that must pass, behavior to confirm). Include the key constraints, decisions, and identifiers (file paths, function names, ")
 	b.WriteString("error messages) from the conversation so the goal stands alone. No preamble, no quotes, no explanation.\n\n---\n\n")
-	writeTranscript(&b, tail)
+	writeTranscript(&b, tail, language...)
 	b.WriteString("\n---\n\nWrite the goal now.")
 	return b.String()
 }

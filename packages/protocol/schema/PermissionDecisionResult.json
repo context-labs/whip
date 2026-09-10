@@ -8,7 +8,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/PermissionDecisionResult",
+  "$id": "https://whip.dev/protocol/v6/PermissionDecisionResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "PermissionDecisionResult",
   "required": [

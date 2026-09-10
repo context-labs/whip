@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/session"
@@ -74,11 +75,12 @@ func (c *Control) route(ctx context.Context, work func(context.Context) error) e
 }
 
 type CreateSession struct {
-	Kind           session.SessionKind `json:"kind"`
-	CWD            string              `json:"cwd"`
-	Model          string              `json:"model"`
-	Provider       string              `json:"provider"`
-	PermissionMode string              `json:"permission_mode,omitempty"`
+	ExecutionEngine string              `json:"execution_engine,omitempty"`
+	Kind            session.SessionKind `json:"kind"`
+	CWD             string              `json:"cwd"`
+	Model           string              `json:"model"`
+	Provider        string              `json:"provider"`
+	PermissionMode  string              `json:"permission_mode,omitempty"`
 }
 
 func (c *Control) CreateSession(ctx context.Context, admission session.CommandAdmission, create CreateSession) (record session.CommandRecord, err error) {
@@ -97,7 +99,7 @@ func (c *Control) CreateSession(ctx context.Context, admission session.CommandAd
 		}
 		create, err = resolveSessionDefaults(create)
 		if err == nil {
-			record, err = c.store.CreateSessionForCommandWithPermission(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider, create.PermissionMode)
+			record, err = c.store.CreateSessionForCommandWithEngine(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider, create.PermissionMode, create.ExecutionEngine)
 		}
 		if err != nil {
 			_, finishErr := c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "failed", session.RuntimePayload{Data: encodeCommandOutcome("session.create", "", err), MediaType: "application/json"})
@@ -262,12 +264,25 @@ func (c *Control) Checkpoint(ctx context.Context, admission session.CommandAdmis
 // Resolve omitted routing on the execution host, after deduplication. A retry
 // must observe the original session even if host defaults have since changed.
 func resolveSessionDefaults(create CreateSession) (CreateSession, error) {
-	if create.Kind != session.SessionKindAgent || (create.Model != "" && create.Provider != "") {
+	if create.ExecutionEngine != "" && create.ExecutionEngine != "starlark" && create.ExecutionEngine != "quickjs" {
+		return create, fmt.Errorf("unknown execution engine %q", create.ExecutionEngine)
+	}
+	needRoute := create.Kind == session.SessionKindAgent && (create.Model == "" || create.Provider == "")
+	if !needRoute && create.ExecutionEngine != "" {
 		return create, nil
 	}
 	cfg, _, err := config.ReadVersioned()
 	if err != nil {
 		return create, err
+	}
+	if create.ExecutionEngine == "" {
+		create.ExecutionEngine = cfg.RLM.Engine()
+	}
+	if create.ExecutionEngine != "starlark" && create.ExecutionEngine != "quickjs" {
+		return create, fmt.Errorf("unknown default execution engine %q", create.ExecutionEngine)
+	}
+	if !needRoute {
+		return create, nil
 	}
 	provider, _, _, _, err := cfg.ResolveRoute(create.Model, create.Provider)
 	if err != nil {

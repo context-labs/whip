@@ -12,7 +12,7 @@ import (
 // refreshPrompt runs once at the common root/child turn boundary. The snapshot
 // also supplies explicit skill expansion and the context inspection UI.
 func (session *AgentSession) refreshPrompt(ctx context.Context) error {
-	options := rlm.PromptOptions{WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()}
+	options := rlm.PromptOptions{Engine: session.executionEngine(), WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()}
 	session.mu.Lock()
 	override := session.promptOverride
 	session.mu.Unlock()
@@ -43,7 +43,7 @@ func (session *AgentSession) refreshPrompt(ctx context.Context) error {
 }
 
 func (session *AgentSession) promptOptions(ctx context.Context) (rlm.PromptOptions, error) {
-	options := rlm.PromptOptions{WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()}
+	options := rlm.PromptOptions{Engine: session.executionEngine(), WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()}
 	if session.root == nil {
 		return options, nil
 	}
@@ -60,4 +60,14 @@ func (session *AgentSession) promptOptions(ctx context.Context) (rlm.PromptOptio
 		return err == nil, err
 	}
 	return options, nil
+}
+
+func (session *AgentSession) executionEngine() string {
+	if session.runtime != nil {
+		return session.runtime.engine
+	}
+	if session.root != nil && session.root.meta.ExecutionEngine != "" {
+		return session.root.meta.ExecutionEngine
+	}
+	return rlm.EngineStarlark
 }

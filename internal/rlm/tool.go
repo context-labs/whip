@@ -12,13 +12,17 @@ import (
 
 // Tool exposes the entire RLM runtime as one model-facing operation.
 func Tool(kernel *Kernel) tools.Tool {
+	descriptor, _ := ResolveEngine("")
+	if kernel != nil {
+		descriptor = kernel.Describe()
+	}
+	description := `Execute one bounded Starlark cell. Supported data and top-level helpers survive worker eviction and restart; unsupported bindings and checkpoint failures are reported in scratch notices. Checkpoint failure does not undo completed effects. Use host modules with keyword arguments. Local json.encode(value) and json.decode(text) accept positional arguments.`
+	if descriptor.ID == EngineQuickJS {
+		description = `Execute one bounded JavaScript cell in QuickJS. Use await module.operation({key: value}) for host calls, and print or console.log for output. Top-level lexical variables, closures, cycles and classes persist in a complete heap checkpoint after all owned calls and jobs settle. No Node.js, npm, imports or timers. Up to 16 concurrent host calls. Host JSON uses BigInt for exact large integers; unsafe Number integers and accessors are rejected. Checkpoint failure does not undo effects.`
+	}
+	schema, _ := json.Marshal(map[string]any{"type": "object", "properties": map[string]any{"code": map[string]any{"type": "string", "description": descriptor.Label + " source code"}}, "required": []string{"code"}, "additionalProperties": false})
 	return tools.Tool{
-		Def: llm.NewTool("rlm_exec", `Execute one bounded Starlark cell. Supported data and top-level helpers survive worker eviction and restart; unsupported bindings and checkpoint failures are reported in scratch notices. Checkpoint failure does not undo completed effects. Use the context, files, shell, browser, computer, models, agents, messages, mcp, state, artifacts, schedules, and permissions modules for host access with keyword arguments. Local json.encode(value) and json.decode(text) accept positional arguments.`, `{
-  "type": "object",
-  "properties": {"code": {"type": "string", "description": "Starlark source code"}},
-  "required": ["code"],
-  "additionalProperties": false
-}`),
+		Def: llm.NewTool("rlm_exec", description, string(schema)),
 		Run: func(ctx context.Context, arguments json.RawMessage) (string, error) {
 			if kernel == nil {
 				return "", errors.New("RLM kernel is unavailable")
@@ -33,6 +37,9 @@ func Tool(kernel *Kernel) tools.Tool {
 				return "", errors.New("code is required")
 			}
 			result, err := kernel.Exec(ctx, input.Code)
+			if result.ExecutionEngine == "" {
+				result.ExecutionEngine, result.Language = descriptor.ID, descriptor.Language
+			}
 			data, marshalErr := marshalToolResult(result)
 			if marshalErr != nil {
 				return "", marshalErr
@@ -49,7 +56,26 @@ func Tool(kernel *Kernel) tools.Tool {
 // serialized document would lose the result and its checkpoint notices.
 func marshalToolResult(result Result) ([]byte, error) {
 	payload := boundedScratchNotices(result)
-	payload["steps"] = result.Steps
+	payload["format_version"] = 2
+	if result.Termination != "" {
+		payload["termination"] = result.Termination
+	}
+	engineID := result.ExecutionEngine
+	if engineID == "" {
+		engineID = EngineStarlark
+	}
+	descriptor, _ := ResolveEngine(engineID)
+	payload["execution_engine"], payload["language"] = descriptor.ID, descriptor.Language
+	payload["has_value"] = result.HasValue
+	metrics := result.Metrics
+	if metrics == nil {
+		metrics = map[string]uint64{}
+	}
+	if descriptor.ID == EngineStarlark {
+		payload["steps"] = result.Steps
+		metrics["starlark_steps"] = result.Steps
+	}
+	payload["metrics"] = metrics
 	payload["value"] = result.Value
 	if result.Output != "" {
 		output, truncated := boundedResultText(result.Output, 16*1024)

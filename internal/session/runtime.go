@@ -77,6 +77,7 @@ type ContentGrant struct {
 }
 
 type RuntimeAgent struct {
+	ExecutionEngine string       `json:"execution_engine"`
 	LastTurn        *TurnOutcome `json:"last_turn,omitempty"`
 	ID              string       `json:"id"`
 	RootID          string       `json:"root_id"`

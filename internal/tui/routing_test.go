@@ -255,15 +255,15 @@ func TestDialogTopStaysPutWhileFiltering(t *testing.T) {
 	}
 }
 
-// The footer's left side follows the keyboard's owner; the right side lists
-// the global chords, adding "ctrl+p commands" only on wide terminals.
+// The footer's left side follows the keyboard's owner; the right side is
+// opencode's "ctrl+r repl  ctrl+p commands" at every width.
 func TestFooterHintsFollowFocus(t *testing.T) {
 	m := goldenModel(140, 40)
 	last := func() string {
 		rows := strings.Split(ansi.Strip(viewStr(m)), "\n")
 		return rows[len(rows)-1]
 	}
-	if f := last(); !strings.Contains(f, "/work/whip") || !strings.Contains(f, "ctrl+x t themes") || !strings.Contains(f, "ctrl+x b sidebar") || !strings.Contains(f, "ctrl+p commands") {
+	if f := last(); !strings.Contains(f, "/work/whip") || !strings.Contains(f, "ctrl+r repl") || !strings.Contains(f, "ctrl+p commands") || strings.Contains(f, "ctrl+x t themes") || strings.Contains(f, "ctrl+x b sidebar") {
 		t.Fatalf("idle footer: %q", f)
 	}
 	m.busy = true
@@ -288,7 +288,7 @@ func TestFooterHintsFollowFocus(t *testing.T) {
 	}
 	narrow := goldenModel(79, 24)
 	rows := strings.Split(ansi.Strip(viewStr(narrow)), "\n")
-	if f := rows[len(rows)-1]; strings.Contains(f, "ctrl+p") || !strings.Contains(f, "ctrl+x b sidebar") || ansi.StringWidth(f) != 79 {
+	if f := rows[len(rows)-1]; !strings.Contains(f, "ctrl+r repl") || !strings.Contains(f, "ctrl+p commands") || strings.Contains(f, "ctrl+x b sidebar") || ansi.StringWidth(f) != 79 {
 		t.Fatalf("narrow footer: %q", f)
 	}
 }

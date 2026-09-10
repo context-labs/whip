@@ -224,11 +224,11 @@ func (s *Store) snapshotRoot(ctx context.Context, rootID string, view *SnapshotV
 	var updated, tags string
 	var pinned int
 	if err := tx.QueryRowContext(ctx, `SELECT id,kind,title,model,provider,cwd,goal,forked_from,fork_seq,tags,pinned,archived,effort,
-		usage_in,usage_cached,usage_out,updated_at,history_revision,permission_mode FROM sessions WHERE id=?`, rootID).Scan(
+		usage_in,usage_cached,usage_out,updated_at,history_revision,permission_mode,execution_engine FROM sessions WHERE id=?`, rootID).Scan(
 		&snapshot.Meta.ID, &snapshot.Meta.Kind, &snapshot.Meta.Title, &snapshot.Meta.Model, &snapshot.Meta.Provider, &snapshot.Meta.CWD,
 		&snapshot.Meta.Goal, &snapshot.Meta.ForkedFrom, &snapshot.Meta.ForkSeq, &tags, &pinned, &snapshot.Meta.Archived,
 		&snapshot.Meta.Effort, &snapshot.Meta.UsageIn, &snapshot.Meta.UsageCached, &snapshot.Meta.UsageOut,
-		&updated, &snapshot.HistoryRevision, &snapshot.PermissionMode); err != nil {
+		&updated, &snapshot.HistoryRevision, &snapshot.PermissionMode, &snapshot.Meta.ExecutionEngine); err != nil {
 		return RootSnapshot{}, err
 	}
 	if tags != "" {
@@ -394,6 +394,7 @@ func readSnapshotAgents(ctx context.Context, tx *sql.Tx, rootID string, snapshot
 		if err := rows.Scan(&agent.ID, &agent.RootID, &agent.ParentID, &agent.Name, &agent.Model, &agent.Provider, &agent.Effort, &agent.CWD, &agent.Report, &agent.Status, &agent.LastTurn, &agent.PendingMail); err != nil {
 			return err
 		}
+		agent.ExecutionEngine = snapshot.Meta.ExecutionEngine
 		snapshot.Agents = append(snapshot.Agents, agent)
 	}
 	return rows.Err()

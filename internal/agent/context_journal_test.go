@@ -304,3 +304,12 @@ func TestRawCompactionCutoffUsesPriorSummaryWhenNoRawRowsFold(t *testing.T) {
 		t.Fatalf("clamped cutoff = %d, want 1000", got)
 	}
 }
+
+func TestJavaScriptSummaryUsesSelectedHistorySyntax(t *testing.T) {
+	messages := []llm.Message{{Role: "user", Content: "work", RawSequence: 17}}
+	for _, prompt := range []string{buildSummaryPrompt(messages, "", "javascript"), BuildGoalFromContextPrompt(messages, "javascript")} {
+		if !strings.Contains(prompt, "await context.history({seq: 17})") || strings.Contains(prompt, "context.history(seq=") {
+			t.Fatalf("incorrect language guidance: %s", prompt)
+		}
+	}
+}

@@ -33,6 +33,9 @@
                   "object"
                 ],
                 "properties": {
+                  "execution_engine": {
+                    "type": "string"
+                  },
                   "last_turn": {
                     "type": [
                       "null",
@@ -169,6 +172,7 @@
                   }
                 },
                 "required": [
+                  "execution_engine",
                   "id",
                   "root_id",
                   "parent_id",
@@ -663,6 +667,9 @@
                       "object"
                     ],
                     "properties": {
+                      "execution_engine": {
+                        "type": "string"
+                      },
                       "last_turn": {
                         "type": [
                           "null",
@@ -799,6 +806,7 @@
                       }
                     },
                     "required": [
+                      "execution_engine",
                       "id",
                       "root_id",
                       "parent_id",
@@ -1388,7 +1396,7 @@
       "type": "boolean"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/RootCollectionPage",
+  "$id": "https://whip.dev/protocol/v6/RootCollectionPage",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "RootCollectionPage",
   "required": [

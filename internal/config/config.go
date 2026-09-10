@@ -192,13 +192,15 @@ type PermissionsConfig struct {
 // RLMConfig controls the disposable Starlark worker. Zero limit values use
 // the runtime defaults documented by the RLM contract.
 type RLMConfig struct {
-	Steps        uint64 `json:"steps,omitempty"`
-	HostRequests int    `json:"hostRequests,omitempty"`
-	WallMillis   int    `json:"wallMillis,omitempty"`
-	MemoryMiB    int    `json:"memoryMiB,omitempty"`
-	OutputBytes  int    `json:"outputBytes,omitempty"`
-	FrameBytes   int    `json:"frameBytes,omitempty"`
-	MaxWorkers   int    `json:"maxWorkers,omitempty"`
+	MaxConcurrentHostCalls int    `json:"maxConcurrentHostCalls,omitempty"`
+	DefaultEngine          string `json:"defaultEngine,omitempty"`
+	Steps                  uint64 `json:"steps,omitempty"`
+	HostRequests           int    `json:"hostRequests,omitempty"`
+	WallMillis             int    `json:"wallMillis,omitempty"`
+	MemoryMiB              int    `json:"memoryMiB,omitempty"`
+	OutputBytes            int    `json:"outputBytes,omitempty"`
+	FrameBytes             int    `json:"frameBytes,omitempty"`
+	MaxWorkers             int    `json:"maxWorkers,omitempty"`
 }
 
 // ComputerConfig gates computer_exec per app (codex's per-bundle-id model).
@@ -350,6 +352,9 @@ func loadUnlocked() (*Config, error) {
 		logf("config.load", "PARSE FAILURE %s: %v (%d bytes)", p, err, len(data))
 		return nil, fmt.Errorf("parse %s: %w", p, err)
 	}
+	if err := cfg.RLM.Validate(); err != nil {
+		return nil, err
+	}
 	// Recover from a clobbered/empty config: no providers and no models is
 	// never a usable state, so prefer the backup, else regenerate defaults —
 	// BUT preserve any MCP server/import entries: an mcp-only config is valid
@@ -373,6 +378,9 @@ func loadUnlocked() (*Config, error) {
 				if cfg.DisabledProviders != nil {
 					restored.DisabledProviders = slices.Clone(cfg.DisabledProviders)
 				}
+				if cfg.RLM != (RLMConfig{}) {
+					restored.RLM = cfg.RLM
+				}
 				return &restored, restored.saveUnlocked()
 			}
 		}
@@ -381,6 +389,7 @@ func loadUnlocked() (*Config, error) {
 		def.MCPImport = cfg.MCPImport
 		def.ProviderKeySources = cfg.ProviderKeySources
 		def.DisabledProviders = slices.Clone(cfg.DisabledProviders)
+		def.RLM = cfg.RLM
 		logf("config.load", "no usable .bak; regenerated defaults (%s), keeping %d mcp entries", def.fingerprint(), len(cfg.MCPServers))
 		return def, def.saveUnlocked()
 	}
@@ -430,6 +439,9 @@ func (c *Config) Save() error {
 }
 
 func (c *Config) saveUnlocked() error {
+	if err := c.RLM.Validate(); err != nil {
+		return err
+	}
 	p, err := path()
 	if err != nil {
 		return err
@@ -647,4 +659,23 @@ func Default() *Config {
 			"deepseek-v4-flash-0731": {Providers: []string{"inference-net"}, Context: 384000},
 		},
 	}
+}
+
+// Engine is the language used by fresh sessions when no selector is supplied.
+func (c RLMConfig) Engine() string {
+	if c.DefaultEngine == "" {
+		return "starlark"
+	}
+	return c.DefaultEngine
+}
+
+// Validate rejects invalid engine or concurrency preferences at configuration I/O.
+func (c RLMConfig) Validate() error {
+	if c.Engine() != "starlark" && c.Engine() != "quickjs" {
+		return fmt.Errorf("unknown rlm.defaultEngine %q", c.DefaultEngine)
+	}
+	if c.MaxConcurrentHostCalls < 0 || c.MaxConcurrentHostCalls > 16 {
+		return fmt.Errorf("rlm.maxConcurrentHostCalls must be 1..16, or 0 for the default")
+	}
+	return nil
 }

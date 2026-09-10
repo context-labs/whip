@@ -5,7 +5,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/ShellParams",
+  "$id": "https://whip.dev/protocol/v6/ShellParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ShellParams",
   "required": [

@@ -102,7 +102,7 @@ func TestLayoutFrameOracle(t *testing.T) {
 				if len(rows) != 40 {
 					t.Fatalf("frame has %d rows", len(rows))
 				}
-				if !strings.Contains(rows[r.footer.Min.Y], "ctrl+x") || r.footer.Min.Y != len(rows)-1 || strings.TrimSpace(rows[len(rows)-2][r.main.Min.X:]) != "" {
+				if !strings.Contains(rows[r.footer.Min.Y], "ctrl+p") || r.footer.Min.Y != len(rows)-1 || strings.TrimSpace(rows[len(rows)-2][r.main.Min.X:]) != "" {
 					t.Fatalf("footer row %d: %q", r.footer.Min.Y, rows[r.footer.Min.Y])
 				}
 				if got := rows[r.transcript.Min.Y+m.contentPad()+m.blocks[0].y0-m.vp.YOffset()]; !strings.Contains(got, "find the config loader") {

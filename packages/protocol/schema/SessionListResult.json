@@ -6,6 +6,9 @@
   "items": {
     "type": "object",
     "properties": {
+      "execution_engine": {
+        "type": "string"
+      },
       "id": {
         "type": "string"
       },
@@ -65,6 +68,7 @@
       }
     },
     "required": [
+      "execution_engine",
       "id",
       "kind",
       "title",
@@ -85,7 +89,7 @@
     ],
     "additionalProperties": false
   },
-  "$id": "https://whip.dev/protocol/v5/SessionListResult",
+  "$id": "https://whip.dev/protocol/v6/SessionListResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SessionListResult"
 }

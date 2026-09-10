@@ -21,6 +21,7 @@ function initialize(): InitializeResult {
     connection_id: 'connection-fixture', host_platform: 'darwin', host_architecture: 'arm64',
     build_id: 'different-daemon-build', generation: '9007199254740993',
     capabilities: [], negotiated_capabilities: [],
+    execution_engines: [{ id: 'starlark', language: 'starlark', label: 'Starlark' }, { id: 'quickjs', language: 'javascript', label: 'JavaScript (QuickJS)' }], default_execution_engine: 'starlark',
     operations: manifest.operations.map(operation => ({ ...operation })),
     limits: {
       frame_bytes: 1 << 20, connections: 64, in_flight_requests: 2,

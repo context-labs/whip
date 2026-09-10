@@ -1,6 +1,8 @@
 # TUI shell cleanup: hide the agents dock behind /dock, trim the footer, add ctrl+r, unfreeze the spinner
 
-Status: planned, September 10, 2026. Implementation has not started.
+Status: implemented September 10, 2026 (uncommitted on `codex/provider-onboarding`).
+Goldens regenerated for the footer and the hidden dock; the layout oracle in
+`hit_test.go` now keys on `ctrl+p` since `ctrl+x` left the idle footer.
 
 Written against the working tree on `codex/provider-onboarding` at `e92ff15bf`
 plus the uncommitted host-call lifecycle change

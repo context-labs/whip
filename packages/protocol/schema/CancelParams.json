@@ -8,7 +8,7 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v5/CancelParams",
+  "$id": "https://whip.dev/protocol/v6/CancelParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CancelParams",
   "additionalProperties": false

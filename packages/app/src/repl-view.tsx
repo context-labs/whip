@@ -11,6 +11,7 @@ import { styles } from './repl-view.stylex';
 import { ExecutionTime } from './execution-time';
 
 const historyHelp = 'Saved cells include code, output, results and recorded restart information. Details of individual host calls may be unavailable for older cells.';
+const executionLabel = (engine?: string) => engine === 'quickjs' ? 'JavaScript (QuickJS)' : !engine || engine === 'starlark' ? 'Starlark' : 'Unsupported execution language';
 
 export function ReplView({ view, state, agentId, runtimeId, viewId, connected, lastTurn, onAgentChange }: {
   view: SessionView;
@@ -23,6 +24,7 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
   onAgentChange(agentId: string): void;
 }) {
   const root = state.root;
+  const languageLabel = executionLabel(root?.meta?.execution_engine);
   const history = state.history[agentId];
   const rows = useMemo(() => executionRows(state, agentId), [state, agentId]);
   const cells = rows.filter(row => row.kind === 'cell');
@@ -53,7 +55,7 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
         </Tooltip>
       </span>
       <Select label="REPL agent" value={agentId} onValueChange={onAgentChange} options={options} xstyle={styles.agent} />
-      <span {...stylex.props(styles.count)}>{cells.length} loaded {cells.length === 1 ? 'cell' : 'cells'}</span>
+      <span {...stylex.props(styles.count)}>{languageLabel} · {cells.length} loaded {cells.length === 1 ? 'cell' : 'cells'}</span>
       {(collection.page?.has_more || root?.omitted?.agents || collection.error) && <CollectionMore collection={collection} omitted={root?.omitted?.agents} connected={connected} />}
     </div>
     {!connected && <p role="status" {...stylex.props(styles.notice)}>Execution updates are paused. Showing the last available evidence.</p>}
@@ -63,7 +65,7 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
       loadOlder={() => view.loadOlder(agentId)} historyRevision={history?.revision ?? root?.history_revision}
       historyReady={!!history && !history.loading} bookmarkKey={`${runtimeId}:${viewId}:${agentId}:repl`}
       contentStyle={styles.content}
-      empty={<div {...stylex.props(styles.empty)}><Code2 size={24} /><strong>{loading ? 'Loading executions…' : missing ? 'This agent’s executions are unavailable' : failed ? 'The last turn failed' : 'No executions in the loaded history'}</strong><span>{loading ? 'Reading the session’s recorded work.' : missing ? 'Use Refresh above to try again, or select another agent.' : failed ? 'No executions are present in the loaded history. See the recorded error above.' : history?.hasMore ? 'Load an older page to look for earlier cells.' : 'Cells appear here when this agent runs Starlark.'}</span></div>}
+      empty={<div {...stylex.props(styles.empty)}><Code2 size={24} /><strong>{loading ? 'Loading executions…' : missing ? 'This agent’s executions are unavailable' : failed ? 'The last turn failed' : 'No executions in the loaded history'}</strong><span>{loading ? 'Reading the session’s recorded work.' : missing ? 'Use Refresh above to try again, or select another agent.' : failed ? 'No executions are present in the loaded history. See the recorded error above.' : history?.hasMore ? 'Load an older page to look for earlier cells.' : `Cells appear here when this agent runs ${languageLabel}.`}</span></div>}
       renderRow={row => row.kind === 'restart'
         ? <div {...stylex.props(styles.restart)} data-repl-restart><RotateCcw size={14} /><span>{row.text}{row.historyUnmatched ? ' · observed; historical match unavailable' : ''}</span></div>
         : <Cell row={row} number={ordinals.get(row.id)!} view={view} connected={connected} expanded={expanded.has(row.id)} onToggle={() => toggle(row.id)} />}
@@ -94,6 +96,7 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
   row: ExecutionCell; number: number; view: SessionView; connected: boolean; expanded: boolean; onToggle(): void;
 }) {
   const runtime = useRuntime();
+  const languageLabel = executionLabel(row.executionEngine);
   const running = row.status === 'running' || row.status === 'writing';
   const interrupted = row.status === 'interrupted' || row.status === 'cancelled';
   const isJson = !running && formatJsonOutput(row.output) !== row.output;
@@ -105,11 +108,12 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
       <Badge tone={row.status === 'failed' ? 'error' : interrupted ? 'warning' : running && connected ? 'info' : 'neutral'}>{!connected && running ? 'Observation paused' : statusLabels[row.status]}</Badge>
       <ExecutionTime cell={row} connected={connected} />
       {row.steps !== undefined && <span {...stylex.props(styles.meta)}>{row.steps.toLocaleString()} steps</span>}
+      {row.quickjsJobs !== undefined && <span {...stylex.props(styles.meta)}>{row.quickjsJobs.toLocaleString()} jobs</span>}
       <span {...stylex.props(styles.grow)} />
-      {row.code && <CopyButton label="Copy Starlark code" text={row.code} copy={runtime.platform.copy} onError={runtime.report} />}
+      {row.code && <CopyButton label={`Copy ${languageLabel} code`} text={row.code} copy={runtime.platform.copy} onError={runtime.report} />}
     </header>
     {row.historyUnmatched && <p {...stylex.props(styles.meta)}>Observed execution · historical match unavailable</p>}
-    {row.code ? <CodeBlock code={row.code} language="starlark" label={`Cell ${number} · Starlark`} xstyle={styles.code} /> : !row.body && <p {...stylex.props(styles.meta)}>{row.status === 'writing' ? 'Waiting for code…' : 'Code is unavailable in this record.'}</p>}
+    {row.code ? <CodeBlock code={row.code} language={row.language} label={`Cell ${number} · ${languageLabel}`} xstyle={styles.code} /> : !row.body && <p {...stylex.props(styles.meta)}>{row.status === 'writing' ? 'Waiting for code…' : 'Code is unavailable in this record.'}</p>}
     {!!row.hosts.length && <div {...stylex.props(styles.hosts)} aria-label="Host calls">
       {row.hosts.map(host => <div key={host.id}>
         <div {...stylex.props(styles.host)}><span aria-hidden="true">→</span><span {...stylex.props(styles.hostName)}>{host.name}{host.summary && <span {...stylex.props(styles.meta)}>({host.summary})</span>}</span><span {...stylex.props(styles.duration)}>{host.status === 'running' ? connected ? 'Running' : 'Updates paused' : host.status === 'unknown' ? 'Outcome unavailable' : host.status === 'cancelled' || host.status === 'interrupted' ? host.status : host.duration}</span></div>
@@ -121,7 +125,7 @@ function Cell({ row, number, view, connected, expanded, onToggle }: {
         downloadAction={<CopyButton label="Copy output" text={row.output} copy={runtime.platform.copy} onError={runtime.report} />} />
       {(output.hidden > 0 || expanded) && <Button variant="ghost" size="sm" onClick={onToggle} aria-expanded={expanded}>{expanded ? 'Collapse output' : `Show ${output.hidden} more ${output.hidden === 1 ? 'line' : 'lines'}`}</Button>}
     </div>}
-    {row.value !== undefined && row.value !== 'null' && <div {...stylex.props(styles.result)}><CodeBlock code={row.value} language="json" label="Return value" xstyle={styles.code} /></div>}
+    {row.hasValue && row.value !== undefined && <div {...stylex.props(styles.result)}><CodeBlock code={row.value} language="json" label="Return value" xstyle={styles.code} /></div>}
     {row.scratch && <p aria-label="Scratch checkpoint" {...stylex.props(styles.meta)}>{row.scratch}</p>}
     {row.error && <p {...stylex.props(styles.error)}>{row.error}</p>}
     {row.truncated && <p {...stylex.props(styles.meta)}>Some details of this execution are unavailable or truncated.</p>}

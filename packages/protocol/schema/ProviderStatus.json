@@ -59,7 +59,7 @@
       }
     }
   },
-  "$id": "https://whip.dev/protocol/v5/ProviderStatus",
+  "$id": "https://whip.dev/protocol/v6/ProviderStatus",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ProviderStatus",
   "required": [

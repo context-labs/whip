@@ -19,9 +19,10 @@ export interface NewChatTab {
   readonly runtimeId?: string;
   readonly cwd: string;
   readonly permissionMode: PermissionMode;
+  readonly executionEngine?: 'starlark' | 'quickjs';
 }
 export type SessionTab = SessionBackedTab | NewChatTab;
-export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode'>>;
+export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine'>>;
 export interface SessionPane {
   readonly type: 'pane';
   readonly id: string;
@@ -132,8 +133,10 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
     if (!identity(value.id) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd) ||
       (value.hostProfileId !== undefined && !identity(value.hostProfileId)) ||
       (value.runtimeId !== undefined && !identity(value.runtimeId)) ||
+      (value.executionEngine !== undefined && value.executionEngine !== 'starlark' && value.executionEngine !== 'quickjs') ||
       (value.permissionMode !== 'prompt' && value.permissionMode !== 'automatic')) return;
     return { id: value.id, kind: 'new', cwd: value.cwd, permissionMode: value.permissionMode,
+      ...(value.executionEngine === undefined ? {} : { executionEngine: value.executionEngine as NewChatTab['executionEngine'] }),
       ...(value.hostProfileId === undefined ? {} : { hostProfileId: value.hostProfileId as string }),
       ...(value.runtimeId === undefined ? {} : { runtimeId: value.runtimeId as string }) };
   }

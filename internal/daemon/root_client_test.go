@@ -687,3 +687,41 @@ func TestRootClientRetriesPermissionDecisionWithSameCommandAfterDisconnect(t *te
 		t.Fatalf("permission retry changed its identity or payload: %+v", decisions)
 	}
 }
+
+type engineCreationConnection struct {
+	*staticRootConnection
+	engine   string
+	requests []CommandParams
+}
+
+func (c *engineCreationConnection) InitializeResult() InitializeResult {
+	return InitializeResult{DefaultExecutionEngine: c.engine}
+}
+func (c *engineCreationConnection) Command(_ context.Context, p CommandParams) (CommandResult, error) {
+	c.requests = append(c.requests, p)
+	return CommandResult{}, errors.New("lost acknowledgement")
+}
+func TestRootClientFreezesDiscoveredEngineAcrossLostAcknowledgement(t *testing.T) {
+	template := &CreateSession{Kind: session.SessionKindAgent, CWD: "/tmp", Model: "m", Provider: "p"}
+	client, err := NewRootClient(RootClientOptions{ClientID: "engine", Create: template, Connector: func(context.Context, map[string]int64) (RootConnection, error) { return nil, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	first := &engineCreationConnection{staticRootConnection: newStaticRootConnection(), engine: "quickjs"}
+	if err := client.synchronize(first); err == nil {
+		t.Fatal("expected lost acknowledgement")
+	}
+	template.ExecutionEngine = "starlark"
+	second := &engineCreationConnection{staticRootConnection: newStaticRootConnection(), engine: "starlark"}
+	if err := client.synchronize(second); err == nil {
+		t.Fatal("expected lost acknowledgement")
+	}
+	if len(first.requests) != 1 || len(second.requests) != 1 || string(first.requests[0].Payload) != string(second.requests[0].Payload) || first.requests[0].CommandID != second.requests[0].CommandID {
+		t.Fatal("retried creation changed")
+	}
+	var create CreateSession
+	if err := json.Unmarshal(second.requests[0].Payload, &create); err != nil || create.ExecutionEngine != "quickjs" {
+		t.Fatalf("create=%+v %v", create, err)
+	}
+}
