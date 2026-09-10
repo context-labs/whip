@@ -601,6 +601,8 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 	switch kind {
 	case "stream.cell.host.started", "stream.cell.host":
 		return true, nil // the REPL panel consumes them; the transcript shows the cell
+	case "stream.tool.progress":
+		return true, nil // custom tool progress; the cell's completion carries the result
 	case "stream.text":
 		message = textMsg(event.Text)
 	case "stream.reasoning":
