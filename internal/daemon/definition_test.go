@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agentdef"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
@@ -106,5 +107,37 @@ func TestDefinitionSurfaceDisablesAutomaticTitle(t *testing.T) {
 	}
 	if strings.Contains(meta.Title, runner.title) {
 		t.Fatalf("title applied: %q", meta.Title)
+	}
+}
+
+// A definition's model defaults fill an omitted route before host defaults; an
+// explicit request still wins.
+func TestSessionDefaultsPreferDefinitionModel(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	cfg := config.Default()
+	cfg.DefaultModel, cfg.DefaultProvider = "host-alias", "host"
+	cfg.Models["host-alias"] = config.Model{Providers: []string{"host"}}
+	cfg.Models["agent-alias"] = config.Model{Providers: []string{"agent"}}
+	cfg.Providers["host"] = config.Provider{BaseURL: "http://localhost:1"}
+	cfg.Providers["agent"] = config.Provider{BaseURL: "http://localhost:2"}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	definition := agentdef.Coding()
+	definition.Model = agentdef.ModelDefaults{Model: "agent-alias", Provider: "agent"}
+	got, err := sessionDefaults(CreateSession{Kind: session.SessionKindAgent}, definition)
+	if err != nil || got.Model != "agent-alias" || got.Provider != "agent" || got.ExecutionEngine != "starlark" {
+		t.Fatalf("definition defaults not applied: %+v %v", got, err)
+	}
+	got, err = sessionDefaults(CreateSession{Kind: session.SessionKindAgent, Model: "host-alias"}, definition)
+	if err != nil || got.Model != "host-alias" || got.Provider != "host" {
+		t.Fatalf("explicit model lost to definition defaults: %+v %v", got, err)
+	}
+	got, err = sessionDefaults(CreateSession{Kind: session.SessionKindAgent}, agentdef.Coding())
+	if err != nil || got.Model != "host-alias" || got.Provider != "host" {
+		t.Fatalf("coding must fall back to host defaults: %+v %v", got, err)
+	}
+	if _, ok := DefinitionFor(session.SessionKindToolHost); ok {
+		t.Fatal("tool hosts have no agent definition")
 	}
 }

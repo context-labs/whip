@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -264,8 +265,18 @@ func (c *Control) Checkpoint(ctx context.Context, admission session.CommandAdmis
 // Resolve omitted routing on the execution host, after deduplication. A retry
 // must observe the original session even if host defaults have since changed.
 func resolveSessionDefaults(create CreateSession) (CreateSession, error) {
+	definition, _ := DefinitionFor(create.Kind)
+	return sessionDefaults(create, definition)
+}
+
+// sessionDefaults fills omitted routing from the definition's model defaults,
+// then from host configuration.
+func sessionDefaults(create CreateSession, definition agentdef.Definition) (CreateSession, error) {
 	if create.ExecutionEngine != "" && create.ExecutionEngine != "starlark" && create.ExecutionEngine != "quickjs" {
 		return create, fmt.Errorf("unknown execution engine %q", create.ExecutionEngine)
+	}
+	if create.Kind == session.SessionKindAgent && create.Model == "" && definition.Model.Model != "" {
+		create.Model, create.Provider = definition.Model.Model, definition.Model.Provider
 	}
 	needRoute := create.Kind == session.SessionKindAgent && (create.Model == "" || create.Provider == "")
 	if !needRoute && create.ExecutionEngine != "" {

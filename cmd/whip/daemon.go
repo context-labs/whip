@@ -18,6 +18,7 @@ import (
 	"github.com/context-labs/whip/internal/buildinfo"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
@@ -108,19 +109,19 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		// Hand edits to the allowlist take effect on the next session.
 		store.SetGlobalPermissionRules(runtimeCfg.Permissions.Allow)
-		switch meta.Kind {
-		case session.SessionKindToolHost:
-			services := daemonToolServices(runtimeCfg, meta, "mcp")
+		if meta.Kind == session.SessionKindToolHost {
+			services := daemonToolServices(runtimeCfg, meta, "mcp", agentdef.Capabilities)
 			return daemon.Components{Runner: daemon.NewToolRunner(services)}, nil
-		case session.SessionKindAgent:
-		default:
+		}
+		definition, ok := daemon.DefinitionFor(meta.Kind)
+		if !ok {
 			return daemon.Components{}, fmt.Errorf("unsupported session kind %q", meta.Kind)
 		}
 		route, model, err := resolveRuntimeModel(runtimeCfg, meta.Model, meta.Provider, providers)
 		if err != nil {
 			return daemon.Components{}, err
 		}
-		services := daemonToolServices(runtimeCfg, meta, route.Model)
+		services := daemonToolServices(runtimeCfg, meta, route.Model, definition.Capabilities)
 		ag := agent.NewRuntime(route.Client, route.Model, route.MaxTokens, "", services)
 		ag.ModelName, ag.Provider = route.ModelName, route.Provider
 		ag.Pricing = route.Pricing
@@ -135,7 +136,11 @@ func runDaemon(ctx context.Context, args []string) error {
 			})
 		}
 		ag.Vision = route.Vision
-		ag.Effort = resolvedRuntimeEffort(providers.Catalogs(), route.Provider, route.Model, meta.Effort, runtimeCfg.DefaultEffort)
+		effort := meta.Effort
+		if effort == "" {
+			effort = definition.Model.Effort
+		}
+		ag.Effort = resolvedRuntimeEffort(providers.Catalogs(), route.Provider, route.Model, effort, runtimeCfg.DefaultEffort)
 		ag.ResolveModel = func(model, provider string) (agent.ModelRoute, error) {
 			currentCfg, loadErr := config.Load()
 			if loadErr != nil {
@@ -144,20 +149,27 @@ func runDaemon(ctx context.Context, args []string) error {
 			resolved, _, resolveErr := resolveRuntimeModel(currentCfg, model, provider, providers)
 			return resolved, resolveErr
 		}
-		compactName := runtimeCfg.CompactModel
+		// Compaction defaults: the definition first, then host configuration.
+		compactName, compactProvider := definition.Compaction.Model, definition.Compaction.Provider
+		if compactName == "" {
+			compactName, compactProvider = runtimeCfg.CompactModel, runtimeCfg.CompactProvider
+		}
 		if compactName == "" {
 			compactName = config.DefaultCompactModel
 		}
-		if compact, _, resolveErr := resolveRuntimeModel(runtimeCfg, compactName, runtimeCfg.CompactProvider, providers); resolveErr == nil {
+		if compact, _, resolveErr := resolveRuntimeModel(runtimeCfg, compactName, compactProvider, providers); resolveErr == nil {
 			ag.CompactClient = compact.Client
 			ag.CompactModel, ag.CompactProvider = compact.Model, compact.Provider
 			ag.CompactPricing = compact.Pricing
 		}
-		compactPct := runtimeCfg.CompactPct
-		if compactPct == 0 {
-			compactPct = config.DefaultCompactPct
+		ag.CompactThreshold = definition.Compaction.Threshold
+		if ag.CompactThreshold == 0 {
+			compactPct := runtimeCfg.CompactPct
+			if compactPct == 0 {
+				compactPct = config.DefaultCompactPct
+			}
+			ag.CompactThreshold = float64(min(max(compactPct, 10), 90)) / 100
 		}
-		ag.CompactThreshold = float64(min(max(compactPct, 10), 90)) / 100
 		var mcpManager *mcp.Manager
 		discovery := mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(runtimeCfg.MCPServers), mcp.ImportPolicyFrom(runtimeCfg.MCPImport))
 		if len(discovery.Merged) > 0 || len(discovery.Blocked) > 0 {
@@ -165,7 +177,7 @@ func runDaemon(ctx context.Context, args []string) error {
 			mcpManager.SetBlocked(discovery.Blocked)
 		}
 		runtime, err := daemon.NewRecursiveRuntime(daemon.RecursiveRuntimeOptions{
-			Engine: meta.ExecutionEngine, Agent: ag, History: history, Limits: limits, Kernels: kernels,
+			Engine: meta.ExecutionEngine, Definition: definition, Agent: ag, History: history, Limits: limits, Kernels: kernels,
 			KernelCommand: daemonKernelCommand,
 		})
 		if err != nil {
@@ -176,7 +188,7 @@ func runDaemon(ctx context.Context, args []string) error {
 			return daemon.Components{}, err
 		}
 		components := daemon.Components{
-			Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind,
+			Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: definition,
 		}
 		if mcpManager != nil {
 			components.MCP = mcpManager
@@ -279,14 +291,17 @@ func resolveRuntimeModel(cfg *config.Config, modelName, providerName string, ser
 	}, model, nil
 }
 
-func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string) *tools.Services {
+// daemonToolServices wires host integrations for one session. Browser and
+// computer automation follow the definition's capabilities; the host
+// configuration can still disable them.
+func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string, capabilities []string) *tools.Services {
 	services := tools.NewServices()
 	services.SetExternalPermissions(true)
 	services.SetProcessMarkers(meta.ID, apiID)
 	if cfg.Browser.CDPURL != "" {
 		services.SetProcessEnvironment(map[string]string{"WHIP_CDP_URL": cfg.Browser.CDPURL})
 	}
-	if cfg.Browser.Enabled == nil || *cfg.Browser.Enabled {
+	if slices.Contains(capabilities, "browser") && (cfg.Browser.Enabled == nil || *cfg.Browser.Enabled) {
 		mode := browser.ModeLive
 		switch cfg.Browser.Mode {
 		case "dedicated":
@@ -302,7 +317,7 @@ func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string) *to
 		}
 		services.SetBrowser(manager, cfg.Browser.AllowPrivateURLs)
 	}
-	if cfg.Computer.Enabled == nil || *cfg.Computer.Enabled {
+	if slices.Contains(capabilities, "computer") && (cfg.Computer.Enabled == nil || *cfg.Computer.Enabled) {
 		defaultDeny := cfg.Computer.DefaultDeny != nil && *cfg.Computer.DefaultDeny
 		services.SetComputerPolicy(computer.NewPolicy(cfg.Computer.Allow, cfg.Computer.Deny, defaultDeny))
 	}
