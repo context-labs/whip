@@ -12,7 +12,7 @@ func EventPayloads() map[string]reflect.Type {
 	result := map[string]reflect.Type{}
 	for _, kind := range []string{
 		"stream.text", "stream.reasoning", "stream.tool.call", "stream.tool.started", "stream.tool.output", "stream.tool.completed",
-		"stream.notice", "stream.usage", "stream.accounting", "stream.cell.host.started", "stream.cell.host", "stream.terminal.started", "stream.terminal.output",
+		"stream.notice", "stream.usage", "stream.accounting", "stream.cell.host.started", "stream.cell.host", "stream.tool.progress", "stream.terminal.started", "stream.terminal.output",
 		"stream.terminal.awaiting", "stream.terminal.completed",
 	} {
 		result[kind] = reflect.TypeFor[StreamEvent]()

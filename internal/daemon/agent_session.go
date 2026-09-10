@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
 	sessionstore "github.com/context-labs/whip/internal/session"
@@ -530,6 +531,9 @@ func (session *AgentSession) bind(root *Session) error {
 		return errors.New("agent services are required")
 	}
 	session.agent.Services.SetMCPProvider(root.mcpProvider)
+	if root.executors != nil {
+		session.agent.Services.SetCustomTools(root.definition.ID, root.meta.DefinitionRevision, customTools(root.definition), root.executors)
+	}
 	if err := session.agent.Services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority); err != nil {
 		return err
 	}
@@ -579,4 +583,14 @@ func (session *AgentSession) accountingStopError() error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	return session.accountingStopped
+}
+
+// customTools converts a definition's tools to the services declaration with
+// their effective timeouts.
+func customTools(definition agentdef.Definition) []tools.CustomTool {
+	result := make([]tools.CustomTool, 0, len(definition.Tools))
+	for _, tool := range definition.Tools {
+		result = append(result, tools.CustomTool{Name: tool.Name, InputSchema: tool.InputSchema, Timeout: tool.Timeout()})
+	}
+	return result
 }

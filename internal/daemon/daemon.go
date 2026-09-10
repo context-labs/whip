@@ -26,6 +26,7 @@ type Daemon struct {
 	store     *session.Store
 	factory   Factory
 	control   *Control
+	executors *executorRegistry
 	ctx       context.Context
 	cancel    context.CancelFunc
 
@@ -50,7 +51,7 @@ func New(store *session.Store, factory Factory, providers ...*ProviderService) (
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	daemon := &Daemon{store: store, factory: factory, ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
+	daemon := &Daemon{store: store, factory: factory, executors: newExecutorRegistry(), ctx: ctx, cancel: cancel, roots: make(map[string]*rootEntry)}
 	if len(providers) > 0 {
 		daemon.providers = providers[0]
 	}
@@ -247,6 +248,7 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	}
 	root = newSession(d.store, meta, authority, components, d.factory)
 	root.providers = d.providers
+	root.executors = d.executors
 	// Bind hooks may reconstruct durable child agents through actor-owned
 	// store operations, so the serialization boundary must exist first.
 	root.supervisor.startActor(root.run)

@@ -343,6 +343,7 @@ func (s *Server) unregister(connection *serverConn) {
 	s.mu.Lock()
 	delete(s.clients, connection)
 	s.mu.Unlock()
+	s.daemon.executors.disconnect(connection)
 }
 
 func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCError) {
@@ -359,6 +360,9 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 		return result, failure
 	}
 	if result, failure, handled := s.handleDefinitions(connection, request); handled {
+		return result, failure
+	}
+	if result, failure, handled := s.handleExecutor(connection, request); handled {
 		return result, failure
 	}
 
@@ -834,6 +838,9 @@ func (c *serverConn) close() {
 		c.server.uploads.abortClient(c.id)
 	})
 }
+
+// finished reports connection teardown to executor invocations waiting on it.
+func (c *serverConn) finished() <-chan struct{} { return c.done }
 
 func (c *serverConn) armLifecycle(generation int64) {
 	c.mu.Lock()

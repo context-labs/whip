@@ -231,6 +231,35 @@
     }
   },
   {
+    "type": "ExecutorBindParams",
+    "value": {
+      "definition": "",
+      "revision": "",
+      "tools": []
+    }
+  },
+  {
+    "type": "ExecutorBindResult",
+    "value": {
+      "generation": "0",
+      "tools": []
+    }
+  },
+  {
+    "type": "ExecutorPendingParams",
+    "value": {
+      "definition": "",
+      "revision": "",
+      "generation": "0"
+    }
+  },
+  {
+    "type": "ExecutorPendingResult",
+    "value": {
+      "invocations": []
+    }
+  },
+  {
     "type": "HistoryPageParams",
     "value": {
       "root_id": "",
@@ -753,18 +782,33 @@
     }
   },
   {
-    "type": "UploadBeginParams",
+    "type": "ToolProgressParams",
     "value": {
-      "upload_id": "",
-      "root_id": "",
-      "expected_digest": "",
-      "size": "0"
+      "invocation_id": "",
+      "generation": "0",
+      "text": ""
     }
   },
   {
     "type": "Accepted",
     "value": {
       "accepted": false
+    }
+  },
+  {
+    "type": "ToolResultParams",
+    "value": {
+      "invocation_id": "",
+      "generation": "0"
+    }
+  },
+  {
+    "type": "UploadBeginParams",
+    "value": {
+      "upload_id": "",
+      "root_id": "",
+      "expected_digest": "",
+      "size": "0"
     }
   },
   {

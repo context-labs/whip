@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "invocation_id": {
+      "type": "string"
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/ToolCancelParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ToolCancelParams",
+  "required": [
+    "invocation_id",
+    "generation",
+    "reason"
+  ],
+  "additionalProperties": false
+}

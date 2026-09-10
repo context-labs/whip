@@ -307,7 +307,7 @@ func TestProtocolHandlersRejectMalformedParameters(t *testing.T) {
 	connection := &serverConn{server: server, client: InitializeParams{ClientID: "malformed", ClientKind: "test"}}
 	for _, method := range []string{
 		"command.submit", "command.status", "events.replay", "root.snapshot", "history.page", "upload.begin",
-		"upload.chunk", "upload.finish", "permission.decide",
+		"upload.chunk", "upload.finish", "permission.decide", "executor.bind", "executor.pending", "tool.result", "tool.progress",
 	} {
 		if result, failure := server.handle(connection, rpcMessage{Method: method, Params: json.RawMessage(`{`)}); result != nil || failure == nil || failure.Code != -32602 {
 			t.Errorf("%s malformed params = %v, %+v", method, result, failure)

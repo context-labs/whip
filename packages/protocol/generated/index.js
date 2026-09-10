@@ -3,7 +3,7 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 6,
-  "minor": 2,
+  "minor": 3,
   "operations": [
     {
       "name": "command.status",
@@ -116,6 +116,22 @@ export const manifest = {
       "permission": "connection-subscription",
       "params_type": "UnsubscribeParams",
       "result_type": "Empty"
+    },
+    {
+      "name": "executor.bind",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-runtime",
+      "params_type": "ExecutorBindParams",
+      "result_type": "ExecutorBindResult"
+    },
+    {
+      "name": "executor.pending",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "executor-lease",
+      "params_type": "ExecutorPendingParams",
+      "result_type": "ExecutorPendingResult"
     },
     {
       "name": "history.page",
@@ -418,6 +434,22 @@ export const manifest = {
       "permission": "host-runtime",
       "params_type": "SessionSummariesParams",
       "result_type": "SessionSummariesResult"
+    },
+    {
+      "name": "tool.progress",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "executor-lease",
+      "params_type": "ToolProgressParams",
+      "result_type": "Accepted"
+    },
+    {
+      "name": "tool.result",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "executor-lease",
+      "params_type": "ToolResultParams",
+      "result_type": "Accepted"
     },
     {
       "name": "upload.begin",
@@ -984,7 +1016,9 @@ export const manifest = {
   ],
   "events": {
     "event": "EventNotification",
-    "subscription.failed": "SubscriptionFailure"
+    "subscription.failed": "SubscriptionFailure",
+    "tool.cancel": "ToolCancelParams",
+    "tool.invoke": "ToolInvokeParams"
   },
   "event_payloads": {
     "agent.admitted": "LifecycleEvent",
@@ -1057,6 +1091,7 @@ export const manifest = {
     "stream.tool.call": "StreamEvent",
     "stream.tool.completed": "StreamEvent",
     "stream.tool.output": "StreamEvent",
+    "stream.tool.progress": "StreamEvent",
     "stream.tool.started": "StreamEvent",
     "stream.usage": "StreamEvent",
     "subscription.cancelled": "LifecycleEvent",

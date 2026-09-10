@@ -104,6 +104,10 @@ var rpcOperations = []Operation{
 	rpc[DefinitionRegisterParams, DefinitionRegisterResult]("definitions.register", Ephemeral, "host-runtime", false),
 	rpc[DefinitionParams, DefinitionRecord]("definitions.get", Query, "host-runtime", false),
 	rpc[Empty, DefinitionList]("definitions.list", Query, "host-runtime", false),
+	rpc[ExecutorBindParams, ExecutorBindResult]("executor.bind", Ephemeral, "host-runtime", false),
+	rpc[ExecutorPendingParams, ExecutorPendingResult]("executor.pending", Query, "executor-lease", false),
+	rpc[ToolResultParams, Accepted]("tool.result", Ephemeral, "executor-lease", false),
+	rpc[ToolProgressParams, Accepted]("tool.progress", Ephemeral, "executor-lease", false),
 	rpc[CommandParams, CommandResult]("command.submit", Command, "operation-specific", false),
 	rpc[CommandStatusParams, CommandResult]("command.status", Query, "client-command-namespace", false),
 	rpc[SubscribeParams, SubscribeResult]("events.subscribe", Subscription, "root-association", false),
@@ -163,6 +167,8 @@ func Events() map[string]reflect.Type {
 	return map[string]reflect.Type{
 		"event":               reflect.TypeFor[EventNotification](),
 		"subscription.failed": reflect.TypeFor[SubscriptionFailure](),
+		"tool.invoke":         reflect.TypeFor[ToolInvokeParams](),
+		"tool.cancel":         reflect.TypeFor[ToolCancelParams](),
 	}
 }
 

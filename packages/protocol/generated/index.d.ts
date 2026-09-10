@@ -802,6 +802,40 @@ export interface EventNotification {
   };
 }
 
+export interface ExecutorBindParams {
+  definition: string;
+  revision: string;
+  tools: null | string[];
+}
+
+export interface ExecutorBindResult {
+  generation: string;
+  tools: null | string[];
+}
+
+export interface ExecutorPendingParams {
+  definition: string;
+  revision: string;
+  generation: string;
+}
+
+export interface ExecutorPendingResult {
+  invocations:
+    | null
+    | {
+        invocation_id: string;
+        definition: string;
+        revision: string;
+        generation: string;
+        root_id: string;
+        agent_id: string;
+        turn_id: string;
+        tool: string;
+        input: unknown;
+        deadline_millis: string;
+      }[];
+}
+
 export interface ForkParams {
   expected_revision: string | null;
   title?: string;
@@ -2786,8 +2820,40 @@ export interface ToolCallParams {
   arguments: unknown;
 }
 
+export interface ToolCancelParams {
+  invocation_id: string;
+  generation: string;
+  reason: string;
+}
+
 export interface ToolConfigureParams {
   deny_permissions: boolean;
+}
+
+export interface ToolInvokeParams {
+  invocation_id: string;
+  definition: string;
+  revision: string;
+  generation: string;
+  root_id: string;
+  agent_id: string;
+  turn_id: string;
+  tool: string;
+  input: unknown;
+  deadline_millis: string;
+}
+
+export interface ToolProgressParams {
+  invocation_id: string;
+  generation: string;
+  text: string;
+}
+
+export interface ToolResultParams {
+  invocation_id: string;
+  generation: string;
+  output?: unknown;
+  error?: string;
 }
 
 export type ToolSchemaResult =
@@ -2876,6 +2942,10 @@ export interface ContractTypes {
   Empty: Empty;
   EmptyParams: EmptyParams;
   EventNotification: EventNotification;
+  ExecutorBindParams: ExecutorBindParams;
+  ExecutorBindResult: ExecutorBindResult;
+  ExecutorPendingParams: ExecutorPendingParams;
+  ExecutorPendingResult: ExecutorPendingResult;
   ForkParams: ForkParams;
   GoalContextParams: GoalContextParams;
   GoalResult: GoalResult;
@@ -2977,7 +3047,11 @@ export interface ContractTypes {
   TitleParams: TitleParams;
   TitleResult: TitleResult;
   ToolCallParams: ToolCallParams;
+  ToolCancelParams: ToolCancelParams;
   ToolConfigureParams: ToolConfigureParams;
+  ToolInvokeParams: ToolInvokeParams;
+  ToolProgressParams: ToolProgressParams;
+  ToolResultParams: ToolResultParams;
   ToolSchemaResult: ToolSchemaResult;
   UnsubscribeParams: UnsubscribeParams;
   UploadBeginParams: UploadBeginParams;
@@ -3056,6 +3130,7 @@ export interface EventPayloadTypes {
   "stream.tool.call": StreamEvent | ContentEventPayload;
   "stream.tool.completed": StreamEvent | ContentEventPayload;
   "stream.tool.output": StreamEvent | ContentEventPayload;
+  "stream.tool.progress": StreamEvent | ContentEventPayload;
   "stream.tool.started": StreamEvent | ContentEventPayload;
   "stream.usage": StreamEvent | ContentEventPayload;
   "subscription.cancelled": LifecycleEvent | ContentEventPayload;
@@ -3081,6 +3156,8 @@ export interface RpcMethods {
   "events.replay": { params: ReplayParams; result: ReplayResult; execution: "query"; permission: "root-association"; sensitive: false };
   "events.subscribe": { params: SubscribeParams; result: SubscribeResult; execution: "subscription"; permission: "root-association"; sensitive: false };
   "events.unsubscribe": { params: UnsubscribeParams; result: Empty; execution: "subscription"; permission: "connection-subscription"; sensitive: false };
+  "executor.bind": { params: ExecutorBindParams; result: ExecutorBindResult; execution: "ephemeral"; permission: "host-runtime"; sensitive: false };
+  "executor.pending": { params: ExecutorPendingParams; result: ExecutorPendingResult; execution: "query"; permission: "executor-lease"; sensitive: false };
   "history.page": { params: HistoryPageParams; result: BoundedTranscriptPage; execution: "query"; permission: "root-agent-association"; sensitive: false };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult; execution: "query"; permission: "host-runtime"; sensitive: false };
   "host.directories.list": { params: HostDirectoryParams; result: HostDirectoryResult; execution: "query"; permission: "host-runtime"; sensitive: false };
@@ -3118,6 +3195,8 @@ export interface RpcMethods {
   "sessions.list": { params: SessionCatalogParams; result: SessionCatalogPage; execution: "query"; permission: "host-runtime"; sensitive: false };
   "sessions.revision": { params: EmptyParams; result: CatalogRevision; execution: "query"; permission: "host-runtime"; sensitive: false };
   "sessions.summaries": { params: SessionSummariesParams; result: SessionSummariesResult; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "tool.progress": { params: ToolProgressParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
+  "tool.result": { params: ToolResultParams; result: Accepted; execution: "ephemeral"; permission: "executor-lease"; sensitive: false };
   "upload.begin": { params: UploadBeginParams; result: Accepted; execution: "ephemeral"; permission: "content-grant"; sensitive: false };
   "upload.chunk": { params: UploadChunkParams; result: Accepted; execution: "ephemeral"; permission: "connection-upload"; sensitive: false };
   "upload.finish": { params: UploadFinishParams; result: ContentHandle; execution: "ephemeral"; permission: "content-grant"; sensitive: false };

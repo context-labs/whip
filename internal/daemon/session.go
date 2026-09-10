@@ -256,6 +256,7 @@ type Session struct {
 	meta       sessionstore.Meta
 	authority  capability.Authority
 	definition agentdef.Definition
+	executors  *executorRegistry // custom tool executors; nil when no daemon owns the root
 	runner     Runner
 	mcpMu      sync.RWMutex
 	mcp        Closeable

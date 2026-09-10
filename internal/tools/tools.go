@@ -70,6 +70,11 @@ type Services struct {
 	mcpProvider         func() MCPProvider
 	permissionLedger    capability.Ledger
 	permissions         map[string]*permissionResolution
+	// Custom tools declared by the agent definition; see custom.go.
+	customDefinition string
+	customRevision   string
+	customTools      []CustomTool
+	toolExecutor     ToolExecutor
 
 	// Background shell jobs owned by this agent; see jobs.go.
 	jobs     map[string]*bashrun.Job
@@ -584,6 +589,15 @@ func (s *Services) BindDispatcher(ledger capability.Ledger, workspaces *capabili
 	if err := dispatcher.Register(s.mcpRegistration(ledger)); err != nil {
 		return err
 	}
+	customRegistrations, err := s.customRegistrations()
+	if err != nil {
+		return err
+	}
+	for _, registration := range customRegistrations {
+		if err := dispatcher.Register(registration); err != nil {
+			return err
+		}
+	}
 	s.mu.RLock()
 	env := maps.Clone(s.processEnv)
 	browserManager := s.browser
@@ -639,6 +653,10 @@ func (s *Services) CloneForAuthority(ledger capability.Ledger, workspaces *capab
 		mcpAutomatic:        s.mcpAutomatic,
 		permissionRevision:  s.permissionRevision,
 		mcpProvider:         s.mcpProvider,
+		customDefinition:    s.customDefinition,
+		customRevision:      s.customRevision,
+		customTools:         append([]CustomTool(nil), s.customTools...),
+		toolExecutor:        s.toolExecutor,
 	}
 	s.mu.RUnlock()
 	if clone.externalPermissions {
@@ -671,12 +689,15 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 		return "", errors.New("tool services are not bound to dispatcher authority")
 	}
 	spec, ok := hostSpec(operation)
-	if !ok && operation != "mcp.call" {
+	if !ok && operation != "mcp.call" && !isCustomToolOperation(operation) {
 		return "", fmt.Errorf("unknown host operation %q", operation)
 	}
 	capabilityRef := authority.Files
 	if operation == "mcp.call" {
 		capabilityRef = authority.MCP
+	}
+	if isCustomToolOperation(operation) {
+		capabilityRef = authority.Tools
 	}
 	identity, ok := ctx.Value(invocationKey{}).(invocation)
 	if !ok || identity.traceID == "" {
@@ -703,7 +724,7 @@ func (s *Services) run(ctx context.Context, operation string, arguments json.Raw
 	}
 	request.CapabilityID = capabilityRef.ID
 	request.CapabilityGeneration = capabilityRef.Generation
-	if operation != "mcp.call" {
+	if ok {
 		request.WorkingDirectory = workingDirectory(ctx)
 	}
 	// One model tool call (such as rlm_exec) can dispatch many host operations.

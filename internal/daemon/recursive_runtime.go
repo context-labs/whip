@@ -784,6 +784,9 @@ func (host *recursiveHost) Call(ctx context.Context, module, operation string, a
 	if err := node.root.store.CheckModelWork(ctx, node.root.ID(), node.id); err != nil {
 		return nil, fmt.Errorf("model budget stops further host calls: %w", err)
 	}
+	if module == rlm.ToolsModule {
+		return host.tools(ctx, operation, arguments)
+	}
 	// The kernel installs only the definition's modules; the worker is not an
 	// authority boundary, so the host refuses anything else too.
 	if !slices.Contains(node.effectiveDefinition().Modules, module) {
@@ -834,6 +837,45 @@ func (host *recursiveHost) Call(ctx context.Context, module, operation string, a
 	default:
 		return nil, fmt.Errorf("unknown RLM module %q", module)
 	}
+}
+
+// tools routes a custom tool call through the dispatcher under the agent's
+// tools grant. Small JSON results come back as values; large ones as handles.
+func (host *recursiveHost) tools(ctx context.Context, name string, arguments map[string]any) (any, error) {
+	node := host.session
+	if !slices.Contains(node.effectiveDefinition().ToolNames(), name) {
+		return nil, fmt.Errorf("tool %q is not available to this agent", name)
+	}
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
+	body, err := json.Marshal(arguments)
+	if err != nil {
+		return nil, err
+	}
+	node.mu.Lock()
+	turnID := node.turn.TurnID
+	node.mu.Unlock()
+	callID := tools.ToolCallID(ctx)
+	progress := func(text string) {
+		if emit := node.emit; emit != nil {
+			emit("stream.tool.progress", StreamEvent{ID: callID, Name: "tools." + name, TurnID: turnID, Text: text})
+		}
+	}
+	output, err := node.agent.Services.InvokeTool(tools.WithOnUpdate(ctx, progress), name, turnID, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(output) > sessionstore.InlineValueLimit {
+		return host.boundedText(ctx, "tools."+name+" output", output)
+	}
+	decoder := json.NewDecoder(strings.NewReader(output))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return map[string]any{"output": output}, nil
+	}
+	return value, nil
 }
 
 func (host *recursiveHost) focusInput(ctx context.Context, input string) (string, error) {

@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "invocation_id": {
+      "type": "string"
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^-?(0|[1-9][0-9]*)$",
+      "format": "int64"
+    },
+    "output": true,
+    "error": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/ToolResultParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ToolResultParams",
+  "required": [
+    "invocation_id",
+    "generation"
+  ],
+  "additionalProperties": false
+}
