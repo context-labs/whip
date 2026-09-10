@@ -159,14 +159,19 @@ func TestSessionDefaultsPreferDefinitionModel(t *testing.T) {
 }
 
 // createDefinitionRoot creates an agent session through the daemon's command
-// path so the store records its definition.
+// path so the store records its definition and, for a registered definition,
+// the pinned revision.
 func createDefinitionRoot(t *testing.T, store *session.Store, definition string) string {
 	t.Helper()
+	create, err := resolveSessionDefaults(t.Context(), store, CreateSession{Kind: session.SessionKindAgent, Model: "model", Provider: "provider", Definition: definition})
+	if err != nil {
+		t.Fatal(err)
+	}
 	id := session.NewAgentID()
 	if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "definitions", CommandID: id, Scope: session.CommandScopeDaemon, RequestDigest: id}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", definition, "")
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", create.Definition, create.DefinitionRevision)
 	if err != nil {
 		t.Fatal(err)
 	}

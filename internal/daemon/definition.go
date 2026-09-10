@@ -101,5 +101,5 @@ func rootGrants(definition agentdef.Definition, hasDefinition bool) session.Root
 		return session.FullRootGrants()
 	}
 	files, shell, mcp := agentdef.Operations(definition.Capabilities)
-	return session.RootGrants{Files: files, Shell: shell, MCP: mcp}
+	return session.RootGrants{Files: files, Shell: shell, MCP: mcp, Tools: agentdef.ToolOperations(definition.ToolNames())}
 }

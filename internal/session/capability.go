@@ -44,6 +44,8 @@ type RootGrants struct {
 	Files []string
 	Shell []string
 	MCP   bool
+	// Tools are the tools.<name> operations of the definition's custom tools.
+	Tools []string
 }
 
 // FullRootGrants is every operation the runtime can grant.
@@ -63,8 +65,36 @@ func (s *Store) EnsureRootAuthority(ctx context.Context, rootID string, grants R
 		Files: capability.Reference{ID: "files:" + rootID},
 		Shell: capability.Reference{ID: "shell:" + rootID},
 		MCP:   capability.Reference{ID: "mcp:" + rootID},
+		Tools: capability.Reference{ID: "tools:" + rootID},
 	}
 	return s.ensureAuthority(ctx, rootID, authority, grants)
+}
+
+// LoadAgentTools lists the custom tool names an agent's active tools grant
+// permits, in grant order.
+func (s *Store) LoadAgentTools(ctx context.Context, rootID, agentID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT operations FROM capabilities WHERE root_id=? AND agent_id=? AND status='active' ORDER BY id`, rootID, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var tools []string
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var operations []string
+		if err := json.Unmarshal(raw, &operations); err != nil {
+			return nil, err
+		}
+		for _, operation := range operations {
+			if name, ok := strings.CutPrefix(operation, "tools."); ok && !slices.Contains(tools, name) {
+				tools = append(tools, name)
+			}
+		}
+	}
+	return tools, rows.Err()
 }
 
 // LoadAgentAuthority reconstructs the dispatcher identity and the semantic
@@ -93,6 +123,12 @@ func (s *Store) LoadAgentAuthority(ctx context.Context, rootID, agentID string) 
 			return capability.Authority{}, nil, err
 		}
 		for _, operation := range operations {
+			if strings.HasPrefix(operation, "tools.") {
+				if authority.Tools.ID == "" {
+					authority.Tools = capability.Reference{ID: id, Generation: generation}
+				}
+				continue
+			}
 			switch operation {
 			case "mcp.call":
 				if authority.MCP.ID == "" {
@@ -328,6 +364,7 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 		mcpOperations, _ = json.Marshal([]string{"mcp.call"})
 	}
 	mcpScopes, _ := json.Marshal(storedCapabilityScopes{MCPAll: grants.MCP})
+	toolOperations, _ := json.Marshal(nonNilOperations(grants.Tools))
 	stamp := now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -360,9 +397,13 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 		{authority.Files.ID, fileOperations, fileScopes},
 		{authority.Shell.ID, shellOperations, shellScopes},
 		{authority.MCP.ID, mcpOperations, mcpScopes},
+		{authority.Tools.ID, toolOperations, shellScopes},
 	} {
-		if existingRoot {
-			// Lost authority is not permission to issue a new unrestricted grant.
+		// Lost authority is not permission to issue a new unrestricted grant. The
+		// tools row is the exception only for roots that predate it: it names the
+		// pinned definition's tools, and a revoked row still exists, so the
+		// conflict clause keeps every earlier decision.
+		if existingRoot && grant.id != authority.Tools.ID {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO capabilities(id,root_id,agent_id,operations,scopes,generation,status,created_at,updated_at)
@@ -391,6 +432,10 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT generation FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
 		authority.MCP.ID, rootID, authority.AgentID).Scan(&authority.MCP.Generation); err != nil {
+		return capability.Authority{}, err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT generation FROM capabilities WHERE id=? AND root_id=? AND agent_id=?`,
+		authority.Tools.ID, rootID, authority.AgentID).Scan(&authority.Tools.Generation); err != nil {
 		return capability.Authority{}, err
 	}
 	if err := tx.Commit(); err != nil {

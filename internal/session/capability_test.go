@@ -153,7 +153,7 @@ func TestEnsureAuthorityIsIdempotent(t *testing.T) {
 	if first != second {
 		t.Fatalf("authority changed across bootstrap: %#v != %#v", first, second)
 	}
-	if first.RootID != rootID || first.AgentID == "" || first.Files.ID == "" || first.Shell.ID == "" || first.Files.ID == first.Shell.ID {
+	if first.RootID != rootID || first.AgentID == "" || first.Files.ID == "" || first.Shell.ID == "" || first.Files.ID == first.Shell.ID || first.Tools.ID != "tools:"+rootID {
 		t.Fatalf("invalid root authority: %#v", first)
 	}
 	var agents, grants, budgets int
@@ -166,7 +166,8 @@ func TestEnsureAuthorityIsIdempotent(t *testing.T) {
 	if err := st.db.QueryRowContext(context.Background(), `SELECT count(*) FROM budgets WHERE root_id=? AND kind='active_operations'`, rootID).Scan(&budgets); err != nil {
 		t.Fatal(err)
 	}
-	if agents != 1 || grants != 3 || budgets != 1 {
+	// Files, shell, MCP, and tools: one grant row each, even when empty.
+	if agents != 1 || grants != 4 || budgets != 1 {
 		t.Fatalf("bootstrap rows agents=%d grants=%d budgets=%d", agents, grants, budgets)
 	}
 }

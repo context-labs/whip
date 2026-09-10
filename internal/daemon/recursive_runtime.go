@@ -413,8 +413,17 @@ func (runtime *RecursiveRuntime) restoreChildren(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			// The tools grant is the durable narrowing; no grant means no tools,
+			// not inheritance.
+			tools, err := runtime.root.store.LoadAgentTools(ctx, runtime.root.ID(), record.ID)
+			if err != nil {
+				return err
+			}
+			if tools == nil {
+				tools = []string{}
+			}
 			definition, err := parent.definition.Child("", agentdef.ChildOverrides{
-				Capabilities: capabilities, Model: agentdef.ModelDefaults{Model: record.Model, Provider: record.Provider, Effort: record.Effort},
+				Capabilities: capabilities, Tools: tools, Model: agentdef.ModelDefaults{Model: record.Model, Provider: record.Provider, Effort: record.Effort},
 			})
 			if err != nil {
 				return err
@@ -1144,11 +1153,15 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 	if err != nil {
 		return nil, err
 	}
+	requestedTools, err := requestedNames(arguments["tools"], "tools")
+	if err != nil {
+		return nil, err
+	}
 	modelName, _ := stringArgument(arguments, "model")
 	providerName, _ := stringArgument(arguments, "provider")
 	requestedEffort, _ := stringArgument(arguments, "effort")
 	definition, err := parent.definition.Child("", agentdef.ChildOverrides{
-		Capabilities: requested, Model: agentdef.ModelDefaults{Model: modelName, Provider: providerName, Effort: requestedEffort},
+		Capabilities: requested, Tools: requestedTools, Model: agentdef.ModelDefaults{Model: modelName, Provider: providerName, Effort: requestedEffort},
 	})
 	if err != nil {
 		return nil, err
@@ -1164,8 +1177,9 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 		Files: capability.Reference{ID: "files:" + id, Generation: 1},
 		Shell: capability.Reference{ID: "shell:" + id, Generation: 1},
 		MCP:   capability.Reference{ID: "mcp:" + id, Generation: 1},
+		Tools: capability.Reference{ID: "tools:" + id, Generation: 1},
 	}
-	delegations := capabilityDelegations(parent, authority, capabilities)
+	delegations := capabilityDelegations(parent, authority, capabilities, definition.ToolNames())
 	mcpTools, err := delegatedMCPTools(ctx, parent, capabilities, arguments["mcp_tools"])
 	if err != nil {
 		return nil, err
@@ -1283,7 +1297,7 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 	return child, child.ModelName, child.Provider, nil
 }
 
-func capabilityDelegations(parent *AgentSession, child capability.Authority, names []string) []sessionstore.CapabilityDelegation {
+func capabilityDelegations(parent *AgentSession, child capability.Authority, names, tools []string) []sessionstore.CapabilityDelegation {
 	fileOps, shellOps, _ := agentdef.Operations(names)
 	var result []sessionstore.CapabilityDelegation
 	if len(fileOps) > 0 {
@@ -1291,6 +1305,9 @@ func capabilityDelegations(parent *AgentSession, child capability.Authority, nam
 	}
 	if len(shellOps) > 0 {
 		result = append(result, sessionstore.CapabilityDelegation{ID: child.Shell.ID, Issuer: parent.authority.Shell, AgentID: child.AgentID, Operations: shellOps})
+	}
+	if toolOps := agentdef.ToolOperations(tools); len(toolOps) > 0 {
+		result = append(result, sessionstore.CapabilityDelegation{ID: child.Tools.ID, Issuer: parent.authority.Tools, AgentID: child.AgentID, Operations: toolOps})
 	}
 	return result
 }
@@ -1758,6 +1775,27 @@ func requestedCapabilities(value any) ([]string, error) {
 		result = append(result, name)
 	}
 	sort.Strings(result)
+	return result, nil
+}
+
+// requestedNames decodes an optional list-of-names spawn argument; nil means
+// inherit and an empty list narrows to none.
+func requestedNames(value any, key string) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a list of names", key)
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		name, ok := item.(string)
+		if !ok || name == "" {
+			return nil, fmt.Errorf("%s must be a list of names", key)
+		}
+		result = append(result, name)
+	}
 	return result, nil
 }
 

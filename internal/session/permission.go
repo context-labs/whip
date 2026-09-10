@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
@@ -126,7 +127,7 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 		return CapabilityRecord{}, capability.ErrDenied
 	}
 	seen := make(map[string]struct{}, len(delegation.Operations))
-	hasShell, hasWriter, hasMCP := false, false, false
+	hasShell, hasWriter, hasMCP, hasTools := false, false, false, false
 	for _, operation := range delegation.Operations {
 		if operation == "" || !slices.Contains(issuer.Operations, operation) {
 			return CapabilityRecord{}, capability.ErrDenied
@@ -138,8 +139,13 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 		hasShell = hasShell || isShellOperation(operation)
 		hasWriter = hasWriter || operation == "workspace.write"
 		hasMCP = hasMCP || operation == "mcp.call"
+		hasTools = hasTools || isToolOperation(operation)
 	}
-	if delegation.MCPAll || (!hasMCP && len(delegation.MCP) != 0) || (delegation.InheritScope && (hasMCP || hasShell || len(delegation.Scopes) != 0)) {
+	// Custom tool grants carry no scopes and never mix with other authority.
+	if hasTools && (len(delegation.Operations) != len(seen) || len(delegation.Scopes) != 0 || hasShell || hasWriter || hasMCP) {
+		return CapabilityRecord{}, capability.ErrDenied
+	}
+	if delegation.MCPAll || (!hasMCP && len(delegation.MCP) != 0) || (delegation.InheritScope && (hasMCP || hasShell || hasTools || len(delegation.Scopes) != 0)) {
 		return CapabilityRecord{}, capability.ErrDenied
 	}
 	if hasMCP {
@@ -166,7 +172,7 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 	}
 	scopes := make([]string, 0, len(delegation.Scopes))
 	var fileAuthority fileAccess
-	if !hasMCP && !hasShell {
+	if !hasMCP && !hasShell && !hasTools {
 		fileAuthority, err = loadFileAccessTx(ctx, tx, rootID, callerAgentID, delegation.Issuer)
 		if err != nil {
 			return CapabilityRecord{}, err
@@ -193,7 +199,7 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 		return CapabilityRecord{}, err
 	}
 	storedScopes := storedCapabilityScopes{Paths: scopes}
-	if !hasMCP && !hasShell {
+	if !hasMCP && !hasShell && !hasTools {
 		storedScopes.FileIssuerID = delegation.Issuer.ID
 		storedScopes.FileIssuerGeneration = delegation.Issuer.Generation
 		if delegation.InheritScope {
@@ -398,4 +404,9 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 
 func isShellOperation(operation string) bool {
 	return operation == "bash" || operation == "shell_start" || operation == "browser_exec" || operation == "computer_exec" || operation == "workspace_process"
+}
+
+// isToolOperation reports a custom tool operation, tools.<name>.
+func isToolOperation(operation string) bool {
+	return strings.HasPrefix(operation, "tools.")
 }

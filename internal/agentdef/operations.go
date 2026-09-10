@@ -45,3 +45,15 @@ func ordered(canonical, requested []string) []string {
 	}
 	return result
 }
+
+// ToolOperations maps custom tool names to the operations the tools grant
+// stores: tools.<name>, in declaration order. A nil result means no grant.
+func ToolOperations(names []string) []string {
+	var result []string
+	for _, name := range names {
+		if !slices.Contains(result, "tools."+name) {
+			result = append(result, "tools."+name)
+		}
+	}
+	return result
+}

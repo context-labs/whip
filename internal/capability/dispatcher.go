@@ -71,6 +71,8 @@ type Authority struct {
 	Files   Reference
 	Shell   Reference
 	MCP     Reference
+	// Tools holds the definition's custom tool operations (tools.<name>).
+	Tools Reference
 }
 
 type Request struct {
