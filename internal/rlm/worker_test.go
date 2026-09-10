@@ -33,7 +33,7 @@ func TestWorkerEvaluatesCellsAndHostCallsInProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, output := newUnitWorker(replies.String())
-	w.installModules()
+	w.installModules(nil)
 	result := w.evaluate("x = 40\nprint('ready')\nfiles.read(path='note.txt')")
 	if result.Error != "" || result.Output != "ready\n" {
 		t.Fatalf("evaluation = %+v", result)
@@ -66,7 +66,7 @@ func TestWorkerRunFramesAndProtocolFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, output := newUnitWorker(input.String())
-	w.installModules()
+	w.installModules(nil)
 	if err := w.run(); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestWorkerRunFramesAndProtocolFailures(t *testing.T) {
 	}
 	writeFailure, _ := newUnitWorker(input.String())
 	writeFailure.output = errorWriter{}
-	writeFailure.installModules()
+	writeFailure.installModules(nil)
 	if err := writeFailure.run(); err == nil || !strings.Contains(err.Error(), "write failed") {
 		t.Fatalf("write error = %v", err)
 	}
@@ -131,7 +131,7 @@ func TestWorkerMainParsesLimitsAndRunsProtocol(t *testing.T) {
 
 func TestWorkerExposesPureStdlibModules(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	tests := []struct{ code, want string }{
 		{`json.encode({"a": [1, None], "b": True})`, `{"a":[1,null],"b":true}`},
 		{`json.decode('{"x": 2.5}')["x"] * 2`, `5`},
@@ -156,7 +156,7 @@ func TestWorkerExposesPureStdlibModules(t *testing.T) {
 
 func TestWorkerEvaluationAndNestedConversionEdges(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	if got := w.evaluate(""); got.Error != "" || got.Value != nil {
 		t.Fatalf("empty cell = %+v", got)
 	}
@@ -204,7 +204,7 @@ func TestWorkerHostCallValidatesResponsesAndLimits(t *testing.T) {
 	}
 
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	if got := w.evaluate("files.read('x')"); got.Error == "" || !strings.Contains(got.Error, "keyword arguments") {
 		t.Fatalf("positional module call = %+v", got)
 	}
@@ -280,7 +280,7 @@ func (errorWriter) Write([]byte) (int, error) { return 0, errors.New("write fail
 func TestWorkerSnapshotAndRestoreScratch(t *testing.T) {
 	w, _ := newUnitWorker("")
 	w.frameBytes = 8 << 20
-	w.installModules()
+	w.installModules(nil)
 	cells := []string{
 		"n = 42\nbig = 1 << 100\nf = 1.5\ns = \"héllo\\n\"\nb = bytes(\"raw\")\nlst = [1, \"two\", [3.0, None], {\"k\": (1, 2)}]\nalias = lst\ntup = (1, 2, 3)\nd = {\"a\": 1, 7: \"int key\", (1, 2): \"tuple key\"}\ndef add(a, b=2):\n    \"\"\"adds\"\"\"\n    return a + b\ndef make_adder(k):\n    def inner(x):\n        return x + k\n    return inner\nplus3 = make_adder(3)\nsq = lambda x: x * x\n",
 		"selfref = [1]\nselfref.append(selfref)\ndef uses_n():\n    return n\n",
@@ -314,7 +314,7 @@ func TestWorkerSnapshotAndRestoreScratch(t *testing.T) {
 
 	fresh, _ := newUnitWorker("")
 	fresh.frameBytes = 8 << 20
-	fresh.installModules()
+	fresh.installModules(nil)
 	report := fresh.applySnapshot(program)
 	if len(report.Failed) != 0 || len(report.Restored) != len(manifest.Saved) {
 		t.Fatalf("restore report = %+v", report)
@@ -333,7 +333,7 @@ func TestWorkerSnapshotAndRestoreScratch(t *testing.T) {
 
 func TestWorkerRestoreIsolatesFailuresAndDeniesHostCalls(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	w.evaluate("good = 1\nalso = 2")
 	program, _ := w.buildSnapshot()
 	var snapshot scratchSnapshot
@@ -343,7 +343,7 @@ func TestWorkerRestoreIsolatesFailuresAndDeniesHostCalls(t *testing.T) {
 	snapshot.Helpers = []scratchHelper{{Name: "bad", Source: "def bad():\n    return undefined_name\n"}, {Name: "f", Source: "def f(x=files.read(path='a')):\n    return x\n"}}
 	encoded, _ := json.Marshal(snapshot)
 	fresh, _ := newUnitWorker("")
-	fresh.installModules()
+	fresh.installModules(nil)
 	report := fresh.applySnapshot(string(encoded))
 	if len(report.Restored) != 2 || len(report.Failed) != 2 {
 		t.Fatalf("report = %+v", report)
@@ -364,7 +364,7 @@ func TestWorkerRestoreIsolatesFailuresAndDeniesHostCalls(t *testing.T) {
 
 func TestWorkerSnapshotCapsAndNonFiniteFloats(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	if result := w.evaluate("huge = 'x' * " + strconv.Itoa(snapshotVariableBytes+1) + "\nnan = float('nan')\nsmall = 1\n"); result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -385,7 +385,7 @@ func TestWorkerSnapshotCapsAndNonFiniteFloats(t *testing.T) {
 // compiled against. A restore must omit a helper with a changed binding.
 func TestWorkerCrossChunkBindingChangeSkipsHelper(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	for _, cell := range []string{"n = 42\ndef get_n():\n    return n\n", "n = 50\n"} {
 		if result := w.evaluate(cell); result.Error != "" {
 			t.Fatal(result.Error)
@@ -399,7 +399,7 @@ func TestWorkerCrossChunkBindingChangeSkipsHelper(t *testing.T) {
 		t.Fatalf("manifest=%+v", manifest)
 	}
 	fresh, _ := newUnitWorker("")
-	fresh.installModules()
+	fresh.installModules(nil)
 	if report := fresh.applySnapshot(program); len(report.Failed) != 0 {
 		t.Fatalf("restore = %+v", report)
 	}
@@ -410,7 +410,7 @@ func TestWorkerCrossChunkBindingChangeSkipsHelper(t *testing.T) {
 
 func TestWorkerStreamsOutputFrames(t *testing.T) {
 	w, output := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	w.currentEval = 7
 	result := w.evaluate("print('a')\nprint('b')")
 	if result.Error != "" || result.Output != "a\nb\n" {

@@ -941,6 +941,9 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		s.turnCancel()
 		return "cancellation requested", nil
 	case "goal.set", "goal.run":
+		if !s.definition.Surface.GoalLoop {
+			return "", errors.New("this agent does not run goals")
+		}
 		goal := strings.TrimSpace(payload.Text)
 		if err := s.store.SetGoal(s.meta.ID, goal); err != nil {
 			return "", err

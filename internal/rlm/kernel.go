@@ -319,6 +319,10 @@ func (manager *Manager) Close() {
 type KernelOptions struct {
 	Engine      string
 	Checkpoints CheckpointStore
+	// Modules names the host modules the worker installs. Nil installs every
+	// registered module. The list is fixed for the kernel's lifetime and is
+	// re-applied to every replacement worker.
+	Modules []string
 	// Command is the executable plus any hidden-mode prefix. Production uses
 	// [current executable, "_kernel"]; tests may use a test helper prefix.
 	Command []string
@@ -390,6 +394,7 @@ type Kernel struct {
 	execMu      sync.Mutex
 	mu          sync.Mutex
 	command     []string
+	modules     []string
 	limits      Limits
 	manager     *Manager
 	host        Host
@@ -443,8 +448,13 @@ func NewKernel(options KernelOptions) (*Kernel, error) {
 	if options.Manager == nil {
 		options.Manager = NewManager(limits.MaxWorkers)
 	}
+	for _, module := range options.Modules {
+		if _, ok := moduleRegistry[module]; !ok {
+			return nil, fmt.Errorf("unknown RLM module %q", module)
+		}
+	}
 	return &Kernel{
-		engine: descriptor, checkpoints: options.Checkpoints,
+		engine: descriptor, checkpoints: options.Checkpoints, modules: append([]string(nil), options.Modules...),
 		command: command, limits: limits, manager: options.Manager, host: options.Host,
 		scratch: options.Scratch, onRestore: options.OnRestore,
 		onHostStart: options.OnHostStart, onHostCall: options.OnHostCall,
@@ -915,6 +925,9 @@ func (kernel *Kernel) startProcess() (err error) {
 		"-output-bytes", strconv.Itoa(kernel.limits.OutputBytes),
 		"-frame-bytes", strconv.Itoa(kernel.limits.FrameBytes),
 	)
+	if len(kernel.modules) > 0 {
+		args = append(args, "-modules", strings.Join(kernel.modules, ","))
+	}
 	// The kernel owns cancellation through process-group termination; the
 	// background command context prevents exec from installing a competing
 	// single-process kill path.

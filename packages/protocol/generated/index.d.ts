@@ -618,6 +618,7 @@ export interface ContextAuditResult {
 
 export interface CreateSessionParams {
   execution_engine?: string;
+  definition?: string;
   kind: string;
   cwd: string;
   model: string;

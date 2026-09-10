@@ -113,7 +113,10 @@ func runDaemon(ctx context.Context, args []string) error {
 			services := daemonToolServices(runtimeCfg, meta, "mcp", agentdef.Capabilities)
 			return daemon.Components{Runner: daemon.NewToolRunner(services)}, nil
 		}
-		definition, ok := daemon.DefinitionFor(meta.Kind)
+		definition, ok, err := daemon.DefinitionFor(meta)
+		if err != nil {
+			return daemon.Components{}, err
+		}
 		if !ok {
 			return daemon.Components{}, fmt.Errorf("unsupported session kind %q", meta.Kind)
 		}

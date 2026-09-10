@@ -240,7 +240,7 @@ func (runtime *RecursiveRuntime) newNode(value *agent.Agent, definition agentdef
 	}
 	host := &recursiveHost{session: node}
 	kernel, err := rlm.NewKernel(rlm.KernelOptions{
-		Engine: runtime.engine, Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
+		Engine: runtime.engine, Modules: definition.Modules, Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
 		OnRestore: node.recordScratchRestore, OnHostStart: node.emitHostStart, OnHostCall: node.emitHostCall,
 	})
 	if err != nil {
@@ -774,6 +774,11 @@ func (host *recursiveHost) Call(ctx context.Context, module, operation string, a
 	}
 	if err := node.root.store.CheckModelWork(ctx, node.root.ID(), node.id); err != nil {
 		return nil, fmt.Errorf("model budget stops further host calls: %w", err)
+	}
+	// The kernel installs only the definition's modules; the worker is not an
+	// authority boundary, so the host refuses anything else too.
+	if !slices.Contains(node.effectiveDefinition().Modules, module) {
+		return nil, fmt.Errorf("module %q is not available to this agent", module)
 	}
 	switch module {
 	case "context":

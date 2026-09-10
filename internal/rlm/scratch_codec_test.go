@@ -14,7 +14,7 @@ func roundTripScratch(t *testing.T, w *worker) (*worker, SnapshotManifest) {
 	t.Helper()
 	program, manifest := w.buildSnapshot()
 	fresh, _ := newUnitWorker("")
-	fresh.installModules()
+	fresh.installModules(nil)
 	report := fresh.applySnapshot(program)
 	if len(report.Failed) > 0 {
 		t.Fatalf("restore failed: %+v\nsnapshot=%s", report, program)
@@ -24,7 +24,7 @@ func roundTripScratch(t *testing.T, w *worker) (*worker, SnapshotManifest) {
 
 func TestScratchHelpersRetainStandardLibraryModules(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	result := w.evaluate(`data = json.decode('{"value": 16}')
 timestamp = time.from_timestamp(0)
 def summarize():
@@ -53,7 +53,7 @@ def summarize():
 
 func TestScratchNestedAliasesAndUnsupportedContainers(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	result := w.evaluate("shared = [1]\na = {'s': shared}\nb = (shared, a)\ndef helper():\n    return 1\nbad = {'nested': [helper]}\nindependent = 7")
 	if result.Error != "" {
 		t.Fatal(result.Error)
@@ -69,7 +69,7 @@ func TestScratchNestedAliasesAndUnsupportedContainers(t *testing.T) {
 
 func TestScratchHelpersFailureRedefinitionAndDependencies(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	for _, cell := range []string{
 		"def twice(x):\n    return x * 2\ndef recursive(n):\n    return 1 if n == 0 else n * recursive(n-1)\ndef composed(x):\n    return twice(x) + recursive(x)\ndef size(x):\n    return len(x)",
 		"def replaced():\n    return 'old'",
@@ -114,7 +114,7 @@ func TestScratchUnsupportedHelperDependencies(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			w, _ := newUnitWorker("")
-			w.installModules()
+			w.installModules(nil)
 			for _, cell := range []string{test.initial, test.later} {
 				if result := w.evaluate(cell); result.Error != "" {
 					t.Fatal(result.Error)
@@ -136,7 +136,7 @@ func TestScratchUnsupportedHelperDependencies(t *testing.T) {
 
 func TestScratchExactScalarTypesAndBits(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	w.globals["raw"] = starlark.String(string([]byte{0xff, 0, 0xc0}))
 	w.globals["bytes_value"] = starlark.Bytes(string([]byte{0xff, 0, 0xc0}))
 	w.globals["negative_zero"] = starlark.Float(math.Copysign(0, -1))
@@ -150,7 +150,7 @@ func TestScratchExactScalarTypesAndBits(t *testing.T) {
 
 func TestScratchTraversalBoundsAndCycles(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	var deep starlark.Value = starlark.None
 	for range 140 {
 		deep = starlark.Tuple{deep}
@@ -170,7 +170,7 @@ func TestScratchTraversalBoundsAndCycles(t *testing.T) {
 
 func TestScratchCorruptionAndHostEffectDefaults(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	w.globals["existing"] = starlark.MakeInt(9)
 	for _, snapshot := range []scratchSnapshot{
 		{Version: 1, Bindings: []scratchBinding{{Name: "cycle", Value: 0}}, Nodes: []scratchNode{{Kind: "list", Items: []int{0}}}},
@@ -211,7 +211,7 @@ func TestScratchCorruptionAndHostEffectDefaults(t *testing.T) {
 
 func TestScratchSameLineFailedRedefinition(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	if result := w.evaluate("f = lambda: 1; fail('stop'); f = lambda: 2"); result.Error == "" {
 		t.Fatal("expected failure")
 	}
@@ -227,7 +227,7 @@ func TestScratchSameLineFailedRedefinition(t *testing.T) {
 
 func TestScratchMutualRecursionLambdasAndLiteralDefaults(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	code := "def even(n):\n    return True if n == 0 else odd(n-1)\ndef odd(n):\n    return False if n == 0 else even(n-1)\ndef defaults(x=(None, True, -2, 1.5, b'raw')):\n    return x\nfactor = 3\ntimes = lambda x: x * factor\ndef sizes(n):\n    return len(range(n))"
 	if result := w.evaluate(code); result.Error != "" {
 		t.Fatal(result.Error)
@@ -243,7 +243,7 @@ func TestScratchMutualRecursionLambdasAndLiteralDefaults(t *testing.T) {
 
 func TestScratchUninitializedGlobalDoesNotFallBack(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	if result := w.evaluate("existing = 1"); result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -263,7 +263,7 @@ func TestScratchSkippedShadowDoesNotFallBackToBuiltinOrModule(t *testing.T) {
 	for _, name := range []string{"len", "files"} {
 		t.Run(name, func(t *testing.T) {
 			w, _ := newUnitWorker("")
-			w.installModules()
+			w.installModules(nil)
 			if result := w.evaluate(name + " = [lambda: 1]\ndef helper():\n    return " + name + "\ndef dependent():\n    return helper()"); result.Error != "" {
 				t.Fatal(result.Error)
 			}
@@ -284,7 +284,7 @@ func TestScratchSkippedShadowDoesNotFallBackToBuiltinOrModule(t *testing.T) {
 
 func TestScratchRestoreRejectsShadowedLiteralDefaults(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	snapshot := scratchSnapshot{
 		Version:  1,
 		Bindings: []scratchBinding{{Name: "True", Value: 0}, {Name: "independent", Value: 1}},
@@ -310,7 +310,7 @@ func TestScratchRestoreRejectsShadowedLiteralDefaults(t *testing.T) {
 
 func TestScratchUnchangedHelpersProduceStableCheckpoint(t *testing.T) {
 	w, _ := newUnitWorker("")
-	w.installModules()
+	w.installModules(nil)
 	if result := w.evaluate("bad = range(1)\ndef first():\n    return bad\ndef second():\n    return bad\ndef dependent():\n    return first() + second()"); result.Error != "" {
 		t.Fatal(result.Error)
 	}
@@ -334,7 +334,7 @@ func FuzzScratchDataRoundTrip(f *testing.F) {
 			t.Skip()
 		}
 		w, _ := newUnitWorker("")
-		w.installModules()
+		w.installModules(nil)
 		shared := starlark.NewList([]starlark.Value{starlark.String(raw), starlark.Bytes(raw), starlark.MakeUint64(bits), starlark.Float(number)})
 		w.globals["shared"] = shared
 		w.globals["nested"] = starlark.Tuple{shared, starlark.NewList([]starlark.Value{shared})}

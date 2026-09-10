@@ -11379,7 +11379,7 @@ return errors === 0;
 }
 
 export const CreateSessionParams = validate47;
-const schema48 = {"type":"object","properties":{"execution_engine":{"type":"string"},"kind":{"type":"string"},"cwd":{"type":"string"},"model":{"type":"string"},"provider":{"type":"string"},"permission_mode":{"type":"string"}},"$id":"https://whip.dev/protocol/v6/CreateSessionParams","$schema":"http://json-schema.org/draft-07/schema#","title":"CreateSessionParams","required":["kind","cwd","model","provider"],"additionalProperties":false};
+const schema48 = {"type":"object","properties":{"execution_engine":{"type":"string"},"definition":{"type":"string"},"kind":{"type":"string"},"cwd":{"type":"string"},"model":{"type":"string"},"provider":{"type":"string"},"permission_mode":{"type":"string"}},"$id":"https://whip.dev/protocol/v6/CreateSessionParams","$schema":"http://json-schema.org/draft-07/schema#","title":"CreateSessionParams","required":["kind","cwd","model","provider"],"additionalProperties":false};
 
 function validate47(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v6/CreateSessionParams" */;
@@ -11427,7 +11427,7 @@ vErrors.push(err3);
 errors++;
 }
 for(const key0 in data){
-if(!((((((key0 === "execution_engine") || (key0 === "kind")) || (key0 === "cwd")) || (key0 === "model")) || (key0 === "provider")) || (key0 === "permission_mode"))){
+if(!(((((((key0 === "execution_engine") || (key0 === "definition")) || (key0 === "kind")) || (key0 === "cwd")) || (key0 === "model")) || (key0 === "provider")) || (key0 === "permission_mode"))){
 const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err4];
@@ -11450,9 +11450,9 @@ vErrors.push(err5);
 errors++;
 }
 }
-if(data.kind !== undefined){
-if(typeof data.kind !== "string"){
-const err6 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.definition !== undefined){
+if(typeof data.definition !== "string"){
+const err6 = {instancePath:instancePath+"/definition",schemaPath:"#/properties/definition/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err6];
 }
@@ -11462,9 +11462,9 @@ vErrors.push(err6);
 errors++;
 }
 }
-if(data.cwd !== undefined){
-if(typeof data.cwd !== "string"){
-const err7 = {instancePath:instancePath+"/cwd",schemaPath:"#/properties/cwd/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.kind !== undefined){
+if(typeof data.kind !== "string"){
+const err7 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err7];
 }
@@ -11474,9 +11474,9 @@ vErrors.push(err7);
 errors++;
 }
 }
-if(data.model !== undefined){
-if(typeof data.model !== "string"){
-const err8 = {instancePath:instancePath+"/model",schemaPath:"#/properties/model/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.cwd !== undefined){
+if(typeof data.cwd !== "string"){
+const err8 = {instancePath:instancePath+"/cwd",schemaPath:"#/properties/cwd/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err8];
 }
@@ -11486,9 +11486,9 @@ vErrors.push(err8);
 errors++;
 }
 }
-if(data.provider !== undefined){
-if(typeof data.provider !== "string"){
-const err9 = {instancePath:instancePath+"/provider",schemaPath:"#/properties/provider/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.model !== undefined){
+if(typeof data.model !== "string"){
+const err9 = {instancePath:instancePath+"/model",schemaPath:"#/properties/model/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err9];
 }
@@ -11498,9 +11498,9 @@ vErrors.push(err9);
 errors++;
 }
 }
-if(data.permission_mode !== undefined){
-if(typeof data.permission_mode !== "string"){
-const err10 = {instancePath:instancePath+"/permission_mode",schemaPath:"#/properties/permission_mode/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.provider !== undefined){
+if(typeof data.provider !== "string"){
+const err10 = {instancePath:instancePath+"/provider",schemaPath:"#/properties/provider/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err10];
 }
@@ -11510,14 +11510,26 @@ vErrors.push(err10);
 errors++;
 }
 }
-}
-else {
-const err11 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.permission_mode !== undefined){
+if(typeof data.permission_mode !== "string"){
+const err11 = {instancePath:instancePath+"/permission_mode",schemaPath:"#/properties/permission_mode/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err11];
 }
 else {
 vErrors.push(err11);
+}
+errors++;
+}
+}
+}
+else {
+const err12 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
 }
 errors++;
 }

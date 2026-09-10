@@ -9,12 +9,14 @@ import (
 )
 
 type CreateSessionParams struct {
-	ExecutionEngine string              `json:"execution_engine,omitempty"`
-	Kind            session.SessionKind `json:"kind"`
-	CWD             string              `json:"cwd"`
-	Model           string              `json:"model"`
-	Provider        string              `json:"provider"`
-	PermissionMode  string              `json:"permission_mode,omitempty"`
+	ExecutionEngine string `json:"execution_engine,omitempty"`
+	// Definition selects the agent definition; empty means the coding agent.
+	Definition     string              `json:"definition,omitempty"`
+	Kind           session.SessionKind `json:"kind"`
+	CWD            string              `json:"cwd"`
+	Model          string              `json:"model"`
+	Provider       string              `json:"provider"`
+	PermissionMode string              `json:"permission_mode,omitempty"`
 }
 type RootParams struct {
 	RootID string `json:"root_id"`

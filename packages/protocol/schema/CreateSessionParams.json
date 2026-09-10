@@ -4,6 +4,9 @@
     "execution_engine": {
       "type": "string"
     },
+    "definition": {
+      "type": "string"
+    },
     "kind": {
       "type": "string"
     },

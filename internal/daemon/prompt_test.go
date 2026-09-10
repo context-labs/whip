@@ -395,14 +395,17 @@ func openPromptRuntime(t *testing.T, store *session.Store, rootID string, client
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 		value.ContextLimit = 65536
 		limits := rlm.DefaultLimits()
-		var err error
+		definition, _, err := DefinitionFor(meta)
+		if err != nil {
+			return Components{}, err
+		}
 		runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{
-			Engine: meta.ExecutionEngine, Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
+			Engine: meta.ExecutionEngine, Definition: definition, Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
 		})
 		if err != nil {
 			return Components{}, err
 		}
-		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: definition}, nil
 	})
 	if err != nil {
 		t.Fatal(err)

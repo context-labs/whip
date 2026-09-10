@@ -58,7 +58,12 @@ func workerMain(args []string, input io.Reader, output io.Writer, limitMemory fu
 	memoryBytes := fs.Uint64("memory-bytes", defaultMemoryBytes, "worker address-space limit")
 	outputBytes := fs.Int("output-bytes", defaultOutputBytes, "maximum captured cell output")
 	frameBytes := fs.Int("frame-bytes", defaultFrameBytes, "maximum protocol frame")
+	moduleList := fs.String("modules", "", "comma-separated host modules to install; empty installs every module")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	modules, err := selectedModules(*moduleList)
+	if err != nil {
 		return err
 	}
 	if fs.NArg() != 0 || *wallNanos < 1 || *steps == 0 || *hostRequests < 1 || *memoryBytes == 0 || *memoryBytes > math.MaxInt64/4 || *outputBytes < 1 || *frameBytes < 1 {
@@ -75,15 +80,45 @@ func workerMain(args []string, input io.Reader, output io.Writer, limitMemory fu
 		return fmt.Errorf("apply RLM memory limit: %w", err)
 	}
 	if descriptor.ID == EngineQuickJS {
-		return runQuickJSWorker(input, output, Limits{Wall: time.Duration(*wallNanos), Steps: *steps, HostRequests: *hostRequests, MemoryBytes: *memoryBytes, OutputBytes: *outputBytes, FrameBytes: *frameBytes})
+		return runQuickJSWorker(input, output, Limits{Wall: time.Duration(*wallNanos), Steps: *steps, HostRequests: *hostRequests, MemoryBytes: *memoryBytes, OutputBytes: *outputBytes, FrameBytes: *frameBytes}, modules)
 	}
 	worker := worker{
 		input: bufio.NewReaderSize(input, min(*frameBytes, 64<<10)), output: output,
 		steps: *steps, hostRequests: *hostRequests, outputBytes: *outputBytes, frameBytes: *frameBytes,
 		globals: make(starlark.StringDict), modules: make(starlark.StringDict),
 	}
-	worker.installModules()
+	worker.installModules(modules)
 	return worker.run()
+}
+
+// selectedModules parses the -modules flag. Empty means every registered
+// module; a name outside the registry fails worker startup.
+func selectedModules(list string) ([]string, error) {
+	if strings.TrimSpace(list) == "" {
+		return nil, nil
+	}
+	var modules []string
+	for _, name := range strings.Split(list, ",") {
+		name = strings.TrimSpace(name)
+		if _, ok := moduleRegistry[name]; !ok {
+			return nil, fmt.Errorf("unknown RLM module %q", name)
+		}
+		modules = append(modules, name)
+	}
+	return modules, nil
+}
+
+// selectedOperations returns the registry restricted to the selected modules;
+// nil selects everything.
+func selectedOperations(modules []string) map[string][]string {
+	if modules == nil {
+		return Modules()
+	}
+	result := make(map[string][]string, len(modules))
+	for _, module := range modules {
+		result[module] = append([]string(nil), moduleRegistry[module]...)
+	}
+	return result
 }
 
 type worker struct {
@@ -120,12 +155,15 @@ var stdlibModules = starlark.StringDict{
 	"time": starlarktime.Module,
 }
 
-func (w *worker) installModules() {
+// installModules binds the local library modules and the selected host
+// modules. An unselected host module has no binding at all, so the model sees
+// the same world its prompt catalog described.
+func (w *worker) installModules(selected []string) {
 	for name, module := range stdlibModules {
 		w.modules[name] = module
 		w.globals[name] = module
 	}
-	for module, operations := range moduleRegistry {
+	for module, operations := range selectedOperations(selected) {
 		members := make(starlark.StringDict, len(operations))
 		for _, operation := range operations {
 			members[operation] = starlark.NewBuiltin(module+"."+operation, func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

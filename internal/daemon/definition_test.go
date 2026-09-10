@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agentdef"
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
@@ -137,7 +140,95 @@ func TestSessionDefaultsPreferDefinitionModel(t *testing.T) {
 	if err != nil || got.Model != "host-alias" || got.Provider != "host" {
 		t.Fatalf("coding must fall back to host defaults: %+v %v", got, err)
 	}
-	if _, ok := DefinitionFor(session.SessionKindToolHost); ok {
+	if _, ok, err := DefinitionFor(session.Meta{Kind: session.SessionKindToolHost}); ok || err != nil {
 		t.Fatal("tool hosts have no agent definition")
+	}
+	if _, _, err := DefinitionFor(session.Meta{ID: "root", Kind: session.SessionKindAgent, Definition: "architect"}); err == nil || !strings.Contains(err.Error(), "junior-developer") {
+		t.Fatalf("unknown definition error = %v", err)
+	}
+}
+
+// createDefinitionRoot creates an agent session through the daemon's command
+// path so the store records its definition.
+func createDefinitionRoot(t *testing.T, store *session.Store, definition string) string {
+	t.Helper()
+	id := session.NewAgentID()
+	if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "definitions", CommandID: id, Scope: session.CommandScopeDaemon, RequestDigest: id}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		RootID string `json:"root_id"`
+	}
+	if err := json.Unmarshal(record.Outcome.Inline, &result); err != nil {
+		t.Fatal(err)
+	}
+	return result.RootID
+}
+
+// A JuniorDeveloper root receives only its definition's capabilities and
+// modules, at the host boundary and in the ledger, and keeps them across a
+// daemon restart.
+func TestJuniorDeveloperSessionIsConstrained(t *testing.T) {
+	requests, client := promptRuntimeProvider(t)
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	store := openStore(t, path)
+	rootID := createDefinitionRoot(t, store, "junior-developer")
+	owner, root, runtime := openPromptRuntime(t, store, rootID, client)
+	node := runtime.rootNode
+	if node.definition.ID != "junior-developer" || !slices.Equal(node.capabilities, []string{"read", "write", "shell"}) {
+		t.Fatalf("root definition = %+v capabilities = %v", node.definition.ID, node.capabilities)
+	}
+	if _, err := node.host.Call(t.Context(), "mcp", "list_servers", nil); err == nil || err.Error() != `module "mcp" is not available to this agent` {
+		t.Fatalf("unselected module reached the host: %v", err)
+	}
+	if _, err := node.agent.Services.Invoke(t.Context(), "browser_exec", json.RawMessage(`{"code":"noop"}`)); err == nil || !(errors.Is(err, capability.ErrDenied) || strings.Contains(err.Error(), "denied")) {
+		t.Fatalf("browser operation not denied by the ledger: %v", err)
+	}
+	prompt := submitPromptRoot(t, root, requests, "hello")
+	system := prompt.Messages[0].Content
+	for _, absent := range []string{"browser.run", "Messaging and delegation", "mcp.list_servers", "agents.spawn", "models.call"} {
+		if strings.Contains(system, absent) {
+			t.Fatalf("junior prompt advertises %q", absent)
+		}
+	}
+	for _, present := range []string{"junior developer", "files.read", "shell.run", "user.ask"} {
+		if !strings.Contains(system, present) {
+			t.Fatalf("junior prompt lacks %q", present)
+		}
+	}
+	if result := clientCommand(t, root, "junior", "goal", "goal.run", map[string]any{"text": "finish the task"}); result.Status != "failed" || !strings.Contains(result.Error, "does not run goals") {
+		t.Fatalf("goal accepted by a definition without the goal loop: %+v", result)
+	}
+	if err := owner.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := openStore(t, path)
+	_, _, restored := openPromptRuntime(t, reopened, rootID, client)
+	if restored.rootNode.definition.ID != "junior-developer" || !slices.Equal(restored.rootNode.capabilities, []string{"read", "write", "shell"}) {
+		t.Fatalf("restart lost the definition: %+v", restored.rootNode.definition)
+	}
+}
+
+func TestCodingSessionKeepsGoalsAndUnknownDefinitionsAreRejected(t *testing.T) {
+	requests, client := promptRuntimeProvider(t)
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	_, root, runtime := openPromptRuntime(t, store, rootID, client)
+	if runtime.rootNode.definition.ID != "coding" || !slices.Equal(runtime.rootNode.capabilities, agentdef.Coding().Capabilities) {
+		t.Fatalf("legacy root did not resolve to coding: %+v", runtime.rootNode.definition)
+	}
+	if result := clientCommand(t, root, "coding", "goal", "goal.set", map[string]any{"text": "keep going"}); result.Status != "succeeded" {
+		t.Fatalf("coding goal rejected: %+v", result)
+	}
+	_ = requests
+	if _, err := resolveSessionDefaults(CreateSession{Kind: session.SessionKindAgent, Definition: "architect"}); err == nil || !strings.Contains(err.Error(), "coding, junior-developer") {
+		t.Fatalf("unknown definition accepted at creation: %v", err)
+	}
+	if _, err := resolveSessionDefaults(CreateSession{Kind: session.SessionKindToolHost, CWD: "/", Definition: "coding"}); err == nil {
+		t.Fatal("tool host accepted an agent definition")
 	}
 }

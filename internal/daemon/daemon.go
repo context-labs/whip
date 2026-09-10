@@ -201,7 +201,11 @@ func (d *Daemon) entryRoot(entry *rootEntry) *Session {
 }
 
 func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err error) {
-	authority, err := d.store.EnsureAuthority(d.ctx, meta.ID)
+	definition, hasDefinition, err := DefinitionFor(meta)
+	if err != nil {
+		return nil, err
+	}
+	authority, err := d.store.EnsureRootAuthority(d.ctx, meta.ID, rootGrants(definition, hasDefinition))
 	if err != nil {
 		return nil, err
 	}
