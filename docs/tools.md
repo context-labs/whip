@@ -9,6 +9,10 @@ The model-facing catalog has one entry:
 This is true for roots and children. MCP discovery does not add tools to a
 model request; configured MCP operations remain under the `mcp` module.
 
+The module table below is the coding agent's. Another definition selects a
+subset: its prompt describes only those modules, its kernels install only
+those bindings, and the host refuses a call to any other module.
+
 ## Modules
 
 Host operations accept keyword arguments. The local `json` module accepts

@@ -8,13 +8,24 @@ contract easier to locate.
 
 - One `AgentSession` implementation is used for roots and descendants
   (`internal/daemon/recursive_runtime.go`).
-- The coding agent is a definition, not daemon wiring: `agentdef.Coding()`
-  names its persona and rules, project-file, skill, and standing-instruction
-  discovery, every host module, every capability, and its surface flags. The
-  factory selects it by session kind, the prompt composer derives the module
-  catalog from it, and bind takes root capabilities from it. A child's
-  effective definition is its parent's narrowed by the spawn arguments
-  (`internal/agentdef`, `TestCodingPromptGolden`, `TestChildDefinitionNarrowsParentDefinition`).
+- Agents are definitions, not daemon wiring. `internal/agentdef` registers
+  `coding` and `junior-developer`; each names its persona and rules,
+  project-file, skill, and standing-instruction discovery, host modules,
+  capabilities, model and compaction defaults, and surface flags. A session
+  records its definition id at creation (`session.create.definition`,
+  `whip run -agent`, `whip --agent`; default `coding`), restores it on restart,
+  copies it on fork, and cannot resume under a different one. The prompt
+  composer derives the module catalog from the definition, the kernel installs
+  only its modules, the host refuses calls to any other module, and a new
+  root's grants cover only its capabilities. A child's effective definition is
+  its parent's narrowed by the spawn arguments. Definitions without the goal
+  loop reject goal commands (`TestDefinitionPromptGolden`,
+  `TestJuniorDeveloperSessionIsConstrained`, `TestChildDefinitionNarrowsParentDefinition`).
+- JuniorDeveloper is a deliberately limited agent for exercising those seams:
+  seven modules (`context`, `files`, `shell`, `state`, `artifacts`,
+  `permissions`, `user`), the `read`, `write`, and `shell` capabilities, no
+  skill catalog, and no goal loop. It cannot delegate, reach MCP, or drive a
+  browser or the desktop.
 - `run.configure` state (system override, turn cap, cache key) belongs to the
   session and is re-applied when a model change or reload replaces the runtime
   (`TestRunConfigurationSurvivesModelReplacement`).

@@ -28,6 +28,12 @@ from the root. Child selection overrides are rejected, and forks preserve the
 source language without copying guest checkpoints. `configuration.get` and
 `configuration.update` expose `default_execution_engine`, backed by `rlm.defaultEngine`.
 
+Protocol **6.1** adds `session.create.definition`, which names the agent
+definition a new session runs (`coding` by default, or `junior-developer`), and
+`definition` on session metadata and snapshots so clients can show and assert it.
+An unknown id fails creation with the available ids. Both fields are additive;
+6.0 clients continue to create coding sessions.
+
 Fresh stores use schema 15. Versions 10–14 migrate transactionally through each
 required upgrade, preserving identity, history, command receipts and legacy Starlark
 scratch. Version 15 adds a root engine column guarded against updates and an internal

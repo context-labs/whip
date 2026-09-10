@@ -162,9 +162,13 @@ assembled from per-module fragments for the modules the definition selects
 guide, identity/report mode, the definition's rules plus the instruction-scope
 block when project files are discovered, cwd/platform/time/user, scoped project
 instructions, the applicable skill catalog, and standing `me.md` instructions.
-The coding definition selects every module and every discovery source. A child
-composes from its own definition, which is its parent's narrowed by the spawn
-arguments. `/me`, cwd changes, reload/model replacement, and restored children
+The coding definition selects every module and every discovery source;
+JuniorDeveloper selects seven modules and three capabilities. Selection is
+enforced, not advisory: a kernel installs only its definition's modules, the
+host refuses a call to any other module, and a root's grants at first bootstrap
+cover only the operations its capabilities map to (`agentdef.Operations`). A
+reopened root keeps the grants it was issued. A child composes from its own
+definition, which is its parent's narrowed by the spawn arguments. `/me`, cwd changes, reload/model replacement, and restored children
 use the updated sources on their next turn. A running turn keeps its applied
 prompt. The root `-system` override remains exact, does not propagate to
 children, and survives a model change or reload because the session re-applies
@@ -459,7 +463,7 @@ signal only to the PID currently holding that lock.
 
 `WHIP_HOME` replaces `~/.whip`. The pre-runtime-v2 database is not opened or
 migrated automatically; this is an intentional clean break. The current
-development schema is version 14 (`whip-recursive-runtime-v14`). Opening a
+development schema is version 16 (`whip-recursive-runtime-v16`). Opening a
 version 10 database performs a transactional, one-way upgrade that adds session
 archive state and updates catalog revision tracking in schema 11. The subsequent
 schema 11-to-12 transaction adds nullable, bounded last-turn outcomes per agent,
@@ -473,6 +477,9 @@ as session scope, retaining their original canonical path as the Ask boundary.
 Legacy child grants keep explicit paths because their creation records do not
 prove inheritance. Newly created default children record their issuer and inherit
 its live file scope. Revoked/expired grants are never revived by the migration.
+Schema 14-to-15 records each session's immutable execution engine and adds
+engine checkpoints. Schema 15-to-16 records each session's agent definition;
+every existing session ran the coding agent and is defaulted to `coding`.
 Runtime identity, agent IDs, history, configuration, command outcomes, and
 existing sessions are preserved; existing sessions start unarchived. Backfill
 leaves outcomes unknown when evidence is missing or pruned, externally stored
