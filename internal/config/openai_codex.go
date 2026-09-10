@@ -9,7 +9,7 @@ import (
 // ValidateOpenAICodex prevents subscription tokens from being routed to custom
 // endpoints or confused with API billing credentials.
 func (p Provider) ValidateOpenAICodex() error {
-	if p.API != openaiauth.Provider || p.BaseURL != openaiauth.BaseURL || p.APIKey != "" || p.APIKeyEnv != "" {
+	if p.API != openaiauth.Provider || p.BaseURL != openaiauth.BaseURL || p.APIKey != "" || p.APIKeyEnv != "" || p.Auth != "" {
 		return errors.New("openai-codex requires the built-in ChatGPT endpoint and subscription login, without API keys")
 	}
 	return nil

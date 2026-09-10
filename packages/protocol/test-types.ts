@@ -29,6 +29,17 @@ declare function invoke<K extends EphemeralOperation>(name: K, params: RuntimeOp
 
 rpc('command.status', { command_id: 'command' });
 rpc('permission.decide', { decision: { command_id: 'decision', root_id: 'root', permission_id: 'permission', allow: true } });
+rpc('provider.get', { provider: 'custom' });
+rpc('provider.create', {
+  revision: 'revision', provider: 'custom', definition: { name: 'Local', base_url: 'http://localhost:8080/v1', api: 'openai-completions' },
+  credential: { mode: 'none' }, manual_model: { alias: 'custom/model', id: 'model', max_output: 1024 },
+});
+rpc('provider.update', { revision: 'revision', provider: 'custom', name: 'Renamed', credential: { mode: 'keep' } });
+rpc('provider.remove', { revision: 'revision', provider: 'custom' });
+// @ts-expect-error Provider credentials cannot enter the durable command journal.
+submit('provider.create', {});
+// @ts-expect-error Provider configuration revisions remain required for removal.
+rpc('provider.remove', { provider: 'custom' });
 submit('permission.mode', { external_permissions: true });
 // @ts-expect-error Permission decisions no longer accept signing credentials.
 rpc('permission.decide', { decision: { command_id: 'decision', root_id: 'root', permission_id: 'permission', allow: true }, signature: 'old-signature' });

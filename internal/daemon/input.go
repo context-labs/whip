@@ -12,8 +12,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/skills"
 )
 
@@ -44,11 +46,25 @@ func (session *AgentSession) prepareAuthoredInput(ctx context.Context, input str
 	if err != nil {
 		return "", nil, err
 	}
-	input, err = session.expandInvokedSkills(input)
+	input, err = session.expandInvokedSkills(ctx, input)
 	return input, parts, err
 }
 
-func (session *AgentSession) expandInvokedSkills(input string) (string, error) {
+func (session *AgentSession) expandInvokedSkills(ctx context.Context, input string) (string, error) {
+	invoked := false
+	for token := range strings.FieldsSeq(input) {
+		if strings.HasPrefix(token, "$") {
+			invoked = true
+			break
+		}
+	}
+	if !invoked {
+		return input, nil
+	}
+	options, err := session.promptOptions(ctx)
+	if err != nil {
+		return "", err
+	}
 	session.mu.Lock()
 	available, applied := session.prompt.Skills, session.prompt.AppliedAt
 	overridden := len(session.prompt.Sources) == 1 && session.prompt.Sources[0].Kind == "system_override"
@@ -56,8 +72,7 @@ func (session *AgentSession) expandInvokedSkills(input string) (string, error) {
 	if applied.IsZero() || overridden {
 		// Detached test sessions and explicit root overrides have no composed
 		// catalog. Preserve explicit invocation without installing a prompt.
-		var err error
-		available, err = skills.LoadPromptCatalog(skills.DirsFor(session.agent.WorkingDir)...)
+		available, err = rlm.LoadPromptSkills(options)
 		if err != nil {
 			return "", err
 		}
@@ -75,7 +90,14 @@ func (session *AgentSession) expandInvokedSkills(input string) (string, error) {
 			continue
 		}
 		seen[name] = true
-		body, err := readInvokedSkill(skill.Path)
+		path, allowed, err := rlm.ResolvePromptSkill(skill.Path, options.ProjectDirectoryAllowed)
+		if err != nil {
+			return "", fmt.Errorf("resolve invoked skill %s: %w", name, err)
+		}
+		if !allowed {
+			return "", fmt.Errorf("invoked skill %s is outside this agent's allowed filesystem scope: %w", name, capability.ErrDenied)
+		}
+		body, err := readInvokedSkill(path)
 		if err != nil {
 			return "", fmt.Errorf("read invoked skill %s: %w", name, err)
 		}
@@ -129,11 +151,11 @@ func (session *AgentSession) expandMentionedFiles(ctx context.Context, input str
 			scope = "" // outside every workspace grant; the read grant itself still applies
 		}
 		if err := session.authorizeMention(ctx, scope); err != nil {
-			return "", nil, errors.New("this agent cannot inspect mentioned files without a file capability")
+			return "", nil, fmt.Errorf("this agent's file capability does not allow mentioned file %q: %w", path, err)
 		}
 		format, image := imageExt[strings.ToLower(filepath.Ext(path))]
 		if image && session.agent.Vision {
-			data, err := os.ReadFile(path) //nolint:gosec // canonical workspace path resolved below
+			data, err := os.ReadFile(path) //nolint:gosec // canonical regular file authorized above
 			if err != nil {
 				return "", nil, fmt.Errorf("read mentioned image: %w", err)
 			}
@@ -176,11 +198,11 @@ func (session *AgentSession) resolveMentionWords(fields []string, i int) (string
 			}
 			lineRange += ")"
 		}
-		if path, ok := resolveSessionMention(session.agent.WorkingDir, value); ok {
-			return path, lineRange, false, j
-		}
 		if path, ok := pastedImageFile(value); ok {
 			return path, lineRange, true, j
+		}
+		if path, ok := resolveSessionMention(session.agent.WorkingDir, value); ok {
+			return path, lineRange, false, j
 		}
 	}
 	return "", "", false, -1
@@ -190,12 +212,17 @@ func (session *AgentSession) authorizeMention(ctx context.Context, path string) 
 	if session.root != nil {
 		return session.root.store.AuthorizeCapability(ctx, session.root.ID(), session.id, session.authority.Files, "read", path)
 	}
-	// Detached root sessions exist only in focused unit tests. A detached child
-	// still has to declare the semantic read capability.
-	if session.parentID == "" || slices.Contains(session.capabilities, "read") {
-		return nil
+	// Detached sessions are focused fixtures, not evidence of Full Access.
+	// Keep them project-scoped and require a child's semantic read capability.
+	if session.parentID != "" && !slices.Contains(session.capabilities, "read") {
+		return errors.New("read capability is unavailable")
 	}
-	return errors.New("read capability is unavailable")
+	if path != "" {
+		if _, ok := canonicalWorkspaceFile(session.agent.WorkingDir, path); !ok {
+			return errors.New("mentioned path is outside the detached session's project")
+		}
+	}
+	return nil
 }
 
 func resolveSessionMention(root, value string) (string, bool) {
@@ -213,7 +240,7 @@ func resolveSessionMention(root, value string) (string, bool) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(root, path)
 	}
-	if resolved, ok := canonicalWorkspaceFile(root, path); ok {
+	if resolved, ok := canonicalMentionFile(path); ok {
 		return resolved, true
 	}
 	// A value with a space is a resolveMentionWords extension, which only
@@ -249,16 +276,30 @@ func canonicalWorkspaceFile(root, path string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	canonical, err := filepath.EvalSymlinks(path)
+	canonical, ok := canonicalMentionFile(path)
+	if !ok {
+		return "", false
+	}
+	relative, err := filepath.Rel(canonicalRoot, canonical)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return canonical, true
+}
+
+// canonicalMentionFile resolves exact targets without granting access. The
+// persisted file capability is checked before a note or image is attached.
+func canonicalMentionFile(path string) (string, bool) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	canonical, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return "", false
 	}
 	info, err := os.Stat(canonical)
 	if err != nil || !info.Mode().IsRegular() {
-		return "", false
-	}
-	relative, err := filepath.Rel(canonicalRoot, canonical)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return "", false
 	}
 	return canonical, true

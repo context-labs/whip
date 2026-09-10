@@ -34,6 +34,10 @@ type PromptOptions struct {
 	Now              time.Time
 	Platform         string
 	Username         string
+	// ProjectDirectoryAllowed filters automatic project context using canonical
+	// paths. Nil trusts the caller's project boundaries. User rules and user
+	// skill directories remain global context.
+	ProjectDirectoryAllowed func(string) (bool, error)
 	// Nil discovers scoped project and user skills. A non-nil empty slice
 	// disables skill discovery; explicit entries preserve caller ordering.
 	SkillDirs []string
@@ -69,7 +73,7 @@ const operatingRules = `Operating rules:
 Instruction scope and precedence:
 - Explicit user instructions are authoritative over project and skill guidance. Standing instructions below are user rules.
 - Project instructions apply to files in their stated directory and its descendants. More specific directories take precedence; at the same directory AGENTS.md takes precedence over CLAUDE.md.
-- Before working in a narrower authorized subtree, use files.list/files.read to check for its CLAUDE.md and AGENTS.md and follow applicable rules. The catalog does not contain every nested instruction file.
+- Before working in a narrower authorized subtree or another repository, use files.list/files.read to check for its CLAUDE.md and AGENTS.md and follow applicable rules. The catalog does not contain every nested instruction file.
 - Instructions and skills do not expand filesystem access, permissions, or delegation authority.`
 
 // ComposePrompt assembles normal root and child prompts at a turn boundary.
@@ -133,7 +137,10 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 	if err := appendSource("environment", "", cwd, environment); err != nil {
 		return PromptSnapshot{}, err
 	}
-	chain := projectInstructionChain(cwd, options.ProjectRoots)
+	chain, err := authorizedProjectChain(cwd, options)
+	if err != nil {
+		return PromptSnapshot{}, err
+	}
 	for _, directory := range chain {
 		for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
 			path := filepath.Join(directory, name)
@@ -151,14 +158,7 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 			snapshot.Sources[len(snapshot.Sources)-1].Bytes = len(content)
 		}
 	}
-	dirs := options.SkillDirs
-	if dirs == nil {
-		dirs, err = promptSkillDirs(chain)
-		if err != nil {
-			return PromptSnapshot{}, err
-		}
-	}
-	snapshot.Skills, err = skills.LoadPromptCatalog(dirs...)
+	snapshot.Skills, err = loadPromptSkills(options, chain)
 	if err != nil {
 		return PromptSnapshot{}, err
 	}
@@ -192,6 +192,92 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 	}
 	snapshot.Prompt = prompt.String()
 	return snapshot, nil
+}
+
+// LoadPromptSkills discovers the same authorized catalog used by ComposePrompt,
+// without reading project instructions or replacing an explicit system prompt.
+func LoadPromptSkills(options PromptOptions) ([]skills.Skill, error) {
+	cwd, err := filepath.Abs(options.WorkingDirectory)
+	if err != nil {
+		return nil, err
+	}
+	cwd, err = filepath.EvalSymlinks(cwd)
+	if errors.Is(err, fs.ErrNotExist) {
+		return loadPromptSkills(options, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+	chain, err := authorizedProjectChain(cwd, options)
+	if err != nil {
+		return nil, err
+	}
+	return loadPromptSkills(options, chain)
+}
+
+func authorizedProjectChain(cwd string, options PromptOptions) ([]string, error) {
+	chain := projectInstructionChain(cwd, options.ProjectRoots)
+	if options.ProjectDirectoryAllowed == nil {
+		return chain, nil
+	}
+	allowedChain := make([]string, 0, len(chain))
+	for _, directory := range chain {
+		allowed, err := options.ProjectDirectoryAllowed(directory)
+		if err != nil {
+			return nil, err
+		}
+		if allowed {
+			allowedChain = append(allowedChain, directory)
+		}
+	}
+	return allowedChain, nil
+}
+
+func loadPromptSkills(options PromptOptions, chain []string) ([]skills.Skill, error) {
+	dirs := options.SkillDirs
+	if dirs == nil {
+		var err error
+		dirs, err = promptSkillDirs(chain)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var allowRead func(string) (bool, error)
+	if options.ProjectDirectoryAllowed != nil {
+		allowRead = func(path string) (bool, error) {
+			_, allowed, err := ResolvePromptSkill(path, options.ProjectDirectoryAllowed)
+			return allowed, err
+		}
+	}
+	return skills.LoadPromptCatalogWithAccess(allowRead, dirs...)
+}
+
+// ResolvePromptSkill checks the current canonical target before metadata or body
+// reads. Only configured user skill locations are globally trusted; a project
+// alias cannot acquire that trust by pointing at a user directory.
+func ResolvePromptSkill(path string, allowProject func(string) (bool, error)) (string, bool, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false, err
+	}
+	canonical, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", false, err
+	}
+	if allowProject == nil {
+		return canonical, true, nil
+	}
+	globalDirs, err := promptSkillDirs(nil)
+	if err != nil {
+		return "", false, err
+	}
+	for _, directory := range globalDirs {
+		if directoryContains(directory, abs) {
+			return canonical, true, nil
+		}
+	}
+	allowed, err := allowProject(canonical)
+	return canonical, allowed, err
 }
 
 func projectInstructionChain(cwd string, roots []string) []string {

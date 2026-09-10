@@ -3,6 +3,9 @@
   "properties": {
     "refresh": {
       "type": "boolean"
+    },
+    "provider": {
+      "type": "string"
     }
   },
   "$id": "https://whip.dev/protocol/v5/ProviderCatalogParams",

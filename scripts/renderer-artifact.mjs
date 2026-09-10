@@ -70,6 +70,7 @@ export async function readRendererManifest(filename) {
 
 /** Release consumers bind the artifact to their checkout, not only to itself. */
 export async function verifyRendererProvenance(manifest, root = repositoryRoot, release = false) {
+  if (release && manifest.source?.local) throw new Error('A release renderer cannot use local source metadata');
   const { stdout } = await exec('git', ['rev-parse', 'HEAD'], { cwd: root });
   if (manifest.source?.commit !== stdout.trim() || typeof manifest.source?.dirty !== 'boolean' ||
       manifest.lockfile !== sha256(await readFile(path.join(root, 'package-lock.json'))))
@@ -86,19 +87,28 @@ export async function verifyRenderer(directory, manifest) {
   if (rendererDigest(files, manifest.csp) !== manifest.digest) throw new Error('Renderer files differ from the built artifact');
 }
 
-export async function createRendererManifest(root = repositoryRoot) {
+export async function createRendererManifest(root = repositoryRoot, localSource) {
   const directory = path.join(root, 'apps/web/dist');
   const files = await rendererFiles(directory);
   const csp = (await readFile(path.join(root, 'internal/webassets/csp.txt'), 'utf8')).trim();
-  const { stdout: commit } = await exec('git', ['rev-parse', 'HEAD'], { cwd: root });
-  const { stdout: changes } = await exec('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: root });
-  const manifest = { schema: 1, source: { commit: commit.trim(), dirty: changes.length > 0 },
+  let source;
+  if (localSource !== undefined) {
+    if (!localSource || typeof localSource.commit !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(localSource.commit) ||
+        typeof localSource.dirty !== 'boolean') throw new Error('Invalid local renderer source metadata');
+    source = { commit: localSource.commit, dirty: localSource.dirty, local: true };
+  } else {
+    const { stdout: commit } = await exec('git', ['rev-parse', 'HEAD'], { cwd: root });
+    const { stdout: changes } = await exec('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: root });
+    source = { commit: commit.trim(), dirty: changes.length > 0 };
+  }
+  const manifest = { schema: 1, source,
     lockfile: sha256(await readFile(path.join(root, 'package-lock.json'))), csp, files, digest: rendererDigest(files, csp) };
   await writeFile(path.join(root, 'apps/web/renderer-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   return manifest;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const manifest = await createRendererManifest();
+  const localSource = process.env.WHIP_RENDERER_LOCAL_SOURCE;
+  const manifest = await createRendererManifest(repositoryRoot, localSource === undefined ? undefined : JSON.parse(localSource));
   console.log(`Renderer artifact ${manifest.digest}: ${Object.keys(manifest.files).length} files`);
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"slices"
 	"strings"
 
@@ -19,6 +18,11 @@ import (
 // ListProviders reads host-owned connection metadata without upstream requests
 // or execution of secret commands. Its revision guards subsequent mutations.
 func (s *ProviderService) ListProviders() (protocol.ProviderList, error) {
+	return s.ListProvidersFor("", "")
+}
+
+// ListProvidersFor checks an explicit session/CLI selection without changing defaults.
+func (s *ProviderService) ListProvidersFor(model, provider string) (protocol.ProviderList, error) {
 	cfg, revision, err := config.ReadVersioned()
 	if err != nil {
 		return protocol.ProviderList{}, err
@@ -29,16 +33,19 @@ func (s *ProviderService) ListProviders() (protocol.ProviderList, error) {
 		if result.DefaultProvider == "" && len(model.Providers) > 0 {
 			result.DefaultProvider = model.Providers[0]
 		}
-	} else if name, _, _, _, resolveErr := cfg.ResolveRoute("", ""); resolveErr == nil {
-		result.DefaultProvider = name
 	}
+	credentials := config.DiscoverCredentials(cfg)
 	seen := map[string]bool{}
 	for _, preset := range config.ProviderPresets() {
-		entry := protocol.ProviderEntry{ID: preset.ID, Name: preset.Provider.Name, Methods: preset.Methods}
+		entry := protocol.ProviderEntry{
+			ID: preset.ID, Name: preset.Provider.Name, Methods: preset.Methods,
+			Category: preset.Category, Family: preset.Family, KeyURL: preset.KeyURL,
+		}
 		if route, exists := cfg.Providers[preset.ID]; exists {
 			entry.Name = cmp.Or(route.Name, entry.Name)
 			if preset.ID != openaiauth.Provider && strings.TrimRight(route.BaseURL, "/") != preset.Provider.BaseURL {
 				entry.Custom = true
+				entry.Category, entry.Family, entry.KeyURL = "providers", "", ""
 			}
 			if preset.ID == config.InferenceNetProvider && inferenceNetLoginRoute(cfg) != nil {
 				entry.Methods = []string{"api_key"}
@@ -47,7 +54,7 @@ func (s *ProviderService) ListProviders() (protocol.ProviderList, error) {
 				entry.Methods = []string{}
 			}
 		}
-		entry.Status, err = s.providerStatus(cfg, preset.ID)
+		entry.Status, err = s.providerStatusWithCredentials(cfg, preset.ID, credentials)
 		if err != nil {
 			entry.Status = unavailableProvider(preset.ID, "Could not read the provider account on this host.")
 		}
@@ -55,9 +62,14 @@ func (s *ProviderService) ListProviders() (protocol.ProviderList, error) {
 		// remains authoritative until the user chooses this connection method.
 		variable := cfg.Providers[preset.ID].APIKeyEnv
 		if variable == "" && !entry.Custom {
-			variable = preset.Provider.APIKeyEnv
+			variable = credentials.AvailableEnvironmentVariable(preset)
 		}
-		if slices.Contains(entry.Methods, "api_key") && variable != "" && entry.Status.KeySource != "environment" && strings.TrimSpace(os.Getenv(variable)) != "" {
+		if !entry.Custom && variable == preset.Provider.APIKeyEnv {
+			variable = credentials.AvailableEnvironmentVariable(preset)
+		}
+		candidate := preset.Provider
+		candidate.APIKeyEnv = variable
+		if slices.Contains(entry.Methods, "api_key") && variable != "" && entry.Status.EnvironmentVariable != variable && credentials.KeyStatus(candidate).Available {
 			entry.Methods = append(entry.Methods, "environment")
 		}
 		result.Providers = append(result.Providers, entry)
@@ -68,11 +80,11 @@ func (s *ProviderService) ListProviders() (protocol.ProviderList, error) {
 		if seen[id] {
 			continue
 		}
-		entry := protocol.ProviderEntry{ID: id, Name: cmp.Or(route.Name, id), Custom: true, Methods: []string{}}
+		entry := protocol.ProviderEntry{ID: id, Name: cmp.Or(route.Name, id), Custom: true, Methods: []string{}, Category: "providers"}
 		if route.API == "openai-completions" || route.API == "" {
 			entry.Methods = append(entry.Methods, "api_key")
 		}
-		entry.Status, err = s.providerStatus(cfg, id)
+		entry.Status, err = s.providerStatusWithCredentials(cfg, id, credentials)
 		if err != nil {
 			entry.Status = unavailableProvider(id, "Could not read the provider configuration on this host.")
 		}
@@ -80,6 +92,24 @@ func (s *ProviderService) ListProviders() (protocol.ProviderList, error) {
 	}
 	slices.SortFunc(custom, func(a, b protocol.ProviderEntry) int { return cmp.Compare(a.ID, b.ID) })
 	result.Providers = append(result.Providers, custom...)
+	catalogs := s.catalogsForRoutes(credentials.EffectiveProviders(cfg))
+	if result.DefaultProvider == "" {
+		result.DefaultProvider = s.providerSelectionWithCredentials(cfg, catalogs, "", "", credentials).Provider
+	}
+	selection := s.providerSelectionWithCredentials(cfg, catalogs, model, provider, credentials)
+	result.Selection = &selection
+	for i := range result.Providers {
+		entry := &result.Providers[i]
+		for _, preset := range config.ProviderPresets() {
+			if preset.ID == entry.ID {
+				entry.Recommended = preset.Recommended && !entry.Custom && !entry.Status.Disabled && entry.Status.AuthState != "configuration_error"
+				break
+			}
+		}
+		if providerCanAttempt(entry.Status) {
+			entry.SuggestedModel = s.suggestedProviderModelWithCredentials(cfg, catalogs, entry.ID, credentials)
+		}
+	}
 	return result, nil
 }
 
@@ -91,16 +121,27 @@ func unavailableProvider(id, warning string) ProviderStatus {
 }
 
 func (s *ProviderService) providerStatus(cfg *config.Config, name string) (ProviderStatus, error) {
+	return s.providerStatusWithCredentials(cfg, name, nil)
+}
+
+func (s *ProviderService) providerStatusWithCredentials(cfg *config.Config, name string, credentials *config.CredentialSnapshot) (ProviderStatus, error) {
 	if name == openaiauth.Provider {
 		if s == nil || s.openAI == nil {
 			return unavailableProvider(name, "Subscription credentials are unavailable on this host."), nil
 		}
 		return s.openAIStatusFromConfig(cfg)
 	}
-	return providerKeyStatus(cfg, name)
+	return providerKeyStatusWithCredentials(cfg, name, credentials)
 }
 
 func providerKeyStatus(cfg *config.Config, name string) (ProviderStatus, error) {
+	return providerKeyStatusWithCredentials(cfg, name, nil)
+}
+
+func providerKeyStatusWithCredentials(cfg *config.Config, name string, credentials *config.CredentialSnapshot) (ProviderStatus, error) {
+	if credentials == nil {
+		credentials = config.DiscoverCredentials(cfg)
+	}
 	entry, configured := cfg.Providers[name]
 	if !configured {
 		found := false
@@ -114,22 +155,30 @@ func providerKeyStatus(cfg *config.Config, name string) (ProviderStatus, error) 
 			return ProviderStatus{}, errors.New("unknown provider")
 		}
 	}
-	key := entry.KeyStatus()
+	key := credentials.KeyStatus(entry)
 	disabled := slices.Contains(cfg.DisabledProviders, name)
 	result := ProviderStatus{
 		Provider: name, Configured: configured, KeySource: key.Source, Disabled: disabled,
 		Available: new(key.Available && !disabled), EnvironmentVariable: key.Environment,
-		AuthState: "key_required", Warnings: []string{},
+		CredentialPath: key.Path,
+		AuthState:      "key_required", Warnings: []string{},
 	}
 	if key.Available {
 		result.AuthState = "connected"
+	}
+	if key.Error != "" {
+		result.AuthState = "configuration_error"
+		result.Warnings = append(result.Warnings, key.Error)
+	}
+	if entry.Auth == "none" {
+		result.AuthMethod = "none"
 	}
 	if key.Source == "command" {
 		result.AuthState = "unchecked"
 	}
 	endpoint, endpointErr := url.Parse(entry.BaseURL)
 	validEndpoint := endpointErr == nil && endpoint.Host != "" && (endpoint.Scheme == "https" || endpoint.Scheme == "http") && endpoint.User == nil && endpoint.RawQuery == "" && endpoint.Fragment == ""
-	if !validEndpoint || (entry.API != "" && entry.API != "openai-completions") {
+	if !validEndpoint || (entry.API != "" && entry.API != "openai-completions") || entry.ValidateAuth() != nil {
 		result.AuthState, result.Available = "configuration_error", new(false)
 		result.Warnings = append(result.Warnings, "This provider requires a supported API configuration.")
 	}

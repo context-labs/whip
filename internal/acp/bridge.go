@@ -27,7 +27,7 @@ const (
 
 var modes = []acp.SessionMode{
 	{Id: ModeAsk, Name: "Ask", Description: new("Ask before performing side effects")},
-	{Id: ModeAuto, Name: "Auto", Description: new("Run within the session's configured grants")},
+	{Id: ModeAuto, Name: "Full Access", Description: new("Access files outside the project and approve actions automatically; explicit agent limits still apply")},
 }
 
 // Backend creates protocol-only root clients and handles daemon-scoped

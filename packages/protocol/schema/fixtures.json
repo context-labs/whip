@@ -366,6 +366,40 @@
     }
   },
   {
+    "type": "ProviderCreateParams",
+    "value": {
+      "revision": "",
+      "provider": "",
+      "definition": {
+        "name": "",
+        "base_url": "",
+        "api": ""
+      },
+      "credential": {
+        "mode": ""
+      }
+    }
+  },
+  {
+    "type": "ProviderConfiguration",
+    "value": {
+      "revision": "",
+      "provider": "",
+      "definition": {
+        "name": "",
+        "base_url": "",
+        "api": ""
+      },
+      "custom": false,
+      "credential": {
+        "mode": "",
+        "configured": false
+      },
+      "models": [],
+      "removal_blockers": []
+    }
+  },
+  {
     "type": "ProviderDisconnectParams",
     "value": {
       "provider": "",
@@ -382,6 +416,17 @@
     }
   },
   {
+    "type": "ProviderListParams",
+    "value": {}
+  },
+  {
+    "type": "ProviderList",
+    "value": {
+      "revision": "",
+      "providers": []
+    }
+  },
+  {
     "type": "ProviderNameParams",
     "value": {
       "provider": ""
@@ -393,13 +438,6 @@
       "revision": "",
       "provider": "",
       "environment": false
-    }
-  },
-  {
-    "type": "ProviderList",
-    "value": {
-      "revision": "",
-      "providers": []
     }
   },
   {
@@ -447,6 +485,26 @@
     "value": {
       "flow_id": "",
       "team_id": ""
+    }
+  },
+  {
+    "type": "ProviderRemoveParams",
+    "value": {
+      "revision": "",
+      "provider": ""
+    }
+  },
+  {
+    "type": "ProviderRemoveResult",
+    "value": {
+      "revision": ""
+    }
+  },
+  {
+    "type": "ProviderUpdateParams",
+    "value": {
+      "revision": "",
+      "provider": ""
     }
   },
   {

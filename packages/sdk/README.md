@@ -332,15 +332,38 @@ Provider/configuration helpers (`client.providers`, `client.configuration`) call
 host services. Login status/list allow reconnect; restart interrupts incomplete
 flows. Configuration updates require the last read revision and surface conflicts.
 `providers.list()` reads credential-free connection/source metadata and a
-configuration revision without model discovery. `providers.disconnect({ provider,
+configuration revision without model discovery. Optional `category`, `family`,
+and `key_url` fields describe known-provider presentation. `key_source: "env_file"`
+or `"key_file"` identifies a named file source; `environment_variable` and
+`credential_path` expose only the reference name and configured path.
+`providers.discover({ model?, provider? })` rereads host sources, persists missing
+provider references without copying keys, and returns the same inventory plus an
+optional `discovery_error`. It preserves explicit/disabled providers and defaults,
+and does not fetch model catalogs. Use it on setup-open or explicit Refresh;
+regular inventory polling stays read-only. Check `client.supports('rpc',
+'provider.discover')` before using it with older hosts. Discovery is ephemeral and
+never enters command recovery. `providers.disconnect({ provider,
 revision })` removes WHIP-owned credentials and disables the route; environment
 or external credentials instead use `configuration.update({ revision,
 disabled_providers })`. These operations preserve model aliases and defaults.
 Catalogs reuse their existing freshness metadata; `providers.catalogs({ refresh:
 true })` requests an explicit upstream refresh. Unavailable provider descriptors
 must be excluded from selectable model routes.
+`providers.get(provider)` reads a redacted editable definition, credential source,
+configured aliases and removal blockers. `providers.create({...})` and
+`providers.update({...})` accept the expected revision, endpoint metadata and an
+explicit credential mode (`api_key`, `environment`, `none`, or edit-only `keep`).
+They can include a `manual_model` and explicit `allow_unverified` intent when
+model discovery is unavailable. `providers.remove({ provider, revision })`
+removes unused custom definitions; built-ins and referenced routes are protected.
+These operations use host configuration files and do not enter session recovery
+storage. After an uncertain save, reread the provider ID and revision; never
+automatically replay a credential request or turn a duplicate create into update.
 `client.providers.validate({ name, base_url, key })` checks a candidate key without
-saving it; `setKey` already validates before saving. `rotateKey('inference')`
+saving it. `setKey` returns an optional `discovery` result distinguishing loaded
+catalogs from an unverified connection using a bundled or public catalog; normal
+configuration reads omit this transient result. Neither outcome asserts that an
+inference request succeeded. `rotateKey('inference')`
 rotates the execution host's machine key. Both are ephemeral and sent once;
 inspect provider status after an uncertain acknowledgement before retrying.
 `session.terminalInput` is ephemeral and is never automatically retried.

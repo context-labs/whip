@@ -321,6 +321,8 @@ func (e *RPCError) Error() string { return e.Message }
 
 type RuntimeConfiguration struct {
 	DisabledProviders *[]string `json:"disabled_providers,omitempty"`
+	// Discovery reports the catalog outcome of provider.key.set; configuration reads omit it.
+	Discovery *ProviderDiscovery `json:"discovery,omitempty"`
 	// Presence identifies support even when no remote hosts have been saved.
 	RemoteHosts     *[]config.RemoteHost `json:"remote_hosts,omitempty"`
 	ImportClaude    bool                 `json:"import_claude"`

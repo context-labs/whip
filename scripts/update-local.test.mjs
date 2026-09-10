@@ -2,9 +2,34 @@ import assert from 'node:assert/strict';
 import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { sha256 } from './renderer-artifact.mjs';
 import { installLocalBuild, main } from './update-local.mjs';
+
+test('packaging propagates signing failures instead of returning an unsigned bundle', async t => {
+  const require = createRequire(import.meta.url);
+  const module = { exports: {} };
+  const configFile = new URL('../apps/desktop/forge.config.cjs', import.meta.url);
+  runInNewContext(await readFile(configFile, 'utf8'), {
+    module, __dirname: path.dirname(fileURLToPath(configFile)),
+    process: { env: { WHIP_DESKTOP_SIGN_IDENTITY: 'fixture signing identity' } },
+    require: name => name === 'node:fs' ? {
+      readFileSync: filename => JSON.stringify(filename.endsWith('package.json') ? { productName: 'Whip' } : { channel: 'stable' }),
+    } : require(name),
+  });
+  const { MacApp } = require(path.join(path.dirname(require.resolve('@electron/packager')), 'mac.js'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'whip-signing-failure-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  // Exercise Packager's real error handling without a certificate or macOS:
+  // osx-sign must reject the missing app before it invokes native commands.
+  await assert.rejects(MacApp.prototype.signAppIfSpecified.call({
+    opts: { ...module.exports.packagerConfig, platform: 'darwin', electronVersion: require('../apps/desktop/package.json').devDependencies.electron, quiet: true },
+    renamedAppPath: path.join(directory, 'Missing.app'),
+  }), /could not be found/);
+});
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'whip-local-update-test-'));

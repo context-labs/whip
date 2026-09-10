@@ -291,13 +291,28 @@ func (s *Services) ProcessOptions() bashrun.Options {
 func (s *Services) ResolveWorkingDirectory(path string) (string, error) {
 	s.mu.RLock()
 	workspace := s.workspace
+	ledger, authority := s.permissionLedger, s.authority
 	s.mu.RUnlock()
 	if workspace == nil {
 		return filepath.Abs(path)
 	}
-	resolved, err := workspace.Resolve(path)
+	resolved, err := workspace.Canonicalize(path)
 	if err != nil {
 		return "", err
+	}
+	authorizer, ok := ledger.(interface {
+		AuthorizeCapability(context.Context, string, string, capability.Reference, string, string) error
+	})
+	if !ok {
+		// Standalone callers without a ledger retain their confined workspace.
+		resolved, err = workspace.Resolve(path)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		if err := authorizer.AuthorizeCapability(context.Background(), authority.RootID, authority.AgentID, authority.Files, "read", resolved); err != nil {
+			return "", err
+		}
 	}
 	info, err := os.Stat(resolved)
 	if err != nil {

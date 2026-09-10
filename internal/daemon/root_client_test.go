@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net"
 	"path/filepath"
@@ -11,8 +12,121 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
+
+type deferredRootConnection struct {
+	*staticRootConnection
+	commands  chan CommandParams
+	loseReply bool
+}
+
+func (c *deferredRootConnection) Call(_ context.Context, method string, _ any, result any) error {
+	if method != "provider.list" {
+		return errors.New("unexpected host RPC")
+	}
+	*result.(*protocol.ProviderList) = protocol.ProviderList{Selection: &protocol.ProviderSelection{Ready: false}}
+	return nil
+}
+
+func (c *deferredRootConnection) Command(_ context.Context, params CommandParams) (CommandResult, error) {
+	c.commands <- params
+	if c.loseReply {
+		_ = c.Close()
+		return CommandResult{}, net.ErrClosed
+	}
+	return CommandResult{Status: "succeeded", Output: "created-root"}, nil
+}
+
+func TestRootClientDeferredSessionUsesHostConnectionAndStableCreate(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	commands := make(chan CommandParams, 4)
+	connections := make(chan *deferredRootConnection, 4)
+	attempt := 0
+	client, err := NewRootClient(RootClientOptions{
+		ClientID: "onboarding", Create: &CreateSession{Kind: session.SessionKindAgent, CWD: "/workspace"}, DeferCreate: true,
+		Connector: func(context.Context, map[string]int64) (RootConnection, error) {
+			attempt++
+			connection := &deferredRootConnection{staticRootConnection: newStaticRootConnection(), commands: commands, loseReply: attempt == 3}
+			connections <- connection
+			return connection, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	client.Start()
+	if err := client.WaitLive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if client.RootID() != "" {
+		t.Fatal("created a session before a provider was chosen")
+	}
+	list, err := client.ListProvidersFor(ctx, "", "")
+	if err != nil || list.Selection == nil {
+		t.Fatalf("host inventory: %+v %v", list, err)
+	}
+	// Closing and reconnecting while still on the home screen must not create.
+	first := <-connections
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-connections:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if err := client.WaitLive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case command := <-commands:
+		t.Fatalf("early command: %+v", command)
+	default:
+	}
+	if err := client.StartSession("coding-model", "openrouter"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.StartSession("other-model", "other-provider"); err == nil {
+		t.Fatal("accepted a second session start")
+	}
+	if err := client.WaitLive(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if client.RootID() != "created-root" {
+		t.Fatal("did not attach the created session")
+	}
+	a, b := <-commands, <-commands
+	if a.CommandID != b.CommandID || string(a.Payload) != string(b.Payload) || a.Operation != "session.create" {
+		t.Fatal("lost acknowledgement changed the create identity or selected route")
+	}
+	var create CreateSession
+	if err := json.Unmarshal(b.Payload, &create); err != nil {
+		t.Fatal(err)
+	}
+	if create.Model != "coding-model" || create.Provider != "openrouter" || create.CWD != "/workspace" {
+		t.Fatalf("wrong session template: %+v", create)
+	}
+}
+
+func TestRootClientStartSessionDuringConnectionRetirement(t *testing.T) {
+	client, err := NewRootClient(RootClientOptions{
+		ClientID: "retiring", Create: &CreateSession{}, DeferCreate: true,
+		Connector: func(context.Context, map[string]int64) (RootConnection, error) { return nil, net.ErrClosed },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	// Retirement clears the connection before publishing the next state.
+	client.state = RootLive
+	if err := client.StartSession("model", "provider"); err == nil || !client.deferCreate {
+		t.Fatal("session was admitted without an active connection")
+	}
+}
 
 type reconnectServer struct {
 	mu       sync.Mutex

@@ -1,4 +1,4 @@
-import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type PermissionDecision, type PermissionDecisionResult, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderValidateParams } from '@whip/protocol';
+import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type PermissionDecision, type PermissionDecisionResult, type ProviderCreateParams, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderRemoveParams, type ProviderUpdateParams, type ProviderValidateParams } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
 import { WhipError } from './errors.js';
@@ -71,10 +71,24 @@ export class Configuration {
 }
 export class Providers {
   constructor(private readonly client: WhipClient) {}
-  list(options: CallOptions = {}) { return this.client.call('provider.list', {}, options); }
+  /** Persist missing routes using named keys on the execution host; never sends credential values. */
+  discover({ model, provider, ...options }: CallOptions & { model?: string; provider?: string } = {}) {
+    return this.client.call('provider.discover', { ...(model ? { model } : {}), ...(provider ? { provider } : {}) }, options);
+  }
+  list({ model, provider, ...options }: CallOptions & { model?: string; provider?: string } = {}) {
+    return this.client.call('provider.list', { ...(model ? { model } : {}), ...(provider ? { provider } : {}) }, options);
+  }
+  /** Read an execution host's editable definition without retrieving its secret. */
+  get(provider: string, options: CallOptions = {}) { return this.client.call('provider.get', { provider }, options); }
+  /** Sent once without recovery storage. After an uncertain result, reread the provider before retrying. */
+  create(params: ProviderCreateParams, options: CallOptions = {}) { return this.client.call('provider.create', params, options); }
+  /** Omitted fields are retained; credentials remain host-owned and are never journaled. */
+  update(params: ProviderUpdateParams, options: CallOptions = {}) { return this.client.call('provider.update', params, options); }
+  /** Remove an unreferenced custom definition using its current configuration revision. */
+  remove(params: ProviderRemoveParams, options: CallOptions = {}) { return this.client.call('provider.remove', params, options); }
   disconnect(params: ProviderDisconnectParams, options: CallOptions = {}) { return this.client.call('provider.disconnect', params, options); }
-  catalogs({ refresh, ...options }: CallOptions & { refresh?: boolean } = {}) {
-    return this.client.query('provider.catalogs', refresh ? { refresh } : {}, options);
+  catalogs({ refresh, provider, ...options }: CallOptions & { refresh?: boolean; provider?: string } = {}) {
+    return this.client.query('provider.catalogs', { ...(refresh ? { refresh } : {}), ...(provider ? { provider } : {}) }, options);
   }
   status(name: string, options: CallOptions = {}) { return this.client.call('provider.status', { provider: name }, options); }
   setKey(params: ProviderKeySetup, options: CallOptions = {}) { return this.client.call('provider.key.set', params, options); }

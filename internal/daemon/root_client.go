@@ -78,23 +78,26 @@ type RootUpdate struct {
 
 // RootClientOptions contains behavioral inputs for one daemon root.
 type RootClientOptions struct {
-	ClientID  string
-	RootID    string
-	Create    *CreateSession
-	Connector RootConnector
-	RetryMin  time.Duration
-	RetryMax  time.Duration
+	ClientID string
+	RootID   string
+	Create   *CreateSession
+	// DeferCreate connects host services first; StartSession admits the template.
+	DeferCreate bool
+	Connector   RootConnector
+	RetryMin    time.Duration
+	RetryMax    time.Duration
 }
 
 // RootClient reconnects one daemon-root subscription and retries commands
 // with their original identity. It owns no provider, store, tool, or process.
 type RootClient struct {
-	clientID   string
-	instanceID string
-	create     *CreateSession
-	connect    RootConnector
-	retryMin   time.Duration
-	retryMax   time.Duration
+	clientID    string
+	instanceID  string
+	create      *CreateSession
+	deferCreate bool
+	connect     RootConnector
+	retryMin    time.Duration
+	retryMax    time.Duration
 
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -127,6 +130,9 @@ func NewRootClient(options RootClientOptions) (*RootClient, error) {
 	if options.RootID != "" && options.Create != nil {
 		return nil, errors.New("root client cannot resume and create simultaneously")
 	}
+	if options.DeferCreate && options.Create == nil {
+		return nil, errors.New("deferred creation requires a session template")
+	}
 	if options.RetryMin <= 0 {
 		options.RetryMin = 25 * time.Millisecond
 	}
@@ -136,7 +142,7 @@ func NewRootClient(options RootClientOptions) (*RootClient, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &RootClient{
 		clientID: options.ClientID, instanceID: rand.Text(),
-		rootID: options.RootID, create: options.Create, connect: options.Connector,
+		rootID: options.RootID, create: options.Create, deferCreate: options.DeferCreate, connect: options.Connector,
 		retryMin: options.RetryMin, retryMax: options.RetryMax,
 		ctx: ctx, cancel: cancel, done: make(chan struct{}), changed: make(chan struct{}),
 		updates: make(chan RootUpdate, MaxOutboundEnvelopes),
@@ -182,6 +188,27 @@ func (c *RootClient) Cursor() int64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.cursor
+}
+
+// StartSession admits a deferred template once, freezing its route before the
+// reconnect loop sends the existing stable session-create command identity.
+func (c *RootClient) StartSession(model, provider string) error {
+	if model == "" || provider == "" {
+		return errors.New("a model and provider are required")
+	}
+	c.mu.Lock()
+	if c.ctx.Err() != nil || c.state != RootLive || c.conn == nil || !c.deferCreate || c.create == nil {
+		c.mu.Unlock()
+		return errors.New("session creation is not available")
+	}
+	create := *c.create
+	create.Model, create.Provider = model, provider
+	c.create, c.deferCreate, c.state = &create, false, RootReconnecting
+	connection := c.conn
+	c.notifyLocked()
+	c.mu.Unlock()
+	// As with SwitchRoot, the owner loop performs synchronization after close.
+	return connection.Close()
 }
 
 // SwitchRoot changes the subscribed session after a successful daemon action.
@@ -500,7 +527,13 @@ func (c *RootClient) run() {
 func (c *RootClient) synchronize(connection RootConnection) error {
 	rootID, cursor := c.position()
 	if rootID == "" {
-		payload, err := json.Marshal(c.create)
+		c.mu.RLock()
+		deferred, create := c.deferCreate, c.create
+		c.mu.RUnlock()
+		if deferred {
+			return nil
+		}
+		payload, err := json.Marshal(create)
 		if err != nil {
 			return err
 		}

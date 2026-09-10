@@ -6,6 +6,7 @@ import type { LocalRuntimeStatus } from '@whip/app/platform';
 import { access, chmod, copyFile, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { providerEnvironmentNames } from './provider-environment';
 
 const exec = promisify(execFile);
 export interface RuntimeManifest {
@@ -78,8 +79,7 @@ export function parseDaemonStatus(stdout: string): DaemonStatus {
   return value;
 }
 
-// Keep this small allowlist aligned with config.ProviderPresets (checked by tests).
-export const providerEnvironmentNames = ['INFERENCE_API_KEY', 'OPENROUTER_API_KEY'] as const;
+const providerEndpointEnvironmentNames = ['OPENAI_BASE_URL', 'OPENAI_API_BASE'] as const;
 
 /** Recover shell PATH and, for local launches only, supported provider keys. Never persist them. */
 export async function runtimeEnvironment(signal: AbortSignal, providerKeys = false, inherited = process.env): Promise<NodeJS.ProcessEnv> {
@@ -90,7 +90,10 @@ export async function runtimeEnvironment(signal: AbortSignal, providerKeys = fal
   }
   if (shell && path.isAbsolute(shell)) {
     try {
-      const names = ['PATH', ...(providerKeys ? providerEnvironmentNames : [])];
+      // Recover endpoint overrides with their key so a custom OpenAI endpoint's key is never misidentified.
+      const names = ['PATH', ...(providerKeys ? [
+        ...providerEnvironmentNames, ...providerEndpointEnvironmentNames,
+      ] : [])];
       // Only fixed identifiers enter the command; values stay in quoted shell expansions.
       const command = `printf '\\0WHIP_ENV\\0'; ${names.map(name => `printf '%s\\0%s\\0' '${name}' "\${${name}-}"`).join('; ')}`;
       const output = await run(shell, [providerKeys ? '-il' : '-l', '-c', command], env, signal, 3000);
@@ -98,13 +101,22 @@ export async function runtimeEnvironment(signal: AbortSignal, providerKeys = fal
       const start = output.lastIndexOf(marker);
       if (start >= 0) {
         const fields = output.slice(start + marker.length).split('\0');
+        let invalidOpenAIEndpoint = false;
         for (let index = 0; index + 1 < fields.length; index += 2) {
           const name = fields[index]!; const value = fields[index + 1]!;
-          if (!names.includes(name) || value.length > 16384 || /[\r\n]/.test(value)) continue;
+          if (!names.includes(name)) continue;
+          if (value.length > 16384 || /[\r\n]/.test(value)) {
+            if (providerEndpointEnvironmentNames.some(endpoint => endpoint === name) && env[name] === undefined)
+              invalidOpenAIEndpoint = true;
+            continue;
+          }
           if (name === 'PATH' || (env[name] === undefined && value.trim())) env[name] = value;
         }
+        if (invalidOpenAIEndpoint) delete env.OPENAI_API_KEY;
       }
-    } catch { signal.throwIfAborted(); }
+    } catch {
+      signal.throwIfAborted();
+    }
   }
   env.PATH = [...new Set((env.PATH ?? '').split(':').filter(part => path.isAbsolute(part)))
     .values(), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':');
@@ -212,7 +224,7 @@ export class LocalRuntime {
     if (!executable || !await stat(executable).then(() => true, error => {
       if (error.code === 'ENOENT') return false;
       throw new Error('Cannot read the selected whipcode executable. Check its permissions or choose another path.');
-    })) return { ...base, state: 'missing', canInstall: true, message: 'whipcode is not installed at the selected path. Install it or choose an existing executable.' };
+    })) return { ...base, state: 'missing', canInstall: true, message: 'The local service is not installed. Choose Set up this Mac to continue.' };
     let clientBuild: string;
     try { clientBuild = (await this.metadata(executable, env, signal)).buildId; }
     catch (error) {
@@ -263,7 +275,7 @@ export class LocalRuntime {
   async executable(signal: AbortSignal): Promise<string> {
     const env = await this.environment(signal);
     const executable = await this.selected(env);
-    if (!executable) throw new Error('Install or choose whipcode in Execution hosts → This Mac before connecting.');
+    if (!executable) throw new Error('Set up this Mac or choose an executable in Settings → Servers before connecting.');
     await this.metadata(executable, env, signal);
     return executable;
   }
@@ -304,6 +316,17 @@ export class LocalRuntime {
         throw new Error('Cannot install whipcode here. Choose a writable executable location, such as ~/.local/bin/whipcode, or install it through your terminal.');
       throw error;
     });
+  }
+
+  /** First-run installation keeps the selected path and never replaces another backend. */
+  async installDefault(signal: AbortSignal): Promise<LocalRuntimeStatus> {
+    const env = await this.environment(signal);
+    const status = await this.probe(env, await this.selected(env), signal);
+    if (status.state !== 'missing') {
+      const { socket: _socket, stale: _stale, ...result } = status;
+      return result;
+    }
+    return this.install(status.executable ?? path.join(env.HOME || homedir(), '.local/bin/whipcode'), signal);
   }
 
   private get channel(): 'stable' | 'beta' { return this.options.manifest.version.includes('-') ? 'beta' : 'stable'; }
@@ -382,7 +405,7 @@ export class LocalRuntime {
       progress('Checking the installation and contacting the daemon…');
       const status = await this.probe(env, executable, signal);
       if (!executable || status.state === 'missing' || status.state === 'incompatible' || (status.state === 'unhealthy' && !status.stale))
-        throw new Error(status.message + ' Open Execution hosts → This Mac for connection diagnostics.');
+        throw new Error(status.message + (status.state === 'missing' ? '' : ' Open Settings → Servers for connection diagnostics.'));
       await this.save(executable, signal);
       if (status.state === 'running') { progress('Attaching to the local daemon…'); return status.socket!; }
       progress('Starting the canonical whipcode daemon…');

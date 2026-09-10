@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as NewDraftIdRouteImport } from './routes/new.$draftId'
 import { Route as HRuntimeIdSRootIdRouteImport } from './routes/h.$runtimeId.s.$rootId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +24,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NewDraftIdRoute = NewDraftIdRouteImport.update({
+  id: '/new/$draftId',
+  path: '/new/$draftId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HRuntimeIdSRootIdRoute = HRuntimeIdSRootIdRouteImport.update({
   id: '/h/$runtimeId/s/$rootId',
   path: '/h/$runtimeId/s/$rootId',
@@ -32,30 +38,35 @@ const HRuntimeIdSRootIdRoute = HRuntimeIdSRootIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/new/$draftId': typeof NewDraftIdRoute
   '/h/$runtimeId/s/$rootId': typeof HRuntimeIdSRootIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/new/$draftId': typeof NewDraftIdRoute
   '/h/$runtimeId/s/$rootId': typeof HRuntimeIdSRootIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/new/$draftId': typeof NewDraftIdRoute
   '/h/$runtimeId/s/$rootId': typeof HRuntimeIdSRootIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/settings' | '/h/$runtimeId/s/$rootId'
+  fullPaths: '/' | '/settings' | '/new/$draftId' | '/h/$runtimeId/s/$rootId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/settings' | '/h/$runtimeId/s/$rootId'
-  id: '__root__' | '/' | '/settings' | '/h/$runtimeId/s/$rootId'
+  to: '/' | '/settings' | '/new/$draftId' | '/h/$runtimeId/s/$rootId'
+  id:
+    '__root__' | '/' | '/settings' | '/new/$draftId' | '/h/$runtimeId/s/$rootId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
+  NewDraftIdRoute: typeof NewDraftIdRoute
   HRuntimeIdSRootIdRoute: typeof HRuntimeIdSRootIdRoute
 }
 
@@ -75,6 +86,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/new/$draftId': {
+      id: '/new/$draftId'
+      path: '/new/$draftId'
+      fullPath: '/new/$draftId'
+      preLoaderRoute: typeof NewDraftIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/h/$runtimeId/s/$rootId': {
       id: '/h/$runtimeId/s/$rootId'
       path: '/h/$runtimeId/s/$rootId'
@@ -88,6 +106,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
+  NewDraftIdRoute: NewDraftIdRoute,
   HRuntimeIdSRootIdRoute: HRuntimeIdSRootIdRoute,
 }
 export const routeTree = rootRouteImport

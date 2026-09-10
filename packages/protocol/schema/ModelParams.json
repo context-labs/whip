@@ -1,6 +1,9 @@
 {
   "type": "object",
   "properties": {
+    "effort": {
+      "type": "string"
+    },
     "model": {
       "type": "string"
     },

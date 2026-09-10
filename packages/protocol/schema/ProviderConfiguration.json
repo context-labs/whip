@@ -1,0 +1,133 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "definition": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "api": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "base_url",
+        "api"
+      ],
+      "additionalProperties": false
+    },
+    "custom": {
+      "type": "boolean"
+    },
+    "credential": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "configured": {
+          "type": "boolean"
+        },
+        "environment_variable": {
+          "type": "string"
+        },
+        "credential_path": {
+          "type": "string"
+        },
+        "available": {
+          "type": [
+            "null",
+            "boolean"
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "configured"
+      ],
+      "additionalProperties": false
+    },
+    "models": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "alias": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "context": {
+            "type": "integer"
+          },
+          "max_output": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "alias",
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "removal_blockers": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "discovery": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "model_count": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v5/ProviderConfiguration",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderConfiguration",
+  "required": [
+    "revision",
+    "provider",
+    "definition",
+    "custom",
+    "credential",
+    "models",
+    "removal_blockers"
+  ],
+  "additionalProperties": false
+}

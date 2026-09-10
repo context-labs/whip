@@ -39,6 +39,10 @@ type responseItem struct {
 }
 
 func encodeResponses(req Request, accountID string) ([]byte, error) {
+	return encodeResponsesWithLimit(req, accountID, 0)
+}
+
+func encodeResponsesWithLimit(req Request, accountID string, maxOutput int) ([]byte, error) {
 	var instructions []string
 	input := []any{}
 	for _, message := range req.Messages {
@@ -108,7 +112,7 @@ func encodeResponses(req Request, accountID string) ([]byte, error) {
 	tools := []any{}
 	for _, tool := range req.Tools {
 		if tool.Type != "function" {
-			return nil, errors.New("OpenAI subscriptions require function tools")
+			return nil, errors.New("OpenAI Responses requires function tools")
 		}
 		tools = append(tools, map[string]any{
 			"type": "function", "name": tool.Function.Name, "description": tool.Function.Description,
@@ -118,6 +122,9 @@ func encodeResponses(req Request, accountID string) ([]byte, error) {
 	body := map[string]any{
 		"model": req.Model, "instructions": strings.Join(instructions, "\n\n"), "input": input,
 		"tools": tools, "stream": true, "store": false, "include": []string{"reasoning.encrypted_content"},
+	}
+	if maxOutput > 0 {
+		body["max_output_tokens"] = maxOutput
 	}
 	if req.ReasoningEffort != "" {
 		effort := req.ReasoningEffort
@@ -130,7 +137,7 @@ func encodeResponses(req Request, accountID string) ([]byte, error) {
 		body["prompt_cache_key"] = normalizeCacheKey(req.PromptCacheKey)
 	}
 	if req.Temperature != nil || req.TopP != nil {
-		return nil, errors.New("temperature and top_p are unsupported by the ChatGPT subscription route")
+		return nil, errors.New("temperature and top_p are unsupported by this OpenAI Responses route")
 	}
 	return json.Marshal(body)
 }

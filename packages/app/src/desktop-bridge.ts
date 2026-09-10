@@ -51,6 +51,7 @@ export interface DesktopBridge {
   testLocalRuntime(): Promise<LocalRuntimeStatus>;
   chooseLocalRuntime(): Promise<LocalRuntimeStatus>;
   installLocalRuntime(): Promise<LocalRuntimeStatus>;
+  installDefaultLocalRuntime?(): Promise<LocalRuntimeStatus>;
   restartLocalRuntime(): Promise<LocalRuntimeStatus>;
   beginSave(filename: string, mediaType: string, bytes: number): Promise<string | undefined>;
   writeSave(id: string, offset: number, bytes: Uint8Array): Promise<void>;

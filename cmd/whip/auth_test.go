@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -14,27 +15,34 @@ import (
 	"github.com/creack/pty"
 )
 
-// fakeOpenRouter serves GET /models: 200 with a two-model list for the good
-// key, 401 for anything else — mirroring OpenRouter's auth behavior.
+// fakeOpenRouter mirrors the authenticated /key and public /models endpoints.
 func fakeOpenRouter(t *testing.T, goodKey string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/models" {
-			http.NotFound(w, r)
+		if r.URL.Path == "/key" {
+			if r.Header.Get("Authorization") != "Bearer "+goodKey {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":{"message":"invalid key"}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"label":"redacted"}}`))
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer "+goodKey {
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":{"message":"invalid key"}}`))
+		if r.URL.Path != "/models" {
+			http.NotFound(w, r)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]any{
 				{
 					"id": "openai/gpt-5", "context_length": 400000, "input_modalities": []string{"text", "image"},
+					"output_modalities": []string{"text"}, "supported_parameters": []string{"tools", "tool_choice"},
 					"pricing": map[string]string{"prompt": "0.00000125", "completion": "0.00001"},
 				},
-				{"id": "anthropic/claude-sonnet-4.5", "context_length": 1000000, "input_modalities": []string{"text"}},
+				{
+					"id": "anthropic/claude-sonnet-4.5", "context_length": 1000000, "input_modalities": []string{"text"},
+					"output_modalities": []string{"text"}, "supported_parameters": []string{"tools", "tool_choice"},
+				},
 			},
 		})
 	}))
@@ -79,8 +87,7 @@ func TestAuthOpenRouterGoodKey(t *testing.T) {
 		t.Errorf("vision modality not carried into catalog: %v %v", vis, found)
 	}
 
-	// The prefetched catalog makes catalog-only models resolvable with no
-	// config entry — the "access all openrouter models easily" promise.
+	// Compatible catalog-only models resolve without a manual config entry.
 	_, m, _, err := cfg.Resolve("anthropic/claude-sonnet-4.5", "")
 	if err != nil {
 		t.Fatalf("catalog model should resolve: %v", err)
@@ -109,6 +116,35 @@ func TestAuthOpenRouterBadKeyWritesNothing(t *testing.T) {
 	}
 	if cats := config.LoadCatalogs(); len(cats) != 0 {
 		t.Errorf("a rejected key must not write the catalog: %+v", cats)
+	}
+}
+
+func TestAuthOpenRouterEnvironmentModeUsesNamedFileWithoutPrompt(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv(config.OpenRouterEnvVar, "")
+	keyPath := filepath.Join(t.TempDir(), "openrouter.key")
+	if err := os.WriteFile(keyPath, []byte("sk-or-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := config.UpdateVersioned("", func(cfg *config.Config) error {
+		cfg.ProviderKeySources.KeyFiles = map[string]string{config.OpenRouterEnvVar: keyPath}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := fakeOpenRouter(t, "sk-or-file")
+	defer server.Close()
+	if err := authOpenRouterCLI([]string{"--env"}); err != nil {
+		t.Fatalf("named file setup failed: %v", err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := cfg.Providers["openrouter"]
+	if provider.APIKey != "" || provider.APIKeyEnv != config.OpenRouterEnvVar {
+		t.Fatal("CLI copied a file credential instead of retaining its named reference")
 	}
 }
 

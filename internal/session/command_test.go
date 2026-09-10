@@ -4,11 +4,66 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
 )
+
+func TestCreateSessionCommandPersistsPermissionWithOutcome(t *testing.T) {
+	for _, mode := range []string{"", PermissionModePrompt, PermissionModeAutomatic, "invalid"} {
+		t.Run("mode="+mode, func(t *testing.T) {
+			store, err := Open(filepath.Join(t.TempDir(), "sessions.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			ctx := t.Context()
+			if _, err := store.AdmitCommand(ctx, CommandAdmission{ClientID: "client", CommandID: "create", Scope: CommandScopeDaemon, RequestDigest: "create"}); err != nil {
+				t.Fatal(err)
+			}
+			created, err := store.CreateSessionForCommandWithPermission(ctx, "client", "create", SessionKindAgent, "/tmp", "model", "provider", mode)
+			if mode == "invalid" {
+				if err == nil {
+					t.Fatal("accepted invalid permission")
+				}
+				var count int
+				if err := store.db.QueryRowContext(ctx, "SELECT count(*) FROM sessions").Scan(&count); err != nil || count != 0 {
+					t.Fatalf("invalid permission created a session: %d, %v", count, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result struct {
+				RootID string `json:"root_id"`
+			}
+			if err := json.Unmarshal(created.Outcome.Inline, &result); err != nil {
+				t.Fatal(err)
+			}
+			want := mode
+			if want == "" {
+				want = PermissionModePrompt
+			}
+			if saved, err := store.PermissionMode(ctx, result.RootID); err != nil || saved != want {
+				t.Fatalf("permission = %q, %v", saved, err)
+			}
+			// Replaying creation never resets a subsequent session permission choice.
+			if err := store.SetPermissionMode(ctx, result.RootID, PermissionModeAutomatic); err != nil {
+				t.Fatal(err)
+			}
+			replay, err := store.CreateSessionForCommandWithPermission(ctx, "client", "create", SessionKindAgent, "/tmp", "model", "provider", mode)
+			if err != nil || string(replay.Outcome.Inline) != string(created.Outcome.Inline) {
+				t.Fatalf("creation replay changed result: %v", err)
+			}
+			if saved, err := store.PermissionMode(ctx, result.RootID); err != nil || saved != PermissionModeAutomatic {
+				t.Fatal("creation replay reset session permissions")
+			}
+		})
+	}
+}
 
 func TestCommandAdmissionIsIdempotentAndBoundToOneInboxSequence(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "sessions.db"))

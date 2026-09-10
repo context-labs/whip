@@ -10,12 +10,12 @@ const snapshotScript = String.raw`(async () => {
   const enabled = element => visible(element) && !element.matches(':disabled') && element.getAttribute('aria-disabled') !== 'true';
   const inspect = () => {
     const navigation = document.querySelector('[aria-label="Session navigation"]');
-    const host = visible(navigation?.querySelector('[aria-label="Manage execution hosts"]'));
+    const host = visible(navigation?.querySelector('[aria-label="Manage servers"]'));
     const noNotice = ![...document.querySelectorAll('[role="alert"], p[role="status"]')].some(visible);
     const composer = document.querySelector('[data-whip-composer][aria-label="Message WHIP"]');
     const session = enabled(composer) && enabled(composer?.closest('form')?.querySelector('[aria-label="Add context"]'));
-    const home = !!document.querySelector('#workspace-path') && [...document.querySelectorAll('button')]
-      .some(button => button.textContent?.trim() === 'Browse host' && enabled(button));
+    const firstMessage = document.querySelector('[data-whip-composer][aria-label="Your first message"]');
+    const home = enabled(firstMessage) && enabled(firstMessage?.closest('form')?.querySelector('[aria-label="Connect a provider"], [aria-label="Change provider or model"]'));
     const conversation = document.querySelector('[aria-label="Conversation"]');
     const transcript = visible(conversation) && [...conversation.querySelectorAll('[data-message-id]')].slice(0, 128)
       .some(message => (message.textContent || '').slice(0, 4096).includes('Verified Whip desktop startup fixture: 42'));

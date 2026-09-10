@@ -9,10 +9,11 @@ import (
 )
 
 type CreateSessionParams struct {
-	Kind     session.SessionKind `json:"kind"`
-	CWD      string              `json:"cwd"`
-	Model    string              `json:"model"`
-	Provider string              `json:"provider"`
+	Kind           session.SessionKind `json:"kind"`
+	CWD            string              `json:"cwd"`
+	Model          string              `json:"model"`
+	Provider       string              `json:"provider"`
+	PermissionMode string              `json:"permission_mode,omitempty"`
 }
 type RootParams struct {
 	RootID string `json:"root_id"`

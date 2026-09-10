@@ -14,12 +14,16 @@ import (
 // catalogTTL is how long a provider's fetched model list stays fresh.
 const catalogTTL = 24 * time.Hour
 
+// Catalogs written before this format used a restrictive model allowlist.
+const catalogDiscoveryVersion = 1
+
 // Catalog is the cached model list of one provider.
 type Catalog struct {
-	AccountID string          `json:"accountId,omitempty"` // private cache scope for subscription routes
-	FetchedAt time.Time       `json:"fetchedAt"`
-	BaseURL   string          `json:"baseUrl"`
-	Models    []ModelInfoLite `json:"models"`
+	DiscoveryVersion int             `json:"discoveryVersion,omitempty"`
+	AccountID        string          `json:"accountId,omitempty"` // private cache scope for subscription routes
+	FetchedAt        time.Time       `json:"fetchedAt"`
+	BaseURL          string          `json:"baseUrl"`
+	Models           []ModelInfoLite `json:"models"`
 }
 
 // ModelInfoLite is the subset of the provider's /models entry whip uses.
@@ -28,8 +32,8 @@ type ModelInfoLite struct {
 	ID                  string      `json:"id"`
 	ContextLength       int         `json:"contextLength,omitempty"`       // model's context window (input), 0 if unadvertised
 	MaxCompletionTokens int         `json:"maxCompletionTokens,omitempty"` // provider's output cap, 0 if unadvertised
-	ReasoningEfforts    []string    `json:"reasoningEfforts,omitempty"`
-	InputModalities     []string    `json:"inputModalities,omitempty"` // provider-advertised input types (["text","image"])
+	ReasoningEfforts    []string    `json:"reasoningEfforts,omitzero"`
+	InputModalities     []string    `json:"inputModalities,omitzero"` // provider-advertised input types (["text","image"])
 }
 
 // SupportsVision reports whether the catalog advertises image input for a model
@@ -38,7 +42,7 @@ type ModelInfoLite struct {
 func (c Catalog) SupportsVision(id string) (vision, found bool) {
 	for _, mi := range c.Models {
 		if mi.ID == id {
-			if len(mi.InputModalities) == 0 {
+			if mi.InputModalities == nil {
 				return false, false
 			}
 			if slices.Contains(mi.InputModalities, "image") {
@@ -195,12 +199,19 @@ func saveCatalogsUnlocked(cats map[string]Catalog) error {
 // Stale reports whether the cached catalog should be refetched.
 func (c Catalog) Stale() bool { return time.Since(c.FetchedAt) > catalogTTL }
 
+// NeedsDiscovery also refreshes caches produced by an older discovery policy.
+// This is host-only bookkeeping; clients continue to use the advertised TTL.
+func (c Catalog) NeedsDiscovery() bool {
+	return c.DiscoveryVersion != catalogDiscoveryVersion || c.Stale()
+}
+
 // UpdateCatalog merges one host-fetched catalog without replacing concurrently
 // refreshed providers.
 func UpdateCatalog(provider string, catalog Catalog) error {
 	catalogMu.Lock()
 	defer catalogMu.Unlock()
 	catalogs := loadCatalogsUnlocked()
+	catalog.DiscoveryVersion = catalogDiscoveryVersion
 	catalogs[provider] = catalog
 	return saveCatalogsUnlocked(catalogs)
 }

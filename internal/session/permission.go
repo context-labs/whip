@@ -12,31 +12,35 @@ import (
 )
 
 type CapabilityDelegation struct {
-	ID         string
-	Issuer     capability.Reference
-	AgentID    string
-	Operations []string
-	Scopes     []string
-	MCP        []capability.MCPSelector
-	MCPAll     bool
-	Generation int64
-	ExpiresAt  time.Time
+	ID           string
+	Issuer       capability.Reference
+	AgentID      string
+	Operations   []string
+	Scopes       []string
+	InheritScope bool
+	MCP          []capability.MCPSelector
+	MCPAll       bool
+	Generation   int64
+	ExpiresAt    time.Time
 }
 
 type CapabilityRecord struct {
-	ID            string                   `json:"id"`
-	RootID        string                   `json:"root_id"`
-	AgentID       string                   `json:"agent_id"`
-	IssuerAgentID string                   `json:"issuer_agent_id"`
-	Operations    []string                 `json:"operations"`
-	Scopes        []string                 `json:"scopes"`
-	MCP           []capability.MCPSelector `json:"mcp"`
-	MCPAll        bool                     `json:"mcp_all"`
-	Generation    int64                    `json:"generation,string"`
-	Status        string                   `json:"status"`
-	ExpiresAt     time.Time                `json:"expires_at"`
-	CreatedAt     time.Time                `json:"created_at"`
-	UpdatedAt     time.Time                `json:"updated_at"`
+	ID                   string                   `json:"id"`
+	RootID               string                   `json:"root_id"`
+	AgentID              string                   `json:"agent_id"`
+	IssuerAgentID        string                   `json:"issuer_agent_id"`
+	Operations           []string                 `json:"operations"`
+	Scopes               []string                 `json:"scopes"`
+	FileScope            string                   `json:"file_scope,omitempty"`
+	FileIssuerID         string                   `json:"file_issuer_id,omitempty"`
+	FileIssuerGeneration int64                    `json:"file_issuer_generation,string,omitempty"`
+	MCP                  []capability.MCPSelector `json:"mcp"`
+	MCPAll               bool                     `json:"mcp_all"`
+	Generation           int64                    `json:"generation,string"`
+	Status               string                   `json:"status"`
+	ExpiresAt            time.Time                `json:"expires_at"`
+	CreatedAt            time.Time                `json:"created_at"`
+	UpdatedAt            time.Time                `json:"updated_at"`
 }
 
 func (s *Store) InspectCapability(ctx context.Context, rootID, callerAgentID, capabilityID string) (CapabilityRecord, error) {
@@ -135,7 +139,7 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 		hasWriter = hasWriter || operation == "workspace.write"
 		hasMCP = hasMCP || operation == "mcp.call"
 	}
-	if delegation.MCPAll || (!hasMCP && len(delegation.MCP) != 0) {
+	if delegation.MCPAll || (!hasMCP && len(delegation.MCP) != 0) || (delegation.InheritScope && (hasMCP || hasShell || len(delegation.Scopes) != 0)) {
 		return CapabilityRecord{}, capability.ErrDenied
 	}
 	if hasMCP {
@@ -161,16 +165,23 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 		return CapabilityRecord{}, err
 	}
 	scopes := make([]string, 0, len(delegation.Scopes))
+	var fileAuthority fileAccess
+	if !hasMCP && !hasShell {
+		fileAuthority, err = loadFileAccessTx(ctx, tx, rootID, callerAgentID, delegation.Issuer)
+		if err != nil {
+			return CapabilityRecord{}, err
+		}
+	}
 	for _, scope := range delegation.Scopes {
-		canonical, err := workspace.Resolve(scope)
-		if err != nil || !scopeContains(issuer.Scopes, canonical) {
+		canonical, err := workspace.Canonicalize(scope)
+		if err != nil || !fileAuthority.contains(canonical) {
 			return CapabilityRecord{}, capability.ErrDenied
 		}
 		if !slices.Contains(scopes, canonical) {
 			scopes = append(scopes, canonical)
 		}
 	}
-	if (hasShell && len(scopes) != 0) || (hasWriter && len(scopes) == 0) {
+	if (hasShell && len(scopes) != 0) || (hasWriter && len(scopes) == 0 && !delegation.InheritScope) {
 		return CapabilityRecord{}, capability.ErrDenied
 	}
 	expiresAt := delegation.ExpiresAt
@@ -182,6 +193,13 @@ func (s *Store) delegateCapabilityTx(ctx context.Context, tx *sql.Tx, rootID, ca
 		return CapabilityRecord{}, err
 	}
 	storedScopes := storedCapabilityScopes{Paths: scopes}
+	if !hasMCP && !hasShell {
+		storedScopes.FileIssuerID = delegation.Issuer.ID
+		storedScopes.FileIssuerGeneration = delegation.Issuer.Generation
+		if delegation.InheritScope {
+			storedScopes.FileScope = "inherit"
+		}
+	}
 	if hasMCP {
 		storedScopes.MCP = delegation.MCP
 		storedScopes.MCPIssuerID = delegation.Issuer.ID
@@ -284,6 +302,9 @@ func loadCapabilityRecordTx(ctx context.Context, tx *sql.Tx, rootID, capabilityI
 		return CapabilityRecord{}, err
 	}
 	record.Scopes = scopes.Paths
+	record.FileScope = scopes.FileScope
+	record.FileIssuerID = scopes.FileIssuerID
+	record.FileIssuerGeneration = scopes.FileIssuerGeneration
 	record.MCP = scopes.MCP
 	record.MCPAll = scopes.MCPAll
 	if scopes.ExpiresAt != "" {
@@ -345,6 +366,13 @@ func (s *Store) cancelPendingPermissionsTx(ctx context.Context, tx *sql.Tx, root
 			_, err := loadMCPAuthorityTx(ctx, tx, item.admission.Request.RootID, item.admission.Request.AgentID, capability.Reference{
 				ID: item.admission.Request.CapabilityID, Generation: item.admission.Request.CapabilityGeneration,
 			})
+			if err != nil && !errors.Is(err, capability.ErrDenied) {
+				return err
+			}
+			matches = errors.Is(err, capability.ErrDenied)
+		}
+		if !matches && (item.admission.CanonicalPath != "" || item.admission.Mutation == capability.MutationWorkspace) {
+			err := validateCapabilityAdmission(ctx, tx, item.admission)
 			if err != nil && !errors.Is(err, capability.ErrDenied) {
 				return err
 			}

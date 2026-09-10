@@ -321,6 +321,31 @@ func TestResolveRuntimeModelUsesSelectedProviderPricing(t *testing.T) {
 	}
 }
 
+func TestRuntimeModelDoesNotRouteBuiltinCompactionToAnotherProvider(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv(config.InferenceNetEnvVar, "")
+	cfg := config.Default()
+	cfg.DefaultModel, cfg.DefaultProvider = "router-coding", "openrouter"
+	cfg.Providers["openrouter"] = config.Provider{BaseURL: "https://router.test/v1", APIKey: "fixture"}
+	cfg.Models["router-coding"] = config.Model{Providers: []string{"openrouter"}, Context: 8192}
+	if err := config.SaveCatalogs(map[string]config.Catalog{"openrouter": {BaseURL: "https://router.test/v1", Models: []config.ModelInfoLite{{ID: "router-coding"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	main, _, err := resolveRuntimeModel(cfg, "", "")
+	if err != nil || main.Model != "router-coding" || main.Provider != "openrouter" {
+		t.Fatalf("main route: %+v, %v", main, err)
+	}
+	if _, _, err := resolveRuntimeModel(cfg, cfg.CompactModel, cfg.CompactProvider); err == nil {
+		t.Fatal("built-in Inference compaction model was routed to OpenRouter; factory must retain main-model fallback")
+	}
+	// A deliberately configured auxiliary model on this provider still works.
+	cfg.CompactModel = "router-coding"
+	compact, _, err := resolveRuntimeModel(cfg, cfg.CompactModel, cfg.CompactProvider)
+	if err != nil || compact.Model != main.Model || compact.Provider != main.Provider {
+		t.Fatalf("configured compaction: %+v, %v", compact, err)
+	}
+}
+
 func TestRunDaemonRejectsOwnedAndInvalidHomes(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
@@ -443,5 +468,40 @@ func TestScreenshotPartsNormalizesOversizedCaptures(t *testing.T) {
 	parts := screenshotParts([][]byte{buf.Bytes()})
 	if len(parts) != 1 || parts[0].W == 0 || parts[0].W > llm.NormalizeMaxDim {
 		t.Fatalf("screenshot parts=%+v", parts)
+	}
+}
+
+func TestResolveRuntimeModelPreservesCatalogDefaultPair(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := &config.Config{
+		DefaultModel: "shared-catalog-model", DefaultProvider: "beta",
+		Providers: map[string]config.Provider{
+			"alpha": {BaseURL: "https://alpha.example/v1", APIKey: "fixture-alpha"},
+			"beta":  {BaseURL: "https://beta.example/v1", APIKey: "fixture-beta"},
+		},
+		Models: map[string]config.Model{},
+	}
+	betaPrice := llm.Pricing{Prompt: "0.000002", Completion: "0.000004"}
+	if err := config.SaveCatalogs(map[string]config.Catalog{
+		"alpha": {BaseURL: "https://alpha.example/v1", Models: []config.ModelInfoLite{{ID: cfg.DefaultModel, ContextLength: 8192}}},
+		"beta":  {BaseURL: "https://beta.example/v1", Models: []config.ModelInfoLite{{ID: cfg.DefaultModel, ContextLength: 32768, MaxCompletionTokens: 4096, Pricing: betaPrice}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	route, _, err := resolveRuntimeModel(cfg, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.Provider != "beta" || route.Model != cfg.DefaultModel || route.ModelName != cfg.DefaultModel || route.Client.BaseURL != "https://beta.example/v1" || route.Client.APIKey != "fixture-beta" || route.ContextLimit != 32768 || route.MaxTokens != 4096 || route.Pricing != betaPrice {
+		t.Fatal("runtime client, model, limits or prices did not use the saved default pair")
+	}
+	if _, _, err := resolveRuntimeModel(cfg, cfg.DefaultModel, ""); err == nil {
+		t.Fatal("explicit ambiguous model silently inherited default provider")
+	}
+	override, _, err := resolveRuntimeModel(cfg, "", "alpha")
+	if err != nil || override.Provider != "alpha" || override.ContextLimit != 8192 {
+		t.Fatal("explicit provider did not override the default pair")
 	}
 }

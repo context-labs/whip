@@ -57,6 +57,24 @@
             "items": {
               "type": "string"
             }
+          },
+          "output_modalities": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "supports_tools": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "type": {
+            "type": "string"
           }
         },
         "required": [

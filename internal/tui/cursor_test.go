@@ -9,7 +9,7 @@ import (
 
 // The terminal cursor sits on the textarea caret inside the input rectangle,
 // follows typing and wrapping, keeps the user's cursor colour, and hides
-// while a dialog, the rewind picker or a masked prompt owns the keyboard.
+// while a dialog, the rewind picker or provider setup owns the keyboard.
 func TestRealCursorInsideInputRect(t *testing.T) {
 	m := goldenModel(140, 40)
 	view := m.View()
@@ -37,18 +37,18 @@ func TestRealCursorInsideInputRect(t *testing.T) {
 	for name, open := range map[string]func(){
 		"palette":    func() { m.openThinThemePalette() },
 		"rewind":     func() { m.rew = &rewindState{entries: []rewindEntry{{cut: 0}}} },
-		"mask":       func() { m.openNamePrompt("key:", "", func(string) {}); m.namePrompt.mask = true },
+		"provider":   func() { m.providerSetup = newTestSetup(t, &setupTestHost{}, true) },
 		"msgAction":  func() { m.msgActions = &msgActions{block: 0} },
 		"permission": func() { m.permDialog = &permDialog{daemon: &session.PermissionSnapshot{ID: "p1"}} },
 	} {
-		m.palette, m.rew, m.namePrompt, m.msgActions, m.permDialog = nil, nil, nil, nil, nil
+		m.palette, m.rew, m.namePrompt, m.msgActions, m.permDialog, m.providerSetup = nil, nil, nil, nil, nil, nil
 		open()
 		m.layout()
 		if c := m.View().Cursor; c != nil {
 			t.Fatalf("%s open: cursor should hide, got %+v", name, c)
 		}
 	}
-	m.palette, m.rew, m.namePrompt, m.msgActions, m.permDialog = nil, nil, nil, nil, nil
+	m.palette, m.rew, m.namePrompt, m.msgActions, m.permDialog, m.providerSetup = nil, nil, nil, nil, nil, nil
 	m.input.SetValue(strings.Repeat("a", m.input.Width())) // a full row: the caret sits one past the last cell, still inside the box
 	m.input.CursorEnd()
 	m.layout()

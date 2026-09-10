@@ -1,6 +1,7 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from '../runtime';
-import { selectedSessionTab, sessionSearch, validateSessionSearch, type SessionSearch } from '../session-tabs';
+import { selectedSessionTab, validateSessionSearch, type SessionSearch } from '../session-tabs';
+import { draftDestination, tabDestination } from '../session-tab-routing';
 
 export const settingsCategories = [
   { id: 'general', label: 'General', description: 'Keyboard shortcuts and attention on this device.' },
@@ -76,25 +77,24 @@ export function parseSettingsReturn(value: unknown): SettingsReturn | undefined 
 export function settingsBackDestination(runtime: AppRuntime) {
   const saved = runtime.settingsReturn;
   const workspace = runtime.tabs.workspace();
-  const exact = saved?.rootId ? workspace.tabs.find(tab => tab.id === saved.viewId && tab.runtimeId === saved.runtimeId && tab.rootId === saved.rootId) : undefined;
-  const tab = exact ?? (saved && !saved.rootId ? undefined : selectedSessionTab(workspace));
-  return tab ? {
-    to: '/h/$runtimeId/s/$rootId' as const,
-    params: { runtimeId: tab.runtimeId, rootId: tab.rootId },
-    search: exact ? saved!.search : sessionSearch(tab), state: { whipViewId: tab.id }, replace: true,
-  } : { to: '/' as const, search: {}, replace: true };
+  const exact = saved?.viewId ? workspace.tabs.find(tab => tab.id === saved.viewId && (!saved.rootId || (tab.kind !== 'new' && tab.runtimeId === saved.runtimeId && tab.rootId === saved.rootId))) : undefined;
+  const tab = exact ?? (saved && !saved.rootId && !saved.viewId ? undefined : selectedSessionTab(workspace));
+  if (!tab) return { to: '/' as const, search: {}, replace: true };
+  const destination = tabDestination(tab);
+  return { ...destination, ...(exact && exact.kind !== 'new' && saved?.rootId ? { search: saved.search } : {}), replace: true };
 }
 export function bindSettingsNavigation(runtime: AppRuntime, router: AnyRouter) {
   return router.subscribe('onBeforeNavigate', ({ fromLocation, toLocation }) => {
     if (fromLocation?.pathname === '/settings' && toLocation.pathname !== '/settings') { runtime.clearSettingsReturn(); return; }
     if (toLocation.pathname !== '/settings' || !fromLocation || fromLocation.pathname === '/settings') return;
     const match = /^\/h\/([^/]+)\/s\/([^/]+)\/?$/.exec(fromLocation.pathname);
-    if (!match && fromLocation.pathname !== '/') return;
+    const draftId = draftDestination(fromLocation.pathname);
+    if (!match && !draftId && fromLocation.pathname !== '/') return;
     try {
       const active = typeof document === 'undefined' ? undefined : document.activeElement;
       runtime.rememberSettingsReturn({
         ...(match ? { runtimeId: decodeURIComponent(match[1]!), rootId: decodeURIComponent(match[2]!) } : {}),
-        viewId: fromLocation.state.whipViewId ?? selectedSessionTab(runtime.tabs.workspace())?.id,
+        viewId: draftId ?? (match ? fromLocation.state.whipViewId ?? selectedSessionTab(runtime.tabs.workspace())?.id : undefined),
         search: fromLocation.search, focusId: active?.id || undefined,
       });
     } catch (error) { runtime.report(error); }

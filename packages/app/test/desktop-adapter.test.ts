@@ -77,6 +77,28 @@ it('forwards local runtime actions separately without starting or installing dur
   expect(f.bridge.testLocalRuntime).toHaveBeenCalledOnce();
 });
 
+it('exposes one-action native installation only when the bridge supports it', async () => {
+  const f = fixture();
+  expect(createDesktopPlatform(f.api, vi.fn()).localRuntime?.installDefault).toBeUndefined();
+  const installDefaultLocalRuntime = vi.fn(async () => ({ state: 'stopped' as const, home: '/home/.whipcode', message: 'Installed.', canInstall: false }));
+  const platform = createDesktopPlatform({ ...f.api, installDefaultLocalRuntime }, vi.fn());
+  expect((await platform.localRuntime!.installDefault!()).state).toBe('stopped');
+  expect(installDefaultLocalRuntime).toHaveBeenCalledExactlyOnceWith();
+  expect(f.bridge.prepareConnection).not.toHaveBeenCalled();
+  platform.dispose?.();
+  await expect(platform.localRuntime!.installDefault!()).rejects.toThrow('closed');
+});
+
+it('shows actionable native failures without Electron IPC wrapper text', async () => {
+  const f = fixture(); const platform = createDesktopPlatform(f.api, vi.fn());
+  f.bridge.prepareConnection.mockRejectedValueOnce(new Error("Error invoking remote method 'whip:prepareConnection': Error: Set up this Mac to continue."));
+  await expect(platform.resolveConnection!(localProfile, { signal: new AbortController().signal, onProgress() {} })).rejects.toThrow(/^Set up this Mac to continue\.$/);
+  f.bridge.installLocalRuntime.mockRejectedValueOnce(new Error("Error invoking remote method 'whip:installLocalRuntime': Error: Choose a writable location."));
+  await expect(platform.localRuntime!.install()).rejects.toThrow(/^Choose a writable location\.$/);
+  expect(f.bridge.releaseConnection).toHaveBeenCalledOnce();
+  platform.dispose?.();
+});
+
 it('preserves frame order, bounded backpressure and listener lifetime across the bridge', async () => {
   const f = fixture();
   const handlers = { message: vi.fn(), close: vi.fn() };

@@ -40,6 +40,33 @@ test('registered operations and events all reference generated contracts', () =>
   assert.equal(new Set(manifest.operations.map(operation => operation.surface + ':' + operation.name)).size, manifest.operations.length);
 });
 
+test('custom provider mutations are sensitive host RPCs with strict nested request contracts', () => {
+  for (const name of ['provider.create', 'provider.update']) {
+    const operation = manifest.operations.find(operation => operation.name === name);
+    assert.equal(operation.surface, 'rpc');
+    assert.equal(operation.execution, 'ephemeral');
+    assert.equal(operation.permission, 'configuration-revision');
+    assert.equal(operation.sensitive, true);
+  }
+  assert.equal(manifest.operations.find(operation => operation.name === 'provider.get').execution, 'query');
+  assert.equal(manifest.operations.find(operation => operation.name === 'provider.remove').execution, 'ephemeral');
+  const create = {
+    revision: 'revision', provider: 'local',
+    definition: { name: 'Local', base_url: 'http://localhost:8080/v1', api: 'openai-completions' },
+    credential: { mode: 'environment', environment_variable: 'LOCAL_API_KEY' },
+    manual_model: { alias: 'local/model', id: 'model', context: 8192, max_output: 1024 },
+    allow_unverified: true,
+  };
+  assertValid('ProviderCreateParams', create);
+  assertValid('ProviderCreateParams', { ...create, credential: { mode: 'none' } });
+  assertValid('ProviderUpdateParams', { revision: 'revision', provider: 'local', credential: { mode: 'keep' } });
+  assert.equal(validate('ProviderCreateParams', { ...create, definition: { ...create.definition, api_key: 'secret' } }), false);
+  assert.equal(validate('ProviderCreateParams', { ...create, credential: { mode: 'api_key', key: 123 } }), false);
+  assert.equal(validate('ProviderCreateParams', { ...create, manual_model: { ...create.manual_model, max_output: '1024' } }), false);
+  assert.equal(validate('ProviderCreateParams', { ...create, revision: 7 }), false);
+  assert.equal(validate('ProviderRemoveParams', { provider: 'local' }), false);
+});
+
 test('responses accept additive fields without weakening known fields or changing input', () => {
   const value = { event: { root_id: 'root', seq: '9007199254740993', kind: 'new.event', payload: { future: true }, future: 1 }, future: true };
   const original = structuredClone(value);
@@ -49,6 +76,17 @@ test('responses accept additive fields without weakening known fields or changin
   assert.equal(validate('EventNotification', { ...value, event: { ...value.event, seq: 42 } }, 'response'), false);
   assert.equal(validate('EventNotification', { ...value, event: { ...value.event, root_id: null } }, 'response'), false);
   assert.throws(() => validate('EventNotification', value, 'unexpected'), /Unknown WHIP validation mode/);
+});
+
+test('provider picker metadata is optional and retains typed preset presentation', () => {
+  const provider = { id: 'openai', name: 'OpenAI', custom: false, methods: ['api_key'], status: { provider: 'openai', configured: true, key_source: 'opencode', available: true, warnings: [] } };
+  const inventory = { revision: '1', default_provider: '', providers: [provider] };
+  assertValid('ProviderList', inventory);
+  const described = { ...provider, category: 'popular', family: 'openai', key_url: 'https://platform.openai.com/api-keys' };
+  assertValid('ProviderList', { ...inventory, providers: [described] });
+  for (const field of ['category', 'family', 'key_url']) {
+    assert.equal(validate('ProviderList', { ...inventory, providers: [{ ...described, [field]: 42 }] }, 'response'), false);
+  }
 });
 
 test('decimal string counters preserve signed int64 boundaries in both modes', () => {

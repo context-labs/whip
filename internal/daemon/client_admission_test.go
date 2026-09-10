@@ -92,7 +92,7 @@ func TestReplacementPreparationClosesPartialFactoryResult(t *testing.T) {
 	root := &Session{store: store}
 	_, err := root.prepareReplacement(t.Context(), func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: runner, Runtime: runtime}, context.Canceled
-	}, rootID, "replacement", "provider")
+	}, rootID, "replacement", "provider", "")
 	if err == nil || !runner.closed.Load() || !runtime.closed.Load() {
 		t.Fatalf("error=%v runner closed=%t runtime closed=%t", err, runner.closed.Load(), runtime.closed.Load())
 	}

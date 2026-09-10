@@ -3,7 +3,7 @@ import type { AppStorage } from './platform';
 
 export interface SessionLocation { agent?: string; panel?: InspectorSection }
 export interface SessionSearch extends SessionLocation { view?: 'repl' }
-export interface SessionTab {
+export interface SessionBackedTab {
   readonly id: string;
   readonly kind: 'chat' | 'repl';
   readonly runtimeId: string;
@@ -11,6 +11,17 @@ export interface SessionTab {
   readonly titleHint: string;
   readonly location: Readonly<SessionLocation>;
 }
+export type PermissionMode = 'prompt' | 'automatic';
+export interface NewChatTab {
+  readonly id: string;
+  readonly kind: 'new';
+  readonly hostProfileId?: string;
+  readonly runtimeId?: string;
+  readonly cwd: string;
+  readonly permissionMode: PermissionMode;
+}
+export type SessionTab = SessionBackedTab | NewChatTab;
+export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode'>>;
 export interface SessionPane {
   readonly type: 'pane';
   readonly id: string;
@@ -55,8 +66,8 @@ export function validateSessionSearch(search: Record<string, unknown>): SessionS
   return { ...location(search), ...(search.view === 'repl' ? { view: 'repl' } : {}) };
 }
 /** Mode has one persisted owner; route search is derived from the descriptor. */
-export function sessionSearch(tab?: Pick<SessionTab, 'kind' | 'location'>): SessionSearch {
-  return { ...tab?.location, ...(tab?.kind === 'repl' ? { view: 'repl' } : {}) };
+export function sessionSearch(tab?: { kind: SessionTab['kind']; location?: Readonly<SessionLocation> }): SessionSearch {
+  return { ...(tab?.kind !== 'new' ? tab?.location : {}), ...(tab?.kind === 'repl' ? { view: 'repl' } : {}) };
 }
 const newId = () => crypto.randomUUID();
 export function sessionPanes(node: SessionLayout): readonly SessionPane[] {
@@ -84,7 +95,7 @@ function replaceNode(node: SessionLayout, id: string, update: (node: SessionLayo
 }
 function freezeNode(node: SessionLayout): SessionLayout {
   if (node.type === 'split') return Object.freeze({ ...node, first: freezeNode(node.first), second: freezeNode(node.second) });
-  const tabs = Object.freeze(node.tabs.map(tab => Object.freeze({ ...tab, location: location(tab.location) })));
+  const tabs = Object.freeze(node.tabs.map(tab => Object.freeze(tab.kind === 'new' ? { ...tab } : { ...tab, location: location(tab.location) })));
   return Object.freeze({ ...node, tabs, selected: tabs.some(tab => tab.id === node.selected) ? node.selected : tabs[0]?.id });
 }
 function emptyWorkspace(): TabWorkspace {
@@ -94,7 +105,7 @@ function freeze(workspace: Omit<TabWorkspace, 'tabs'>): TabWorkspace {
   const layout = freezeNode(workspace.layout);
   const panes = sessionPanes(layout);
   return Object.freeze({ ...workspace, layout, focusedPaneId: panes.some(p => p.id === workspace.focusedPaneId) ? workspace.focusedPaneId : panes[0]!.id,
-    tabs: Object.freeze(panes.flatMap(p => p.tabs)), closed: Object.freeze(workspace.closed.map(item => Object.freeze({ ...item, tab: Object.freeze({ ...item.tab, location: location(item.tab.location) }) }))) });
+    tabs: Object.freeze(panes.flatMap(p => p.tabs)), closed: Object.freeze(workspace.closed.map(item => Object.freeze({ ...item, tab: Object.freeze(item.tab.kind === 'new' ? { ...item.tab } : { ...item.tab, location: location(item.tab.location) }) }))) });
 }
 function removeViews(workspace: TabWorkspace, viewIds: readonly string[], remember: boolean): TabWorkspace {
   const removed = sessionPanes(workspace.layout).flatMap(p => p.tabs.flatMap((tab, index) => viewIds.includes(tab.id) ? [{ tab, index, paneId: p.id }] : []));
@@ -111,12 +122,21 @@ function removeViews(workspace: TabWorkspace, viewIds: readonly string[], rememb
   return freeze({ ...next, restoreSelection: workspace.restoreSelection && !!selectedSessionTab(next) });
 }
 function purgeRoot(workspace: TabWorkspace, runtimeId: string, rootId: string): TabWorkspace {
-  const matches = (tab: SessionTab) => tab.runtimeId === runtimeId && tab.rootId === rootId;
+  const matches = (tab: SessionTab): tab is SessionBackedTab => tab.kind !== 'new' && tab.runtimeId === runtimeId && tab.rootId === rootId;
   const next = removeViews(workspace, workspace.tabs.filter(matches).map(tab => tab.id), false);
   const closed = next.closed.filter(item => !matches(item.tab));
   return closed.length === next.closed.length ? next : freeze({ ...next, closed });
 }
 function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTab | undefined {
+  if (object(value) && value.kind === 'new' && !legacy) {
+    if (!identity(value.id) || typeof value.cwd !== 'string' || value.cwd.length > 4096 || /[\0\r\n]/.test(value.cwd) ||
+      (value.hostProfileId !== undefined && !identity(value.hostProfileId)) ||
+      (value.runtimeId !== undefined && !identity(value.runtimeId)) ||
+      (value.permissionMode !== 'prompt' && value.permissionMode !== 'automatic')) return;
+    return { id: value.id, kind: 'new', cwd: value.cwd, permissionMode: value.permissionMode,
+      ...(value.hostProfileId === undefined ? {} : { hostProfileId: value.hostProfileId as string }),
+      ...(value.runtimeId === undefined ? {} : { runtimeId: value.runtimeId as string }) };
+  }
   if (!object(value) || !identity(value.rootId) || (!legacy && !identity(value.id))) return;
   const kind = legacy && value.kind === undefined ? 'chat' : value.kind;
   if (kind !== 'chat' && kind !== 'repl') return;
@@ -241,14 +261,24 @@ export class SessionTabs {
     try { this.storage?.setItem(TAB_STORAGE_KEY, serialize(this.snapshot.workspace, this.migrated)); }
     catch { this.onNotice('Session tabs are kept in memory because window storage is unavailable.'); }
   }
-  private write(workspace: Omit<TabWorkspace, 'tabs'>, previous = this.snapshot.previous, migrated = this.migrated) {
+  private write(workspace: Omit<TabWorkspace, 'tabs'>, previous = this.snapshot.previous, migrated = this.migrated, durable = false) {
     let next = freeze(workspace);
-    if (bytes(serialize(next, migrated)) > MAX_BYTES) next = freeze({ ...next, closed: [] });
+    if (!durable && bytes(serialize(next, migrated)) > MAX_BYTES) next = freeze({ ...next, closed: [] });
     if (bytes(serialize(next, migrated)) > MAX_BYTES) throw new Error('This window’s tab layout is full. Close an open tab before adding another.');
+    if (durable && this.storage) {
+      // Production window storage can silently fall back to memory during a write.
+      // A store without storage remains useful for isolated in-memory consumers.
+      const requirePersistent = () => {
+        if (this.storage?.persistent === false) throw new Error('New Chat could not be saved. Window storage is unavailable.');
+      };
+      requirePersistent();
+      this.storage.setItem(TAB_STORAGE_KEY, serialize(next, migrated));
+      requirePersistent();
+    }
     if (JSON.stringify(this.workspace()) === JSON.stringify(next) && previous === this.snapshot.previous) return;
     this.migrated = migrated;
     this.snapshot = Object.freeze({ version: 3, workspace: next, previous: Object.freeze(previous) });
-    this.persist();
+    if (!durable) this.persist();
     for (const listener of this.listeners) listener();
   }
   restorePrevious(runtimeId: string) {
@@ -282,14 +312,69 @@ export class SessionTabs {
     if (!this.snapshot.previous.some(item => item.runtimeId === runtimeId)) return;
     this.write(this.workspace(), this.snapshot.previous.filter(item => item.runtimeId !== runtimeId), [...this.migrated, runtimeId]);
   }
+  /** Materialize a retained recovery identity without selecting it or reopening closed work. */
+  ensureNew(id: string, options: NewChatOptions = {}): SessionTab {
+    const workspace = this.workspace();
+    const existing = workspace.tabs.find(tab => tab.id === id) ?? workspace.closed.find(item => item.tab.id === id)?.tab;
+    if (existing) return existing;
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab = parseTab({ ...options, id, kind: 'new', cwd: options.cwd ?? '', permissionMode: options.permissionMode ?? 'prompt' });
+    if (!tab || tab.kind !== 'new') throw new Error('Invalid New Chat options');
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => pane.id === workspace.focusedPaneId
+      ? { ...pane, tabs: [...pane.tabs, tab] } : pane) }, undefined, undefined, true);
+    return Object.freeze(tab);
+  }
+  openNew(options: NewChatOptions = {}): NewChatTab {
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab = parseTab({ ...options, id: newId(), kind: 'new', cwd: options.cwd ?? '', permissionMode: options.permissionMode ?? 'prompt' });
+    if (!tab || tab.kind !== 'new') throw new Error('Invalid New Chat options');
+    const workspace = this.workspace();
+    this.write({ ...workspace, restoreSelection: true, layout: mapPanes(workspace.layout, pane => {
+      if (pane.id !== workspace.focusedPaneId) return pane;
+      const tabs = [...pane.tabs];
+      tabs.splice(pane.tabs.findIndex(item => item.id === pane.selected) + 1, 0, tab);
+      return { ...pane, tabs, selected: tab.id };
+    }) }, undefined, undefined, true);
+    return Object.freeze(tab);
+  }
+  updateNew(id: string, patch: NewChatOptions): boolean {
+    const workspace = this.workspace();
+    const current = workspace.tabs.find(tab => tab.id === id) ?? workspace.closed.find(item => item.tab.id === id)?.tab;
+    if (!current || current.kind !== 'new') return false;
+    const tab = parseTab({ ...current, ...patch, id, kind: 'new' });
+    if (!tab || tab.kind !== 'new') throw new Error('Invalid New Chat options');
+    this.replaceNew(id, tab);
+    return true;
+  }
+  /** Acceptance replaces even a closed descriptor, without selecting or reopening it. */
+  promoteNew(id: string, runtimeId: string, rootId: string): boolean {
+    if (!identity(runtimeId) || !identity(rootId)) throw new Error('Invalid session identity');
+    const workspace = this.workspace();
+    const current = workspace.tabs.find(tab => tab.id === id) ?? workspace.closed.find(item => item.tab.id === id)?.tab;
+    if (!current) return false;
+    if (current.kind !== 'new') {
+      if (current.runtimeId !== runtimeId || current.rootId !== rootId) return false;
+      this.write(workspace, undefined, undefined, true);
+      return true;
+    }
+    this.replaceNew(id, { id, kind: 'chat', runtimeId, rootId, titleHint: '', location: location({}) });
+    return true;
+  }
+  private replaceNew(id: string, tab: SessionTab) {
+    const workspace = this.workspace();
+    this.write({ ...workspace,
+      layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(item => item.id === id ? tab : item) })),
+      closed: workspace.closed.map(item => item.tab.id === id ? { ...item, tab } : item),
+    }, undefined, undefined, true);
+  }
   canOpen(runtimeId?: string, rootId?: string) {
     const workspace = this.workspace();
-    return workspace.tabs.length < MAX_SESSION_TABS || workspace.tabs.some(item => item.runtimeId === runtimeId && item.rootId === rootId);
+    return workspace.tabs.length < MAX_SESSION_TABS || workspace.tabs.some(item => item.kind !== 'new' && item.runtimeId === runtimeId && item.rootId === rootId);
   }
-  preferred(runtimeId: string, rootId: string): SessionTab | undefined {
+  preferred(runtimeId: string, rootId: string): SessionBackedTab | undefined {
     const workspace = this.workspace();
     const selected = selectedSessionTab(workspace);
-    const matches = (tab: SessionTab) => tab.runtimeId === runtimeId && tab.rootId === rootId;
+    const matches = (tab: SessionTab): tab is SessionBackedTab => tab.kind !== 'new' && tab.runtimeId === runtimeId && tab.rootId === rootId;
     return (selected && matches(selected) ? selected : undefined) ?? sessionPanes(workspace.layout).find(p => p.id === workspace.focusedPaneId)?.tabs.find(matches) ?? workspace.tabs.find(matches);
   }
   open(runtimeId: string, rootId: string, titleHint = '', paneId?: string): string {
@@ -304,20 +389,20 @@ export class SessionTabs {
     const workspace = this.workspace();
     const target = sessionPanes(workspace.layout).find(p => p.id === (paneId ?? workspace.focusedPaneId)) ?? sessionPanes(workspace.layout)[0]!;
     // Reopened roots may share an old primary ID with a different view in history.
-    if (workspace.tabs.some(t => t.id === tab.id) || workspace.closed.some(({ tab: old }) => old.id === tab.id && (old.runtimeId !== tab.runtimeId || old.rootId !== tab.rootId))) tab = { ...tab, id: newId() };
+    if (workspace.tabs.some(t => t.id === tab.id) || workspace.closed.some(({ tab: old }) => old.id === tab.id && (old.kind === 'new' || tab.kind === 'new' || old.runtimeId !== tab.runtimeId || old.rootId !== tab.rootId))) tab = { ...tab, id: newId() };
     this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === target.id ? { ...p, tabs: [...p.tabs, tab] } : p), closed: workspace.closed.filter(item => item.tab.id !== tab.id) });
     return tab.id;
   }
   visit(runtimeId: string, rootId: string, search: SessionSearch, viewId?: string) {
-    const id = this.workspace().tabs.find(t => t.id === viewId && t.runtimeId === runtimeId && t.rootId === rootId)?.id ?? this.open(runtimeId, rootId);
+    const id = this.workspace().tabs.find(t => t.kind !== 'new' && t.id === viewId && t.runtimeId === runtimeId && t.rootId === rootId)?.id ?? this.open(runtimeId, rootId);
     const workspace = this.workspace();
     const pane = sessionViewPane(workspace, id)!;
-    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => t.id === id ? { ...t, kind: search.view === 'repl' ? 'repl' : 'chat', location: location(search) } : t) } : p) });
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => t.kind !== 'new' && t.id === id ? { ...t, kind: search.view === 'repl' ? 'repl' : 'chat', location: location(search) } : t) } : p) });
     return id;
   }
   updateLocation(viewId: string, search: SessionLocation) {
     const workspace = this.workspace();
-    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => t.id === viewId ? { ...t, location: location(search) } : t) })) });
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => t.kind !== 'new' && t.id === viewId ? { ...t, location: location(search) } : t) })) });
   }
   activate(viewId: string, focus = true) {
     const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId);
@@ -332,7 +417,7 @@ export class SessionTabs {
   }
   titles(runtimeId: string, titles: ReadonlyMap<string, string>) {
     const workspace = this.workspace();
-    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => t.runtimeId === runtimeId && titles.has(t.rootId) ? { ...t, titleHint: title(titles.get(t.rootId)) } : t) })) });
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => ({ ...p, tabs: p.tabs.map(t => t.kind !== 'new' && t.runtimeId === runtimeId && titles.has(t.rootId) ? { ...t, titleHint: title(titles.get(t.rootId)) } : t) })) });
   }
   closeViews(viewIds: readonly string[], activeViewId?: string): string | null | undefined {
     const workspace = this.workspace();
@@ -362,17 +447,18 @@ export class SessionTabs {
   }
   close(runtimeId: string, rootIds: readonly string[], activeRootId?: string): string | null | undefined {
     const workspace = this.workspace();
-    const active = workspace.tabs.find(t => t.runtimeId === runtimeId && t.rootId === activeRootId);
-    const next = this.closeViews(workspace.tabs.filter(t => t.runtimeId === runtimeId && rootIds.includes(t.rootId)).map(t => t.id), active?.id);
-    return typeof next === 'string' ? this.workspace().tabs.find(t => t.id === next)?.rootId : next;
+    const active = workspace.tabs.find(t => t.kind !== 'new' && t.runtimeId === runtimeId && t.rootId === activeRootId);
+    const next = this.closeViews(workspace.tabs.filter(t => t.kind !== 'new' && t.runtimeId === runtimeId && rootIds.includes(t.rootId)).map(t => t.id), active?.id);
+    const tab = this.workspace().tabs.find(t => t.id === next);
+    return typeof next === 'string' ? (tab?.kind !== 'new' ? tab?.rootId : null) : next;
   }
-  reopenView(): string | undefined {
-    const workspace = this.workspace(), closed = workspace.closed.at(-1);
+  reopenView(viewId?: string): string | undefined {
+    const workspace = this.workspace(), closed = viewId === undefined ? workspace.closed.at(-1) : workspace.closed.find(item => item.tab.id === viewId);
     if (!closed) return;
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before reopening another.');
     const pane = sessionPanes(workspace.layout).find(p => p.id === closed.paneId) ?? sessionPanes(workspace.layout).find(p => p.id === workspace.focusedPaneId)!;
     const tabs = [...pane.tabs]; tabs.splice(Math.min(closed.index, tabs.length), 0, closed.tab);
-    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs } : p), closed: workspace.closed.slice(0, -1) });
+    this.write({ ...workspace, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs } : p), closed: workspace.closed.filter(item => item !== closed) });
     return closed.tab.id;
   }
   reorderPane(paneId: string, order: readonly string[]) {
@@ -391,6 +477,7 @@ export class SessionTabs {
   split(viewId: string, edge: SplitEdge): string {
     const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId), source = workspace.tabs.find(t => t.id === viewId);
     if (!pane || !source) throw new Error('This view is no longer open');
+    if (source.kind === 'new') { this.transfer(viewId, pane.id, edge); return source.id; }
     if (sessionPanes(workspace.layout).length >= MAX_SESSION_PANES) throw new Error('There are four panes. Move a tab to an existing pane or close a pane first.');
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before splitting this view.');
     const duplicate = { ...source, id: newId() };

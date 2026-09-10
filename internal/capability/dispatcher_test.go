@@ -415,8 +415,8 @@ func TestDispatcherRemainingValidationPaths(t *testing.T) {
 	d = NewDispatcher(immediateLedger{root: root}, NewWorkspaces(), nil)
 	register(t, d, Registration{Operation: "read", Handler: func(context.Context, Call) (string, error) { return "", nil }})
 	request.WorkingDirectory = filepath.Dir(root)
-	if _, err := d.Dispatch(t.Context(), request); err == nil {
-		t.Fatal("Dispatch accepted a working directory outside the workspace")
+	if _, err := d.Dispatch(t.Context(), request); err != nil {
+		t.Fatalf("path resolution must leave authority to the ledger: %v", err)
 	}
 
 	d = NewDispatcher(immediateLedger{root: root}, NewWorkspaces(), nil)

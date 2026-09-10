@@ -63,11 +63,11 @@ func acpCLI(args []string) error {
 			return err
 		}
 	} else {
-		key, err := provider.ResolveKey()
+		key, err := provider.ResolveKey(cfg)
 		if err != nil {
 			return err
 		}
-		if key == "" {
+		if key == "" && provider.Auth != "none" {
 			return fmt.Errorf(buildinfo.Text("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whip/config.json)"), providerName)
 		}
 	}

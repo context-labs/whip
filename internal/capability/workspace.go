@@ -19,7 +19,7 @@ type Workspaces struct {
 	path map[string]*pathLock
 }
 
-// Workspace canonicalizes paths beneath one root using shared daemon locks.
+// Workspace resolves relative paths from one root using shared daemon locks.
 type Workspace struct {
 	root  string
 	owner *Workspaces
@@ -56,8 +56,29 @@ func (w *Workspaces) Open(root string) (*Workspace, error) {
 
 func (w *Workspace) Root() string { return w.root }
 
-// Resolve canonicalizes every existing ancestor while allowing missing leaves.
+// Resolve canonicalizes a path and confines it to the workspace root.
 func (w *Workspace) Resolve(path string) (string, error) {
+	canonical, err := w.Canonicalize(path)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(w.root, canonical)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(w.root, path)
+		}
+		return "", fmt.Errorf("path %q is outside workspace %q", path, w.root)
+	}
+	return canonical, nil
+}
+
+// Canonicalize resolves relative paths from the workspace root and canonicalizes
+// every existing ancestor while allowing missing leaves. It does not authorize
+// access: callers must check the resulting path against the effective grant scope.
+func (w *Workspace) Canonicalize(path string) (string, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(w.root, path)
 	}
@@ -74,18 +95,19 @@ func (w *Workspace) Resolve(path string) (string, error) {
 			for _, m := range slices.Backward(missing) {
 				canonical = filepath.Join(canonical, m)
 			}
-			canonical = filepath.Clean(canonical)
-			rel, relErr := filepath.Rel(w.root, canonical)
-			if relErr != nil {
-				return "", relErr
-			}
-			if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				return "", fmt.Errorf("path %q is outside workspace %q", path, w.root)
-			}
-			return canonical, nil
+			return filepath.Clean(canonical), nil
 		}
 		if !errors.Is(evalErr, os.ErrNotExist) {
 			return "", fmt.Errorf("canonicalize workspace path: %w", evalErr)
+		}
+		info, statErr := os.Lstat(current)
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return "", fmt.Errorf("inspect workspace path: %w", statErr)
+		}
+		// A dangling symlink is an existing component with an unresolved target,
+		// not a missing leaf that can safely be appended to its parent.
+		if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("canonicalize workspace path: unresolved symlink %q: %w", current, evalErr)
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -96,13 +118,27 @@ func (w *Workspace) Resolve(path string) (string, error) {
 	}
 }
 
-// LockPath admits a path mutation alongside mutations to other canonical paths.
+// LockPath confines the path to the workspace and serializes its mutations.
 func (w *Workspace) LockPath(ctx context.Context, path string) (string, func(), error) {
 	canonical, err := w.Resolve(path)
 	if err != nil {
 		return "", nil, err
 	}
+	return w.lockCanonicalPath(ctx, canonical)
+}
 
+// LockCanonicalPath canonicalizes a path and serializes mutations to it across
+// daemon workspaces. Locking does not authorize access; callers must validate the
+// returned canonical path against the operation's admission before mutating it.
+func (w *Workspace) LockCanonicalPath(ctx context.Context, path string) (string, func(), error) {
+	canonical, err := w.Canonicalize(path)
+	if err != nil {
+		return "", nil, err
+	}
+	return w.lockCanonicalPath(ctx, canonical)
+}
+
+func (w *Workspace) lockCanonicalPath(ctx context.Context, canonical string) (string, func(), error) {
 	w.owner.mu.Lock()
 	lock := w.owner.path[canonical]
 	if lock == nil {
@@ -128,6 +164,13 @@ func (w *Workspace) LockPath(ctx context.Context, path string) (string, func(), 
 		<-lock.token
 		w.releasePath(canonical, lock)
 	})
+	// A queued mutation may have waited while a target or ancestor became a
+	// symlink. The lock and admission must still refer to the same real path.
+	current, err := w.Canonicalize(canonical)
+	if err != nil || current != canonical {
+		release()
+		return "", nil, errors.Join(ErrStaleAdmission, err)
+	}
 	return canonical, release, nil
 }
 

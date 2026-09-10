@@ -16,12 +16,15 @@ import (
 )
 
 type storedCapabilityScopes struct {
-	Paths               []string                 `json:"paths,omitempty"`
-	ExpiresAt           string                   `json:"expires_at,omitempty"`
-	MCP                 []capability.MCPSelector `json:"mcp,omitempty"`
-	MCPAll              bool                     `json:"mcp_all,omitempty"`
-	MCPIssuerID         string                   `json:"mcp_issuer_id,omitempty"`
-	MCPIssuerGeneration int64                    `json:"mcp_issuer_generation,omitempty"`
+	Paths                []string                 `json:"paths,omitempty"`
+	FileScope            string                   `json:"file_scope,omitempty"`
+	FileIssuerID         string                   `json:"file_issuer_id,omitempty"`
+	FileIssuerGeneration int64                    `json:"file_issuer_generation,omitempty"`
+	ExpiresAt            string                   `json:"expires_at,omitempty"`
+	MCP                  []capability.MCPSelector `json:"mcp,omitempty"`
+	MCPAll               bool                     `json:"mcp_all,omitempty"`
+	MCPIssuerID          string                   `json:"mcp_issuer_id,omitempty"`
+	MCPIssuerGeneration  int64                    `json:"mcp_issuer_generation,omitempty"`
 }
 
 func (s *Store) Workspaces() *capability.Workspaces { return s.workspaces }
@@ -137,14 +140,19 @@ func (s *Store) AuthorizeCapability(ctx context.Context, rootID, agentID string,
 	if !slices.Contains(grant.operations, operation) {
 		return capability.ErrDenied
 	}
-	if canonicalPath != "" && !scopeContains(grant.scopes.Paths, canonicalPath) {
-		return capability.ErrDenied
+	if canonicalPath != "" {
+		return authorizeFilePathTx(ctx, tx, rootID, agentID, reference, canonicalPath)
+	}
+	if operation == "read" || operation == "write" || operation == "edit" || operation == "workspace.write" {
+		_, err := loadFileAccessTx(ctx, tx, rootID, agentID, reference)
+		return err
 	}
 	return nil
 }
 
-// CapabilityPaths returns the persisted workspace boundaries of an active
-// capability. Unlike the session cwd, these survive navigation and reload.
+// CapabilityPaths returns persisted project paths, not effective filesystem
+// authority. The root's baseline stays bounded even in Full Access and survives
+// navigation and reload; prompt discovery must never use unrestricted authority.
 func (s *Store) CapabilityPaths(ctx context.Context, rootID, agentID string, reference capability.Reference) ([]string, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -278,7 +286,7 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 		return capability.Authority{}, err
 	}
 	fileOperations, _ := json.Marshal([]string{"read", "write", "edit", "workspace.write"})
-	fileScopes, _ := json.Marshal(storedCapabilityScopes{Paths: []string{workspace.Root()}})
+	fileScopes, _ := json.Marshal(storedCapabilityScopes{Paths: []string{workspace.Root()}, FileScope: "session"})
 	shellOperations, _ := json.Marshal([]string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process"})
 	shellScopes, _ := json.Marshal(storedCapabilityScopes{})
 	mcpOperations, _ := json.Marshal([]string{"mcp.call"})
@@ -316,6 +324,10 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 		{authority.Shell.ID, shellOperations, shellScopes},
 		{authority.MCP.ID, mcpOperations, mcpScopes},
 	} {
+		if existingRoot {
+			// Lost authority is not permission to issue a new unrestricted grant.
+			continue
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO capabilities(id,root_id,agent_id,operations,scopes,generation,status,created_at,updated_at)
 			VALUES(?,?,?,?,?,1,'active',?,?) ON CONFLICT(id) DO NOTHING`, grant.id, rootID, authority.AgentID, grant.operations, grant.scopes, stamp, stamp); err != nil {
 			return capability.Authority{}, err
@@ -381,7 +393,7 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 	}
 	scopes := storedCapabilityScopes{MCP: grant.MCP, MCPAll: grant.MCPAll}
 	for _, scope := range grant.Scopes {
-		canonical, err := workspace.Resolve(scope)
+		canonical, err := workspace.Canonicalize(scope)
 		if err != nil {
 			return err
 		}
@@ -403,8 +415,24 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 	if err != nil {
 		return err
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if len(scopes.Paths) != 0 {
+		policy, _, err := sessionFileAccessTx(ctx, tx, grant.RootID)
+		if err != nil {
+			return err
+		}
+		for _, path := range scopes.Paths {
+			if !policy.contains(path) {
+				return capability.ErrDenied
+			}
+		}
+	}
 	stamp := now()
-	result, err := s.db.ExecContext(ctx, `INSERT INTO capabilities(id,root_id,agent_id,issuer_agent_id,operations,scopes,generation,status,created_at,updated_at)
+	result, err := tx.ExecContext(ctx, `INSERT INTO capabilities(id,root_id,agent_id,issuer_agent_id,operations,scopes,generation,status,created_at,updated_at)
 		SELECT ?,?,?,?,?,?,?,'active',?,? WHERE EXISTS(SELECT 1 FROM agents WHERE root_id=? AND id=?)
 		AND (?='' OR EXISTS(SELECT 1 FROM agents WHERE root_id=? AND id=?))`,
 		grant.ID, grant.RootID, grant.AgentID, grant.IssuerAgentID, operationsJSON, scopesJSON, grant.Generation, stamp, stamp,
@@ -418,7 +446,7 @@ func (s *Store) IssueCapability(ctx context.Context, grant capability.Grant) err
 		}
 		return capability.ErrDenied
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (s *Store) RevokeCapability(ctx context.Context, capabilityID string) error {
@@ -750,8 +778,11 @@ func validateCapabilityAdmission(ctx context.Context, tx *sql.Tx, admission capa
 	if !slices.Contains(grant.operations, admission.Request.Operation) {
 		return capability.ErrDenied
 	}
-	if admission.CanonicalPath != "" && !scopeContains(grant.scopes.Paths, admission.CanonicalPath) {
-		return capability.ErrDenied
+	if admission.CanonicalPath != "" {
+		if err := authorizeFilePathTx(ctx, tx, admission.Request.RootID, admission.Request.AgentID,
+			capability.Reference{ID: admission.Request.CapabilityID, Generation: admission.Request.CapabilityGeneration}, admission.CanonicalPath); err != nil {
+			return err
+		}
 	}
 	if admission.Mutation != capability.MutationWorkspace {
 		return nil
@@ -764,7 +795,31 @@ func validateCapabilityAdmission(ctx context.Context, tx *sql.Tx, admission capa
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(writer.operations, "workspace.write") || !slices.Contains(writer.scopes.Paths, admission.CanonicalRoot) {
+	if !slices.Contains(writer.operations, "workspace.write") {
+		return capability.ErrDenied
+	}
+	access, err := loadFileAccessTx(ctx, tx, admission.Request.RootID, admission.Request.AgentID,
+		capability.Reference{ID: admission.Request.WriterCapabilityID, Generation: admission.Request.WriterCapabilityGeneration})
+	if err != nil {
+		return err
+	}
+	policy, roots, err := sessionFileAccessTx(ctx, tx, admission.Request.RootID)
+	if err != nil {
+		return err
+	}
+	if policy.all && !access.all {
+		return capability.ErrDenied
+	}
+	for _, root := range roots {
+		if !access.contains(root) {
+			return capability.ErrDenied
+		}
+	}
+	cwd := admission.Request.WorkingDirectory
+	if cwd == "" {
+		cwd = admission.CanonicalRoot
+	}
+	if !access.contains(cwd) {
 		return capability.ErrDenied
 	}
 	return nil

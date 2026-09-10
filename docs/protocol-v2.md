@@ -378,6 +378,22 @@ metadata so clients can exclude unavailable model routes without deleting aliase
 source/readiness metadata, the resolved default provider and a configuration
 revision, without upstream requests or secret-command execution. `config.update`
 accepts `disabled_providers` under the same revision check as other settings.
+Provider entries optionally include `category`, `family`, and `key_url` for
+known-provider presentation. `key_source: "env_file"` or `"key_file"` identifies
+an explicitly configured named-key file on the execution host. Optional
+`environment_variable` and `credential_path` contain the name/path only; the key
+itself never enters inventory.
+`provider.discover` accepts the same optional `{ model, provider }` selection as
+`provider.list`, rereads host sources, and persists missing provider references.
+It returns inventory and optional `discovery_error`. It preserves overrides,
+disabled IDs, defaults and no-op revisions. It is an ephemeral host operation,
+never a durable session command or an implicit part of inventory polling.
+Setup-open and explicit Refresh use it; older hosts can retain read-only inventory
+behavior when they do not advertise the operation.
+`provider.key.set` can include a transient `discovery` result in its returned
+configuration to distinguish loaded model catalogs from unverified public or
+bundled lists. Ordinary configuration reads omit it; it is not persisted state
+or proof of a successful inference call.
 `provider.disconnect` requires `{ provider, revision }`, removes the selected
 WHIP-owned credential and disables the route. External/environment credentials
 can only be disabled. Legacy `provider.logout` retains account-only behavior.

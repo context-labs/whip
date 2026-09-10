@@ -1,0 +1,69 @@
+{
+  "recordedAt": "2026-09-09T21:51:10.931Z",
+  "purpose": "Isolated staged Electron first-run onboarding; not signed/Finder acceptance or public-provider compatibility validation",
+  "runtimeBuild": "0.1.0",
+  "runtimeDigest": "d4a7eaf7d9b0eb37db34d5a2021eb5a90268cd19d955484fe1f2262728860dd2",
+  "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+  "setupActions": 1,
+  "initialSetupVisibleMs": 963.205125,
+  "setupToProviderChooserMs": 1359.720791,
+  "relaunchToProviderChooserMs": 760.747875,
+  "timingSemantics": "One warm scripted sample, not a human usability measurement. UI waits include rendering and test observation. Authentication and inference use only the local fixture provider; no paid request was performed.",
+  "missingBackendStartsOnlyAfterSetup": true,
+  "verifiedInstalledBytes": true,
+  "noInheritedCredentials": true,
+  "inferenceNetFirstWithOneRecommendation": true,
+  "noDaemonTCP": true,
+  "relaunchAttachedSameDaemon": true,
+  "firstMessage": {
+    "provider": "OpenRouter fixture on loopback; no public provider calls",
+    "model": "fixture-openrouter-model",
+    "alias": "fixture-coding",
+    "connectionAndSendActions": 5,
+    "optionalPermissionActions": 2,
+    "firstStreamMs": 839.7579159999996,
+    "setupToResponseMs": 1298.8066669999998,
+    "draftedBeforeAuthentication": true,
+    "draftPreservedThroughAuthentication": true,
+    "maskedKeySavedOnHost": true,
+    "defaultPairConfirmedInUI": true,
+    "nativeFolderSelected": true,
+    "firstMessageCreatedOneSession": true,
+    "streamedBeforeCompletion": true,
+    "rlmExecRoundTrip": true,
+    "titleAndCompactionUseSelectedModel": true,
+    "auxiliaryOperations": "Title opt-in and manual compaction use existing SDK commands; the first prompt is submitted from the renderer UI.",
+    "reloadPreservesDraft": true,
+    "daemonRestartPreservesSessionDefaultsAndPermission": true,
+    "requests": [
+      {
+        "kind": "models"
+      },
+      {
+        "kind": "first-turn",
+        "model": "fixture-openrouter-model"
+      },
+      {
+        "kind": "tool-result",
+        "model": "fixture-openrouter-model"
+      },
+      {
+        "kind": "title",
+        "model": "fixture-openrouter-model"
+      },
+      {
+        "kind": "compaction",
+        "model": "fixture-openrouter-model"
+      }
+    ]
+  },
+  "rendererErrors": [],
+  "screenshots": [
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/provider-onboarding/evidence/desktop-before-setup.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/provider-onboarding/evidence/desktop-provider-chooser.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/provider-onboarding/evidence/desktop-relaunched.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/provider-onboarding/evidence/desktop-ready-first-message.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/provider-onboarding/evidence/desktop-first-message-streaming.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/provider-onboarding/evidence/desktop-first-message-reloaded.png"
+  ]
+}

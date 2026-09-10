@@ -46,6 +46,8 @@ export interface AppLocalRuntime {
   /** Use a native chooser; selecting an executable does not restart the daemon. */
   choose(): Promise<LocalRuntimeStatus>;
   install(): Promise<LocalRuntimeStatus>;
+  /** Install missing packaged bytes at the native default, without a path chooser. */
+  installDefault?(): Promise<LocalRuntimeStatus>;
   /** Explicitly interrupts the local daemon's work. */
   restart(): Promise<LocalRuntimeStatus>;
 }

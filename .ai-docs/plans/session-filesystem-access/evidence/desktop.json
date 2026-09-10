@@ -1,0 +1,74 @@
+{
+  "recordedAt": "2026-09-09T22:43:52.683Z",
+  "purpose": "Isolated shared renderer in Electron: Full Access sibling-file Starlark, daemon restart, and Ask downgrade",
+  "runtimeBuild": "0.1.0",
+  "runtimeDigest": "c25d501d90462d2dbeae839a5685db7fe41ed4eca7269a01495093b8894ad4a5",
+  "rendererDigest": "c7f3c6d5d680f56ca9a85e0a9e6f4ba573aef142e4014329cd486e2d5fd8d955",
+  "setupActions": 1,
+  "initialSetupVisibleMs": 1822.013875,
+  "setupToProviderChooserMs": 1523.181333,
+  "relaunchToProviderChooserMs": 943.628541,
+  "timingSemantics": "One warm scripted sample, not a human usability measurement. UI waits include rendering and test observation. Authentication and inference use only the local fixture provider; no paid request was performed.",
+  "missingBackendStartsOnlyAfterSetup": true,
+  "verifiedInstalledBytes": true,
+  "noInheritedCredentials": true,
+  "inferenceNetFirstWithOneRecommendation": true,
+  "noDaemonTCP": true,
+  "relaunchAttachedSameDaemon": true,
+  "firstMessage": {
+    "siblingStarlarkWriteFromUI": true,
+    "restartAllowsSiblingReadAndWrite": true,
+    "askSelectedInUIDeniesSiblingRead": true,
+    "scopeDenial": "capability denied: path \"/private/tmp/whip-onboarding-t1JkRJ/sibling/result.txt\" is outside this agent's allowed filesystem scope: capability denied",
+    "provider": "OpenRouter fixture on loopback; no public provider calls",
+    "model": "fixture-openrouter-model",
+    "alias": "fixture-coding",
+    "connectionAndSendActions": 5,
+    "optionalPermissionActions": 2,
+    "firstStreamMs": 345.7790839999998,
+    "setupToResponseMs": 861.3819590000003,
+    "draftedBeforeAuthentication": true,
+    "draftPreservedThroughAuthentication": true,
+    "maskedKeySavedOnHost": true,
+    "defaultPairConfirmedInUI": true,
+    "nativeFolderSelected": true,
+    "firstMessageCreatedOneSession": true,
+    "streamedBeforeCompletion": true,
+    "rlmExecRoundTrip": true,
+    "titleAndCompactionUseSelectedModel": true,
+    "auxiliaryOperations": "Title opt-in and manual compaction use existing SDK commands; the first prompt is submitted from the renderer UI.",
+    "reloadPreservesDraft": true,
+    "daemonRestartPreservesSessionDefaultsAndPermission": true,
+    "requests": [
+      {
+        "kind": "models"
+      },
+      {
+        "kind": "first-turn",
+        "model": "fixture-openrouter-model"
+      },
+      {
+        "kind": "tool-result",
+        "model": "fixture-openrouter-model"
+      },
+      {
+        "kind": "title",
+        "model": "fixture-openrouter-model"
+      },
+      {
+        "kind": "compaction",
+        "model": "fixture-openrouter-model"
+      }
+    ]
+  },
+  "rendererErrors": [],
+  "screenshots": [
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/session-filesystem-access/evidence/desktop-before-setup.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/session-filesystem-access/evidence/desktop-provider-chooser.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/session-filesystem-access/evidence/desktop-relaunched.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/session-filesystem-access/evidence/desktop-ready-first-message.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/session-filesystem-access/evidence/desktop-first-message-streaming.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/session-filesystem-access/evidence/desktop-first-message-reloaded.png",
+    "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/.ai-docs/plans/session-filesystem-access/evidence/desktop-ask-denies-sibling.png"
+  ]
+}

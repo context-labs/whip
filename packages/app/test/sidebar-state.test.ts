@@ -45,7 +45,10 @@ describe('bounded window sidebar preferences', () => {
     for (const [snapshot, json] of snapshots) expect(JSON.stringify(snapshot)).toBe(json);
   });
 });
-it('accepts only paired, bounded directory creation search parameters', () => {
-  expect(newSessionSearch({ cwd: '/repo', runtimeId: 'host', ignored: true })).toEqual({ cwd: '/repo', runtimeId: 'host' });
-  for (const input of [{ cwd: '/repo' }, { cwd: 5, runtimeId: 'host' }, { cwd: '', runtimeId: 'host' }, { cwd: 'x'.repeat(4097), runtimeId: 'host' }]) expect(newSessionSearch(input)).toEqual({});
+it('accepts explicit creation intent and bounded host-only or directory prefill', () => {
+  expect(newSessionSearch({ new: '1', cwd: '/repo', runtimeId: 'host', ignored: true })).toEqual({ new: 1, cwd: '/repo', runtimeId: 'host' });
+  expect(newSessionSearch({ new: 1 })).toEqual({ new: 1 });
+  expect(newSessionSearch({ runtimeId: 'host' })).toEqual({ runtimeId: 'host' });
+  for (const cwd of [5, '', 'x'.repeat(4097), '/bad\npath']) expect(newSessionSearch({ cwd, runtimeId: 'host' })).toEqual({ runtimeId: 'host' });
+  for (const input of [{ cwd: '/repo' }, { new: 2 }, { runtimeId: 'x'.repeat(257) }, { runtimeId: 'bad\nhost' }]) expect(newSessionSearch(input)).toEqual({});
 });

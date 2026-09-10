@@ -4,6 +4,9 @@
     "revision": {
       "type": "string"
     },
+    "discovery_error": {
+      "type": "string"
+    },
     "default_provider": {
       "type": "string"
     },
@@ -57,6 +60,9 @@
               "environment_variable": {
                 "type": "string"
               },
+              "credential_path": {
+                "type": "string"
+              },
               "auth_method": {
                 "type": "string"
               },
@@ -98,6 +104,21 @@
               "warnings"
             ],
             "additionalProperties": false
+          },
+          "recommended": {
+            "type": "boolean"
+          },
+          "suggested_model": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "family": {
+            "type": "string"
+          },
+          "key_url": {
+            "type": "string"
           }
         },
         "required": [
@@ -109,6 +130,33 @@
         ],
         "additionalProperties": false
       }
+    },
+    "selection": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "ready": {
+          "type": "boolean"
+        },
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ready",
+        "model",
+        "provider",
+        "reason"
+      ],
+      "additionalProperties": false
     }
   },
   "$id": "https://whip.dev/protocol/v5/ProviderList",

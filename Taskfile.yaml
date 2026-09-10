@@ -50,6 +50,17 @@ tasks:
     cmds:
       - node --test scripts/update-local.test.mjs
 
+  onboarding:docker:
+    desc: Build working files and open a disposable TUI + web app at localhost:4000
+    interactive: true
+    cmds:
+      - node scripts/onboarding-docker.mjs {{.CLI_ARGS}}
+
+  test:onboarding-docker:
+    desc: Test Docker onboarding orchestration and local renderer provenance
+    cmds:
+      - node --test scripts/onboarding-docker.test.mjs scripts/renderer-artifact.test.mjs
+
   install:
     desc: Install whip with the web app to $GOPATH/bin (run npm ci first)
     deps: [web-assets]
@@ -125,6 +136,7 @@ tasks:
   check:
     desc: "Format + vet + test (what the pre-commit hook runs, plus golangci-lint when installed)"
     cmds:
+      - task: models:check
       - |
         unformatted=$(gofmt -s -l .)
         if [ -n "$unformatted" ]; then
@@ -137,6 +149,17 @@ tasks:
       - task: sdk
       - task: web
       - task: test:update-local
+      - task: test:onboarding-docker
+
+  models:update:
+    desc: Update bundled Models.dev metadata and desktop provider key names
+    cmds:
+      - go run ./cmd/modelgen {{.CLI_ARGS}}
+
+  models:check:
+    desc: Validate bundled model metadata and generated provider names offline
+    cmds:
+      - go run ./cmd/modelgen -check
 
   lint:
     desc: "golangci-lint with the repo's .golangci.yml (the CI lint gate)"

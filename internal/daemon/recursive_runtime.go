@@ -1255,7 +1255,7 @@ func capabilityDelegations(parent *AgentSession, child capability.Authority, nam
 	shellOps = slices.Compact(shellOps)
 	var result []sessionstore.CapabilityDelegation
 	if len(fileOps) > 0 {
-		result = append(result, sessionstore.CapabilityDelegation{ID: child.Files.ID, Issuer: parent.authority.Files, AgentID: child.AgentID, Operations: fileOps, Scopes: []string{parent.root.WorkingDirectory()}})
+		result = append(result, sessionstore.CapabilityDelegation{ID: child.Files.ID, Issuer: parent.authority.Files, AgentID: child.AgentID, Operations: fileOps, InheritScope: true})
 	}
 	if len(shellOps) > 0 {
 		result = append(result, sessionstore.CapabilityDelegation{ID: child.Shell.ID, Issuer: parent.authority.Shell, AgentID: child.AgentID, Operations: shellOps})

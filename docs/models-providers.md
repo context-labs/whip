@@ -12,15 +12,20 @@ OpenRouter, and OpenAI (ChatGPT subscription); existing custom endpoints get a
 generic icon. Each row opens its own connect/manage dialog. Inference.net account
 login and ChatGPT device login retain their existing host-owned flows.
 
-The execution host discovers `INFERENCE_API_KEY` and `OPENROUTER_API_KEY` when
-their built-in provider entry is absent. Discovery also recognizes an existing
-Inference.net account. These effective routes are computed in memory: discovery
-does not write provider entries or resolved keys into configuration. Saved routes
-take precedence as a whole, including custom endpoints and key references.
-Settings shows the credential source actually selected by runtime resolution.
-An Environment label means a key is present; it does not certify billing access
-or that every advertised model can run. Credential commands are shown as
-unchecked and are never executed by the provider inventory.
+The execution host discovers supported named API keys and existing
+Inference.net/ChatGPT accounts. Daemon startup, opening connection setup and
+Settings **Refresh** save missing provider entries with `apiKeyEnv` references.
+Normal `provider.list` reads stay read-only. Discovery is idempotent: unchanged
+results do not write the file or change its revision. Saved routes take precedence
+as a whole, including custom endpoints and key references; disabled providers
+stay disabled. Discovery never changes a saved default or session model.
+
+Settings shows the credential source actually selected by runtime resolution:
+**Environment**, **Environment file**, **Key file**, or the existing account/key
+source. Names and configured paths can be shown; values are never returned.
+Availability means a key is present, not that billing or inference has succeeded.
+Credential commands remain unchecked and are never executed by inventory.
+Discovery failures remain visible in Settings without hiding usable providers.
 
 **Disable on this host** records the provider ID in `disabledProviders`, leaving
 its environment, external CLI credentials, saved key, and model aliases intact.
@@ -39,15 +44,251 @@ and endpoint snapshot until explicit session reload/model change or session
 reconstruction; reload an existing session after replacing or rotating its API key.
 
 Catalog reads exclude disabled, removed, invalid, or endpoint-mismatched routes.
-Ordinary reads reuse the existing 24-hour cache; `/model refresh` or SDK
+Submitting or replacing an API key fetches `GET <API root>/models` immediately.
+For OpenRouter's canonical endpoint, discovery first authenticates the key with
+[`GET /key`](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key),
+because its model list is public. A rejected key stays in the API-key dialog and
+does not overwrite the saved connection. Neither request generates model output.
+Ordinary catalog reads reuse the existing 24-hour cache; `/model refresh` or SDK
 `providers.catalogs({ refresh: true })` forces discovery. Fetches are bounded and
 retain the last usable catalog on transient failure. Pending responses are
-discarded if the route or resolved account key changed during discovery.
+discarded if the route or resolved account key changed during discovery. Caches
+from the older model-allowlist implementation refresh on their next host catalog
+request, even if their 24-hour TTL has not expired.
 
-This release covers the existing Inference.net/OpenRouter APIs, ChatGPT
-subscriptions, and management of already configured custom endpoints. New
-OpenAI API/Cerebras presets and custom endpoint creation remain separate work;
-native Anthropic/Google protocols are not added by environment detection.
+Settings uses the shared preset inventory and manages configured custom endpoints.
+Create custom endpoints in the TUI. Native Anthropic/Google protocols are not
+added by environment detection.
+
+## Supported provider types and custom endpoints
+
+The TUI groups known connections under **Popular** and **Providers**. Inference.net
+is first with a quiet recommendation. Typing searches provider names, IDs, aliases
+and categories; there is no shell-style `>` prefix. Arrows select, Enter connects,
+and **ctrl+e** opens Manage. A green **✓** indicates available credentials; **!**
+marks a configured connection needing attention. Discovery does not move rows or
+change your selected provider. A ready saved model/provider pair still skips setup.
+
+Known API-key providers have bundled URLs, so their connection prompt asks only
+for the key in a simple dialog; press **Enter** to submit. OpenAI appears once, with
+separate **API key** (`openai`) and **ChatGPT subscription** (`openai-codex`) routes.
+If exactly one is connected, Enter uses it; Manage exposes both. Inference.net
+supports browser sign-in and API keys; ChatGPT uses device login.
+
+Selecting or connecting these popular providers picks a model automatically and
+returns to the composer: Inference.net uses `kimi-k3-fast` with high thinking,
+OpenAI uses `gpt-6-astra` with medium thinking, and OpenRouter uses `z-ai/glm-5.3`
+with its default max thinking. Fresh onboarding saves the route and thinking
+level for new sessions. A missing model leaves the picker open; existing saved
+startup choices stay unchanged. Other providers open the model picker; Enter on
+a model applies the selection and closes setup without another confirmation.
+First-time onboarding also saves that selection for new sessions; existing
+session changes keep their current scope. Your draft still requires Enter to send.
+
+| Provider | API root | Environment key |
+| --- | --- | --- |
+| Inference.net | `https://api.inference.net/v1` | `INFERENCE_API_KEY` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| OpenAI API | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
+| Cerebras | `https://api.cerebras.ai/v1` | `CEREBRAS_API_KEY` |
+| DeepInfra | `https://api.deepinfra.com/v1/openai` | `DEEPINFRA_API_KEY`, then `DEEPINFRA_TOKEN` |
+| DeepSeek | `https://api.deepseek.com` | `DEEPSEEK_API_KEY` |
+| Fireworks AI | `https://api.fireworks.ai/inference/v1` | `FIREWORKS_API_KEY` |
+| Groq | `https://api.groq.com/openai/v1` | `GROQ_API_KEY` |
+| Together AI | `https://api.together.ai/v1` | `TOGETHER_API_KEY` |
+| xAI | `https://api.x.ai/v1` | `XAI_API_KEY` |
+
+Live model lists determine the choices for every known API-key provider. New IDs
+remain visible even when the provider supplies only sparse metadata. Whip filters
+explicit non-chat types, non-text output, lack of tool support, and known native
+API incompatibilities. DeepInfra's category tags distinguish chat models from
+embedding, image, video and speech APIs. Missing capability metadata means unknown,
+not verified support.
+
+The bundled subset supplies missing metadata for exact model IDs and offline
+fallback choices; it does not restrict successful live results or insert absent
+models. An empty successful catalog reports that no compatible models were found.
+A successful empty list replaces the previous membership. A transient failure
+preserves the last cached list without renewing its age. Astra uses Responses on
+the canonical OpenAI API endpoint; other compatible API-key routes use Chat
+Completions. Explicit configured aliases remain available. OpenRouter discovery
+checks authentication separately from its public catalog. DeepInfra's public
+catalog and bundled fallbacks do not validate an API key; discovery details remain available in management, while
+provider/model pickers omit informational notices. Observed authentication
+failures still reject the submitted key. DeepSeek V4 uses non-thinking mode until
+reasoning-content replay is supported. See the
+[compatibility scope and evidence](../.ai-docs/plans/tui-provider-configuration/CATALOG-COMPATIBILITY.md).
+
+`OPENAI_BASE_URL` or `OPENAI_API_BASE` pointing elsewhere prevents automatic use
+of `OPENAI_API_KEY` at OpenAI's canonical endpoint. Configure that custom endpoint
+through **Custom endpoint** instead. Saved endpoint overrides retain their URL, credentials,
+models and custom management behavior even if their ID matches a new preset.
+
+Whip does not read OpenCode credential/configuration files or its database.
+If OpenCode was your only key source, export the named key, configure a file
+source below, or paste the key in Whip. Existing Whip keys and account files are
+preserved. Docker continues to isolate your host credentials unless you explicitly
+seed a test source inside the container.
+
+The runtime supports two API flavors: `openai-completions` for OpenAI-compatible
+Chat Completions, and `openai-codex` for the fixed ChatGPT subscription endpoint.
+There is no native Anthropic Messages, Google Gemini, or configurable generic
+Responses API adapter. Models served through a compatible gateway still work.
+
+In the TUI, open `/connect` and choose **Custom endpoint**. Compact prompts ask for a name,
+the API root URL (for example `https://api.example.com/v1`), and choose API key,
+environment variable, or explicit **No authentication**. The URL must not
+include `/chat/completions`, embedded credentials, a query, or a fragment.
+Environment references resolve on the execution host; changing its environment
+requires restarting that daemon. Keys are masked and never read back into forms.
+
+**Save and choose model** loads the provider's model list. If listing is unsupported
+or unavailable, select **Enter a model manually**, enter its exact API model ID,
+and explicitly select **Save without verification**. Optional advanced fields set
+the model alias, context and output limits. A successful listing is not an
+inference test, and Whip sends no automatic completion. Authentication failures
+require correction; missing environment credentials may be saved with a manual
+model for later and remain unavailable. Confirmation selects the exact
+model/provider pair; **ctrl+d** toggles whether it is also the default for new sessions.
+
+Use Tab/Shift+Tab to move through fields, arrows to change authentication, and
+Enter to activate the focused action. Escape returns to the previous screen;
+closing the dialog preserves the chat draft. **ctrl+e** on a provider opens Manage.
+Names and credentials can be edited; provider IDs are stable after creation.
+Changing a custom URL requires an explicit credential choice. Built-in browser
+endpoints stay fixed; use a separate custom connection for a different URL.
+
+Saving an endpoint/key edit offers **Reload current session** when needed.
+Other open sessions use updated connections when reloaded or reopened. Disable
+preserves credentials, aliases and defaults; disconnect removes Whip-owned
+credentials. Remove applies only to unused custom definitions: references from
+aliases/defaults/compaction must be resolved first. The last provider cannot be
+removed when no model aliases remain; disable it instead. Historical sessions
+retain their provider IDs and offer route repair if a connection is unavailable.
+
+The daemon writes `providers` and manually declared `models` together through
+revision-checked, atomic updates to the same configuration file. A conflicting
+edit requires refresh and review before resubmission. If a save reply is lost,
+refresh the provider ID to inspect what was saved; credentials are not replayed.
+Web/desktop consume the resulting connections, but do not yet provide this custom
+creation form. Browser credentials remain in their existing account files; no
+provider configuration table is added to SQLite.
+
+Advanced users can also edit the file directly. For an endpoint requiring no
+authentication, set `"auth": "none"` and omit key/reference fields; Whip then
+omits the Authorization header. Without this explicit option, existing key and
+secret-reference behavior is unchanged.
+
+Merge entries like these into `~/.whip/config.json` (or
+`~/.whipcode/config.json` for the Whipcode desktop/runtime installation):
+
+```json
+{
+  "providers": {
+    "my-endpoint": {
+      "name": "My endpoint",
+      "api": "openai-completions",
+      "baseUrl": "https://your-provider.example/v1"
+    }
+  },
+  "models": {
+    "my-model": {
+      "id": "model-id-from-your-provider",
+      "providers": ["my-endpoint"],
+      "context": 32768,
+      "maxOut": 4096
+    }
+  }
+}
+```
+
+Use the provider's actual model ID and limits. Then open `/connect my-endpoint`
+in the TUI to enter the API key in the masked field and choose the model.
+`ctrl+r` refreshes an already-open provider list after editing configuration.
+Once configured, `/model my-model my-endpoint` selects that route and saves it
+for new sessions. A manual model entry is optional when `/models` advertises the
+model and its metadata. Key validation in the connection dialog calls `/models`;
+execution uses `/chat/completions` with streaming and tool calls.
+
+For credentials managed outside the dialog, set `apiKeyEnv` to a named
+key resolved from the daemon environment or the configured file sources below or `apiKey` to a literal, `$VARIABLE`, `${VARIABLE}`, or `!command`
+reference. Environment variables must be available to the execution daemon;
+changing a terminal's environment does not change an already-running daemon.
+For endpoints without authentication, use `"auth": "none"` and omit `apiKey`
+and `apiKeyEnv`. Whip then omits the Authorization header during discovery and
+inference. An empty key by itself does not enable unauthenticated access.
+
+Inside the disposable onboarding container the file is
+`/home/whip/.whip/config.json`. Host credentials/environment variables are not
+inherited, and the container's configuration is removed when that test run exits.
+
+## Local key discovery
+
+File sources are optional and explicit. Add `providerKeySources` to the existing
+host configuration; each field can be used independently:
+
+```json
+{
+  "providerKeySources": {
+    "envFiles": ["~/.secrets/providers.env"],
+    "keyFiles": {"CEREBRAS_API_KEY": "~/.secrets/cerebras.key"},
+    "keyDirectories": ["~/.secrets/provider-keys"]
+  }
+}
+```
+
+An env file uses `NAME=value` lines, optional `export`, single/double quotes and
+comments. It is parsed as data: shell commands, interpolation and substitutions
+are not executed. A mapped key file contains one raw key. In `keyDirectories`,
+Whip checks exact variable filenames such as `GROQ_API_KEY`; it does not recurse
+or scan unrelated files. Paths are absolute or start with `~/`, resolved on the
+execution host. Env files are capped at 1 MiB; raw keys at 16 KiB; source lists at
+32 each and explicit file mappings at 128. Files must be regular files.
+
+For each named key, precedence is the nonblank daemon environment, explicit
+`keyFiles` mapping, first matching `envFiles` entry, then exact filenames in
+ordered `keyDirectories`. An invalid, missing or empty explicitly selected source
+stays unavailable instead of silently choosing a lower-priority key. Invalid or
+unreadable files include a source error. Environment values still win over broken files. OpenAI's endpoint guard also inspects routing
+variables in the same source so a key intended for another endpoint does not
+create a canonical OpenAI connection.
+
+For example, discovering `CEREBRAS_API_KEY` creates a missing `cerebras` provider
+with its known URL and `"apiKeyEnv": "CEREBRAS_API_KEY"`. Whip leaves the key in
+its original file. The same references work for explicitly configured custom
+providers. Discovery never overwrites existing definitions or re-enables opt-outs.
+If saving fails, available in-memory routes remain visible with a discovery error.
+
+Opening `/connect` or refreshing Settings rereads files. Newly constructed model
+clients also reread them; existing session clients need a reload/model change
+after rotation. If a key disappears, its saved provider remains configured but
+unavailable, with source details in Manage. Exporting a variable in a different
+terminal requires restarting the execution daemon. Remote hosts read their own
+files; the browser/desktop client never uploads local secrets to them.
+
+## Bundled Models.dev metadata
+
+The reviewed subset in `internal/config/modelsdev/` supplies provider key names,
+model capabilities, context/output limits and prices. Whip retains its supported
+provider list, endpoints, auth behavior, recommendation order and model/effort
+defaults. Models.dev's `inference` ID maps to Whip's `inference-net`; Whip retains
+`https://api.inference.net/v1` and its explicit Kimi defaults. A Models.dev entry
+alone does not enable an unsupported protocol.
+
+Live `/models` results determine membership. Bundled metadata only fills missing
+fields for exact provider/model IDs; live false/zero/empty capability values and
+explicit configuration remain authoritative. Unknown prices remain unknown;
+zero means free. Prices are normalized to the existing per-token catalog unit.
+The bundle can provide offline candidates when discovery fails without implying
+credential validation. Metadata enrichment does not renew catalog timestamps.
+
+Maintainers update the bundle with `task models:update`. For a pinned local
+Models.dev API response, use `task models:update -- -input /path/api.json`.
+`task models:check` validates the bundle and generated desktop environment names
+offline and runs as part of `task check`. The importer validates before replacing
+outputs and records the source URL, upstream content SHA-256, generation date,
+schema version and MIT license attribution. Runtime startup never fetches
+Models.dev; deployments use the checked-in snapshot.
 
 ## Routing model
 
@@ -96,7 +337,7 @@ For API-key providers, in order:
 
 ```mermaid
 flowchart LR
-    E["apiKeyEnv<br/>nonblank env var"] --> K["apiKey<br/>literal or secret reference"] --> W["WHIP Inference.net account"] --> I["~/.inf/config.json<br/>external Inference.net CLI"]
+    E["apiKeyEnv<br/>named env/file key"] --> K["apiKey<br/>literal or secret reference"] --> W["WHIP Inference.net account"] --> I["~/.inf/config.json<br/>external Inference.net CLI"]
 ```
 
 First hit wins. No key material ever lives in the session store.
@@ -186,15 +427,19 @@ whip auth openrouter --env      # store apiKeyEnv: OPENROUTER_API_KEY instead
 
 What it does, in order:
 
-1. **Validates the key** against the live OpenRouter API. A rejected key
-   writes nothing — no provider entry, no catalog.
+1. **Checks the key and loads compatible models** from OpenRouter. `GET /key`
+   authenticates the credential before `GET /models` loads its public catalog.
+   Authentication failures reject the write and appear in the API-key dialog.
+   Model availability and billing are still subject to the first inference request;
+   setup does not generate model output. Transient discovery failures can use the
+   bundled fallback, marked unverified in management.
 2. **Upserts the `openrouter` provider** into `~/.whip/config.json` (atomic,
    clobber-guarded `config.Save`; every other provider and model route is
    untouched). By default the key is stored as a literal `apiKey` (config is
    `0600`); `--env` records `apiKeyEnv: OPENROUTER_API_KEY` instead and
    offers to append the export to your shell rc.
 3. **Pre-fetches the catalog** into `~/.whip/models.json`, so the very next
-   `/model` picker lists the full OpenRouter catalog without waiting for the
+   `/model` picker lists compatible text/tool models without waiting for the
    24h TTL refresh.
 
 Then use any model by its OpenRouter id:

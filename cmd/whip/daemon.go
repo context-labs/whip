@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -93,6 +94,11 @@ func runDaemon(ctx context.Context, args []string) error {
 	limits := rlmLimits(cfg.RLM)
 	providers := daemon.NewProviderService(ctx, strconv.FormatInt(generation, 10))
 	defer providers.Close()
+	if discovered, discoveryErr := providers.DiscoverProviders(ctx, "", ""); discoveryErr != nil {
+		config.LogEvent("provider.discovery", discoveryErr.Error())
+	} else if discovered.DiscoveryError != "" {
+		config.LogEvent("provider.discovery", discovered.DiscoveryError)
+	}
 	kernels := rlm.NewManager(limits.MaxWorkers)
 	defer kernels.Close()
 	factory := func(_ context.Context, meta session.Meta, history []llm.Message) (daemon.Components, error) {
@@ -231,22 +237,25 @@ func runDaemon(ctx context.Context, args []string) error {
 // All model purposes use this resolver so a default provider cannot accidentally
 // supply another endpoint's price or output limits.
 func resolveRuntimeModel(cfg *config.Config, modelName, providerName string, services ...*daemon.ProviderService) (agent.ModelRoute, config.Model, error) {
-	if modelName == "" {
-		modelName = cfg.DefaultModel
-	}
 	providerName, provider, model, apiID, err := cfg.ResolveRoute(modelName, providerName)
 	if err != nil {
 		return agent.ModelRoute{}, config.Model{}, err
+	}
+	if modelName == "" {
+		modelName = cfg.DefaultModel
 	}
 	var providers *daemon.ProviderService
 	if len(services) > 0 {
 		providers = services[0]
 	}
-	client, err := providers.ModelClient(provider)
+	catalog := providers.CatalogsFor(cfg)[providerName]
+	if len(model.Providers) > 0 && !slices.Contains(model.Providers, providerName) && catalog.Find(apiID) == nil {
+		return agent.ModelRoute{}, config.Model{}, fmt.Errorf("model %q is not advertised by provider %q; select a model on that provider", apiID, providerName)
+	}
+	client, err := providers.ModelClient(provider, cfg)
 	if err != nil {
 		return agent.ModelRoute{}, config.Model{}, err
 	}
-	catalog := providers.CatalogsFor(cfg)[providerName]
 	contextLimit, maxOutput := catalog.ModelLimits(apiID, model)
 	if provider.API == openaiauth.Provider {
 		maxOutput = llm.SubscriptionOutputLimit(apiID)

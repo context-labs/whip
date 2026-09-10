@@ -208,7 +208,11 @@ export function Limits({ view, root, connected }: InspectorProps) {
               <Badge>{grant.status}</Badge>
             </div>
             <span>{grant.operations?.join(', ')}</span>
-            <span {...stylex.props(layout.muted)}>{grant.scopes?.join(', ')}</span>
+            <span {...stylex.props(layout.muted)}>
+              {grant.file_scope === 'inherit' ? 'Inherits the issuer’s filesystem scope'
+                : grant.file_scope === 'session' && root.permission_mode === 'automatic' ? 'All host paths (Full Access)'
+                  : grant.scopes?.join(', ')}
+            </span>
             {grant.mcp?.map((scope, index) => (
               <CodeBlock
                 key={index}
@@ -524,17 +528,17 @@ export function Permissions(props: InspectorProps) {
     <>
       <Section
         title="Permission policy"
-        description="Every connected client may answer pending requests. Saved rules and delegated authority still apply."
+        description="Full Access allows files outside the project and approves actions automatically. Explicit agent limits still apply."
       >
-        {current && <p {...stylex.props(layout.muted)}>Current policy: {current === 'host' ? 'Use the host’s consent policy' : 'Ask connected clients'}</p>}
+        {current && <p {...stylex.props(layout.muted)}>Current policy: {current === 'host' ? 'Full Access' : 'Ask for approval'}</p>}
         <Field label="Use this policy">
           <Select
             label="Permission policy"
             value={policy}
             onValueChange={setPolicy}
             options={[
-              { value: 'client', label: 'Ask connected clients' },
-              { value: 'host', label: 'Use the host’s consent policy' },
+              { value: 'client', label: 'Ask for approval' },
+              { value: 'host', label: 'Full Access' },
             ]}
           />
         </Field>

@@ -189,7 +189,7 @@ export function ServerManager() {
         <span {...stylex.props(layout.grow)}>{runtime.connections.host(entry.runtimeId)?.name ?? entry.runtimeId} · {entry.workspace.tabs.length} tabs</span>
         <Button variant="ghost" onClick={() => { try { runtime.tabs.restorePrevious(entry.runtimeId); } catch (error) { setError(errorMessage(error)); } }}>Restore</Button>
         <Button variant="ghost" onClick={() => runtime.tabs.dismissPrevious(entry.runtimeId)}>Dismiss</Button>
-      </div><Collapsible title="Open individual previous tabs"><div {...stylex.props(layout.column)}>{[...entry.workspace.tabs, ...entry.workspace.closed.map(item => item.tab)].map(tab => <Button key={tab.id} variant="ghost" onClick={() => { try { runtime.tabs.openPrevious(entry.runtimeId, tab.id); } catch (error) { setError(errorMessage(error)); } }}>{tab.titleHint || tab.rootId}{tab.kind === 'repl' ? ' · REPL' : ''}</Button>)}</div></Collapsible></div>)}</div>
+      </div><Collapsible title="Open individual previous tabs"><div {...stylex.props(layout.column)}>{[...entry.workspace.tabs, ...entry.workspace.closed.map(item => item.tab)].map(tab => <Button key={tab.id} variant="ghost" onClick={() => { try { runtime.tabs.openPrevious(entry.runtimeId, tab.id); } catch (error) { setError(errorMessage(error)); } }}>{tab.kind === 'new' ? 'New Chat' : tab.titleHint || tab.rootId}{tab.kind === 'repl' ? ' · REPL' : ''}</Button>)}</div></Collapsible></div>)}</div>
       <p {...stylex.props(layout.muted)}>Restore when there is room in this window. Your saved sessions and drafts stay on their original host.</p>
     </Collapsible>}
     {!!state.legacyHosts.length && <Collapsible title="Import previously saved addresses">
@@ -224,13 +224,31 @@ function RenameServerDialog({ host, finalFocus, close }: { host: HostConnection;
   </Dialog>;
 }
 
-export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange }: {
+/** Native welcome handoff; the existing connection owner retains all process policy. */
+export function LocalRuntimeSetup({ host }: { host: HostConnection }) {
+  const runtime = useRuntime();
+  const [, setBusy] = useState(false);
+  const attempted = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (attempted.current === host.id || host.profile.target.kind !== 'local' || !runtime.platform.localRuntime) return;
+    attempted.current = host.id;
+    if (host.state === 'closed' && !host.error) void runtime.connections.connect(host.id).catch(() => {});
+  }, [host, runtime]);
+  if (host.profile.target.kind !== 'local' || !runtime.platform.localRuntime) return null;
+  return <LocalRuntimePanel key={host.id} api={runtime.platform.localRuntime} hostState={host.state} disabled={host.state === 'connecting'}
+    onBusyChange={setBusy} onboarding progress={host.progress} connectionError={host.error}
+    onConnect={() => runtime.connections.connect(host.id)} />;
+}
+
+type LocalRuntimeAction = keyof AppLocalRuntime | 'connect';
+export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange, onboarding = false, onConnect, progress, connectionError }: {
   api: AppLocalRuntime; hostState: HostConnection['state']; disabled: boolean; onBusyChange(busy: boolean): void;
+  onboarding?: boolean; onConnect?(): Promise<void>; progress?: string; connectionError?: string;
 }) {
   const mounted = useRef(true);
   const request = useRef(0);
-  const active = useRef<keyof AppLocalRuntime | undefined>(undefined);
-  const [pending, setPending] = useState<keyof AppLocalRuntime>();
+  const active = useRef<LocalRuntimeAction | undefined>(undefined);
+  const [pending, setPending] = useState<LocalRuntimeAction>();
   const [status, setStatus] = useState<LocalRuntimeStatus>();
   const [error, setError] = useState('');
   const [confirmRestart, setConfirmRestart] = useState(false);
@@ -238,13 +256,19 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange }: {
     mounted.current = true;
     return () => { mounted.current = false; request.current++; onBusyChange(false); };
   }, [onBusyChange]);
-  const run = async (method: keyof AppLocalRuntime) => {
+  const run = async (method: LocalRuntimeAction) => {
     if (active.current && (active.current !== 'test' || method !== 'test')) return;
     const id = ++request.current;
     active.current = method; setPending(method); onBusyChange(true); setError(''); setConfirmRestart(false);
     try {
-      const result = await api[method]();
-      if (mounted.current && id === request.current) setStatus(result);
+      if (method === 'connect') { await onConnect?.(); return; }
+      const result = await api[method]?.();
+      if (mounted.current && id === request.current && result) {
+        setStatus(result);
+        if (onboarding && onConnect && method !== 'test' && (result.state === 'stopped' || result.state === 'running')) {
+          setPending('connect'); await onConnect();
+        }
+      }
     } catch (error) {
       if (mounted.current && id === request.current) setError(errorMessage(error));
     } finally {
@@ -257,20 +281,14 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange }: {
     if (hostState !== 'connecting') void run('test');
   }, [api, hostState]);
   const busy = disabled || pending !== undefined;
-  return <section aria-label="This Mac runtime" {...stylex.props(layout.column)}>
-    <p role="status" {...stylex.props(styles.runtimeMessage)}>{pending === 'test' ? 'Locating whipcode, checking the installation and contacting the daemon…'
-      : pending === 'choose' ? 'Choose the whipcode executable in the native file dialog…'
-      : pending === 'install' ? 'Installing the verified whipcode runtime…'
-      : pending === 'restart' ? 'Restarting the local daemon…'
-      : status?.message ?? 'Test the local whipcode installation to see its status.'}</p>
-    {error && <p role="alert" {...stylex.props(layout.error, styles.runtimeMessage)}>{error}</p>}
+  const controls = <>
     <div {...stylex.props(layout.row, layout.wrap)}>
       <Button variant="secondary" disabled={busy} loading={pending === 'test'} onClick={() => void run('test')}>Test Connection</Button>
       <Button variant="ghost" disabled={busy} loading={pending === 'choose'} onClick={() => void run('choose')}>Choose executable</Button>
-      {status?.canInstall && <Button variant="primary" disabled={busy} loading={pending === 'install'} onClick={() => void run('install')}>Install whipcode</Button>}
+      {status?.canInstall && <Button variant={onboarding ? 'ghost' : 'primary'} disabled={busy} loading={pending === 'install'} onClick={() => void run('install')}>{onboarding ? 'Choose install location' : 'Install whipcode'}</Button>}
       {status?.executable && status.state !== 'missing' && status.state !== 'stopped' && <Button variant="ghost" disabled={busy} loading={pending === 'restart'} onClick={() => setConfirmRestart(true)}>Restart daemon</Button>}
     </div>
-    {status?.state === 'stopped' && <p {...stylex.props(layout.muted, styles.runtimeMessage)}>Use Connect in the server menu to start this daemon. Test Connection does not start it.</p>}
+    {!onboarding && status?.state === 'stopped' && <p {...stylex.props(layout.muted, styles.runtimeMessage)}>Use Connect in the server menu to start this daemon. Test Connection does not start it.</p>}
     {confirmRestart && <div {...stylex.props(layout.column, layout.notice)}>
       <p {...stylex.props(styles.runtimeMessage)}>Restarting interrupts running work on This Mac, including work started from the CLI or web app. Existing sessions are retained.</p>
       <div {...stylex.props(layout.row, layout.wrap)}>
@@ -287,6 +305,28 @@ export function LocalRuntimePanel({ api, hostState, disabled, onBusyChange }: {
         <dt>Daemon build</dt><dd><code>{status.daemonBuild ?? 'Unavailable'}</code></dd>
       </dl>
     </Collapsible>}
+  </>;
+  return <section aria-label="This Mac runtime" {...stylex.props(layout.column)}>
+    {onboarding && status?.state === 'missing' && <>
+      <h2 {...stylex.props(styles.setupTitle)}>Set up Whip on this Mac</h2>
+      <p {...stylex.props(layout.muted, styles.runtimeMessage)}>Install the local service that runs your sessions.</p>
+    </>}
+    {(!onboarding || status?.state !== 'missing' || pending || hostState === 'connecting') && <p role="status" {...stylex.props(styles.runtimeMessage)}>{pending === 'connect' || hostState === 'connecting' ? progress || 'Connecting to this Mac…'
+      : pending === 'test' ? 'Locating whipcode, checking the installation and contacting the daemon…'
+      : pending === 'choose' ? 'Choose the whipcode executable in the native file dialog…'
+      : pending === 'install' || pending === 'installDefault' ? 'Installing the verified local service…'
+      : pending === 'restart' ? 'Restarting the local daemon…'
+      : status?.message ?? 'Checking this Mac…'}</p>}
+    {(error || (!pending && connectionError && status?.state !== 'missing')) && <p role="alert" {...stylex.props(layout.error, styles.runtimeMessage)}>{error || connectionError}</p>}
+    {onboarding ? <>
+      {status?.state === 'missing' && <div {...stylex.props(layout.row)}>
+        <Button variant="primary" disabled={busy} loading={pending === 'installDefault' || pending === 'install'} onClick={() => void run(api.installDefault ? 'installDefault' : 'install')}>{error ? 'Retry setup' : 'Set up this Mac'}</Button>
+      </div>}
+      {(status?.state === 'running' || status?.state === 'stopped') && onConnect && <div {...stylex.props(layout.row)}>
+        <Button variant="primary" disabled={busy} loading={pending === 'connect' || hostState === 'connecting'} onClick={() => void run('connect')}>{error || connectionError ? 'Retry connection' : 'Connect to this Mac'}</Button>
+      </div>}
+      <Collapsible title="Advanced options"><div {...stylex.props(layout.column)}>{controls}</div></Collapsible>
+    </> : controls}
   </section>;
 }
 
@@ -299,5 +339,6 @@ const styles = stylex.create({
   footer: { justifyContent: 'flex-end', paddingTop: scale.space2 },
   server: { minWidth: 0, paddingBlock: scale.space2, borderBottomWidth: { default: 1, ':last-child': 0 }, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder },
   runtimeMessage: { margin: 0 },
+  setupTitle: { margin: 0, fontSize: typography.size16, fontWeight: 500 },
   diagnostics: { display: 'grid', gridTemplateColumns: 'max-content minmax(0, 1fr)', gap: 8, overflowWrap: 'anywhere' },
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
 import type { ProviderList, ProviderLoginStatus } from '@whip/protocol';
@@ -15,25 +15,73 @@ import { SettingsGroup } from './section-layout';
 import { LoginFlow, terminalLoginStates } from './provider-login';
 import { useSettingsEdits } from './unsaved';
 
-type ProviderEntry = NonNullable<ProviderList['providers']>[number];
+export type ProviderEntry = NonNullable<ProviderList['providers']>[number];
 
 const descriptions: Record<string, string> = {
-  'inference-net': 'Connect your Inference.net account or use an API key.',
+  'inference-net': 'Sign in in your browser.',
   openrouter: 'Access models from multiple providers with one API key.',
   'openai-codex': 'Use Codex access included with your ChatGPT account.',
 };
 
-function sourceLabel(entry: ProviderEntry) {
+export function sourceLabel(entry: ProviderEntry) {
   if (entry.status.disabled) return 'Disabled';
-  const labels: Record<string, string> = { environment: 'Environment', literal: 'API key', machine: 'Account', subscription: 'ChatGPT subscription', external: 'External account', command: 'Command', reference: 'Configuration' };
+  const labels: Record<string, string> = { environment: 'Environment', env_file: 'Environment file', key_file: 'Key file', literal: 'API key', machine: 'Account', subscription: 'ChatGPT subscription', external: 'External account', command: 'Command', reference: 'Configuration' };
   return labels[entry.status.key_source] ?? (entry.custom ? 'Custom' : '');
 }
 
-function stateLabel(entry: ProviderEntry) {
+export function stateLabel(entry: ProviderEntry) {
   if (entry.status.disabled) return 'Disabled on this host';
   if (entry.status.available) return '';
   const labels: Record<string, string> = { sign_in_required: 'Sign in again', setup_required: 'Finish setup', configuration_error: 'Configuration needs attention', signed_out: 'Not signed in', key_required: 'API key required', unchecked: 'Credential command has not been checked' };
   return labels[entry.status.auth_state ?? ''] ?? 'Not connected';
+}
+
+export function useProviderConnections(client: WhipClient, enabled: boolean) {
+  const runtime = useRuntime();
+  const host = client.getSnapshot().info?.runtime_id;
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState('');
+  const [persistenceError, setPersistenceError] = useState('');
+  const discoveryRequest = useRef<AbortController | null>(null);
+  useEffect(() => {
+    if (!discoveryRequest.current) setDiscovering(false);
+    setDiscoveryError(''); setPersistenceError('');
+    return () => { discoveryRequest.current?.abort(); discoveryRequest.current = null; };
+  }, [client, host, enabled]);
+  const inventory = useQuery({ queryKey: ['provider-list', host], queryFn: ({ signal }) => client.providers.list({ signal }), enabled });
+  const flows = useQuery({
+    queryKey: ['provider-login-flows', host], queryFn: ({ signal }) => client.providers.login.list({ signal }), enabled,
+    refetchInterval: query => enabled && query.state.data?.flows?.some(flow => !terminalLoginStates.includes(flow.state)) ? 2000 : false,
+  });
+  const refresh = useCallback(async () => {
+    if (host) await runtime.queries.invalidateQueries({ predicate: query => query.queryKey.includes(host) && query.queryKey[0] !== 'provider-login-flows' });
+  }, [host, runtime.queries]);
+  const discover = useCallback(async () => {
+    if (!enabled || !host || discoveryRequest.current) return;
+    const controller = new AbortController(); discoveryRequest.current = controller;
+    setDiscovering(true); setDiscoveryError(''); setPersistenceError('');
+    try {
+      // Inventory queries stay read-only; discovery runs only when setup opens or the user refreshes.
+      await runtime.queries.cancelQueries({ queryKey: ['provider-list', host], exact: true });
+      controller.signal.throwIfAborted();
+      const result = client.supports('rpc', 'provider.discover')
+        ? await client.providers.discover({ signal: controller.signal })
+        : await client.providers.list({ signal: controller.signal });
+      if (controller.signal.aborted) return;
+      runtime.queries.setQueryData(['provider-list', host], result);
+      setPersistenceError(result.discovery_error ?? '');
+      await refresh();
+    } catch (error) {
+      if (!controller.signal.aborted) { setDiscoveryError(errorMessage(error)); await refresh(); }
+    } finally {
+      if (discoveryRequest.current === controller) discoveryRequest.current = null;
+      if (!controller.signal.aborted) setDiscovering(false);
+    }
+  }, [client, enabled, host, refresh, runtime.queries]);
+  useEffect(() => {
+    if (flows.data?.flows?.some(flow => flow.state === 'succeeded')) void refresh();
+  }, [flows.data, refresh]);
+  return { inventory, flows, refresh, discover, discovering, discoveryError, persistenceError };
 }
 
 export function ProviderConnections({ client, enabled }: { client: WhipClient; enabled: boolean }) {
@@ -42,18 +90,13 @@ export function ProviderConnections({ client, enabled }: { client: WhipClient; e
   const hostName = runtime.connections?.host(host ?? '')?.name ?? 'this execution host';
   const [selected, select] = useState<string>();
   const [notice, setNotice] = useState('');
-  const inventory = useQuery({ queryKey: ['provider-list', host], queryFn: ({ signal }) => client.providers.list({ signal }), enabled });
-  const flows = useQuery({
-    queryKey: ['provider-login-flows', host], queryFn: ({ signal }) => client.providers.login.list({ signal }), enabled,
-    refetchInterval: query => enabled && query.state.data?.flows?.some(flow => !terminalLoginStates.includes(flow.state)) ? 2000 : false,
-  });
-  const refresh = async () => {
-    if (host) await runtime.queries.invalidateQueries({ predicate: query => query.queryKey.includes(host) && query.queryKey[0] !== 'provider-login-flows' });
-  };
-  useEffect(() => {
-    if (flows.data?.flows?.some(flow => flow.state === 'succeeded')) void refresh();
-  }, [flows.data]);
+  const [connectedProvider, setConnectedProvider] = useState<string>();
+  const [selectingDefault, setSelectingDefault] = useState(false);
+  const defaultRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => defaultRequest.current?.abort(), []);
+  const { inventory, flows, refresh, discover, discovering, discoveryError, persistenceError } = useProviderConnections(client, enabled);
   const entries = inventory.data?.providers ?? [];
+  const completed = entries.find(entry => entry.id === connectedProvider);
   const defaultProvider = entries.find(entry => entry.id === inventory.data?.default_provider);
   const unavailableDefault = inventory.data?.default_provider && !defaultProvider?.status.available;
   const active = entries.find(entry => entry.id === selected);
@@ -68,6 +111,7 @@ export function ProviderConnections({ client, enabled }: { client: WhipClient; e
         <div {...stylex.props(styles.nameLine)}><strong {...stylex.props(styles.name)}>{entry.name}</strong>
           {sourceLabel(entry) && (entry.status.available || entry.status.configured || entry.status.disabled) && <Badge>{sourceLabel(entry)}</Badge>}
           {entry.custom && entry.status.key_source !== 'none' && <Badge>Custom</Badge>}
+          {connect && entry.recommended && <span {...stylex.props(styles.description)}>Recommended</span>}
         </div>
         {entry.status.available ? <span {...stylex.props(styles.description)}>{entry.status.email || (entry.status.key_source === 'environment' ? 'Detected on this execution host' : entry.status.plan)}</span>
           : <span {...stylex.props(styles.description)}>{connect && !entry.status.disabled ? descriptions[entry.id] ?? 'Manage this configured endpoint.' : stateLabel(entry)}</span>}
@@ -82,11 +126,24 @@ export function ProviderConnections({ client, enabled }: { client: WhipClient; e
     <div id="providers" tabIndex={-1} {...stylex.props(layout.column)}>
       <div id="provider" tabIndex={-1} {...stylex.props(styles.intro)}>
         <span {...stylex.props(styles.description)}>Connections belong to {hostName}.</span>
-        <Button variant="ghost" disabled={!enabled || inventory.isFetching} onClick={() => { void inventory.refetch(); }}>Refresh</Button>
+        <Button variant="ghost" disabled={!enabled || inventory.isFetching || discovering} onClick={() => void discover()}>Refresh</Button>
       </div>
       {!inventory.data && inventory.isPending && <p role="status">Loading providers…</p>}
       {inventory.error && <p role="alert">{inventory.error.message}</p>}
+      {(discoveryError || persistenceError || inventory.data?.discovery_error) && <Alert tone="error">{discoveryError || persistenceError || inventory.data?.discovery_error}</Alert>}
       {notice && <p role="status">{notice}</p>}
+      {completed && <div {...stylex.props(styles.intro)}>
+        <span {...stylex.props(styles.description)}>Your existing default is unchanged.</span>
+        <Button variant="secondary" disabled={!enabled || selectingDefault} onClick={() => {
+          if (!completed.suggested_model || !inventory.data) { document.getElementById('default_model')?.querySelector('button')?.focus(); return; }
+          const controller = new AbortController(); defaultRequest.current = controller; setSelectingDefault(true);
+          void client.configuration.update({ revision: inventory.data.revision, default_model: completed.suggested_model, default_provider: completed.id,
+            ...(inventory.data.selection?.model !== completed.suggested_model || inventory.data.selection.provider !== completed.id ? { default_effort: '' } : {}) }, { signal: controller.signal })
+            .then(async () => { await refresh(); if (!controller.signal.aborted) { setConnectedProvider(undefined); setNotice(`${completed.name} selected for new sessions.`); } })
+            .catch(async error => { if (!controller.signal.aborted) { setNotice(errorMessage(error)); await refresh(); } })
+            .finally(() => { if (!controller.signal.aborted) setSelectingDefault(false); });
+        }}>{completed.suggested_model ? `Use ${completed.suggested_model} for new sessions` : 'Choose a model for new sessions'}</Button>
+      </div>}
       {inventory.data && <>
         <SettingsGroup title="Connected providers">{connected.length ? renderRows(connected, false) : <p {...stylex.props(styles.description)}>No providers connected on this host.</p>}</SettingsGroup>
         {!!attention.length && <SettingsGroup title="Needs attention">{renderRows(attention, false)}</SettingsGroup>}
@@ -107,22 +164,26 @@ export function ProviderConnections({ client, enabled }: { client: WhipClient; e
     {active && inventory.data && <ProviderConnectionDialog key={active.id} client={client} entry={active} enabled={enabled}
       revision={inventory.data.revision} hostName={hostName} flows={flows.data?.flows ?? []}
       refresh={refresh} refreshFlows={async () => { await flows.refetch(); }}
-      close={message => { select(undefined); if (message) setNotice(message); }} />}
+      close={message => { select(undefined); if (message) setNotice(message); }}
+      onConnected={message => { select(undefined); setConnectedProvider(active.id); setNotice(message ?? `${active.name} connected.`); }} />}
   </>;
 }
 
-function ProviderConnectionDialog({ client, entry, enabled, revision, hostName, flows, refresh, refreshFlows, close }: {
+export function ProviderConnectionDialog({ client, entry, enabled, revision, hostName, flows, refresh, refreshFlows, close, onConnected }: {
   client: WhipClient; entry: ProviderEntry; enabled: boolean; revision: string; hostName: string; flows: ProviderLoginStatus[];
-  refresh(): Promise<void>; refreshFlows(): Promise<void>; close(message?: string): void;
+  refresh(): Promise<void>; refreshFlows(): Promise<void>; close(message?: string): void; onConnected?(message?: string): void;
 }) {
+  const runtime = useRuntime();
   const [key, setKey] = useState('');
   const [showKey, setShowKey] = useState(!entry.status.available && !entry.methods?.includes('login') && !!entry.methods?.includes('api_key'));
   const [discard, setDiscard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const observingLogin = useRef(false);
+  const [autoOpenLogin, setAutoOpenLogin] = useState(false);
   const request = useRef<AbortController | null>(null);
-  useEffect(() => () => request.current?.abort(), []);
+  useEffect(() => () => request.current?.abort(), [client]);
   useSettingsEdits({ id: 'provider_key', dirty: Boolean(key), description: 'Unsaved API key', discard: () => setKey('') });
   async function action(run: (signal: AbortSignal) => Promise<void>) {
     if (!enabled || busy) return;
@@ -138,7 +199,13 @@ function ProviderConnectionDialog({ client, entry, enabled, revision, hostName, 
   const latestFlow = activeFlow ?? accountFlows.sort((a, b) => b.expires_at.localeCompare(a.expires_at))[0];
   const canDisconnect = ['literal', 'machine'].includes(entry.status.key_source) ||
     (entry.status.key_source === 'subscription' && entry.status.auth_state !== 'signed_out');
-  const finish = async (message: string, signal: AbortSignal) => { await refresh(); if (!signal.aborted) close(message); };
+  const finish = async (message: string, signal: AbortSignal, connected = false) => { await refresh(); if (!signal.aborted) { if (connected && onConnected) onConnected(message); else close(message); } };
+  useEffect(() => {
+    if (activeFlow) observingLogin.current = true;
+    if (latestFlow?.state !== 'succeeded' || !observingLogin.current || !onConnected) return;
+    observingLogin.current = false;
+    onConnected();
+  }, [latestFlow?.state, latestFlow?.flow_id, activeFlow, onConnected]);
   const requestClose = () => { if (key) setDiscard(true); else close(); };
   return <Dialog open title={<span {...stylex.props(styles.nameLine)}><ProviderLogo id={entry.id} />{entry.name}</span>} description={`Provider connection on ${hostName}.`} onOpenChange={open => { if (!open) requestClose(); }}>
     <div {...stylex.props(styles.account)}>
@@ -156,30 +223,40 @@ function ProviderConnectionDialog({ client, entry, enabled, revision, hostName, 
       Environment changes take effect after restarting the execution host. Disabling here keeps the environment unchanged.
     </p>}
     {entry.status.key_source === 'external' && <p {...stylex.props(styles.description)}>Credentials are managed by the Inference.net CLI on this host. You can disable this connection here.</p>}
+    {['env_file', 'key_file'].includes(entry.status.key_source) && <p {...stylex.props(styles.description)}>
+      {entry.status.environment_variable ? <><code>{entry.status.environment_variable}</code> is read</> : 'Credentials are read'} from {entry.status.credential_path ? <code>{entry.status.credential_path}</code> : 'a configured file'} on this host.
+      {' '}Disabling this connection keeps the file unchanged.
+    </p>}
     {entry.status.key_source === 'command' && <p {...stylex.props(styles.description)}>The host runs your configured credential command when it needs a key. Opening this page does not run it.</p>}
     {entry.status.warnings?.map((warning, index) => <Alert key={index} tone="warning">{warning}</Alert>)}
     {entry.id === 'openai-codex' && <p {...stylex.props(styles.description)}>Uses your ChatGPT account’s Codex access. Enable device code authorization in ChatGPT Security settings before signing in. Subscription usage is separate from API billing.</p>}
-    {latestFlow && <LoginFlow flow={latestFlow} client={client} enabled={enabled && !busy} refresh={() => { void refreshFlows(); }} />}
+    {latestFlow && <LoginFlow flow={latestFlow} autoOpen={autoOpenLogin} client={client} enabled={enabled && !busy} refresh={() => { void refreshFlows(); }} />}
     <div {...stylex.props(styles.actions)}>
       {entry.methods?.includes('login') && !activeFlow && <Button xstyle={styles.actionButton} disabled={!enabled || busy} onClick={() => void action(async signal => {
-        await client.providers.login.begin({ provider: entry.id, signal });
-        if (!signal.aborted) await refreshFlows();
-      })}>{entry.status.available ? 'Sign in with another account' : 'Sign in'}</Button>}
+        observingLogin.current = true; setAutoOpenLogin(true);
+        const current = await client.providers.login.list({ signal });
+        if (!current.flows?.some(flow => (flow.provider || 'inference-net') === entry.id && !terminalLoginStates.includes(flow.state)))
+          await client.providers.login.begin({ provider: entry.id, signal });
+        if (!signal.aborted) {
+          await refreshFlows();
+        }
+      })}>{entry.status.available ? 'Sign in with another account' : entry.status.auth_state === 'setup_required' ? 'Finish connecting' : 'Sign in'}</Button>}
       {entry.methods?.includes('api_key') && !showKey && <Button xstyle={styles.actionButton} variant="secondary" disabled={!enabled || busy} onClick={() => setShowKey(true)}>{entry.status.available ? 'Replace API key' : 'Use an API key'}</Button>}
       {entry.methods?.includes('environment') && <Button xstyle={styles.actionButton} variant="secondary" disabled={!enabled || busy} onClick={() => void action(async signal => {
         await client.providers.setKey({ provider: entry.id, revision, key: '', environment: true }, { signal });
-        await finish(`${entry.name} now uses the host environment.`, signal);
-      })}>Use host environment</Button>}
+        await finish(`${entry.name} now uses the detected host key.`, signal, true);
+      })}>Use detected key</Button>}
     </div>
     {showKey && <form onSubmit={event => {
       event.preventDefault(); const value = key.trim(); if (!value || busy || !enabled) return;
       setKey(''); void action(async signal => {
         await client.providers.setKey({ revision, provider: entry.id, key: value, environment: false }, { signal });
-        await finish(`${entry.name} connected.`, signal);
+        await finish(`${entry.name} connected.`, signal, true);
       });
     }} {...stylex.props(layout.column)}>
       <Field label="API key" description="Validated and saved on this execution host."><Input type="password" autoComplete="off" spellCheck={false}
         value={key} disabled={!enabled || busy} onChange={event => setKey(event.target.value)} /></Field>
+      {(entry.id === 'openrouter' || entry.id === 'inference-net') && <Button variant="ghost" onClick={() => void runtime.platform.openExternal(entry.id === 'openrouter' ? 'https://openrouter.ai/settings/keys' : 'https://inference.net').catch(error => setError(errorMessage(error)))}>Get an API key</Button>}
       <Button xstyle={styles.actionButton} type="submit" disabled={!enabled || busy || !key.trim()}>{busy ? 'Connecting…' : 'Connect'}</Button>
     </form>}
     {(entry.status.available || entry.status.configured || entry.status.disabled) && <div {...stylex.props(styles.maintenance)}>

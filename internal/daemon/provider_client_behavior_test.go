@@ -133,14 +133,14 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 				if key != "private-api-key" {
 					return nil, errors.New("bad key")
 				}
-				return []llm.ModelInfo{{ID: "fixture-model"}}, nil
+				return []llm.ModelInfo{{ID: "fixture-model", SupportsTools: new(true), OutputModalities: []string{"text"}}}, nil
 			}
 			service.login = func(_ context.Context, code func(string, string)) (providerLoginIdentity, error) {
 				code("https://example.test/verify", "display-code")
-				return providerLoginIdentity{token: "private-session-token", email: "person@example.test", teams: []inferencenet.Team{{ID: "team", Name: "Team"}}}, nil
+				return providerLoginIdentity{token: "private-session-token", email: "person@example.test", teams: []inferencenet.Team{{ID: "team", Name: "Team"}, {ID: "other", Name: "Other"}}}, nil
 			}
 			service.projects = func(context.Context, string, inferencenet.Team) ([]inferencenet.Project, error) {
-				return []inferencenet.Project{{ID: "existing", Name: "Existing"}}, nil
+				return []inferencenet.Project{{ID: "existing", Name: "Existing"}, {ID: "other", Name: "Other"}}, nil
 			}
 			service.create = func(_ context.Context, token string, team inferencenet.Team, name string) (inferencenet.Project, error) {
 				if token != "private-session-token" || team.ID != "team" || name != "Created" {
@@ -151,6 +151,10 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 			finished := make(chan inferencenet.Auth, 2)
 			service.finish = func(_ context.Context, auth inferencenet.Auth) error { finished <- auth; return nil }
 			before, err := api.ReadConfiguration(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err = api.SetProviderKey(t.Context(), ProviderKeySetup{Revision: before.Revision, Provider: "openrouter", Key: " private-api-key "})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -344,7 +348,7 @@ func TestProviderLoginFailuresAndCancellationNeverReportSuccess(t *testing.T) {
 			defer service.Close()
 			entered := make(chan struct{})
 			service.login = func(context.Context, func(string, string)) (providerLoginIdentity, error) {
-				return providerLoginIdentity{token: "private-token", teams: []inferencenet.Team{{ID: "team"}}}, nil
+				return providerLoginIdentity{token: "private-token", teams: []inferencenet.Team{{ID: "team"}, {ID: "other"}}}, nil
 			}
 			service.projects = func(ctx context.Context, _ string, _ inferencenet.Team) ([]inferencenet.Project, error) {
 				if stage == "projects" {
@@ -355,7 +359,7 @@ func TestProviderLoginFailuresAndCancellationNeverReportSuccess(t *testing.T) {
 					<-ctx.Done()
 					return nil, ctx.Err()
 				}
-				return []inferencenet.Project{{ID: "project"}}, nil
+				return []inferencenet.Project{{ID: "project"}, {ID: "other"}}, nil
 			}
 			service.create = func(context.Context, string, inferencenet.Team, string) (inferencenet.Project, error) {
 				return inferencenet.Project{}, errors.New("upstream leaked private-token")

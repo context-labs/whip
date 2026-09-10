@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 	"time"
@@ -95,11 +96,31 @@ func TestCatalogStale(t *testing.T) {
 	}
 }
 
+func TestCatalogDiscoveryVersionSurvivesRestart(t *testing.T) {
+	t.Setenv("WHIP_HOME", t.TempDir())
+	catalog := Catalog{FetchedAt: time.Now(), Models: []ModelInfoLite{{ID: "future-model"}}}
+	if !catalog.NeedsDiscovery() {
+		t.Fatal("legacy allowlist cache should refresh before TTL expiry")
+	}
+	if err := UpdateCatalog("cerebras", catalog); err != nil {
+		t.Fatal(err)
+	}
+	loaded := LoadCatalogs()["cerebras"]
+	if loaded.NeedsDiscovery() || loaded.Models[0].ID != "future-model" {
+		t.Fatalf("current cache did not survive disk round trip: %+v", loaded)
+	}
+	loaded.FetchedAt = time.Now().Add(-25 * time.Hour)
+	if !loaded.NeedsDiscovery() {
+		t.Fatal("current version bypassed TTL expiry")
+	}
+}
+
 func TestCatalogSupportsVision(t *testing.T) {
 	cat := Catalog{Models: []ModelInfoLite{
 		{ID: "vision", InputModalities: []string{"text", "image"}},
 		{ID: "textonly", InputModalities: []string{"text"}},
 		{ID: "unadvertised"},
+		{ID: "empty", InputModalities: []string{}},
 	}}
 	cases := []struct {
 		id            string
@@ -107,6 +128,7 @@ func TestCatalogSupportsVision(t *testing.T) {
 	}{
 		{"vision", true, true},
 		{"textonly", false, true},
+		{"empty", false, true},
 		{"unadvertised", false, false}, // no modalities -> caller falls back
 		{"missing", false, false},
 	}
@@ -139,5 +161,23 @@ func TestCatalogModelLimitsAndFreePrices(t *testing.T) {
 	}
 	if prices := catalog.ModelPricing("model"); !prices.Known() || prices.InputCacheRead != "0" {
 		t.Fatalf("free: %+v", prices)
+	}
+}
+
+func TestCatalogRoundTripPreservesEmptyCapabilities(t *testing.T) {
+	catalog := Catalog{Models: []ModelInfoLite{
+		{ID: "empty", ReasoningEfforts: []string{}, InputModalities: []string{}},
+		{ID: "unknown"},
+	}}
+	data, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Catalog
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Models[0].ReasoningEfforts == nil || got.Models[0].InputModalities == nil || got.Models[1].ReasoningEfforts != nil || got.Models[1].InputModalities != nil {
+		t.Fatalf("empty and unknown capabilities collapsed: %s", data)
 	}
 }

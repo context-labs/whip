@@ -183,12 +183,37 @@ export const manifest = {
       "result_type": "PermissionDecisionResult"
     },
     {
+      "name": "provider.create",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "configuration-revision",
+      "sensitive": true,
+      "params_type": "ProviderCreateParams",
+      "result_type": "ProviderConfiguration"
+    },
+    {
       "name": "provider.disconnect",
       "surface": "rpc",
       "execution": "ephemeral",
       "permission": "configuration-revision",
       "params_type": "ProviderDisconnectParams",
       "result_type": "ProviderStatus"
+    },
+    {
+      "name": "provider.discover",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-configuration",
+      "params_type": "ProviderListParams",
+      "result_type": "ProviderList"
+    },
+    {
+      "name": "provider.get",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-configuration",
+      "params_type": "ProviderNameParams",
+      "result_type": "ProviderConfiguration"
     },
     {
       "name": "provider.key.rotate",
@@ -213,7 +238,7 @@ export const manifest = {
       "surface": "rpc",
       "execution": "query",
       "permission": "host-configuration",
-      "params_type": "Empty",
+      "params_type": "ProviderListParams",
       "result_type": "ProviderList"
     },
     {
@@ -281,12 +306,29 @@ export const manifest = {
       "result_type": "ProviderStatus"
     },
     {
+      "name": "provider.remove",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "configuration-revision",
+      "params_type": "ProviderRemoveParams",
+      "result_type": "ProviderRemoveResult"
+    },
+    {
       "name": "provider.status",
       "surface": "rpc",
       "execution": "query",
       "permission": "host-configuration",
       "params_type": "ProviderNameParams",
       "result_type": "ProviderStatus"
+    },
+    {
+      "name": "provider.update",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "configuration-revision",
+      "sensitive": true,
+      "params_type": "ProviderUpdateParams",
+      "result_type": "ProviderConfiguration"
     },
     {
       "name": "provider.validate",

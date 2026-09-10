@@ -409,9 +409,11 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 		}
 		credentials := ctx.Value(subscriptionAuthKey{}).(openaiauth.Credentials)
 		body, err = encodeResponses(req, credentials.AccountID)
+	} else if c.apiResponses(req.Model) {
+		body, err = encodeResponsesWithLimit(req, c.apiResponseScope(), req.MaxTokens)
 	} else {
 		req.Messages = stripAuthored(req.Messages)
-		body, err = json.Marshal(req)
+		body, err = c.encodeChatRequest(req)
 	}
 	if err != nil {
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, nonRetryable{err})

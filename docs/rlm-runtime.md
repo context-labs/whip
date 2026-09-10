@@ -273,14 +273,26 @@ grants. `/permissions` (or `/permissions list`) prints the tree rules and the
 global allowlist; `/permissions forget <id>` deletes a tree rule.
 
 Permission mode belongs to the root session and persists across client and
-daemon restarts. `whip --yolo` saves automatic approval for the initially
-selected session, so each admission is approved as it arrives under the
-session's existing grants. `--cautious` saves approval prompts for that session;
+daemon restarts. `whip --yolo` saves Full Access for the initially selected
+session: ordinary file grants allow host paths outside the project and permission
+prompts are approved automatically. Explicit child path and operation ceilings
+still apply. `--cautious` saves approval prompts and the original project file
+boundary for that session;
 new sessions default to prompting. Switching sessions or reconnecting restores
 the selected session's saved mode. ACP also preserves the mode when loading a
 session and reflects changes made by other clients. Capabilities and budgets
 still apply; the mode cannot change while an agent is running. The terminal
 mode label shows `full access` while automatic approval is active.
+Changing the current directory never changes authority. Downgrading to Ask keeps
+the cwd but denies subsequent outside file/process operations until navigation
+returns to an allowed directory. Pending approvals are invalidated atomically;
+already running background processes are not retroactively sandboxed or killed.
+Project-instruction and skill discovery remains bounded by project context and
+the agent's current file authority. A denied cwd contributes no project context;
+global user instructions and configured user skills remain available. Explicitly
+invoked project skills are reauthorized before reading even when their catalog
+was cached before a downgrade. Shell execution has ordinary OS-user authority
+in either mode, subject to its existing consent gate.
 
 ## MCP
 
@@ -316,6 +328,12 @@ Omitted or zero values use these defaults:
 | `rlm.outputBytes` | 65,536 | captured cell output |
 | `rlm.frameBytes` | 1,048,576 | worker protocol frame |
 | `rlm.maxWorkers` | 4 | daemon-wide live kernels |
+
+The worker memory budget limits resident RAM. On Linux, the separate virtual
+address-space ceiling includes the Go runtime's measured startup reservations,
+the configured budget, and 4 GiB of growth allowance. This permits normal runtime
+allocations even when startup reservations exceed 4 GiB; the parent still enforces
+the configured RAM budget. The address-space ceiling remains finite.
 
 These are execution bounds. Durable budgets separately account for token,
 cost, elapsed, content, record, operation, child, schedule, and depth limits.
@@ -386,7 +404,7 @@ signal only to the PID currently holding that lock.
 
 `WHIP_HOME` replaces `~/.whip`. The pre-runtime-v2 database is not opened or
 migrated automatically; this is an intentional clean break. The current
-development schema is version 13 (`whip-recursive-runtime-v13`). Opening a
+development schema is version 14 (`whip-recursive-runtime-v14`). Opening a
 version 10 database performs a transactional, one-way upgrade that adds session
 archive state and updates catalog revision tracking in schema 11. The subsequent
 schema 11-to-12 transaction adds nullable, bounded last-turn outcomes per agent,
@@ -395,6 +413,11 @@ Schema 12-to-13 adds the session's durable permission mode, defaulting to Ask
 for existing sessions. Historical mode events do not resurrect past live choices.
 The migration emits the new mode so clients reconnecting through event replay
 also learn the default.
+Schema 13-to-14 preserves saved modes and tags valid bootstrap root file grants
+as session scope, retaining their original canonical path as the Ask boundary.
+Legacy child grants keep explicit paths because their creation records do not
+prove inheritance. Newly created default children record their issuer and inherit
+its live file scope. Revoked/expired grants are never revived by the migration.
 Runtime identity, agent IDs, history, configuration, command outcomes, and
 existing sessions are preserved; existing sessions start unarchived. Backfill
 leaves outcomes unknown when evidence is missing or pruned, externally stored

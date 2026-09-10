@@ -47,6 +47,7 @@ describe('PermissionModePicker', () => {
     render(f.ui);
     fireEvent.click(screen.getByRole('button', { name: 'Permission approval mode' }));
     const option = await screen.findByRole('option', { name: /Full Access/ });
+    expect(option.textContent).toContain('Access files outside this project and approve actions automatically');
     expect(screen.getByRole('option', { name: /Ask for approval/ }).getAttribute('aria-selected')).toBe('true');
     fireEvent.click(option);
     expect(f.setPermissionMode).toHaveBeenCalledWith(false);

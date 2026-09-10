@@ -38,6 +38,25 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := message.(type) {
+	case sessionPreparedMsg:
+		if m.startup == nil || m.startup != msg.owner || m.clientClosed {
+			return m, nil
+		}
+		m.startup.preparing = false
+		if msg.err != nil {
+			m.clientErr = msg.err
+			return m, m.toastError("Could not prepare the session: " + msg.err.Error() + ". Press Enter to retry.")
+		}
+		m.startup, m.clientErr = nil, nil
+		return m, m.clientReady()
+
+	case setupReply, setupPoll, setupInputMsg:
+		if m.providerSetup == nil {
+			return m, nil
+		}
+		_, cmd := m.providerSetup.Update(msg)
+		return m, m.finishProviderSetup(cmd)
+
 	case clientExportMsg:
 		if msg.err != nil {
 			return m, m.toastError("export failed: " + msg.err.Error())
@@ -65,19 +84,10 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.clientState, m.clientErr = msg.State, msg.Err
 			if msg.State == ClientLive {
 				m.clientErr = nil
-				if !m.historyRequested {
-					m.historyRequested = true
-					commands = append(commands, m.requestHostSkills())
-					_, catalogsCommand := m.submitClientAction("provider.catalogs", map[string]string{}, "")
-					commands = append(commands, catalogsCommand)
-					_, command := m.submitClientAction("history.user.list", map[string]string{}, "")
-					commands = append(commands, command)
-				}
-				if m.initialPrompt != "" {
-					text := m.initialPrompt
-					m.initialPrompt = ""
-					_, command := m.submitClientAction("submit", map[string]string{"text": text}, text)
-					commands = append(commands, command)
+				if m.startup != nil {
+					commands = append(commands, m.advanceStartup())
+				} else {
+					commands = append(commands, m.clientReady())
 				}
 			}
 		}
@@ -96,6 +106,19 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(waitClientUpdate(m.client), m.requestClientSnapshot())
 		}
 		if msg.closed {
+			m.clientClosed = true
+			if m.clientErr == nil {
+				m.clientErr = netClosedError{}
+			}
+			if m.providerSetup != nil {
+				m.providerSetup.input.Reset()
+				m.providerSetup.cancel()
+				m.providerSetup = nil
+			}
+			if m.startup != nil {
+				m.startup.creating, m.startup.preparing = false, false
+			}
+			m.append(errStyle.Render("Connection ended: " + m.clientErr.Error() + ". Use /quit and relaunch Whip to retry."))
 			return m, nil
 		}
 		commands = append(commands, waitClientUpdate(m.client))
@@ -112,6 +135,10 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case clientCommandMsg:
 		m.clientInFlight = max(m.clientInFlight-1, 0)
 		succeeded := msg.err == nil && msg.result.Error == "" && msg.result.Status == "succeeded"
+		if succeeded && msg.action.Operation == "session.model" {
+			_, catalogs := m.submitClientAction("provider.catalogs", map[string]string{}, "")
+			return m, tea.Batch(m.requestClientSnapshot(), catalogs)
+		}
 		if succeeded && msg.action.Operation == "session.list" {
 			var metas []session.Meta
 			if err := json.Unmarshal([]byte(msg.result.Output), &metas); err != nil {
@@ -162,6 +189,7 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				if result.Providers != nil {
+					m.providersLoaded = true
 					m.cfg.Providers = make(map[string]config.Provider, len(result.Providers))
 					for name, provider := range result.Providers {
 						if provider.Available != nil && !*provider.Available {
@@ -180,15 +208,10 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.verboseCatalogs = false
-			if m.reloadAfterCatalogs {
-				m.reloadAfterCatalogs = false
-				return m.submitClientAction("session.reload", map[string]string{}, "")
-			}
 			return m, nil
 		}
 		if msg.action.Operation == "provider.catalogs" && !succeeded {
 			m.verboseCatalogs = false
-			m.reloadAfterCatalogs = false
 		}
 		if succeeded && msg.action.Operation == "agent.submit" {
 			var result daemon.AgentSubmitResult
@@ -382,6 +405,9 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyCfgSync(msg)
 		return m, nil
 	case tea.WindowSizeMsg:
+		if m.providerSetup != nil {
+			m.providerSetup.Update(msg)
+		}
 		m.termWidth, m.height = msg.Width, msg.Height
 		m.recalcWidth()
 		return m, nil
@@ -419,6 +445,10 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshVP()
 		return m, nil
 	case tea.PasteMsg:
+		if m.providerSetup != nil {
+			_, cmd := m.providerSetup.Update(msg)
+			return m, cmd
+		}
 		m.sel = nil
 		return m.thinPaste(msg)
 	case tea.KeyPressMsg:
@@ -486,24 +516,6 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishTool(msg)
 		return m, nil
 
-	case authResultMsg:
-		if m.applyAuthResult(msg) {
-			m.reloadAfterCatalogs = true
-			return m.submitClientAction("provider.catalogs", map[string]string{}, "")
-		}
-		return m, nil
-	case inferenceNetLoginMsg:
-		if m.applyInferenceNetLogin(msg) {
-			m.reloadAfterCatalogs = true
-			return m.submitClientAction("provider.catalogs", map[string]string{}, "")
-		}
-		return m, nil
-	case inferenceNetKeyMsg:
-		if m.applyInferenceNetKey(msg) {
-			m.reloadAfterCatalogs = true
-			return m.submitClientAction("provider.catalogs", map[string]string{}, "")
-		}
-		return m, nil
 	case meEditedMsg:
 		if msg.err != nil {
 			m.append(errStyle.Render("/me: editor failed: " + msg.err.Error()))

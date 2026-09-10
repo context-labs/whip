@@ -12,6 +12,9 @@
     },
     "provider": {
       "type": "string"
+    },
+    "permission_mode": {
+      "type": "string"
     }
   },
   "$id": "https://whip.dev/protocol/v5/CreateSessionParams",

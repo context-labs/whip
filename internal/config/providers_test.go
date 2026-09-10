@@ -10,8 +10,16 @@ func isolateProviderEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("WHIP_HOME", t.TempDir())
-	t.Setenv(InferenceNetEnvVar, "")
-	t.Setenv(OpenRouterEnvVar, "")
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, name := range []string{"OPENAI_BASE_URL", "OPENAI_API_BASE"} {
+		t.Setenv(name, "")
+	}
+	for _, preset := range ProviderPresets() {
+		for _, name := range preset.EnvironmentVariables {
+			t.Setenv(name, "")
+		}
+	}
 }
 
 func TestEffectiveProvidersNeverPersistDiscovery(t *testing.T) {
@@ -134,5 +142,80 @@ func TestProviderAccountFallbackOnlyUsesItsOwnEndpoint(t *testing.T) {
 	route.BaseURL = "https://api.inference.net.attacker.example/v1"
 	if status := route.KeyStatus(); status.Available {
 		t.Fatal("account key leaked to lookalike endpoint")
+	}
+}
+
+func TestProviderPresetsHaveIndependentMetadata(t *testing.T) {
+	presets := ProviderPresets()
+	if len(presets) != 11 || presets[0].ID != InferenceNetProvider || !presets[0].Recommended {
+		t.Fatal("unexpected preset inventory")
+	}
+	seen := map[string]bool{}
+	for _, preset := range presets {
+		if seen[preset.ID] || preset.Category == "" || preset.Provider.BaseURL == "" {
+			t.Fatal("duplicate or incomplete preset")
+		}
+		seen[preset.ID] = true
+		if preset.Provider.API == "openai-completions" && (len(preset.EnvironmentVariables) == 0 || preset.EnvironmentVariables[0] != preset.Provider.APIKeyEnv || preset.KeyURL == "") {
+			t.Fatal("API preset is missing connection metadata")
+		}
+	}
+	presets[0].EnvironmentVariables[0], presets[0].Methods[0] = "changed", "changed"
+	if ProviderPresets()[0].EnvironmentVariables[0] != InferenceNetEnvVar || ProviderPresets()[0].Methods[0] != "login" {
+		t.Fatal("preset metadata aliases caller memory")
+	}
+}
+
+func TestProviderEnvironmentAliasesAndRoutingGuard(t *testing.T) {
+	isolateProviderEnvironment(t)
+	var deepinfra, openai ProviderPreset
+	for _, preset := range ProviderPresets() {
+		switch preset.ID {
+		case "deepinfra":
+			deepinfra = preset
+		case "openai":
+			openai = preset
+		}
+	}
+	t.Setenv("DEEPINFRA_TOKEN", "alias-fixture")
+	if status := deepinfra.Provider.KeyStatus(); !status.Available || status.Environment != "DEEPINFRA_TOKEN" {
+		t.Fatalf("alias unavailable: %+v", status)
+	}
+	t.Setenv("DEEPINFRA_API_KEY", "primary-fixture")
+	if key, _ := deepinfra.Provider.ResolveKey(); key != "primary-fixture" {
+		t.Fatal("alias took precedence over primary")
+	}
+	explicit := deepinfra.Provider
+	explicit.APIKeyEnv = "MISSING_EXPLICIT_PROVIDER_KEY"
+	if explicit.KeyStatus().Available {
+		t.Fatal("preset alias replaced explicit reference")
+	}
+	explicit = deepinfra.Provider
+	explicit.BaseURL = "https://proxy.example/v1"
+	t.Setenv("DEEPINFRA_API_KEY", "")
+	if explicit.KeyStatus().Available {
+		t.Fatal("preset alias used at custom endpoint")
+	}
+	t.Setenv("OPENAI_API_KEY", "openai-fixture")
+	for _, endpoint := range []string{"", "https://api.openai.com/v1", "https://api.openai.com/v1/", "https://proxy.example/v1"} {
+		t.Run(endpoint, func(t *testing.T) {
+			t.Setenv("OPENAI_BASE_URL", endpoint)
+			want := endpoint != "https://proxy.example/v1"
+			if openai.Provider.KeyStatus().Available != want || (openai.AvailableEnvironmentVariable() != "") != want {
+				t.Fatal("OpenAI environment routing guard disagrees with discovery")
+			}
+			key, err := openai.Provider.ResolveKey()
+			if err != nil || (key != "") != want {
+				t.Fatal("OpenAI runtime ignored environment routing guard")
+			}
+		})
+	}
+	t.Setenv("OPENAI_API_BASE", "https://proxy.example/v1")
+	if openai.Provider.KeyStatus().Available {
+		t.Fatal("legacy OpenAI base override ignored")
+	}
+	openai.Provider.APIKeyEnv, openai.Provider.APIKey = "", "explicit-fixture"
+	if key, _ := openai.Provider.ResolveKey(); key != "explicit-fixture" {
+		t.Fatal("endpoint guard overrode explicit saved key")
 	}
 }

@@ -34,6 +34,15 @@ func (s *Store) SetPermissionMode(ctx context.Context, rootID, mode string) erro
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	var previous string
+	if err := tx.QueryRowContext(ctx, `SELECT permission_mode FROM sessions WHERE id=?`, rootID).Scan(&previous); err != nil {
+		return err
+	}
+	if previous != mode {
+		if err := s.cancelPendingPermissionsTx(ctx, tx, rootID, "", "", "denied", "session-policy", "permission mode changed"); err != nil {
+			return err
+		}
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE sessions SET permission_mode=? WHERE id=?`, mode, rootID)
 	if err != nil {
 		return fmt.Errorf("save permission mode: %w", err)

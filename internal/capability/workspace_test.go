@@ -9,6 +9,76 @@ import (
 	"time"
 )
 
+func TestWorkspaceLockRevalidatesAfterWaiting(t *testing.T) {
+	for _, confined := range []bool{false, true} {
+		name := "canonical"
+		if confined {
+			name = "confined"
+		}
+		t.Run(name, func(t *testing.T) {
+			base := t.TempDir()
+			inside := filepath.Join(base, "inside")
+			outside := filepath.Join(base, "outside")
+			if err := os.Mkdir(inside, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			workspaces := NewWorkspaces()
+			workspace, err := workspaces.Open(inside)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(workspace.Root(), "target")
+			lockPath := workspace.LockCanonicalPath
+			if confined {
+				lockPath = workspace.LockPath
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			_, release, err := lockPath(ctx, target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+			done := make(chan error, 1)
+			go func() {
+				_, unlock, lockErr := lockPath(ctx, target)
+				if unlock != nil {
+					unlock()
+				}
+				done <- lockErr
+			}()
+			for {
+				workspaces.mu.Lock()
+				waiting := workspaces.path[target].refs == 2
+				workspaces.mu.Unlock()
+				if waiting {
+					break
+				}
+				if ctx.Err() != nil {
+					t.Fatal("second mutation did not wait for the path lock")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if err := os.Symlink(outside, target); err != nil {
+				t.Fatal(err)
+			}
+			release()
+			if err := <-done; !errors.Is(err, ErrStaleAdmission) {
+				t.Fatalf("retargeted mutation error = %v, want stale admission", err)
+			}
+			workspaces.mu.Lock()
+			remaining := len(workspaces.path)
+			workspaces.mu.Unlock()
+			if remaining != 0 {
+				t.Fatalf("stale mutation leaked %d path locks", remaining)
+			}
+		})
+	}
+}
+
 func TestWorkspaceResolve(t *testing.T) {
 	parent := t.TempDir()
 	realRoot := filepath.Join(parent, "root")
@@ -68,6 +138,90 @@ func TestWorkspaceResolve(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCanonicalizeOutsideRoot(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	root := filepath.Join(parent, "project")
+	outside := filepath.Join(parent, "sibling")
+	for _, dir := range []string{root, outside} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	w, err := NewWorkspaces().Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalOutside, err := filepath.EvalSymlinks(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "absolute directory", path: outside, want: canonicalOutside},
+		{
+			name: "relative sibling with missing leaves",
+			path: filepath.Join("..", "sibling", "missing", "file.txt"),
+			want: filepath.Join(canonicalOutside, "missing", "file.txt"),
+		},
+		{
+			name: "symlink with missing leaves",
+			path: filepath.Join("alias", "missing", "file.txt"),
+			want: filepath.Join(canonicalOutside, "missing", "file.txt"),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := w.Canonicalize(test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("Canonicalize(%q) = %q, want %q", test.path, got, test.want)
+			}
+			if _, err := w.Resolve(test.path); err == nil {
+				t.Fatal("Resolve accepted an outside path")
+			}
+			if _, release, err := w.LockPath(t.Context(), test.path); err == nil {
+				release()
+				t.Fatal("LockPath accepted an outside path")
+			}
+		})
+	}
+}
+
+func TestWorkspaceRejectsDanglingSymlink(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	root := filepath.Join(parent, "project")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(parent, "missing"), filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	w, err := NewWorkspaces().Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"alias", filepath.Join("alias", "new-file")} {
+		t.Run(path, func(t *testing.T) {
+			if _, err := w.Canonicalize(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("Canonicalize(%q) error = %v, want unresolved symlink error", path, err)
+			}
+			if _, err := w.Resolve(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("Resolve(%q) error = %v, want unresolved symlink error", path, err)
+			}
+		})
+	}
+}
+
 func TestWorkspaceLocks(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "dir")
@@ -121,6 +275,62 @@ func TestWorkspaceLocks(t *testing.T) {
 	releaseAlias()
 }
 
+func TestWorkspaceCanonicalLocksSharedAcrossProjects(t *testing.T) {
+	t.Parallel()
+	parent := t.TempDir()
+	firstRoot := filepath.Join(parent, "first")
+	secondRoot := filepath.Join(parent, "second")
+	shared := filepath.Join(parent, "shared")
+	for _, dir := range []string{firstRoot, secondRoot, shared} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(shared, filepath.Join(secondRoot, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	workspaces := NewWorkspaces()
+	first, err := workspaces.Open(firstRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := workspaces.Open(secondRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("..", "shared", "missing", "file.txt")
+	alias := filepath.Join("alias", "missing", "file.txt")
+	canonical, unlock, err := first.LockCanonicalPath(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(unlock)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	if _, release, err := second.LockCanonicalPath(ctx, alias); !errors.Is(err, context.DeadlineExceeded) {
+		if release != nil {
+			release()
+		}
+		t.Fatalf("same canonical path lock error = %v, want deadline exceeded", err)
+	}
+	_, releaseOther, err := second.LockCanonicalPath(t.Context(), filepath.Join("alias", "other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseOther()
+
+	unlock()
+	got, release, err := second.LockCanonicalPath(t.Context(), alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if got != canonical {
+		t.Fatalf("second workspace locked %q, want %q", got, canonical)
+	}
+}
+
 func TestWorkspaceFilesystemErrors(t *testing.T) {
 	root := t.TempDir()
 	rootFile := filepath.Join(root, "file")
@@ -142,6 +352,9 @@ func TestWorkspaceFilesystemErrors(t *testing.T) {
 	if _, err := w.Resolve("loop"); err == nil {
 		t.Fatal("Resolve accepted a symlink loop")
 	}
+	if _, err := w.Canonicalize("loop"); err == nil {
+		t.Fatal("Canonicalize accepted a symlink loop")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -150,6 +363,12 @@ func TestWorkspaceFilesystemErrors(t *testing.T) {
 	}
 	if len(workspaces.path) != 0 {
 		t.Fatalf("canceled LockPath leaked %d path locks", len(workspaces.path))
+	}
+	if _, _, err := w.LockCanonicalPath(ctx, "new-file"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("LockCanonicalPath error = %v, want context.Canceled", err)
+	}
+	if len(workspaces.path) != 0 {
+		t.Fatalf("canceled LockCanonicalPath leaked %d path locks", len(workspaces.path))
 	}
 }
 

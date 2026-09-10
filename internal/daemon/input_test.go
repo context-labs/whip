@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/png"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	sessionstore "github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
@@ -45,6 +47,89 @@ func TestPrepareAuthoredInputExpandsSkillsAndWorkspaceMentions(t *testing.T) {
 	if len(parts) != 0 || !strings.Contains(text, filepath.Join(workspace, "notes.go")+" (lines 1)") ||
 		!strings.Contains(text, `<invoked_skill name="review"`) || !strings.Contains(text, "Review carefully.") {
 		t.Fatalf("expanded input=%q parts=%+v", text, parts)
+	}
+}
+
+func TestPrepareAuthoredInputOverrideSkillFallbackUsesCurrentAuthority(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("WHIP_HOME", t.TempDir())
+	workspace := t.TempDir()
+	writeDaemonPromptFile(t, filepath.Join(workspace, ".agents", "skills", "broken", "SKILL.md"), "malformed metadata")
+	node := storeBackedInputSession(t, workspace)
+	node.root.authority = node.authority
+	node.promptOverride = "CUSTOM_ROOT_PROMPT"
+	if err := node.refreshPrompt(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if text, _, err := node.prepareAuthoredInput(t.Context(), "plain input", nil); err != nil || text != "plain input" {
+		t.Fatalf("input without skill invocation scanned an unrelated broken catalog: text=%q error=%v", text, err)
+	}
+	outside := t.TempDir()
+	writeDaemonPromptFile(t, filepath.Join(outside, ".agents", "skills", "outside", "SKILL.md"), "malformed metadata")
+	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "skills", "global", "SKILL.md"), "---\nname: global\ndescription: global rule\n---\nGLOBAL_SKILL_BODY")
+	node.agent.WorkingDir = outside
+	text, _, err := node.prepareAuthoredInput(t.Context(), "$global please", nil)
+	if err != nil || !strings.Contains(text, "GLOBAL_SKILL_BODY") {
+		t.Fatalf("scoped override fallback lost global skill: text=%q error=%v", text, err)
+	}
+	if text, _, err := node.prepareAuthoredInput(t.Context(), "$outside please", nil); err != nil || text != "$outside please" {
+		t.Fatalf("fallback read an unauthorized project catalog: text=%q error=%v", text, err)
+	}
+}
+
+func TestPrepareAuthoredInputRechecksCachedProjectSkills(t *testing.T) {
+	for _, change := range []string{"mode downgrade", "symlink retarget"} {
+		t.Run(change, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("WHIP_HOME", t.TempDir())
+			workspace := t.TempDir()
+			outside := t.TempDir()
+			node := storeBackedInputSession(t, workspace)
+			node.root.authority = node.authority
+			skillPath := filepath.Join(workspace, ".agents", "skills", "local", "SKILL.md")
+			body := "---\nname: local\ndescription: local rule\n---\nPROJECT_SKILL_BODY"
+			if change == "mode downgrade" {
+				node.agent.WorkingDir = outside
+				skillPath = filepath.Join(outside, ".agents", "skills", "local", "SKILL.md")
+				writeDaemonPromptFile(t, skillPath, body)
+				if err := node.root.store.SetPermissionMode(t.Context(), node.id, sessionstore.PermissionModeAutomatic); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				target := filepath.Join(workspace, "local.md")
+				writeDaemonPromptFile(t, target, body)
+				if err := os.MkdirAll(filepath.Dir(skillPath), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, skillPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := node.refreshPrompt(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if len(node.prompt.Skills) != 1 {
+				t.Fatalf("fixture did not cache the project skill: %+v", node.prompt.Skills)
+			}
+			if change == "mode downgrade" {
+				if err := node.root.store.SetPermissionMode(t.Context(), node.id, sessionstore.PermissionModePrompt); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				target := filepath.Join(outside, "retargeted.md")
+				writeDaemonPromptFile(t, target, "FORBIDDEN_SKILL_BODY")
+				if err := os.Remove(skillPath); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, skillPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			text, parts, err := node.prepareAuthoredInput(t.Context(), "$local please", nil)
+			if !errors.Is(err, capability.ErrDenied) || text != "" || len(parts) != 0 {
+				t.Fatalf("cached skill bypassed current authority: text=%q parts=%d error=%v", text, len(parts), err)
+			}
+		})
 	}
 }
 
@@ -116,7 +201,7 @@ func TestPrepareAuthoredInputUsesCurrentPersistedFileCapability(t *testing.T) {
 	}
 }
 
-func TestPrepareAuthoredInputNeverEscapesWorkspace(t *testing.T) {
+func TestPrepareAuthoredInputDetachedSessionRemainsProjectScoped(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	parent := t.TempDir()
 	workspace := filepath.Join(parent, "work")
@@ -128,18 +213,113 @@ func TestPrepareAuthoredInputNeverEscapesWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := inputTestSession(t, workspace)
-	text, _, err := session.prepareAuthoredInput(context.Background(), "inspect @../secret.txt", nil)
+	text, parts, err := session.prepareAuthoredInput(context.Background(), "inspect @../secret.txt", nil)
+	if err == nil || !strings.Contains(err.Error(), "file capability") || text != "" || len(parts) != 0 {
+		t.Fatalf("detached session accepted outside mention: text=%q parts=%d error=%v", text, len(parts), err)
+	}
+}
+
+func TestPrepareAuthoredInputOutsideMentionsFollowSavedMode(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(text, "secret payload") || strings.Contains(text, "the user tagged") {
-		t.Fatalf("outside-workspace file was expanded: %q", text)
+	workspace := filepath.Join(parent, "project")
+	outside := filepath.Join(parent, "sibling")
+	for _, dir := range []string{workspace, outside} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	imagePath := filepath.Join(outside, "shot.png")
+	notePath := filepath.Join(outside, "notes.txt")
+	insidePath := filepath.Join(workspace, "inside.txt")
+	for _, path := range []string{imagePath, notePath, insidePath} {
+		if err := os.WriteFile(path, []byte("fixture payload"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	node := storeBackedInputSession(t, workspace)
+	for _, mode := range []struct {
+		name  string
+		value string
+		allow bool
+	}{
+		{name: "initial Ask", value: sessionstore.PermissionModePrompt},
+		{name: "Full Access", value: sessionstore.PermissionModeAutomatic, allow: true},
+		{name: "downgraded Ask", value: sessionstore.PermissionModePrompt},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			if err := node.root.store.SetPermissionMode(t.Context(), node.id, mode.value); err != nil {
+				t.Fatal(err)
+			}
+			for _, mention := range []struct {
+				name   string
+				value  string
+				path   string
+				images int
+			}{
+				{name: "absolute image", value: imagePath, path: imagePath, images: 1},
+				{name: "relative image", value: "../sibling/shot.png", path: imagePath, images: 1},
+				{name: "symlink image", value: "alias/shot.png", path: imagePath, images: 1},
+				{name: "regular file", value: notePath, path: notePath},
+			} {
+				t.Run(mention.name, func(t *testing.T) {
+					text, parts, err := node.prepareAuthoredInput(t.Context(), "inspect @"+mention.value, nil)
+					if !mode.allow {
+						if !errors.Is(err, capability.ErrDenied) || text != "" || len(parts) != 0 {
+							t.Fatalf("outside mention should be denied: text=%q parts=%d error=%v", text, len(parts), err)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, note, _ := strings.Cut(text, "[note:")
+					if !strings.Contains(note, mention.path) || len(parts) != mention.images {
+						t.Fatalf("outside mention was not expanded: text=%q parts=%d", text, len(parts))
+					}
+				})
+			}
+		})
+	}
+	// A downgrade keeps cwd but must allow an absolute authorized target.
+	node.agent.WorkingDir = outside
+	if _, _, err := node.prepareAuthoredInput(t.Context(), "inspect @"+insidePath, nil); err != nil {
+		t.Fatalf("authorized mention from outside cwd: %v", err)
+	}
+}
+
+func TestPrepareAuthoredInputFullAccessKeepsFuzzyMentionsInProject(t *testing.T) {
+	parent := t.TempDir()
+	workspace := filepath.Join(parent, "project")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(parent, "outside-needle.txt")
+	if err := os.WriteFile(outside, []byte("external payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "alias-needle.txt")); err != nil {
+		t.Fatal(err)
+	}
+	node := storeBackedInputSession(t, workspace)
+	if err := node.root.store.SetPermissionMode(t.Context(), node.id, sessionstore.PermissionModeAutomatic); err != nil {
+		t.Fatal(err)
+	}
+	input := "inspect @needle"
+	text, parts, err := node.prepareAuthoredInput(t.Context(), input, nil)
+	if err != nil || text != input || len(parts) != 0 {
+		t.Fatalf("fuzzy mention searched outside the project: text=%q parts=%d error=%v", text, len(parts), err)
 	}
 }
 
 // The TUI saves clipboard images under <config dir>/pastes and tags them by
-// absolute path; that directory is the one out-of-workspace source a mention
-// may attach, and the workspace-scoped file grant must not reject it.
+// absolute path. This exception also works in Ask, but still needs a live read
+// capability and does not cover other outside images or regular files.
 func TestPrepareAuthoredInputAttachesPastedImagesOnly(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
@@ -156,7 +336,7 @@ func TestPrepareAuthoredInputAttachesPastedImagesOnly(t *testing.T) {
 		}
 	}
 	node := storeBackedInputSession(t, t.TempDir())
-	text, parts, err := node.prepareAuthoredInput(context.Background(), "look at @"+pasted+" @"+elsewhere+" @"+notes, nil)
+	text, parts, err := node.prepareAuthoredInput(context.Background(), "look at @"+pasted, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +344,17 @@ func TestPrepareAuthoredInputAttachesPastedImagesOnly(t *testing.T) {
 	if len(parts) != 1 || !strings.Contains(note, "shot.png (attached image)") ||
 		strings.Contains(note, "elsewhere") || strings.Contains(note, "notes.txt") {
 		t.Fatalf("paste expansion text=%q parts=%d", text, len(parts))
+	}
+	for _, path := range []string{elsewhere, notes} {
+		if _, _, err := node.prepareAuthoredInput(t.Context(), "inspect @"+path, nil); !errors.Is(err, capability.ErrDenied) {
+			t.Fatalf("non-paste mention %q error=%v, want scope denial", path, err)
+		}
+	}
+	if _, err := node.root.store.RevokeCapabilityFor(t.Context(), node.id, node.id, node.authority.Files.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := node.prepareAuthoredInput(t.Context(), "inspect @"+pasted, nil); !errors.Is(err, capability.ErrDenied) {
+		t.Fatalf("pasted image bypassed revoked read capability: %v", err)
 	}
 }
 

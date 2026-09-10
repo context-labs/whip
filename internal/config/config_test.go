@@ -1,8 +1,11 @@
 package config
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,6 +19,11 @@ func TestLoadSaveDefaults(t *testing.T) {
 	}
 	if cfg.DefaultModel != "kimi-k3-fast" || cfg.Providers["inference-net"].BaseURL != "https://api.inference.net/v1" {
 		t.Fatalf("defaults: %+v", cfg)
+	}
+	if cfg.MCPImport == nil || cfg.MCPImport.Claude == nil || cfg.MCPImport.Codex == nil ||
+		cfg.MCPImport.Claude.Enabled == nil || *cfg.MCPImport.Claude.Enabled ||
+		cfg.MCPImport.Codex.Enabled == nil || *cfg.MCPImport.Codex.Enabled {
+		t.Fatal("fresh installs must leave external MCP imports opt-in")
 	}
 	cfg.DefaultModel = "glm-5.2-fast"
 	if err := cfg.Save(); err != nil {
@@ -418,37 +426,6 @@ func TestLogEventNeverFails(t *testing.T) {
 	LogEvent("config.load", "should not panic or error")
 }
 
-// The first-run signal the wizard triggers on: no config file AND no
-// setup-done marker. A subcommand's Load on a fresh install creates the
-// config but never the marker — so the wizard still offers on the first
-// interactive launch.
-func TestSetupDoneMarker(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
-	if SetupDone() {
-		t.Fatal("a fresh WHIP_HOME should report setup-not-done")
-	}
-	if _, err := Load(); err != nil { // what a subcommand does
-		t.Fatal(err)
-	}
-	if !Exists() {
-		t.Fatal("Load should have written the config")
-	}
-	if SetupDone() {
-		t.Fatal("a subcommand's Load must not mark setup done — the wizard would never run")
-	}
-	MarkSetupDone()
-	if !SetupDone() {
-		t.Fatal("the marker should report done")
-	}
-	// And the wizard completing is what writes it: prove the file shape.
-	dir, _ := Dir()
-	if _, err := os.Stat(filepath.Join(dir, "setup.done")); err != nil {
-		t.Fatalf("setup.done should exist: %v", err)
-	}
-}
-
-// ContextWindow prefers the new `context` field but falls back to the legacy
-// `maxTokens` for configs written before the rename.
 func TestContextWindowBackCompat(t *testing.T) {
 	if got := (Model{Context: 200000}).ContextWindow(); got != 200000 {
 		t.Fatalf("context field: %d", got)
@@ -532,5 +509,65 @@ func TestSnapshotIsolatesMaps(t *testing.T) {
 	}
 	if len(snap.Providers) != len(Default().Providers) || len(snap.Models) != len(Default().Models) {
 		t.Fatal("snapshot should carry the original entries")
+	}
+}
+
+func TestSourcesOnlyRecoveryPreservesProviderOptOuts(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		supplied bool
+		disabled []string
+		want     []string
+	}{
+		{name: "omitted preserves backup", want: []string{"openrouter"}},
+		{name: "explicit empty clears backup", supplied: true, disabled: []string{}, want: []string{}},
+		{name: "explicit replacement wins", supplied: true, disabled: []string{"cerebras"}, want: []string{"cerebras"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			isolateProviderEnvironment(t)
+			t.Setenv("OPENROUTER_API_KEY", "fixture-router")
+			cfg := Default()
+			cfg.DisabledProviders = []string{"openrouter"}
+			if err := cfg.Save(); err != nil {
+				t.Fatal(err)
+			}
+			filename, err := path()
+			if err != nil {
+				t.Fatal(err)
+			}
+			backup, err := os.ReadFile(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filename+".bak", backup, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			keyfile := writeProviderFixture(t, t.TempDir(), "cerebras.key", "fixture-cerebras")
+			sourceOnly := map[string]any{"providerKeySources": ProviderKeySources{KeyFiles: map[string]string{"CEREBRAS_API_KEY": keyfile}}}
+			if test.supplied {
+				sourceOnly["disabledProviders"] = test.disabled
+			}
+			data, err := json.Marshal(sourceOnly)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filename, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			restored, _, err := PersistDiscoveredProviders(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(restored.DisabledProviders, test.want) {
+				t.Fatalf("recovery opt-outs = %v; want %v", restored.DisabledProviders, test.want)
+			}
+			if restored.ProviderKeySources.KeyFiles["CEREBRAS_API_KEY"] != keyfile {
+				t.Fatal("recovery lost key sources")
+			}
+			_, routerAdded := restored.Providers["openrouter"]
+			if routerAdded == slices.Contains(test.want, "openrouter") {
+				t.Fatal("discovery ignored recovered provider opt-out")
+			}
+		})
 	}
 }

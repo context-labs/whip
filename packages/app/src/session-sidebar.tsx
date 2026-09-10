@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type ReactNode, type RefObject } from 'react';
-import { Link, useLocation } from '@tanstack/react-router';
+import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useWhipConnection, useSessionListView } from '@whip/sdk/react';
 import type { WhipClient } from '@whip/sdk';
@@ -14,7 +14,7 @@ import { layout } from './styles';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { sessionBusy, sessionNeedsInput } from './session-status';
 import { sidebarRows, setDirectoryCollapsed, type SidebarState } from './sidebar-state';
-import { sessionDestination } from './session-tab-routing';
+import { openNewChat, sessionDestination } from './session-tab-routing';
 import type { HostConnection } from './hosts';
 import { useSessionActions } from './session-actions';
 import { sessionSearch } from './session-tabs';
@@ -62,6 +62,8 @@ function HostSection({ host, ...props }: SidebarProps & SidebarScroll & { host: 
   </section>;
 }
 function SidebarDestinations({ onNavigate, onSearch, headerAction, inset }: { onNavigate(): void; onSearch(status?: 'active' | 'archived' | 'all'): void; headerAction?: ReactNode; inset?: boolean; }) {
+  const runtime = useRuntime();
+  const navigate = useNavigate();
   // Inset window chrome (desktop): the brand row is an empty drag strip for
   // the traffic lights and the wordmark sits below it in the sidebar body,
   // aligned with the nav icons. Browsers keep it as the home link in the row.
@@ -73,7 +75,11 @@ function SidebarDestinations({ onNavigate, onSearch, headerAction, inset }: { on
     </div>
     {inset && <div {...stylex.props(styles.wordmarkBelow)}>{wordmark}</div>}
     <nav aria-label="Main navigation" {...stylex.props(styles.destinations)}>
-      <Link to="/" search={{}} onClick={onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Plus size={16} />New session</Link>
+      <Link to="/" search={{ new: 1 }} preload={false} onClick={event => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        if (openNewChat(runtime, navigate)) onNavigate();
+      }} {...stylex.props(styles.destination, styles.primaryDestination)}><Plus size={16} />New session</Link>
       <button onClick={() => onSearch()} {...stylex.props(styles.destination, styles.primaryDestination)}><Search size={16} />Search sessions</button>
       <button onClick={() => onSearch('archived')} {...stylex.props(styles.destination, styles.primaryDestination)}><Archive size={16} />Archived sessions</button>
       <Link id="whip-settings-link" to="/settings" onClick={onNavigate} {...stylex.props(styles.destination, styles.primaryDestination)}><Settings2 size={16} />Settings</Link>
@@ -117,6 +123,7 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, scrol
 }) {
   const runtime = useRuntime();
   const actions = useSessionActions();
+  const navigate = useNavigate();
   useSessionTabs();
   const connection = useWhipConnection(client);
   const runtimeId = connection.info?.runtime_id ?? '';
@@ -235,7 +242,11 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, scrol
             onClick={() => onCollapse?.(item.cwd, !collapsed.includes(item.cwd))} {...stylex.props(styles.destination, styles.groupButton, layout.grow)}>
             <span {...stylex.props(layout.ellipsis)}>{item.label}</span><span data-directory-caret {...stylex.props(styles.caret, hoveredDirectory === item.cwd && styles.revealed)}>{collapsed.includes(item.cwd) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</span>
           </button>
-          {item.cwd && <Link to="/" search={{ cwd: item.cwd, runtimeId }} onClick={event => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0) onNavigate(); }}
+          {item.cwd && <Link to="/" search={{ new: 1, cwd: item.cwd, runtimeId }} preload={false} onClick={event => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            if (openNewChat(runtime, navigate, { cwd: item.cwd, runtimeId })) onNavigate();
+          }}
             aria-label={`New session in ${item.cwd}`} title={`New session in ${item.cwd}`} {...stylex.props(styles.destination, styles.icon)}><Plus size={14} /></Link>}
         </div>;
         const session = item.session;

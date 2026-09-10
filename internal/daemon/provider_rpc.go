@@ -37,10 +37,35 @@ func (s *Server) handleProvider(connection *serverConn, request rpcMessage) (any
 	var result any
 	var err error
 	switch request.Method {
-	case "provider.list":
-		var p struct{}
+	case "provider.discover":
+		var p protocol.ProviderListParams
 		if err = decodeProviderParams(request.Params, &p); err == nil {
-			result, err = s.providers.ListProviders()
+			result, err = s.providers.DiscoverProviders(connection.ctx, p.Model, p.Provider)
+		}
+	case "provider.list":
+		var p protocol.ProviderListParams
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.ListProvidersFor(p.Model, p.Provider)
+		}
+	case "provider.get":
+		var p protocol.ProviderNameParams
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.ReadProvider(p.Provider)
+		}
+	case "provider.create":
+		var p protocol.ProviderCreateParams
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.CreateProvider(connection.ctx, p)
+		}
+	case "provider.update":
+		var p protocol.ProviderUpdateParams
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.UpdateProvider(connection.ctx, p)
+		}
+	case "provider.remove":
+		var p protocol.ProviderRemoveParams
+		if err = decodeProviderParams(request.Params, &p); err == nil {
+			result, err = s.providers.RemoveProvider(connection.ctx, p)
 		}
 	case "provider.disconnect":
 		var p protocol.ProviderDisconnectParams

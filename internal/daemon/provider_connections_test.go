@@ -233,7 +233,7 @@ func TestProviderDisconnectDoesNotFallBackAndSurvivesRestart(t *testing.T) {
 		if key != "private-environment-key" {
 			t.Fatal("environment reconnection resolved the wrong key")
 		}
-		return []llm.ModelInfo{}, nil
+		return []llm.ModelInfo{{ID: "fixture-chat-model"}}, nil
 	}
 	current, err = restarted.ReadConfiguration()
 	if err != nil {

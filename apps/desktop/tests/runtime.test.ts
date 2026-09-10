@@ -88,6 +88,60 @@ test('explicit install publishes verified canonical bytes; test never starts a d
   assert.deepEqual(await readdir(path.dirname(f.executable)), ['whipcode']);
 });
 
+test('first-run default installation uses the selected missing path and waits for normal connection to start', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.runtime.installDefault(signal())).state, 'stopped');
+  assert.equal(await fileDigest(f.executable), f.manifest.files.whipcode.sha256);
+  assert.equal(JSON.parse(await readFile(f.settingsFile, 'utf8')).executable, f.executable);
+  await absent(f.home);
+  assert.doesNotMatch(await readFile(f.log, 'utf8'), /start:/);
+  assert.equal(await f.runtime.prepare(signal(), () => {}), f.socket);
+  assert.equal((await f.runtime.installDefault(signal())).state, 'running');
+  assert.equal((await readFile(f.log, 'utf8')).split('\n').filter(line => line.startsWith('start:')).length, 1);
+});
+
+test('a fresh user gets a writable per-user default without discovering a different machine installation', async t => {
+  const f = await fixture(t);
+  const original = fs.stat;
+  t.mock.method(fs, 'stat', async (...args: Parameters<typeof fs.stat>) => {
+    // This fixture represents a clean machine; never inspect the developer's installed binary.
+    if (typeof args[0] === 'string' && !args[0].startsWith(f.directory + path.sep))
+      throw Object.assign(new Error('fixture missing path'), { code: 'ENOENT' });
+    return original(...args);
+  });
+  const runtime = new LocalRuntime({ ...f.opts, defaultExecutable: undefined });
+  const destination = path.join(f.directory, '.local/bin/whipcode');
+  assert.equal((await runtime.installDefault(signal())).executable, destination);
+  assert.equal(await fileDigest(destination), f.manifest.files.whipcode.sha256);
+  assert.equal(JSON.parse(await readFile(f.settingsFile, 'utf8')).executable, destination);
+  await absent(f.home);
+});
+
+test('first-run default installation preserves incompatible and explicitly managed installations', async t => {
+  const f = await fixture(t);
+  const chosen = path.join(f.source, 'whipcode');
+  await f.runtime.choose(chosen, signal());
+  const settings = await readFile(f.settingsFile, 'utf8');
+  assert.equal((await f.runtime.installDefault(signal())).state, 'stopped');
+  assert.equal(await readFile(f.settingsFile, 'utf8'), settings);
+  assert.equal(JSON.parse(settings).managed, undefined);
+  await absent(f.home); await absent(f.executable);
+  await writeFile(chosen, '#!/bin/sh\nprintf "{}"\n', { mode: 0o700 });
+  assert.equal((await f.runtime.installDefault(signal())).state, 'incompatible');
+  assert.equal(await readFile(chosen, 'utf8'), '#!/bin/sh\nprintf "{}"\n');
+  assert.equal(await readFile(f.settingsFile, 'utf8'), settings);
+});
+
+test('first-run default installation keeps a saved missing path instead of selecting a different executable', async t => {
+  const f = await fixture(t);
+  await f.runtime.install(f.executable, signal());
+  await rm(f.executable);
+  const changed = new LocalRuntime({ ...f.opts, defaultExecutable: path.join(f.source, 'whipcode'), env: { ...f.opts.env, PATH: f.source } });
+  assert.equal((await changed.installDefault(signal())).executable, f.executable);
+  assert.equal(await fileDigest(f.executable), f.manifest.files.whipcode.sha256);
+  await absent(f.home);
+});
+
 test('desktop connects through the installed binary and reuses its running daemon', async t => {
   const f = await fixture(t);
   await f.runtime.install(f.executable, signal());

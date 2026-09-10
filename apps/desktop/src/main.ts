@@ -151,6 +151,7 @@ async function start() {
     finally { runtimeActionPending = false; }
   });
   runtimeAction('testLocalRuntime', signal => localRuntime.test(signal));
+  runtimeAction('installDefaultLocalRuntime', signal => localRuntime.installDefault(signal));
   runtimeAction('chooseLocalRuntime', async signal => {
     const choice = await dialog.showOpenDialog(window, { title: 'Choose whipcode executable', properties: ['openFile'], buttonLabel: 'Use whipcode' });
     signal.throwIfAborted();

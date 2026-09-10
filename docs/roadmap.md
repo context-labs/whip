@@ -77,6 +77,31 @@ in
 - [x] Built-in ChatGPT subscription provider (`openai-codex`): host-owned login,
   model discovery, Responses streaming and durable continuation; live account,
   runtime and browser acceptance passed. See the [subscription plan](../.ai-docs/plans/openai-subscriptions/README.md).
+- [x] Provider onboarding across TUI, web and desktop: detected connections,
+  restrained Inference.net preference, explicit saved model/provider pairs,
+  reusable `/connect`, prompt-first welcome with durable first-send recovery,
+  and one-action native backend setup. See the
+  [onboarding implementation and validation](../.ai-docs/plans/provider-onboarding/README.md).
+- [x] Provider connection inside the normal TUI: shared themed dialog, one
+  composer and client, deferred root creation, draft preservation and removal
+  of the standalone onboarding and legacy authentication UI. See
+  [TUI integration](../.ai-docs/plans/provider-onboarding/TUI-INTEGRATION.md).
+- [x] Disposable Docker onboarding workflow: build dirty working files, open a
+  clean TUI and shared web app at localhost:4000, and remove test state on exit.
+  See [the Docker workflow](../README.md#test-fresh-onboarding-in-docker).
+- [x] File-backed custom provider configuration in the TUI: endpoint/key/environment/
+  no-auth forms, discovery and manual models, revision-safe management, explicit
+  session reload, and reusable host/SDK APIs. See
+  [implementation and acceptance](../.ai-docs/plans/tui-provider-configuration/README.md).
+- [x] Compact TUI provider picker, key-only known presets, stable connection marks,
+  separate OpenAI API/subscription routes, and conservative local credential
+  discovery. See [picker implementation](../.ai-docs/plans/tui-provider-configuration/PICKER-REDESIGN.md).
+- [x] Models.dev metadata and named local-key discovery: reviewed offline bundle,
+  generated desktop key names, explicit file sources, idempotent provider-reference
+  persistence and removal of the OpenCode credential importer. See
+  [implementation and validation](../.ai-docs/plans/models-dev-discovery/README.md).
+- [x] One-step TUI popular-provider model/effort defaults, quiet picker footers,
+  and Astra API tool support through Responses. See [selectors and validation](../.ai-docs/plans/tui-provider-configuration/AUTO-MODELS.md).
 - [x] Attach-only TypeScript SDK, durable command handles, bounded synchronized
   views, scoped content, permission helpers and minimal React example.
 - [x] Trusted-client approvals: no enrollment, signer or first-run pairing prompt.
@@ -89,6 +114,9 @@ in
 - [x] Session tabs with window-local restoration, preserved drafts/reading position,
   bounded background activity, and responsive themed navigation. See the
   [session-tabs implementation and acceptance](../.ai-docs/plans/session-tabs/README.md).
+- [x] Independent New Chat workspace tabs, durable first-message recovery and
+  in-place session promotion. Implementation and feature acceptance recorded in
+  [New Chat tabs](../.ai-docs/plans/new-chat-tabs/README.md).
 - [x] Nested in-window split panes with movable tabs, duplicate chat views, independent
   reading/agent selection and bounded observation. See the
   [split-view implementation](../.ai-docs/plans/split-views/README.md).

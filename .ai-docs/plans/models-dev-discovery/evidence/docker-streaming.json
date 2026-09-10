@@ -1,0 +1,26 @@
+{
+  "container": "whip-modelsdev-stream-9ecb2f682ee3",
+  "image_tag": "whip-modelsdev-acceptance:local",
+  "synthetic_credentials_only": true,
+  "image_id": "sha256:7a418930771a822f10ead5e59ed072f72d3d59451344b7304029084ecd17067b",
+  "provider_endpoint": "http://host.docker.internal:58476/v1",
+  "elapsed_seconds": 0.19,
+  "exit_code": 0,
+  "stdout": "WHIP_FILE_CREDENTIAL_STREAM_OK\n",
+  "stderr": "",
+  "request_assertions": [
+    {
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "bearer_matches_file_key": true,
+      "stream": true,
+      "model": "fixture-chat"
+    }
+  ],
+  "credential_in_environment": false,
+  "persisted_reference_only": true,
+  "persisted_config_sha256": "9c1d7e60a9f9aa3a5dfdf041773635241449826a3df3bc2b2bcdd4869a0dfd74",
+  "status": "passed",
+  "container_removed": true,
+  "mock_server_closed": true
+}

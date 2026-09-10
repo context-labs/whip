@@ -84,9 +84,6 @@ func (m *model) measure() measure {
 		mm.inputTxt = m.input.Height()
 		mm.input = mm.inputTxt + 4 // padding row, textarea, padding row, meta row, tail
 		if m.namePrompt != nil {
-			if m.namePrompt.mask {
-				mm.inputTxt = 1 // the masked view is a single row however long the secret
-			}
 			mm.input = mm.inputTxt // a bare "label ▏value" row, no box chrome
 		}
 	}
@@ -165,9 +162,6 @@ func (m *model) layoutFrame(w, h int) frameRects {
 		r.input = rect(x, y, m.width, mm.input)
 		if m.namePrompt != nil {
 			tx := x + lipgloss.Width(m.namePrompt.label) + 1
-			if m.namePrompt.mask {
-				tx += 2 // the "┃ " the mask view prepends
-			}
 			r.inputText = rect(tx, y, x+m.width-tx, mm.inputTxt)
 		} else {
 			r.inputText = rect(x+3, y+1, m.width-3, mm.inputTxt) // "┃  " gutter
@@ -365,7 +359,7 @@ func dimArea(scr uv.Screen, area uv.Rectangle) {
 // while something else owns the keyboard (a dialog, the rewind picker, the
 // permission prompt, an interactive command, a masked secret prompt).
 func (m *model) cursor(r frameRects) *tea.Cursor {
-	if m.iactive != nil || m.dialogOpen() || r.inputText.Empty() || (m.namePrompt != nil && m.namePrompt.mask) {
+	if m.iactive != nil || m.dialogOpen() || r.inputText.Empty() {
 		return nil
 	}
 	c := m.input.Cursor() // relative to the textarea's own view; whip's textarea is frameless with no prompt

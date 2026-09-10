@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
@@ -104,6 +105,113 @@ func TestPromptRootCWDReloadAndRestorePreserveApplicableSources(t *testing.T) {
 	request := submitPromptRoot(t, root, requests, "task after daemon restart")
 	assertProviderPrompt(t, request, []string{"PARENT_RULE_AFTER_RELOAD", "PARENT_CATALOG_MARKER", "SECOND_SUBTREE_RULE", "NEW_CATALOG_AFTER_EDIT", "STANDING_AFTER_EDIT"}, []string{"FIRST_SUBTREE_RULE"})
 	assertAppliedPromptAudit(t, root.runner.(*AgentSession), request, secondDir, parentSkill, newSkill)
+}
+
+func TestPromptFullAccessOutsideContextAndDowngrade(t *testing.T) {
+	requests, client := promptRuntimeProvider(t)
+	parent := canonicalPromptDirectory(t, t.TempDir())
+	workspace, outside := filepath.Join(parent, "project"), filepath.Join(parent, "sibling")
+	writeDaemonPromptFile(t, filepath.Join(parent, "AGENTS.md"), strings.Repeat("X", 128<<10))
+	writeDaemonPromptFile(t, filepath.Join(workspace, "AGENTS.md"), "ORIGINAL_PROJECT_RULE")
+	outsideInstructions := filepath.Join(outside, "AGENTS.md")
+	outsideSkill := filepath.Join(outside, ".agents", "skills", "sibling", "SKILL.md")
+	writeDaemonPromptFile(t, outsideInstructions, "SIBLING_PROJECT_RULE")
+	writeDaemonPromptFile(t, outsideSkill, "---\ndescription: SIBLING_PROJECT_SKILL\n---\n")
+	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "me.md"), "GLOBAL_USER_RULE")
+	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "skills", "global", "SKILL.md"), "---\ndescription: GLOBAL_USER_SKILL\n---\n")
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID, err := store.Create(session.SessionKindAgent, workspace, "model", "provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPermissionMode(t.Context(), rootID, session.PermissionModeAutomatic); err != nil {
+		t.Fatal(err)
+	}
+	_, root, runtime := openPromptRuntime(t, store, rootID, client)
+	changed := clientCommand(t, root, "prompt-client", "external-cwd", "workspace.set", map[string]any{"path": outside})
+	if changed.Status != "succeeded" {
+		t.Fatalf("outside cwd change: %+v", changed)
+	}
+	full := submitPromptRoot(t, root, requests, "inspect the current project")
+	assertProviderPrompt(t, full,
+		[]string{"SIBLING_PROJECT_RULE", "SIBLING_PROJECT_SKILL", "GLOBAL_USER_RULE", "GLOBAL_USER_SKILL", "Working directory: " + outside},
+		[]string{"ORIGINAL_PROJECT_RULE"},
+	)
+	downgraded := clientCommand(t, root, "prompt-client", "ask", "permission.mode", map[string]any{"external_permissions": true})
+	if downgraded.Status != "succeeded" {
+		t.Fatalf("permission downgrade: %+v", downgraded)
+	}
+	// Invalid denied sources prove composition omits their reads, not just
+	// their presentation after parsing.
+	writeDaemonPromptFile(t, outsideInstructions, strings.Repeat("X", 128<<10))
+	writeDaemonPromptFile(t, outsideSkill, "malformed metadata")
+	ask := submitPromptRoot(t, root, requests, "continue with global context")
+	assertProviderPrompt(t, ask,
+		[]string{"GLOBAL_USER_RULE", "GLOBAL_USER_SKILL", "Working directory: " + outside},
+		[]string{"SIBLING_PROJECT_RULE", "SIBLING_PROJECT_SKILL", "ORIGINAL_PROJECT_RULE"},
+	)
+	if promptAuditContains(runtime.rootNode.ContextAudit(), outsideInstructions) || promptAuditContains(runtime.rootNode.ContextAudit(), outsideSkill) {
+		t.Fatal("downgraded context audit retained denied project sources")
+	}
+}
+
+func TestPromptExplicitChildScopeExcludesParentSources(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("WHIP_HOME", t.TempDir())
+	workspace := canonicalPromptDirectory(t, t.TempDir())
+	allowed := filepath.Join(workspace, "allowed")
+	writeDaemonPromptFile(t, filepath.Join(workspace, "AGENTS.md"), strings.Repeat("X", 128<<10))
+	writeDaemonPromptFile(t, filepath.Join(workspace, ".agents", "skills", "parent", "SKILL.md"), "malformed metadata")
+	writeDaemonPromptFile(t, filepath.Join(allowed, "AGENTS.md"), "ALLOWED_CHILD_RULE")
+	writeDaemonPromptFile(t, filepath.Join(allowed, ".agents", "skills", "child", "SKILL.md"), "---\ndescription: ALLOWED_CHILD_SKILL\n---\n")
+	writeDaemonPromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "me.md"), "GLOBAL_USER_RULE")
+	root := storeBackedInputSession(t, workspace)
+	root.root.authority = root.authority
+	if err := root.root.store.SetPermissionMode(t.Context(), root.id, session.PermissionModeAutomatic); err != nil {
+		t.Fatal(err)
+	}
+	childID := "restricted-child"
+	if _, err := root.root.store.AdmitAgent(t.Context(), session.AgentAdmission{
+		RootID: root.id, ParentAgentID: root.id, ChildAgentID: childID,
+		Capabilities: []session.CapabilityDelegation{{
+			ID: "restricted-files", Issuer: root.authority.Files, AgentID: childID,
+			Operations: []string{"read"}, Scopes: []string{allowed},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	child := inputTestSession(t, allowed)
+	child.id, child.parentID, child.root = childID, root.id, root.root
+	child.authority.Files = capability.Reference{ID: "restricted-files", Generation: 1}
+	if err := child.refreshPrompt(t.Context()); err != nil {
+		t.Fatalf("restricted child read denied ancestor sources: %v", err)
+	}
+	if !strings.Contains(child.prompt.Prompt, "ALLOWED_CHILD_RULE") || !strings.Contains(child.prompt.Prompt, "ALLOWED_CHILD_SKILL") {
+		t.Fatal("restricted child lost authorized local context")
+	}
+	child.agent.WorkingDir = workspace
+	if err := child.refreshPrompt(t.Context()); err != nil {
+		t.Fatalf("restricted child read sources at denied cwd: %v", err)
+	}
+	if strings.Contains(child.prompt.Prompt, "ALLOWED_CHILD") || !strings.Contains(child.prompt.Prompt, "GLOBAL_USER_RULE") {
+		t.Fatal("denied child cwd changed global context or retained project context")
+	}
+}
+
+func TestPromptExplicitOverrideDoesNotReadAuthorityOrProjectFiles(t *testing.T) {
+	node := storeBackedInputSession(t, t.TempDir())
+	node.root.authority = node.authority
+	node.promptOverride = "VERBATIM_ROOT_OVERRIDE"
+	node.agent.WorkingDir = filepath.Join(t.TempDir(), "missing")
+	if _, err := node.root.store.RevokeCapabilityFor(t.Context(), node.id, node.id, node.authority.Files.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := node.refreshPrompt(t.Context()); err != nil {
+		t.Fatalf("source lookup blocked explicit override: %v", err)
+	}
+	if node.prompt.Prompt != node.promptOverride || node.prompt.WorkingDirectory != node.agent.WorkingDir {
+		t.Fatalf("explicit override was changed: %+v", node.prompt)
+	}
 }
 
 func TestPromptRetainedChildInheritsRulesCatalogAndNextTurnEdits(t *testing.T) {

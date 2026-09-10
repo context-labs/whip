@@ -10,6 +10,27 @@
         "type": "string"
       }
     },
+    "discovery": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "model_count": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false
+    },
     "remote_hosts": {
       "type": [
         "null",

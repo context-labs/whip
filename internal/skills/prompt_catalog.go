@@ -24,10 +24,17 @@ const (
 // an authoritative prompt. Directory precedence and disabled-skill behavior
 // remain the same as Scan. Missing optional directories and SKILL.md are fine.
 func LoadPromptCatalog(dirs ...string) ([]Skill, error) {
+	return LoadPromptCatalogWithAccess(nil, dirs...)
+}
+
+// LoadPromptCatalogWithAccess optionally checks each original directory/file
+// path before reading it. The caller resolves aliases when deciding access;
+// a denied location is omitted, while an access-check error fails discovery.
+func LoadPromptCatalogWithAccess(allow func(string) (bool, error), dirs ...string) ([]Skill, error) {
 	var result []Skill
 	entriesRead := 0
 	for _, dir := range dirs {
-		skills, err := loadPromptDirectory(dir, &entriesRead)
+		skills, err := loadPromptDirectory(dir, &entriesRead, allow)
 		if err != nil {
 			return nil, err
 		}
@@ -39,13 +46,19 @@ func LoadPromptCatalog(dirs ...string) ([]Skill, error) {
 	return result, nil
 }
 
-func loadPromptDirectory(dir string, entriesRead *int) ([]Skill, error) {
+func loadPromptDirectory(dir string, entriesRead *int, allow func(string) (bool, error)) ([]Skill, error) {
 	_, err := os.Lstat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("skill directory %s: %w", dir, err)
+	}
+	if allow != nil {
+		allowed, err := allow(dir)
+		if err != nil || !allowed {
+			return nil, err
+		}
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -81,6 +94,15 @@ func loadPromptDirectory(dir string, entriesRead *int) ([]Skill, error) {
 				continue
 			} else if err != nil {
 				return nil, fmt.Errorf("skill %s: %w", path, err)
+			}
+			if allow != nil {
+				allowed, err := allow(path)
+				if err != nil {
+					return nil, err
+				}
+				if !allowed {
+					continue
+				}
 			}
 			skill, loadErr := loadPromptMetadata(path)
 			if loadErr != nil {

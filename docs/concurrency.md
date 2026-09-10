@@ -130,11 +130,22 @@ No filesystem watcher or mid-turn prompt mutation is involved.
 ## Host operations
 
 - Same-path file mutations serialize through the workspace coordinator;
-  unrelated paths proceed concurrently.
+  unrelated paths proceed concurrently. Queued mutations recheck the canonical
+  target after acquiring their lock and reject a retargeted path as stale.
+- Path canonicalization and locking do not grant access. The session ledger
+  derives filesystem authority from the saved mode and validates the current
+  file-grant issuer chain. Full Access permits host paths; Ask uses the stable
+  bootstrap project boundary. Explicit path ceilings apply in both modes.
+  Default new children inherit authority instead of copying the current cwd.
+  Mode changes cancel pending permissions in the same transaction as the mode
+  event; already admitted background processes retain their existing lifecycle.
 - Shell commands take no lock. They run concurrently with each other and with
-  edits, as in Prime; their authority (a writer capability scoped to the root)
-  is checked at admission. Keeping parallel editors off the same files is the
-  parent's decomposition job, not the coordinator's.
+  edits, as in Prime; their shell capability and effective writer authority
+  are checked at admission. Full Access requires an unrestricted writer for
+  general shell execution; an explicit project-only grant cannot bypass its
+  ceiling through shell. Ask preserves its ordinary project-writer requirement
+  and shell still runs with OS-user authority. Keeping parallel editors off the
+  same files is the parent's decomposition job, not the coordinator's.
 - A cell's 30 s wall clock charges Starlark compute only. Time inside host
   calls (shell, permission prompts, `agents.wait`, MCP) is not counted; each
   host call is bounded by its own limit and by turn cancellation.
@@ -191,6 +202,25 @@ with collection rows. Pagination rejects stale revisions instead of mixing views
 Configuration writes serialize revision comparison, fresh patch application and
 atomic replacement. Provider flows and terminals are ephemeral; restart interrupts
 login flows and terminal input is never automatically retried.
+
+## TUI startup and provider connection
+
+The TUI owns one `RootClient` and one Bubble Tea program. New interactive roots
+opt into deferred creation: `RootLive` can initially mean host RPCs are ready
+without a root subscription. Session execution is gated by TUI startup state.
+`StartSession` admits a model/provider pair once under the client lock, freezes
+its create payload, then closes the active connection to use the existing
+reconnect, stable create-command identity, snapshot and subscription path.
+No root is created when a user closes the provider dialog to draft.
+
+Provider dialog RPCs use the TUI lifecycle context with bounded request deadlines.
+Replies and clipboard commands carry dialog ownership and request versions;
+delayed login polls also carry their flow ID and cannot supersede an in-flight
+mutation. Closing a dialog cancels observation. Explicit login cancellation uses
+the host operation; an already admitted login may be rediscovered on reopening.
+A permission-preparation completion must still own the current startup state.
+Late completions never auto-submit an onboarding draft. Terminal client closure
+ends observation and displays the failure instead of leaving creation pending.
 
 ## TypeScript connection and view ownership
 

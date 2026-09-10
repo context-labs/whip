@@ -197,8 +197,20 @@ func (s *Store) LoadCommand(ctx context.Context, clientID, commandID string) (Co
 // effect and terminal outcome together, closing the crash window between the
 // two records.
 func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider string) (CommandRecord, error) {
+	return s.CreateSessionForCommandWithPermission(ctx, clientID, commandID, kind, cwd, model, provider, "")
+}
+
+// CreateSessionForCommandWithPermission persists the initial consent choice in
+// the same transaction as session creation and the durable command outcome.
+func (s *Store) CreateSessionForCommandWithPermission(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode string) (CommandRecord, error) {
 	if err := validateSessionIdentity(kind, cwd, model, provider); err != nil {
 		return CommandRecord{}, err
+	}
+	if permissionMode == "" {
+		permissionMode = PermissionModePrompt
+	}
+	if permissionMode != PermissionModePrompt && permissionMode != PermissionModeAutomatic {
+		return CommandRecord{}, errors.New("invalid session permission mode")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -220,8 +232,8 @@ func (s *Store) CreateSessionForCommand(ctx context.Context, clientID, commandID
 		return CommandRecord{}, err
 	}
 	stamp := now()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider) VALUES(?,?,?,?,?,?,?)`,
-		rootID, kind, stamp, stamp, cwd, model, provider); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider,permission_mode) VALUES(?,?,?,?,?,?,?,?)`,
+		rootID, kind, stamp, stamp, cwd, model, provider, permissionMode); err != nil {
 		return CommandRecord{}, err
 	}
 	outcome, _ := json.Marshal(struct {

@@ -33,7 +33,8 @@ module.exports = {
         for (const name of ['whipcode', 'whip-computer']) await copyFile(path.join(__dirname, '.stage/native', name), path.join(helpers, name));
       })().then(() => callback(), callback);
     }],
-    ...(identity ? { osxSign: { identity, hardenedRuntime: true,
+    // Packager otherwise suppresses signing errors and returns an unsigned app.
+    ...(identity ? { osxSign: { identity, hardenedRuntime: true, continueOnError: false,
       // Native files were signed before Go embed and manifest hashing. Preserve them.
       ignore: file => /\/Helpers\/(?:whipcode|whip-computer)$/.test(file),
       optionsForFile: () => ({ entitlements: path.join(__dirname, 'resources/electron.entitlements.plist') }) } } : {}),

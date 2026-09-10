@@ -45,7 +45,7 @@ func (c *Config) UpsertOpenRouter(key string, envMode bool) {
 // and resolves to a non-empty key under the current environment.
 func (c *Config) OpenRouterConfigured() bool {
 	p, ok := c.Providers["openrouter"]
-	return ok && p.Key() != ""
+	return ok && p.Key(c) != ""
 }
 
 // TrimKey normalizes a pasted API key: whitespace and a stray leading

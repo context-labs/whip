@@ -34,17 +34,30 @@ func ReadVersioned() (*Config, string, error) {
 // the caller does not own. Empty expected is reserved for host-owned updates.
 // The callback must not call Load, Save, or another configuration update.
 func UpdateVersioned(expected string, patch func(*Config) error) (*Config, string, error) {
+	return updateVersioned(expected, patch, false)
+}
+
+// UpdateVersionedIfChanged skips disk writes when the patch leaves configuration unchanged.
+func UpdateVersionedIfChanged(expected string, patch func(*Config) error) (*Config, string, error) {
+	return updateVersioned(expected, patch, true)
+}
+
+func updateVersioned(expected string, patch func(*Config) error, skipUnchanged bool) (*Config, string, error) {
 	configurationMu.Lock()
 	defer configurationMu.Unlock()
 	c, err := loadUnlocked()
 	if err != nil {
 		return nil, "", err
 	}
-	if expected != "" && expected != configurationRevision(c) {
+	before := configurationRevision(c)
+	if expected != "" && expected != before {
 		return nil, "", ErrRevisionConflict
 	}
 	if err := patch(c); err != nil {
 		return nil, "", err
+	}
+	if skipUnchanged && before == configurationRevision(c) {
+		return c, before, nil
 	}
 	if err := c.saveUnlocked(); err != nil {
 		return nil, "", err

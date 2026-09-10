@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string"
+    },
+    "warning": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v5/ProviderRemoveResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderRemoveResult",
+  "required": [
+    "revision"
+  ],
+  "additionalProperties": false
+}

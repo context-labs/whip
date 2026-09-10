@@ -17,6 +17,7 @@ import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { parseSettingsReturn, settingsReturnKey, type SettingsReturn } from './settings/navigation';
 import { SessionTabs } from './session-tabs';
 import { CompositionStore } from './compositions';
+import { WelcomeSubmissions, welcomeDraftKey } from './welcome-submission';
 import { ReadingPositions } from './reading-positions';
 import { SubmittedInputs } from './input-presentation';
 import { HostConnections, type HostConnection } from './hosts';
@@ -44,6 +45,7 @@ interface PendingCommand {
   retry(): Promise<unknown>;
 }
 const draftStoragePrefix = 'whip.web.draft.v1:';
+const draftRevisionPrefix = 'whip.web.draft-revision.v1:';
 const encodedBytes = (value: string) =>
   new TextEncoder().encode(value).byteLength;
 export const commandShortcuts = ['Mod+K', 'Mod+P', 'Mod+Shift+P'] as const;
@@ -83,6 +85,11 @@ export class AppRuntime {
   readonly connections: HostConnections;
   readonly tabs: SessionTabs;
   readonly compositions = new CompositionStore();
+  readonly welcome = new WelcomeSubmissions(this, (draftId, runtimeId, rootId) => {
+    if (!this.platform.windowStorage) throw new Error('Restore window storage before completing first-message recovery.');
+    if (!this.tabs.promoteNew(draftId, runtimeId, rootId))
+      throw new Error('The created session is saved in first-message recovery. Reopen its New Chat tab before continuing.');
+  });
   readonly readingPositions = new ReadingPositions();
   readonly submittedInputs = new SubmittedInputs();
   readonly queries = new QueryClient({
@@ -102,6 +109,7 @@ export class AppRuntime {
   private readonly listeners = new Set<() => void>();
   private readonly views = new Map<string, ViewLease>();
   private readonly drafts = new Map<string, string>();
+  private readonly draftRevisions = new Map<string, string>();
   private readonly draftListeners = new Map<string, Set<() => void>>();
   private readonly agentReaders = new WeakMap<SessionView, Map<string, { users: number }>>();
   private readonly draftIdentities = new Set<string>();
@@ -110,6 +118,7 @@ export class AppRuntime {
   private draftTimer?: ReturnType<typeof setTimeout>;
   private readonly dirtyDrafts = new Set<string>();
   private closed = false;
+  private readonly importedWelcomeHosts = new Set<string>();
   settingsReturn?: SettingsReturn;
 
   constructor(readonly platform: AppPlatform) {
@@ -161,11 +170,18 @@ export class AppRuntime {
       const before = previousTabs.workspace, after = next.workspace;
       const views = new Set([...after.tabs, ...after.closed.map(item => item.tab)].map(tab => tab.id));
       for (const tab of [...before.tabs, ...before.closed.map(item => item.tab)]) {
-        if (!views.has(tab.id)) this.readingPositions.forgetView(tab.runtimeId, tab.id);
+        if (tab.kind !== 'new' && !views.has(tab.id)) this.readingPositions.forgetView(tab.runtimeId, tab.id);
       }
       previousTabs = next;
     });
-    try { for (const key of this.savedDrafts().keys()) this.draftIdentities.add(key); } catch (error) { this.report(error); }
+    try {
+      const saved = this.savedDrafts();
+      for (const key of saved.keys()) this.draftIdentities.add(key);
+      // An interrupted two-key write can leave revision-only metadata. It carries
+      // no text and must not accumulate outside the existing draft count bound.
+      for (const key of platform.storage.keys())
+        if (key.startsWith(draftRevisionPrefix) && !saved.has(key.slice(draftRevisionPrefix.length))) platform.storage.removeItem(key);
+    } catch (error) { this.report(error); }
     this.connections = new HostConnections(platform, this.recoveryStorage(), {
       connected: runtimeId => { void this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId }); },
       detached: (client, runtimeId) => {
@@ -178,9 +194,55 @@ export class AppRuntime {
     const updateHosts = () => {
       const { hosts, profilesReady, profileError, selectedId } = this.connections.getSnapshot();
       this.update({ hosts, home: hosts.find(host => host.local), profilesReady, profileError, selectedHostId: selectedId });
+      for (const host of hosts) {
+        if (!host.runtimeId || this.importedWelcomeHosts.has(host.runtimeId)) continue;
+        this.importedWelcomeHosts.add(host.runtimeId);
+        void this.welcome.importLegacy(host.runtimeId).then(id => {
+          if (!id || this.closed || (!this.welcome.get(id) && !this.draft(welcomeDraftKey(id)))) return;
+          this.recoverWelcome(id, host.runtimeId, host.id);
+        }).catch(error => this.report(error));
+      }
     };
     this.connections.subscribe(updateHosts);
     updateHosts();
+  }
+  /** Bounded nonempty draft owners without a visible/retained New Chat descriptor. */
+  orphanWelcomeDrafts() {
+    const workspace = this.tabs.workspace();
+    const retained = new Set([...workspace.tabs, ...workspace.closed.map(item => item.tab)]
+      .filter(tab => tab.kind === 'new').map(tab => tab.id));
+    return [...this.mergedDrafts().keys()]
+      .filter(key => key.startsWith('new:') && key.endsWith(':prompt'))
+      .map(key => key.slice(4, -7)).filter(id => !retained.has(id));
+  }
+  /** Reveal recovery without dispatching, selecting, or stealing focus. */
+  recoverWelcome(draftId: string, runtimeId?: string, hostProfileId?: string) {
+    const item = this.welcome.get(draftId);
+    const workspace = this.tabs.workspace();
+    const existing = [...workspace.tabs, ...workspace.closed.map(item => item.tab)].find(tab => tab.id === draftId);
+    const key = welcomeDraftKey(draftId);
+    if (!item && existing && existing.kind !== 'new' && this.draft(key)) {
+      // Copy durably before retiring the old owner; a failed copy remains discoverable.
+      const replacement = this.tabs.ensureNew(`${draftId}-unsent`, { runtimeId: existing.runtimeId });
+      if (replacement.kind !== 'new') throw new Error('Reopen or clear the previous recovered draft before recovering more text.');
+      const target = welcomeDraftKey(replacement.id);
+      const text = this.draft(key);
+      if (this.draft(target) && this.draft(target) !== text) throw new Error('The recovered draft already has newer text. Clear it before recovering this saved prompt.');
+      if (!this.draft(target)) this.setDraft(target, text);
+      const copied = this.flushDrafts();
+      if (!copied.saved) throw new Error(copied.error);
+      this.setDraft(key, '');
+      const retired = this.flushDrafts();
+      if (!retired.saved) throw new Error(retired.error);
+      return replacement;
+    }
+    const owner = item?.create.runtimeId ?? runtimeId ?? (draftId.startsWith('legacy-welcome-') ? decodeURIComponent(draftId.slice(15)) : undefined);
+    const host = owner ? this.state.hosts.find(host => host.runtimeId === owner) : undefined;
+    return this.tabs.ensureNew(draftId, {
+      runtimeId: owner, hostProfileId: hostProfileId ?? host?.id,
+      cwd: item?.params.cwd ?? '',
+      permissionMode: item?.params.permission_mode === 'automatic' ? 'automatic' : 'prompt',
+    });
   }
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => {
@@ -241,7 +303,7 @@ export class AppRuntime {
   /** Remove local state only after deletion has succeeded on this runtime. */
   forgetSession(runtimeId: string, rootId: string) {
     const prefix = `${runtimeId}:${rootId}:`;
-    const matches = (tab: { runtimeId: string; rootId: string }) => tab.runtimeId === runtimeId && tab.rootId === rootId;
+    const matches = (tab: { runtimeId?: string; rootId?: string }) => tab.runtimeId === runtimeId && tab.rootId === rootId;
     const workspace = this.tabs.workspace();
     const viewIds = [...workspace.tabs, ...workspace.closed.map(item => item.tab)].filter(matches).map(tab => tab.id);
     this.compositions.clearSession(runtimeId, rootId, viewIds);
@@ -298,6 +360,12 @@ export class AppRuntime {
     }
     return this.drafts.get(key) ?? '';
   }
+  /** A revision distinguishes later edits even when they return to identical text. */
+  draftRevision(key: string): string {
+    if (this.dirtyDrafts.has(key)) return this.draftRevisions.get(key) ?? '';
+    const revision = this.platform.storage.getItem(draftRevisionPrefix + key);
+    return revision && revision.length <= 128 ? revision : '';
+  }
   subscribeDraft(key: string, listener: () => void) {
     let listeners = this.draftListeners.get(key);
     if (!listeners) { listeners = new Set(); this.draftListeners.set(key, listeners); }
@@ -345,6 +413,8 @@ export class AppRuntime {
     return merged;
   }
   setDraft(key: string, text: string) {
+    if (this.welcome.protectsDraft(key) && text !== this.draft(key))
+      throw new Error('Resolve the first-message submission before changing its saved payload.');
     if (!key || key.length > 512) throw new Error('Invalid draft identity');
     if (text) {
       const next = this.mergedDrafts();
@@ -352,7 +422,8 @@ export class AppRuntime {
       this.validateDrafts(next);
     }
     const wasUnsaved = this.hasUnsavedDrafts();
-    if (text) this.drafts.set(key, text); else this.drafts.delete(key);
+    if (text) { this.drafts.set(key, text); this.draftRevisions.set(key, crypto.randomUUID()); }
+    else { this.drafts.delete(key); this.draftRevisions.delete(key); }
     const hadDraft = this.draftIdentities.has(key);
     if (text) this.draftIdentities.add(key); else this.draftIdentities.delete(key);
     this.dirtyDrafts.add(key);
@@ -370,13 +441,20 @@ export class AppRuntime {
     this.draftTimer = undefined;
     const wasUnsaved = this.hasUnsavedDrafts();
     try {
+      // A different window may have admitted a request since this text was edited.
+      for (const key of this.dirtyDrafts) {
+        if (this.welcome.protectsDraft(key) && (this.drafts.get(key) ?? '') !== (this.platform.storage.getItem(draftStoragePrefix + key) ?? ''))
+          throw new Error('Resolve the first-message submission before changing its saved payload.');
+      }
       // Explicit deletion must remain possible even when externally written
       // drafts already exceed the aggregate admission bound.
       for (const key of this.dirtyDrafts) {
         if (this.drafts.has(key)) continue;
         if (this.platform.storage.persistent !== false && this.platform.storage.getItem(draftStoragePrefix + key))
           this.durableDrafts.add(key);
+        this.platform.storage.removeItem(draftRevisionPrefix + key);
         this.platform.storage.removeItem(draftStoragePrefix + key);
+        this.draftRevisions.delete(key);
         // A fallback-only deletion cannot remove the old disk entry. Keep its
         // tombstone dirty so a close never claims that change was saved.
         if (this.platform.storage.persistent === false && this.durableDrafts.has(key)) continue;
@@ -389,9 +467,11 @@ export class AppRuntime {
       for (const key of this.dirtyDrafts) {
         const text = this.drafts.get(key);
         if (!text) continue;
+        this.platform.storage.setItem(draftRevisionPrefix + key, this.draftRevisions.get(key) ?? crypto.randomUUID());
         this.platform.storage.setItem(draftStoragePrefix + key, text);
         if (this.platform.storage.persistent !== false) this.durableDrafts.add(key);
         this.drafts.delete(key);
+        this.draftRevisions.delete(key);
         this.dirtyDrafts.delete(key);
       }
     } catch (error) {
@@ -415,6 +495,7 @@ export class AppRuntime {
     ]);
     for (const key of keys) {
       const recipient = key.slice(draftStoragePrefix.length);
+      if (this.welcome.protectsDraft(recipient)) continue;
       this.drafts.delete(recipient);
       this.draftIdentities.delete(recipient);
       this.dirtyDrafts.add(recipient);
@@ -730,5 +811,6 @@ export class AppRuntime {
     this.readingPositions.clear();
     this.listeners.clear();
     this.draftListeners.clear();
+    this.draftRevisions.clear();
   }
 }

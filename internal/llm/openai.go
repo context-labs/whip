@@ -648,7 +648,10 @@ type ModelInfo struct {
 	Pricing             *Pricing `json:"pricing,omitempty"`
 	// InputModalities lists the input types the model accepts (OpenRouter
 	// shape: ["text","image"]). Nil when the provider doesn't advertise it.
-	InputModalities []string `json:"input_modalities,omitempty"`
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
+	SupportsTools    *bool    `json:"supports_tools,omitempty"`
+	Type             string   `json:"type,omitempty"`
 }
 
 // SupportsVision reports whether the model advertises image input.
@@ -674,7 +677,9 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if c.APIKey != "" {
+		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
 		return nil, err
@@ -684,13 +689,14 @@ func (c *Client) Models(ctx context.Context) ([]ModelInfo, error) {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, &HTTPError{Status: resp.Status, Body: strings.TrimSpace(string(b))}
 	}
-	var list struct {
-		Data []ModelInfo `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
+	if err != nil {
 		return nil, err
 	}
-	return list.Data, nil
+	if len(body) > 8<<20 {
+		return nil, errors.New("provider model catalog exceeds 8 MiB")
+	}
+	return decodeModels(body)
 }
 
 // Stream sends the request and invokes onText for each content delta,
@@ -741,6 +747,9 @@ func (c *Client) Stream(ctx context.Context, req Request, onText, onThink func(s
 			}
 		}
 		msg, usage, err := c.runAttempt(ctx, req, logicalID, attempt, func(ctx context.Context, body []byte) (Message, Usage, error) {
+			if c.apiResponses(req.Model) {
+				return c.apiResponsesOnce(ctx, req.Model, body, wrapText, wrapThink, wrapTool)
+			}
 			return c.streamOnce(ctx, body, wrapText, wrapThink, wrapTool)
 		})
 		total.add(usage)
@@ -778,7 +787,9 @@ func (c *Client) streamOnce(ctx context.Context, body []byte, onText, onThink fu
 		return Message{}, Usage{}, err
 	}
 	hr.Header.Set("Content-Type", "application/json")
-	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if c.APIKey != "" {
+		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
 		return Message{}, Usage{}, err
@@ -915,7 +926,7 @@ func validToolCallArgs(s string) bool {
 // summary call, where streaming would just add UI noise for a one-shot
 // synthesis.
 func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, error) {
-	if c.openAI != nil {
+	if c.openAI != nil || c.apiResponses(req.Model) {
 		message, usage, err := c.Stream(ctx, req, nil, nil, nil)
 		return message.Content, usage, err
 	}
@@ -951,7 +962,9 @@ func (c *Client) completeOnce(ctx context.Context, body []byte) (string, Usage, 
 		return "", Usage{}, err
 	}
 	hr.Header.Set("Content-Type", "application/json")
-	hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if c.APIKey != "" {
+		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 	resp, err := c.HTTP.Do(hr)
 	if err != nil {
 		return "", Usage{}, err

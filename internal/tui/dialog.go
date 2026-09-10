@@ -57,6 +57,9 @@ func (m *model) dialogs() []dialog {
 	if m.palette != nil {
 		ds = append(ds, m.palette)
 	}
+	if m.providerSetup != nil {
+		ds = append(ds, m.providerSetup)
+	}
 	return ds
 }
 

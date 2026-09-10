@@ -77,13 +77,22 @@ func writeConfig(t *testing.T, home, body string) {
 // whole wiring path runs without a live editor. Covers the prologue + serve
 // path the error tests return early from.
 func TestAcpCLIServeExitsOnEOF(t *testing.T) {
+	testAcpCLIServeExitsOnEOF(t, `"apiKey": "k"`)
+}
+
+func TestAcpCLIServeWithoutAuthentication(t *testing.T) {
+	testAcpCLIServeExitsOnEOF(t, `"auth": "none"`)
+}
+
+func testAcpCLIServeExitsOnEOF(t *testing.T, authentication string) {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
-	writeConfig(t, home, `{
+	writeConfig(t, home, fmt.Sprintf(`{
 		"defaultModel": "test",
-		"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions", "apiKey": "k"}},
+		"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions", %s}},
 		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-	}`)
+	}`, authentication))
 	useTestDaemon(t)
 
 	// stdin/stdout become the ends of two pipes: the test acts as the ACP

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
@@ -35,6 +36,17 @@ func TestMain(m *testing.M) {
 		if err := os.Setenv("WHIP_HOME", filepath.Join(home, "whip")); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
+		}
+		// A test daemon must never discover the developer's inherited keys.
+		names := []string{"OPENAI_BASE_URL", "OPENAI_API_BASE"}
+		for _, preset := range config.ProviderPresets() {
+			names = append(names, preset.EnvironmentVariables...)
+		}
+		for _, name := range names {
+			if err := os.Unsetenv(name); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
 		}
 		return m.Run()
 	}()
@@ -219,6 +231,11 @@ func promptRequestFixture(t *testing.T) (<-chan llm.Request, string) {
 	}
 	requests := make(chan llm.Request, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer fixture-file-key" {
+			t.Error("entrypoint did not send its configured file key")
+			http.Error(w, "missing fixture credential", http.StatusUnauthorized)
+			return
+		}
 		var request llm.Request
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -233,12 +250,15 @@ func promptRequestFixture(t *testing.T) (<-chan llm.Request, string) {
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"prompt verified\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
 	t.Cleanup(server.Close)
+	keyPath := filepath.Join(t.TempDir(), "provider.key")
+	writePromptRequestFile(t, keyPath, "fixture-file-key\n")
 	writeConfig(t, home, fmt.Sprintf(`{
 		"defaultModel":"test", "maxRetries":0,
 		"mcpImport":{"claude":{"enabled":false},"codex":{"enabled":false}},
-		"providers":{"testprov":{"baseUrl":%q,"api":"openai-completions","apiKey":"fixture-key"}},
+		"providerKeySources":{"keyFiles":{"WHIP_PROMPT_FIXTURE_KEY":%q}},
+		"providers":{"testprov":{"baseUrl":%q,"api":"openai-completions","apiKeyEnv":"WHIP_PROMPT_FIXTURE_KEY"}},
 		"models":{"test":{"providers":["testprov"],"context":65536,"maxOut":128}}
-	}`, server.URL))
+	}`, keyPath, server.URL))
 	useTestDaemon(t)
 	return requests, workingDirectory
 }

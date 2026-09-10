@@ -21,18 +21,23 @@ func (s *ProviderService) DisconnectProvider(ctx context.Context, p protocol.Pro
 	if err := ctx.Err(); err != nil {
 		return ProviderStatus{}, err
 	}
-	var keySource string
-	_, _, err := config.UpdateVersioned(p.Revision, func(cfg *config.Config) error {
-		status, err := s.providerStatus(cfg, p.Provider)
-		if err != nil {
-			return err
-		}
-		keySource = status.KeySource
-		switch status.KeySource {
-		case "literal", "machine", "subscription":
-		default:
-			return errors.New("credentials are managed externally; disable this provider instead")
-		}
+	cfg, revision, err := config.ReadVersioned()
+	if err != nil {
+		return ProviderStatus{}, err
+	}
+	if revision != p.Revision {
+		return ProviderStatus{}, config.ErrRevisionConflict
+	}
+	status, err := s.providerStatus(cfg, p.Provider)
+	if err != nil {
+		return ProviderStatus{}, err
+	}
+	switch status.KeySource {
+	case "literal", "machine", "subscription":
+	default:
+		return ProviderStatus{}, errors.New("credentials are managed externally; disable this provider instead")
+	}
+	_, _, err = config.UpdateVersioned(p.Revision, func(cfg *config.Config) error {
 		if route, ok := cfg.Providers[p.Provider]; ok && status.KeySource == "literal" {
 			route.APIKey = ""
 			cfg.Providers[p.Provider] = route
@@ -53,7 +58,7 @@ func (s *ProviderService) DisconnectProvider(ctx context.Context, p protocol.Pro
 	if err := config.DeleteCatalog(p.Provider); err != nil {
 		return ProviderStatus{}, errors.New("provider disabled, but its model cache could not be removed")
 	}
-	if p.Provider == config.InferenceNetProvider && keySource == "machine" {
+	if p.Provider == config.InferenceNetProvider && status.KeySource == "machine" {
 		return s.logoutInferenceNetLocked(ctx)
 	}
 	return s.ProviderStatus(p.Provider)

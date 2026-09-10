@@ -113,8 +113,7 @@ func (s *Store) SetGoal(id, goal string) error {
 	return err
 }
 
-// SetWorkingDirectory stores the root's current directory. Dispatcher
-// resolution still confines it to the canonical workspace.
+// SetWorkingDirectory stores navigation context; it never changes file grants.
 func (s *Store) SetWorkingDirectory(id, cwd string) error {
 	_, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET cwd=? WHERE id=?`, cwd, id)
 	return err
@@ -144,11 +143,12 @@ func (s *Store) SetEffort(id, effort string) error {
 	return err
 }
 
-func (s *Store) SetModelProvider(id, model, provider string) error {
+// SetModelSelection keeps the route and its reasoning level consistent across a crash or resume.
+func (s *Store) SetModelSelection(id, model, provider, effort string) error {
 	if model == "" || provider == "" {
 		return errors.New("session model and provider are required")
 	}
-	_, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET model=?,provider=?,updated_at=? WHERE id=?`, model, provider, now(), id)
+	_, err := s.db.ExecContext(context.Background(), `UPDATE sessions SET model=?,provider=?,effort=?,updated_at=? WHERE id=?`, model, provider, effort, now(), id)
 	return err
 }
 

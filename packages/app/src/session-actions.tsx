@@ -4,8 +4,8 @@ import type { WhipClient } from '@whip/sdk';
 import { Button, Dialog, Field, Input, useToast, type MenuItem } from '@whip/ui';
 import { useAppState, useRuntime } from './context';
 import { errorMessage, readPreference, type ProjectEditor } from './platform';
-import { sessionDestination } from './session-tab-routing';
-import { selectedSessionTab, sessionSearch } from './session-tabs';
+import { sessionDestination, tabDestination } from './session-tab-routing';
+import { selectedSessionTab } from './session-tabs';
 
 export interface SessionActionTarget {
   runtimeId: string;
@@ -125,7 +125,7 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
         runtime.forgetSession(target.runtimeId, target.rootId);
         if (currentRoute?.runtimeId === target.runtimeId && currentRoute.rootId === target.rootId) {
           const next = selectedSessionTab(runtime.tabs.workspace());
-          if (next) await navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: next.runtimeId, rootId: next.rootId }, search: sessionSearch(next), state: { whipViewId: next.id }, replace: true });
+          if (next) await navigate({ ...tabDestination(next), replace: true });
           else await navigate({ to: '/', replace: true });
         }
       }

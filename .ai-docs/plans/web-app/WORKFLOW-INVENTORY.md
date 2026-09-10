@@ -41,6 +41,11 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:provider.login.team.select` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
 | `rpc:provider.logout` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
 | `rpc:provider.list` | Web | Host-owned connection inventory, credential source, readiness, default route and configuration revision; no model fetch or secret-command execution. |
+| `rpc:provider.discover` | Web | Setup-open and explicit Refresh persist missing host key references; return redacted inventory/source metadata, preserve edits and opt-outs, and never fetch models. |
+| `rpc:provider.get` | SDK-only | Redacted provider editor metadata and removal blockers. The TUI consumes this today; a web custom-provider form is deferred. |
+| `rpc:provider.create` | SDK-only | Revision-checked custom endpoint, credential and optional manual-model creation in host configuration files. Sensitive ephemeral operation, never automatically replayed. |
+| `rpc:provider.update` | SDK-only | Revision-checked provider metadata/credential/manual-model patches. Shared with the TUI; the web endpoint editor is deferred. |
+| `rpc:provider.remove` | SDK-only | Remove an unused custom definition while preserving referenced routes and historical sessions; the TUI exposes connection management. |
 | `rpc:provider.disconnect` | Web | Revision-checked removal of WHIP-owned credentials and durable disabling; keeps model aliases/defaults and external credentials intact. |
 | `rpc:provider.status` | Web | Provider settings and reconnectable host-owned login choices. Secret submissions are ephemeral and never cached. |
 | `rpc:provider.validate` | Web | Provider settings: validate an entered key without saving it. The normal key-setup service already validates before saving, avoiding duplicate requests. |

@@ -20,13 +20,14 @@ type Provider struct {
 	API       string `json:"api"`              // "openai-completions" or "openai-codex"
 	APIKey    string `json:"apiKey,omitempty"` // literal key or a secret reference ("$VAR"/"${VAR}"/"!cmd"); apiKeyEnv is another option
 	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
+	Auth      string `json:"auth,omitempty"` // "none" explicitly disables authentication; omitted resolves a key
 }
 
 // Key returns the resolved API key for the provider, "" when none is
 // configured. Unresolvable secret references degrade to "" like a missing
 // key; ResolveKey reports the error for callers that can surface it.
-func (p Provider) Key() string {
-	k, _ := p.ResolveKey()
+func (p Provider) Key(cfg ...*Config) string {
+	k, _ := p.ResolveKey(cfg...)
 	return k
 }
 
@@ -35,8 +36,8 @@ func (p Provider) Key() string {
 // config file and session store hold only references and a missing var only
 // errors when the provider is actually used. The resolved value never enters
 // the event log.
-func (p Provider) ResolveKey() (string, error) {
-	key, _, err := p.resolveKey(true)
+func (p Provider) ResolveKey(cfg ...*Config) (string, error) {
+	key, _, err := p.resolveKeyWithCredentials(true, DiscoverCredentials(providerCredentialConfigs(p, cfg)...))
 	return key, err
 }
 
@@ -139,26 +140,27 @@ const DefaultCompactPct = 50
 
 // Config is the root of ~/.whip/config.json (JSONC: comments allowed).
 type Config struct {
-	RemoteHosts       []RemoteHost        `json:"remote_hosts,omitempty"`
-	DefaultModel      string              `json:"defaultModel"`
-	DefaultProvider   string              `json:"defaultProvider,omitempty"` // override the model's first provider
-	DefaultEffort     string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
-	CompactModel      string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
-	CompactProvider   string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
-	CompactPct        int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
-	Theme             string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
-	Sidebar           *bool               `json:"sidebar,omitempty"`         // the left column of panels; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
-	Repl              *bool               `json:"repl,omitempty"`            // true opens the REPL panel at startup (ctrl+x r still toggles)
-	Panel             string              `json:"panel,omitempty"`           // the expanded left panel at startup: agents (default), context or lsp (ctrl+x 1/2/3 still switch)
-	Mouse             *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
-	Thinking          *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
-	CollapsePaste     *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
-	GoalMaxRounds     int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
-	RLM               RLMConfig           `json:"rlm,omitzero"`
-	MaxRetries        int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
-	Providers         map[string]Provider `json:"providers"`
-	DisabledProviders []string            `json:"disabledProviders,omitempty"`
-	Models            map[string]Model    `json:"models"`
+	RemoteHosts        []RemoteHost        `json:"remote_hosts,omitempty"`
+	DefaultModel       string              `json:"defaultModel"`
+	DefaultProvider    string              `json:"defaultProvider,omitempty"` // override the model's first provider
+	DefaultEffort      string              `json:"defaultEffort,omitempty"`   // reasoning effort for new sessions: "" defaults to "low"; "off", "low", "medium", "high"
+	CompactModel       string              `json:"compactModel,omitempty"`    // model for compaction summaries; "" = the built-in default
+	CompactProvider    string              `json:"compactProvider,omitempty"` // provider for the compaction model; "" = the model's default routing
+	CompactPct         int                 `json:"compactPct,omitempty"`      // compact at this % of the context window; 0 = DefaultCompactPct
+	Theme              string              `json:"theme,omitempty"`           // "light", "dark", a user theme name (themes/<name>.json under the config dir), or "" (auto-detect at startup)
+	Sidebar            *bool               `json:"sidebar,omitempty"`         // the left column of panels; nil = shown when the terminal is ≥120 cols, false = hidden at startup (ctrl+x b still toggles)
+	Repl               *bool               `json:"repl,omitempty"`            // true opens the REPL panel at startup (ctrl+x r still toggles)
+	Panel              string              `json:"panel,omitempty"`           // the expanded left panel at startup: agents (default), context or lsp (ctrl+x 1/2/3 still switch)
+	Mouse              *bool               `json:"mouse,omitempty"`           // false disables capture so native terminal selection works
+	Thinking           *bool               `json:"thinking,omitempty"`        // nil defaults to on; false hides reasoning tokens (ctrl+o)
+	CollapsePaste      *bool               `json:"collapsePaste,omitempty"`   // nil/false: pastes land verbatim; true collapses ≥3-line pastes into a [Pasted ~N lines] placeholder
+	GoalMaxRounds      int                 `json:"goalMaxRounds,omitempty"`   // global goal-loop round cap; 0 = DefaultGoalMaxRounds; projects.json may override per folder
+	RLM                RLMConfig           `json:"rlm,omitzero"`
+	MaxRetries         int                 `json:"maxRetries,omitempty"` // attempts per provider request on transient failures (429/5xx/network); 0 = llm.DefaultMaxAttempts, 1 = no retries
+	Providers          map[string]Provider `json:"providers"`
+	ProviderKeySources ProviderKeySources  `json:"providerKeySources,omitzero"`
+	DisabledProviders  []string            `json:"disabledProviders,omitempty"`
+	Models             map[string]Model    `json:"models"`
 	// MCPServers is whip's own MCP server block (whip-native shape; see
 	// internal/mcp.ServerConfig for the normalized semantics). On load it is
 	// merged over imported claude/codex configs: whip always wins per name.
@@ -305,50 +307,6 @@ func path() (string, error) {
 	return filepath.Join(dir, "config.json"), nil
 }
 
-// Exists reports whether the config file is already on disk. Load creates it
-// when missing, so callers that want to detect a first run (the setup wizard)
-// must check Exists before Load.
-func Exists() bool {
-	p, err := path()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(p)
-	return err == nil
-}
-
-// setupDonePath is the marker the first-run wizard leaves when it completes.
-// The wizard triggers until this marker exists. Subcommands may create the
-// config without running the wizard; a config file alone is not completion.
-func setupDonePath() (string, error) {
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "setup.done"), nil
-}
-
-// SetupDone reports whether the first-run wizard has completed (or a previous
-// version ran enough times to have one).
-func SetupDone() bool {
-	p, err := setupDonePath()
-	if err != nil {
-		return true // can't stat the marker: don't risk a surprise wizard
-	}
-	_, err = os.Stat(p)
-	return err == nil
-}
-
-// MarkSetupDone leaves the wizard-completed marker. Best-effort: a failed
-// write just means the wizard offers again next launch.
-func MarkSetupDone() {
-	p, err := setupDonePath()
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(p, []byte("ok\n"), 0o600)
-}
-
 // fingerprint summarizes a config for the operation log: enough to spot a
 // clobbering write (providers/models collapsing, fixture values appearing)
 // without logging secrets.
@@ -409,12 +367,20 @@ func loadUnlocked() (*Config, error) {
 				if restored.MCPImport == nil {
 					restored.MCPImport = cfg.MCPImport // keep import gating too
 				}
+				if !cfg.ProviderKeySources.IsZero() {
+					restored.ProviderKeySources = cfg.ProviderKeySources
+				}
+				if cfg.DisabledProviders != nil {
+					restored.DisabledProviders = slices.Clone(cfg.DisabledProviders)
+				}
 				return &restored, restored.saveUnlocked()
 			}
 		}
 		def := Default()
 		def.MCPServers = cfg.MCPServers // mcp-only configs are valid; keep them
 		def.MCPImport = cfg.MCPImport
+		def.ProviderKeySources = cfg.ProviderKeySources
+		def.DisabledProviders = slices.Clone(cfg.DisabledProviders)
 		logf("config.load", "no usable .bak; regenerated defaults (%s), keeping %d mcp entries", def.fingerprint(), len(cfg.MCPServers))
 		return def, def.saveUnlocked()
 	}
@@ -531,10 +497,14 @@ func (c *Config) Resolve(model, provider string) (Provider, Model, string, error
 
 // ResolveRoute also returns the selected provider's configuration key. Callers
 // use that identity to look up the catalog for the endpoint actually selected,
-// including when a catalog-only model overrides default routing.
+// including when a catalog-only model overrides default routing. An omitted
+// model selects the saved default model/provider pair together.
 func (c *Config) ResolveRoute(model, provider string) (string, Provider, Model, string, error) {
 	if model == "" {
 		model = c.DefaultModel
+		if provider == "" {
+			provider = c.DefaultProvider
+		}
 	}
 	m, ok := c.Models[model]
 	if !ok {
@@ -597,6 +567,7 @@ func (c *Config) resolveFromCatalog(model, provider string) (Model, string, erro
 		if route, ok := providers[name]; !ok || strings.TrimRight(route.BaseURL, "/") != strings.TrimRight(cat.BaseURL, "/") {
 			continue // catalog for a provider no longer configured
 		}
+		cat = EnrichPresetCatalog(name, providers[name], cat)
 		if mi := cat.Find(model); mi != nil {
 			hits = append(hits, hit{name, mi})
 		}
@@ -632,6 +603,7 @@ func (c *Config) resolveFromCatalog(model, provider string) (Model, string, erro
 func (c *Config) Snapshot() *Config {
 	snap := *c
 	snap.DisabledProviders = slices.Clone(c.DisabledProviders)
+	snap.ProviderKeySources = c.ProviderKeySources.clone()
 	snap.Providers = make(map[string]Provider, len(c.Providers))
 	maps.Copy(snap.Providers, c.Providers)
 	snap.Models = make(map[string]Model, len(c.Models))
@@ -655,6 +627,10 @@ func Default() *Config {
 	return &Config{
 		DefaultModel: "kimi-k3-fast",
 		CompactModel: DefaultCompactModel,
+		MCPImport: &MCPImport{
+			Claude: &MCPImportSource{Enabled: new(false)},
+			Codex:  &MCPImportSource{Enabled: new(false)},
+		},
 		//nolint:gosec // G101: APIKeyEnv holds env var NAMES, not credentials
 		Providers: map[string]Provider{
 			"inference-net": {

@@ -97,13 +97,20 @@ root prompt (`evals/rlm`).
   no client pairing, signing key or first-run approver enrollment prompt.
 - Ask for approval / Full Access is saved per root session and inherited by its
   child agents. Changing it while idle persists across daemon restarts, client
-  reconnects and session switches. New and migrated sessions, including new
-  forks, default to Ask. Explicit terminal launch flags update the initial
+  reconnects and session switches. Full Access allows filesystem operations and
+  working directories outside the project under the execution host's OS user.
+  Explicit child path and operation limits still apply. Ask retains the original
+  project file boundary; changing cwd never grants access. New sessions, including
+  forks, default to Ask; upgrades preserve an existing saved choice. Explicit terminal launch flags update the initial
   session; ACP loading preserves the saved mode and follows other clients'
   changes. Remembered allow rules and headless/deny execution policies remain
   separate. Implementation: `internal/session/permission_mode.go`, daemon
   startup/control, ACP bridge and TUI client. Coverage: session and daemon
   `permission_mode_test.go`, `migrations_test.go`, ACP bridge and TUI client tests.
+  Schema 14 tags known root grants as session-scoped. Legacy child grants keep
+  their recorded path limits because their original scope intent is ambiguous;
+  newly created default children inherit the session policy. Shell commands
+  retain ordinary OS-user authority and Ask is not a filesystem sandbox.
 
 ## Provider loop and models
 
@@ -117,12 +124,46 @@ root prompt (`evals/rlm`).
   pins a stable key (e.g. `repo/reviewer`) so one-off runs reuse the cached
   system prefix.
 
+### Models.dev metadata and named local keys
+
+Ten supported API presets use a checked-in Models.dev subset with upstream
+provenance and MIT attribution. Whip policy controls supported protocols,
+endpoints, recommendation order and defaults. Live lists own membership; exact
+metadata enrichment preserves explicit false/zero/empty fields and timestamps.
+`task models:update` refreshes metadata; `task models:check` validates it offline
+and verifies the generated desktop shell-key names.
+
+`providerKeySources` declares env files, mapped raw-key files and directories of
+exact variable filenames. Bounded parsing never executes shell content. Named
+keys resolve consistently through inventory, connection validation and actual
+model clients. Daemon startup and `provider.discover` persist only missing
+`apiKeyEnv` references using revision-safe, no-op-aware writes. Sources-only config,
+existing routes, disabled providers, defaults and sessions survive discovery.
+File keys reread on discovery/new clients; existing sessions require reload after
+rotation. OpenCode credential/config/database import and desktop probes are removed.
+
+Code: `cmd/modelgen`, `internal/config/modelsdev`,
+`internal/config/{modelsdev,provider_credentials,provider_models,revision}.go`,
+`internal/daemon/provider_{discovery,list,configuration,model,service}.go`,
+`internal/tui/setup.go`, `packages/app/src/provider-setup.tsx`,
+`apps/desktop/src/provider-environment.ts`.
+Tests: importer/presence/pricing tests in `cmd/modelgen` and
+`internal/config/modelsdev`; `internal/config/provider_credentials_test.go`;
+`TestDiscoveredFileKeyPersistsReferenceAndReachesInference`,
+`TestProviderDiscoveryRPCUsesHostSourcesAndPreservesOptOut`,
+`TestDiscoveredOpenRouterKeyStillRequiresAuthentication`; CLI file-key checks in
+`TestClientEntryPathsSendAssembledPromptToProvider` and
+`TestAuthOpenRouterEnvironmentModeUsesNamedFileWithoutPrompt`; SDK/app source and
+host-refresh tests; desktop generated-name and shell-recovery tests. See
+[implementation and validation](../.ai-docs/plans/models-dev-discovery/README.md).
+
 ### Provider connections and environment discovery
 
 Settings renders a host-owned provider inventory with bundled logos, credential
 source labels and per-provider connect/manage dialogs. Existing API/account
-flows are reused. Inference.net and OpenRouter environment discovery creates
-effective routes without persisting discovered secrets or configuration entries.
+flows are reused. Known-preset environment and declared key-file discovery save
+missing provider references during daemon startup and setup/Refresh; regular
+inventory reads remain read-only. Secret values stay in their original sources.
 Saved overrides win; revision-checked disable/disconnect preserves aliases and
 defaults. Disabled routes stop at model admission across root, child, helper and
 compaction requests. Model menus exclude unavailable routes; catalog publication
@@ -139,6 +180,148 @@ Tests: `internal/config/providers_test.go`,
 `apps/web/scripts/provider-connections.mjs` workflow. See the
 [implementation plan](../.ai-docs/plans/provider-connections/README.md) for scope
 and validation results.
+
+### Provider onboarding and the first message
+
+TUI startup and the web/desktop welcome composer use host-owned route readiness.
+A usable selection skips provider setup; otherwise the same reusable chooser
+offers detected connections, masked key entry and account login. Inference.net
+leads the Popular group with one quiet Recommended label; search relevance and
+saved selections take priority. Detected connections keep their positions.
+An explicit TUI selection or successful connection of Inference.net, OpenRouter,
+or OpenAI automatically chooses `kimi-k3-fast` (high), `z-ai/glm-5.3` (max, its
+provider default), or `gpt-6-astra` (medium) and returns to the composer. Fresh
+onboarding saves model, provider and effort together with a revision check.
+Existing sessions persist the selection locally; saved startup choices remain
+unchanged. Missing models or incompatible destinations retain the model picker.
+Other provider flows offer model choices directly. Enter on a model applies it
+and returns to the composer without a second confirmation. First-time onboarding
+saves the choice for new sessions; an existing session keeps the change local.
+Explicit manual models use the same direct selection after their configuration
+is saved. Failed saves retain the model picker with refresh/retry guidance.
+Singleton Inference.net team/project choices advance on the host; genuine choices
+remain explicit.
+
+TUI startup opens one normal Bubble Tea interface and one reconnecting client
+without a folder-trust prompt. Tool approvals follow the session's saved permission
+level. Before a session exists, host queries power a floating
+provider dialog over the normal composer. Esc returns to drafting; `/connect`,
+`/auth`, Model commands or submitting an unconfigured draft reopen the dialog.
+Provider/model/workspace/project lists use themed selection and height-bounded
+windows. Legacy inline-key commands open the same masked confirmation. The old
+standalone setup program, duplicate composer and separate auth prompts are gone.
+
+Session creation waits for a usable model/provider selection and retains one
+create identity across reconnects. Permission setup completes before execution.
+An onboarding draft requires explicit Enter after connection; late login replies,
+poll ticks or earlier launch prompts cannot submit or clear an edited draft.
+Preparation errors allow Enter to retry; a terminal connection failure displays
+its cause and instructions to quit/relaunch. Fresh installations
+leave external Claude/Codex MCP imports off and no longer use `setup.done`.
+
+Welcome retains the draft during setup, requires a project folder, and creates
+the session with the chosen tool permission mode before sending. Its bounded
+host-scoped journal retains original create/submit identities across reloads;
+uncertain delivery is checked before explicit retry. A later draft edit is never
+cleared by an earlier acceptance. Native **Set up this Mac** composes verified
+backend installation and the existing connection owner in one action. Existing
+installations, advanced diagnostics and remote hosts retain their policies.
+
+Code: `internal/daemon/provider_selection.go`, `internal/daemon/provider_service.go`,
+`internal/tui/{setup,startup}.go`, `internal/daemon/root_client.go`,
+`internal/session/command.go`,
+`packages/app/src/{provider-setup,welcome,welcome-submission,runtime}.ts*`,
+`packages/app/src/host-dialog.tsx`, and `apps/desktop/src/runtime.ts`.
+Tests: `internal/daemon/{provider_selection,root_client}_test.go`,
+`internal/tui/{setup,startup,client,cursor}_test.go`,
+`internal/session/command_test.go`, `cmd/whip/daemon_test.go`,
+`packages/app/test/{provider-connections,welcome-submission,sidebar-creation,runtime,local-runtime}.test.ts*`,
+`apps/desktop/tests/runtime.test.ts`, and `apps/desktop/scripts/onboarding-smoke.mjs`.
+See the [implementation and acceptance record](../.ai-docs/plans/provider-onboarding/README.md)
+and [integrated TUI completion](../.ai-docs/plans/provider-onboarding/TUI-INTEGRATION.md).
+
+`task onboarding:docker` builds the current checkout into a disposable Linux TUI
+and embedded web server at `localhost:4000`. Both clients share an empty runtime
+home; quitting removes test state while retaining build caches. The launcher also
+supports dirty linked worktrees without copying Git internals. See
+[fresh onboarding in Docker](../README.md#test-fresh-onboarding-in-docker).
+Code: `scripts/onboarding-docker.mjs`, `scripts/docker/onboarding.Dockerfile`,
+`scripts/docker/onboarding-entrypoint.sh`, and `scripts/renderer-artifact.mjs`.
+Tests: `scripts/onboarding-docker.test.mjs` and `scripts/renderer-artifact.test.mjs`.
+Linux worker startup also accounts for Go's existing virtual memory reservations
+before setting its address-space ceiling, while retaining the resident RAM limit.
+Code: `internal/rlm/memory_linux.go`; regression:
+`TestMemoryLimitPreservesRuntimeReservations` in `internal/rlm/memory_linux_test.go`.
+
+### Known provider picker and local credentials
+
+The TUI uses compact provider, authentication-method and masked key dialogs.
+Popular contains Inference.net, OpenRouter and an OpenAI family row; seven more
+known compatible providers follow alphabetically. Connection checkmarks stay in
+stable positions, search has no prompt prefix, and refresh preserves selection.
+OpenAI API billing and ChatGPT subscription keep distinct stored route IDs.
+Other/custom setup uses small prompts with optional manual models and limits.
+
+The host's bundled preset registry supplies URLs, environment aliases, category,
+family and key-page metadata, augmented from a pinned Models.dev subset. Effective
+connections reuse named environment/file keys without copying secrets or writing
+configuration during inventory. Setup/discovery persists missing references. Explicit overrides and disabled routes
+remain authoritative. Desktop recovers only bounded local shell values and routing
+guards; remote hosts resolve their own credentials. OpenRouter discovery checks
+the authenticated `/key` endpoint before its public model list, rejecting bad
+credentials in the API-key dialog before saving. DeepInfra's public catalog and
+bundled discovery remain unverified in host metadata and management;
+TUI provider/model pickers omit informational discovery footers. Observed
+authentication failures still reject a submitted key.
+All ten API presets use live model membership, accepting new IDs with sparse
+metadata and excluding explicit incompatibilities. Bundled models only fill
+missing metadata or provide offline candidates. Old allowlist caches refresh on
+next use, and failed refreshes preserve the last catalog. Stream/tool fixtures
+cover the ten API presets. Canonical OpenAI Astra API calls use the shared Responses codec, including
+output caps, accounting and credential-scoped reasoning continuation; other custom
+OpenAI-compatible endpoints retain Chat Completions. No paid live-provider
+acceptance is implied.
+
+Code: `internal/tui/setup_picker.go`, `internal/tui/ui/list.go`,
+`internal/config/{providers,provider_credentials,provider_models}.go`,
+`internal/daemon/provider_{list,model,service}.go`,
+`internal/llm/provider_compatibility.go`, `apps/desktop/src/runtime.ts`.
+Tests: `internal/tui/setup_picker_test.go`, credential/preset model tests under
+`internal/config`, preset discovery/key tests under `internal/daemon`,
+`internal/llm/provider_compatibility_test.go`, and desktop provider environment tests.
+See [picker implementation and evidence](../.ai-docs/plans/tui-provider-configuration/PICKER-REDESIGN.md).
+One-step defaults: `internal/tui/setup_default{,_test}.go`,
+`internal/daemon/provider_default_test.go`, and
+`internal/llm/openai_responses{,_test}.go`. See
+[verified selectors and validation](../.ai-docs/plans/tui-provider-configuration/AUTO-MODELS.md).
+
+### File-backed custom provider configuration
+
+The TUI's `/connect` dialog includes **Other…** and **ctrl+e**
+management. Users can configure an OpenAI-compatible Chat Completions endpoint
+with a masked API key, a host environment-variable reference, or explicit no
+authentication. Discovery populates the model picker; manual models and explicit
+unverified saves support endpoints without `/models`. **ctrl+d** controls whether
+the selected pair becomes the default for new sessions.
+
+The execution host writes definitions, credentials and manual model aliases to
+its existing configuration file through revision-checked operations. Reads are
+redacted, refreshing conflicts preserves edited fields, and changing an endpoint
+requires an explicit credential decision. Current sessions can explicitly reload
+changed connections; references block removal without rewriting model routes or
+history. Web/desktop inventory sees the same connections. No provider database or
+web custom-provider form is introduced.
+
+Code: `internal/tui/setup_provider.go`, `internal/tui/setup_host.go`,
+`internal/daemon/provider_configuration.go`, `internal/config/providers.go`,
+`internal/llm/openai.go`, `internal/protocol/provider_types.go`, and
+`packages/sdk/src/services.ts`.
+Tests: `internal/tui/setup_provider_test.go`,
+`internal/daemon/provider_configuration_test.go`,
+`internal/config/provider_auth_test.go`, `internal/llm/openai_noauth_test.go`,
+`cmd/whip/acp_test.go`, and `packages/sdk/test/services.test.ts`.
+See [configuration instructions](models-providers.md#supported-provider-types-and-custom-endpoints)
+and [implementation and acceptance](../.ai-docs/plans/tui-provider-configuration/README.md).
 
 ### ChatGPT subscription provider
 
@@ -182,8 +365,8 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   Large values use granted content references. HTTP transfers reuse the content
   store and limits. Raw human transcript inspection never changes model context.
 - Omitted session model/provider routes resolve from host defaults after command
-  deduplication. First-run setup remains pending after daemon startup creates its
-  configuration (`session_defaults_test.go`, setup marker tests).
+  deduplication. Provider readiness determines setup even when daemon startup has
+  already created configuration (`session_defaults_test.go`, `setup_test.go`).
 - TUI startup, initial host queries, the first prompt and automatic title delivery
   run against both transports in release acceptance (`client_integration_test.go`).
 - Provider setup/login, versioned configuration updates and completion execute on
@@ -267,6 +450,7 @@ behavior to its owning code and repeatable validation.
 | Multiple daemon connections, Local-owned saved profiles, verified identities, isolated disconnects and guided Local/Remote session creation | `packages/app/src/{hosts,runtime}.ts`, `{host-dialog,welcome,settings}.tsx`, `internal/config/remote_hosts.go`, daemon configuration service | `packages/app/test/hosts.test.ts`, `runtime.test.ts`, `sidebar-creation.test.tsx`; `internal/config/remote_hosts_test.go`; `TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts` |
 | Search and advisory attention across hosts, source labels/filter, independent bounded pagination and partial failures without root hydration | `packages/app/src/{session-search-dialog,attention}.tsx` | `packages/app/test/multi-host-discovery.test.tsx` |
 | Window-local session tabs across hosts, v3 layout and retained v1/v2 recovery, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
+| Independent New Chat tabs, host/setup persistence, original-ID first-message recovery, focus-safe in-place promotion and closed/orphan recovery | `packages/app/src/{session-tabs,session-tab-routing,welcome,welcome-submission,welcome-recovery,runtime}.ts*` | App tab/routing/Welcome/submission/runtime/settings/desktop-close tests; `apps/web/scripts/new-chat-tabs.mjs` |
 | Nested split views, draggable tabs between panes, duplicate chats with independent agents/scroll, shared drafts, and responsive layout restoration | `packages/app/src/{session-tabs,session-tab-strip,session-tab-routing,workspace-views,runtime,conversation,composer}.ts*`, `packages/ui/src/workspace-layout.tsx` | App model/routing/runtime/workspace/composer tests; `apps/web/scripts/workspace-layout.mjs`; UI layout Chromium/Firefox, Axe and strict-CSP fixture |
 | Read-only session REPL, in-place Open REPL/Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |

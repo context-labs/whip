@@ -303,6 +303,15 @@ not enter the renderer. The panel owns its temporary busy/error/confirmation
 state and retires late results on close; it is not another SDK connection owner.
 
 **Choose executable** uses a native picker and validates the selected distribution.
+The welcome screen's **Set up this Mac** uses the optional
+`localRuntime.installDefault` capability, then connects through `HostConnections`.
+The native runtime probes first: a compatible executable is reused, and only a
+missing installation is filled with verified bundled bytes at the saved missing
+path or `~/.local/bin/whipcode`. This shortcut does not create a second daemon or
+connection owner. `LocalRuntimeSetup` owns cancellable UI observation; installation
+and accepted daemon work retain their native owners. Incompatibility and install
+failure stay visible with access to the existing diagnostics panel.
+
 **Install whipcode** requires an explicit action and installs verified packaged
 bytes without overwriting a different existing installation. Neither action starts
 work. The existing host **Connect** action attaches to a healthy daemon or starts
@@ -492,9 +501,13 @@ exceed the aggregate storage budget; subsequent writes require clearing drafts.
 ### Split workspace
 
 `SessionTabs` owns one immutable binary tree across all hosts: split nodes carry
-a direction and ratio; pane leaves carry ordered chat/REPL descriptors, a selected
-view ID, and stable pane IDs. Every descriptor stores its runtime ID; the global
-view ID identifies one presentation of that host’s session. Duplicates share
+a direction and ratio; pane leaves carry ordered chat/REPL/New Chat descriptors, a selected
+view ID, and stable pane IDs. Session-backed descriptors store runtime/root identity;
+New Chat descriptors store an independent draft ID, optional host profile/runtime,
+working directory and permission mode. Prompt text and recovery payloads never enter
+the v3 layout. Draft tabs consume the same 32-view capacity but no root observation
+leases, summaries or session actions. Splitting a draft moves it rather than duplicating it.
+The global session view ID identifies one presentation of that host’s session. Duplicates share
 SDK data and recipient drafts/files/locks, but retain independent mode, agent, inspector,
 scroll and caret state. When a chat view becomes active on desktop, its composer
 receives focus without scrolling; compact layouts and open overlays retain their focus.
@@ -520,7 +533,11 @@ workspace reconciler releases obsolete root leases **before** acquiring new root
 it deduplicates selected `(runtimeId, rootId)` pairs and never mounts background
 tabs for labels. A disconnected host shows an unavailable state in its own panes;
 it does not replace the layout or release healthy hosts’ selected roots.
-New-session and Settings routes retain the tree and release visible consumers.
+New Chat routes (`/new/$draftId`) select the saved draft and render Welcome in its
+pane. Every explicit New session action allocates a fresh draft in the focused pane;
+modified links use `/?new=1` so only the destination window allocates. Ordinary `/`
+is a home/empty destination, not creation intent. Missing draft links never allocate
+a replacement. Settings retains the tree and releases visible consumers.
 `SessionContent` takes an explicit mode and view location; late actions verify the
 originating location and host before updating their view.
 
@@ -728,6 +745,13 @@ Query persistence, command-recovery storage, or logs. Configuration updates use
 revision checks; display conflicts instead of overwriting newer settings.
 `settings/provider-connections.tsx` reads the inexpensive `provider.list`
 inventory, scoped to the execution host, independently of model discovery.
+Opening setup and explicit Settings Refresh use the ephemeral `provider.discover`
+operation, which persists missing named-key references on that host and returns
+inventory. The shared action checks the host's capability and falls back to a
+read-only list on older hosts. It aborts on host changes and invalidates only that
+host's provider/default/model queries. Ordinary query polling never writes config.
+Optional `discovery_error` is shown in Settings; a failed save does not hide
+available effective routes.
 Rows and model controls share `ProviderLogo`, backed by bundled SVGs under
 `src/assets/` with source attribution. Unknown providers use the sparkle fallback.
 Rows use source labels and shared Dialog primitives.
@@ -738,6 +762,14 @@ and durable `disabledProviders` opt-outs. The renderer never probes environment
 variables or infers connection state from the existence of a config entry.
 Connect/disconnect invalidate that host's inventory, defaults and model queries.
 `provider.disconnect` requires the inventory's configuration revision.
+The shared host API also exposes `provider.get/create/update/remove` for custom
+connection configuration. `get` returns editable endpoint metadata, credential
+source summaries and removal blockers without reading back secrets or executing
+credential commands. Create/update patch the same host configuration file with
+revision checks; they are sensitive ephemeral operations, never durable session
+commands. A lost reply requires rereading the stable provider ID before an
+explicit retry. The TUI currently supplies the custom form; web/desktop use the
+saved inventory without a second file editor or a database-backed provider store.
 The screen requires `provider.list`; it has no alternate editor for older hosts.
 The connection dialogs use `provider-login.tsx` for account login flows.
 Unavailable provider descriptors are filtered from model choices while aliases
@@ -751,6 +783,73 @@ full model/provider pair. The
 shared effort helper offers catalog-supported levels or the model default when
 capabilities are unknown. Selecting a different route resets an unsupported
 effort; background catalog refreshes never change saved defaults or dirty drafts.
+
+Welcome and Settings reuse `provider-setup.tsx` and the existing connection/login
+dialogs. `provider.list` accepts optional model/provider inputs and returns an
+optional `selection` (resolved pair, local readiness and reason); provider entries
+carry `recommended`, `suggested_model`, `category`, `family` and `key_url`.
+These optional non-secret fields describe preset presentation; `family` never
+replaces a real execution provider ID. `key_source: "env_file"` and `"key_file"`
+identify named file sources. `environment_variable` and `credential_path` contain
+only the reference name and configured path; these are host metadata, never
+inputs to client-side file reads. Whip no longer imports OpenCode credentials. Optional
+`RuntimeConfiguration.discovery` distinguishes authenticated discovery from
+public/bundled model lists after key setup; clients must not call the latter a
+validated key. The host computes inventory from effective
+configuration and account-scoped cached catalogs. Inventory never runs credential
+commands or performs upstream calls. Readiness means a route can be attempted,
+not that a paid request has succeeded. `provider.catalogs` can target one provider
+when the user selects it, avoiding unrelated credential-command execution.
+An older compatible host that omits readiness metadata receives an explicit
+update-host message; clients do not invent routing policy or repeat setup writes.
+
+Clients retain host inventory order within available/setup groups. Inference.net
+comes first among comparable choices and has one subdued Recommended label in
+setup; disabled, configuration-error and custom-endpoint variants omit the label.
+Saved valid routes stay selected. Model confirmation explicitly updates the pair
+with the inventory revision; authentication by itself never changes defaults.
+Settings offers **Use for new sessions** after connecting. The daemon advances
+singleton team/project login choices under the existing flow owner; clients only
+observe states and present actual choices. Browser/device-code actions and keys
+remain ephemeral and host-pinned.
+
+`welcome.tsx` is a pre-session composer. It uses the native folder picker where
+available and a host directory browser otherwise. A folder, explicit send and a
+usable route are required before execution. The shared permission control starts
+at Ask; `session.create.permission_mode` saves that mode atomically with creation
+and command acceptance. Retrying creation never resets a later session choice.
+
+`WelcomeSubmissions` in `welcome-submission.ts` owns first-message recovery in
+`AppRuntime`. Per-draft metadata journals freeze the original host/client,
+create/submit identities, parameters, root and state, but no prompt text. They are
+bounded to 32 records, 8 KiB each and 256 KiB total (UTF-8, including legacy records); admission uses the platform storage transaction before any
+network work. State transitions and retirement use that transaction and check the
+original create identity, so a late observer cannot replace a newer submission.
+The editable welcome prompt and frozen submission use the existing
+bounded draft store (32 nonempty entries, 256 KiB each, 1 MiB total), keyed by stable
+draft ID independently of host selection. Editable and frozen copies compete for
+that budget; unresolved frozen copies survive ordinary cross-window draft cleanup.
+Durable draft revisions distinguish later edits even when text becomes identical.
+Revision-only metadata is removed on startup; keys and tokens never enter either
+store. Storage failure prevents sending instead of leaving an unrecorded request.
+
+Create and submit retain separate original command identities. Reload/reattach
+checks status; a confirmed absent request requires explicit retry with the original
+identity. Accepted input durably promotes the same draft descriptor to a session
+before retiring its journal and clears only the matching draft revision. App-owned
+completion works after unmount or close, preserves pane/order/view identity, and
+never reopens closed tabs or steals another pane/Settings focus. Only the still-focused
+draft route is replaced with its session URL. Failed promotion retains recovery.
+Later execution failures remain in runtime command observations. `welcome-recovery.tsx`
+keeps unresolved operations and nonempty orphan prompts reachable from empty/New Chat
+state after history eviction or capacity-blocked legacy import. Local editing locks
+while first-message admission/recovery is pending; newer programmatic revisions remain
+recoverable in a separate draft after promotion. Accepted journals whose cleanup failed
+can retry durable association and retirement offline without another create/submit.
+Legacy host prompts/journals are imported once with deterministic ownership; original
+command identities survive. Neither reconnect, host switching nor auth completion
+silently submits the draft. New-draft admission, metadata edits and promotion reject
+storage failure rather than claiming an unpersisted durable transition.
 
 Provider/runtime/recovery settings share `HostSelector` with new-session setup:
 the dropdown shows the host name and connection dot, followed by a status badge.
@@ -887,14 +986,21 @@ use the selected provider's list when multiple routes advertise the same
 model ID. Root changes
 require an idle session, including options in an already-open popover; child composers display their own
 model without changing the root. `permission-mode.tsx` toggles the root
-session's consent mode (`permission.mode` with `external_permissions`) from a
+session's access mode (`permission.mode` with `external_permissions`) from a
 composer popover. The mode belongs to the root session and is saved in SQLite;
-new and migrated sessions default to Ask for approval. The daemon commits the
+new sessions default to Ask for approval and upgrades preserve saved choices.
+Full Access allows paths outside the project on the execution host and approves
+actions automatically. Explicit delegated path/operation limits remain enforced.
+Ask keeps the original project file boundary; it does not sandbox shell commands.
+The current directory and project-instruction roots are separate from filesystem
+authority. The daemon commits the
 choice and `session.permission_mode.updated` event together, reports it on the
 root snapshot as `permission_mode`, and restores it before resumed work or child
 agents start. The SDK applies the event to the root snapshot. Reconnects and
 switching clients preserve the saved choice. The toggle is root-only and applies
 while idle, matching the daemon's refusal to change mode during an active turn.
+Downgrading with an external cwd preserves the visible directory but denies new
+out-of-scope operations; navigation back into the project remains available.
 Drafts remain untouched by model selection, and host defaults are not changed.
 Standard text inputs use a single neutral focus border. The composer keeps its
 quiet outer border unchanged on focus and has no separate textarea outline.

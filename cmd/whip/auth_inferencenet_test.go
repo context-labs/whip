@@ -81,7 +81,7 @@ func TestAuthInferenceNetBYOKValidatesAndPersists(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, `{"data":[]}`)
+		fmt.Fprint(w, `{"data":[{"id":"kimi-k3-fast"}]}`)
 	}))
 	t.Cleanup(srv.Close)
 	defer inferencenet.SetURLsForTest("", "", srv.URL)()

@@ -97,24 +97,25 @@ type menu struct {
 }
 
 type model struct {
-	hostCompletion      *clientCompletion
-	cfg                 *config.Config
-	client              *Client
-	clientView          clientPresentation
-	clientState         ClientState
-	clientErr           error
-	clientCursor        int64
-	clientInFlight      int
-	clientTouched       bool
-	clientPromptOp      string
-	clientPromptCut     int
-	clientTerminalID    string
-	clientTurnError     string
-	terminalAgentID     string
-	terminalMarker      string
-	historyPages        map[string]*clientHistoryPage
-	historyRequested    bool
-	reloadAfterCatalogs bool
+	hostCompletion   *clientCompletion
+	cfg              *config.Config
+	client           *Client
+	clientView       clientPresentation
+	clientState      ClientState
+	clientErr        error
+	clientClosed     bool
+	clientCursor     int64
+	clientInFlight   int
+	clientTouched    bool
+	clientPromptOp   string
+	clientPromptCut  int
+	clientTerminalID string
+	clientTurnError  string
+	terminalAgentID  string
+	terminalMarker   string
+	historyPages     map[string]*clientHistoryPage
+	historyRequested bool
+	providersLoaded  bool
 	// verboseCatalogs echoes the next provider.catalogs result (explicit
 	// /model refresh); background refreshes (startup, auth) stay quiet.
 	verboseCatalogs bool
@@ -222,9 +223,9 @@ type model struct {
 
 	namePrompt *namePrompt // inline text prompt (fork naming, /rename)
 
-	// infAuth holds the in-flight inference-net device login across the
-	// team → project → create prompts.
-	infAuth *inferenceNetPending
+	providerSetup *providerSetup
+	startup       *sessionStartup
+	runContext    context.Context
 
 	// initialPrompt (whip up <words>) is submitted as the first turn from
 	// Init — late enough that m.prog exists for the turn goroutine's p.Send.
@@ -1355,9 +1356,6 @@ func (m *model) recordInputRows() {
 		m.inputLines = nil
 	} else {
 		iv := m.input.View()
-		if m.namePrompt != nil && m.namePrompt.mask {
-			iv = m.namePrompt.maskedValue(m.input.Value()) // what the inputText rectangle covers
-		}
 		raw := strings.Split(iv, "\n")
 		m.inputLines = make([]string, len(raw))
 		for i, ln := range raw {
@@ -1401,14 +1399,7 @@ func (m *model) viewBody() string {
 	if m.iactive == nil {
 		if m.namePrompt != nil {
 			b.WriteString(m.namePrompt.label + " ")
-			if m.namePrompt.mask {
-				// Secrets never echo: render the mask instead of the input's
-				// live view (which would show the key in the clear). The "┃ "
-				// prompt matches how the textarea renders its own first line.
-				b.WriteString("┃ " + m.namePrompt.maskedValue(m.input.Value()))
-			} else {
-				b.WriteString(indentContinuation(m.input.View(), lipgloss.Width(m.namePrompt.label)+1))
-			}
+			b.WriteString(indentContinuation(m.input.View(), lipgloss.Width(m.namePrompt.label)+1))
 		} else {
 			b.WriteString(m.opencodePrompt(m.input.View(), m.width))
 		}

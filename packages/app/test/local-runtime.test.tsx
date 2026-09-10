@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import { LocalRuntimePanel } from '../src/host-dialog';
+import { LocalRuntimePanel, LocalRuntimeSetup } from '../src/host-dialog';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { localProfile, type AppLocalRuntime, type LocalRuntimeStatus } from '../src/platform';
@@ -19,10 +19,10 @@ function deferred<T>() {
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
 }
-function fixture(initial = stopped, desktop = true) {
+function fixture(initial = stopped, desktop = true, onboarding = false, wrapper = false) {
   const api: AppLocalRuntime = {
     test: vi.fn(async () => initial), choose: vi.fn(async () => stopped),
-    install: vi.fn(async () => stopped), restart: vi.fn(async () => running),
+    install: vi.fn(async () => stopped), installDefault: vi.fn(async () => stopped), restart: vi.fn(async () => running),
   };
   const values = new Map<string, string>();
   const runtime = new AppRuntime({
@@ -36,7 +36,9 @@ function fixture(initial = stopped, desktop = true) {
   runtimes.push(runtime);
   const connect = vi.spyOn(runtime.connections, 'connect').mockResolvedValue();
   const tree = (open: boolean) => <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider>
-    <QueryClientProvider client={runtime.queries}>{open && desktop && <LocalRuntimePanel api={api} hostState={runtime.getSnapshot().home!.state} disabled={false} onBusyChange={() => {}} />}</QueryClientProvider>
+    <QueryClientProvider client={runtime.queries}>{open && desktop && (wrapper ? <LocalRuntimeSetup host={runtime.getSnapshot().home!} />
+      : <LocalRuntimePanel api={api} hostState={runtime.getSnapshot().home!.state} disabled={false} onBusyChange={() => {}}
+        onboarding={onboarding} onConnect={onboarding ? () => runtime.connections.connect('local') : undefined} />)}</QueryClientProvider>
   </UIProvider></ThemeProvider></RuntimeContext.Provider>;
   const view = render(tree(true));
   return { runtime, api, connect, ...view, reopen() { view.rerender(tree(false)); view.rerender(tree(true)); } };
@@ -104,4 +106,61 @@ it('keeps native repair controls out of shells without the capability', () => {
   expect(screen.queryByRole('region', { name: 'This Mac runtime' })).toBeNull();
   expect(f.api.test).not.toHaveBeenCalled();
 
+});
+
+it('sets up a missing runtime with one action and connects only after installation succeeds', async () => {
+  const f = fixture({ state: 'missing', home: stopped.home, message: 'No installation.', canInstall: true }, true, true);
+  const button = await screen.findByRole('button', { name: 'Set up this Mac' });
+  expect(f.api.installDefault).not.toHaveBeenCalled(); expect(f.connect).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Choose executable' })).toBeNull();
+  const install = deferred<LocalRuntimeStatus>(); vi.mocked(f.api.installDefault!).mockReturnValueOnce(install.promise);
+  fireEvent.click(button); fireEvent.click(button);
+  expect(f.api.installDefault).toHaveBeenCalledOnce(); expect(f.api.install).not.toHaveBeenCalled();
+  expect(f.connect).not.toHaveBeenCalled();
+  act(() => install.resolve(stopped));
+  await waitFor(() => expect(f.connect).toHaveBeenCalledExactlyOnceWith('local'));
+});
+
+it('keeps failed installation local, offers retry, and preserves advanced manual installation', async () => {
+  const f = fixture({ state: 'missing', home: stopped.home, message: 'No installation.', canInstall: true }, true, true);
+  vi.mocked(f.api.installDefault!).mockRejectedValueOnce(new Error('Cannot install here. Choose a writable location.'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up this Mac' }));
+  await screen.findByRole('button', { name: 'Retry setup' });
+  expect(screen.getByRole('alert').textContent).toContain('writable location');
+  expect(f.connect).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced options' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Choose install location' }));
+  await waitFor(() => expect(f.api.install).toHaveBeenCalledOnce());
+  await waitFor(() => expect(f.connect).toHaveBeenCalledOnce());
+});
+
+it('does not connect when installation is cancelled or discovers an incompatible installation', async () => {
+  const missing: LocalRuntimeStatus = { state: 'missing', home: stopped.home, message: 'No installation.', canInstall: true };
+  const f = fixture(missing, true, true);
+  vi.mocked(f.api.installDefault!).mockResolvedValueOnce(missing);
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up this Mac' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Set up this Mac' }).hasAttribute('disabled')).toBe(false));
+  expect(f.connect).not.toHaveBeenCalled();
+  vi.mocked(f.api.installDefault!).mockResolvedValueOnce({ ...stopped, state: 'incompatible', message: 'Choose a matching backend.' });
+  fireEvent.click(screen.getByRole('button', { name: 'Set up this Mac' }));
+  await screen.findByText('Choose a matching backend.');
+  expect(f.connect).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Set up this Mac' })).toBeNull();
+  expect(f.api.restart).not.toHaveBeenCalled();
+});
+
+it('retires installation observation on welcome unmount without initiating a late connection', async () => {
+  const f = fixture({ state: 'missing', home: stopped.home, message: 'No installation.', canInstall: true }, true, true);
+  const install = deferred<LocalRuntimeStatus>(); vi.mocked(f.api.installDefault!).mockReturnValueOnce(install.promise);
+  fireEvent.click(await screen.findByRole('button', { name: 'Set up this Mac' }));
+  f.unmount();
+  await act(async () => { install.resolve(stopped); await install.promise; });
+  expect(f.connect).not.toHaveBeenCalled();
+});
+
+it('attaches an existing runtime through the normal connection owner without installing or restarting', async () => {
+  const f = fixture(running, true, true, true);
+  await waitFor(() => expect(f.connect).toHaveBeenCalledExactlyOnceWith('local'));
+  expect(f.api.install).not.toHaveBeenCalled(); expect(f.api.installDefault).not.toHaveBeenCalled();
+  expect(f.api.restart).not.toHaveBeenCalled();
 });

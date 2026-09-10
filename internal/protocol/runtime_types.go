@@ -33,6 +33,7 @@ type EffortParams struct {
 	PersistDefault bool   `json:"persist_default"`
 }
 type ModelParams struct {
+	Effort         string `json:"effort,omitempty"`
 	Model          string `json:"model"`
 	Provider       string `json:"provider,omitempty"`
 	PersistDefault bool   `json:"persist_default"`

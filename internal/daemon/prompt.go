@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/rlm"
 )
 
@@ -11,13 +13,6 @@ import (
 // also supplies explicit skill expansion and the context inspection UI.
 func (session *AgentSession) refreshPrompt(ctx context.Context) error {
 	options := rlm.PromptOptions{WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()}
-	if session.root != nil {
-		roots, err := session.root.store.CapabilityPaths(ctx, session.root.ID(), session.root.AgentID(), session.root.authority.Files)
-		if err != nil {
-			return err
-		}
-		options.ProjectRoots = roots
-	}
 	session.mu.Lock()
 	override := session.promptOverride
 	session.mu.Unlock()
@@ -31,6 +26,10 @@ func (session *AgentSession) refreshPrompt(ctx context.Context) error {
 		}
 	} else {
 		var err error
+		options, err = session.promptOptions(ctx)
+		if err != nil {
+			return err
+		}
 		snapshot, err = rlm.ComposePrompt(options)
 		if err != nil {
 			return err
@@ -41,4 +40,24 @@ func (session *AgentSession) refreshPrompt(ctx context.Context) error {
 	session.prompt = snapshot
 	session.mu.Unlock()
 	return nil
+}
+
+func (session *AgentSession) promptOptions(ctx context.Context) (rlm.PromptOptions, error) {
+	options := rlm.PromptOptions{WorkingDirectory: session.agent.WorkingDir, Identity: session.identity()}
+	if session.root == nil {
+		return options, nil
+	}
+	roots, err := session.root.store.CapabilityPaths(ctx, session.root.ID(), session.root.AgentID(), session.root.authority.Files)
+	if err != nil && !errors.Is(err, capability.ErrDenied) {
+		return options, err
+	}
+	options.ProjectRoots = roots
+	options.ProjectDirectoryAllowed = func(path string) (bool, error) {
+		err := session.root.store.AuthorizeCapability(ctx, session.root.ID(), session.id, session.authority.Files, "read", path)
+		if errors.Is(err, capability.ErrDenied) {
+			return false, nil
+		}
+		return err == nil, err
+	}
+	return options, nil
 }

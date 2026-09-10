@@ -108,9 +108,7 @@ func NewProviderService(ctx context.Context, generation string) *ProviderService
 			}
 			return config.DeleteCatalog(config.InferenceNetProvider)
 		},
-		validate: func(ctx context.Context, baseURL, key string) ([]llm.ModelInfo, error) {
-			return llm.New(baseURL, key).Models(ctx)
-		},
+		validate: validateProviderModels,
 	}
 	directory, err := config.Dir()
 	if err != nil {
@@ -264,6 +262,15 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 				return err
 			}
 		}
+		if p.DefaultModel != nil || p.DefaultProvider != nil {
+			selection := s.providerSelection(c, s.CatalogsFor(c), "", "")
+			if !selection.Ready {
+				return errors.New("select a model available on a connected provider before saving defaults")
+			}
+			if p.DefaultEffort == nil && validateConfiguredEffort(c, c.DefaultModel, c.DefaultProvider, c.DefaultEffort) != nil {
+				c.DefaultEffort = ""
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -298,51 +305,69 @@ func (s *ProviderService) SetProviderKey(ctx context.Context, p ProviderKeySetup
 		if !ok {
 			provider, ok = preset.Provider, true
 		}
-		if p.Environment && provider.APIKeyEnv == "" && strings.TrimRight(provider.BaseURL, "/") == preset.Provider.BaseURL {
-			provider.APIKeyEnv = preset.Provider.APIKeyEnv
+		if p.Environment && strings.TrimRight(provider.BaseURL, "/") == preset.Provider.BaseURL && (provider.APIKeyEnv == "" || slices.Contains(preset.EnvironmentVariables, provider.APIKeyEnv)) {
+			provider.APIKeyEnv = config.DiscoverCredentials(c).AvailableEnvironmentVariable(preset)
 		}
 	}
 	if !ok || (provider.API != "" && provider.API != "openai-completions") {
 		return RuntimeConfiguration{}, errors.New("provider does not support API key setup")
 	}
+	credential := protocol.ProviderCredential{Mode: "api_key", Key: p.Key}
 	if p.Environment {
-		if provider.APIKeyEnv == "" {
-			return RuntimeConfiguration{}, errors.New("no environment variable configured for this provider")
-		}
-		provider.APIKey = ""
-	} else {
-		provider.APIKey, provider.APIKeyEnv = config.TrimKey(p.Key), ""
-		if provider.APIKey == "" {
-			return RuntimeConfiguration{}, errors.New("API key is required")
-		}
+		credential = protocol.ProviderCredential{Mode: "environment", EnvironmentVariable: provider.APIKeyEnv}
 	}
-	key, err := provider.ResolveKey()
+	provider, err = applyProviderCredential(provider, credential, false)
+	if err != nil {
+		return RuntimeConfiguration{}, err
+	}
+	if provider.Name == "" {
+		provider.Name = p.Provider
+	}
+	if err := validateProviderDefinition(provider); err != nil {
+		return RuntimeConfiguration{}, err
+	}
+	key, err := provider.ResolveKey(c)
 	if err != nil || key == "" {
 		return RuntimeConfiguration{}, errors.New("provider key is unavailable on the execution host")
 	}
 	validationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	models, err := s.validate(validationCtx, provider.BaseURL, key)
+	models, discovery, err := s.discoverProviderModels(validationCtx, p.Provider, provider, key)
 	if err != nil {
-		return RuntimeConfiguration{}, errors.New("provider key validation failed")
+		if ctx.Err() != nil {
+			return RuntimeConfiguration{}, ctx.Err()
+		}
+		return RuntimeConfiguration{}, providerValidationError(err)
 	}
 	if err := ctx.Err(); err != nil {
 		return RuntimeConfiguration{}, err
 	}
 	c, revision, err = config.UpdateVersioned(p.Revision, func(c *config.Config) error {
-		if c.Providers == nil {
-			c.Providers = make(map[string]config.Provider)
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		c.Providers[p.Provider] = provider
-		c.EnableProvider(p.Provider)
-		return nil
+		return patchProviderConfiguration(c, p.Provider, provider, nil, false, true)
 	})
 	if err != nil {
 		return RuntimeConfiguration{}, err
 	}
 	s.interruptProviderLogins(p.Provider)
-	cacheProviderModels(p.Provider, provider.BaseURL, models)
-	return runtimeConfiguration(c, revision), nil
+	// Named files can rotate without changing the configuration revision.
+	// A delayed validation result must not publish models for an obsolete key.
+	current, loadErr := config.Load()
+	var currentKey string
+	var keyErr error
+	if loadErr == nil {
+		currentKey, keyErr = provider.ResolveKey(current)
+	}
+	if loadErr == nil && keyErr == nil && current.Providers[p.Provider] == provider && currentKey == key {
+		cacheProviderModels(p.Provider, provider.BaseURL, models)
+	} else {
+		discovery.Message += " Configuration saved, but credentials changed; refresh the model list."
+	}
+	result := runtimeConfiguration(c, revision)
+	result.Discovery = &discovery
+	return result, nil
 }
 
 func loginActive(state string) bool {
@@ -396,7 +421,7 @@ func (s *ProviderService) BeginProviderLogin(provider string) (ProviderLoginStat
 	active := 0
 	for id, flow := range s.flows {
 		if loginActive(flow.status.State) {
-			if provider == openaiauth.Provider && flow.status.Provider == provider {
+			if flow.status.Provider == provider {
 				return loginSnapshot(flow), nil
 			}
 			active++
@@ -464,6 +489,9 @@ func (s *ProviderService) BeginProviderLogin(provider string) (ProviderLoginStat
 			flow.status.Teams = append(flow.status.Teams, ProviderChoice{ID: team.ID, Name: team.Name})
 		}
 		flow.status.State = "choose_team"
+		if len(flow.teams) == 1 && flow.teams[0].ID != "" {
+			s.selectLoginTeam(flow, flow.teams[0])
+		}
 	}()
 	return loginSnapshot(flow), nil
 }
@@ -516,7 +544,13 @@ func (s *ProviderService) SelectLoginTeam(id, teamID string) (ProviderLoginStatu
 	if index < 0 {
 		return ProviderLoginStatus{}, errors.New("unknown login team")
 	}
-	flow.team, flow.status.TeamID, flow.status.State = flow.teams[index], teamID, "loading_projects"
+	s.selectLoginTeam(flow, flow.teams[index])
+	return loginSnapshot(flow), nil
+}
+
+// selectLoginTeam starts discovery while the caller holds s.mu.
+func (s *ProviderService) selectLoginTeam(flow *providerLoginFlow, selected inferencenet.Team) {
+	flow.team, flow.status.TeamID, flow.status.State = selected, selected.ID, "loading_projects"
 	token, team := flow.token, flow.team
 	s.wg.Go(func() {
 		projects, err := s.projects(flow.ctx, token, team)
@@ -534,8 +568,10 @@ func (s *ProviderService) SelectLoginTeam(id, teamID string) (ProviderLoginStatu
 			flow.status.Projects = append(flow.status.Projects, ProviderChoice{ID: project.ID, Name: project.Name})
 		}
 		flow.status.State = "choose_project"
+		if len(projects) == 1 && projects[0].ID != "" {
+			s.provisionLogin(flow, projects[0], "")
+		}
 	})
-	return loginSnapshot(flow), nil
 }
 
 func (s *ProviderService) SelectLoginProject(id, projectID string) (ProviderLoginStatus, error) {
@@ -565,6 +601,12 @@ func (s *ProviderService) completeLogin(id, projectID, name string) (ProviderLog
 		}
 		project = flow.projects[index]
 	}
+	s.provisionLogin(flow, project, name)
+	return loginSnapshot(flow), nil
+}
+
+// provisionLogin owns the final account setup and is called with s.mu held.
+func (s *ProviderService) provisionLogin(flow *providerLoginFlow, project inferencenet.Project, name string) {
 	flow.status.State = "provisioning"
 	token, team, email := flow.token, flow.team, flow.status.Email
 	s.wg.Go(func() {
@@ -593,5 +635,4 @@ func (s *ProviderService) completeLogin(id, projectID, name string) (ProviderLog
 		flow.status.ProjectID, flow.status.State, flow.token = project.ID, "succeeded", ""
 		flow.cancel()
 	})
-	return loginSnapshot(flow), nil
 }

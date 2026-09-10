@@ -41,12 +41,74 @@ Or build from source with Go 1.27 or newer:
 go install github.com/context-labs/whip/cmd/whip@latest
 ```
 
-Then run `whip`. It defaults to inference.net models, and any
-OpenAI-compatible endpoint can be configured as a provider.
+Then run `whip` in your project folder. The TUI opens directly, without a
+folder-trust prompt. Tool approvals follow the session's saved permission level.
+Whip detects supported credentials on the execution host and uses your selected
+model when it is ready. Otherwise, a provider dialog opens over the composer:
+choose Inference.net (recommended), OpenRouter, OpenAI (API key or ChatGPT
+subscription) to connect and automatically use the recommended model. Other
+providers open a model picker; selecting a model returns directly to the composer.
+First-time onboarding saves your choice for new sessions.
+
+Press **Esc** to close the dialog and draft in the normal composer. `/connect`,
+`/auth`, or submitting an unconfigured draft reopens it. Type in its focused
+search field to filter providers; arrow keys select and Enter connects. Keys
+stay in a separate masked field. Connecting preserves your draft; press **Enter** to send when ready.
+Known providers already have their API URLs: choose one and paste its key.
+A **✓** marks available credentials; it does not certify inference access.
+OpenAI groups API billing and ChatGPT subscription choices without combining their
+credentials. Whip recognizes supported environment keys and explicitly configured
+local key files. Daemon startup and opening setup save missing provider entries
+that reference those keys; secret values stay in their original source.
+See [local key discovery](docs/models-providers.md#local-key-discovery) for file configuration.
+Choose **Custom endpoint** to configure an OpenAI-compatible endpoint in
+the TUI through compact steps for its name, API root URL, and API key, host
+environment-variable name, or explicit **No authentication**. Whip discovers models; **Enter model
+manually…** covers endpoints without model discovery. **ctrl+e** on a provider
+opens connection management. Changes persist in the execution host's existing
+configuration files, including across restarts.
+Legacy `/auth provider key` also opens masked confirmation. Existing session
+choices remain intact. Fresh installations leave external Claude/Codex MCP
+imports off; enable them explicitly later if wanted.
+
+The web and desktop welcome screen lets you draft first, connect a provider,
+choose a project folder and send. **Ask** is the initial tool permission level;
+changing it applies to the session you create. Credentials and defaults belong
+to the selected execution host. Custom OpenAI-compatible endpoints are supported through
+[provider configuration](docs/models-providers.md#supported-provider-types-and-custom-endpoints);
+create them in the TUI, then use them from either application.
+
+To reuse a secrets file, add its path to the execution host's `~/.whip/config.json`
+(use `~/.whipcode/config.json` for whipcode):
+
+```json
+{
+  "providerKeySources": {
+    "envFiles": ["~/.secrets/providers.env"],
+    "keyFiles": {"CEREBRAS_API_KEY": "~/.secrets/cerebras.key"}
+  }
+}
+```
+
+For example, `providers.env` can contain `OPENROUTER_API_KEY=your-key`; the Cerebras
+file contains only its key. Open `/connect` or refresh **Providers & models** to
+discover them. Whip saves `apiKeyEnv` references, never copies these file values
+into its configuration, and does not search arbitrary folders or read OpenCode
+credentials. File changes are read on discovery and new client creation; reload
+an existing session after rotating a key. Newly exported environment variables
+require `whip daemon restart` (or `whipcode daemon restart`).
+
+The CLI can also validate a named file reference with `whip auth openrouter --env`.
+
+Known-provider metadata is bundled from Models.dev. Maintainers can run
+`task models:update` to refresh the reviewed subset and `task models:check` to
+check generated files offline. Live provider model lists remain authoritative.
+
+For a noninteractive API-key setup:
 
 ```sh
 whip auth openrouter
-whip run "inspect this repository and explain its architecture"
+whip run -p openrouter -m moonshotai/kimi-k3 "inspect this repository and explain its architecture"
 ```
 
 Drop a `.mcp.json` in a repository to make its servers available through the
@@ -113,11 +175,15 @@ backend. It uses that bundled build for installation and managed upgrades;
 it does not fetch the latest independently published standalone CLI release.
 Copying the app into Applications alone does not replace an existing binary.
 
-In **Execution hosts → This Mac**, choose an existing executable (for example,
-`/usr/local/bin/whipcode`), or use **Install whipcode** for a fresh installation
-(default: `~/.local/bin/whipcode`). Desktop and terminal share that executable.
-**Test Connection** reports installation and daemon status without starting it;
-**Connect** starts or attaches to that installation under `~/.whipcode`.
+On a clean Mac, choose **Set up this Mac** on the welcome screen. It installs the
+verified bundled backend (default: `~/.local/bin/whipcode`), connects, and opens
+provider setup. An existing compatible installation is reused. Desktop and
+terminal share that executable and its daemon under `~/.whipcode`.
+
+For manual setup, open **Settings → Servers → This Mac → Local server settings**
+to choose an existing executable (for example, `/usr/local/bin/whipcode`) or use
+**Install whipcode**. **Test Connection** reports status without starting work.
+Diagnostics, explicit restart, and remote host controls remain available there.
 
 Backend upgrades depend on how the installation is managed:
 
@@ -158,6 +224,8 @@ executable (falling back to `/usr/local/bin/whipcode`). It runs `npm ci`, builds
 the web UI, Swift helper, Go backend and desktop app from the **current working
 tree, including uncommitted changes**, then signs and verifies the package.
 It does not pull Git changes. Run `git pull` yourself first if desired.
+Signing failures stop packaging immediately and report the signer error, before
+the installed app or daemon is changed. Vite's large-chunk warning is nonfatal.
 
 Once the build passes verification, the command quits Whip normally, retains the
 previous app and executable, installs the new app and its exact bundled backend,
@@ -203,6 +271,62 @@ Concurrent runs from the same checkout are refused. If an interrupted run leaves
 `apps/desktop/.update-local.lock`, inspect its `pid` file and remove the lock
 directory only after that process has exited. Test the workflow without touching
 your installation with `task test:update-local`.
+
+## Test fresh onboarding in Docker
+
+From the checkout you want to test, run:
+
+```sh
+task onboarding:docker
+# Equivalent without Task:
+node scripts/onboarding-docker.mjs
+```
+
+This builds your **current working files, including uncommitted and untracked
+source**, opens a clean TUI in the current terminal, and serves the production web
+app at **http://localhost:4000**. Both clients share one daemon inside the container.
+Provider setup in either client becomes available to the other. Ordinary checkouts
+and linked Git worktrees both work; no commit, local Go installation, or host
+`npm ci` is required.
+
+Requirements: Node 24, Git, an interactive terminal, a running local Linux Docker
+engine (such as OrbStack or Docker Desktop), and an available port 4000. Dependencies
+and compilers are installed during the image build. The first run downloads them;
+later runs reuse Docker's dependency and compilation caches while rebuilding
+changed source. Each invocation checks the build before starting the container.
+
+The container starts with no saved providers or sessions and no inherited host
+credentials. Its test project is a disposable Git repository at `/workspace`.
+The TUI opens directly to its normal composer with the provider connection
+dialog. Esc closes the dialog; `/connect` reopens it.
+Your installed Whip, normal daemon, and source files are separate from this test
+environment. **Quitting the TUI removes the container, its credentials, sessions,
+and test files.** Run the command again for another clean start; cached builds
+remain available. The web app runs for the lifetime of that TUI.
+
+For a clean **web** onboarding test, use a new private browser session and close
+the previous private session between runs. Resetting the container does not clear
+your browser's saved state. To compare initial TUI and web onboarding independently,
+start a fresh container for each; configuring one client also configures the other.
+
+For Inference.net or OpenAI device login, open the displayed URL on your Mac and
+approve the code. No additional callback port is needed. Automatic host browser
+opening, native clipboard integration, and macOS computer tools are unavailable
+inside this Linux environment.
+
+The launcher prints its unique container name. While it is running, inspect it
+from another terminal:
+
+```sh
+docker exec <container-name> whip daemon logs -n 60
+docker exec <container-name> whip daemon status --json
+# Stop this test environment from another terminal:
+docker stop <container-name>
+```
+
+Run `task test:onboarding-docker` for the launcher and renderer provenance tests.
+Container source metadata is explicitly marked local; release builds retain their
+normal Git provenance checks and reject artifacts using that local override.
 
 ## Documentation
 

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
 	bubbletea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 
@@ -72,19 +72,7 @@ type clientPresentation struct {
 
 // Run starts the presentation-only TUI. Agent loops, persistence, schedulers,
 // providers, permissions, and child processes remain in the daemon.
-func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yolo, firstRun bool, initialPrompt string) (string, error) {
-	stdin := bufio.NewReader(os.Stdin)
-	if trusted, err := checkTrust(stdin); err != nil {
-		return "", err
-	} else if !trusted {
-		return "", errors.New("folder not trusted")
-	}
-	if firstRun {
-		if err := setupWizard(cfg, stdin); err != nil {
-			return "", err
-		}
-	}
-
+func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yolo bool, initialPrompt string) (string, error) {
 	// The execution host resolves defaults and validates model/provider routes.
 	// Local settings are presentation preferences, not execution authority.
 	home, err := config.Dir()
@@ -109,7 +97,7 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 	}
 	client, err := NewClient(ClientOptions{
 		ClientID: clientID,
-		RootID:   resumeID, Create: create, Connector: connector,
+		RootID:   resumeID, Create: create, DeferCreate: resumeID == "", Connector: connector,
 	})
 	if err != nil {
 		return "", err
@@ -140,12 +128,16 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 		initialPrompt: initialPrompt, cfgExtra: map[string]string{},
 		agentMessages: map[string][]llm.Message{},
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m.runContext = ctx
+	m.startup = &sessionStartup{ctx: ctx, cautious: cautious, yolo: yolo}
+	m.input.SetValue(initialPrompt)
 	m.updateLatest = update.Pending(Version)
 	m.themeHow = m.applyTheme(cfg.Theme)
 	loadUserThemes()
 	m.applyOpencodeStyles()
 	m.startupReport()
-	m.append(dimStyle.Render("daemon: connecting…"))
 
 	// alt screen and mouse mode are View fields; the filter thins mouse motion
 	options := []bubbletea.ProgramOption{bubbletea.WithFilter(newInputFilter().Filter)}
@@ -155,19 +147,14 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 	program := bubbletea.NewProgram(m, options...)
 	m.prog = program
 	client.Start()
-	permissionCtx, cancelPermission := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := configureInteractiveSession(permissionCtx, client, cautious, yolo); err != nil {
-		cancelPermission()
-		_ = client.Close()
-		return "", err
-	}
-	if yolo {
-		m.append(dimStyle.Render("(yolo: permission prompts are approved automatically)"))
-	}
-	cancelPermission()
+
 	tuiRunning = true
 	_, runErr := program.Run()
+	if m.providerSetup != nil {
+		m.providerSetup.cancel()
+	}
 	tuiRunning = false
+	cancel()
 	closeErr := client.Close()
 	rootID := client.RootID()
 	if resumeID == "" && !m.clientTouched {
@@ -249,7 +236,11 @@ func waitClientUpdate(client *Client) bubbletea.Cmd {
 	return func() bubbletea.Msg {
 		update, ok := <-client.Updates()
 		if !ok {
-			return clientUpdateMsg{ClientUpdate{State: ClientDisconnected, StateChanged: true, Err: netClosedError{}}, true}
+			err := client.Err()
+			if err == nil {
+				err = netClosedError{}
+			}
+			return clientUpdateMsg{ClientUpdate{State: ClientDisconnected, StateChanged: true, Err: err}, true}
 		}
 		return clientUpdateMsg{ClientUpdate: update}
 	}
@@ -970,6 +961,9 @@ func (m *model) applyClientLifecycle(kind string, payload []byte) (bool, bubblet
 }
 
 func (m *model) submitClientAction(operation string, payload any, echo string) (bubbletea.Model, bubbletea.Cmd) {
+	if m.startup != nil {
+		return m, m.toastError("Connect a provider before using session commands. Your draft is preserved.")
+	}
 	if m.clientState != ClientLive {
 		m.append(errStyle.Render("daemon is " + m.clientState.String() + " — command not sent"))
 		return m, nil
@@ -1298,6 +1292,22 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 			}
 		}
 		text := strings.TrimSpace(m.input.Value())
+		if m.startup != nil {
+			if strings.HasPrefix(text, "/") {
+				m.input.Reset()
+				return m.thinCommand(text)
+			}
+			if m.clientState == ClientLive {
+				if m.beforeSession() {
+					if text != "" {
+						return m, m.openProviderSetup()
+					}
+					return m, nil
+				}
+				return m, m.advanceStartup()
+			}
+			return m, nil
+		}
 		if m.pasteBuf != "" {
 			placeholder := fmt.Sprintf("[Pasted ~%d lines]", strings.Count(m.pasteBuf, "\n")+1)
 			text = strings.Replace(text, placeholder, strings.TrimSpace(m.pasteBuf), 1)
@@ -1317,7 +1327,7 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 		if m.busy {
 			switch {
 			case text != "" && clientCommandRunsWhileBusy(text):
-				if !strings.HasPrefix(text, "/auth ") {
+				if !authCommandText(text) {
 					m.hist = append(m.hist, text)
 					m.histIdx = len(m.hist)
 				}
@@ -1331,7 +1341,7 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 				// Typed text is durable daemon work: it steers the running turn
 				// at its next loop boundary, or runs as the next turn if the
 				// turn ends first. alt+enter stays the newline binding.
-				if !strings.HasPrefix(text, "/auth ") {
+				if !authCommandText(text) {
 					m.hist = append(m.hist, text)
 					m.histIdx = len(m.hist)
 				}
@@ -1347,8 +1357,14 @@ func (m *model) thinKey(msg bubbletea.KeyPressMsg) (bubbletea.Model, bubbletea.C
 		if text == "" {
 			return m, nil
 		}
+		if m.providersLoaded && m.agentOpen == "" && !strings.HasPrefix(text, "/") && !strings.HasPrefix(text, "!") {
+			if _, available := m.cfg.Providers[m.provName]; !available {
+				m.append(dimStyle.Render("Connect a provider to send. Your draft is preserved."))
+				return m, m.openProviderSetup()
+			}
+		}
 		m.input.Reset()
-		if !strings.HasPrefix(text, "/auth ") {
+		if !authCommandText(text) {
 			m.hist = append(m.hist, text)
 			m.histIdx = len(m.hist)
 		}
@@ -1567,11 +1583,10 @@ func (m *model) openThinPalette() {
 		},
 		{
 			title: "Authentication", category: "Agent",
-			dynDesc: func(*model) string { return "configure Inference.net or OpenRouter" },
-			dynHint: func(*model) string { return "/auth" },
+			dynDesc: func(*model) string { return "connect or change a model provider" },
+			dynHint: func(*model) string { return "/connect" },
 			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
-				value.openThinAuthPalette()
-				return value, nil
+				return value, value.openProviderSetup()
 			},
 		},
 		commandItem("Computer use", "Agent", "/computer-use status", false),
@@ -1673,15 +1688,6 @@ func (m *model) openThinSessionPalette() {
 		{"Clear this conversation", "/clear"},
 	}
 	m.openCommandSubpalette("Session", commands)
-}
-
-func (m *model) openThinAuthPalette() {
-	commands := []struct{ title, command string }{
-		{"Sign in to Inference.net", "/auth inference-net"},
-		{"Sign in to OpenAI (ChatGPT subscription)", "/auth openai-codex"},
-		{"Configure OpenRouter key", "/auth openrouter"},
-	}
-	m.openCommandSubpalette("Authentication", commands)
 }
 
 func (m *model) openThinCompactPalette() {
@@ -1848,13 +1854,23 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 	switch name {
 	case "help", "mouse", "export", "report":
 		return m.command(text)
-	case "auth":
+	case "auth", "connect":
 		if len(fields) == 1 {
-			m.openThinAuthPalette()
-			return m, nil
+			return m, m.openProviderSetup()
 		}
-		m.authCommand(fields[1:])
-		return m, nil
+		provider := fields[1]
+		if provider == "inference" {
+			provider = "inference-net"
+		}
+		cmd := m.openProviderSetupFor(provider)
+		if len(fields) > 2 && m.providerSetup != nil && m.providerSetup.pickProvider == provider {
+			// Legacy inline keys use the same masked confirmation and host RPCs.
+			m.providerSetup.pickKey = true
+			m.providerSetup.mode, m.providerSetup.provider = "key", provider
+			m.providerSetup.input.SetValue(config.TrimKey(strings.Join(fields[2:], "")))
+			m.providerSetup.input.EchoMode = textinput.EchoPassword
+		}
+		return m, cmd
 	case "me":
 		return m, m.openMe()
 	case "memory":
@@ -1901,6 +1917,9 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 		}
 		return m.submitClientAction("session.effort", protocol.EffortParams{Effort: effortLabel(level), PersistDefault: true}, "")
 	case "model", "model-for-session":
+		if m.beforeSession() {
+			return m, m.openProviderSetup()
+		}
 		if args == "refresh" {
 			m.verboseCatalogs = true
 			return m.submitClientAction("provider.catalogs", protocol.ProviderCatalogParams{Refresh: true}, "")

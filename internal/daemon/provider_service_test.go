@@ -36,13 +36,13 @@ func TestProviderLoginReconnectChoicesAndSecretIsolation(t *testing.T) {
 	defer s.Close()
 	s.login = func(ctx context.Context, code func(string, string)) (providerLoginIdentity, error) {
 		code("https://example.com/verify", "public-code")
-		return providerLoginIdentity{token: "secret-session-token", email: "person@example.com", teams: []inferencenet.Team{{ID: "team", Name: "Team"}}}, nil
+		return providerLoginIdentity{token: "secret-session-token", email: "person@example.com", teams: []inferencenet.Team{{ID: "team", Name: "Team"}, {ID: "other", Name: "Other"}}}, nil
 	}
 	s.projects = func(ctx context.Context, token string, team inferencenet.Team) ([]inferencenet.Project, error) {
 		if token != "secret-session-token" || team.ID != "team" {
 			return nil, errors.New("bad selection")
 		}
-		return []inferencenet.Project{{ID: "project", Name: "Project"}}, nil
+		return []inferencenet.Project{{ID: "project", Name: "Project"}, {ID: "other", Name: "Other"}}, nil
 	}
 	finished := make(chan inferencenet.Auth, 1)
 	s.finish = func(ctx context.Context, auth inferencenet.Auth) error { finished <- auth; return nil }
@@ -51,7 +51,7 @@ func TestProviderLoginReconnectChoicesAndSecretIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := waitProviderState(t, s, started.FlowID, "choose_team")
-	if status.VerificationURL == "" || len(status.Teams) != 1 {
+	if status.VerificationURL == "" || len(status.Teams) != 2 {
 		t.Fatal("missing reconnect choices")
 	}
 	status.Teams[0].ID = "mutated"
@@ -131,7 +131,7 @@ func TestProviderSetupRevisionAndSafeConfiguration(t *testing.T) {
 		if key != "secret-key" {
 			return nil, errors.New("invalid key")
 		}
-		return []llm.ModelInfo{}, nil
+		return []llm.ModelInfo{{ID: "fixture-chat-model"}}, nil
 	}
 	before, err := s.ReadConfiguration()
 	if err != nil {
@@ -167,23 +167,35 @@ func TestProviderLoginListRecoversLostAcknowledgementAndIsBounded(t *testing.T) 
 		<-ctx.Done()
 		return providerLoginIdentity{}, ctx.Err()
 	}
-	for range 16 {
-		if _, err := s.BeginLogin(); err != nil {
+	var first string
+	for range 64 {
+		flow, err := s.BeginLogin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first == "" {
+			first = flow.FlowID
+			recovered, err := s.BeginLogin()
+			if err != nil || recovered.FlowID != first || len(s.ListLogins().Flows) != 1 {
+				t.Fatal("lost begin acknowledgement did not recover the existing flow")
+			}
+		}
+		if _, err := s.CancelLogin(flow.FlowID); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := s.BeginLogin(); err == nil {
-		t.Fatal("active login bound was not enforced")
+		t.Fatal("retained login bound was not enforced")
 	}
 	result := s.ListLogins()
-	if len(result.Flows) != 16 {
-		t.Fatal("lost begin acknowledgements cannot be recovered")
+	if len(result.Flows) != 64 {
+		t.Fatal("retained login outcomes were lost")
 	}
-	if _, err := s.CancelLogin(result.Flows[0].FlowID); err != nil {
-		t.Fatal(err)
-	}
+	s.mu.Lock()
+	s.flows[first].status.ExpiresAt = time.Now().Add(-time.Second)
+	s.mu.Unlock()
 	if _, err := s.BeginLogin(); err != nil {
-		t.Fatal("cancelled login did not release capacity")
+		t.Fatal("expired terminal login did not release capacity")
 	}
 }
 

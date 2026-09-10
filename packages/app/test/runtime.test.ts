@@ -230,7 +230,7 @@ describe('draft persistence and bounded storage', () => {
     app.setDraft('runtime:root:agent', 'private draft');
     expect(save).not.toHaveBeenCalled();
     vi.advanceTimersByTime(150);
-    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledTimes(2); // Text plus bounded revision metadata share the debounce.
     expect(app.platform.storage.getItem('whip.web.recovery.v1')).toBeNull();
     const reloaded = runtime(app.platform.storage);
     expect(reloaded.draft('runtime:root:agent')).toBe('private draft');

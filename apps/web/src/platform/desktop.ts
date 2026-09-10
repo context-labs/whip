@@ -7,6 +7,14 @@ const frameLimit = 1 << 20;
 const queueLimit = 8 << 20;
 const encoder = new TextEncoder();
 
+function nativeFailure(error: unknown): never {
+  if (error instanceof Error) {
+    const message = error.message.replace(/^Error invoking remote method 'whip:[^']+': (?:Error: )?/, '');
+    if (message !== error.message) throw new Error(message, { cause: error });
+  }
+  throw error;
+}
+
 function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal.reason ?? new Error('Connection cancelled'));
@@ -153,7 +161,7 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
         options.signal.throwIfAborted();
         prepared.set(profile.id, { id });
         return { endpoint: desktopTransport(bridge, id), dispose };
-      } catch (error) { dispose(); throw error; }
+      } catch (error) { dispose(); nativeFailure(error); }
     },
     openExternal: url => bridge.openExternal(url),
     copy: text => bridge.copy(text),
@@ -171,21 +179,25 @@ export function createDesktopPlatform(bridge: DesktopBridge, unavailable: () => 
       },
     },
     localRuntime: {
+      ...(bridge.installDefaultLocalRuntime ? { async installDefault() {
+        if (disposed) throw new Error('The desktop application has closed');
+        return bridge.installDefaultLocalRuntime!().catch(nativeFailure);
+      } } : {}),
       async test() {
         if (disposed) throw new Error('The desktop application has closed');
-        return bridge.testLocalRuntime();
+        return bridge.testLocalRuntime().catch(nativeFailure);
       },
       async choose() {
         if (disposed) throw new Error('The desktop application has closed');
-        return bridge.chooseLocalRuntime();
+        return bridge.chooseLocalRuntime().catch(nativeFailure);
       },
       async install() {
         if (disposed) throw new Error('The desktop application has closed');
-        return bridge.installLocalRuntime();
+        return bridge.installLocalRuntime().catch(nativeFailure);
       },
       async restart() {
         if (disposed) throw new Error('The desktop application has closed');
-        return bridge.restartLocalRuntime();
+        return bridge.restartLocalRuntime().catch(nativeFailure);
       },
     },
     async notify(notification) {

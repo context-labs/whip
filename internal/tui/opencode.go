@@ -243,6 +243,19 @@ func (m *model) opencodePrompt(inner string, width int) string {
 	txt := th.On(th.Text, ebg)
 	muted := th.On(th.Muted, ebg)
 	meta := agent.Render(m.ocModeLabel()) + muted.Render(" · ") + txt.Render(m.modelName) + muted.Render("  "+m.provName)
+	if m.startup != nil {
+		label := "Opening your session…"
+		if m.beforeSession() && !m.startup.creating {
+			label = "Connect a provider to get started · /connect"
+		}
+		if m.clientState != ClientLive && !m.startup.creating {
+			label = "Connecting to this host…"
+		}
+		meta = muted.Render(label)
+	}
+	if m.clientClosed {
+		meta = muted.Render("Connection ended · /quit and relaunch to retry")
+	}
 	b.WriteString(row(bar+elem.Render("  ")+meta) + "\n")
 	b.WriteString(row(bar)) // paddingBottom: the box ends flush, like opendocker's filter box
 	return b.String()
@@ -305,6 +318,9 @@ func (m *model) footerView(width int) string {
 // footerRight lists the global chords; "ctrl+p commands" joins on terminals
 // wide enough to hold four hints beside the left side.
 func (m *model) footerRight(width int) []string {
+	if m.beforeSession() {
+		return []string{"/connect", "providers", "ctrl+p", "commands"}
+	}
 	if m.leaderPending() {
 		return nil // the left side lists every chord; the right would only repeat and crowd it
 	}
@@ -595,7 +611,7 @@ func (m *model) toastRows() []string {
 func (m *model) ocLeaderChord(k string) (tea.Model, tea.Cmd, bool) {
 	switch k {
 	case "m": // model list
-		m.openModelPicker(false)
+		return mcCmd(m.thinCommand("/model"))
 	case "l": // session list
 		return mcCmd(m.thinCommand("/resume"))
 	case "n": // new session

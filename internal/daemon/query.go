@@ -124,5 +124,5 @@ func queryProviderCatalogs(ctx context.Context, providers *ProviderService, payl
 	}
 	bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return clientProviderCatalogs(bounded, providers, params.Refresh)
+	return clientProviderCatalogsFor(bounded, providers, params.Refresh, params.Provider)
 }

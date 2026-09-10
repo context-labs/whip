@@ -1,6 +1,6 @@
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from './runtime';
-import { selectedSessionTab, sessionSearch, validateSessionSearch } from './session-tabs';
+import { selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab } from './session-tabs';
 
 declare module '@tanstack/react-router' {
   interface HistoryState { whipViewId?: string }
@@ -11,6 +11,29 @@ export function sessionDestination(pathname: string): { runtimeId: string; rootI
   if (!match) return;
   try { return { runtimeId: decodeURIComponent(match[1]!), rootId: decodeURIComponent(match[2]!) }; }
   catch { return; }
+}
+
+export function draftDestination(pathname: string): string | undefined {
+  const match = /^\/new\/([^/]+)\/?$/.exec(pathname);
+  if (!match) return;
+  try { return decodeURIComponent(match[1]!); } catch { return; }
+}
+
+export function tabDestination(tab: SessionTab) {
+  return tab.kind === 'new'
+    ? { to: '/new/$draftId' as const, params: { draftId: tab.id }, search: {}, state: { whipViewId: tab.id } }
+    : { to: '/h/$runtimeId/s/$rootId' as const, params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id } };
+}
+
+/** Allocate only for explicit creation intent; selecting a tab never calls this. */
+export function openNewChat(runtime: AppRuntime, navigate: AnyRouter['navigate'], options: Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode'>> = {}, replace = false) {
+  try {
+    const state = runtime.getSnapshot();
+    const host = state.hosts.find(host => options.hostProfileId ? host.id === options.hostProfileId : options.runtimeId ? host.runtimeId === options.runtimeId : host.id === state.selectedHostId);
+    const tab = runtime.tabs.openNew({ ...options, hostProfileId: options.hostProfileId ?? host?.id, runtimeId: options.runtimeId ?? host?.runtimeId });
+    void navigate({ ...tabDestination(tab), replace }).catch(error => runtime.report(error));
+    return tab;
+  } catch (error) { runtime.report(error); }
 }
 
 /** A native link can select an already saved host, but cannot create one. */
@@ -47,7 +70,6 @@ export function createSessionNavigator(runtime: AppRuntime, navigate: (path: str
 /** The router is the active-tab authority; saved selection is only a boot hint. */
 export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
   const initial = router.state.location;
-  let startup = initial.pathname === '/' && !Object.keys(initial.search).length;
   let observing = false;
   let disposed = false;
   let capacityNotice: string | undefined;
@@ -57,14 +79,24 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
     observing = true;
     try {
       const current = router.state.location;
-      if (current.href !== initial.href || current.state.__TSR_key !== initial.state.__TSR_key) startup = false;
       const destination = sessionDestination(current.pathname);
       // Runtime notices and command completions are not navigation. In
       // particular, a storage warning during close must not reopen its old URL.
-      if (current === observedLocation && !startup && !capacityNotice) return;
+      if (current === observedLocation && !capacityNotice) return;
       observedLocation = current;
-      if (destination) {
-        startup = false;
+      if (capacityNotice !== current.href) capacityNotice = undefined;
+      const draftId = draftDestination(current.pathname);
+      if (draftId) {
+        let tab = runtime.tabs.workspace().tabs.find(tab => tab.id === draftId);
+        if (!tab && runtime.tabs.workspace().closed.some(record => record.tab.id === draftId)) {
+          runtime.tabs.reopenView(draftId);
+          tab = runtime.tabs.workspace().tabs.find(tab => tab.id === draftId);
+        }
+        if (tab) {
+          runtime.tabs.activate(tab.id);
+          if (tab.kind !== 'new') void router.navigate({ ...tabDestination(tab), replace: true }).catch(error => runtime.report(error));
+        }
+      } else if (destination) {
         const search = current.search as Record<string, unknown>;
         if (!runtime.tabs.canOpen(destination.runtimeId, destination.rootId)) {
           if (capacityNotice !== current.href) {
@@ -77,24 +109,32 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
         runtime.rememberSession(destination.runtimeId, destination.rootId);
         capacityNotice = undefined;
       } else if (current.pathname === '/') {
-        if (startup) {
-          startup = false;
-          const workspace = runtime.tabs.workspace();
-          const tab = workspace.restoreSelection ? selectedSessionTab(workspace) : undefined;
-          if (tab) {
-            void router.navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id }, replace: true }).catch(error => runtime.report(error));
-            return;
-          }
+        const search = current.search as { new?: 1 | '1'; cwd?: string; runtimeId?: string };
+        if (search.new === 1 || search.new === '1' || search.runtimeId || search.cwd) {
+          openNewChat(runtime, router.navigate, { runtimeId: search.runtimeId, cwd: search.cwd }, true);
+          return;
+        }
+        const tab = selectedSessionTab(runtime.tabs.workspace());
+        if (tab) {
+          void router.navigate({ ...tabDestination(tab), replace: true }).catch(error => runtime.report(error));
+          return;
         }
         runtime.tabs.home();
-      } else startup = false;
+      }
     } catch (error) { runtime.report(error); }
     finally { observing = false; }
   };
   const offRuntime = runtime.subscribe(observe);
   const offRoute = router.subscribe('onResolved', observe);
   // Closing another tab may make room for a directly linked 33rd session.
-  const offTabs = runtime.tabs.subscribe(() => { if (capacityNotice) observe(); });
+  const offTabs = runtime.tabs.subscribe(() => {
+    if (capacityNotice) observe();
+    const draftId = draftDestination(router.state.location.pathname);
+    const tab = selectedSessionTab(runtime.tabs.workspace());
+    // An accepted background/closed draft never steals the person's place.
+    if (!observing && draftId && tab?.id === draftId && tab.kind !== 'new')
+      void router.navigate({ ...tabDestination(tab), replace: true }).catch(error => runtime.report(error));
+  });
   observe();
   return () => { disposed = true; offRuntime(); offRoute(); offTabs(); };
 }

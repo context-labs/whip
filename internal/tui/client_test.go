@@ -145,18 +145,18 @@ func TestInteractiveSetupAppliesYoloModeOnlyToInitialSession(t *testing.T) {
 	m := &model{client: client, clientState: ClientLive, input: newInput(), historyRequested: true}
 	for _, state := range []ClientState{ClientReconnecting, ClientSnapshotting, ClientLive} {
 		_, command := m.Update(clientUpdateMsg{
-			ClientUpdate: ClientUpdate{State: state, StateChanged: true}, closed: true,
+			ClientUpdate: ClientUpdate{State: state, StateChanged: true},
 		})
-		if command != nil {
-			t.Fatalf("reconnect state %s created a command", state)
+		if command == nil {
+			t.Fatalf("reconnect state %s lost the update stream", state)
 		}
 	}
 	m.applyClientSnapshot(session.RootSnapshot{RootID: "other-root", PermissionMode: "prompt"})
 	_, command := m.Update(clientUpdateMsg{
-		ClientUpdate: ClientUpdate{State: ClientLive, StateChanged: true}, closed: true,
+		ClientUpdate: ClientUpdate{State: ClientLive, StateChanged: true},
 	})
-	if command != nil {
-		t.Fatal("switching sessions created a command")
+	if command == nil {
+		t.Fatal("switching sessions lost the update stream")
 	}
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
@@ -234,39 +234,6 @@ func TestInteractiveSetupStopsWhenCautiousModeFails(t *testing.T) {
 	defer connection.mu.Unlock()
 	if len(connection.commands) != 1 || connection.commands[0].Operation != "permission.mode" {
 		t.Fatalf("failed cautious setup continued: %+v", connection.commands)
-	}
-}
-
-func TestAuthenticationRefreshesDaemonCatalogsBeforeReload(t *testing.T) {
-	t.Setenv("WHIP_HOME", t.TempDir())
-	m, connection := liveQueueModel(t)
-	m.busy = false
-	m.cfg = config.Default()
-	connection.commandFunc = func(params daemon.CommandParams) (daemon.CommandResult, error) {
-		output := ""
-		if params.Operation == "provider.catalogs" {
-			output = `{"catalogs":{}}`
-		}
-		return daemon.CommandResult{CommandID: params.CommandID, Status: "succeeded", Output: output}, nil
-	}
-
-	next, command := m.Update(authResultMsg{})
-	m = next.(*model)
-	if command == nil {
-		t.Fatal("successful authentication did not request daemon catalogs")
-	}
-	message := command().(clientCommandMsg)
-	if message.action.Operation != "provider.catalogs" {
-		t.Fatalf("first post-auth operation=%q", message.action.Operation)
-	}
-	next, command = m.Update(message)
-	m = next.(*model)
-	if command == nil {
-		t.Fatal("catalog refresh did not request session reload")
-	}
-	message = command().(clientCommandMsg)
-	if message.action.Operation != "session.reload" || m.reloadAfterCatalogs {
-		t.Fatalf("post-catalog operation=%q pending=%t", message.action.Operation, m.reloadAfterCatalogs)
 	}
 }
 

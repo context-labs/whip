@@ -1,11 +1,8 @@
 package tui
 
-import "strings"
-
 type namePrompt struct {
 	label string
 	draft string
-	mask  bool
 	onOK  func(string)
 }
 
@@ -21,11 +18,4 @@ func (m *model) closeNamePrompt() {
 	m.input.CursorEnd()
 	m.namePrompt = nil
 	m.growInput()
-}
-
-func (prompt *namePrompt) maskedValue(value string) string {
-	if !prompt.mask {
-		return value
-	}
-	return strings.Repeat("•", len([]rune(value)))
 }

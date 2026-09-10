@@ -80,8 +80,12 @@ export function sidebarRows(items: readonly Session[], collapsed: readonly strin
   return rows;
 }
 
-export function newSessionSearch(search: Record<string, unknown>): { cwd?: string; runtimeId?: string } {
-  return typeof search.cwd === 'string' && search.cwd.length > 0 && search.cwd.length <= 4096 &&
-    typeof search.runtimeId === 'string' && search.runtimeId.length > 0 && search.runtimeId.length <= 256
-    ? { cwd: search.cwd, runtimeId: search.runtimeId } : {};
+export function newSessionSearch(search: Record<string, unknown>): { new?: 1; cwd?: string; runtimeId?: string } {
+  const runtimeId = typeof search.runtimeId === 'string' && search.runtimeId.length > 0 && search.runtimeId.length <= 256 && !/[\u0000-\u001f]/.test(search.runtimeId) ? search.runtimeId : undefined;
+  const cwd = runtimeId && typeof search.cwd === 'string' && search.cwd.length > 0 && search.cwd.length <= 4096 && !/[\u0000-\u001f]/.test(search.cwd) ? search.cwd : undefined;
+  return {
+    ...(search.new === 1 || search.new === '1' ? { new: 1 as const } : {}),
+    ...(runtimeId ? { runtimeId } : {}),
+    ...(cwd ? { cwd } : {}),
+  };
 }

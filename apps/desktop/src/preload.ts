@@ -33,6 +33,7 @@ const bridge: DesktopBridge = {
   testLocalRuntime: () => invoke('testLocalRuntime'),
   chooseLocalRuntime: () => invoke('chooseLocalRuntime'),
   installLocalRuntime: () => invoke('installLocalRuntime'),
+  installDefaultLocalRuntime: () => invoke('installDefaultLocalRuntime'),
   restartLocalRuntime: () => invoke('restartLocalRuntime'),
   beginSave: (filename, mediaType, bytes) => invoke('beginSave', filename, mediaType, bytes),
   writeSave: (id, offset, bytes) => {

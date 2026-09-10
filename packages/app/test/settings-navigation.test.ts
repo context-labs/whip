@@ -42,6 +42,26 @@ describe('Settings navigation', () => {
     restored.rememberSettingsReturn({ search: {} });
     expect(settingsBackDestination(restored)).toEqual({ to: '/', search: {}, replace: true });
   });
+  it('captures a draft destination, restores it after reload, and follows in-place promotion', () => {
+    const f = fixture();
+    const draft = f.runtime.tabs.openNew({ runtimeId: 'mac', cwd: '/repo' });
+    let listener!: (event: any) => void;
+    bindSettingsNavigation(f.runtime, { subscribe: (_type: string, callback: typeof listener) => { listener = callback; return () => {}; } } as unknown as AnyRouter);
+    listener({ fromLocation: { pathname: `/new/${draft.id}`, search: {}, state: {} }, toLocation: { pathname: '/settings' } });
+    expect(f.runtime.settingsReturn?.viewId).toBe(draft.id);
+    const restored = new AppRuntime(f.platform); runtimes.push(restored);
+    expect(settingsBackDestination(restored)).toMatchObject({ to: '/new/$draftId', params: { draftId: draft.id }, replace: true });
+    restored.tabs.promoteNew(draft.id, 'mac', 'created');
+    expect(settingsBackDestination(restored)).toMatchObject({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'mac', rootId: 'created' }, state: { whipViewId: draft.id } });
+  });
+  it('falls back to the selected draft when the Settings return view is closed', () => {
+    const f = fixture();
+    const first = f.runtime.tabs.openNew();
+    f.runtime.rememberSettingsReturn({ viewId: first.id, search: {} });
+    const second = f.runtime.tabs.openNew();
+    f.runtime.tabs.closeViews([first.id]);
+    expect(settingsBackDestination(f.runtime)).toMatchObject({ to: '/new/$draftId', params: { draftId: second.id } });
+  });
   it('captures once on entry, retains through category changes, and clears on successful exit', () => {
     const f = fixture(); const tab = f.runtime.tabs.open('mac', 'root');
     let listener!: (event: any) => void;

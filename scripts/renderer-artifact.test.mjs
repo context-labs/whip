@@ -51,3 +51,24 @@ test('development artifacts remain usable while release rejects dirty producer p
   await verifyRendererProvenance(manifest, root, false);
   await assert.rejects(verifyRendererProvenance(manifest, root, true), /renderer must come from a clean checkout/);
 });
+
+test('local source metadata builds without Git but cannot authorize a release', async t => {
+  const { root, manifest } = await fixture(t);
+  const local = await createRendererManifest(root, manifest.source);
+  assert.equal(local.source.local, true);
+  await verifyRendererProvenance(local, root, false);
+  await assert.rejects(verifyRendererProvenance(local, root, true), /cannot use local source metadata/);
+  await rm(path.join(root, '.git'), { recursive: true });
+  assert.deepEqual((await createRendererManifest(root, manifest.source)).source, local.source);
+  await assert.rejects(createRendererManifest(root), /git/);
+  await assert.rejects(verifyRendererProvenance(local, root, true), /cannot use local source metadata/);
+});
+
+test('invalid or partial local metadata cannot silently replace Git provenance', async t => {
+  const { root, manifest } = await fixture(t);
+  for (const source of [null, {}, { commit: 'main', dirty: true },
+    { commit: manifest.source.commit }, { ...manifest.source, dirty: 'false' },
+    { commit: [manifest.source.commit], dirty: false }]) {
+    await assert.rejects(createRendererManifest(root, source), /Invalid local renderer source metadata/);
+  }
+});

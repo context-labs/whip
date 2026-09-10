@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 13
-	schemaIdentity       = "whip-recursive-runtime-v13"
+	currentSchemaVersion = 14
+	schemaIdentity       = "whip-recursive-runtime-v14"
 )
 
 // SchemaVersion is the database schema supported by this executable. Reading it
@@ -362,7 +362,13 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 		version, identity = 12, "whip-recursive-runtime-v12"
 	}
 	if version == 12 && identityErr == nil && identity == "whip-recursive-runtime-v12" {
-		return upgradeV12(ctx, conn)
+		if err := upgradeV12(ctx, conn); err != nil {
+			return err
+		}
+		version, identity = 13, "whip-recursive-runtime-v13"
+	}
+	if version == 13 && identityErr == nil && identity == "whip-recursive-runtime-v13" {
+		return upgradeV13(ctx, conn)
 	}
 	return fmt.Errorf("incompatible development runtime database %q (schema version %d): archive or remove it, then restart WHIP", path, version)
 }
@@ -385,6 +391,7 @@ func upgradeV10(ctx context.Context, conn *sql.Conn) error {
 		return fmt.Errorf("read upgrade identity: %w", err)
 	}
 	if version == currentSchemaVersion && identity == schemaIdentity ||
+		version == 13 && identity == "whip-recursive-runtime-v13" ||
 		version == 12 && identity == "whip-recursive-runtime-v12" ||
 		version == 11 && identity == "whip-recursive-runtime-v11" {
 		return nil
@@ -420,7 +427,8 @@ func upgradeV12(ctx context.Context, conn *sql.Conn) error {
 	if err := conn.QueryRowContext(ctx, `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil {
 		return err
 	}
-	if version == currentSchemaVersion && identity == schemaIdentity {
+	if version == currentSchemaVersion && identity == schemaIdentity ||
+		version == 13 && identity == "whip-recursive-runtime-v13" {
 		return nil
 	}
 	if version != 12 || identity != "whip-recursive-runtime-v12" {

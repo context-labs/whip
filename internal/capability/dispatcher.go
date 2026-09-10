@@ -351,7 +351,7 @@ func (d *Dispatcher) admission(ctx context.Context, request Request, registratio
 	}
 	workingDir := workspace.Root()
 	if request.WorkingDirectory != "" {
-		workingDir, err = workspace.Resolve(request.WorkingDirectory)
+		workingDir, err = workspace.Canonicalize(request.WorkingDirectory)
 		if err != nil {
 			return Admission{}, nil, err
 		}
@@ -365,7 +365,7 @@ func (d *Dispatcher) admission(ctx context.Context, request Request, registratio
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(workingDir, path)
 		}
-		admission.CanonicalPath, err = workspace.Resolve(path)
+		admission.CanonicalPath, err = workspace.Canonicalize(path)
 		if err != nil {
 			return Admission{}, nil, err
 		}
@@ -389,7 +389,7 @@ func (d *Dispatcher) execute(ctx context.Context, registration Registration, adm
 	// capability scoped to the root) was checked at admission.
 	if admission.Mutation == MutationPath {
 		var canonicalPath string
-		canonicalPath, release, err = workspace.LockPath(ctx, admission.CanonicalPath)
+		canonicalPath, release, err = workspace.LockCanonicalPath(ctx, admission.CanonicalPath)
 		if err == nil && canonicalPath != admission.CanonicalPath {
 			err = ErrStaleAdmission
 		}

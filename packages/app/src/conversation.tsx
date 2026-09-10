@@ -106,7 +106,7 @@ export function SessionContent({
   panel,
   viewId,
 }: {
-  kind: SessionTab['kind'];
+  kind: Exclude<SessionTab['kind'], 'new'>;
   view: SessionView;
   expectedRuntimeId: string;
   agentId: string;

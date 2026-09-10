@@ -13,7 +13,8 @@ import { ChevronDown, Circle, CircleHelp, MessageSquare, MessageSquareWarning, M
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
-import { sessionDestination } from './session-tab-routing';
+import { Welcome } from './welcome';
+import { draftDestination, openNewChat, tabDestination, sessionDestination } from './session-tab-routing';
 import { layout } from './styles';
 
 export interface SessionTabActions { next(offset: -1 | 1): void; close(): boolean; reopen(): void; showPicker(): void }
@@ -44,7 +45,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const route = useLocation();
   const destination = sessionDestination(route.pathname);
   // Keep other panes mounted during the route commit before onResolved admits a new tab.
-  const matched = !!destination && tabs.length > 0 && runtime.tabs.canOpen(destination.runtimeId, destination.rootId);
+  const matched = (!!destination && tabs.length > 0 && runtime.tabs.canOpen(destination.runtimeId, destination.rootId)) || !!tabs.find(tab => tab.id === draftDestination(route.pathname));
   const active = matched ? selectedSessionTab(workspace) : undefined;
   const navigate = useNavigate();
   const [picker, setPicker] = useState(false);
@@ -57,7 +58,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(timer); }, [notice]);
   const groups = useMemo(() => hosts.flatMap(host => {
     if (!host.client || !host.runtimeId) return [];
-    const ids = [...new Set(tabs.filter(tab => tab.runtimeId === host.runtimeId).map(tab => tab.rootId))].sort();
+    const ids = [...new Set(tabs.filter(tab => tab.kind !== 'new').filter(tab => tab.runtimeId === host.runtimeId).map(tab => tab.rootId))].sort();
     if (!ids.length) return [];
     const supported = host.client.getSnapshot().info?.negotiated_capabilities?.includes('session_summaries') ?? false;
     return [{ host, client: host.client, runtimeId: host.runtimeId, ids, enabled: visible && host.state === 'connected' && supported }];
@@ -70,9 +71,9 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   })) });
   const items = new Map(summaries.flatMap((query, index) => query.data?.items.map(item => [workspaceRootKey({ runtimeId: groups[index]!.runtimeId, rootId: item.root_id }), item] as const) ?? []));
   const staleHosts = new Set(groups.filter((group, index) => !group.enabled || !!summaries[index]?.error).map(group => group.runtimeId));
-  const stale = (tab: SessionTab) => !groups.some(group => group.runtimeId === tab.runtimeId) || staleHosts.has(tab.runtimeId);
-  const item = (tab: SessionTab) => items.get(workspaceRootKey(tab));
-  const hostName = (tab: SessionTab) => hosts.find(host => host.runtimeId === tab.runtimeId)?.name ?? `Unavailable host ${tab.runtimeId.slice(0, 8)}`;
+  const stale = (tab: SessionTab) => tab.kind !== 'new' && (!groups.some(group => group.runtimeId === tab.runtimeId) || staleHosts.has(tab.runtimeId));
+  const item = (tab: SessionTab) => tab.kind === 'new' ? undefined : items.get(workspaceRootKey(tab));
+  const hostName = (tab: SessionTab) => hosts.find(host => tab.kind === 'new' && tab.hostProfileId ? host.id === tab.hostProfileId : !!tab.runtimeId && host.runtimeId === tab.runtimeId)?.name ?? (tab.runtimeId ? `Unavailable host ${tab.runtimeId.slice(0, 8)}` : 'Choose a host');
   useEffect(() => {
     const cleanups = groups.filter(group => group.enabled).map(group => {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -91,19 +92,19 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   }, [runtime, groups, summaries]);
 
   const pendingNavigation = useRef<string | undefined>(undefined);
-  const title = (tab: SessionTab) => item(tab)?.title || tab.titleHint || 'Untitled session';
-  const project = (tab: SessionTab) => item(tab)?.cwd?.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
-  const hasDraft = (tab: SessionTab) => runtime.hasSessionDraft(tab.runtimeId, tab.rootId);
+  const title = (tab: SessionTab) => tab.kind === 'new' ? 'New Chat' : item(tab)?.title || tab.titleHint || 'Untitled session';
+  const project = (tab: SessionTab) => (tab.kind === 'new' ? tab.cwd : item(tab)?.cwd)?.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
+  const hasDraft = (tab: SessionTab) => tab.kind !== 'new' && runtime.hasSessionDraft(tab.runtimeId, tab.rootId);
   const go = (viewId: string, replace = false) => {
     const tab = runtime.tabs.workspace().tabs.find(t => t.id === viewId);
     if (!tab) return;
     setPicker(false);
     const location = route.search as { agent?: string; panel?: string; view?: 'repl' };
-    if (destination?.runtimeId === tab.runtimeId && destination.rootId === tab.rootId && route.state.whipViewId === viewId && location.agent === tab.location.agent && location.panel === tab.location.panel && location.view === sessionSearch(tab).view) return;
-    const target = JSON.stringify([tab.runtimeId, viewId, sessionSearch(tab)]);
+    if (tab.kind !== 'new' && destination?.runtimeId === tab.runtimeId && destination.rootId === tab.rootId && route.state.whipViewId === viewId && location.agent === tab.location.agent && location.panel === tab.location.panel && location.view === sessionSearch(tab).view) return;
+    const target = JSON.stringify(tabDestination(tab));
     if (pendingNavigation.current === target) return;
     pendingNavigation.current = target;
-    void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: viewId }, replace }).catch(error => runtime.report(error)).finally(() => { if (pendingNavigation.current === target) pendingNavigation.current = undefined; });
+    void navigate({ ...tabDestination(tab), replace }).catch(error => runtime.report(error)).finally(() => { if (pendingNavigation.current === target) pendingNavigation.current = undefined; });
   };
   const focusedPane = panes.find(p => p.id === workspace.focusedPaneId)!;
   const focusPane = (paneId: string) => {
@@ -133,6 +134,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const split = (tab: SessionTab, edge: SplitEdge) => {
     try {
       const id = runtime.tabs.split(tab.id, edge);
+      if (tab.kind === 'new') { go(id); return; }
       const oldKey = `${tab.runtimeId}:${tab.id}:${tab.location.agent ?? tab.rootId}`;
       const newKey = `${tab.runtimeId}:${id}:${tab.location.agent ?? tab.rootId}`;
       for (const suffix of ['', ':repl']) {
@@ -162,6 +164,16 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const actions = (tab: SessionTab): MenuItem[] => {
     const pane = sessionViewPane(workspace, tab.id)!;
     const index = pane.tabs.findIndex(item => item.id === tab.id);
+    if (tab.kind === 'new') return [
+      { id: 'close', label: 'Close tab', onSelect: () => close([tab.id], true) },
+      { id: 'others', label: 'Close other tabs', disabled: pane.tabs.length < 2, onSelect: () => close(pane.tabs.filter(item => item.id !== tab.id).map(item => item.id), true) },
+      { id: 'right', label: 'Close tabs to the right', disabled: index === pane.tabs.length - 1, onSelect: () => close(pane.tabs.slice(index + 1).map(item => item.id), true) },
+      ...panes.filter(p => p.id !== pane.id).map(p => ({ id: `move-${p.id}`, label: `Move to pane ${panes.indexOf(p) + 1}`, onSelect: () => transfer({ viewId: tab.id, paneId: p.id }) })),
+      { id: 'split-right', label: 'Move to split right', disabled: pane.tabs.length < 2 || !canSplit(pane.id, 'right'), onSelect: () => transfer({ viewId: tab.id, paneId: pane.id, edge: 'right' }) },
+      { id: 'split-down', label: 'Move to split below', disabled: pane.tabs.length < 2 || !canSplit(pane.id, 'bottom'), onSelect: () => transfer({ viewId: tab.id, paneId: pane.id, edge: 'bottom' }) },
+      { id: 'left', label: 'Move left', disabled: index <= 0, onSelect: () => runtime.tabs.move(tab.id, -1) },
+      { id: 'move-right', label: 'Move right', disabled: index >= pane.tabs.length - 1, onSelect: () => runtime.tabs.move(tab.id, 1) },
+    ];
     const href = new URL(`/h/${encodeURIComponent(tab.runtimeId)}/s/${encodeURIComponent(tab.rootId)}`, 'https://whip.invalid');
     for (const [key, value] of Object.entries(sessionSearch(tab))) if (value) href.searchParams.set(key, value);
     return [
@@ -193,30 +205,30 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     close() { if (!active) return false; close([active.id]); return true; }, reopen,
     showPicker() { setPicker(true); setSearch(''); },
   }));
-  const add = <IconButton variant="ghost" label="New session tab" onClick={() => void navigate({ to: '/' })}><Plus size={17} /></IconButton>;
+  const add = <IconButton variant="ghost" label="New session tab" onClick={() => openNewChat(runtime, navigate)}><Plus size={17} /></IconButton>;
   const renderStrip = (pane: SessionPane, shared: boolean) => <WorkspaceTabs groupId={shared ? pane.id : undefined} label={panes.length > 1 ? `Open sessions in pane ${panes.indexOf(pane) + 1}` : 'Open sessions'}
     windowDrag={inset && pane.id === panes[0]?.id} trafficLightInset={inset && sidebarHidden}
     leading={(!matched || pane.id === visiblePanes[0]?.id) ? utilities : undefined}
     value={matched ? pane.selected ?? null : null} onClose={id => close([id])} panelId={pane.selected ? workspacePanelId(pane.selected) : undefined}
     onReorder={order => runtime.tabs.reorderPane(pane.id, order)} utilities={<>{add}{matched && <Menu trigger={<IconButton label={`Pane ${panes.indexOf(pane) + 1} actions`} variant="ghost"><Columns2 size={16} /></IconButton>} items={[
-      { id: 'split-right', label: 'Split right', disabled: !pane.selected || !canSplit(pane.id, 'right') || tabs.length >= 32, onSelect: () => { const tab = pane.tabs.find(t => t.id === pane.selected); if (tab) split(tab, 'right'); } },
-      { id: 'split-down', label: 'Split down', disabled: !pane.selected || !canSplit(pane.id, 'bottom') || tabs.length >= 32, onSelect: () => { const tab = pane.tabs.find(t => t.id === pane.selected); if (tab) split(tab, 'bottom'); } },
+      { id: 'split-right', label: 'Split right', disabled: !pane.selected || pane.tabs.find(tab => tab.id === pane.selected)?.kind === 'new' || !canSplit(pane.id, 'right') || tabs.length >= 32, onSelect: () => { const tab = pane.tabs.find(t => t.id === pane.selected); if (tab) split(tab, 'right'); } },
+      { id: 'split-down', label: 'Split down', disabled: !pane.selected || pane.tabs.find(tab => tab.id === pane.selected)?.kind === 'new' || !canSplit(pane.id, 'bottom') || tabs.length >= 32, onSelect: () => { const tab = pane.tabs.find(t => t.id === pane.selected); if (tab) split(tab, 'bottom'); } },
       ...panes.filter(p => p.id !== pane.id).map(p => ({ id: `focus-${p.id}`, label: `Focus pane ${panes.indexOf(p) + 1}`, onSelect: () => { if (p.selected) { go(p.selected); requestAnimationFrame(() => document.getElementById(workspacePanelId(p.selected!))?.focus()); } } })),
     ]}/>}</>}
-    items={pane.tabs.map(tab => ({ value: tab.id, label: title(tab), accessibleLabel: `${title(tab)} · ${hostName(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}${panes.length > 1 ? ` · Pane ${panes.indexOf(pane) + 1}` : ''}${tab.location.agent ? ` · Agent ${tab.location.agent}` : ''} · ${summaryDescription(item(tab), stale(tab))}${hasDraft(tab) ? ' · Unsent draft' : ''}`,
-      render: <Link to="/h/$runtimeId/s/$rootId" params={{ runtimeId: tab.runtimeId, rootId: tab.rootId }} search={sessionSearch(tab)} state={{ whipViewId: tab.id }} />,
-      status: <Status item={item(tab)} stale={stale(tab)}/>, metadata: <>{hostName(tab)}{tab.kind === 'repl' ? ' · REPL' : ''}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}${project(tab) ? ` · ${project(tab)}` : ''}`,
+    items={pane.tabs.map(tab => ({ value: tab.id, label: title(tab), accessibleLabel: `${title(tab)} · ${hostName(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}${panes.length > 1 ? ` · Pane ${panes.indexOf(pane) + 1}` : ''}${tab.kind !== 'new' && tab.location.agent ? ` · Agent ${tab.location.agent}` : ''} · ${tab.kind === 'new' ? 'Not sent yet' : summaryDescription(item(tab), stale(tab))}${hasDraft(tab) ? ' · Unsent draft' : ''}`,
+      render: <Link {...tabDestination(tab)} />,
+      status: tab.kind === 'new' ? <MessageSquare size={13} aria-hidden="true"/> : <Status item={item(tab)} stale={stale(tab)}/>, metadata: <>{hostName(tab)}{tab.kind === 'repl' ? ' · REPL' : ''}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}${project(tab) ? ` · ${project(tab)}` : ''}`,
       menu: <Menu trigger={<IconButton variant="ghost" label={`Tab actions for ${title(tab)}`}><MoreHorizontal size={13}/></IconButton>} items={actions(tab)} />,
       wrap: (element: ReactElement) => <ContextMenu items={actions(tab)}>{element}</ContextMenu>,
     }))}/>;
   const visiblePanes = matched ? panes.filter(p => !(compact || small) || p.id === workspace.focusedPaneId) : [];
   const visibleTabs = visiblePanes.flatMap(p => p.tabs.filter(t => t.id === p.selected));
-  const views = useWorkspaceViews(runtime, visibleTabs, hosts);
+  const views = useWorkspaceViews(runtime, visibleTabs.filter(tab => tab.kind !== 'new'), hosts);
   return <div {...stylex.props(styles.workspace)}>
     {compact && <header {...stylex.props(styles.mobileBar)}>
       {utilities}
       <Button variant="ghost" xstyle={styles.mobileSelector} aria-label={`Open sessions: ${active ? title(active) : 'New session'}, ${tabs.length} tabs`} onClick={() => { setSearch(''); setPicker(true); }}>
-        {active && <Status item={item(active)} stale={stale(active)}/>}<span {...stylex.props(layout.ellipsis, layout.grow)}>{active ? `${title(active)}${active.kind === 'repl' ? ' · REPL' : ''}` : 'New session'}</span><span {...stylex.props(styles.count)}>{tabs.length}</span><ChevronDown size={14}/>
+        {active && (active.kind === 'new' ? <MessageSquare size={13} aria-hidden="true"/> : <Status item={item(active)} stale={stale(active)}/>)}<span {...stylex.props(layout.ellipsis, layout.grow)}>{active ? `${title(active)}${active.kind === 'repl' ? ' · REPL' : ''}` : 'New session'}</span><span {...stylex.props(styles.count)}>{tabs.length}</span><ChevronDown size={14}/>
       </Button>{add}
     </header>}
     {notices}
@@ -225,6 +237,8 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       renderHeader={id => compact ? null : renderStrip(panes.find(p => p.id === id)!, true)}
       panels={visibleTabs.map(tab => {
         const pane = sessionViewPane(workspace, tab.id)!;
+        if (tab.kind === 'new') return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: New Chat`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
+          content: <Welcome key={tab.id} tab={tab} focused={pane.id === workspace.focusedPaneId} /> };
         const view = views.views.get(workspaceRootKey(tab));
         return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
           content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id}/> : views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)} role="alert"><h2>This execution host is unavailable</h2><p>{`${hostName(tab)}: ${views.errors.get(workspaceRootKey(tab))}`}</p><Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading /> };
@@ -234,7 +248,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
       <Input aria-label="Find an open session" placeholder="Find a session or project…" value={search} onChange={event => setSearch(event.target.value)}/>
       <div {...stylex.props(styles.pickerList)}>
         {tabs.filter(tab => `${title(tab)} ${hostName(tab)} ${item(tab)?.cwd ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(tab => <div key={tab.id} {...stylex.props(styles.pickerRow, active?.id === tab.id && styles.selected)}>
-          <button {...stylex.props(styles.pickerSelect)} onClick={() => go(tab.id)}><Status item={item(tab)} stale={stale(tab)}/><span {...stylex.props(layout.column, styles.pickerText)}><strong>{title(tab)}{tab.kind === 'repl' ? ' · REPL' : ''}</strong><span {...stylex.props(layout.muted)}>{panes.length > 1 ? `Pane ${panes.indexOf(sessionViewPane(workspace, tab.id)!) + 1} · ` : ''}{hostName(tab)} · {project(tab)}{project(tab) ? ' · ' : ''}{summaryDescription(item(tab), stale(tab))}{hasDraft(tab) ? ' · Unsent draft' : ''}</span></span></button>
+          <button {...stylex.props(styles.pickerSelect)} onClick={() => go(tab.id)}>{tab.kind === 'new' ? <MessageSquare size={13} aria-hidden="true"/> : <Status item={item(tab)} stale={stale(tab)}/>}<span {...stylex.props(layout.column, styles.pickerText)}><strong>{title(tab)}{tab.kind === 'repl' ? ' · REPL' : ''}</strong><span {...stylex.props(layout.muted)}>{panes.length > 1 ? `Pane ${panes.indexOf(sessionViewPane(workspace, tab.id)!) + 1} · ` : ''}{hostName(tab)} · {project(tab)}{project(tab) ? ' · ' : ''}{tab.kind === 'new' ? 'Not sent yet' : summaryDescription(item(tab), stale(tab))}{hasDraft(tab) ? ' · Unsent draft' : ''}</span></span></button>
           <Menu trigger={<IconButton variant="ghost" label={`Tab actions for ${title(tab)}`}><MoreHorizontal size={15}/></IconButton>} items={actions(tab)}/>
           <IconButton variant="ghost" label={`Close ${title(tab)}`} onClick={() => close([tab.id])}><X size={16}/></IconButton>
         </div>)}

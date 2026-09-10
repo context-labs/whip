@@ -14,6 +14,7 @@ import (
 // hint or a row of colour chips (Swatch wins when set).
 type ListItem struct {
 	Left, Right string
+	Mark        string // optional connection status in the gutter: ✓ or !
 	Swatch      []color.Color
 }
 
@@ -31,8 +32,10 @@ type ListGroup struct {
 // so the selection can never scroll off a short terminal.
 type List struct {
 	Title, Hint string // header row: Title bold left, Hint muted right (e.g. "esc")
+	Gutter      bool   // reserve two cells for connection marks
 	Search      bool   // show the search row: Query, or the muted placeholder when empty
 	Query       string
+	SearchView  string // optional rendered input, including its caret; replaces Query's plain display
 	Groups      []ListGroup
 	Sel         int      // index over all items in group order
 	Empty       string   // shown instead of items when there are none
@@ -48,15 +51,21 @@ func (l List) Render(th *theme.Theme) []string {
 	text, muted := th.On(th.Text, bg), th.On(th.Muted, bg)
 	head, accent := text.Bold(true), th.On(th.Accent, bg).Bold(true)
 	blank := PadRow("", l.Width, bg)
+	indent := 2
+	if l.Gutter {
+		indent += 2
+	}
 	// lr assembles left+right onto one padded row: left at col 2, right at the edge
 	lr := func(left, right string) string {
-		gap := max(l.Width-2-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
-		return PadRow(th.On(nil, bg).Render("  ")+left+th.On(nil, bg).Render(strings.Repeat(" ", gap))+right, l.Width, bg)
+		gap := max(l.Width-indent-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
+		return PadRow(th.On(nil, bg).Render(strings.Repeat(" ", indent))+left+th.On(nil, bg).Render(strings.Repeat(" ", gap))+right, l.Width, bg)
 	}
 
 	rows := []string{blank, lr(head.Render(l.Title), muted.Render(l.Hint)), blank}
 	if l.Search {
-		if l.Query == "" {
+		if l.SearchView != "" {
+			rows = append(rows, lr(l.SearchView, ""))
+		} else if l.Query == "" {
 			rows = append(rows, lr(muted.Render("Search"), ""))
 		} else {
 			rows = append(rows, lr(text.Render(l.Query), ""))
@@ -94,19 +103,32 @@ func (l List) Render(th *theme.Theme) []string {
 					}
 					lastTitle, started = g.Title, true
 				}
-				right := ansi.Truncate(it.Right, max(l.Width-4-lipgloss.Width(it.Left)-2, 0), "…")
-				if i == l.Sel { // full-width primary fill, the selected-row treatment
+				left := ansi.Truncate(it.Left, max(l.Width-indent-2, 1), "…")
+				right := ansi.Truncate(it.Right, max(l.Width-indent-2-lipgloss.Width(left)-2, 0), "…")
+				if i == l.Sel {
 					sel := th.Selected
+					prefix := strings.Repeat(" ", indent)
+					if l.Gutter && it.Mark != "" {
+						prefix = "  " + it.Mark + " "
+					}
 					tail := sel.Render(right + "  ")
 					if len(it.Swatch) > 0 {
 						tail = swatches(th, it.Swatch, th.Primary) + sel.Render("  ")
 					}
-					row := sel.Render("  "+it.Left) + sel.Render(strings.Repeat(" ", max(l.Width-2-lipgloss.Width(it.Left)-lipgloss.Width(tail), 1))) + tail
-					rows = append(rows, PadRow(row, l.Width, th.Primary))
+					row := sel.Render(prefix+left) + sel.Render(strings.Repeat(" ", max(l.Width-indent-lipgloss.Width(left)-lipgloss.Width(tail), 1))) + tail
+					rows = append(rows, PadRow(ansi.Truncate(row, l.Width, ""), l.Width, th.Primary))
+				} else if l.Gutter && it.Mark != "" {
+					ink := th.Success
+					if it.Mark != "✓" {
+						ink = th.Warning
+					}
+					prefix := th.On(nil, bg).Render("  ") + th.On(ink, bg).Render(it.Mark+" ")
+					gap := max(l.Width-indent-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
+					rows = append(rows, PadRow(prefix+text.Render(left+strings.Repeat(" ", gap))+muted.Render(right), l.Width, bg))
 				} else if len(it.Swatch) > 0 {
-					rows = append(rows, lr(text.Render(it.Left), swatches(th, it.Swatch, bg)))
+					rows = append(rows, lr(text.Render(left), swatches(th, it.Swatch, bg)))
 				} else {
-					rows = append(rows, lr(text.Render(it.Left), muted.Render(right)))
+					rows = append(rows, lr(text.Render(left), muted.Render(right)))
 				}
 			}
 		}

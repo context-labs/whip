@@ -1,6 +1,7 @@
 package rlm
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,6 +151,87 @@ func TestComposePromptLoadsOnlyAuthorizedAncestorChain(t *testing.T) {
 	options.ProjectRoots = []string{outside}
 	if snapshot, err := ComposePrompt(options); err == nil || snapshot.Prompt != "" || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("authorized oversized rule must fail explicitly: %v", err)
+	}
+}
+
+func TestComposePromptFiltersDeniedProjectContextAndKeepsGlobalSources(t *testing.T) {
+	options := promptFixture(t)
+	root := options.WorkingDirectory
+	child := filepath.Join(root, "child")
+	options.WorkingDirectory, options.ProjectRoots = child, []string{root}
+	writePromptFile(t, filepath.Join(root, "AGENTS.md"), strings.Repeat("X", maxProjectInstructionBytes+1))
+	writePromptFile(t, filepath.Join(root, ".agents", "skills", "denied", "SKILL.md"), "malformed metadata")
+	writePromptFile(t, filepath.Join(child, "AGENTS.md"), "ALLOWED_CHILD_RULE")
+	writePromptFile(t, filepath.Join(child, ".agents", "skills", "child", "SKILL.md"), "---\ndescription: ALLOWED_CHILD_SKILL\n---\n")
+	writePromptFile(t, config.MePath(), "GLOBAL_USER_RULE")
+	writePromptFile(t, filepath.Join(os.Getenv("WHIP_HOME"), "skills", "user", "SKILL.md"), "---\ndescription: GLOBAL_USER_SKILL\n---\n")
+	options.ProjectDirectoryAllowed = func(path string) (bool, error) { return directoryContains(child, path), nil }
+	snapshot, err := ComposePrompt(options)
+	if err != nil {
+		t.Fatalf("denied ancestor should not be read: %v", err)
+	}
+	for _, marker := range []string{"ALLOWED_CHILD_RULE", "ALLOWED_CHILD_SKILL", "GLOBAL_USER_RULE", "GLOBAL_USER_SKILL"} {
+		if !strings.Contains(snapshot.Prompt, marker) {
+			t.Errorf("missing allowed context %q", marker)
+		}
+	}
+	options.ProjectDirectoryAllowed = func(string) (bool, error) { return false, nil }
+	snapshot, err = ComposePrompt(options)
+	if err != nil || snapshot.WorkingDirectory != child {
+		t.Fatalf("omitting project context lost the current directory: snapshot=%+v error=%v", snapshot, err)
+	}
+	if strings.Contains(snapshot.Prompt, "ALLOWED_CHILD") || !strings.Contains(snapshot.Prompt, "GLOBAL_USER_RULE") || !strings.Contains(snapshot.Prompt, "GLOBAL_USER_SKILL") {
+		t.Fatal("denied project context was read or global context was lost")
+	}
+	for _, source := range snapshot.Sources {
+		if source.Kind == "project_instructions" || source.Kind == "skill" && source.Scope != "all" {
+			t.Fatalf("denied project source was retained: %+v", source)
+		}
+	}
+	failure := errors.New("authority lookup failed")
+	options.ProjectDirectoryAllowed = func(string) (bool, error) { return false, failure }
+	if _, err := ComposePrompt(options); !errors.Is(err, failure) {
+		t.Fatalf("authority error was suppressed: %v", err)
+	}
+}
+
+func TestComposePromptProjectSkillAliasesCannotEscapeAuthority(t *testing.T) {
+	for _, alias := range []string{"directory", "metadata file"} {
+		t.Run(alias, func(t *testing.T) {
+			options := promptFixture(t)
+			root := options.WorkingDirectory
+			outside := t.TempDir()
+			outsideFile := filepath.Join(outside, "catalog", "outside", "SKILL.md")
+			writePromptFile(t, outsideFile, "malformed metadata must not be read")
+			projectSkills := filepath.Join(root, ".agents", "skills")
+			link, target := projectSkills, filepath.Join(outside, "catalog")
+			if alias == "metadata file" {
+				link, target = filepath.Join(projectSkills, "outside", "SKILL.md"), outsideFile
+			}
+			if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			globalTarget := filepath.Join(outside, "global.md")
+			writePromptFile(t, globalTarget, "---\nname: global\ndescription: TRUSTED_GLOBAL_ALIAS\n---\n")
+			globalLink := filepath.Join(os.Getenv("WHIP_HOME"), "skills", "global", "SKILL.md")
+			if err := os.MkdirAll(filepath.Dir(globalLink), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(globalTarget, globalLink); err != nil {
+				t.Fatal(err)
+			}
+			options.ProjectDirectoryAllowed = func(path string) (bool, error) { return directoryContains(root, path), nil }
+			snapshot, err := ComposePrompt(options)
+			if err != nil {
+				t.Fatalf("unauthorized project alias was read: %v", err)
+			}
+			if len(snapshot.Skills) != 1 || !strings.Contains(snapshot.Prompt, "TRUSTED_GLOBAL_ALIAS") {
+				t.Fatalf("global skill trust changed: %+v", snapshot.Skills)
+			}
+		})
 	}
 }
 

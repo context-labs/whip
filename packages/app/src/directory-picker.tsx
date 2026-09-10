@@ -13,6 +13,7 @@ export function DirectoryPicker({
   disabled,
   native = true,
   pickDirectory,
+  compact = false,
 }: {
   client: WhipClient;
   value: string;
@@ -20,6 +21,7 @@ export function DirectoryPicker({
   disabled: boolean;
   native?: boolean;
   pickDirectory?(): Promise<string | undefined>;
+  compact?: boolean;
 }) {
   const request = useRef<symbol | undefined>(undefined);
   useLayoutEffect(() => { setPicking(false); return () => { request.current = undefined; }; }, [client]);
@@ -63,19 +65,19 @@ export function DirectoryPicker({
   };
   return (
     <>
-      {native && <Button variant="primary" disabled={disabled || picking} onClick={pickNative}>
+      {native && <Button variant={compact ? "ghost" : "primary"} disabled={disabled || picking} onClick={pickNative}>
         <FolderOpen size={14} /> {picking ? 'Choosing folder…' : 'Choose folder…'}
       </Button>}
-      <Button
-        variant="secondary"
+      {compact && native ? <details><summary>Folder options</summary><Button variant="ghost" disabled={disabled} onClick={() => { navigate(value); setOpen(true); }}>Browse host or enter a path</Button></details> : <Button
+        variant={compact ? "ghost" : "secondary"}
         disabled={disabled}
         onClick={() => {
           navigate(value);
           setOpen(true);
         }}
       >
-        <Folder size={14} /> Browse host
-      </Button>
+        <Folder size={14} /> {compact ? "Choose folder…" : "Browse host"}
+      </Button>}
       <Dialog
         open={open}
         onOpenChange={setOpen}

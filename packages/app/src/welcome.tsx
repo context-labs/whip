@@ -1,175 +1,164 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useRouter, useSearch, useLocation } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { useWhipConnection } from '@whip/sdk/react';
-import { Button, Combobox, Input, Select } from '@whip/ui';
-import { ArrowRight, FolderOpen, Sparkles } from 'lucide-react';
+import { Alert, Button, Textarea } from '@whip/ui';
+import { ArrowUp, FolderOpen } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
+import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
 import { layout } from './styles';
 import type { WhipClient } from '@whip/sdk';
 import { HostSelector } from './host-selector';
-import { HostDialog } from './host-dialog';
+import { HostDialog, LocalRuntimeSetup } from './host-dialog';
 import type { HostConnection } from './hosts';
 import { DirectoryPicker } from './directory-picker';
-import { sessionSearch } from './session-tabs';
-import { modelOptions } from './model-options';
+import { sessionSearch, type NewChatTab } from './session-tabs';
+import { ProviderSetup } from './provider-setup';
+import { useProviderConnections } from './settings/provider-connections';
+import { ProviderLogo } from './provider-logo';
+import { PermissionModeControl } from './permission-mode';
+import { welcomeDraftKey } from './welcome-submission';
+import { errorMessage } from './platform';
+import { WelcomeRecovery } from './welcome-recovery';
 
-export function Welcome() {
+export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: boolean }) {
   const runtime = useRuntime();
-  const { hosts, selectedHostId } = useAppState();
-  const search = useSearch({ from: '/' });
-  const locationKey = useLocation({ select: location => location.state.__TSR_key });
-  const [selected, setSelected] = useState(search.runtimeId ?? selectedHostId ?? 'local');
+  const { hosts } = useAppState();
+  useSyncExternalStore(runtime.welcome.subscribe, runtime.welcome.getSnapshot);
+  const [changingHost, setChangingHost] = useState(false);
   const [adding, setAdding] = useState(false);
-  useEffect(() => setSelected(search.runtimeId ?? selectedHostId ?? 'local'), [search.runtimeId, locationKey]);
+  const selected = tab.hostProfileId ?? tab.runtimeId;
   const host = hosts.find(host => host.id === selected || host.runtimeId === selected);
-  const remote = selected !== 'local' && !host?.local;
-  const remotes = hosts.filter(host => !host.local);
-  return (
-    <div {...stylex.props(layout.empty)}>
-      <Sparkles size={28} strokeWidth={1.3} />
-      <h1 {...stylex.props(layout.emptyTitle)}>
-        What would you like to work on?
-      </h1>
-      <p {...stylex.props(layout.emptyText)}>
-        Start a conversation. Give your agents a direction, follow their
-        progress, and step in when they need you.
-      </p>
-      <div {...stylex.props(layout.column)} style={{ width: 'min(100%, 420px)', textAlign: 'left' }}>
-        <div role="group" aria-label="Session location" {...stylex.props(layout.row)}>
-          <Button variant={remote ? 'ghost' : 'secondary'} aria-pressed={!remote} onClick={() => setSelected('local')}>Local</Button>
-          <Button variant={remote ? 'secondary' : 'ghost'} aria-pressed={remote} onClick={() => setSelected(remotes[0]?.id ?? 'remote')}>Remote</Button>
-        </div>
-        {remote && <div {...stylex.props(layout.column)}>
-          {!!remotes.length && <HostSelector hosts={remotes} host={host} onValueChange={setSelected} />}
-          <Button variant="ghost" onClick={() => setAdding(true)}>Add server</Button>
-        </div>}
-        {host?.client ? <NewSession key={`${host.id}:${host.runtimeId}`} client={host.client} host={host} />
-          : host ? <><p>{host.name} is {host.state === 'closed' ? 'disconnected' : host.state}.</p><Button onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button></>
-          : <p>Select or add a remote host to begin.</p>}
-        {host?.error && <p role="status">{host.error}</p>}
-      </div>
-      <HostDialog open={adding} onOpenChange={setAdding} onSaved={id => { runtime.connections.select(id); setSelected(id); }} />
+  let locked = false;
+  try { locked = !!runtime.welcome.get(tab.id); } catch { locked = true; }
+  const selectHost = (id: string) => {
+    if (locked) return;
+    const next = hosts.find(host => host.id === id);
+    try { runtime.tabs.updateNew(tab.id, { hostProfileId: id, runtimeId: next?.runtimeId }); setChangingHost(false); }
+    catch (error) { runtime.report(error); }
+  };
+  return <div {...stylex.props(layout.empty, styles.page)}>
+    <h1 {...stylex.props(layout.emptyTitle)}>What would you like to work on?</h1>
+    <div {...stylex.props(styles.column)}>
+      {host && runtime.platform.localRuntime && host.profile?.target.kind === 'local' && host.state !== 'connected'
+        ? <LocalRuntimeSetup host={host} />
+        : host?.client ? <NewSession key={`${tab.id}:${host.id}`} tab={tab} focused={focused} client={host.client} host={host} />
+        : host ? <><p role="status">{host.name} is {host.state === 'closed' ? 'disconnected' : host.state}.</p><Button onClick={() => void runtime.connections.connect(host.id).catch(() => {})}>Connect {host.name}</Button></>
+        : <p>Select or add an execution host to begin.</p>}
+      <div {...stylex.props(styles.host)}><span>{host?.name ?? 'Execution host'}</span><Button variant="ghost" disabled={locked} onClick={() => setChangingHost(value => !value)}>Change host</Button></div>
+      {changingHost && <div {...stylex.props(layout.column)}>
+        {!!hosts.length && <HostSelector hosts={hosts} host={host} onValueChange={selectHost} />}
+        <Button variant="ghost" onClick={() => setAdding(true)}>Connect to another machine</Button>
+      </div>}
+      {host?.error && !(runtime.platform.localRuntime && host.profile?.target.kind === 'local') && <p role="status">{host.error}</p>}
     </div>
-  );
+    <WelcomeRecovery currentId={tab.id} />
+    <HostDialog open={adding} onOpenChange={setAdding} onSaved={selectHost} />
+  </div>;
 }
-function NewSession({ client, host }: { client: WhipClient; host: HostConnection }) {
-  const runtime = useRuntime();
+
+function NewSession({ client, host, tab, focused }: { client: WhipClient; host: HostConnection; tab: NewChatTab; focused: boolean }) {
   const connection = useWhipConnection(client);
+  if (!connection.info?.runtime_id) return <p role="status">Connecting to {host.name}…</p>;
+  return <WelcomeComposer client={client} host={host} tab={tab} focused={focused} />;
+}
+
+/** Editable state belongs to the stable workspace draft, not the selected host. */
+export function WelcomeComposer({ client, host, tab, focused = true }: {
+  client: WhipClient; host: HostConnection; tab: NewChatTab; focused?: boolean;
+}) {
+  const runtime = useRuntime();
+  const app = useAppState();
+  useSyncExternalStore(runtime.welcome.subscribe, runtime.welcome.getSnapshot);
+  const connection = useWhipConnection(client);
+  const runtimeId = connection.info?.runtime_id ?? host.runtimeId!;
+  const key = welcomeDraftKey(tab.id);
   const navigate = useNavigate();
-  const router = useRouter();
+  const draft = useSyncExternalStore(listener => runtime.subscribeDraft(key, listener), () => runtime.draft(key));
+  const cwd = tab.cwd;
+  const permission = tab.permissionMode;
+  function updateSetup(patch: Parameters<typeof runtime.tabs.updateNew>[1]) {
+    try { runtime.tabs.updateNew(tab.id, patch); } catch (error) { setError(errorMessage(error)); }
+  }
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [showProviders, setShowProviders] = useState(false);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const isFocused = useRef(focused);
+  isFocused.current = focused;
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const search = useSearch({ from: '/' });
-  const prefill = search.runtimeId === connection.info?.runtime_id ? search.cwd ?? '' : '';
-  const creationLocation = useLocation({ select: location => location.state.__TSR_key });
-  const [cwd, setCwd] = useState(prefill);
-  useEffect(() => setCwd(prefill), [prefill, connection.info?.runtime_id, creationLocation]);
-  const [busy, setBusy] = useState(false);
-  const [model, setModel] = useState('');
+  const connected = connection.state === 'connected';
+  const providers = useProviderConnections(client, connected);
+  const selection = providers.inventory.data?.selection;
+  const ready = selection?.ready === true;
+  const requiresUpdate = !!providers.inventory.data && !selection;
   const previous = runtime.lastSession();
   const previousView = previous ? runtime.tabs.preferred(previous.runtimeId, previous.rootId) : undefined;
-  const enabled = connection.state === 'connected';
-  const catalogs = useQuery({
-    queryKey: ['provider-catalogs', connection.info?.runtime_id],
-    queryFn: ({ signal }) => client.providers.catalogs({ signal }),
-    enabled,
-  });
-  const models = modelOptions(catalogs.data?.result);
-  return (
-    <form
-      {...stylex.props(layout.column)}
-      style={{ width: 'min(100%, 420px)', textAlign: 'left' }}
-      onSubmit={async (event) => {
-        event.preventDefault();
-        const runtimeId = connection.info?.runtime_id;
-        if (!runtimeId || !runtime.tabs.canOpen(runtimeId)) {
-          runtime.report('There are 32 open session tabs. Close a tab before creating another session.');
-          return;
-        }
-        const startingLocation = router.state.location;
-        setBusy(true);
-        try {
-          const selection: [string, string] = model
-            ? JSON.parse(model)
-            : ['', ''];
-          const outcome = await runtime.run(
-            client.sessions.create({
-              cwd,
-              model: selection[0],
-              provider: selection[1],
-            }),
-            'Create session',
-          );
-          if (!outcome.result)
-            throw new Error('Session creation returned no session');
-          if (!mounted.current || router.state.location !== startingLocation || !runtime.connections.isAttached(client)) return;
-          await navigate({
-            to: '/h/$runtimeId/s/$rootId',
-            params: {
-              runtimeId,
-              rootId: outcome.result.root_id,
-            },
-            search: {},
-          });
-        } catch (error) {
-          runtime.report(error);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      {previous && previous.runtimeId === connection.info?.runtime_id && (
-        <Link to="/h/$runtimeId/s/$rootId" params={previous} search={sessionSearch(previousView)} state={{ whipViewId: previousView?.id }}>
-          Continue your previous session
-        </Link>
-      )}
-      <label
-        htmlFor="workspace-path"
-        {...stylex.props(layout.row, layout.muted)}
-      >
-        <FolderOpen size={14} /> Working directory on {host.name}
-      </label>
-      <Input
-        id="workspace-path"
-        value={cwd}
-        onChange={(event) => setCwd(event.target.value)}
-        placeholder="/path/to/your/project"
-        required
-      />
-      <DirectoryPicker
-        key={creationLocation}
-        client={client}
-        native={host.local}
-        pickDirectory={host.profile?.target.kind === 'local' ? runtime.platform.pickDirectory : undefined}
-        value={cwd}
-        onSelect={setCwd}
-        disabled={!enabled}
-      />
-      {!!models.length && (
-        <Combobox
-          label="Model for new session"
-          value={model}
-          onValueChange={setModel}
-          options={[{ value: '', label: 'Use host default model' }, ...models]}
-        />
-      )}
-      <Button
-        variant="primary"
-        type="submit"
-        loading={busy}
-        disabled={!enabled || !cwd.trim()}
-      >
-        Start a session <ArrowRight size={15} />
-      </Button>
-      <Link
-        to="/settings"
-        search={{ section: 'providers' }}
-        {...stylex.props(layout.muted)}
-      >
-        Connect or configure a model provider
-      </Link>
+  let recovery: ReturnType<typeof runtime.welcome.get>;
+  let recoveryError = '';
+  try { recovery = runtime.welcome.get(tab.id); } catch (error) { recoveryError = errorMessage(error); }
+  const unresolved = app.commands.find(command => command.draftKey === key && command.delivery);
+  function openProviders() { setShowProviders(true); requestAnimationFrame(() => { if (!isFocused.current) return; const setup = panel.current?.querySelector<HTMLElement>('[aria-label="Provider setup"]'); setup?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); (setup?.querySelector<HTMLButtonElement>('[data-provider-confirm]:not(:disabled)') ?? setup?.querySelector<HTMLButtonElement>('[data-provider-choice]'))?.focus(); }); }
+  function focusComposer() { setShowProviders(false); requestAnimationFrame(() => { if (isFocused.current) input.current?.focus(); }); }
+  async function submit(mode: 'start' | 'check' | 'retry' = 'start') {
+    if (!connected || busy) return;
+    if (mode === 'start' && requiresUpdate) return;
+    if (mode === 'start' && !ready) { openProviders(); return; }
+    if (mode === 'start' && !cwd.trim()) { setError('Choose a project folder on this host before sending.'); return; }
+    setBusy(true); setError('');
+    try {
+      mode === 'start'
+        ? await runtime.welcome.start(tab.id, client, { cwd: cwd.trim(), model: selection!.model, provider: selection!.provider, permission_mode: permission })
+        : await runtime.welcome.resume(tab.id, client, mode === 'retry');
+    } catch (error) { if (mounted.current) setError(errorMessage(error)); }
+    finally { if (mounted.current) setBusy(false); }
+  }
+  return <div ref={panel} {...stylex.props(layout.column)}>
+    {previous && previous.runtimeId === runtimeId && <Link to="/h/$runtimeId/s/$rootId" params={previous} search={sessionSearch(previousView)} state={{ whipViewId: previousView?.id }}>Continue your previous session</Link>}
+    <form onSubmit={event => { event.preventDefault(); void submit(); }} {...stylex.props(styles.composer)}>
+      <Textarea ref={input} autoFocus={focused} data-whip-composer aria-label="Your first message" placeholder="Describe a task…" rows={3} xstyle={styles.input}
+        value={draft} disabled={busy || !!recovery || !!recoveryError} maxLength={256 * 1024} onChange={event => { try { runtime.setDraft(key, event.target.value); } catch (error) { setError(errorMessage(error)); } }}
+        onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!recovery) void submit(); } }} />
+      <div {...stylex.props(styles.toolbar)}>
+        {cwd && <span title={cwd} {...stylex.props(styles.folder)}><FolderOpen size={14} />{cwd.split('/').filter(Boolean).at(-1) ?? cwd}</span>}
+        <DirectoryPicker compact client={client} native={host.local} pickDirectory={host.profile?.target.kind === 'local' ? runtime.platform.pickDirectory : undefined}
+          value={cwd} onSelect={path => { updateSetup({ cwd: path }); setError(''); }} disabled={!connected || busy || !!recovery} />
+      </div>
+      <div {...stylex.props(styles.toolbar)}>
+        <Button variant="ghost" disabled={!connected || busy} onClick={() => showProviders ? setShowProviders(false) : openProviders()} aria-label={ready ? 'Change provider or model' : 'Connect a provider'}>
+          {ready && <ProviderLogo id={selection.provider} size={14} />}<span {...stylex.props(layout.ellipsis)}>{ready ? `${selection.model} · ${selection.provider}` : 'Connect a provider'}</span>
+        </Button>
+        <PermissionModeControl value={permission} disabled={busy || !!recovery} onChange={permissionMode => updateSetup({ permissionMode: permissionMode as NewChatTab['permissionMode'] })} />
+        <span {...stylex.props(layout.grow)} />
+        <Button type="submit" variant="primary" aria-label={ready ? 'Send first message' : 'Set up provider'} xstyle={ready ? styles.send : undefined}
+          loading={busy} disabled={!connected || requiresUpdate || !!recovery || !!recoveryError || (ready && (!draft.trim() || !cwd.trim()))}>{ready ? <ArrowUp size={16} /> : 'Connect'}</Button>
+      </div>
     </form>
-  );
+    {(recovery || recoveryError) && <div role="status" {...stylex.props(layout.notice, layout.column)}>
+      <span>{recoveryError || recovery?.error || (recovery?.state === 'accepted' ? 'Your first message was accepted. Continue the created session.' : 'Your first message has a saved recovery record. Check its status before sending again.')}</span>
+      {recovery && <div {...stylex.props(layout.row)}>
+        {recovery.state !== 'failed' && <Button disabled={!connected || busy} onClick={() => void submit('check')}>{recovery.state === 'accepted' ? 'Continue session' : 'Check first message'}</Button>}
+        {(recovery.state === 'absent' || unresolved?.delivery === 'absent') && <Button variant="secondary" disabled={!connected || busy} onClick={() => void submit('retry')}>Retry original request</Button>}
+        {recovery.state === 'failed' && <Button variant="secondary" disabled={busy} onClick={() => { void runtime.welcome.finish(tab.id, recovery!.create.commandId).then(() => setError('')).catch(error => setError(errorMessage(error))); }}>Discard failed request</Button>}
+        {recovery.rootId && <Button variant="ghost" onClick={() => void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: recovery!.create.runtimeId, rootId: recovery!.rootId! }, search: {} })}>Open created session</Button>}
+      </div>}
+    </div>}
+    {error && <Alert tone="error">{error}</Alert>}
+    {!connected && <p role="status" {...stylex.props(styles.note)}>Reconnecting to {host.name}. Your draft stays here and will not be sent automatically.</p>}
+    {(!ready || showProviders) && <ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers} onReady={focusComposer} />}
+  </div>;
 }
+
+const styles = stylex.create({
+  page: { justifyContent: 'flex-start', paddingTop: { default: 'min(12vh, 100px)', [scale.phone]: 32 }, overflowY: 'auto' },
+  column: { width: 'min(100%, 620px)', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: scale.space4 },
+  composer: { display: 'flex', flexDirection: 'column', gap: scale.space2, padding: scale.space3, borderWidth: 1, borderStyle: 'solid', borderColor: surface.quietBorder, borderRadius: 20, backgroundColor: colors.element },
+  input: { minHeight: 96, maxHeight: 220, resize: 'vertical', borderWidth: 0, boxShadow: 'none', backgroundColor: { default: 'transparent', ':hover': 'transparent' }, fontSize: { default: typography.size14, [scale.phone]: typography.size16 }, padding: scale.space1 },
+  toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: scale.space1, minWidth: 0 },
+  folder: { display: 'flex', alignItems: 'center', gap: scale.space2, color: surface.secondaryText, fontSize: typography.size12, maxWidth: '100%', overflowWrap: 'anywhere' },
+  send: { borderRadius: '50%', width: 36, paddingInline: 0 },
+  host: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: surface.secondaryText, fontSize: typography.size12 },
+  note: { fontSize: typography.size12, color: surface.secondaryText, margin: 0, lineHeight: 1.5 },
+});

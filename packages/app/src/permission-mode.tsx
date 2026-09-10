@@ -28,7 +28,7 @@ const modes: Mode[] = [
   {
     value: 'automatic',
     label: 'Full Access',
-    description: 'Every permission prompt is approved without asking',
+    description: 'Access files outside this project and approve actions automatically',
     icon: ShieldAlert,
     danger: true,
   },
@@ -65,22 +65,17 @@ const styles = stylex.create({
 /** Composer control: consent mode for the session. Root-only, applies when idle. */
 export function PermissionModePicker({ view, root, connected, agentId }: Props) {
   const runtime = useRuntime();
-  const [open, setOpen] = useState(false);
-  const idle = !Object.keys(root.active_turns ?? {}).length;
   if (agentId !== view.session.rootId) return null;
-  const current = root.permission_mode || '';
-  const active = modes.find((mode) => mode.value === current);
+  return <PermissionModeControl value={root.permission_mode || ''} disabled={!connected || !!Object.keys(root.active_turns ?? {}).length}
+    onChange={mode => { runtime.run(view.session.setPermissionMode(mode === 'prompt'), mode === 'automatic' ? 'Enable Full Access' : 'Require approval prompts').catch(error => runtime.report(error)); }} />;
+}
+
+/** Shared session/new-session control; the caller owns persistence. */
+export function PermissionModeControl({ value: current, disabled, onChange }: { value: string; disabled?: boolean; onChange(mode: string): void }) {
+  const [open, setOpen] = useState(false);
+  const active = modes.find(mode => mode.value === current);
   const TriggerIcon = active?.danger ? ShieldAlert : ShieldCheck;
-  const pick = (mode: Mode) => {
-    setOpen(false);
-    if (mode.value === current) return;
-    runtime
-      .run(
-        view.session.setPermissionMode(mode.value === 'prompt'),
-        mode.value === 'automatic' ? 'Enable Full Access' : 'Require approval prompts',
-      )
-      .catch((error) => runtime.report(error));
-  };
+  const pick = (mode: Mode) => { setOpen(false); if (mode.value !== current) onChange(mode.value); };
   return (
     <Popover
       open={open}
@@ -91,19 +86,13 @@ export function PermissionModePicker({ view, root, connected, agentId }: Props) 
         <Button
           variant="ghost"
           aria-label="Permission approval mode"
-          disabled={!connected || !idle}
-          title={
-            !idle
-              ? 'Wait for active turns to finish before changing the permission mode'
-              : active
-                ? `Permissions: ${active.label}`
-                : 'Permission approval mode'
-          }
+          disabled={disabled}
+          title={active ? `Permissions: ${active.label}` : 'Permission approval mode'}
           xstyle={[styles.trigger, active?.danger && styles.danger]}
         >
           <TriggerIcon size={14} {...stylex.props(active?.danger ? undefined : styles.chevron)} />
           <span {...stylex.props(layout.ellipsis)}>
-            {active ? active.label : connected ? 'Permissions' : 'Permissions unavailable'}
+            {active ? active.label : 'Permissions unavailable'}
           </span>
           <ChevronDown size={14} {...stylex.props(styles.chevron)} />
         </Button>

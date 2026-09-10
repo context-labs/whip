@@ -1,0 +1,78 @@
+{
+  "bundle": "/Users/samheutmaker/Desktop/context-labs/src/rlm/whip/apps/desktop/out/Whip-darwin-arm64/Whip.app",
+  "version": "0.1.0",
+  "distribution": "whipcode",
+  "buildId": "0.1.0",
+  "rendererDigest": "0ecc28a917703b58f8b987f91b606fdbb9d4d93c8caefd1343e30c9c445256be",
+  "nativeFiles": {
+    "whipcode": {
+      "bytes": 42012224,
+      "sha256": "d4a7eaf7d9b0eb37db34d5a2021eb5a90268cd19d955484fe1f2262728860dd2"
+    },
+    "whip-computer": {
+      "bytes": 431648,
+      "sha256": "145b8e8aea975ddb7aeba0c42b5d9e5ea3d63c2597dd5ef094806fdc123d1e0c"
+    }
+  },
+  "source": {
+    "commit": "7058e007fec0a4f2e926f3b26dcb9e06ed75be5b",
+    "dirty": true,
+    "lockfile": "5722628aaf99fb36683aee4faa08af75f1beee9679693a110c64f955f551c2ab"
+  },
+  "compatibility": {
+    "protocolMajor": 5,
+    "protocolMinor": 1,
+    "schemaVersion": 13
+  },
+  "teamId": "JAPWPV5JY2",
+  "fuses": {
+    "0": 48,
+    "1": 49,
+    "2": 48,
+    "3": 48,
+    "4": 49,
+    "5": 49,
+    "6": 48,
+    "7": 48,
+    "8": 49,
+    "version": "1"
+  },
+  "signed": true,
+  "notarized": false,
+  "bundleDigest": "6ac0858dc90b4b568ad5c9f9294c19c9664835c7dfbc7197ed4eca28934ac7d4",
+  "toolchain": {
+    "node": "v24.14.1",
+    "arch": "arm64",
+    "go": "go version go1.27.0 darwin/arm64",
+    "xcode": "Xcode 26.3\nBuild version 17C529",
+    "macOS": "26.3.1"
+  },
+  "acceptanceScope": {
+    "purpose": "Isolated Developer ID signed package verification and LaunchServices startup/reconnect acceptance",
+    "notarization": "Not requested or performed",
+    "installation": "No live application install or shared daemon modification",
+    "source": "Final frozen source; staged first-call smoke uses exactly the packaged renderer and backend hashes",
+    "archiveFeatureChecks": [
+      {
+        "text": "A newer first message must keep its recovery record",
+        "file": "/renderer/assets/index-DYpftRfj.js",
+        "present": true
+      },
+      {
+        "text": "already retired. A newer request is unchanged",
+        "file": "/renderer/assets/index-DYpftRfj.js",
+        "present": true
+      },
+      {
+        "text": "Update Whip on",
+        "file": "/renderer/assets/routes-CRYELfSh.js",
+        "present": true
+      },
+      {
+        "text": "Authentication auto-open keyed by flow ID plus URL",
+        "file": "/renderer/assets/provider-connections-DVIJ_Rob.js",
+        "present": true
+      }
+    ]
+  }
+}

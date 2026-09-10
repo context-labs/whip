@@ -74,10 +74,11 @@ func (c *Control) route(ctx context.Context, work func(context.Context) error) e
 }
 
 type CreateSession struct {
-	Kind     session.SessionKind `json:"kind"`
-	CWD      string              `json:"cwd"`
-	Model    string              `json:"model"`
-	Provider string              `json:"provider"`
+	Kind           session.SessionKind `json:"kind"`
+	CWD            string              `json:"cwd"`
+	Model          string              `json:"model"`
+	Provider       string              `json:"provider"`
+	PermissionMode string              `json:"permission_mode,omitempty"`
 }
 
 func (c *Control) CreateSession(ctx context.Context, admission session.CommandAdmission, create CreateSession) (record session.CommandRecord, err error) {
@@ -96,7 +97,7 @@ func (c *Control) CreateSession(ctx context.Context, admission session.CommandAd
 		}
 		create, err = resolveSessionDefaults(create)
 		if err == nil {
-			record, err = c.store.CreateSessionForCommand(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider)
+			record, err = c.store.CreateSessionForCommandWithPermission(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider, create.PermissionMode)
 		}
 		if err != nil {
 			_, finishErr := c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "failed", session.RuntimePayload{Data: encodeCommandOutcome("session.create", "", err), MediaType: "application/json"})
@@ -268,22 +269,13 @@ func resolveSessionDefaults(create CreateSession) (CreateSession, error) {
 	if err != nil {
 		return create, err
 	}
-	if create.Model == "" {
-		create.Model = cfg.DefaultModel
-	}
-	_, model, _, err := cfg.Resolve(create.Model, create.Provider)
+	provider, _, _, _, err := cfg.ResolveRoute(create.Model, create.Provider)
 	if err != nil {
 		return create, err
 	}
-	if create.Provider == "" {
-		// Catalog-only models select their advertising provider in Resolve;
-		// configured aliases otherwise use the configured default provider first.
-		if _, configured := cfg.Models[create.Model]; configured {
-			create.Provider = cfg.DefaultProvider
-		}
-		if create.Provider == "" && len(model.Providers) > 0 {
-			create.Provider = model.Providers[0]
-		}
+	if create.Model == "" {
+		create.Model = cfg.DefaultModel
 	}
+	create.Provider = provider
 	return create, nil
 }

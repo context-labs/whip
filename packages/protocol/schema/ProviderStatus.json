@@ -22,6 +22,9 @@
     "environment_variable": {
       "type": "string"
     },
+    "credential_path": {
+      "type": "string"
+    },
     "auth_method": {
       "type": "string"
     },

@@ -66,7 +66,7 @@ func main() {
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
 	benchFlag := flag.Bool("bench", false, "measure configuration and provider routing startup, then exit; for `task benchmark`")
 	cautiousFlag := flag.Bool("cautious", false, "require approval and save this mode for the initial session")
-	yoloFlag := flag.Bool("yolo", false, "approve automatically and save this mode for the initial session")
+	yoloFlag := flag.Bool("yolo", false, "allow files outside the project, approve automatically, and save this mode for the initial session")
 	flag.Parse()
 	if *cautiousFlag && *yoloFlag {
 		fmt.Fprintln(os.Stderr, buildinfo.Text("whip: --cautious and --yolo are mutually exclusive"))
@@ -115,8 +115,7 @@ func main() {
 		return
 	}
 
-	// `whip run ...` — non-interactive one-turn mode for scripting; no TTY or
-	// trust prompt required (headless use implies trusted automation).
+	// `whip run ...` — non-interactive one-turn mode for scripting; no TTY required.
 	// `whip acp` — ACP agent over stdio for editors (Zed et al.).
 	if flag.NArg() > 0 && flag.Arg(0) == "acp" {
 		if err := acpCLI(flag.Args()[1:]); err != nil {
@@ -170,10 +169,6 @@ func main() {
 		return
 	}
 
-	// Daemon startup and other subcommands may already have written config.json.
-	// Only completing setup consumes the first interactive launch.
-	firstRun := !config.SetupDone()
-
 	// `whip up <words...>`: flag.Parse stops at "up", so flags go before it
 	// (whip -m kimi up …) and the prompt may start with "-" untouched.
 	initialPrompt := ""
@@ -193,16 +188,16 @@ func main() {
 			fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 			os.Exit(1)
 		}
-		_ = prov.Key()
+		_ = prov.Key(cfg)
 		return
 	}
 
-	// Update check: concurrent with the trust prompt and agent setup, so its
+	// Update check: concurrent with TUI and agent setup, so its
 	// ~1 RTT is usually free — and when startup wins the race, the recorded
 	// notice still shows on the next launch.
 	go update.Check(version)
 	tui.Version = version // /report names the build in the bug-report bundle
-	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, firstRun, initialPrompt)
+	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, initialPrompt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, buildinfo.Text("whip:"), err)
 		os.Exit(1)

@@ -346,6 +346,9 @@ export interface CapabilityRecord {
   issuer_agent_id: string;
   operations: null | string[];
   scopes: null | string[];
+  file_scope?: string;
+  file_issuer_id?: string;
+  file_issuer_generation?: string;
   mcp:
     | null
     | {
@@ -615,6 +618,7 @@ export interface CreateSessionParams {
   cwd: string;
   model: string;
   provider: string;
+  permission_mode?: string;
 }
 
 export interface EffortParams {
@@ -1104,6 +1108,7 @@ export interface MailboxReadParams {
 }
 
 export interface ModelParams {
+  effort?: string;
   model: string;
   provider?: string;
   persist_default: boolean;
@@ -1173,6 +1178,7 @@ export interface PingResult {
 
 export interface ProviderCatalogParams {
   refresh?: boolean;
+  provider?: string;
 }
 
 export interface ProviderCatalogsResult {
@@ -1221,6 +1227,60 @@ export interface ProviderCatalogsResult {
   };
 }
 
+export interface ProviderConfiguration {
+  revision: string;
+  provider: string;
+  definition: {
+    name: string;
+    base_url: string;
+    api: string;
+  };
+  custom: boolean;
+  credential: {
+    mode: string;
+    configured: boolean;
+    environment_variable?: string;
+    credential_path?: string;
+    available?: null | boolean;
+  };
+  models:
+    | null
+    | {
+        alias: string;
+        id: string;
+        context?: number;
+        max_output?: number;
+      }[];
+  removal_blockers: null | string[];
+  discovery?: null | {
+    status: string;
+    message?: string;
+    model_count?: number;
+  };
+}
+
+export interface ProviderCreateParams {
+  revision: string;
+  provider: string;
+  definition: {
+    name: string;
+    base_url: string;
+    api: string;
+  };
+  credential: {
+    mode: string;
+    key?: string;
+    environment_variable?: string;
+  };
+  manual_model?: null | {
+    alias: string;
+    id: string;
+    context?: number;
+    max_output?: number;
+  };
+  allow_unverified?: boolean;
+}
+
 export interface ProviderDisconnectParams {
   provider: string;
   revision: string;
@@ -1235,6 +1295,7 @@ export interface ProviderKeySetup {
 
 export interface ProviderList {
   revision: string;
+  discovery_error?: string;
   default_provider?: string;
   providers:
     | null
@@ -1250,6 +1311,7 @@ export interface ProviderList {
           available?: null | boolean;
           disabled?: boolean;
           environment_variable?: string;
+          credential_path?: string;
           auth_method?: string;
           auth_state?: string;
           account_id?: string;
@@ -1260,7 +1322,23 @@ export interface ProviderList {
           machine_key_name?: string;
           warnings: null | string[];
         };
+        recommended?: boolean;
+        suggested_model?: string;
+        category?: string;
+        family?: string;
+        key_url?: string;
       }[];
+  selection?: null | {
+    ready: boolean;
+    model: string;
+    provider: string;
+    reason: string;
+  };
+}
+
+export interface ProviderListParams {
+  model?: string;
+  provider?: string;
 }
 
 export interface ProviderLoginBeginParams {
@@ -1344,6 +1422,16 @@ export interface ProviderNameParams {
   provider: string;
 }
 
+export interface ProviderRemoveParams {
+  revision: string;
+  provider: string;
+}
+
+export interface ProviderRemoveResult {
+  revision: string;
+  warning?: string;
+}
+
 export interface ProviderStatus {
   provider: string;
   configured: boolean;
@@ -1351,6 +1439,7 @@ export interface ProviderStatus {
   available?: null | boolean;
   disabled?: boolean;
   environment_variable?: string;
+  credential_path?: string;
   auth_method?: string;
   auth_state?: string;
   account_id?: string;
@@ -1360,6 +1449,25 @@ export interface ProviderStatus {
   project_name?: string;
   machine_key_name?: string;
   warnings: null | string[];
+}
+
+export interface ProviderUpdateParams {
+  revision: string;
+  provider: string;
+  name?: null | string;
+  base_url?: null | string;
+  credential?: null | {
+    mode: string;
+    key?: string;
+    environment_variable?: string;
+  };
+  manual_model?: null | {
+    alias: string;
+    id: string;
+    context?: number;
+    max_output?: number;
+  };
+  allow_unverified?: boolean;
 }
 
 export interface ProviderValidateParams {
@@ -1382,6 +1490,9 @@ export interface ProviderValidateResult {
           input_cache_read?: string;
         };
         input_modalities?: null | string[];
+        output_modalities?: null | string[];
+        supports_tools?: null | boolean;
+        type?: string;
       }[];
 }
 
@@ -1622,6 +1733,9 @@ export interface RootCollectionPage {
           issuer_agent_id: string;
           operations: null | string[];
           scopes: null | string[];
+          file_scope?: string;
+          file_issuer_id?: string;
+          file_issuer_generation?: string;
           mcp:
             | null
             | {
@@ -1763,6 +1877,9 @@ export interface RootCollectionPage {
               issuer_agent_id: string;
               operations: null | string[];
               scopes: null | string[];
+              file_scope?: string;
+              file_issuer_id?: string;
+              file_issuer_generation?: string;
               mcp:
                 | null
                 | {
@@ -2049,6 +2166,9 @@ export interface RootSnapshot {
         issuer_agent_id: string;
         operations: null | string[];
         scopes: null | string[];
+        file_scope?: string;
+        file_issuer_id?: string;
+        file_issuer_generation?: string;
         mcp:
           | null
           | {
@@ -2191,6 +2311,11 @@ export interface RunConfigureParams {
 
 export interface RuntimeConfiguration {
   disabled_providers?: null | string[];
+  discovery?: null | {
+    status: string;
+    message?: string;
+    model_count?: number;
+  };
   remote_hosts?:
     | null
     | {
@@ -2598,9 +2723,12 @@ export interface ContractTypes {
   PingResult: PingResult;
   ProviderCatalogParams: ProviderCatalogParams;
   ProviderCatalogsResult: ProviderCatalogsResult;
+  ProviderConfiguration: ProviderConfiguration;
+  ProviderCreateParams: ProviderCreateParams;
   ProviderDisconnectParams: ProviderDisconnectParams;
   ProviderKeySetup: ProviderKeySetup;
   ProviderList: ProviderList;
+  ProviderListParams: ProviderListParams;
   ProviderLoginBeginParams: ProviderLoginBeginParams;
   ProviderLoginCreateParams: ProviderLoginCreateParams;
   ProviderLoginList: ProviderLoginList;
@@ -2609,7 +2737,10 @@ export interface ContractTypes {
   ProviderLoginStatus: ProviderLoginStatus;
   ProviderLoginTeamParams: ProviderLoginTeamParams;
   ProviderNameParams: ProviderNameParams;
+  ProviderRemoveParams: ProviderRemoveParams;
+  ProviderRemoveResult: ProviderRemoveResult;
   ProviderStatus: ProviderStatus;
+  ProviderUpdateParams: ProviderUpdateParams;
   ProviderValidateParams: ProviderValidateParams;
   ProviderValidateResult: ProviderValidateResult;
   QueryParams: QueryParams;
@@ -2767,10 +2898,13 @@ export interface RpcMethods {
   "mailbox.read": { params: MailboxReadParams; result: MailboxInspection; execution: "query"; permission: "root-agent-association"; sensitive: false };
   "operation.invoke": { params: QueryParams; result: QueryResult; execution: "ephemeral"; permission: "operation-specific"; sensitive: true };
   "permission.decide": { params: PermissionDecisionParams; result: PermissionDecisionResult; execution: "ephemeral"; permission: "trusted-client-decision"; sensitive: false };
+  "provider.create": { params: ProviderCreateParams; result: ProviderConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
   "provider.disconnect": { params: ProviderDisconnectParams; result: ProviderStatus; execution: "ephemeral"; permission: "configuration-revision"; sensitive: false };
+  "provider.discover": { params: ProviderListParams; result: ProviderList; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.get": { params: ProviderNameParams; result: ProviderConfiguration; execution: "query"; permission: "host-configuration"; sensitive: false };
   "provider.key.rotate": { params: ProviderNameParams; result: ProviderStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: true };
   "provider.key.set": { params: ProviderKeySetup; result: RuntimeConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
-  "provider.list": { params: Empty; result: ProviderList; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "provider.list": { params: ProviderListParams; result: ProviderList; execution: "query"; permission: "host-configuration"; sensitive: false };
   "provider.login.begin": { params: ProviderLoginBeginParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
   "provider.login.cancel": { params: ProviderLoginParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
   "provider.login.list": { params: Empty; result: ProviderLoginList; execution: "query"; permission: "host-configuration"; sensitive: false };
@@ -2779,7 +2913,9 @@ export interface RpcMethods {
   "provider.login.status": { params: ProviderLoginParams; result: ProviderLoginStatus; execution: "query"; permission: "none"; sensitive: false };
   "provider.login.team.select": { params: ProviderLoginTeamParams; result: ProviderLoginStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
   "provider.logout": { params: ProviderNameParams; result: ProviderStatus; execution: "ephemeral"; permission: "host-configuration"; sensitive: false };
+  "provider.remove": { params: ProviderRemoveParams; result: ProviderRemoveResult; execution: "ephemeral"; permission: "configuration-revision"; sensitive: false };
   "provider.status": { params: ProviderNameParams; result: ProviderStatus; execution: "query"; permission: "host-configuration"; sensitive: false };
+  "provider.update": { params: ProviderUpdateParams; result: ProviderConfiguration; execution: "ephemeral"; permission: "configuration-revision"; sensitive: true };
   "provider.validate": { params: ProviderValidateParams; result: ProviderValidateResult; execution: "ephemeral"; permission: "host-configuration"; sensitive: true };
   "query": { params: QueryParams; result: QueryResult; execution: "query"; permission: "operation-specific"; sensitive: false };
   "root.collection": { params: RootCollectionParams; result: RootCollectionPage; execution: "query"; permission: "root-association"; sensitive: false };

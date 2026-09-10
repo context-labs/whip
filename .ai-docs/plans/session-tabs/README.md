@@ -160,6 +160,11 @@ not authoritative. Existing daemon conflict handling still resolves competing an
 | Back/forward or deep link | Honor URL; ensure its root is represented once, including reopening a previously closed tab if navigation requests it |
 | Home/settings | Preserve the strip with no session selected; returning to a session restores its context |
 
+**Superseded launcher decision (2026-09-09):** The independent draft workspace
+implementation in [New Chat tabs](../new-chat-tabs/README.md) replaces only the
+launcher/creation-capacity choice below. Other tab-system decisions remain historical
+evidence for the current implementation.
+
 The launcher is not a collection of pre-session draft objects. Multiple independent
 unsent New session tabs and draft-to-session identity migration are deferred.
 The launcher is outside the 32-session limit. Creating a 33rd session tab prompts

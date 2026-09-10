@@ -221,6 +221,11 @@ async function selfTest() {
       assert(observed.session && observed.transcript && observed.noNotice && observed.painted);
       dom.window.document.body.insertAdjacentHTML('beforeend', '<div role="alert">Connection failed</div>');
       assert.equal((await dom.window.eval(capturedScript)).noNotice, false);
+      dom.window.document.body.innerHTML = '<aside aria-label="Session navigation"><button aria-label="Manage servers">Servers</button></aside><form><textarea data-whip-composer aria-label="Your first message"></textarea><button aria-label="Connect a provider" disabled>Connect</button></form>';
+      assert.equal((await dom.window.eval(capturedScript)).home, false, 'A first-message draft does not prove its host is connected');
+      dom.window.document.querySelector('button[disabled]').disabled = false;
+      observed = await dom.window.eval(capturedScript);
+      assert(observed.home && observed.host && observed.painted, 'Connected first-run provider setup must count as an interactive home');
     } finally { dom.window.close(); }
     console.log('Startup probe self-test passed');
   } finally {

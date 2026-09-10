@@ -23,14 +23,14 @@ import (
 //	whip auth openrouter [--env] [<key>]
 //
 // The key comes from (first hit): the positional arg, OPENROUTER_API_KEY in
-// the environment, or a masked prompt. It is validated against the live
-// OpenRouter API before anything is written — a bad key never reaches the
-// config file.
+// the environment, or a masked prompt. The host discovers compatible models
+// and rejects an observed authentication error before writing. OpenRouter's
+// public catalog cannot verify a key; inference is tested on the user's first send.
 //
 // Storage: by default the key is written as a literal apiKey in
 // ~/.whip/config.json (0600). --env instead records apiKeyEnv:
-// OPENROUTER_API_KEY. The
-// execution host must have the variable exported before its daemon starts.
+// OPENROUTER_API_KEY. --env resolves that named key on the host from its
+// inherited environment or declared providerKeySources without a terminal prompt.
 func authCLI(args []string) error {
 	if len(args) == 0 {
 		return errors.New(buildinfo.Text("usage: whip auth <provider> [<args>]\n  providers: openai-codex (login | status | logout), inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>]"))
@@ -58,18 +58,18 @@ func authOpenRouterCLI(args []string) error {
 	if key == "" {
 		key = config.TrimKey(os.Getenv(config.OpenRouterEnvVar))
 	}
-	if key == "" {
+	if key == "" && !*envMode {
 		var err error
 		key, err = promptKey("OpenRouter API key (sk-or-…): ")
 		if err != nil {
 			return err
 		}
 	}
-	if key == "" {
+	if key == "" && !*envMode {
 		return errors.New("no API key provided (get one at https://openrouter.ai/keys)")
 	}
 
-	fmt.Print("validating key against OpenRouter… ")
+	fmt.Print("configuring OpenRouter… ")
 	if err := authOpenRouter(key, *envMode); err != nil {
 		fmt.Println("failed")
 		return err
@@ -77,7 +77,8 @@ func authOpenRouterCLI(args []string) error {
 	fmt.Println("ok")
 
 	fmt.Println("openrouter provider configured.")
-	fmt.Println(buildinfo.Text("  run `whip`, then /model and pick from the full OpenRouter catalog — e.g. /model openai/gpt-5 openrouter"))
+	fmt.Println("  the API key and inference have not been verified by the public model catalog.")
+	fmt.Println(buildinfo.Text("  run `whip`, then /model to choose a supported chat model and send a prompt."))
 	return nil
 }
 

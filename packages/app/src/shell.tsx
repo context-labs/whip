@@ -9,6 +9,7 @@ import {
 } from '@whip/ui';
 import { workspacePanelId } from '@whip/ui/workspace-layout';
 import { selectedSessionTab } from './session-tabs';
+import { openNewChat } from './session-tab-routing';
 import {
   PanelLeft,
   X,
@@ -151,7 +152,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ...settingsCategories.map(category => ({ value: category.id, label: `${category.label} settings` })),
         ]}
         onSelect={(action) => {
-          if (action === 'new') void navigate({ to: '/', search: {} });
+          if (action === 'new') openNewChat(runtime, navigate);
           else if (action === 'focus') requestAnimationFrame(focusComposer);
           else if (action === 'navigation') openSearch();
           else if (action === 'connect') manageServers();

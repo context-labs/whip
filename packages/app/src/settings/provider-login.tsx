@@ -5,32 +5,39 @@ import { Badge, Button, Field, Input, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
+import { errorMessage } from '../platform';
 
 export function LoginFlow({
   flow,
   client,
   enabled,
   refresh,
+  autoOpen = false,
 }: {
   flow: ProviderLoginStatus;
   client: WhipClient;
   enabled: boolean;
   refresh(): void;
+  autoOpen?: boolean;
 }) {
   const runtime = useRuntime();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const opened = useRef('');
   const request = useRef<AbortController | null>(null);
-  useEffect(() => () => request.current?.abort(), []);
+  useEffect(() => () => request.current?.abort(), [client]);
   const action = async (run: (signal: AbortSignal) => Promise<unknown>) => {
     if (!enabled || busy) return;
     const controller = new AbortController();
-    request.current = controller; setBusy(true);
+    request.current = controller; setBusy(true); setError('');
     try {
       await run(controller.signal);
       if (!controller.signal.aborted) refresh();
     } catch (error) {
-      if (!controller.signal.aborted) runtime.report(error);
+      if (!controller.signal.aborted) setError(errorMessage(error));
     } finally {
       if (!controller.signal.aborted) setBusy(false);
     }
@@ -44,11 +51,20 @@ export function LoginFlow({
       query.queryKey.includes(host) && query.queryKey[0] !== 'provider-login-flows',
     });
   }, [flow.state, flow.flow_id, client, runtime.queries]);
+  useEffect(() => {
+    const url = flow.verification_url;
+    const identity = `${flow.flow_id}:${url}`;
+    if (!autoOpen || terminal || !url || opened.current === identity) return;
+    opened.current = identity;
+    // The explicit Sign in action owns this deferred opening. Browsers that
+    // block asynchronous popups retain the visible verification-page button.
+    void runtime.platform.openExternal(url).catch(() => {});
+  }, [autoOpen, flow.flow_id, flow.verification_url, terminal, runtime.platform]);
   return (
     <div {...stylex.props(layout.notice, layout.column)}>
       <div {...stylex.props(layout.row)}>
         <span>{flow.provider === 'openai-codex' ? 'OpenAI (ChatGPT subscription)' : 'Inference.net'}</span>
-        <Badge>{flow.state}</Badge>
+        <Badge>{loginStateLabel(flow.state)}</Badge>
         <span>{flow.email}</span>
       </div>
       {flow.verification_url && !terminal && (
@@ -56,14 +72,14 @@ export function LoginFlow({
           <Button
             variant="secondary"
             onClick={() =>
-              void runtime.platform.openExternal(flow.verification_url!).catch(error => runtime.report(error))
+              void runtime.platform.openExternal(flow.verification_url!).catch(error => setError(errorMessage(error)))
             }
           >
             Open verification page
           </Button>
-          <span>
-            Verification code: <strong>{flow.user_code}</strong>
-          </span>
+          {flow.user_code && <div {...stylex.props(layout.row)}><span>Verification code: <strong>{flow.user_code}</strong></span>
+            <Button variant="ghost" onClick={() => void runtime.platform.copy(flow.user_code!).then(() => setCopied(true)).catch(error => setError(errorMessage(error)))}>{copied ? 'Code copied' : 'Copy code'}</Button>
+          </div>}
         </>
       )}
       {!!flow.teams?.length && !flow.team_id && (
@@ -96,7 +112,7 @@ export function LoginFlow({
           }
         />
       )}
-      {flow.team_id && !flow.project_id && !terminal && (
+      {flow.team_id && !flow.project_id && !terminal && (!!flow.projects?.length && !creating ? <Button variant="ghost" onClick={() => setCreating(true)}>Create a new project</Button> : (
         <>
           <Field label="New project name">
             <Input
@@ -113,10 +129,11 @@ export function LoginFlow({
               )
             }
           >
-            Create project
+            Create and continue
           </Button>
         </>
-      )}
+      ))}
+      {error && <p role="alert">{error}</p>}
       {flow.error && <p role="alert">{flow.error}</p>}
       {!terminal && (
         <Button
@@ -135,3 +152,8 @@ export function LoginFlow({
 
 
 export const terminalLoginStates: string[] = ['succeeded', 'failed', 'cancelled', 'interrupted', 'expired'];
+
+export function loginStateLabel(state: string) {
+  const labels: Record<string, string> = { pending: 'Waiting for sign-in', authorizing: 'Waiting for sign-in', polling: 'Waiting for sign-in', choose_team: 'Choose a workspace', choose_project: 'Choose a project', creating_key: 'Connecting account', succeeded: 'Connected', failed: 'Sign-in failed', cancelled: 'Sign-in cancelled', interrupted: 'Sign-in interrupted', expired: 'Sign-in expired' };
+  return labels[state] ?? 'Connecting account';
+}

@@ -399,3 +399,152 @@ it('remaps previous closed tabs and refuses to silently evict history when mergi
   expect(merging.getSnapshot()).toBe(before);
   expect(new SessionTabs(disk).getSnapshot().previous).toHaveLength(1);
 });
+
+describe('New Chat descriptors', () => {
+  it('refuses known nonpersistent storage before writing durable descriptors', () => {
+    const disk = { ...storage(), persistent: false }, write = vi.spyOn(disk, 'setItem');
+    const state = new SessionTabs(disk), before = state.workspace();
+    expect(() => state.openNew()).toThrow('Window storage is unavailable');
+    expect(() => state.ensureNew('recovery')).toThrow('Window storage is unavailable');
+    expect(write).not.toHaveBeenCalled();
+    expect(state.workspace()).toBe(before);
+  });
+  it('refuses promotion if storage silently falls back to memory during the write', () => {
+    const disk = { ...storage(), persistent: true }, state = new SessionTabs(disk);
+    const draft = state.openNew(), before = state.workspace();
+    disk.setItem = () => { disk.persistent = false; };
+    expect(() => state.promoteNew(draft.id, 'host', 'accepted')).toThrow('Window storage is unavailable');
+    expect(state.workspace()).toBe(before);
+    expect(() => state.updateNew(draft.id, { cwd: '/changed' })).toThrow('Window storage is unavailable');
+    expect(state.workspace()).toBe(before);
+  });
+  it('accepts the existing partial session search descriptor contract', () => {
+    expect(sessionSearch({ kind: 'repl', location: { agent: 'child' } })).toEqual({ agent: 'child', view: 'repl' });
+    expect(sessionSearch({ kind: 'new' })).toEqual({});
+  });
+  it('materializes recovery identities once without selecting, reopening or replacing accepted work', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    const selected = state.openNew();
+    const id = 'legacy-welcome-' + encodeURIComponent('runtime/one');
+    const recovered = state.ensureNew(id, { cwd: '/legacy' });
+    expect(selectedSessionTab(state.workspace())?.id).toBe(selected.id);
+    expect(state.ensureNew(id, { cwd: '/ignored' })).toEqual(recovered);
+    expect(state.workspace().tabs).toHaveLength(2);
+    state.closeViews([id]);
+    expect(state.ensureNew(id)).toEqual(recovered);
+    expect(state.workspace().tabs).toHaveLength(1);
+    state.promoteNew(id, 'runtime/one', 'accepted');
+    expect(state.ensureNew(id)).toMatchObject({ kind: 'chat', rootId: 'accepted' });
+    expect(new SessionTabs(disk).workspace()).toEqual(state.workspace());
+  });
+  it('keeps recovery materialization atomic when capacity or storage refuses it', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    for (let i = 0; i < 32; i++) state.openNew();
+    const before = state.workspace();
+    expect(() => state.ensureNew('legacy-welcome-host')).toThrow('32');
+    expect(state.workspace()).toBe(before);
+    const other = new SessionTabs(disk);
+    other.closeViews([other.workspace().tabs[0]!.id]);
+    const beforeFailure = other.workspace();
+    disk.setItem = () => { throw new Error('quota'); };
+    expect(() => other.ensureNew('legacy-welcome-host')).toThrow('quota');
+    expect(other.workspace()).toBe(beforeFailure);
+  });
+  it('reopens only the requested retained view', () => {
+    const state = new SessionTabs();
+    const first = state.openNew(), second = state.openNew();
+    state.closeViews([first.id]); state.closeViews([second.id]);
+    const before = state.workspace();
+    expect(state.reopenView('missing')).toBeUndefined();
+    expect(state.workspace()).toBe(before);
+    expect(state.reopenView(first.id)).toBe(first.id);
+    expect(state.workspace().tabs.map(tab => tab.id)).toEqual([first.id]);
+    expect(state.workspace().closed.map(item => item.tab.id)).toEqual([second.id]);
+    expect(state.reopenView()).toBe(second.id);
+  });
+  it('refuses oversized durable metadata without evicting retained closed drafts', () => {
+    const state = new SessionTabs(storage());
+    const closed = state.openNew(); state.closeViews([closed.id]);
+    for (let i = 0; i < 13; i++) state.openNew({ cwd: 'x'.repeat(4096) });
+    const before = state.workspace();
+    expect(() => state.openNew({ cwd: '界'.repeat(4096) })).toThrow('layout is full');
+    expect(state.workspace()).toBe(before);
+    expect(state.workspace().closed[0]?.tab.id).toBe(closed.id);
+  });
+  it('opens fresh independent drafts after selection and restores mixed v3 layouts', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    state.visit('mac', 'root', {});
+    const first = state.openNew({ hostProfileId: 'local', cwd: '/one', permissionMode: 'automatic' });
+    state.open('mac', 'last');
+    const second = state.openNew();
+    expect(second.id).not.toBe(first.id);
+    expect(state.workspace().tabs.map(tab => tab.id)).toEqual(['root', first.id, second.id, 'last']);
+    expect(selectedSessionTab(state.workspace())?.id).toBe(second.id);
+    state.updateNew(first.id, { cwd: '/changed', runtimeId: 'mac' });
+    expect(state.workspace().tabs.find(tab => tab.id === second.id)).toEqual(second);
+    expect(new SessionTabs(disk).workspace()).toEqual(state.workspace());
+    expect(sessionSearch(first)).toEqual({});
+    expect('rootId' in first).toBe(false);
+  });
+  it('preserves selection at capacity and promotes in place without adding capacity', () => {
+    const state = new SessionTabs(storage());
+    const first = state.openNew();
+    for (let i = 1; i < 32; i++) state.openNew();
+    const before = state.workspace();
+    expect(state.canOpen()).toBe(false);
+    expect(() => state.openNew()).toThrow('32');
+    expect(state.workspace()).toBe(before);
+    expect(state.promoteNew(first.id, 'mac', 'root')).toBe(true);
+    expect(state.workspace().tabs).toHaveLength(32);
+    expect(state.workspace().tabs[0]).toMatchObject({ id: first.id, kind: 'chat', rootId: 'root' });
+    expect(selectedSessionTab(state.workspace())?.id).toBe(selectedSessionTab(before)?.id);
+    expect(state.promoteNew(first.id, 'mac', 'root')).toBe(true);
+    expect(state.promoteNew(first.id, 'mac', 'other')).toBe(false);
+  });
+  it('moves drafts into splits without duplicating their identity, including at capacity', () => {
+    const state = new SessionTabs();
+    const first = state.openNew();
+    for (let i = 1; i < 32; i++) state.openNew();
+    expect(state.split(first.id, 'right')).toBe(first.id);
+    expect(sessionPanes(state.workspace().layout)).toHaveLength(2);
+    expect(state.workspace().tabs.filter(tab => tab.id === first.id)).toHaveLength(1);
+    expect(state.workspace().tabs).toHaveLength(32);
+  });
+  it('promotes retained closed drafts without reopening or stealing focus', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    const first = state.openNew(), second = state.openNew();
+    state.closeViews([first.id]);
+    state.updateNew(first.id, { cwd: '/closed' });
+    expect(state.promoteNew(first.id, 'remote', 'accepted')).toBe(true);
+    expect(selectedSessionTab(state.workspace())?.id).toBe(second.id);
+    expect(state.workspace().tabs).toHaveLength(1);
+    const restored = new SessionTabs(disk);
+    expect(restored.reopenView()).toBe(first.id);
+    expect(restored.workspace().tabs.find(tab => tab.id === first.id)).toMatchObject({ kind: 'chat', rootId: 'accepted' });
+    expect(restored.promoteNew('missing', 'remote', 'accepted')).toBe(false);
+  });
+  it('roundtrips unfinished close/reopen and rejects malformed draft metadata', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    const draft = state.openNew({ cwd: '/work', permissionMode: 'automatic' });
+    state.closeViews([draft.id]);
+    const restored = new SessionTabs(disk);
+    expect(restored.reopenView()).toBe(draft.id);
+    expect(restored.workspace().tabs[0]).toEqual(draft);
+    expect(() => state.openNew({ cwd: 'x'.repeat(4097) })).toThrow('Invalid');
+    expect(() => state.updateNew(draft.id, { cwd: '\0' })).toThrow('Invalid');
+    const raw = JSON.parse(disk.getItem(TAB_STORAGE_KEY)!);
+    raw.workspace.layout.tabs[0].permissionMode = 'untrusted';
+    disk.setItem(TAB_STORAGE_KEY, JSON.stringify(raw));
+    expect(new SessionTabs(disk).workspace().tabs).toEqual([]);
+  });
+  it('refuses nondurable creation, updates and promotion without mutating the snapshot', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    const draft = state.openNew();
+    const before = state.workspace();
+    disk.setItem = () => { throw new Error('quota'); };
+    expect(() => state.openNew()).toThrow('quota');
+    expect(() => state.updateNew(draft.id, { cwd: '/changed' })).toThrow('quota');
+    expect(() => state.promoteNew(draft.id, 'mac', 'accepted')).toThrow('quota');
+    expect(state.workspace()).toBe(before);
+  });
+});

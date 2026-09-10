@@ -99,9 +99,9 @@ type clientReplacement struct {
 	disposed       sync.Once
 	installed      bool
 	meta           sessionstore.Meta
-	previousEffort string
 	components     Components
 	persistDefault bool
+	persistEffort  bool
 }
 
 type clientCompaction struct {
@@ -447,7 +447,7 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 		if model == "" {
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("model is required"), &result))
 		}
-		if operation == "session.model" && model == s.meta.Model && provider == s.meta.Provider {
+		if operation == "session.model" && model == s.meta.Model && provider == s.meta.Provider && action.Effort == "" {
 			var err error
 			if action.PersistDefault {
 				_, _, err = config.UpdateVersioned("", func(cfg *config.Config) error { cfg.DefaultModel, cfg.DefaultProvider = model, provider; return nil })
@@ -487,10 +487,11 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 			}
 			var replacement *clientReplacement
 			if err == nil {
-				replacement, err = s.prepareReplacement(s.supervisor.ctx, factory, rootID, model, provider)
+				replacement, err = s.prepareReplacement(s.supervisor.ctx, factory, rootID, model, provider, action.Effort)
 			}
 			if replacement != nil {
 				replacement.persistDefault = action.PersistDefault
+				replacement.persistEffort = action.Effort != ""
 			}
 			s.supervisor.post(workerEnvelope{kind: workerClientCommand, client: &clientCommandCompletion{clientID: admission.ClientID, commandID: admission.CommandID, operation: operation, ingress: admitted.Command.IngressSeq, replacement: replacement, output: configOutput, err: err, reply: completionReply}})
 		}) {
@@ -770,6 +771,9 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 		if completion.err == nil && replacement.persistDefault {
 			_, _, completion.err = config.UpdateVersioned("", func(cfg *config.Config) error {
 				cfg.DefaultModel, cfg.DefaultProvider = replacement.meta.Model, replacement.meta.Provider
+				if replacement.persistEffort {
+					cfg.DefaultEffort = replacement.meta.Effort
+				}
 				return nil
 			})
 		}
@@ -1370,24 +1374,29 @@ func computerStatus(policy *computer.Policy) (string, error) {
 	return marshalClientOutput(protocol.ComputerStatusResult{Enabled: true, DefaultDeny: state.DefaultDeny, Allowed: state.Allowed, Denied: state.Denied, SessionAllowed: state.SessionAllowed, SessionDenied: state.SessionDenied}, nil)
 }
 
-func (s *Session) prepareReplacement(ctx context.Context, factory Factory, rootID, model, provider string) (*clientReplacement, error) {
+func (s *Session) prepareReplacement(ctx context.Context, factory Factory, rootID, model, provider, effort string) (*clientReplacement, error) {
 	meta, history, err := s.store.Load(rootID)
 	if err != nil {
 		return nil, err
 	}
 	meta.Model, meta.Provider = model, provider
-	previousEffort := meta.Effort
 	meta.Effort = compatibleEffort(model, provider, meta.Effort)
+	if effort != "" {
+		if err := validateEffort(model, provider, effort); err != nil {
+			return nil, err
+		}
+		meta.Effort = effort
+	}
 	components, err := factory(ctx, meta, history)
 	if err != nil {
 		(&clientReplacement{components: components}).close()
 		return nil, err
 	}
-	return &clientReplacement{meta: meta, previousEffort: previousEffort, components: components}, nil
+	return &clientReplacement{meta: meta, components: components}, nil
 }
 
 func (s *Session) installReplacement(ctx context.Context, replacement *clientReplacement) (string, error) {
-	meta, previousEffort, components := replacement.meta, replacement.previousEffort, replacement.components
+	meta, components := replacement.meta, replacement.components
 	model, provider := meta.Model, meta.Provider
 
 	cleanup := replacement.close
@@ -1413,15 +1422,9 @@ func (s *Session) installReplacement(ctx context.Context, replacement *clientRep
 		}
 	}
 	configureMCP(s, components)
-	if err := s.store.SetModelProvider(s.meta.ID, model, provider); err != nil {
+	if err := s.store.SetModelSelection(s.meta.ID, model, provider, meta.Effort); err != nil {
 		cleanup()
 		return "", err
-	}
-	if meta.Effort != previousEffort {
-		if err := s.store.SetEffort(s.meta.ID, meta.Effort); err != nil {
-			cleanup()
-			return "", err
-		}
 	}
 	oldRunner, oldRuntime := s.runner, s.runtime
 	oldMCP := s.swapMCP(components.MCP)
@@ -1702,6 +1705,10 @@ func marshalClientOutput(value any, err error) (string, error) {
 }
 
 func clientProviderCatalogs(ctx context.Context, providers *ProviderService, refresh bool) (string, error) {
+	return clientProviderCatalogsFor(ctx, providers, refresh, "")
+}
+
+func clientProviderCatalogsFor(ctx context.Context, providers *ProviderService, refresh bool, selected string) (string, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return "", err
@@ -1709,11 +1716,14 @@ func clientProviderCatalogs(ctx context.Context, providers *ProviderService, ref
 	catalogs := providers.CatalogsFor(cfg)
 	failures := map[string]string{}
 	for name, provider := range cfg.EffectiveProviders() {
+		if selected != "" && name != selected {
+			continue
+		}
 		status, err := providers.providerStatus(cfg, name)
 		if err != nil || (status.AuthState != "unchecked" && (status.Available == nil || !*status.Available)) {
 			continue
 		}
-		if cached, ok := catalogs[name]; !refresh && ok && !cached.Stale() {
+		if cached, ok := catalogs[name]; !refresh && ok && !cached.NeedsDiscovery() {
 			continue
 		}
 		fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -1809,7 +1819,7 @@ func (s *Session) startPendingReload() {
 		if factory == nil {
 			err = errors.New("session runner cannot be rebuilt")
 		} else {
-			replacement, err = s.prepareReplacement(s.supervisor.ctx, factory, rootID, model, provider)
+			replacement, err = s.prepareReplacement(s.supervisor.ctx, factory, rootID, model, provider, "")
 		}
 		s.supervisor.post(workerEnvelope{kind: workerClientCommand, client: &clientCommandCompletion{automatic: true, replacement: replacement, err: err}})
 	}) {
