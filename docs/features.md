@@ -8,6 +8,16 @@ contract easier to locate.
 
 - One `AgentSession` implementation is used for roots and descendants
   (`internal/daemon/recursive_runtime.go`).
+- The coding agent is a definition, not daemon wiring: `agentdef.Coding()`
+  names its persona and rules, project-file, skill, and standing-instruction
+  discovery, every host module, every capability, and its surface flags. The
+  factory selects it by session kind, the prompt composer derives the module
+  catalog from it, and bind takes root capabilities from it. A child's
+  effective definition is its parent's narrowed by the spawn arguments
+  (`internal/agentdef`, `TestCodingPromptGolden`, `TestChildDefinitionNarrowsParentDefinition`).
+- `run.configure` state (system override, turn cap, cache key) belongs to the
+  session and is re-applied when a model change or reload replaces the runtime
+  (`TestRunConfigurationSurvivesModelReplacement`).
 - Every provider request exposes exactly `rlm_exec`; MCP discovery cannot
   widen the model-facing catalog (`internal/agent/rlm_test.go`).
 - `agents.spawn` creates a retained asynchronous child with the same interface

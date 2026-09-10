@@ -142,7 +142,8 @@ budgets, and private transcript.
 | `internal/protocol`, `packages/protocol` | typed operation/event contract, generated Draft-07 schemas, TypeScript and Ajv |
 | `internal/daemon` | shared handlers, Unix/WebSocket/HTTP adapters, root actors, recursive runtime, lifecycle |
 | `internal/session` | durable commands, transcripts, agents, messages, budgets, recovery |
-| `internal/rlm` | kernel process, Starlark modules, focused-context prompt |
+| `internal/agentdef` | agent definitions: instructions and discovery toggles, selected modules and capabilities, model and compaction defaults, named children; `Coding()` is the first-party coding agent |
+| `internal/rlm` | kernel process, Starlark modules, runtime guide fragments, focused-context composer |
 | `internal/capability` | identities, grants, path policy, operation admission |
 | `internal/tools` | concrete built-in services reached through host modules |
 | `internal/mcp` | external MCP connections and named tool calls |

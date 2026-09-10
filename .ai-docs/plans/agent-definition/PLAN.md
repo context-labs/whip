@@ -1,7 +1,8 @@
 # Canonical agent definition: the coding agent as the first definition
 
-Status: approved September 10, 2026; ready for implementation. No code has
-been written yet.
+Status: implemented September 10, 2026 on `feature/agent-definition`, one
+commit per step. See the implementation record at the end for the deviations
+from the plan as written.
 
 Written against the working tree on `codex/provider-onboarding` at `f1093a0d7`
 plus uncommitted changes. Line numbers below are from that tree. This plan
@@ -331,3 +332,50 @@ runtime guide, so a headless run with a custom system prompt receives no module
 documentation. Once the definition exists, the override could replace only
 `Instructions` and keep the runtime guide. Deferred by decision 7; revisit after
 this plan lands.
+
+## Implementation record (September 10, 2026)
+
+Commits on `feature/agent-definition`, in step order: golden capture, the
+`agentdef` package, the runtime guide split, daemon threading, factory
+selection, documentation. `go test ./...`, `go vet ./...`, and the repository
+analyzer were green at every step.
+
+Deviations from the plan as written:
+
+- **Golden location.** The golden helper writes to
+  `internal/rlm/testdata/TestCodingPromptGolden/<engine>/<case>.golden`, not
+  the `coding-prompt` directory the plan named. The test lives in package
+  `rlm_test` so it can import `agentdef` without an import cycle.
+- **Guide digest.** `GuideSHA256` now hashes the runtime guide without the
+  persona, so both engine digests changed once. That golden was regenerated
+  deliberately in step 2; every prompt golden stayed byte-identical. No client
+  compares the digest.
+- **Engine-specific fragments replace line rewriting.** The QuickJS variant no
+  longer rewrites six Starlark lines by prefix; each of those lines carries its
+  JavaScript wording in the fragment table. The generic host-call example
+  rewriter is unchanged.
+- **Step 2 bridged the daemon.** Splitting the composer made the daemon compose
+  without discovery until step 3, so step 2 routed the daemon's prompt options
+  through `agentdef.Coding()` and step 3 replaced that with the node's own
+  definition.
+- **Zero definition means coding in one more place.** Bare `AgentSession`
+  literals in about ten daemon test fixtures compose prompts, so
+  `promptOptions` treats an empty definition id as the coding agent, matching
+  `RecursiveRuntimeOptions` and `Components`.
+- **Kind to definition mapping.** `daemon.DefinitionFor` owns the session
+  kind to definition mapping; both the factory and session creation call it.
+  `sessionDefaults` takes the definition explicitly so the precedence is unit
+  tested.
+- **Capability decoding.** `requestedCapabilities` in the daemon now only
+  decodes and sorts the spawn argument; `Definition.Child` performs the
+  narrowing with the same error text as before.
+- **Modules never narrow at spawn.** `Child` supports module narrowing, but no
+  spawn argument exposes it, as planned.
+- **The whole operating-rules block belongs to the coding definition.** The
+  plan's table placed "Bias toward acting" and the child-collaboration rule
+  with the runtime. Those lines sit between definition-owned lines in the
+  existing text, and splitting them would have reordered the prompt, so all
+  four operating rules are `Instructions.Rules` for coding. Only the
+  instruction-scope block stayed with the composer, emitted when project files
+  are discovered. Promote shared lines into runtime fragments when a second
+  definition needs them.

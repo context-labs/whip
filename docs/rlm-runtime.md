@@ -154,12 +154,21 @@ content handles. No constructor snapshot represents the full conversation.
 ## Environment prompts
 
 `AgentSession.RunTurn` composes one environment prompt at the shared root/child
-turn boundary. Focusing never replaces it. Normal prompts include runtime help,
-identity/report mode, operating rules, cwd/platform/time/user, scoped project
+turn boundary from the node's agent definition (`internal/agentdef`). Focusing
+never replaces it. The definition supplies the persona, its own operating
+rules, and the discovery it wants; the runtime supplies the `rlm_exec` guide,
+assembled from per-module fragments for the modules the definition selects
+(`rlm.RuntimeGuide`). In order, a normal prompt holds the persona and runtime
+guide, identity/report mode, the definition's rules plus the instruction-scope
+block when project files are discovered, cwd/platform/time/user, scoped project
 instructions, the applicable skill catalog, and standing `me.md` instructions.
-`/me`, cwd changes, reload/model replacement, and restored children use the
-updated sources on their next turn. A running turn keeps its applied prompt.
-The root `-system` override remains exact and does not propagate to children.
+The coding definition selects every module and every discovery source. A child
+composes from its own definition, which is its parent's narrowed by the spawn
+arguments. `/me`, cwd changes, reload/model replacement, and restored children
+use the updated sources on their next turn. A running turn keeps its applied
+prompt. The root `-system` override remains exact, does not propagate to
+children, and survives a model change or reload because the session re-applies
+its run configuration to the replacement runtime.
 
 Project instructions load only along the applicable workspace-root-to-cwd
 ancestor chain, broad to specific. At each directory CLAUDE.md precedes AGENTS.md;
