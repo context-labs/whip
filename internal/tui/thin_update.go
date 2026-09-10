@@ -22,9 +22,12 @@ import (
 func (m *model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	defer m.layout()
 	next, command := m.update(message)
-	// The busy spinner animates through a tick loop: arm it whenever a turn is
-	// running and no tick is in flight (the loop lapses when the turn ends).
-	if mm, ok := next.(*model); ok && mm.busy && !mm.spinning {
+	// The busy spinner animates through a tick loop: arm it whenever a turn or
+	// a child agent is running and no tick is in flight (the loop lapses when
+	// neither runs; agent rows ride the same tick for their elapsed times).
+	// This is the only arming site: a handler that armed and then dropped its
+	// own command left the flag set and the bar frozen for the session.
+	if mm, ok := next.(*model); ok && (mm.busy || mm.anyAgentRunning()) && !mm.spinning {
 		mm.spinning = true
 		command = tea.Batch(command, mm.spin.Tick)
 	}
@@ -76,10 +79,6 @@ func (m *model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyOlderHistory(msg)
 	case clientUpdateMsg:
 		var commands []tea.Cmd
-		if m.anyAgentRunning() && !m.spinning { // sub-agent activity keeps the rows' elapsed times moving
-			m.spinning = true
-			commands = append(commands, m.spin.Tick)
-		}
 		if msg.StateChanged {
 			m.clientState, m.clientErr = msg.State, msg.Err
 			if msg.State == ClientLive {
