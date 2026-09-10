@@ -544,7 +544,7 @@ and Zed; Finder is local-only and browsers can copy the exact directory.
   same rows sit under the input.
 - `ctrl+x r` (or `/repl`, config key `repl`) opens the REPL panel on the
   right: the open agent's live Starlark cells, code as the model writes it,
-  print output as it happens, each host call with its duration, results,
+  print output as it happens, each host call from start to outcome, results,
   errors, and worker restarts. Below 150 columns the panel takes the left
   column's place; from 150 the two share the screen. The panel takes half of
   the width right of the left column (half the terminal when the column is

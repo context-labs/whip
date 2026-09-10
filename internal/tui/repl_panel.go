@@ -24,15 +24,16 @@ import (
 // The REPL panel is a mode of the opencode right sidebar (ctrl+x r or /repl)
 // that shows the visible agent's Starlark cells as they happen, notebook
 // style: the code as the model writes it (stream.tool.call snapshots), live
-// print output (stream.tool.output), each host call with its duration
-// (stream.cell.host), the result, and worker restarts. Cells for every agent
-// are kept so the panel follows the agent tree, and a strip lists other
-// running agents.
+// print output (stream.tool.output), each host call as it starts and its
+// outcome (stream.cell.host.started, stream.cell.host), the result, and
+// worker restarts. Cells for every agent are kept so the panel follows the
+// agent tree, and a strip lists other running agents.
 
 const replOutputTail = 6 // output lines shown per cell
 
 type replHost struct {
-	name, summary, duration, err string
+	id, name, summary, duration, err string // id is the daemon's invocation ID, unique per agent
+	status                           string // running, completed, failed, cancelled, or unknown
 }
 
 type replCell struct {
@@ -101,34 +102,45 @@ func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
 		return
 	}
 	agent := m.replAgentFor(agentID)
+	// Newest first: providers reuse tool-call IDs across turns.
 	find := func() *replCell {
-		for index := range agent.cells {
+		for index := len(agent.cells) - 1; index >= 0; index-- {
 			if agent.cells[index].id == event.ID && agent.cells[index].restart == "" {
 				return &agent.cells[index]
 			}
 		}
 		return nil
 	}
+	add := func() *replCell {
+		agent.cells = append(agent.cells, replCell{id: event.ID})
+		return &agent.cells[len(agent.cells)-1]
+	}
 	ensure := func() *replCell {
 		if cell := find(); cell != nil {
 			return cell
 		}
-		agent.cells = append(agent.cells, replCell{id: event.ID})
-		return &agent.cells[len(agent.cells)-1]
+		return add()
+	}
+	// A call or start after the cell finished is a reused ID: a new cell.
+	open := func() *replCell {
+		if cell := find(); cell != nil && !cell.finished {
+			return cell
+		}
+		return add()
 	}
 	switch kind {
 	case "stream.tool.call":
 		if event.Name != "rlm_exec" {
 			return
 		}
-		ensure().code = codeFromPartialArgs(event.Args)
+		open().code = codeFromPartialArgs(event.Args)
 	case "stream.tool.started":
 		if event.Name != "rlm_exec" {
 			agent.tool, agent.toolAt = event.Name, m.replNow() // activity for the agent rows
 			return
 		}
 		agent.tool = ""
-		cell := ensure()
+		cell := open()
 		if code := codeFromPartialArgs(event.Args); code != "" {
 			cell.code = code
 		}
@@ -143,10 +155,34 @@ func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
 		if cell := find(); cell != nil {
 			cell.output = event.Text
 		}
-	case "stream.cell.host":
-		if cell := find(); cell != nil {
-			cell.hosts = append(cell.hosts, replHost{name: event.Name, summary: event.Args, duration: event.Text, err: event.Result})
+	case "stream.cell.host.started":
+		cell := find()
+		if cell == nil || cell.hostIndex(event.InvocationID) >= 0 {
+			return // unknown cell, or a duplicate/late start
 		}
+		cell.hosts = append(cell.hosts, replHost{id: event.InvocationID, name: event.Name, summary: event.Args, status: "running"})
+	case "stream.cell.host":
+		cell := find()
+		if cell == nil {
+			return
+		}
+		status := event.HostStatus
+		if status == "" { // daemons before host_status: only the error tells
+			status = "completed"
+			if event.Result != "" {
+				status = "failed"
+			}
+		}
+		host := replHost{id: event.InvocationID, name: event.Name, summary: event.Args, duration: event.Text, err: event.Result, status: status}
+		index := cell.hostIndex(event.InvocationID)
+		if index < 0 {
+			cell.hosts = append(cell.hosts, host) // completion-only history
+			return
+		}
+		if host.summary == "" {
+			host.summary = cell.hosts[index].summary // truncated completions drop their args
+		}
+		cell.hosts[index] = host
 	case "stream.tool.completed":
 		agent.tool = ""
 		if event.Name != "rlm_exec" {
@@ -154,6 +190,11 @@ func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
 		}
 		cell := ensure()
 		cell.finished = true
+		for index := range cell.hosts {
+			if cell.hosts[index].status == "running" {
+				cell.hosts[index].status = "unknown" // hosts finish before their cell; the daemon lost this one
+			}
+		}
 		if cell.n == 0 {
 			agent.count++
 			cell.n = agent.count
@@ -179,6 +220,20 @@ func (m *model) replApply(agentID, kind string, event daemon.StreamEvent) {
 			cell.value = string(encoded)
 		}
 	}
+}
+
+// hostIndex finds the newest host row with this invocation ID; completion-only
+// history has no ID and never matches.
+func (cell *replCell) hostIndex(id string) int {
+	if id == "" {
+		return -1
+	}
+	for index := len(cell.hosts) - 1; index >= 0; index-- {
+		if cell.hosts[index].id == id {
+			return index
+		}
+	}
+	return -1
 }
 
 // replRestart inserts a worker-restart marker into an agent's history.
@@ -449,14 +504,28 @@ func (m *model) replCellRows(cell replCell, st replStyles, inner int) []string {
 		if host.summary != "" {
 			line += "(" + replFlat(host.summary) + ")"
 		}
-		if host.duration != "" {
-			line += " " + host.duration
+		style, status := st.dim, ""
+		switch host.status {
+		case "running":
+			style, status = st.accent, " …"
+		case "failed":
+			style, status = st.fail, " ✗ failed"
+			if host.err != "" {
+				status = " ✗ " + replFlat(host.err)
+			}
+		case "cancelled":
+			style, status = st.warn, " cancelled"
+		case "unknown":
+			status = " unknown"
+		default:
+			if host.duration != "" {
+				status = " " + host.duration
+			}
 		}
-		if host.err != "" {
-			rows = append(rows, row(st.fail.Render(cut(line+" ✗ "+replFlat(host.err), content))))
-		} else {
-			rows = append(rows, row(st.dim.Render(cut(line, content))))
-		}
+		// Clip the summary first so the status survives narrow panels; the
+		// name keeps at least a third of the row against a long error.
+		line = cut(line, max(content-ansi.StringWidth(status), content/3))
+		rows = append(rows, row(style.Render(cut(line+status, content))))
 	}
 	if out := strings.TrimRight(cell.output, "\n"); out != "" {
 		lines := strings.Split(out, "\n")

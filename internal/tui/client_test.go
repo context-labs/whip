@@ -980,3 +980,41 @@ func (c *fakeDaemonConnection) Subscribe(_ context.Context, root string, cursor 
 	c.subscriptions = append(c.subscriptions, daemon.SubscribeParams{RootID: root, Cursor: cursor})
 	return daemon.SubscribeResult{SubscriptionID: "subscription"}, nil
 }
+
+func TestClientStreamHostEventsStayOutOfTheTranscript(t *testing.T) {
+	m := replTestModel(t, 140)
+	started, _ := json.Marshal(daemon.StreamEvent{ID: "c1", InvocationID: "1:1", Name: "files.read", Args: "path=README.md"})
+	truncated, _ := json.Marshal(protocol.ContentEventPayload{
+		StreamEvent: protocol.StreamEvent{ID: "c1", InvocationID: "1:1", Name: "files.read", HostStatus: "failed"},
+		Content:     protocol.ContentHandle{ReferenceID: "ref-1"}, Truncated: true,
+	})
+	for kind, payload := range map[string][]byte{"stream.cell.host.started": started, "stream.cell.host": truncated} {
+		if handled, _ := m.applyClientStream(kind, payload); !handled || len(m.blocks) != 0 {
+			t.Fatalf("%s: handled=%v transcript blocks=%d", kind, handled, len(m.blocks))
+		}
+	}
+	// The REPL path decodes the truncated envelope's retained fields: the row
+	// settles as failed and keeps the summary the completion dropped.
+	opened, _ := json.Marshal(daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Args: `{"code":"files.read()"}`})
+	for seq, event := range [][2]any{{"stream.tool.started", opened}, {"stream.cell.host.started", started}, {"stream.cell.host", truncated}} {
+		m.recordClientStream(daemon.ProtocolEvent{Kind: event[0].(string), Payload: event[1].([]byte), Seq: int64(seq + 1)})
+	}
+	if got := ansi.Strip(m.replPanelView(30)); !strings.Contains(got, "→ files.read(path=README.md) ✗ failed") {
+		t.Fatalf("truncated host completion did not settle the row:\n%s", got)
+	}
+}
+
+func TestClientStreamHandlesEveryRegisteredKind(t *testing.T) {
+	m := replTestModel(t, 140)
+	payload, _ := json.Marshal(daemon.StreamEvent{ID: "x"})
+	for kind := range protocol.EventPayloads() {
+		if strings.HasPrefix(kind, "stream.") {
+			m.applyClientStream(kind, payload)
+		}
+	}
+	for _, b := range m.blocks {
+		if strings.Contains(b.text, "unsupported stream event") {
+			t.Fatalf("a registered kind reached the unsupported fallthrough: %s", b.text)
+		}
+	}
+}

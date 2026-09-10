@@ -1,6 +1,8 @@
 # TUI host-call lifecycle support
 
-Status: planned, September 9, 2026. Implementation has not started.
+Status: superseded September 9, 2026 by [PLAN.md](PLAN.md). Kept as history.
+
+Source review: [September 9, 2026 findings and open question](REVIEW.md).
 
 ## Outcome
 

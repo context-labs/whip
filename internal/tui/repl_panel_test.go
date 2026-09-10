@@ -268,8 +268,9 @@ func TestReplHistorySurvivesSnapshotsAndKeepsScroll(t *testing.T) {
 		t.Fatalf("snapshot after turn end lost history or moved the panel (scroll=%d)\nbefore:\n%s\nafter:\n%s", m.replScroll, before, after)
 	}
 	// Replaying the same events again (another snapshot) adds nothing.
+	liveStarted, liveCompleted := seq-1, seq // stored seqs never change; a higher seq on a finished ID is a reused ID
 	m.clientView.presentation = cellEvents(31)
-	m.clientView.presentation[0].Seq, m.clientView.presentation[1].Seq = seq-1, seq
+	m.clientView.presentation[0].Seq, m.clientView.presentation[1].Seq = liveStarted, liveCompleted
 	m.replRebuild()
 	if got := len(m.repl["root-agent"].cells); got != 31 {
 		t.Fatalf("replayed snapshot duplicated cells: %d", got)
@@ -409,4 +410,77 @@ func TestAgentDetailsFitTheChatColumn(t *testing.T) {
 			t.Fatalf("details row %d cols wide: %q", w, ansi.Strip(line))
 		}
 	}
+}
+
+func TestReplHostLifecycle(t *testing.T) {
+	m := replTestModel(t, 140)
+	cell := func(id, code string) {
+		m.replApply("root-agent", "stream.tool.call", daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code": "` + code + `"}`})
+		m.replApply("root-agent", "stream.tool.started", daemon.StreamEvent{ID: id, Name: "rlm_exec", Args: `{"code": "` + code + `"}`})
+	}
+	host := func(kind, invocation, name, status, duration, result string) {
+		m.replApply("root-agent", kind, daemon.StreamEvent{ID: "c1", InvocationID: invocation, Name: name, Args: "path=README.md", HostStatus: status, Text: duration, Result: result})
+	}
+	view := func() string { return ansi.Strip(m.replPanelView(30)) }
+	expect := func(what string, want ...string) {
+		t.Helper()
+		got := view()
+		for _, w := range want {
+			if !strings.Contains(got, w) {
+				t.Fatalf("%s: panel missing %q:\n%s", what, w, got)
+			}
+		}
+	}
+
+	cell("c1", "print(1)")
+	host("stream.cell.host.started", "1:1", "files.read", "", "", "")
+	expect("running", "In [1]", "→ files.read(path=README.md) …")
+	host("stream.cell.host.started", "1:1", "files.read", "", "", "") // duplicate delivery
+	host("stream.cell.host", "1:1", "files.read", "completed", "8ms", "")
+	host("stream.cell.host.started", "1:1", "files.read", "", "", "") // late start after completion
+	if got := view(); strings.Count(got, "→ files.read") != 1 || !strings.Contains(got, "→ files.read(path=README.md) 8ms") || strings.Contains(got, ") …") {
+		t.Fatalf("completion did not settle the started row in place:\n%s", got)
+	}
+
+	host("stream.cell.host.started", "1:2", "shell.run", "", "", "")
+	host("stream.cell.host", "1:2", "shell.run", "failed", "1s", "boom")
+	host("stream.cell.host.started", "1:3", "shell.run", "", "", "")
+	host("stream.cell.host", "1:3", "shell.run", "cancelled", "2s", "context canceled")
+	host("stream.cell.host.started", "1:4", "files.write", "", "", "")
+	host("stream.cell.host", "1:4", "files.write", "failed", "3s", "") // the daemon truncated the error away
+	host("stream.cell.host", "", "context.read", "", "4ms", "")        // completion-only history from an older daemon
+	host("stream.cell.host.started", "1:5", "agents.wait", "", "", "")
+	m.replApply("root-agent", "stream.tool.completed", daemon.StreamEvent{ID: "c1", Name: "rlm_exec", Result: `{"value":null,"output":"","steps":5}`})
+	expect("outcomes",
+		"→ shell.run(path=README.md) ✗ boom",
+		"→ shell.run(path=README.md) cancelled",
+		"→ files.write(path=README.md) ✗ failed",
+		"→ context.read(path=README.md) 4ms",
+		"→ agents.wait(path=README.md) unknown",
+		"5 steps")
+	if got := view(); strings.Contains(got, "✗ context canceled") {
+		t.Fatalf("a cancelled host rendered as a failure:\n%s", got)
+	}
+
+	// A provider reusing the tool-call ID next turn opens a new cell.
+	cell("c1", "print(2)")
+	host("stream.cell.host.started", "2:1", "files.list", "", "", "")
+	got := view()
+	first, second, listing := strings.Index(got, "In [1]"), strings.Index(got, "In [2]"), strings.Index(got, "→ files.list")
+	if first < 0 || second < first || listing < second || !strings.Contains(got, "print(1)") || !strings.Contains(got, "print(2)") {
+		t.Fatalf("reused tool-call ID did not open a new cell that owns the new host row:\n%s", got)
+	}
+
+	// A long summary is clipped before the status, never instead of it.
+	m.replApply("root-agent", "stream.cell.host", daemon.StreamEvent{ID: "c1", InvocationID: "2:1", Name: "files.list", Args: strings.Repeat("path=very/long/", 20), HostStatus: "completed", Text: "12ms"})
+	for line := range strings.SplitSeq(view(), "\n") {
+		if !strings.Contains(line, "→ files.list") {
+			continue
+		}
+		if !strings.Contains(line, "…") || !strings.Contains(line, "12ms") {
+			t.Fatalf("narrow host row lost its status: %q", line)
+		}
+		return
+	}
+	t.Fatal("the new cell's host row was not rendered")
 }

@@ -520,7 +520,8 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 		Truncated bool                  `json:"truncated"`
 		Content   *daemon.ContentHandle `json:"content"`
 	}
-	if json.Unmarshal(payload, &omitted) == nil && omitted.Truncated {
+	// Host outcomes live in the REPL panel, which reads the retained small fields.
+	if json.Unmarshal(payload, &omitted) == nil && omitted.Truncated && !strings.HasPrefix(kind, "stream.cell.host") {
 		detail := "[Live output omitted because it exceeds the display limit; use /export for the stored transcript]"
 		if omitted.Content != nil {
 			detail = "[Live output omitted; content reference " + omitted.Content.ReferenceID + "; use /export for the stored transcript]"
@@ -573,8 +574,8 @@ func (m *model) applyClientStream(kind string, payload []byte) (bool, bubbletea.
 	}
 	var message bubbletea.Msg
 	switch kind {
-	case "stream.cell.host":
-		return true, nil // the REPL panel consumes it; the transcript shows the cell
+	case "stream.cell.host.started", "stream.cell.host":
+		return true, nil // the REPL panel consumes them; the transcript shows the cell
 	case "stream.text":
 		message = textMsg(event.Text)
 	case "stream.reasoning":
