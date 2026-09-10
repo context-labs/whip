@@ -21,6 +21,33 @@ contract easier to locate.
   its parent's narrowed by the spawn arguments. Definitions without the goal
   loop reject goal commands (`TestDefinitionPromptGolden`,
   `TestJuniorDeveloperSessionIsConstrained`, `TestChildDefinitionNarrowsParentDefinition`).
+- Definitions are also authored outside the binary. `definitions.register`
+  stores a JSON document under its content revision (SHA-256 of the canonical
+  encoding); `definitions.get` and `definitions.list` read built-ins and
+  registrations together; `session.create.definition` resolves a registered id
+  to its latest revision and pins it, so a daemon that no longer knows the
+  revision refuses the session rather than running a different agent. The
+  TypeScript SDK authors them with `defineAgent` and `tool`
+  (`@whip/sdk/agents`), and the JuniorDeveloper fixture is written both ways:
+  `internal/agentdef/testdata/junior-developer.json` must equal the Go built-in
+  and the SDK output (`TestTypeScriptJuniorDeveloperMatchesBuiltIn`,
+  `examples/agents`).
+- A definition's `tools` are custom operations served outside the daemon. The
+  kernel installs them as the reserved `tools` module (`tools.<name>`, keyword
+  arguments), the runtime guide catalogs them from their JSON Schema, and the
+  agent holds a `tools` grant beside files, shell, and MCP. A call is admitted
+  through the capability ledger, validated against the schema, and handed to
+  the executor bound for the definition revision (`client.agents.serve`); the
+  default timeout is 5 minutes and the ceiling 15. No executor fails the call
+  after a bounded wait, a deadline or cancelled turn settles it with
+  `tool.cancel`, and a disconnected executor's calls fail and are never
+  replayed (`TestCustomToolInvocationRoundTrip`, `TestCustomToolFailureSemantics`).
+- `agents.spawn(definition="name")` selects a named child of the parent's
+  definition; its instructions, modules, capabilities, tools, budgets, and
+  report mode apply as defaults and explicit arguments still only narrow.
+  `tools=[...]` narrows custom tools like `capabilities` narrows authority; the
+  narrowing is a grant and survives restart (`TestNamedChildDefinitionsApplyAndRestore`,
+  `TestCustomToolChildNarrowingIsEnforced`).
 - JuniorDeveloper is a deliberately limited agent for exercising those seams:
   seven modules (`context`, `files`, `shell`, `state`, `artifacts`,
   `permissions`, `user`), the `read`, `write`, and `shell` capabilities, no
@@ -446,6 +473,12 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   send typed decisions from trusted clients without a signer; the example always
   exposes Allow once and Deny. Provider configuration and terminal input are
   ephemeral and never enter SDK recovery storage.
+- `/agents` authors agent definitions: `defineAgent` builds the canonical
+  document, `tool` declares a custom tool with its JSON Schema and handler, and
+  `client.agents.register/get/list/serve` register definitions and run an
+  executor that serves tool invocations for one definition revision, re-binding
+  after reconnect. Handlers receive the invocation id, root, agent, turn,
+  deadline, an `AbortSignal`, and a progress reporter (`examples/agents`).
 - Implementation: `packages/sdk`, `examples/client`. Coverage: SDK TypeScript
   unit tests, `daemon.acceptance.mjs`, isolated `TestV2SDKBridge`, actual SDK
   strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed

@@ -158,7 +158,8 @@ turn boundary from the node's agent definition (`internal/agentdef`). Focusing
 never replaces it. The definition supplies the persona, its own operating
 rules, and the discovery it wants; the runtime supplies the `rlm_exec` guide,
 assembled from per-module fragments for the modules the definition selects
-(`rlm.RuntimeGuide`). In order, a normal prompt holds the persona and runtime
+(`rlm.RuntimeGuide`), plus one bounded catalog line per custom tool the
+definition declares. In order, a normal prompt holds the persona and runtime
 guide, identity/report mode, the definition's rules plus the instruction-scope
 block when project files are discovered, cwd/platform/time/user, scoped project
 instructions, the applicable skill catalog, and standing `me.md` instructions.
@@ -168,7 +169,8 @@ enforced, not advisory: a kernel installs only its definition's modules, the
 host refuses a call to any other module, and a root's grants at first bootstrap
 cover only the operations its capabilities map to (`agentdef.Operations`). A
 reopened root keeps the grants it was issued. A child composes from its own
-definition, which is its parent's narrowed by the spawn arguments. `/me`, cwd changes, reload/model replacement, and restored children
+definition, which is its parent's narrowed by the spawn arguments, or a named
+child of it when `agents.spawn(definition="name")` selects one. `/me`, cwd changes, reload/model replacement, and restored children
 use the updated sources on their next turn. A running turn keeps its applied
 prompt. The root `-system` override remains exact, does not propagate to
 children, and survives a model change or reload because the session re-applies
@@ -373,6 +375,30 @@ advertised MCP definitions. Explicit `capabilities=["read"]` excludes MCP;
 bounded delegation. Issuer references and selectors live in the existing
 capability scopes and survive restart. Newly discovered tools never expand a
 retained child's grant. See [MCP tools and consent](tools.md#mcp) for examples.
+
+## Custom tools
+
+A definition's `tools` run outside the daemon, in the process that called
+`client.agents.serve` for that definition revision. The kernel installs them as
+the reserved `tools` module: `tools.<name>(...)` with keyword arguments, both
+engines, and only the names the definition declares (a narrowed child has no
+binding for the rest). The host refuses any other name, and the agent's `tools`
+grant (`tools:<agent>`, operations `tools.<name>`) is checked by the ledger like
+files, shell, and MCP; children receive narrowed delegations through
+`tools=[...]` or a named child's `tools`, and restart reconstructs them.
+
+A call is admitted as an operation, validated against the tool's JSON Schema,
+and sent to the executor as a `tool.invoke` notification whose invocation id is
+the ledger operation id. The executor answers with `tool.result` (a JSON value
+or an error) and may stream `tool.progress`, which the session emits as
+`stream.tool.progress`. Small results come back to the cell as values; large
+ones as content handles. The default timeout is 5 minutes and the ceiling 15; a
+running handler holds the cell's kernel slot, so long work should return a
+handle the cell polls. No bound executor fails the call after a bounded wait
+with an error the model reads. A deadline or cancelled turn settles the
+operation and sends `tool.cancel`; a disconnected or replaced executor's calls
+fail and are never replayed, so handlers should be idempotent on the
+invocation id.
 
 ## Limits
 

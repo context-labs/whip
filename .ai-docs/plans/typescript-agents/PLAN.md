@@ -397,3 +397,46 @@ The equivalence test is the whole point of choosing this fixture: with its id
 set to `junior-developer`, the document must deep-equal `agentdef.JuniorDeveloper()`,
 and its composed prompt must match the golden already on disk. If those hold,
 the TypeScript path and the Go path describe the same agent.
+
+## Implementation record (September 10, 2026)
+
+Commits on `feature/agent-definition`, in step order: definitions over the
+protocol (phase 1); the kernel's reserved `tools` module and guide catalog; the
+`tools` capability grant; executor dispatch and protocol 6.3; the SDK executor
+loop; named children (phase 3); documentation. `go test ./...`, `go vet ./...`,
+the repository analyzer, `task contract`, and `task sdk` were green at every
+step. Phase 4 (hooks) stays an outline for a later plan.
+
+Deviations from the plan as written:
+
+- **Canonical absent lists are `null`, absent maps are `{}`.** The generated
+  TypeScript treats maps as non-nullable objects, so `Normalize` emits empty
+  `children` and `budgets` maps while empty slices stay `null`. The fixture in
+  this document shows `"tools": []`; the canonical file has `"tools": null`.
+- **Registration records provenance.** `definitions.registered_by` and
+  `created_at` are stored and returned; the plan only mentioned id, revision,
+  and body.
+- **Executor lease is in memory; the ledger row is the durable record.** A
+  restart drops every lease and settles running operations interrupted through
+  the existing reservation recovery, which is the "never replay" rule. The
+  `executor.pending` list is the in-memory wait state for a live lease, not a
+  ledger query.
+- **Results are JSON values, not text.** `tool.result.output` is the handler's
+  JSON; the cell receives the decoded value when it fits the inline limit and a
+  content handle otherwise. Handler errors and daemon-side failures raise in
+  the cell like other host calls.
+- **Progress is `stream.tool.progress`.** A new event kind rather than a
+  reuse of the cumulative `stream.tool.output`; existing reducers ignore it.
+- **Roots that predate the tools grant receive it on reopen.** Every other
+  grant is never reissued; the tools row is added when missing because it
+  derives from the pinned definition and a revoked row still exists.
+- **A closed executor answers late invocations.** The SDK keeps the invoke
+  listener after `close()` and replies "executor closed" for its last lease,
+  so a call does not wait out the timeout when the process stops serving.
+- **No `content` accessor on the handler context.** Tool inputs are validated
+  JSON and never handles today; the accessor is unneeded until a tool takes a
+  handle argument.
+- **Named children add schema 18.** `agents.definition` stores the child name a
+  retained agent was spawned as; the plan did not call out the column.
+- **`agents.spawn` grew `tools=[...]`** (an empty list narrows to none) beside
+  `definition="..."`, so a parent can narrow tools without naming a child.

@@ -34,6 +34,25 @@ definition a new session runs (`coding` by default, or `junior-developer`), and
 An unknown id fails creation with the available ids. Both fields are additive;
 6.0 clients continue to create coding sessions.
 
+Protocol **6.2** makes definitions registrable: `definitions.register`
+(ephemeral) validates an `agentdef.Definition` document, canonicalizes it, and
+stores it under its content revision (SHA-256 of the canonical JSON; the same
+document yields the same revision); `definitions.get` and `definitions.list`
+(queries) read built-ins and registrations together. `session.create.definition`
+accepts a registered id and pins its latest revision in `definition_revision`
+on session metadata and snapshots. Schema 17 adds the `definitions` table and
+the pinned revision column.
+
+Protocol **6.3** adds the executor role for a definition's custom tools.
+`executor.bind` (ephemeral) claims the lease for one definition revision and
+returns a generation; a later bind for the same revision replaces the holder,
+whose pending calls fail. `tool.invoke` and `tool.cancel` are notifications on
+the executor's connection; `tool.result` and `tool.progress` (ephemeral) are
+accepted only from the lease holder at the quoted generation; `executor.pending`
+(query) lists invocations still awaiting that lease after a reconnect. The
+`stream.tool.progress` event kind carries handler progress. Schema 18 records a
+retained child's named definition. All additions are additive.
+
 Fresh stores use schema 15. Versions 10–14 migrate transactionally through each
 required upgrade, preserving identity, history, command receipts and legacy Starlark
 scratch. Version 15 adds a root engine column guarded against updates and an internal

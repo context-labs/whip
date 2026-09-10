@@ -381,6 +381,47 @@ rotates the execution host's machine key. Both are ephemeral and sent once;
 inspect provider status after an uncertain acknowledgement before retrying.
 `session.terminalInput` is ephemeral and is never automatically retried.
 
+## Agent definitions and custom tools
+
+`@whip/sdk/agents` authors the agents a daemon runs. A definition is data: what
+the agent is told, which host modules and capabilities it receives, model and
+compaction defaults, MCP servers, custom tools, named children, and surface
+flags. The daemon validates it, stores it under a content revision, and new
+sessions pin that revision.
+
+```ts
+import { defineAgent, tool } from '@whip/sdk/agents';
+
+const lookupTicket = tool('lookup_ticket', 'Fetch a ticket by id',
+  { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  async ({ id }: { id: string }, context) => {
+    context.progress(`looking up ${id}`);   // streamed to the session as it runs
+    return await tickets.get(id);           // a JSON value; large results become handles
+  }, { timeoutMs: 30_000 });                // default 5 minutes, ceiling 15
+
+const support = defineAgent({
+  id: 'support-triage',
+  instructions: { persona: 'You triage support tickets.', rules: 'Look tickets up before describing them.' },
+  modules: ['context', 'state', 'user'],
+  tools: [lookupTicket],
+  children: { researcher: { modules: ['context'], tools: ['lookup_ticket'], report: 'message' } },
+});
+
+const executor = await client.agents.serve(support); // registers, binds, serves until close()
+const created = await client.sessions.create({ cwd, definition: 'support-triage' }).result();
+```
+
+Tool handlers run in the serving process. The daemon validates the model's
+arguments against the schema, records each call in its ledger, and sends it to
+the executor bound for the definition revision; the handler receives the
+invocation id (reuse it to make side effects idempotent), root, agent, and turn
+ids, the deadline, an `AbortSignal` that fires on cancellation, deadline, or
+disconnect, and `progress`. The executor re-binds after a reconnect and drains
+`executor.pending`; a call made while no executor is bound fails after a short
+wait with an error the model reads. `client.agents.register/get/list` manage
+definitions without serving tools. `agents.spawn(definition="researcher")` in a
+cell selects a named child. See `examples/agents`.
+
 ## React example and validation
 
 Host bootstrap reads do not create sessions:
