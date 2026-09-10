@@ -7,6 +7,7 @@ export interface FixtureConnection {
   reply(request: FixtureRequest, result: unknown): void;
   error(request: FixtureRequest, kind: string): void;
   fail(): void;
+  notify(method: string, params: unknown): void;
 }
 
 /** Real client protocol processing with controlled acknowledgements and failures. */
@@ -33,6 +34,7 @@ export function transportFixture(options: {
       error: (request, kind) => handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id,
         error: { code: -32000, message: kind, data: { kind } } })),
       fail: () => handlers.close(new Error('Fixture connection lost')),
+      notify: (method, params) => handlers.message(JSON.stringify({ jsonrpc: '2.0', method, params })),
     };
     connections.push(connection);
     return {

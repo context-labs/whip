@@ -1,7 +1,8 @@
 import type {
-  DefinitionList, DefinitionParams, DefinitionRecord, DefinitionRegisterParams, DefinitionRegisterResult,
+  DefinitionList, DefinitionParams, DefinitionRecord, DefinitionRegisterParams, DefinitionRegisterResult, ToolInvokeParams,
 } from '@whip/protocol';
 import type { CallOptions, WhipClient } from './client.js';
+import { WhipError, abortError, asError } from './errors.js';
 
 /** The wire document the daemon validates and stores. Generated from the Go definition. */
 export type Definition = DefinitionRegisterParams['definition'];
@@ -10,13 +11,16 @@ export type ChildDefinition = Definition['children'][string];
 
 /** Context handed to a tool handler for one invocation. */
 export interface ToolContext {
+  /** The daemon's ledger operation id; reuse it to make side effects idempotent. */
   readonly invocationId: string;
   readonly rootId: string;
   readonly agentId: string;
   readonly turnId: string;
+  /** Unix milliseconds after which the daemon settles the call as timed out. */
   readonly deadline: number;
+  /** Aborted on cancellation, deadline, executor close, or disconnect. */
   readonly signal: AbortSignal;
-  /** Report intermediate output; the daemon streams it as tool output. */
+  /** Report intermediate output; the daemon streams it to the session. */
   progress(text: string): void;
 }
 export type ToolHandler<I = Record<string, unknown>> = (input: I, context: ToolContext) => Promise<unknown> | unknown;
@@ -128,9 +132,111 @@ function list(values: string[] | undefined): null | string[] {
   return values && values.length > 0 ? [...values] : null;
 }
 
+export interface ServeOptions { signal?: AbortSignal }
+
+/** A running executor: this process serves the agent's tools for one definition revision. */
+export interface Executor {
+  readonly definition: string;
+  readonly revision: string;
+  /** Current lease generation; a reconnect re-binds and changes it. */
+  readonly generation: string;
+  /** Handlers currently running. */
+  readonly active: number;
+  /** Stop serving. Running handlers are aborted; later invocations fail fast. */
+  close(): void;
+  /** Settles when serving stops. */
+  readonly done: Promise<void>;
+}
+
 /** Registry operations. Registration is idempotent on content: the same document yields the same revision. */
 export class Agents {
   constructor(private readonly client: WhipClient) {}
+  /**
+   * Register the agent, bind this connection as its executor, and run its tool
+   * handlers until close(). Bind before creating sessions: a tool call with no
+   * executor fails after a short wait. The executor re-binds after a reconnect
+   * and drains invocations that were pending for it.
+   */
+  async serve(agent: AgentDefinition, options: ServeOptions = {}): Promise<Executor> {
+    if (agent.handlers.size === 0) throw new TypeError(`agent ${agent.document.id} declares no tools to serve`);
+    options.signal?.throwIfAborted();
+    const client = this.client;
+    const registered = await this.register(agent, options);
+    const definition = agent.document.id;
+    const revision = registered.revision;
+    const tools = [...agent.handlers.keys()];
+    const running = new Map<string, AbortController>();
+    let generation = '';
+    let closed = false;
+    let resolveDone!: () => void;
+    const done = new Promise<void>(resolve => { resolveDone = resolve; });
+    const bind = async () => {
+      const lease = await client.call('executor.bind', { definition, revision, tools }, options);
+      generation = lease.generation;
+    };
+    const settle = async (invocation: ToolInvokeParams, body: { output?: unknown; error?: string }) => {
+      try { await client.call('tool.result', { invocation_id: invocation.invocation_id, generation: invocation.generation, ...body }); }
+      catch { /* the lease moved or the call already settled; the daemon's record wins */ }
+    };
+    const run = async (invocation: ToolInvokeParams) => {
+      if (closed) { await settle(invocation, { error: 'executor closed' }); return; }
+      const handler = agent.handlers.get(invocation.tool);
+      if (!handler) { await settle(invocation, { error: `no handler for tool ${invocation.tool}` }); return; }
+      const controller = new AbortController();
+      running.set(invocation.invocation_id, controller);
+      const deadline = Number(invocation.deadline_millis);
+      const timer = setTimeout(() => controller.abort(new WhipError('timeout', 'Tool deadline passed')), Math.max(0, deadline - Date.now()));
+      const context: ToolContext = {
+        invocationId: invocation.invocation_id, rootId: invocation.root_id, agentId: invocation.agent_id, turnId: invocation.turn_id,
+        deadline, signal: controller.signal,
+        progress: text => { if (!controller.signal.aborted) void client.call('tool.progress', { invocation_id: invocation.invocation_id, generation: invocation.generation, text }).catch(() => {}); },
+      };
+      try {
+        const output = await handler((invocation.input ?? {}) as Record<string, unknown>, context);
+        if (!controller.signal.aborted) await settle(invocation, { output: output === undefined ? null : output });
+      } catch (error) {
+        if (!controller.signal.aborted) await settle(invocation, { error: asError(error).message || 'tool failed' });
+      } finally {
+        clearTimeout(timer);
+        running.delete(invocation.invocation_id);
+      }
+    };
+    const abortAll = (reason: Error) => { for (const controller of [...running.values()]) controller.abort(reason); running.clear(); };
+    // The invoke listener outlives close(): the daemon keeps routing to this
+    // connection's lease until it drops, and a fast "executor closed" beats a
+    // five-minute timeout. Only the lease this executor last held is answered.
+    client.onNotification('tool.invoke', invocation => {
+      if (invocation.definition !== definition || invocation.revision !== revision || invocation.generation !== generation) return;
+      void run(invocation);
+    });
+    const unsubscribe = [
+      client.onNotification('tool.cancel', cancel => { running.get(cancel.invocation_id)?.abort(new WhipError('cancelled', `Tool invocation cancelled: ${cancel.reason}`)); }),
+    ];
+    // After a reconnect the daemon has dropped this lease and failed its calls;
+    // bind again and drain anything still addressed to the new lease.
+    let connected = true;
+    unsubscribe.push(client.subscribe(() => {
+      const state = client.getSnapshot().state;
+      if (state === 'closed' || state === 'incompatible') { close(); return; }
+      if (state !== 'connected') { if (connected) { connected = false; abortAll(new WhipError('disconnected', 'Executor connection lost')); } return; }
+      if (connected || closed) return;
+      connected = true;
+      void bind().then(() => client.call('executor.pending', { definition, revision, generation: generation }))
+        .then(pending => { for (const invocation of pending.invocations ?? []) void run(invocation); })
+        .catch(() => { /* the next reconnect retries; the daemon fails calls with no executor */ });
+    }));
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      for (const stop of unsubscribe) stop();
+      abortAll(new WhipError('closed', 'Executor closed'));
+      resolveDone();
+    };
+    options.signal?.addEventListener('abort', close, { once: true });
+    try { await bind(); } catch (error) { close(); throw error; }
+    if (options.signal?.aborted) { close(); throw abortError(options.signal); }
+    return { definition, revision, get generation() { return generation; }, get active() { return running.size; }, close, done };
+  }
   register(agent: AgentDefinition | Definition, options: CallOptions = {}): Promise<DefinitionRegisterResult> {
     const definition = 'document' in agent ? agent.document : agent;
     return this.client.call('definitions.register', { definition } satisfies DefinitionRegisterParams, options);

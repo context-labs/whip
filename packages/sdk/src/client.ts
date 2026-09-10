@@ -3,6 +3,7 @@ import {
   type CommandOperation, type CommandResult, type EphemeralOperation,
   type InitializeResult, type QueryOperation, type QueryResult,
   type RootEvent, type RpcMethod, type RpcMethods, type RuntimeOperation, type RuntimeOperations,
+  type ToolCancelParams, type ToolInvokeParams,
 } from '@whip/protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
@@ -15,6 +16,9 @@ import { webSocket, type Transport, type TransportFactory } from './transport.js
 import { byteLength, frozen, notify, object, withSignal, uuid, digestHex } from './util.js';
 
 export type SdkEvent = RootEvent;
+/** Notifications the daemon sends to the connection holding an executor lease. */
+export interface ExecutorNotifications { 'tool.invoke': ToolInvokeParams; 'tool.cancel': ToolCancelParams }
+export type ExecutorNotification = keyof ExecutorNotifications;
 export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'incompatible' | 'paused' | 'closed';
 export interface ConnectionSnapshot {
   readonly state: ConnectionState;
@@ -80,6 +84,7 @@ export class WhipClient {
   private readonly listeners = new Set<() => void>();
   private readonly eventListeners = new Set<(event: SdkEvent) => void>();
   private readonly commandListeners = new Set<(outcome: CommandResult) => void>();
+  private readonly notificationListeners = new Map<ExecutorNotification, Set<(params: unknown) => void>>();
   private readonly pending = new Map<string, Pending>();
   private readonly streams = new Map<string, Subscription>();
   private readonly lookups = new Map<string, Promise<CommandResult>>();
@@ -118,6 +123,14 @@ export class WhipClient {
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   onEvent(listener: (event: SdkEvent) => void): () => void { this.eventListeners.add(listener); return () => this.eventListeners.delete(listener); }
   onCommand(listener: (outcome: CommandResult) => void): () => void { this.commandListeners.add(listener); return () => this.commandListeners.delete(listener); }
+  /** Executor notifications addressed to this connection; agents.serve consumes them. */
+  onNotification<M extends ExecutorNotification>(method: M, listener: (params: ExecutorNotifications[M]) => void): () => void {
+    let listeners = this.notificationListeners.get(method);
+    if (!listeners) { listeners = new Set(); this.notificationListeners.set(method, listeners); }
+    const typed = listener as (params: unknown) => void;
+    listeners.add(typed);
+    return () => { listeners.delete(typed); };
+  }
   session(rootId: string): Session { return new Session(this, rootId); }
   get transportKind(): Transport['kind'] | undefined { return this.connection?.kind; }
   get httpEndpoint(): string | undefined { return this.connection?.httpEndpoint; }
@@ -337,6 +350,10 @@ export class WhipClient {
         assertValid('SubscriptionFailure', envelope.params, 'response');
         const failure = envelope.params;
         this.streams.get(failure.subscription_id)?.fail(failure.error ? new RpcError(failure.error) : new WhipError('resynchronization_required', 'Subscription failed'));
+      } else if (envelope.method === 'tool.invoke' || envelope.method === 'tool.cancel') {
+        assertValid(envelope.method === 'tool.invoke' ? 'ToolInvokeParams' : 'ToolCancelParams', envelope.params, 'response');
+        const listeners = this.notificationListeners.get(envelope.method);
+        if (listeners) notify(listeners, frozen(envelope.params));
       }
     } catch (error) { this.disconnected(new WhipError('invalid_response', 'Malformed daemon response', { cause: error })); }
   }
