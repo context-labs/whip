@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { validateRuntimeEvidence } from './runtime-evidence.mjs';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
@@ -24,9 +25,10 @@ export async function candidate(mode, directory, env = process.env) {
     assert((await lstat(path.join(directory, name))).size <= 2 << 20, 'Candidate metadata exceeds its limit');
     return JSON.parse(await readFile(path.join(directory, name), 'utf8'));
   };
-  for (const name of ['signed-startup.json', 'sbom.cdx.json', 'THIRD_PARTY_NOTICES.txt'])
+  for (const name of ['signed-startup.json', 'signed-runtime.json', 'sbom.cdx.json', 'THIRD_PARTY_NOTICES.txt'])
     assert(names.includes(name), `Missing required acceptance artifact: ${name}`);
   const evidence = await json('evidence.json'); const linux = await json('linux-runtime.json');
+  validateRuntimeEvidence(await json('signed-runtime.json'), evidence);
   const startup = await json('signed-startup.json');
   assert(startup.completed === true && startup.interrupted === false, 'Signed startup acceptance did not complete');
   for (const key of ['version', 'buildId', 'source', 'rendererDigest', 'compatibility', 'nativeFiles', 'teamId'])

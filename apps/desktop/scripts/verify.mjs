@@ -9,6 +9,7 @@ import asar from '@electron/asar';
 import { FuseV1Options, getCurrentFuseWire } from '@electron/fuses';
 import { sha256, readRendererManifest, verifyRenderer, repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
 import { readRuntimeManifest } from '../src/runtime.ts';
+import { verifyRuntimeSigning } from './runtime-signing.mjs';
 
 const exec = promisify(execFile);
 export async function verifyDesktop(bundle, { signed = false, notarized = false } = {}) {
@@ -58,6 +59,7 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
     assert.equal(metadata.buildId, runtime.buildId);
     for (const key of ['protocolMajor', 'protocolMinor', 'schemaVersion'])
       assert.equal(metadata[key], runtime.compatibility[key], `Runtime ${key} differs from its manifest`);
+    const runtimeSigning = signed ? await verifyRuntimeSigning(path.join(contents, 'Helpers/whipcode'), runtime.teamId) : undefined;
     // Go embeds the same untransformed renderer. Match every file's complete bytes.
     for (const name of Object.keys(renderer.files)) {
       const bytes = await readFile(path.join(directory, 'renderer', name));
@@ -76,7 +78,7 @@ export async function verifyDesktop(bundle, { signed = false, notarized = false 
       await exec('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=2', bundle]);
     }
     return { bundle, version: runtime.version, distribution: runtime.distribution, buildId: runtime.buildId, rendererDigest: renderer.digest, nativeFiles: runtime.files,
-      source: runtime.source, compatibility: runtime.compatibility, teamId: runtime.teamId, fuses, signed, notarized };
+      source: runtime.source, compatibility: runtime.compatibility, teamId: runtime.teamId, runtimeSigning, fuses, signed, notarized };
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

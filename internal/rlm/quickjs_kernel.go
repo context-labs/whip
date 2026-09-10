@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/context-labs/whip/internal/tools"
@@ -95,13 +94,7 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, code string) (Resul
 			}
 		case incoming := <-process.frames:
 			if incoming.err != nil {
-				if errors.Is(incoming.err, io.EOF) {
-					<-process.done
-				}
-				if detail := process.stderr.String(); detail != "" {
-					return fail(fmt.Errorf("RLM worker exited: %s", detail))
-				}
-				return fail(incoming.err)
+				return fail(kernel.workerReadError(ctx, process, incoming.err))
 			}
 			response := incoming.frame
 			switch response.Type {

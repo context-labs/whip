@@ -9,6 +9,11 @@ import { runInNewContext } from 'node:vm';
 import { sha256 } from './renderer-artifact.mjs';
 import { installLocalBuild, main } from './update-local.mjs';
 
+test('the desktop packaging verifier loads directly in Node without bundling', async () => {
+  const { verifyDesktop } = await import('../apps/desktop/scripts/verify.mjs');
+  assert.equal(typeof verifyDesktop, 'function');
+});
+
 test('packaging propagates signing failures instead of returning an unsigned bundle', async t => {
   const require = createRequire(import.meta.url);
   const module = { exports: {} };

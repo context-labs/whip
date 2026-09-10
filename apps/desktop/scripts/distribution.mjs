@@ -115,7 +115,7 @@ export async function extractApplicationZip(archive, directory, bundleName) {
 async function verifyContainedApplication(bundle, packageEvidence) {
   assert.equal(await bundleDigest(bundle), packageEvidence.bundleDigest, 'Distribution application bytes differ from the verified package');
   const verified = await verifyDesktop(bundle, { signed: packageEvidence.signed, notarized: packageEvidence.notarized });
-  for (const field of ['version', 'distribution', 'buildId', 'rendererDigest', 'nativeFiles', 'source', 'compatibility', 'teamId', 'fuses', 'signed', 'notarized'])
+  for (const field of ['version', 'distribution', 'buildId', 'rendererDigest', 'nativeFiles', 'source', 'compatibility', 'teamId', 'runtimeSigning', 'fuses', 'signed', 'notarized'])
     assert.deepEqual(verified[field], packageEvidence[field], `Distribution ${field} differs from package evidence`);
   return { bundleDigest: packageEvidence.bundleDigest, rendererDigest: verified.rendererDigest, signed: verified.signed, notarized: verified.notarized };
 }

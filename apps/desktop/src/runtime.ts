@@ -6,7 +6,7 @@ import type { LocalRuntimeStatus } from '@whip/app/platform';
 import { access, chmod, copyFile, link, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { providerEnvironmentNames } from './provider-environment';
+import { providerEnvironmentNames } from './provider-environment.ts';
 
 const exec = promisify(execFile);
 export interface RuntimeManifest {

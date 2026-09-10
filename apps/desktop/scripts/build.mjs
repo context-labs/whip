@@ -61,7 +61,7 @@ export async function buildDesktop({ rendererReady = false } = {}) {
   await command('go', ['build', '-overlay', overlay, '-trimpath', '-ldflags', `-s -w -X main.version=${buildId} -X github.com/context-labs/whip/internal/buildinfo.Name=whipcode -X github.com/context-labs/whip/internal/buildinfo.UpdateOwner=desktop`, '-o', path.join(native, 'whipcode'), './cmd/whip'],
     { env: { ...process.env, GOOS: 'darwin', GOARCH: 'arm64', CGO_ENABLED: '0' } });
   await command('/usr/bin/codesign', ['--force', '--sign', identity || '-', '--identifier', `${bundleId}.runtime`,
-    ...(identity ? ['--options', 'runtime', '--timestamp'] : []), path.join(native, 'whipcode')]);
+    ...(identity ? ['--options', 'runtime', '--timestamp', '--entitlements', path.join(desktop, 'resources/runtime.entitlements.plist')] : []), path.join(native, 'whipcode')]);
   const files = {};
   for (const name of ['whipcode', 'whip-computer']) {
     const bytes = await readFile(path.join(native, name));

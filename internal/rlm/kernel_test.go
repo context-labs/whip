@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -26,6 +27,28 @@ func TestWorkerProcess(t *testing.T) {
 		return
 	}
 	args := os.Args[separator+1:]
+	if len(args) >= 3 && args[0] == "-test-exit" {
+		if args[1] == "execution" {
+			reader := bufio.NewReader(os.Stdin)
+			hello, _ := readFrame(reader, 1<<20)
+			descriptor, _ := ResolveEngine(hello.Engine)
+			_ = writeFrame(os.Stdout, 1<<20, frame{Type: "result", ID: hello.ID, Engine: descriptor.ID, Build: descriptor.Build, ABI: descriptor.ABI, Profile: descriptor.Profile})
+			_, _ = readFrame(reader, 1<<20)
+		}
+		switch args[2] {
+		case "nonzero":
+			fmt.Fprint(os.Stderr, "worker failure detail")
+			os.Exit(23)
+		case "killed":
+			process, _ := os.FindProcess(os.Getpid())
+			if err := process.Kill(); err != nil {
+				panic(err)
+			}
+			select {}
+		default:
+			os.Exit(0)
+		}
+	}
 	if len(args) >= 2 && args[0] == "-test-protocol-response" {
 		if args[1] != "stderr" {
 			reader := bufio.NewReader(os.Stdin)
@@ -629,6 +652,59 @@ func TestKernelLifecycleAndDiagnosticsBoundaries(t *testing.T) {
 	}
 	if err := killProcessGroup(0); err != nil {
 		t.Fatalf("zero process group: %v", err)
+	}
+}
+
+func TestKernelReportsWorkerExit(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, engine := range []string{EngineStarlark, EngineQuickJS} {
+		for _, phase := range []string{"startup", "execution"} {
+			for _, outcome := range []string{"clean", "nonzero", "killed"} {
+				t.Run(engine+"/"+phase+"/"+outcome, func(t *testing.T) {
+					kernel, err := NewKernel(KernelOptions{Engine: engine, Command: []string{executable, "-test.run=TestWorkerProcess", "--", "-test-exit", phase, outcome}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(kernel.Close)
+					_, err = kernel.Exec(t.Context(), "1")
+					if !errors.Is(err, io.EOF) || !strings.Contains(err.Error(), engine+" worker exited during "+phase) {
+						t.Fatalf("missing exit context or underlying EOF: %v", err)
+					}
+					var exit *exec.ExitError
+					switch outcome {
+					case "clean":
+						if errors.As(err, &exit) || !strings.Contains(err.Error(), "exit status 0") {
+							t.Fatalf("clean exit: %v", err)
+						}
+					case "nonzero":
+						if !errors.As(err, &exit) || exit.ExitCode() != 23 || !strings.Contains(err.Error(), "worker failure detail") {
+							t.Fatalf("nonzero exit: %v", err)
+						}
+					case "killed":
+						if !errors.As(err, &exit) || !strings.Contains(err.Error(), "signal: killed") || strings.Contains(err.Error(), "signing") {
+							t.Fatalf("killed worker: %v", err)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestKernelWorkerExitPreservesCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	kernel := &Kernel{}
+	process := &workerProcess{done: make(chan struct{})}
+	if err := kernel.workerReadError(ctx, process, io.EOF); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	close(process.done)
+	if err := kernel.workerReadError(ctx, process, io.EOF); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
 	}
 }
 

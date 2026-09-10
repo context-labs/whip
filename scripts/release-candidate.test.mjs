@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { candidate } from '../apps/desktop/scripts/release-candidate.mjs';
+import { runtimeEntitlements, validateRuntimeSigning } from '../apps/desktop/scripts/runtime-signing.mjs';
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'whip-release-candidate-'));
@@ -20,8 +21,17 @@ async function fixture(t) {
     files[name] = { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
   }
   const json = async (name, value) => writeFile(path.join(directory, name), JSON.stringify(value));
-  const evidence = { version, buildId: version, source, compatibility, rendererDigest: 'b'.repeat(64), signed: true, notarized: true, dmgNotary: 'fixture', files };
+  const teamId = 'JAPWPV5JY2';
+  const runtimeSigning = { teamId, identifier: 'com.contextlabs.whip.beta.runtime', hardenedRuntime: true, entitlements: runtimeEntitlements };
+  const nativeFiles = { whipcode: { bytes: 123, sha256: 'e'.repeat(64) } };
+  const evidence = { version, buildId: version, source, compatibility, rendererDigest: 'b'.repeat(64), signed: true, notarized: true, dmgNotary: 'fixture', files, teamId, nativeFiles, runtimeSigning };
   await json('evidence.json', evidence);
+  const report = { sha256: nativeFiles.whipcode.sha256, architecture: 'arm64', engines: Object.fromEntries(['quickjs', 'starlark'].map(engine => [engine, {
+    descriptor: { id: engine, build: 'fixture', abi: 'fixture', profile: 'fixture' },
+    checks: ['execution', 'output', 'host-call', 'persistent-state', 'checkpoint-restore', ...(engine === 'quickjs' ? ['cancellation', 'recovery'] : [])],
+  }])) };
+  const runtime = { schema: 1, completed: true, package: evidence, packaged: report, installed: report };
+  await json('signed-runtime.json', runtime);
   const startup = { evidence, completed: true, interrupted: false, requested: { samples: 30, firstSamples: 1 },
     results: [{ state: 'complete', launchServicesExit: { code: 0 } }], cleanup: [{ state: 'stopped' }],
     statistics: Object.fromEntries(['first-launch', 'warm-attach', 'retained-start'].map(name => [name, { failed: 0, attempted: name === 'first-launch' ? 1 : 30 }])) };
@@ -31,7 +41,7 @@ async function fixture(t) {
   await json('linux-runtime.json', { ...compatibility, distribution: 'whipcode', updateOwner: 'standalone', buildId: version, source,
     rendererDigest: evidence.rendererDigest, smoke: { embeddedRenderer: true, daemonReady: true } });
   await writeFile(path.join(directory, 'whipcode-linux-x64'), 'linux fixture');
-  return { directory, env, json, evidence, startup };
+  return { directory, env, json, evidence, startup, runtime };
 }
 
 test('release candidate binds desktop and Linux bytes to the same source and version', async t => {
@@ -65,7 +75,7 @@ test('candidate refuses missing or changed signed assets before manifest assembl
 
 
 test('candidate refuses missing acceptance artifacts and failed or mismatched startup evidence', async t => {
-  for (const name of ['signed-startup.json', 'sbom.cdx.json', 'THIRD_PARTY_NOTICES.txt']) {
+  for (const name of ['signed-startup.json', 'signed-runtime.json', 'sbom.cdx.json', 'THIRD_PARTY_NOTICES.txt']) {
     const f = await fixture(t);
     await rm(path.join(f.directory, name));
     await assert.rejects(candidate('assemble', f.directory, f.env), /Missing required/);
@@ -74,6 +84,34 @@ test('candidate refuses missing acceptance artifacts and failed or mismatched st
     { evidence: { buildId: 'old' } }, { statistics: {} }, { cleanup: [{ state: 'cleanup-failed' }] }, { requested: { samples: 1 } }]) {
     const f = await fixture(t);
     await f.json('signed-startup.json', { ...f.startup, ...changed });
+    await assert.rejects(candidate('assemble', f.directory, f.env));
+  }
+});
+
+test('backend signing requires hardened runtime and exactly the executable-memory entitlement', () => {
+  const valid = { teamId: 'JAPWPV5JY2', identifier: 'com.contextlabs.whip.runtime', hardenedRuntime: true, entitlements: runtimeEntitlements };
+  validateRuntimeSigning(valid, valid.teamId);
+  for (const changed of [{ hardenedRuntime: false }, { entitlements: {} },
+    { entitlements: { 'com.apple.security.cs.allow-jit': true } },
+    { entitlements: { ...runtimeEntitlements, 'com.apple.security.cs.disable-executable-page-protection': true } },
+    { entitlements: { 'com.apple.security.cs.allow-unsigned-executable-memory': 'true' } }, { teamId: 'other' }, { identifier: 'com.other.app' }])
+    assert.throws(() => validateRuntimeSigning({ ...valid, ...changed }, valid.teamId));
+});
+
+test('candidate rejects incomplete or mismatched runtime execution evidence', async t => {
+  for (const change of [
+    value => { value.completed = false; },
+    value => { value.package.buildId = 'old'; },
+    value => { value.installed.sha256 = 'f'.repeat(64); },
+    value => { value.packaged.architecture = 'amd64'; },
+    value => { delete value.installed.engines.quickjs; },
+    value => { value.packaged.engines.quickjs.checks = ['execution']; },
+    value => { value.installed.engines.quickjs.descriptor.abi = 'different'; },
+  ]) {
+    const f = await fixture(t);
+    const value = JSON.parse(JSON.stringify(f.runtime));
+    change(value);
+    await f.json('signed-runtime.json', value);
     await assert.rejects(candidate('assemble', f.directory, f.env));
   }
 });

@@ -431,6 +431,8 @@ type workerProcess struct {
 	done     chan struct{}
 	dir      string
 	stderr   *limitedBuffer
+	exitErr  error // published by closing done
+	ready    bool  // protected by kernel.mu
 }
 
 func NewKernel(options KernelOptions) (*Kernel, error) {
@@ -880,18 +882,7 @@ func (kernel *Kernel) read(ctx context.Context) (frame, error) {
 		select {
 		case value := <-process.frames:
 			if value.err != nil {
-				if errors.Is(value.err, io.EOF) {
-					<-process.done
-				} else {
-					select {
-					case <-process.done:
-					default:
-						return value.frame, value.err
-					}
-				}
-				if detail := process.stderr.String(); detail != "" {
-					return frame{}, fmt.Errorf("RLM worker exited: %s", detail)
-				}
+				return frame{}, kernel.workerReadError(ctx, process, value.err)
 			}
 			return value.frame, value.err
 		case <-ticker.C:
@@ -903,6 +894,40 @@ func (kernel *Kernel) read(ctx context.Context) (frame, error) {
 			return frame{}, fmt.Errorf("RLM cell deadline: %w", ctx.Err())
 		}
 	}
+}
+
+// workerReadError reads exitErr only after Wait has published it through done.
+func (kernel *Kernel) workerReadError(ctx context.Context, process *workerProcess, cause error) error {
+	if errors.Is(cause, io.EOF) || errors.Is(cause, io.ErrUnexpectedEOF) {
+		select {
+		case <-process.done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	} else {
+		select {
+		case <-process.done:
+		default:
+			return cause
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	phase := "startup"
+	if process.ready {
+		phase = "execution"
+	}
+	var err error
+	if process.exitErr != nil {
+		err = fmt.Errorf("%s worker exited during %s (%w): %w", kernel.engine.ID, phase, process.exitErr, cause)
+	} else {
+		err = fmt.Errorf("%s worker exited during %s (exit status 0): %w", kernel.engine.ID, phase, cause)
+	}
+	if detail := process.stderr.String(); detail != "" {
+		err = fmt.Errorf("%w; stderr: %s", err, detail)
+	}
+	return err
 }
 
 func (kernel *Kernel) startProcess() (err error) {
@@ -980,7 +1005,7 @@ func (kernel *Kernel) startProcess() (err error) {
 	}()
 	kernel.needsRestore = kernel.scratch != nil || kernel.checkpoints != nil
 	go func() {
-		_ = command.Wait()
+		process.exitErr = command.Wait()
 		// A crashed worker may have descendants in its dedicated group. Reap the
 		// group before publishing completion so no caller can observe done while
 		// an orphan remains alive.
@@ -1011,6 +1036,7 @@ func (kernel *Kernel) startProcess() (err error) {
 		kernel.stop()
 		return errors.New("RLM engine handshake mismatch")
 	}
+	process.ready = true
 	return nil
 }
 
