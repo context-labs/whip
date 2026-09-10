@@ -21,7 +21,7 @@ func upgradeV16(ctx context.Context, conn *sql.Conn) error {
 	if err := conn.QueryRowContext(ctx, `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil {
 		return err
 	}
-	if version == currentSchemaVersion && identity == schemaIdentity {
+	if version >= 17 && identity != "whip-recursive-runtime-v16" {
 		return nil
 	}
 	if version != 16 || identity != "whip-recursive-runtime-v16" {

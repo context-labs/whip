@@ -422,7 +422,11 @@ func (runtime *RecursiveRuntime) restoreChildren(ctx context.Context) error {
 			if tools == nil {
 				tools = []string{}
 			}
-			definition, err := parent.definition.Child("", agentdef.ChildOverrides{
+			childName, err := runtime.root.store.AgentDefinitionName(ctx, runtime.root.ID(), record.ID)
+			if err != nil {
+				return err
+			}
+			definition, err := parent.definition.Child(childName, agentdef.ChildOverrides{
 				Capabilities: capabilities, Tools: tools, Model: agentdef.ModelDefaults{Model: record.Model, Provider: record.Provider, Effort: record.Effort},
 			})
 			if err != nil {
@@ -1202,7 +1206,10 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 	modelName, _ := stringArgument(arguments, "model")
 	providerName, _ := stringArgument(arguments, "provider")
 	requestedEffort, _ := stringArgument(arguments, "effort")
-	definition, err := parent.definition.Child("", agentdef.ChildOverrides{
+	// definition selects a named child of the parent's definition; explicit
+	// arguments still narrow it.
+	childName, _ := stringArgument(arguments, "definition")
+	definition, err := parent.definition.Child(childName, agentdef.ChildOverrides{
 		Capabilities: requested, Tools: requestedTools, Model: agentdef.ModelDefaults{Model: modelName, Provider: providerName, Effort: requestedEffort},
 	})
 	if err != nil {
@@ -1212,6 +1219,13 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 	budgets, err := requestedBudgets(arguments["budgets"])
 	if err != nil {
 		return nil, err
+	}
+	report, _ := stringArgument(arguments, "report")
+	if named, ok := parent.definition.Children[childName]; ok && childName != "" {
+		budgets = namedChildBudgets(named.Budgets, budgets)
+		if report == "" {
+			report = named.Report
+		}
 	}
 	id := sessionstore.NewAgentID()
 	authority := capability.Authority{
@@ -1246,7 +1260,6 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 		services.Close()
 		return nil, err
 	}
-	report, _ := stringArgument(arguments, "report")
 	switch report {
 	case "":
 		report = "notice"
@@ -1261,7 +1274,7 @@ func (runtime *RecursiveRuntime) spawnAttempt(ctx context.Context, parent *Agent
 	child.TransformInput = node.host.focusInput
 	task := fmt.Sprintf("[task from parent %s (%s)]\n\n%s", parent.name, parent.id, prompt)
 	if err := parent.root.AdmitAgent(ctx, sessionstore.AgentAdmission{
-		ParentAgentID: parent.id, ChildAgentID: id, Name: name,
+		ParentAgentID: parent.id, ChildAgentID: id, Name: name, Definition: childName,
 		Model: modelName, Provider: providerName, Effort: child.Effort, CWD: child.WorkingDir, Report: report,
 		Prompt:       sessionstore.RuntimePayload{Data: []byte(task), MediaType: "text/plain", Source: "initial agent prompt"},
 		Capabilities: delegations, Budgets: budgets,
@@ -1818,6 +1831,25 @@ func requestedCapabilities(value any) ([]string, error) {
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+// namedChildBudgets applies a named child's budgets as defaults under the
+// explicit spawn budgets, in canonical (sorted) order.
+func namedChildBudgets(defaults map[string]int64, explicit []sessionstore.BudgetLimit) []sessionstore.BudgetLimit {
+	if len(defaults) == 0 {
+		return explicit
+	}
+	merged := make(map[string]int64, len(defaults)+len(explicit))
+	maps.Copy(merged, defaults)
+	for _, limit := range explicit {
+		merged[string(limit.Kind)] = limit.Limit
+	}
+	kinds := slices.Sorted(maps.Keys(merged))
+	result := make([]sessionstore.BudgetLimit, 0, len(kinds))
+	for _, kind := range kinds {
+		result = append(result, sessionstore.BudgetLimit{Kind: sessionstore.BudgetKind(kind), Limit: merged[kind]})
+	}
+	return result
 }
 
 // requestedNames decodes an optional list-of-names spawn argument; nil means

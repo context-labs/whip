@@ -204,7 +204,7 @@ func TestExecutionEngineMigrationPreservesLegacyScratch(t *testing.T) {
 	if err := store.SaveAgentScratch(t.Context(), root, root, `{"memo":1}`, []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(t.Context(), `DROP TRIGGER session_engine_immutable; DROP TABLE agent_checkpoints; DROP TABLE definitions; ALTER TABLE sessions DROP COLUMN definition_revision; ALTER TABLE sessions DROP COLUMN definition; ALTER TABLE sessions DROP COLUMN execution_engine; UPDATE runtime_schema SET identity='whip-recursive-runtime-v14'; PRAGMA user_version=14;`); err != nil {
+	if _, err := store.db.ExecContext(t.Context(), `DROP TRIGGER session_engine_immutable; DROP TABLE agent_checkpoints; DROP TABLE definitions; ALTER TABLE agents DROP COLUMN definition; ALTER TABLE sessions DROP COLUMN definition_revision; ALTER TABLE sessions DROP COLUMN definition; ALTER TABLE sessions DROP COLUMN execution_engine; UPDATE runtime_schema SET identity='whip-recursive-runtime-v14'; PRAGMA user_version=14;`); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {

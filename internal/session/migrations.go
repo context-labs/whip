@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 17
-	schemaIdentity       = "whip-recursive-runtime-v17"
+	currentSchemaVersion = 18
+	schemaIdentity       = "whip-recursive-runtime-v18"
 )
 
 // SchemaVersion is the database schema supported by this executable. Reading it
@@ -82,7 +82,7 @@ CREATE TABLE agents (
 	name TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', provider TEXT NOT NULL DEFAULT '',
 	effort TEXT NOT NULL DEFAULT '', cwd TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
 	report TEXT NOT NULL DEFAULT 'notice' CHECK(report IN ('notice','inline','message')),
-	last_turn BLOB, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(root_id,id),
+	last_turn BLOB, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, definition TEXT NOT NULL DEFAULT '', UNIQUE(root_id,id),
 	FOREIGN KEY(root_id,parent_id) REFERENCES agents(root_id,id)
 );
 CREATE INDEX agents_root_parent ON agents(root_id,parent_id);
@@ -400,7 +400,13 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 		version, identity = 16, "whip-recursive-runtime-v16"
 	}
 	if version == 16 && identityErr == nil && identity == "whip-recursive-runtime-v16" {
-		return upgradeV16(ctx, conn)
+		if err := upgradeV16(ctx, conn); err != nil {
+			return err
+		}
+		version, identity = 17, "whip-recursive-runtime-v17"
+	}
+	if version == 17 && identityErr == nil && identity == "whip-recursive-runtime-v17" {
+		return upgradeV17(ctx, conn)
 	}
 	return fmt.Errorf("incompatible development runtime database %q (schema version %d): archive or remove it, then restart WHIP", path, version)
 }

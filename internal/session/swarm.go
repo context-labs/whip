@@ -24,9 +24,12 @@ type AgentAdmission struct {
 	Effort        string
 	Report        string
 	CWD           string
-	Prompt        RuntimePayload
-	Budgets       []BudgetLimit
-	Capabilities  []CapabilityDelegation
+	// Definition is the named child of the parent's definition, or empty for
+	// the inherited definition.
+	Definition   string
+	Prompt       RuntimePayload
+	Budgets      []BudgetLimit
+	Capabilities []CapabilityDelegation
 }
 
 type AgentRelatives struct {
@@ -43,6 +46,14 @@ const subtreeCTE = `WITH RECURSIVE subtree(id) AS (
 
 // AdmitAgent atomically persists a retained recursive agent and its initial
 // queued prompt. Worker availability is intentionally not part of admission.
+// AgentDefinitionName returns the named child of the parent's definition an
+// agent was spawned as; empty means the inherited definition.
+func (s *Store) AgentDefinitionName(ctx context.Context, rootID, agentID string) (string, error) {
+	var name string
+	err := s.db.QueryRowContext(ctx, `SELECT definition FROM agents WHERE root_id=? AND id=?`, rootID, agentID).Scan(&name)
+	return name, err
+}
+
 func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64, error) {
 	if admission.RootID == "" || admission.ParentAgentID == "" || admission.ChildAgentID == "" || admission.ParentAgentID == admission.ChildAgentID {
 		return 0, errors.New("agent admission requires distinct root, parent, and child identities")
@@ -124,9 +135,9 @@ func (s *Store) AdmitAgent(ctx context.Context, admission AgentAdmission) (int64
 	if duplicateName != 0 {
 		return 0, fmt.Errorf("agent name %q already exists under this parent", admission.Name)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,name,model,provider,effort,cwd,report,status,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,'idle',?,?)`, admission.ChildAgentID, admission.RootID, admission.ParentAgentID,
-		admission.Name, admission.Model, admission.Provider, admission.Effort, admission.CWD, admission.Report, stamp, stamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agents(id,root_id,parent_id,name,model,provider,effort,cwd,report,definition,status,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,'idle',?,?)`, admission.ChildAgentID, admission.RootID, admission.ParentAgentID,
+		admission.Name, admission.Model, admission.Provider, admission.Effort, admission.CWD, admission.Report, admission.Definition, stamp, stamp); err != nil {
 		return 0, err
 	}
 	for kind, requestedLimit := range requested {
