@@ -159,6 +159,7 @@ func TestLegacyTurnOutcomeMigration(t *testing.T) {
 	}
 	if _, err := store.db.ExecContext(t.Context(), `DROP TRIGGER session_engine_immutable;
  DROP TABLE agent_checkpoints;
+ ALTER TABLE sessions DROP COLUMN definition;
  ALTER TABLE sessions DROP COLUMN execution_engine;
  ALTER TABLE agents DROP COLUMN last_turn;
 		ALTER TABLE sessions DROP COLUMN permission_mode;

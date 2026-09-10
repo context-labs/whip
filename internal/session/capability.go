@@ -32,14 +32,39 @@ func (s *Store) Workspaces() *capability.Workspaces { return s.workspaces }
 func (s *Store) Processes() *capability.ProcessManager { return s.processes }
 
 // EnsureAuthority installs the root agent and its initial grants once.
+// EnsureAuthority bootstraps or reloads a root with full grants: every file,
+// shell, and MCP operation.
 func (s *Store) EnsureAuthority(ctx context.Context, rootID string) (capability.Authority, error) {
+	return s.EnsureRootAuthority(ctx, rootID, FullRootGrants())
+}
+
+// RootGrants are the operations a root receives when it is first bootstrapped.
+// A reopened root keeps whatever it was issued; grants are never reissued.
+type RootGrants struct {
+	Files []string
+	Shell []string
+	MCP   bool
+}
+
+// FullRootGrants is every operation the runtime can grant.
+func FullRootGrants() RootGrants {
+	return RootGrants{
+		Files: []string{"read", "write", "edit", "workspace.write"},
+		Shell: []string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process"},
+		MCP:   true,
+	}
+}
+
+// EnsureRootAuthority bootstraps a root with the given grants, or reloads an
+// existing root's authority unchanged.
+func (s *Store) EnsureRootAuthority(ctx context.Context, rootID string, grants RootGrants) (capability.Authority, error) {
 	authority := capability.Authority{
 		RootID: rootID, AgentID: rootID,
 		Files: capability.Reference{ID: "files:" + rootID},
 		Shell: capability.Reference{ID: "shell:" + rootID},
 		MCP:   capability.Reference{ID: "mcp:" + rootID},
 	}
-	return s.ensureAuthority(ctx, rootID, authority)
+	return s.ensureAuthority(ctx, rootID, authority, grants)
 }
 
 // LoadAgentAuthority reconstructs the dispatcher identity and the semantic
@@ -276,7 +301,14 @@ func loadMCPAuthorityTx(ctx context.Context, tx *sql.Tx, rootID, agentID string,
 	}
 }
 
-func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority capability.Authority) (capability.Authority, error) {
+func nonNilOperations(operations []string) []string {
+	if operations == nil {
+		return []string{}
+	}
+	return operations
+}
+
+func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority capability.Authority, grants RootGrants) (capability.Authority, error) {
 	root, err := s.WorkspaceRoot(ctx, rootID)
 	if err != nil {
 		return capability.Authority{}, err
@@ -285,12 +317,17 @@ func (s *Store) ensureAuthority(ctx context.Context, rootID string, authority ca
 	if err != nil {
 		return capability.Authority{}, err
 	}
-	fileOperations, _ := json.Marshal([]string{"read", "write", "edit", "workspace.write"})
+	// Every grant row exists even when it grants nothing, so generation lookups
+	// and delegation chains keep one shape; an empty operation list denies all.
+	fileOperations, _ := json.Marshal(nonNilOperations(grants.Files))
 	fileScopes, _ := json.Marshal(storedCapabilityScopes{Paths: []string{workspace.Root()}, FileScope: "session"})
-	shellOperations, _ := json.Marshal([]string{"bash", "shell_start", "browser_exec", "computer_exec", "workspace_process"})
+	shellOperations, _ := json.Marshal(nonNilOperations(grants.Shell))
 	shellScopes, _ := json.Marshal(storedCapabilityScopes{})
-	mcpOperations, _ := json.Marshal([]string{"mcp.call"})
-	mcpScopes, _ := json.Marshal(storedCapabilityScopes{MCPAll: true})
+	mcpOperations, _ := json.Marshal([]string{})
+	if grants.MCP {
+		mcpOperations, _ = json.Marshal([]string{"mcp.call"})
+	}
+	mcpScopes, _ := json.Marshal(storedCapabilityScopes{MCPAll: grants.MCP})
 	stamp := now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -2000,6 +2000,7 @@ export interface RootSnapshot {
   cursor: string;
   meta: {
     execution_engine: string;
+    definition: string;
     id: string;
     kind: string;
     title: string;
@@ -2431,6 +2432,7 @@ export type SessionListResult =
   | null
   | {
       execution_engine: string;
+      definition: string;
       id: string;
       kind: string;
       title: string;

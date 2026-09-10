@@ -17,7 +17,7 @@ async function until(predicate: () => boolean): Promise<void> {
 function snapshot(cursor = '10', revision = '1'): RootSnapshot {
   return {
     root_id: 'root', cursor, history_revision: revision, active_turns: {},
-    meta: { id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', execution_engine: 'starlark',
+    meta: { id: 'root', kind: 'agent', title: 'Test', model: '', provider: '', cwd: '/', execution_engine: 'starlark', definition: 'coding',
       goal: '', forked_from: '', fork_seq: 0, tags: [], archived: false, pinned: false, effort: '',
       usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
     messages: [{ role: 'user', content: 'hello' }], message_seqs: [1],

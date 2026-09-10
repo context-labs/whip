@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 15
-	schemaIdentity       = "whip-recursive-runtime-v15"
+	currentSchemaVersion = 16
+	schemaIdentity       = "whip-recursive-runtime-v16"
 )
 
 // SchemaVersion is the database schema supported by this executable. Reading it
@@ -45,6 +45,7 @@ CREATE TABLE sessions (
 	effort TEXT NOT NULL DEFAULT '',
 	permission_mode TEXT NOT NULL DEFAULT 'prompt' CHECK(permission_mode IN ('prompt','automatic')),
 	execution_engine TEXT NOT NULL DEFAULT 'starlark' CHECK(execution_engine IN ('starlark','quickjs')),
+	definition TEXT NOT NULL DEFAULT 'coding',
 	usage_in INTEGER NOT NULL DEFAULT 0,
 	usage_cached INTEGER NOT NULL DEFAULT 0,
 	usage_out INTEGER NOT NULL DEFAULT 0,
@@ -382,7 +383,13 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 		version, identity = 14, "whip-recursive-runtime-v14"
 	}
 	if version == 14 && identityErr == nil && identity == "whip-recursive-runtime-v14" {
-		return upgradeV14(ctx, conn)
+		if err := upgradeV14(ctx, conn); err != nil {
+			return err
+		}
+		version, identity = 15, "whip-recursive-runtime-v15"
+	}
+	if version == 15 && identityErr == nil && identity == "whip-recursive-runtime-v15" {
+		return upgradeV15(ctx, conn)
 	}
 	return fmt.Errorf("incompatible development runtime database %q (schema version %d): archive or remove it, then restart WHIP", path, version)
 }

@@ -9,6 +9,9 @@
       "execution_engine": {
         "type": "string"
       },
+      "definition": {
+        "type": "string"
+      },
       "id": {
         "type": "string"
       },
@@ -69,6 +72,7 @@
     },
     "required": [
       "execution_engine",
+      "definition",
       "id",
       "kind",
       "title",

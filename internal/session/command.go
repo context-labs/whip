@@ -206,10 +206,21 @@ func (s *Store) CreateSessionForCommandWithPermission(ctx context.Context, clien
 	return s.CreateSessionForCommandWithEngine(ctx, clientID, commandID, kind, cwd, model, provider, permissionMode, "")
 }
 
-// CreateSessionForCommandWithEngine pins language with creation and its command receipt.
+// CreateSessionForCommandWithEngine pins language with creation and its command
+// receipt. The session runs the coding agent.
 func (s *Store) CreateSessionForCommandWithEngine(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode, engine string) (CommandRecord, error) {
+	return s.CreateSessionForCommandWithDefinition(ctx, clientID, commandID, kind, cwd, model, provider, permissionMode, engine, "coding")
+}
+
+// CreateSessionForCommandWithDefinition records which agent definition the
+// session executes. The daemon validates the id against its registry; the store
+// only requires that an agent session names one.
+func (s *Store) CreateSessionForCommandWithDefinition(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode, engine, definition string) (CommandRecord, error) {
 	if engine == "" {
 		engine = "starlark"
+	}
+	if kind == SessionKindAgent && definition == "" {
+		return CommandRecord{}, errors.New("agent session requires an agent definition")
 	}
 	if engine != "starlark" && engine != "quickjs" {
 		return CommandRecord{}, fmt.Errorf("unknown execution engine %q", engine)
@@ -244,8 +255,8 @@ func (s *Store) CreateSessionForCommandWithEngine(ctx context.Context, clientID,
 		return CommandRecord{}, err
 	}
 	stamp := now()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider,permission_mode,execution_engine) VALUES(?,?,?,?,?,?,?,?,?)`,
-		rootID, kind, stamp, stamp, cwd, model, provider, permissionMode, engine); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider,permission_mode,execution_engine,definition) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		rootID, kind, stamp, stamp, cwd, model, provider, permissionMode, engine, definition); err != nil {
 		return CommandRecord{}, err
 	}
 	outcome, _ := json.Marshal(struct {
