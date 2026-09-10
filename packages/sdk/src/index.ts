@@ -13,3 +13,5 @@ export { WhipError, RpcError, DeliveryUncertainError } from './errors.js';
 export type { RpcMethods, RuntimeOperations, RpcMethod, RuntimeOperation, CommandOperation, QueryOperation, EphemeralOperation } from '@whip/protocol';
 
 export type { PermissionDecisionStatus } from './services.js';
+export { Agents } from './agents.js';
+export type { Definition, AgentDefinition, ToolDefinition, ToolHandler, ToolContext } from './agents.js';

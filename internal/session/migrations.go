@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	currentSchemaVersion = 16
-	schemaIdentity       = "whip-recursive-runtime-v16"
+	currentSchemaVersion = 17
+	schemaIdentity       = "whip-recursive-runtime-v17"
 )
 
 // SchemaVersion is the database schema supported by this executable. Reading it
@@ -46,6 +46,7 @@ CREATE TABLE sessions (
 	permission_mode TEXT NOT NULL DEFAULT 'prompt' CHECK(permission_mode IN ('prompt','automatic')),
 	execution_engine TEXT NOT NULL DEFAULT 'starlark' CHECK(execution_engine IN ('starlark','quickjs')),
 	definition TEXT NOT NULL DEFAULT 'coding',
+	definition_revision TEXT NOT NULL DEFAULT '',
 	usage_in INTEGER NOT NULL DEFAULT 0,
 	usage_cached INTEGER NOT NULL DEFAULT 0,
 	usage_out INTEGER NOT NULL DEFAULT 0,
@@ -57,6 +58,10 @@ WHEN NEW.execution_engine<>OLD.execution_engine BEGIN SELECT RAISE(ABORT,'sessio
 CREATE TABLE messages (
 	session_id TEXT NOT NULL REFERENCES sessions(id), seq INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
 	PRIMARY KEY(session_id,seq)
+);
+CREATE TABLE definitions (
+	id TEXT NOT NULL, revision TEXT NOT NULL, body BLOB NOT NULL, registered_by TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL, PRIMARY KEY(id,revision)
 );
 CREATE TABLE snapshots (
 	session_id TEXT NOT NULL REFERENCES sessions(id), seq INTEGER NOT NULL, ref TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -389,7 +394,13 @@ func migrate(ctx context.Context, db *sql.DB, path string) error {
 		version, identity = 15, "whip-recursive-runtime-v15"
 	}
 	if version == 15 && identityErr == nil && identity == "whip-recursive-runtime-v15" {
-		return upgradeV15(ctx, conn)
+		if err := upgradeV15(ctx, conn); err != nil {
+			return err
+		}
+		version, identity = 16, "whip-recursive-runtime-v16"
+	}
+	if version == 16 && identityErr == nil && identity == "whip-recursive-runtime-v16" {
+		return upgradeV16(ctx, conn)
 	}
 	return fmt.Errorf("incompatible development runtime database %q (schema version %d): archive or remove it, then restart WHIP", path, version)
 }

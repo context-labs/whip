@@ -102,7 +102,7 @@ func runDaemon(ctx context.Context, args []string) error {
 	}
 	kernels := rlm.NewManager(limits.MaxWorkers)
 	defer kernels.Close()
-	factory := func(_ context.Context, meta session.Meta, history []llm.Message) (daemon.Components, error) {
+	factory := func(ctx context.Context, meta session.Meta, history []llm.Message) (daemon.Components, error) {
 		runtimeCfg, err := config.Load()
 		if err != nil {
 			return daemon.Components{}, err
@@ -113,7 +113,7 @@ func runDaemon(ctx context.Context, args []string) error {
 			services := daemonToolServices(runtimeCfg, meta, "mcp", agentdef.Capabilities)
 			return daemon.Components{Runner: daemon.NewToolRunner(services)}, nil
 		}
-		definition, ok, err := daemon.DefinitionFor(meta)
+		definition, ok, err := daemon.DefinitionFor(ctx, store, meta)
 		if err != nil {
 			return daemon.Components{}, err
 		}
@@ -175,6 +175,20 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		var mcpManager *mcp.Manager
 		discovery := mcp.LoadMergedFiltered(meta.CWD, mcp.FromConfigMap(runtimeCfg.MCPServers), mcp.ImportPolicyFrom(runtimeCfg.MCPImport))
+		if definition.MCP.Servers != nil {
+			// The definition names the servers it uses; everything else the host
+			// configured stays out of this session.
+			for name := range discovery.Merged {
+				if !slices.Contains(definition.MCP.Servers, name) {
+					delete(discovery.Merged, name)
+				}
+			}
+			for name := range discovery.Blocked {
+				if !slices.Contains(definition.MCP.Servers, name) {
+					delete(discovery.Blocked, name)
+				}
+			}
+		}
 		if len(discovery.Merged) > 0 || len(discovery.Blocked) > 0 {
 			mcpManager = mcp.NewManager(discovery.Merged)
 			mcpManager.SetBlocked(discovery.Blocked)

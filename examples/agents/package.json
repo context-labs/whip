@@ -1,0 +1,7 @@
+{
+  "name": "@whip/agents-example",
+  "private": true,
+  "type": "module",
+  "scripts": { "check": "tsc -p tsconfig.json && node --test dist/*.test.js" },
+  "dependencies": { "@whip/sdk": "0.1.0" }
+}

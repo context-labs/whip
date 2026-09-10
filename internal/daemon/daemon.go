@@ -201,7 +201,7 @@ func (d *Daemon) entryRoot(entry *rootEntry) *Session {
 }
 
 func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err error) {
-	definition, hasDefinition, err := DefinitionFor(meta)
+	definition, hasDefinition, err := DefinitionFor(d.ctx, d.store, meta)
 	if err != nil {
 		return nil, err
 	}

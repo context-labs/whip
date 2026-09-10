@@ -358,6 +358,9 @@ func (s *Server) handle(connection *serverConn, request rpcMessage) (any, *RPCEr
 	if result, failure, handled := s.handleHost(connection.ctx, request); handled {
 		return result, failure
 	}
+	if result, failure, handled := s.handleDefinitions(connection, request); handled {
+		return result, failure
+	}
 
 	switch request.Method {
 	case "sessions.get":

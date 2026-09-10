@@ -626,6 +626,159 @@ export interface CreateSessionParams {
   permission_mode?: string;
 }
 
+export interface DefinitionList {
+  items:
+    | null
+    | {
+        id: string;
+        revision: string;
+        built_in: boolean;
+        registered_by: string;
+        created_at: string;
+      }[];
+}
+
+export interface DefinitionParams {
+  id: string;
+  revision?: string;
+}
+
+export interface DefinitionRecord {
+  definition: {
+    id: string;
+    instructions: {
+      persona: string;
+      rules: string;
+      project_files: null | string[];
+      skill_discovery: boolean;
+      standing_instructions: boolean;
+    };
+    modules: null | string[];
+    capabilities: null | string[];
+    model: {
+      model: string;
+      provider: string;
+      effort: string;
+    };
+    compaction: {
+      model: string;
+      provider: string;
+      threshold: number;
+    };
+    mcp: {
+      servers: null | string[];
+    };
+    tools:
+      | null
+      | {
+          name: string;
+          description: string;
+          input_schema: unknown;
+          timeout_millis: number;
+        }[];
+    children: {
+      [k: string]: {
+        instructions: null | {
+          persona: string;
+          rules: string;
+          project_files: null | string[];
+          skill_discovery: boolean;
+          standing_instructions: boolean;
+        };
+        modules: null | string[];
+        capabilities: null | string[];
+        tools: null | string[];
+        model: {
+          model: string;
+          provider: string;
+          effort: string;
+        };
+        budgets: {
+          [k: string]: number;
+        };
+        report: string;
+      };
+    };
+    surface: {
+      auto_title: boolean;
+      goal_loop: boolean;
+    };
+  };
+  revision: string;
+  built_in: boolean;
+  registered_by: string;
+  created_at: string;
+}
+
+export interface DefinitionRegisterParams {
+  definition: {
+    id: string;
+    instructions: {
+      persona: string;
+      rules: string;
+      project_files: null | string[];
+      skill_discovery: boolean;
+      standing_instructions: boolean;
+    };
+    modules: null | string[];
+    capabilities: null | string[];
+    model: {
+      model: string;
+      provider: string;
+      effort: string;
+    };
+    compaction: {
+      model: string;
+      provider: string;
+      threshold: number;
+    };
+    mcp: {
+      servers: null | string[];
+    };
+    tools:
+      | null
+      | {
+          name: string;
+          description: string;
+          input_schema: unknown;
+          timeout_millis: number;
+        }[];
+    children: {
+      [k: string]: {
+        instructions: null | {
+          persona: string;
+          rules: string;
+          project_files: null | string[];
+          skill_discovery: boolean;
+          standing_instructions: boolean;
+        };
+        modules: null | string[];
+        capabilities: null | string[];
+        tools: null | string[];
+        model: {
+          model: string;
+          provider: string;
+          effort: string;
+        };
+        budgets: {
+          [k: string]: number;
+        };
+        report: string;
+      };
+    };
+    surface: {
+      auto_title: boolean;
+      goal_loop: boolean;
+    };
+  };
+}
+
+export interface DefinitionRegisterResult {
+  id: string;
+  revision: string;
+  created: boolean;
+}
+
 export interface EffortParams {
   effort: string;
   persist_default: boolean;
@@ -2002,6 +2155,7 @@ export interface RootSnapshot {
   meta: {
     execution_engine: string;
     definition: string;
+    definition_revision: string;
     id: string;
     kind: string;
     title: string;
@@ -2434,6 +2588,7 @@ export type SessionListResult =
   | {
       execution_engine: string;
       definition: string;
+      definition_revision: string;
       id: string;
       kind: string;
       title: string;
@@ -2711,6 +2866,11 @@ export interface ContractTypes {
   ContentReadResult: ContentReadResult;
   ContextAuditResult: ContextAuditResult;
   CreateSessionParams: CreateSessionParams;
+  DefinitionList: DefinitionList;
+  DefinitionParams: DefinitionParams;
+  DefinitionRecord: DefinitionRecord;
+  DefinitionRegisterParams: DefinitionRegisterParams;
+  DefinitionRegisterResult: DefinitionRegisterResult;
   EffortParams: EffortParams;
   EffortResult: EffortResult;
   Empty: Empty;
@@ -2915,6 +3075,9 @@ export interface RpcMethods {
   "daemon.ping": { params: Empty; result: PingResult; execution: "query"; permission: "none"; sensitive: false };
   "daemon.restart": { params: RestartParams; result: Empty; execution: "lifecycle"; permission: "armed-generation"; sensitive: false };
   "daemon.stop": { params: RestartParams; result: Empty; execution: "lifecycle"; permission: "armed-generation"; sensitive: false };
+  "definitions.get": { params: DefinitionParams; result: DefinitionRecord; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "definitions.list": { params: Empty; result: DefinitionList; execution: "query"; permission: "host-runtime"; sensitive: false };
+  "definitions.register": { params: DefinitionRegisterParams; result: DefinitionRegisterResult; execution: "ephemeral"; permission: "host-runtime"; sensitive: false };
   "events.replay": { params: ReplayParams; result: ReplayResult; execution: "query"; permission: "root-association"; sensitive: false };
   "events.subscribe": { params: SubscribeParams; result: SubscribeResult; execution: "subscription"; permission: "root-association"; sensitive: false };
   "events.unsubscribe": { params: UnsubscribeParams; result: Empty; execution: "subscription"; permission: "connection-subscription"; sensitive: false };

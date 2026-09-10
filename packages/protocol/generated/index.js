@@ -3,7 +3,7 @@ import * as requests from './request-validators.js';
 import * as responses from './response-validators.js';
 export const manifest = {
   "major": 6,
-  "minor": 1,
+  "minor": 2,
   "operations": [
     {
       "name": "command.status",
@@ -68,6 +68,30 @@ export const manifest = {
       "permission": "armed-generation",
       "params_type": "RestartParams",
       "result_type": "Empty"
+    },
+    {
+      "name": "definitions.get",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "DefinitionParams",
+      "result_type": "DefinitionRecord"
+    },
+    {
+      "name": "definitions.list",
+      "surface": "rpc",
+      "execution": "query",
+      "permission": "host-runtime",
+      "params_type": "Empty",
+      "result_type": "DefinitionList"
+    },
+    {
+      "name": "definitions.register",
+      "surface": "rpc",
+      "execution": "ephemeral",
+      "permission": "host-runtime",
+      "params_type": "DefinitionRegisterParams",
+      "result_type": "DefinitionRegisterResult"
     },
     {
       "name": "events.replay",

@@ -12,6 +12,9 @@
       "definition": {
         "type": "string"
       },
+      "definition_revision": {
+        "type": "string"
+      },
       "id": {
         "type": "string"
       },
@@ -73,6 +76,7 @@
     "required": [
       "execution_engine",
       "definition",
+      "definition_revision",
       "id",
       "kind",
       "title",

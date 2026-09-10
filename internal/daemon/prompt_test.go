@@ -395,7 +395,7 @@ func openPromptRuntime(t *testing.T, store *session.Store, rootID string, client
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 		value.ContextLimit = 65536
 		limits := rlm.DefaultLimits()
-		definition, _, err := DefinitionFor(meta)
+		definition, _, err := DefinitionFor(context.Background(), store, meta)
 		if err != nil {
 			return Components{}, err
 		}

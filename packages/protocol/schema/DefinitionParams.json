@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v6/DefinitionParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DefinitionParams",
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}

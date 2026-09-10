@@ -35,6 +35,7 @@ func versionFifteenDatabase(t *testing.T) (string, *sql.DB) {
 }
 
 func TestVersionFifteenUpgradeDefaultsDefinitionToCoding(t *testing.T) {
+	// The chain continues through schema 17: registered definitions and pinned revisions.
 	path, db := versionFifteenDatabase(t)
 	var version int
 	if err := db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version); err != nil || version != 15 {
@@ -49,8 +50,11 @@ func TestVersionFifteenUpgradeDefaultsDefinitionToCoding(t *testing.T) {
 			t.Fatalf("open %d: %v", attempt, err)
 		}
 		meta, _, err := store.Load("saved-root")
-		if err != nil || meta.Definition != "coding" || meta.ExecutionEngine != "starlark" || meta.Title != "Saved title" {
+		if err != nil || meta.Definition != "coding" || meta.DefinitionRevision != "" || meta.ExecutionEngine != "starlark" || meta.Title != "Saved title" {
 			t.Fatalf("open %d meta=%+v error=%v", attempt, meta, err)
+		}
+		if _, err := store.ListDefinitions(t.Context()); err != nil {
+			t.Fatalf("definitions table missing after upgrade: %v", err)
 		}
 		var identity string
 		if err := store.db.QueryRowContext(t.Context(), `SELECT identity FROM runtime_schema WHERE id=1`).Scan(&identity); err != nil || identity != schemaIdentity {
@@ -71,7 +75,7 @@ func createDefinitionSession(t *testing.T, store *Store, definition string) (str
 	if _, err := store.AdmitCommand(t.Context(), CommandAdmission{ClientID: "definitions", CommandID: id, Scope: CommandScopeDaemon, RequestDigest: id}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, SessionKindAgent, t.TempDir(), "model", "provider", "", "", definition)
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, SessionKindAgent, t.TempDir(), "model", "provider", "", "", definition, "")
 	if err != nil {
 		return "", err
 	}
@@ -182,5 +186,76 @@ func TestRootGrantsFollowDefinitionAtBootstrap(t *testing.T) {
 	}
 	if err := store.AuthorizeCapability(t.Context(), full, full, fullAuthority.Shell, "bash", ""); err != nil {
 		t.Fatalf("full root denied bash: %v", err)
+	}
+}
+
+func TestRegisteredDefinitionsAreIdempotentAndPinned(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "registry.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.RegisterDefinition(t.Context(), "support-bot", "rev-a", []byte(`{"id":"support-bot"}`), "app")
+	if err != nil || !created {
+		t.Fatalf("first registration created=%v error=%v", created, err)
+	}
+	created, err = store.RegisterDefinition(t.Context(), "support-bot", "rev-a", []byte(`{"id":"support-bot"}`), "other")
+	if err != nil || created {
+		t.Fatalf("repeat registration created=%v error=%v", created, err)
+	}
+	if _, err := store.RegisterDefinition(t.Context(), "", "rev", []byte(`{}`), "app"); err == nil {
+		t.Fatal("empty id accepted")
+	}
+	record, err := store.LoadDefinition(t.Context(), "support-bot", "rev-a")
+	if err != nil || record.RegisteredBy != "app" || string(record.Body) != `{"id":"support-bot"}` || record.CreatedAt.IsZero() {
+		t.Fatalf("record=%+v error=%v", record, err)
+	}
+	if _, err := store.LoadDefinition(t.Context(), "support-bot", "missing"); !errors.Is(err, ErrNoDefinition) {
+		t.Fatalf("missing revision error=%v", err)
+	}
+	id := NewAgentID()
+	if _, err := store.AdmitCommand(t.Context(), CommandAdmission{ClientID: "definitions", CommandID: id, Scope: CommandScopeDaemon, RequestDigest: id}); err != nil {
+		t.Fatal(err)
+	}
+	created2, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, SessionKindAgent, t.TempDir(), "model", "provider", "", "", "support-bot", "rev-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		RootID string `json:"root_id"`
+	}
+	if err := json.Unmarshal(created2.Outcome.Inline, &result); err != nil {
+		t.Fatal(err)
+	}
+	// A later registration becomes the latest without moving the pinned session.
+	if _, err := store.RegisterDefinition(t.Context(), "support-bot", "rev-b", []byte(`{"id":"support-bot","v":2}`), "app"); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.LatestDefinition(t.Context(), "support-bot")
+	if err != nil || latest.Revision != "rev-b" {
+		t.Fatalf("latest=%+v error=%v", latest, err)
+	}
+	if _, err := store.EnsureAuthority(t.Context(), result.RootID); err != nil {
+		t.Fatal(err)
+	}
+	fork, err := store.Fork(result.RootID, 0, "fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sessionID := range []string{result.RootID, fork} {
+		meta, _, err := store.Load(sessionID)
+		if err != nil || meta.Definition != "support-bot" || meta.DefinitionRevision != "rev-a" {
+			t.Fatalf("%s meta=%+v error=%v", sessionID, meta, err)
+		}
+	}
+	list, err := store.ListDefinitions(t.Context())
+	if err != nil || len(list) != 1 || list[0].Revision != "rev-b" {
+		t.Fatalf("list=%+v error=%v", list, err)
+	}
+	if _, err := store.RegisterDefinition(t.Context(), "another", "rev-z", []byte(`{}`), "app"); err != nil {
+		t.Fatal(err)
+	}
+	if list, err = store.ListDefinitions(t.Context()); err != nil || len(list) != 2 || list[0].ID != "another" || list[1].ID != "support-bot" {
+		t.Fatalf("list=%+v error=%v", list, err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -18,6 +19,15 @@ import (
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
+
+func juniorDeveloperDocument(t *testing.T) json.RawMessage {
+	t.Helper()
+	document, err := os.ReadFile(filepath.Join("..", "agentdef", "testdata", "junior-developer.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return document
+}
 
 // A model change rebuilds the runtime; the session's run configuration is a
 // per-session override and must reach the replacement.
@@ -140,10 +150,10 @@ func TestSessionDefaultsPreferDefinitionModel(t *testing.T) {
 	if err != nil || got.Model != "host-alias" || got.Provider != "host" {
 		t.Fatalf("coding must fall back to host defaults: %+v %v", got, err)
 	}
-	if _, ok, err := DefinitionFor(session.Meta{Kind: session.SessionKindToolHost}); ok || err != nil {
+	if _, ok, err := DefinitionFor(t.Context(), nil, session.Meta{Kind: session.SessionKindToolHost}); ok || err != nil {
 		t.Fatal("tool hosts have no agent definition")
 	}
-	if _, _, err := DefinitionFor(session.Meta{ID: "root", Kind: session.SessionKindAgent, Definition: "architect"}); err == nil || !strings.Contains(err.Error(), "junior-developer") {
+	if _, _, err := DefinitionFor(t.Context(), nil, session.Meta{ID: "root", Kind: session.SessionKindAgent, Definition: "architect"}); err == nil || !strings.Contains(err.Error(), "junior-developer") {
 		t.Fatalf("unknown definition error = %v", err)
 	}
 }
@@ -156,7 +166,7 @@ func createDefinitionRoot(t *testing.T, store *session.Store, definition string)
 	if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "definitions", CommandID: id, Scope: session.CommandScopeDaemon, RequestDigest: id}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", definition)
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", definition, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,10 +238,77 @@ func TestCodingSessionKeepsGoalsAndUnknownDefinitionsAreRejected(t *testing.T) {
 		t.Fatalf("coding goal rejected: %+v", result)
 	}
 	_ = requests
-	if _, err := resolveSessionDefaults(CreateSession{Kind: session.SessionKindAgent, Definition: "architect"}); err == nil || !strings.Contains(err.Error(), "coding, junior-developer") {
+	if _, err := resolveSessionDefaults(t.Context(), store, CreateSession{Kind: session.SessionKindAgent, Definition: "architect"}); err == nil || !strings.Contains(err.Error(), "coding, junior-developer") {
 		t.Fatalf("unknown definition accepted at creation: %v", err)
 	}
-	if _, err := resolveSessionDefaults(CreateSession{Kind: session.SessionKindToolHost, CWD: "/", Definition: "coding"}); err == nil {
+	if _, err := resolveSessionDefaults(t.Context(), store, CreateSession{Kind: session.SessionKindToolHost, CWD: "/", Definition: "coding"}); err == nil {
 		t.Fatal("tool host accepted an agent definition")
+	}
+}
+
+// A registered definition is resolved by id at creation, pinned by revision,
+// and composes its own persona; describing and listing expose built-ins and
+// registrations together.
+func TestRegisteredDefinitionRunsAndResolves(t *testing.T) {
+	requests, client := promptRuntimeProvider(t)
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	document := juniorDeveloperDocument(t)
+	registered, err := registerDefinition(t.Context(), store, document, "test-client")
+	if err != nil || !registered.Created || registered.ID != "junior-developer-ts" || len(registered.Revision) != 64 {
+		t.Fatalf("registration = %+v %v", registered, err)
+	}
+	again, err := registerDefinition(t.Context(), store, document, "other-client")
+	if err != nil || again.Created || again.Revision != registered.Revision {
+		t.Fatalf("repeat registration = %+v %v", again, err)
+	}
+	if _, err := registerDefinition(t.Context(), store, []byte(`{"id":"coding","modules":["context"]}`), "test-client"); err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("built-in id accepted: %v", err)
+	}
+	create, err := resolveSessionDefaults(t.Context(), store, CreateSession{Kind: session.SessionKindAgent, Model: "model", Provider: "provider", Definition: "junior-developer-ts"})
+	if err != nil || create.DefinitionRevision != registered.Revision {
+		t.Fatalf("creation did not pin the revision: %+v %v", create, err)
+	}
+	if _, err := resolveSessionDefaults(t.Context(), store, CreateSession{Kind: session.SessionKindAgent, Model: "model", Provider: "provider", Definition: "missing"}); err == nil || !strings.Contains(err.Error(), "junior-developer-ts") {
+		t.Fatalf("unknown id did not list registered ids: %v", err)
+	}
+	id := session.NewAgentID()
+	if _, err := store.AdmitCommand(t.Context(), session.CommandAdmission{ClientID: "definitions", CommandID: id, Scope: session.CommandScopeDaemon, RequestDigest: id}); err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, session.SessionKindAgent, t.TempDir(), "model", "provider", "", "", create.Definition, create.DefinitionRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		RootID string `json:"root_id"`
+	}
+	if err := json.Unmarshal(record.Outcome.Inline, &result); err != nil {
+		t.Fatal(err)
+	}
+	_, root, runtime := openPromptRuntime(t, store, result.RootID, client)
+	if runtime.rootNode.definition.ID != "junior-developer-ts" || !slices.Equal(runtime.rootNode.capabilities, []string{"read", "write", "shell"}) {
+		t.Fatalf("registered definition not applied: %+v", runtime.rootNode.definition)
+	}
+	prompt := submitPromptRoot(t, root, requests, "hello")
+	if !strings.HasPrefix(prompt.Messages[0].Content, "You are a junior developer working under review.") {
+		t.Fatalf("registered persona missing: %q", prompt.Messages[0].Content[:80])
+	}
+	if snapshot, err := root.Snapshot(t.Context()); err != nil || snapshot.Meta.DefinitionRevision != registered.Revision {
+		t.Fatalf("snapshot revision = %q error=%v", snapshot.Meta.DefinitionRevision, err)
+	}
+	if _, _, err := DefinitionFor(t.Context(), store, session.Meta{ID: "x", Kind: session.SessionKindAgent, Definition: "junior-developer-ts", DefinitionRevision: strings.Repeat("0", 64)}); err == nil || !strings.Contains(err.Error(), "not registered") {
+		t.Fatalf("missing revision accepted: %v", err)
+	}
+	described, err := describeDefinition(t.Context(), store, protocol.DefinitionParams{ID: "junior-developer-ts"})
+	if err != nil || described.Revision != registered.Revision || described.RegisteredBy != "test-client" || described.BuiltIn || described.Definition.Instructions.Persona == "" {
+		t.Fatalf("describe = %+v %v", described, err)
+	}
+	builtIn, err := describeDefinition(t.Context(), store, protocol.DefinitionParams{ID: "coding"})
+	if err != nil || !builtIn.BuiltIn || builtIn.Revision != "" || builtIn.Definition.ID != "coding" {
+		t.Fatalf("describe built-in = %+v %v", builtIn, err)
+	}
+	list, err := listDefinitions(t.Context(), store)
+	if err != nil || len(list.Items) != 3 || !list.Items[0].BuiltIn || list.Items[2].ID != "junior-developer-ts" || list.Items[2].Revision != registered.Revision {
+		t.Fatalf("list = %+v %v", list, err)
 	}
 }

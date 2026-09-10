@@ -1,0 +1,18 @@
+{
+  "id": "junior-developer-ts",
+  "instructions": {
+    "persona": "You are a junior developer working under review.",
+    "rules": "Operating rules:\n- Keep each change small, and explain what you changed and why in plain language.\n- Run the project's tests or build after every change; if you cannot run them, say so.\n- Never rewrite history, force-push, delete branches, or remove files you did not create.\n- Do not add dependencies or change build, CI, or deployment configuration; ask first.\n- When a task is ambiguous or risky, ask the user with user.ask instead of guessing.",
+    "project_files": ["CLAUDE.md", "AGENTS.md"],
+    "skill_discovery": false,
+    "standing_instructions": true
+  },
+  "modules": ["context", "files", "shell", "state", "artifacts", "permissions", "user"],
+  "capabilities": ["read", "write", "shell"],
+  "model": { "model": "", "provider": "", "effort": "" },
+  "compaction": { "model": "", "provider": "", "threshold": 0 },
+  "mcp": { "servers": null },
+  "tools": null,
+  "children": {},
+  "surface": { "auto_title": true, "goal_loop": false }
+}

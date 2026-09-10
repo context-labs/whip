@@ -209,13 +209,14 @@ func (s *Store) CreateSessionForCommandWithPermission(ctx context.Context, clien
 // CreateSessionForCommandWithEngine pins language with creation and its command
 // receipt. The session runs the coding agent.
 func (s *Store) CreateSessionForCommandWithEngine(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode, engine string) (CommandRecord, error) {
-	return s.CreateSessionForCommandWithDefinition(ctx, clientID, commandID, kind, cwd, model, provider, permissionMode, engine, "coding")
+	return s.CreateSessionForCommandWithDefinition(ctx, clientID, commandID, kind, cwd, model, provider, permissionMode, engine, "coding", "")
 }
 
 // CreateSessionForCommandWithDefinition records which agent definition the
-// session executes. The daemon validates the id against its registry; the store
-// only requires that an agent session names one.
-func (s *Store) CreateSessionForCommandWithDefinition(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode, engine, definition string) (CommandRecord, error) {
+// session executes and, for a registered definition, the revision it pins. The
+// daemon validates both against its registry; the store only requires that an
+// agent session names a definition.
+func (s *Store) CreateSessionForCommandWithDefinition(ctx context.Context, clientID, commandID string, kind SessionKind, cwd, model, provider, permissionMode, engine, definition, revision string) (CommandRecord, error) {
 	if engine == "" {
 		engine = "starlark"
 	}
@@ -255,8 +256,8 @@ func (s *Store) CreateSessionForCommandWithDefinition(ctx context.Context, clien
 		return CommandRecord{}, err
 	}
 	stamp := now()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider,permission_mode,execution_engine,definition) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-		rootID, kind, stamp, stamp, cwd, model, provider, permissionMode, engine, definition); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(id,kind,created_at,updated_at,cwd,model,provider,permission_mode,execution_engine,definition,definition_revision) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		rootID, kind, stamp, stamp, cwd, model, provider, permissionMode, engine, definition, revision); err != nil {
 		return CommandRecord{}, err
 	}
 	outcome, _ := json.Marshal(struct {

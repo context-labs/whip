@@ -9,7 +9,8 @@
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./node": { "types": "./dist/node.d.ts", "import": "./dist/node.js" },
     "./state": { "types": "./dist/state.d.ts", "import": "./dist/state.js" },
-    "./react": { "types": "./dist/react.d.ts", "import": "./dist/react.js" }
+    "./react": { "types": "./dist/react.d.ts", "import": "./dist/react.js" },
+    "./agents": { "types": "./dist/agents.d.ts", "import": "./dist/agents.js" }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

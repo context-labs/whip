@@ -108,6 +108,102 @@
     }
   },
   {
+    "type": "DefinitionParams",
+    "value": {
+      "id": ""
+    }
+  },
+  {
+    "type": "DefinitionRecord",
+    "value": {
+      "definition": {
+        "id": "",
+        "instructions": {
+          "persona": "",
+          "rules": "",
+          "project_files": [],
+          "skill_discovery": false,
+          "standing_instructions": false
+        },
+        "modules": [],
+        "capabilities": [],
+        "model": {
+          "model": "",
+          "provider": "",
+          "effort": ""
+        },
+        "compaction": {
+          "model": "",
+          "provider": "",
+          "threshold": 0
+        },
+        "mcp": {
+          "servers": []
+        },
+        "tools": [],
+        "children": {},
+        "surface": {
+          "auto_title": false,
+          "goal_loop": false
+        }
+      },
+      "revision": "",
+      "built_in": false,
+      "registered_by": "",
+      "created_at": ""
+    }
+  },
+  {
+    "type": "DefinitionList",
+    "value": {
+      "items": []
+    }
+  },
+  {
+    "type": "DefinitionRegisterParams",
+    "value": {
+      "definition": {
+        "id": "",
+        "instructions": {
+          "persona": "",
+          "rules": "",
+          "project_files": [],
+          "skill_discovery": false,
+          "standing_instructions": false
+        },
+        "modules": [],
+        "capabilities": [],
+        "model": {
+          "model": "",
+          "provider": "",
+          "effort": ""
+        },
+        "compaction": {
+          "model": "",
+          "provider": "",
+          "threshold": 0
+        },
+        "mcp": {
+          "servers": []
+        },
+        "tools": [],
+        "children": {},
+        "surface": {
+          "auto_title": false,
+          "goal_loop": false
+        }
+      }
+    }
+  },
+  {
+    "type": "DefinitionRegisterResult",
+    "value": {
+      "id": "",
+      "revision": "",
+      "created": false
+    }
+  },
+  {
     "type": "ReplayParams",
     "value": {
       "root_id": "",
@@ -561,6 +657,7 @@
       "meta": {
         "execution_engine": "",
         "definition": "",
+        "definition_revision": "",
         "id": "",
         "kind": "",
         "title": "",

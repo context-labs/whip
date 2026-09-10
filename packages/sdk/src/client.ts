@@ -7,6 +7,7 @@ import {
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
 import { Host, Permissions, Providers, Configuration } from './services.js';
+import { Agents } from './agents.js';
 import { Session, Sessions } from './session.js';
 import { Subscription, type SubscriptionOptions } from './subscription.js';
 import { WhipError, RpcError, abortError, asError } from './errors.js';
@@ -56,6 +57,7 @@ export class WhipClient {
   readonly configuration: Configuration;
   readonly permissions: Permissions;
   readonly host: Host;
+  readonly agents: Agents;
   readonly events = {
     subscribe: async (rootId: string, cursor: string, options: SubscriptionOptions = {}): Promise<Subscription> => {
       this.requireConnected();
@@ -110,6 +112,7 @@ export class WhipClient {
     this.configuration = new Configuration(this);
     this.permissions = new Permissions(this);
     this.host = new Host(this);
+    this.agents = new Agents(this);
   }
   getSnapshot = (): ConnectionSnapshot => this.snapshot;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };

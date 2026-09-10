@@ -36,7 +36,7 @@ func runCLI(args []string) error {
 	effortFlag := fs.String("effort", "", "reasoning effort for this run")
 	permissionFlag := fs.String("permission-mode", "", "session permission mode: prompt or automatic")
 	engineFlag := fs.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
-	agentFlag := fs.String("agent", "", "agent definition for a new session: "+strings.Join(agentdef.IDs(), " or ")+" (default coding; immutable on resume)")
+	agentFlag := fs.String("agent", "", "agent definition for a new session: a registered id, or built-in "+strings.Join(agentdef.IDs(), " or ")+" (default coding; immutable on resume)")
 	resumeFlag := fs.String("resume", "", buildinfo.Text("continue this session id (see `whip sessions`) instead of starting fresh"))
 	systemFlag := fs.String("system", "", "override the system prompt for this run")
 	systemFileFlag := fs.String("system-file", "", "read the system prompt from this file (wins over -system)")
@@ -73,9 +73,6 @@ func runCLI(args []string) error {
 	}
 	if *engineFlag != "" && *engineFlag != "starlark" && *engineFlag != "quickjs" {
 		return fmt.Errorf("unknown --rlm-engine %q", *engineFlag)
-	}
-	if _, ok := agentdef.Lookup(*agentFlag); *agentFlag != "" && !ok {
-		return fmt.Errorf("unknown --agent %q (available: %s)", *agentFlag, strings.Join(agentdef.IDs(), ", "))
 	}
 	if *format != "text" && *format != "json" {
 		return fmt.Errorf("unknown --format %q (want text|json)", *format)

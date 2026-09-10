@@ -299,7 +299,7 @@ func TestProviderCatalogDefaultPairSurvivesSharedModelsAndRestart(t *testing.T) 
 	if err != nil || id != provider || apiID != model || route.BaseURL != "https://beta.example/v1" {
 		t.Fatalf("runtime config did not resolve saved pair: %q %q %v", id, apiID, err)
 	}
-	created, err := resolveSessionDefaults(CreateSession{Kind: "agent"})
+	created, err := resolveSessionDefaults(t.Context(), nil, CreateSession{Kind: "agent"})
 	if err != nil || created.Model != model || created.Provider != provider {
 		t.Fatalf("new session did not retain concrete pair: %+v, %v", created, err)
 	}

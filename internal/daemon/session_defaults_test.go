@@ -73,13 +73,13 @@ func TestSessionDefaultsPreserveRoutingChoices(t *testing.T) {
 		{"explicit route", "explicit", "override", "explicit", "override"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveSessionDefaults(CreateSession{Kind: "agent", Model: tc.model, Provider: tc.provider})
+			got, err := resolveSessionDefaults(t.Context(), nil, CreateSession{Kind: "agent", Model: tc.model, Provider: tc.provider})
 			if err != nil || got.Model != tc.wantModel || got.Provider != tc.wantProvider {
 				t.Fatalf("route=%+v error=%v", got, err)
 			}
 		})
 	}
-	got, err := resolveSessionDefaults(CreateSession{Kind: "tool_host"})
+	got, err := resolveSessionDefaults(t.Context(), nil, CreateSession{Kind: "tool_host"})
 	if err != nil || got.Model != "" || got.Provider != "" {
 		t.Fatalf("tool host gained model: %+v %v", got, err)
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/config"
@@ -79,12 +78,15 @@ func (c *Control) route(ctx context.Context, work func(context.Context) error) e
 type CreateSession struct {
 	ExecutionEngine string `json:"execution_engine,omitempty"`
 	// Definition selects the agent definition; empty means the coding agent.
-	Definition     string              `json:"definition,omitempty"`
-	Kind           session.SessionKind `json:"kind"`
-	CWD            string              `json:"cwd"`
-	Model          string              `json:"model"`
-	Provider       string              `json:"provider"`
-	PermissionMode string              `json:"permission_mode,omitempty"`
+	// DefinitionRevision is pinned by the daemon for registered definitions and
+	// is not accepted from clients.
+	Definition         string              `json:"definition,omitempty"`
+	DefinitionRevision string              `json:"definition_revision,omitempty"`
+	Kind               session.SessionKind `json:"kind"`
+	CWD                string              `json:"cwd"`
+	Model              string              `json:"model"`
+	Provider           string              `json:"provider"`
+	PermissionMode     string              `json:"permission_mode,omitempty"`
 }
 
 func (c *Control) CreateSession(ctx context.Context, admission session.CommandAdmission, create CreateSession) (record session.CommandRecord, err error) {
@@ -101,9 +103,9 @@ func (c *Control) CreateSession(ctx context.Context, admission session.CommandAd
 		if !admitted.New {
 			return nil
 		}
-		create, err = resolveSessionDefaults(create)
+		create, err = resolveSessionDefaults(actorCtx, c.store, create)
 		if err == nil {
-			record, err = c.store.CreateSessionForCommandWithDefinition(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider, create.PermissionMode, create.ExecutionEngine, create.Definition)
+			record, err = c.store.CreateSessionForCommandWithDefinition(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider, create.PermissionMode, create.ExecutionEngine, create.Definition, create.DefinitionRevision)
 		}
 		if err != nil {
 			_, finishErr := c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "failed", session.RuntimePayload{Data: encodeCommandOutcome("session.create", "", err), MediaType: "application/json"})
@@ -267,7 +269,8 @@ func (c *Control) Checkpoint(ctx context.Context, admission session.CommandAdmis
 
 // Resolve omitted routing on the execution host, after deduplication. A retry
 // must observe the original session even if host defaults have since changed.
-func resolveSessionDefaults(create CreateSession) (CreateSession, error) {
+func resolveSessionDefaults(ctx context.Context, source DefinitionSource, create CreateSession) (CreateSession, error) {
+	create.DefinitionRevision = ""
 	if create.Kind != session.SessionKindAgent {
 		if create.Definition != "" {
 			return create, errors.New("only agent sessions run an agent definition")
@@ -277,10 +280,11 @@ func resolveSessionDefaults(create CreateSession) (CreateSession, error) {
 	if create.Definition == "" {
 		create.Definition = "coding"
 	}
-	definition, ok := agentdef.Lookup(create.Definition)
-	if !ok {
-		return create, fmt.Errorf("unknown agent definition %q (available: %s)", create.Definition, strings.Join(agentdef.IDs(), ", "))
+	definition, revision, err := latestDefinition(ctx, source, create.Definition)
+	if err != nil {
+		return create, err
 	}
+	create.DefinitionRevision = revision
 	return sessionDefaults(create, definition)
 }
 

@@ -132,6 +132,7 @@ tasks:
     cmds:
       - npm run check -w @whip/sdk
       - npm run build -w @whip/client-example
+      - npm run check -w @whip/agents-example
 
   check:
     desc: "Format + vet + test (what the pre-commit hook runs, plus golangci-lint when installed)"
