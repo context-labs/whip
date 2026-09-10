@@ -35,6 +35,8 @@ type PromptOptions struct {
 	Rules   string
 	// Modules selects the host modules the runtime guide describes.
 	Modules []string
+	// Tools are the definition's custom tools the runtime guide catalogs.
+	Tools []CustomTool
 	// ProjectFiles are read at each directory of the authorized project chain
 	// in this order. Empty disables project instruction discovery.
 	ProjectFiles []string
@@ -133,7 +135,7 @@ func ComposePrompt(options PromptOptions) (PromptSnapshot, error) {
 		snapshot.Sources = append(snapshot.Sources, PromptSource{Kind: kind, Path: path, Scope: scope, Bytes: len(text)})
 		return nil
 	}
-	guide, err := SystemPrompt(options.Engine, options.Persona, options.Modules, cwd, nil)
+	guide, err := SystemPrompt(options.Engine, options.Persona, options.Modules, options.Tools, cwd, nil)
 	if err != nil {
 		return PromptSnapshot{}, err
 	}

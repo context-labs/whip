@@ -240,7 +240,7 @@ func (runtime *RecursiveRuntime) newNode(value *agent.Agent, definition agentdef
 	}
 	host := &recursiveHost{session: node}
 	kernel, err := rlm.NewKernel(rlm.KernelOptions{
-		Engine: runtime.engine, Modules: definition.Modules, Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
+		Engine: runtime.engine, Modules: definition.Modules, Tools: definition.ToolNames(), Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
 		OnRestore: node.recordScratchRestore, OnHostStart: node.emitHostStart, OnHostCall: node.emitHostCall,
 	})
 	if err != nil {

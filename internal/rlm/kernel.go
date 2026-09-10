@@ -323,6 +323,10 @@ type KernelOptions struct {
 	// registered module. The list is fixed for the kernel's lifetime and is
 	// re-applied to every replacement worker.
 	Modules []string
+	// Tools names the custom tools installed as the reserved tools module. Nil
+	// installs no tools module. Like Modules, the list is fixed for the
+	// kernel's lifetime.
+	Tools []string
 	// Command is the executable plus any hidden-mode prefix. Production uses
 	// [current executable, "_kernel"]; tests may use a test helper prefix.
 	Command []string
@@ -395,6 +399,7 @@ type Kernel struct {
 	mu          sync.Mutex
 	command     []string
 	modules     []string
+	tools       []string
 	limits      Limits
 	manager     *Manager
 	host        Host
@@ -453,8 +458,11 @@ func NewKernel(options KernelOptions) (*Kernel, error) {
 			return nil, fmt.Errorf("unknown RLM module %q", module)
 		}
 	}
+	if err := validateTools(options.Tools); err != nil {
+		return nil, err
+	}
 	return &Kernel{
-		engine: descriptor, checkpoints: options.Checkpoints, modules: append([]string(nil), options.Modules...),
+		engine: descriptor, checkpoints: options.Checkpoints, modules: append([]string(nil), options.Modules...), tools: append([]string(nil), options.Tools...),
 		command: command, limits: limits, manager: options.Manager, host: options.Host,
 		scratch: options.Scratch, onRestore: options.OnRestore,
 		onHostStart: options.OnHostStart, onHostCall: options.OnHostCall,
@@ -559,7 +567,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 				onUpdate(response.Output)
 			}
 		case "host_request":
-			if err := validateModuleOperation(response.Module, response.Operation); err != nil {
+			if err := validateHostOperation(response.Module, response.Operation, kernel.tools); err != nil {
 				kernel.stop()
 				return Result{}, err
 			}
@@ -927,6 +935,9 @@ func (kernel *Kernel) startProcess() (err error) {
 	)
 	if len(kernel.modules) > 0 {
 		args = append(args, "-modules", strings.Join(kernel.modules, ","))
+	}
+	if len(kernel.tools) > 0 {
+		args = append(args, "-tools", strings.Join(kernel.tools, ","))
 	}
 	// The kernel owns cancellation through process-group termination; the
 	// background command context prevents exec from installing a competing

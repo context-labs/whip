@@ -3,6 +3,7 @@ package rlm
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 )
 
@@ -42,6 +43,38 @@ func Modules() map[string][]string {
 		result[name] = append([]string(nil), operations...)
 	}
 	return result
+}
+
+// ToolsModule is the reserved module name for an agent definition's custom
+// tools. It is never in the registry: its operations are the tool names the
+// kernel was started with, so the model sees exactly the tools it may call.
+const ToolsModule = "tools"
+
+var toolName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
+// validateHostOperation accepts registry operations and, for the reserved tools
+// module, the kernel's own tool names and nothing else.
+func validateHostOperation(module, operation string, tools []string) error {
+	if module == ToolsModule {
+		if slices.Contains(tools, operation) {
+			return nil
+		}
+		return fmt.Errorf("unknown RLM operation %s.%s", module, operation)
+	}
+	return validateModuleOperation(module, operation)
+}
+
+// validateTools checks a kernel's tool names: valid identifiers, no duplicates.
+func validateTools(tools []string) error {
+	for i, name := range tools {
+		if !toolName.MatchString(name) {
+			return fmt.Errorf("invalid RLM tool name %q", name)
+		}
+		if slices.Contains(tools[:i], name) {
+			return fmt.Errorf("duplicate RLM tool %q", name)
+		}
+	}
+	return nil
 }
 
 func validateModuleOperation(module, operation string) error {

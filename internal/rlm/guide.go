@@ -1,10 +1,25 @@
 package rlm
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
+	"unicode/utf8"
 )
+
+// CustomTool describes one definition-declared tool for the runtime guide. The
+// schema supplies the keyword names; the description is bounded when rendered.
+type CustomTool struct {
+	Name        string
+	Description string
+	InputSchema json.RawMessage
+}
+
+// maxToolDescriptionBytes bounds one catalog line so a definition with many
+// tools cannot crowd out the runtime guide.
+const maxToolDescriptionBytes = 240
 
 // ModuleNames returns every host module in the order the runtime guide
 // describes them.
@@ -28,8 +43,8 @@ func ModuleNames() []string {
 // SystemPrompt is a definition's standalone system prompt for one engine: the
 // persona followed by the runtime guide. ComposePrompt adds identity, rules,
 // environment, and discovered instructions around it.
-func SystemPrompt(engine, persona string, modules []string, workingDirectory string, history *ContextHandle) (string, error) {
-	guide, err := RuntimeGuide(engine, modules, workingDirectory, history)
+func SystemPrompt(engine, persona string, modules []string, tools []CustomTool, workingDirectory string, history *ContextHandle) (string, error) {
+	guide, err := RuntimeGuide(engine, modules, tools, workingDirectory, history)
 	if err != nil || persona == "" {
 		return guide, err
 	}
@@ -37,10 +52,11 @@ func SystemPrompt(engine, persona string, modules []string, workingDirectory str
 }
 
 // RuntimeGuide renders the execution engine's guidance for the selected host
-// modules: the rlm_exec introduction, the module catalog, the rules, the
-// messaging section, then the working directory and any context handle. It is
-// the runtime-owned part of a system prompt and never names an agent.
-func RuntimeGuide(engine string, modules []string, workingDirectory string, history *ContextHandle) (string, error) {
+// modules and custom tools: the rlm_exec introduction, the module catalog, the
+// tools catalog, the rules, the messaging section, then the working directory
+// and any context handle. It is the runtime-owned part of a system prompt and
+// never names an agent.
+func RuntimeGuide(engine string, modules []string, tools []CustomTool, workingDirectory string, history *ContextHandle) (string, error) {
 	// Engine descriptors hash this guide, so resolve the id directly.
 	if engine == "" {
 		engine = EngineStarlark
@@ -59,8 +75,20 @@ func RuntimeGuide(engine string, modules []string, workingDirectory string, hist
 	b.WriteString("\n\n")
 	b.WriteString(guideCatalogHeader.text(javascript))
 	writeGuideLines(&b, guideCatalog, modules, javascript)
+	if len(tools) > 0 {
+		b.WriteString("\n\n")
+		b.WriteString(guideToolsHeader.text(javascript))
+		for _, tool := range tools {
+			b.WriteString("\n")
+			b.WriteString(tool.catalogLine(javascript))
+		}
+	}
 	b.WriteString("\n\nRules:")
 	writeGuideLines(&b, guideRules, modules, javascript)
+	if len(tools) > 0 {
+		b.WriteString("\n")
+		b.WriteString(guideToolsRule.text(javascript))
+	}
 	if slices.ContainsFunc(guideMessaging, func(line guideLine) bool { return line.selected(modules) }) {
 		b.WriteString("\n\nMessaging and delegation (runtime behavior):")
 		writeGuideLines(&b, guideMessaging, modules, javascript)
@@ -126,4 +154,50 @@ func (line guideLine) joined(modules []string) string {
 		}
 	}
 	return "- " + strings.Join(texts, ", ")
+}
+
+// catalogLine renders one tool: its call shape from the schema's properties
+// (required first, then the rest alphabetically) and a bounded description.
+func (tool CustomTool) catalogLine(javascript bool) string {
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	_ = json.Unmarshal(tool.InputSchema, &schema)
+	names := make([]string, 0, len(schema.Properties))
+	for _, name := range schema.Required {
+		if _, ok := schema.Properties[name]; ok && !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	rest := make([]string, 0, len(schema.Properties))
+	for name := range schema.Properties {
+		if !slices.Contains(names, name) {
+			rest = append(rest, name)
+		}
+	}
+	sort.Strings(rest)
+	names = append(names, rest...)
+	var call string
+	if javascript {
+		call = fmt.Sprintf("tools.%s({%s})", tool.Name, strings.Join(names, ", "))
+	} else {
+		args := make([]string, len(names))
+		for i, name := range names {
+			args[i] = name + "=..."
+		}
+		call = fmt.Sprintf("tools.%s(%s)", tool.Name, strings.Join(args, ", "))
+	}
+	description := strings.Join(strings.Fields(tool.Description), " ")
+	if len(description) > maxToolDescriptionBytes {
+		cut := maxToolDescriptionBytes
+		for cut > 0 && !utf8.RuneStart(description[cut]) {
+			cut--
+		}
+		description = description[:cut] + "..."
+	}
+	if description == "" {
+		return "- " + call
+	}
+	return "- " + call + ": " + description
 }

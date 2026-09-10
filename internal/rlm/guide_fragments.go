@@ -19,6 +19,12 @@ var guideIntro = guideLine{starlark: `Your only tool is rlm_exec, a bounded Star
 var guideCatalogHeader = guideLine{starlark: `Available Starlark modules:`,
 	javascript: "Available host modules (every operation returns a Promise and takes one object argument):"}
 
+var guideToolsHeader = guideLine{starlark: `Custom tools (keyword arguments as listed):`,
+	javascript: "Custom tools (one object argument with the listed keys; every call returns a Promise):"}
+
+var guideToolsRule = guideLine{starlark: `- tools.<name> calls run outside the runtime in the agent's own executor. Pass keyword arguments matching the listed schema; a call returns the tool's JSON result, or a handle with a preview when the result is large. A failed, cancelled, or timed-out call raises an error like any host call; the tool may already have had its effect.`,
+	javascript: "- tools.<name> calls run outside the runtime in the agent's own executor. Pass one object matching the listed schema; a call resolves to the tool's JSON result, or a handle with a preview when the result is large. A failed, cancelled, or timed-out call rejects like any host call; the tool may already have had its effect."}
+
 var guideCatalog = []guideLine{
 	{modules: []string{"context"}, starlark: `- context.inspect(), context.history(after_seq=0, limit=20), context.history(seq=N, field="content", offset=0, length=8192), context.search(query="..."); without a handle these access your own raw history. Explicit content: context.inspect(handle="..."), context.search(handle="...", query="..."), context.read(handle="...", offset=0, length=8192)`},
 	{modules: []string{"files"}, starlark: `- files.list(path="."), files.search(path=".", query="..."), files.read(path="..."), files.write(path="...", content="..."), files.patch(path="...", old="...", new="...")`},

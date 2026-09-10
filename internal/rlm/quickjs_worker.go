@@ -19,10 +19,10 @@ import (
 const maxOutstandingCalls = 16
 const maxQuickJSJobs = 100000
 
-func runQuickJSWorker(input io.Reader, output io.Writer, limits Limits, modules []string) error {
+func runQuickJSWorker(input io.Reader, output io.Writer, limits Limits, modules, tools []string) error {
 	ctx := context.Background() // The supervisor owns the subprocess lifetime.
 	allowed := make([]string, 0)
-	for module, operations := range selectedOperations(modules) {
+	for module, operations := range selectedOperations(modules, tools) {
 		for _, operation := range operations {
 			allowed = append(allowed, module+"."+operation)
 		}

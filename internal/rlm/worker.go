@@ -59,10 +59,15 @@ func workerMain(args []string, input io.Reader, output io.Writer, limitMemory fu
 	outputBytes := fs.Int("output-bytes", defaultOutputBytes, "maximum captured cell output")
 	frameBytes := fs.Int("frame-bytes", defaultFrameBytes, "maximum protocol frame")
 	moduleList := fs.String("modules", "", "comma-separated host modules to install; empty installs every module")
+	toolList := fs.String("tools", "", "comma-separated custom tool names installed as the tools module; empty installs none")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	modules, err := selectedModules(*moduleList)
+	if err != nil {
+		return err
+	}
+	tools, err := selectedTools(*toolList)
 	if err != nil {
 		return err
 	}
@@ -80,15 +85,31 @@ func workerMain(args []string, input io.Reader, output io.Writer, limitMemory fu
 		return fmt.Errorf("apply RLM memory limit: %w", err)
 	}
 	if descriptor.ID == EngineQuickJS {
-		return runQuickJSWorker(input, output, Limits{Wall: time.Duration(*wallNanos), Steps: *steps, HostRequests: *hostRequests, MemoryBytes: *memoryBytes, OutputBytes: *outputBytes, FrameBytes: *frameBytes}, modules)
+		return runQuickJSWorker(input, output, Limits{Wall: time.Duration(*wallNanos), Steps: *steps, HostRequests: *hostRequests, MemoryBytes: *memoryBytes, OutputBytes: *outputBytes, FrameBytes: *frameBytes}, modules, tools)
 	}
 	worker := worker{
 		input: bufio.NewReaderSize(input, min(*frameBytes, 64<<10)), output: output,
 		steps: *steps, hostRequests: *hostRequests, outputBytes: *outputBytes, frameBytes: *frameBytes,
 		globals: make(starlark.StringDict), modules: make(starlark.StringDict),
 	}
-	worker.installModules(modules)
+	worker.installModules(modules, tools)
 	return worker.run()
+}
+
+// selectedTools parses the -tools flag into the reserved tools module's
+// operation names. Empty installs no tools module at all.
+func selectedTools(list string) ([]string, error) {
+	if strings.TrimSpace(list) == "" {
+		return nil, nil
+	}
+	tools := strings.Split(list, ",")
+	for i := range tools {
+		tools[i] = strings.TrimSpace(tools[i])
+	}
+	if err := validateTools(tools); err != nil {
+		return nil, err
+	}
+	return tools, nil
 }
 
 // selectedModules parses the -modules flag. Empty means every registered
@@ -108,15 +129,19 @@ func selectedModules(list string) ([]string, error) {
 	return modules, nil
 }
 
-// selectedOperations returns the registry restricted to the selected modules;
-// nil selects everything.
-func selectedOperations(modules []string) map[string][]string {
-	if modules == nil {
-		return Modules()
+// selectedOperations returns the registry restricted to the selected modules
+// (nil selects everything) plus the reserved tools module when any tool names
+// were given.
+func selectedOperations(modules, tools []string) map[string][]string {
+	result := Modules()
+	if modules != nil {
+		result = make(map[string][]string, len(modules)+1)
+		for _, module := range modules {
+			result[module] = append([]string(nil), moduleRegistry[module]...)
+		}
 	}
-	result := make(map[string][]string, len(modules))
-	for _, module := range modules {
-		result[module] = append([]string(nil), moduleRegistry[module]...)
+	if len(tools) > 0 {
+		result[ToolsModule] = append([]string(nil), tools...)
 	}
 	return result
 }
@@ -124,6 +149,7 @@ func selectedOperations(modules []string) map[string][]string {
 type worker struct {
 	input        *bufio.Reader
 	output       io.Writer
+	tools        []string
 	steps        uint64
 	hostRequests int
 	outputBytes  int
@@ -158,12 +184,13 @@ var stdlibModules = starlark.StringDict{
 // installModules binds the local library modules and the selected host
 // modules. An unselected host module has no binding at all, so the model sees
 // the same world its prompt catalog described.
-func (w *worker) installModules(selected []string) {
+func (w *worker) installModules(selected, tools []string) {
+	w.tools = append([]string(nil), tools...)
 	for name, module := range stdlibModules {
 		w.modules[name] = module
 		w.globals[name] = module
 	}
-	for module, operations := range selectedOperations(selected) {
+	for module, operations := range selectedOperations(selected, tools) {
 		members := make(starlark.StringDict, len(operations))
 		for _, operation := range operations {
 			members[operation] = starlark.NewBuiltin(module+"."+operation, func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -334,7 +361,7 @@ func (w *worker) hostCall(module, operation string, arguments map[string]any) (s
 	if w.restoring {
 		return nil, errors.New("host calls are unavailable while scratch is restored")
 	}
-	if err := validateModuleOperation(module, operation); err != nil {
+	if err := validateHostOperation(module, operation, w.tools); err != nil {
 		return nil, err
 	}
 	w.requests++

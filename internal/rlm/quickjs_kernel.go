@@ -119,7 +119,7 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, code string) (Resul
 				if len(pending) >= maxOutstandingCalls || len(seen) >= kernel.limits.HostRequests {
 					return fail(errors.New("QuickJS host request limit exceeded"))
 				}
-				if err := validateModuleOperation(response.Module, response.Operation); err != nil {
+				if err := validateHostOperation(response.Module, response.Operation, kernel.tools); err != nil {
 					return fail(err)
 				}
 				seen[response.ID], pending[response.ID] = true, true

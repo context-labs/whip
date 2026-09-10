@@ -35,7 +35,7 @@ func TestFocusedHistoryBoundsSummaryAndRecentExchanges(t *testing.T) {
 }
 
 func TestRuntimeGuideReferencesHandleWithoutInliningCorpus(t *testing.T) {
-	prompt, err := RuntimeGuide(EngineStarlark, ModuleNames(), "/workspace", &ContextHandle{ReferenceID: "ref-history", Size: 1 << 20, Source: "history"})
+	prompt, err := RuntimeGuide(EngineStarlark, ModuleNames(), nil, "/workspace", &ContextHandle{ReferenceID: "ref-history", Size: 1 << 20, Source: "history"})
 	if err != nil {
 		t.Fatal(err)
 	}

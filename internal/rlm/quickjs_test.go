@@ -402,7 +402,7 @@ func TestEngineDescriptorsAndJavaScriptGuide(t *testing.T) {
 	if _, err := ResolveEngine("node"); err == nil {
 		t.Fatal("unbundled engine accepted")
 	}
-	guide, err := RuntimeGuide(EngineQuickJS, ModuleNames(), "/workspace", nil)
+	guide, err := RuntimeGuide(EngineQuickJS, ModuleNames(), nil, "/workspace", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
