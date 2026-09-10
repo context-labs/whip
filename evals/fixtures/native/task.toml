@@ -1,0 +1,16 @@
+version = "1.0"
+artifacts = ["/logs/artifacts/model.patch", "/logs/artifacts/service-proof.txt"]
+[metadata]
+name = "whip-native-qualification"
+[agent]
+timeout_sec = 120
+[verifier]
+timeout_sec = 60
+[[verifier.collect]]
+command = "mkdir -p /logs/artifacts && curl --fail --max-time 10 http://127.0.0.1:8765/proof.txt > /logs/artifacts/service-proof.txt && cd /app && git diff --binary $(git rev-list --max-parents=0 HEAD) HEAD > /logs/artifacts/model.patch"
+timeout_sec = 30
+[environment]
+build_timeout_sec = 300
+cpus = 2
+memory_mb = 2048
+storage_mb = 10240

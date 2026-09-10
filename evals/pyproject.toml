@@ -1,0 +1,17 @@
+[project]
+name = "whip-evals"
+version = "0.1.0"
+description = "Reproducible Frontier task evaluations for Whip"
+requires-python = ">=3.12"
+dependencies = ["harbor==0.22.0", "datacurve-pier==0.3.1"]
+
+[project.scripts]
+whip-eval = "whip_evals.cli:main"
+
+[build-system]
+requires = ["setuptools>=77,<83"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["whip_evals"]
+

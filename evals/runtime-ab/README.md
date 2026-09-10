@@ -1,5 +1,11 @@
 # Starlark / QuickJS evaluation
 
+For new evaluations, use the [canonical evaluation workflow](../README.md).
+This directory retains the historical studies, preregistrations, evidence and
+tests. Shared adapter/observer modules now import `evals/whip_evals`; exact
+historical reproduction uses each study's already frozen source and binary.
+Current compatibility entry points are not an untouched historical harness.
+
 This runs the actual Whip daemon, recursive agents, worker subprocesses, host
 tools, accounting, and checkpoint storage against `kimi-k3` on
 `https://api.inference.net/v1`, using Harbor 0.22.0 and Pier 0.3.1. It is a local

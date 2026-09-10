@@ -364,3 +364,4 @@ normal Git provenance checks and reject artifacts using that local override.
 - [Agent loop](docs/agent-loop.md)
 - [Concurrency and ownership](docs/concurrency.md)
 - [Feature map](docs/features.md)
+- [Evaluations](evals/README.md) — fixed Smoke/Medium/Full Frontier profiles, paired runs, reports and accepted baselines

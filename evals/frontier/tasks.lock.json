@@ -1,0 +1,2930 @@
+{
+  "benchmark_revision": "e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63",
+  "schema_version": 1,
+  "sources": {
+    "deepswe": {
+      "revision": "435ee89ec2f2e2289f33b0da4f992f0b7b7266b9",
+      "sha256": "34c6fabd3dad1770d753829378a81c3d8bb658ff255de9f01f3606e213cd2b46",
+      "url": "https://codeload.github.com/datacurve-ai/deep-swe/tar.gz/435ee89ec2f2e2289f33b0da4f992f0b7b7266b9"
+    },
+    "terminal": {
+      "revision": "69671fbaac6d67a7ef0dfec016cc38a64ef7a77c",
+      "sha256": "afcd2b9813fc08e8d2b955db8165cc057acf0e37f74e55d26fc2506da196cebe",
+      "url": "https://codeload.github.com/laude-institute/terminal-bench-2/tar.gz/69671fbaac6d67a7ef0dfec016cc38a64ef7a77c"
+    }
+  },
+  "tasks": [
+    {
+      "agent_seconds": 5400,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "public.ecr.aws/x8v8d7g8/mars-base:latest": "public.ecr.aws/x8v8d7g8/mars-base@sha256:9c024d5dc46f32cee946353232ef99d8f714841ed08bba9b8fb9bb237c77f1ba"
+        },
+        "tests/Dockerfile": {
+          "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh79betfed7ets4an20cr4j57182y9wt-v1.1": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:4fb704fd8dff600f6d028c20ae4aca5e1261968bb615bb41c01a111dd371255b"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "167c90098edde010922af29a44456c905d91e5d61be1c5411cd99e828a24419e"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "96c0c7ad98237d6176034c8893d8bff164ec5fda45889e51780a65cf599ffcfe"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "fe4d7ac08dba587fd24eb3eb202cf794f5254ca8dff1b3ddae9fae75b5f7075b"
+        },
+        "tests/Dockerfile": {
+          "mode": 436,
+          "sha256": "e5c7d7da5f841382ec5187fefb132a804c83b3c44623c38ca9ddaf5493200cf9"
+        },
+        "tests/config.json": {
+          "mode": 436,
+          "sha256": "0f11e7c3d5aec8fbfe3e431d246e1b7b8a0ebf2326d7feafa39f389e248ebe48"
+        },
+        "tests/grader.py": {
+          "mode": 436,
+          "sha256": "47cc9eaadf21e636323c360ec4fa786f0733ec9fd1d21ea5a5717ff9f8c4077c"
+        },
+        "tests/test.patch": {
+          "mode": 436,
+          "sha256": "91aa103ce3d2a7978588a19aa33e6dbbb95f418fd5fc1e2d21bd40a376b5078a"
+        },
+        "tests/test.sh": {
+          "mode": 509,
+          "sha256": "3c022205d73128934751dbddac8136f25e8fa6b436243557730742f5186dda01"
+        }
+      },
+      "id": "datacurve/anko-typed-variable-bindings",
+      "image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:4fb704fd8dff600f6d028c20ae4aca5e1261968bb615bb41c01a111dd371255b",
+      "image_tag": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh79betfed7ets4an20cr4j57182y9wt-v1.1",
+      "native": {
+        "agent": {
+          "network_mode": "no-network",
+          "timeout_sec": 5400.0
+        },
+        "artifacts": [
+          "/logs/artifacts/model.patch"
+        ],
+        "environment": {
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh79betfed7ets4an20cr4j57182y9wt-v1.1",
+          "env": {},
+          "gpus": 0,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "os": "linux",
+          "storage_mb": 20480
+        },
+        "metadata": {
+          "base_commit_hash": "3f269a72ff69398b1250c584171f32d12c0d8085",
+          "category": "feature_request",
+          "display_description": "Add typed `var` declarations in Anko and enforce declared type constraints on assignment when TypedBindings is enabled.",
+          "display_title": "Add typed variable bindings to Anko",
+          "ext_id": "kh79betfed7ets4an20cr4j57182y9wt",
+          "language": "go",
+          "original_title": "Typed Variable Bindings",
+          "repository_url": "https://github.com/mattn/anko",
+          "task_id": "anko-typed-variable-bindings"
+        },
+        "schema_version": "1.3",
+        "solution": {
+          "env": {}
+        },
+        "task": {
+          "authors": [],
+          "description": "",
+          "keywords": [],
+          "name": "datacurve/anko-typed-variable-bindings"
+        },
+        "verifier": {
+          "collect": [
+            {
+              "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 3f269a72ff69398b1250c584171f32d12c0d8085 HEAD > /logs/artifacts/model.patch",
+              "timeout_sec": 300.0
+            }
+          ],
+          "env": {},
+          "environment": {
+            "build_timeout_sec": 1800.0,
+            "cpus": 2,
+            "memory_mb": 8192,
+            "storage_mb": 20480
+          },
+          "environment_mode": "separate",
+          "network_mode": "no-network",
+          "timeout_sec": 1800.0
+        }
+      },
+      "overlays": [],
+      "path": "tasks/anko-typed-variable-bindings",
+      "published_metadata_sha256": "fe4d7ac08dba587fd24eb3eb202cf794f5254ca8dff1b3ddae9fae75b5f7075b",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/anko-typed-variable-bindings/task.toml",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "pier",
+      "source": "deepswe",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 5400,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "public.ecr.aws/x8v8d7g8/mars-base:latest": "public.ecr.aws/x8v8d7g8/mars-base@sha256:9c024d5dc46f32cee946353232ef99d8f714841ed08bba9b8fb9bb237c77f1ba"
+        },
+        "tests/Dockerfile": {
+          "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh771gpr8crkjsnt9pj81bafgs8229em-v1.1": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:e0b0410d828b816474cfb89a448c448f15cf7d617c3fbddfacd45a1c1b232ef9"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "58f595eaf14a7854f339073deadc9d28fcbff9455e21ac986d6fbd908bb2e36d"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "594fa84b95c92f69e949de2781107a3ff5b6131e889203fc4505f6f41a136ea3"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "4a33207a4f7616c82dc8ffc9347971b68edfd1311e5f1bdd62cdffbac1ad888c"
+        },
+        "tests/Dockerfile": {
+          "mode": 436,
+          "sha256": "5ce0997f410a98a34ba9a4db8d7bf4e43591dd935d49a2934899933b9ce4e485"
+        },
+        "tests/config.json": {
+          "mode": 436,
+          "sha256": "62ba14ca9fcc3b85ace2f26b1b3df885a0cb7ccdb1607d834df582be1f5c4c46"
+        },
+        "tests/grader.py": {
+          "mode": 436,
+          "sha256": "47cc9eaadf21e636323c360ec4fa786f0733ec9fd1d21ea5a5717ff9f8c4077c"
+        },
+        "tests/test.patch": {
+          "mode": 436,
+          "sha256": "2d79d38da986136779eeb69658b775fd380d32eb6ba27abac5d080714f47c92c"
+        },
+        "tests/test.sh": {
+          "mode": 509,
+          "sha256": "a529f019da4dfac1ae46dca104599c4489a52b70d71889486267a91e9df450f9"
+        }
+      },
+      "id": "datacurve/arktype-json-schema-refs-dependencies",
+      "image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:e0b0410d828b816474cfb89a448c448f15cf7d617c3fbddfacd45a1c1b232ef9",
+      "image_tag": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh771gpr8crkjsnt9pj81bafgs8229em-v1.1",
+      "native": {
+        "agent": {
+          "network_mode": "no-network",
+          "timeout_sec": 5400.0
+        },
+        "artifacts": [
+          "/logs/artifacts/model.patch"
+        ],
+        "environment": {
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh771gpr8crkjsnt9pj81bafgs8229em-v1.1",
+          "env": {},
+          "gpus": 0,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "os": "linux",
+          "storage_mb": 20480
+        },
+        "metadata": {
+          "base_commit_hash": "04355e8b26d1ad5264ef62314a2bc46c4de58ed8",
+          "category": "feature_request",
+          "display_description": "Add JSON Schema dependency keywords, local $defs/$ref resolution, and conditional schema handling.",
+          "display_title": "Add JSON Schema refs and dependency keywords",
+          "ext_id": "kh771gpr8crkjsnt9pj81bafgs8229em",
+          "language": "typescript",
+          "original_title": "Support JSON Schema dependency keywords + local `$defs`/`$ref` resolution",
+          "repository_url": "https://github.com/arktypeio/arktype",
+          "task_id": "arktype-json-schema-refs-dependencies"
+        },
+        "schema_version": "1.3",
+        "solution": {
+          "env": {}
+        },
+        "task": {
+          "authors": [],
+          "description": "",
+          "keywords": [],
+          "name": "datacurve/arktype-json-schema-refs-dependencies"
+        },
+        "verifier": {
+          "collect": [
+            {
+              "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 04355e8b26d1ad5264ef62314a2bc46c4de58ed8 HEAD > /logs/artifacts/model.patch",
+              "timeout_sec": 300.0
+            }
+          ],
+          "env": {},
+          "environment": {
+            "build_timeout_sec": 1800.0,
+            "cpus": 2,
+            "memory_mb": 8192,
+            "storage_mb": 20480
+          },
+          "environment_mode": "separate",
+          "network_mode": "no-network",
+          "timeout_sec": 1800.0
+        }
+      },
+      "overlays": [],
+      "path": "tasks/arktype-json-schema-refs-dependencies",
+      "published_metadata_sha256": "4a33207a4f7616c82dc8ffc9347971b68edfd1311e5f1bdd62cdffbac1ad888c",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/arktype-json-schema-refs-dependencies/task.toml",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "pier",
+      "source": "deepswe",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 5400,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "public.ecr.aws/x8v8d7g8/mars-base:latest": "public.ecr.aws/x8v8d7g8/mars-base@sha256:9c024d5dc46f32cee946353232ef99d8f714841ed08bba9b8fb9bb237c77f1ba"
+        },
+        "tests/Dockerfile": {
+          "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh71gkadwafw4ry4r6g37era0182qpms-v1.1": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:8fc7209012a27d12aeaa96f4bd30579442c2817c64bca45bf10e634950892486"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "002841e554f06f3e77cd28673deaa7b232e2ab518cf303727a21ba6ffdd37ef5"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "6f19f8363f75963c69072f03aa7515ffa304d6b726f85b09188760ae682e3447"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "b08f200770ad5601f2498d5f8136356dcf70e61b3ffa11486833033dff188a13"
+        },
+        "tests/Dockerfile": {
+          "mode": 436,
+          "sha256": "0a0e3016434f05f233f2af6215a2df509de25cdc8aa47f69d6f1625a03a92488"
+        },
+        "tests/config.json": {
+          "mode": 436,
+          "sha256": "91d9f4547c567e798644c3ad80016ad2745db3184df82440e8b93b9b6d163fd6"
+        },
+        "tests/grader.py": {
+          "mode": 436,
+          "sha256": "47cc9eaadf21e636323c360ec4fa786f0733ec9fd1d21ea5a5717ff9f8c4077c"
+        },
+        "tests/test.patch": {
+          "mode": 436,
+          "sha256": "4f3f19e8f52c0e10cf4fe194b7adbf84f59541576e2f557d0624ce9af5aa3eb7"
+        },
+        "tests/test.sh": {
+          "mode": 509,
+          "sha256": "2340ff25d99a8ced4acdfd1fa5e11dca45990265b58c37744f0fd96afd3521af"
+        }
+      },
+      "id": "datacurve/expr-try-catch-errors",
+      "image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:8fc7209012a27d12aeaa96f4bd30579442c2817c64bca45bf10e634950892486",
+      "image_tag": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh71gkadwafw4ry4r6g37era0182qpms-v1.1",
+      "native": {
+        "agent": {
+          "network_mode": "no-network",
+          "timeout_sec": 5400.0
+        },
+        "artifacts": [
+          "/logs/artifacts/model.patch"
+        ],
+        "environment": {
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh71gkadwafw4ry4r6g37era0182qpms-v1.1",
+          "env": {},
+          "gpus": 0,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "os": "linux",
+          "storage_mb": 20480
+        },
+        "metadata": {
+          "base_commit_hash": "851b241a301f7c74646e65e4009c69cf290993a8",
+          "category": "feature_request",
+          "display_description": "Add expression and block-level error recovery with try, catch, finally, throw, retry, and errtype.",
+          "display_title": "Add try/catch error recovery to expr",
+          "ext_id": "kh71gkadwafw4ry4r6g37era0182qpms",
+          "language": "go",
+          "original_title": "Try/Catch Error Recovery",
+          "repository_url": "https://github.com/expr-lang/expr",
+          "task_id": "expr-try-catch-errors"
+        },
+        "schema_version": "1.3",
+        "solution": {
+          "env": {}
+        },
+        "task": {
+          "authors": [],
+          "description": "",
+          "keywords": [],
+          "name": "datacurve/expr-try-catch-errors"
+        },
+        "verifier": {
+          "collect": [
+            {
+              "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 851b241a301f7c74646e65e4009c69cf290993a8 HEAD > /logs/artifacts/model.patch",
+              "timeout_sec": 300.0
+            }
+          ],
+          "env": {},
+          "environment": {
+            "build_timeout_sec": 1800.0,
+            "cpus": 2,
+            "memory_mb": 8192,
+            "storage_mb": 20480
+          },
+          "environment_mode": "separate",
+          "network_mode": "no-network",
+          "timeout_sec": 1800.0
+        }
+      },
+      "overlays": [],
+      "path": "tasks/expr-try-catch-errors",
+      "published_metadata_sha256": "40d63ce7c2bd884b41db28b3e5a31d09910116d8382faccf09315a43e19359e4",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/expr-try-catch-errors/task.toml",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "pier",
+      "source": "deepswe",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 5400,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "public.ecr.aws/x8v8d7g8/mars-base:latest": "public.ecr.aws/x8v8d7g8/mars-base@sha256:9c024d5dc46f32cee946353232ef99d8f714841ed08bba9b8fb9bb237c77f1ba"
+        },
+        "tests/Dockerfile": {
+          "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh75azsnb5eqs3mf4xm0zkzha582rvcd-v1.1": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:b8c599ce29c14f9e729b3bab32ab7c1d3278b42f98308e74d299bb15e36758c6"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "262992aa68ad90e32aab45aadb01c777c34a4dfde10c4523da70e5a9878ed633"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "b8e0cb43fe2850b2173c8b5e940d463345b96aed6a2b3e7c0c559deda468c568"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "478b37aa51570ba2ad5f644f82cbe4ea2110ee177e9fd9f06f76cb9630900d7f"
+        },
+        "tests/Dockerfile": {
+          "mode": 436,
+          "sha256": "a719057b36e6a9695e4cf44ad89b35402b13746719e3a1564b1356caef9d9709"
+        },
+        "tests/config.json": {
+          "mode": 436,
+          "sha256": "5efe6485b83827a1f6127ba54b36a6fbfc3f973ff352f953bf9115fb41df35d8"
+        },
+        "tests/grader.py": {
+          "mode": 436,
+          "sha256": "47cc9eaadf21e636323c360ec4fa786f0733ec9fd1d21ea5a5717ff9f8c4077c"
+        },
+        "tests/test.patch": {
+          "mode": 436,
+          "sha256": "029972f1d78ec9c9e9e38f9abe4c3bcc9801b73a9e1aa83d4d1dfd2e79ecc35e"
+        },
+        "tests/test.sh": {
+          "mode": 509,
+          "sha256": "48340b1ac95a07e08c6aff4f3ea4495d3e3265baba3262393316afe713504988"
+        }
+      },
+      "id": "datacurve/fastapi-deprecation-response-headers",
+      "image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:b8c599ce29c14f9e729b3bab32ab7c1d3278b42f98308e74d299bb15e36758c6",
+      "image_tag": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh75azsnb5eqs3mf4xm0zkzha582rvcd-v1.1",
+      "native": {
+        "agent": {
+          "network_mode": "no-network",
+          "timeout_sec": 5400.0
+        },
+        "artifacts": [
+          "/logs/artifacts/model.patch"
+        ],
+        "environment": {
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh75azsnb5eqs3mf4xm0zkzha582rvcd-v1.1",
+          "env": {},
+          "gpus": 0,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "os": "linux",
+          "storage_mb": 20480
+        },
+        "metadata": {
+          "base_commit_hash": "11614be9021aa4ac078d4d0693a8b5250a1010d8",
+          "category": "feature_request",
+          "display_description": "Add runtime Deprecation, Sunset, and Link headers plus OpenAPI metadata and tracking middleware for deprecated routes.",
+          "display_title": "Add deprecation, sunset, and successor headers to FastAPI routes",
+          "ext_id": "kh75azsnb5eqs3mf4xm0zkzha582rvcd",
+          "language": "python",
+          "original_title": "Deprecation & Sunset Response Headers for FastAPI Routes",
+          "repository_url": "https://github.com/fastapi/fastapi",
+          "task_id": "fastapi-deprecation-response-headers"
+        },
+        "schema_version": "1.3",
+        "solution": {
+          "env": {}
+        },
+        "task": {
+          "authors": [],
+          "description": "",
+          "keywords": [],
+          "name": "datacurve/fastapi-deprecation-response-headers"
+        },
+        "verifier": {
+          "collect": [
+            {
+              "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 11614be9021aa4ac078d4d0693a8b5250a1010d8 HEAD > /logs/artifacts/model.patch",
+              "timeout_sec": 300.0
+            }
+          ],
+          "env": {},
+          "environment": {
+            "build_timeout_sec": 1800.0,
+            "cpus": 2,
+            "memory_mb": 8192,
+            "storage_mb": 20480
+          },
+          "environment_mode": "separate",
+          "network_mode": "no-network",
+          "timeout_sec": 1800.0
+        }
+      },
+      "overlays": [],
+      "path": "tasks/fastapi-deprecation-response-headers",
+      "published_metadata_sha256": "478b37aa51570ba2ad5f644f82cbe4ea2110ee177e9fd9f06f76cb9630900d7f",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/fastapi-deprecation-response-headers/task.toml",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "pier",
+      "source": "deepswe",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 5400,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "public.ecr.aws/x8v8d7g8/mars-base:latest": "public.ecr.aws/x8v8d7g8/mars-base@sha256:9c024d5dc46f32cee946353232ef99d8f714841ed08bba9b8fb9bb237c77f1ba"
+        },
+        "tests/Dockerfile": {
+          "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh7fr6f1yw1289ye5ttsfvaqen8319dq-v1.1": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:47d0af14d988caa7d22b14312be2c3ee4e9ac799a5679bd83d19f298d346749d"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "aa71466fa6f71fab7fc6df1278377549c57a1d6b74bfd270a70005ce0fede297"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "6a9c3400a23ad61f43c6e6f5b2dfbe8f5a5af81061cc063fd9440f327c5a0fb5"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "479f31114ecd2c52e4fd31924723b3751c070263fcadf58c2527baddbae41e92"
+        },
+        "tests/Dockerfile": {
+          "mode": 436,
+          "sha256": "925c9b16416aa5b8f83e243e790da6bb90df7e6f12236b1792e7ed33c85d870c"
+        },
+        "tests/config.json": {
+          "mode": 436,
+          "sha256": "33734c0f6a77183d0c59aa5fc68f92c07fa9382846f968e284e82bba2f465b89"
+        },
+        "tests/grader.py": {
+          "mode": 436,
+          "sha256": "47cc9eaadf21e636323c360ec4fa786f0733ec9fd1d21ea5a5717ff9f8c4077c"
+        },
+        "tests/test.patch": {
+          "mode": 436,
+          "sha256": "a6b6512793b4102041ea3cb835efbc8ba61cba800e07453dffd66703e123262e"
+        },
+        "tests/test.sh": {
+          "mode": 509,
+          "sha256": "e39706afa8974f3a9949f2aa77012b37399578a647136bd065000f3273cbe719"
+        }
+      },
+      "id": "datacurve/httpx-multipart-response-parsing",
+      "image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:47d0af14d988caa7d22b14312be2c3ee4e9ac799a5679bd83d19f298d346749d",
+      "image_tag": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh7fr6f1yw1289ye5ttsfvaqen8319dq-v1.1",
+      "native": {
+        "agent": {
+          "network_mode": "no-network",
+          "timeout_sec": 5400.0
+        },
+        "artifacts": [
+          "/logs/artifacts/model.patch"
+        ],
+        "environment": {
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh7fr6f1yw1289ye5ttsfvaqen8319dq-v1.1",
+          "env": {},
+          "gpus": 0,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "os": "linux",
+          "storage_mb": 20480
+        },
+        "metadata": {
+          "base_commit_hash": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+          "category": "feature_request",
+          "display_description": "Add Response iterators that parse multipart HTTP response bodies into parts.",
+          "display_title": "Add multipart response parsing to HTTPX",
+          "ext_id": "kh7fr6f1yw1289ye5ttsfvaqen8319dq",
+          "language": "python",
+          "original_title": "Multipart response parsing",
+          "repository_url": "https://github.com/encode/httpx",
+          "task_id": "httpx-multipart-response-parsing"
+        },
+        "schema_version": "1.3",
+        "solution": {
+          "env": {}
+        },
+        "task": {
+          "authors": [],
+          "description": "",
+          "keywords": [],
+          "name": "datacurve/httpx-multipart-response-parsing"
+        },
+        "verifier": {
+          "collect": [
+            {
+              "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary b5addb64f0161ff6bfe94c124ef76f6a1fba5254 HEAD > /logs/artifacts/model.patch",
+              "timeout_sec": 300.0
+            }
+          ],
+          "env": {},
+          "environment": {
+            "build_timeout_sec": 1800.0,
+            "cpus": 2,
+            "memory_mb": 8192,
+            "storage_mb": 20480
+          },
+          "environment_mode": "separate",
+          "network_mode": "no-network",
+          "timeout_sec": 1800.0
+        }
+      },
+      "overlays": [],
+      "path": "tasks/httpx-multipart-response-parsing",
+      "published_metadata_sha256": "ef006507a07c46861949c763b972665fe54c3be321da61685decda7fd5a67e59",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/httpx-multipart-response-parsing/task.toml",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "pier",
+      "source": "deepswe",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 5400,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "public.ecr.aws/x8v8d7g8/mars-base:latest": "public.ecr.aws/x8v8d7g8/mars-base@sha256:9c024d5dc46f32cee946353232ef99d8f714841ed08bba9b8fb9bb237c77f1ba"
+        },
+        "tests/Dockerfile": {
+          "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh7fkjmy67qny9z98mt6bj52m182ygdy-v1.1": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:459b6d4c5f8d45218b25d0837a88d91052d0fb066c21b8bc2939290c4876b3ae"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "6a55c5b3d5d354503dc38b75d50bdc754b917bcd29da1a70c1552dd98745db47"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "54e5a648f5c2151a57f895d5ea4d814f44cca52daa5e58a198877f398ace28f1"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "9e54bce5f8a55bed57db89f092dd4a0eaa2230ce4fbd7b35159e61efe08a805e"
+        },
+        "tests/Dockerfile": {
+          "mode": 436,
+          "sha256": "0274ff3beb685b126ae383feddc61a44601c7392a35adfd719ed585e69533058"
+        },
+        "tests/config.json": {
+          "mode": 436,
+          "sha256": "ec1a2fd78e14224482b9d4ee6857a0a58117bb0bbf87a0dcefb6383a95e0c6c1"
+        },
+        "tests/grader.py": {
+          "mode": 436,
+          "sha256": "47cc9eaadf21e636323c360ec4fa786f0733ec9fd1d21ea5a5717ff9f8c4077c"
+        },
+        "tests/test.patch": {
+          "mode": 436,
+          "sha256": "9a45f15ab7b2f1737aa4ebb05c532d85189f759a649b849fe147e9e61377de9b"
+        },
+        "tests/test.sh": {
+          "mode": 509,
+          "sha256": "487f01bcc81d69b492c6cb6c18e3e2d078ab739b3a4c37cdaff4fb4366de93a2"
+        }
+      },
+      "id": "datacurve/katex-multicolumn-array-spans",
+      "image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:459b6d4c5f8d45218b25d0837a88d91052d0fb066c21b8bc2939290c4876b3ae",
+      "image_tag": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh7fkjmy67qny9z98mt6bj52m182ygdy-v1.1",
+      "native": {
+        "agent": {
+          "network_mode": "no-network",
+          "timeout_sec": 5400.0
+        },
+        "artifacts": [
+          "/logs/artifacts/model.patch"
+        ],
+        "environment": {
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh7fkjmy67qny9z98mt6bj52m182ygdy-v1.1",
+          "env": {},
+          "gpus": 0,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "os": "linux",
+          "storage_mb": 20480
+        },
+        "metadata": {
+          "base_commit_hash": "89bede495dc2c85e1c57ba627a18526f71d57396",
+          "category": "feature_request",
+          "display_description": "Add `\\multicolumn` parsing and rendering for array-like environments with span-aware alignment and errors.",
+          "display_title": "Add `\\multicolumn` column spans to array-like environments",
+          "ext_id": "kh7fkjmy67qny9z98mt6bj52m182ygdy",
+          "language": "javascript",
+          "original_title": "Add \\multicolumn support for array environments",
+          "repository_url": "https://github.com/KaTeX/KaTeX",
+          "task_id": "katex-multicolumn-array-spans"
+        },
+        "schema_version": "1.3",
+        "solution": {
+          "env": {}
+        },
+        "task": {
+          "authors": [],
+          "description": "",
+          "keywords": [],
+          "name": "datacurve/katex-multicolumn-array-spans"
+        },
+        "verifier": {
+          "collect": [
+            {
+              "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 89bede495dc2c85e1c57ba627a18526f71d57396 HEAD > /logs/artifacts/model.patch",
+              "timeout_sec": 300.0
+            }
+          ],
+          "env": {},
+          "environment": {
+            "build_timeout_sec": 1800.0,
+            "cpus": 2,
+            "memory_mb": 8192,
+            "storage_mb": 20480
+          },
+          "environment_mode": "separate",
+          "network_mode": "no-network",
+          "timeout_sec": 1800.0
+        }
+      },
+      "overlays": [],
+      "path": "tasks/katex-multicolumn-array-spans",
+      "published_metadata_sha256": "9e54bce5f8a55bed57db89f092dd4a0eaa2230ce4fbd7b35159e61efe08a805e",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/katex-multicolumn-array-spans/task.toml",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "pier",
+      "source": "deepswe",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 5400,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "public.ecr.aws/x8v8d7g8/mars-base:latest": "public.ecr.aws/x8v8d7g8/mars-base@sha256:9c024d5dc46f32cee946353232ef99d8f714841ed08bba9b8fb9bb237c77f1ba"
+        },
+        "tests/Dockerfile": {
+          "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh7398skqnxqwg9hbmdj7ncmk1822aa0-v1.1": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:43ce618452b29610b682ea77e384dcb8c57308957a7eb65734a47d76a7ff47dc"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "8e3dccc5e0a57da2fde8036cc6747b25f2f502bb5db9fecbbe339b2fcdbfb9b5"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "a85dfeb98a4203f9eb7392f918543fab27d83f344a92d290454aedc145c7b5f7"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "13c080a34b5a8c2d423b0c31459b77d45ad8d1f4e0d0c6492e5960ed1b251b91"
+        },
+        "tests/Dockerfile": {
+          "mode": 436,
+          "sha256": "c0acd01d13712e67e8b6b29e9a777bbaf782674b263f0b438ab9a31a776c7cea"
+        },
+        "tests/config.json": {
+          "mode": 436,
+          "sha256": "3c3f0aa5fead486cf8e4e96882db3e930c8023ef4b289eae19a923bde3638d0f"
+        },
+        "tests/grader.py": {
+          "mode": 436,
+          "sha256": "47cc9eaadf21e636323c360ec4fa786f0733ec9fd1d21ea5a5717ff9f8c4077c"
+        },
+        "tests/test.patch": {
+          "mode": 436,
+          "sha256": "295fa1d4bb16409303a13b5252641b439cb4e3e19c65fade6341c01a00581395"
+        },
+        "tests/test.sh": {
+          "mode": 509,
+          "sha256": "2541c912d82661288d00d9c396b59d766fa84876a659662d58ba7043306571c3"
+        }
+      },
+      "id": "datacurve/meriyah-explicit-resource-declarations",
+      "image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:43ce618452b29610b682ea77e384dcb8c57308957a7eb65734a47d76a7ff47dc",
+      "image_tag": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh7398skqnxqwg9hbmdj7ncmk1822aa0-v1.1",
+      "native": {
+        "agent": {
+          "network_mode": "no-network",
+          "timeout_sec": 5400.0
+        },
+        "artifacts": [
+          "/logs/artifacts/model.patch"
+        ],
+        "environment": {
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh7398skqnxqwg9hbmdj7ncmk1822aa0-v1.1",
+          "env": {},
+          "gpus": 0,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "os": "linux",
+          "storage_mb": 20480
+        },
+        "metadata": {
+          "base_commit_hash": "d141eb14a40b79c04d1b1db5c20c6afa3844c0d9",
+          "category": "feature_request",
+          "display_description": "Add parsing and AST support for `using` and `await using` declarations, including context-sensitive errors.",
+          "display_title": "Add explicit resource management declarations to the parser",
+          "ext_id": "kh7398skqnxqwg9hbmdj7ncmk1822aa0",
+          "language": "typescript",
+          "original_title": "# Explicit Resource Management Declarations",
+          "repository_url": "https://github.com/meriyah/meriyah",
+          "task_id": "meriyah-explicit-resource-declarations"
+        },
+        "schema_version": "1.3",
+        "solution": {
+          "env": {}
+        },
+        "task": {
+          "authors": [],
+          "description": "",
+          "keywords": [],
+          "name": "datacurve/meriyah-explicit-resource-declarations"
+        },
+        "verifier": {
+          "collect": [
+            {
+              "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary d141eb14a40b79c04d1b1db5c20c6afa3844c0d9 HEAD > /logs/artifacts/model.patch",
+              "timeout_sec": 300.0
+            }
+          ],
+          "env": {},
+          "environment": {
+            "build_timeout_sec": 1800.0,
+            "cpus": 2,
+            "memory_mb": 8192,
+            "storage_mb": 20480
+          },
+          "environment_mode": "separate",
+          "network_mode": "no-network",
+          "timeout_sec": 1800.0
+        }
+      },
+      "overlays": [],
+      "path": "tasks/meriyah-explicit-resource-declarations",
+      "published_metadata_sha256": "13c080a34b5a8c2d423b0c31459b77d45ad8d1f4e0d0c6492e5960ed1b251b91",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/meriyah-explicit-resource-declarations/task.toml",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "pier",
+      "source": "deepswe",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 5400,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "public.ecr.aws/x8v8d7g8/mars-base:latest": "public.ecr.aws/x8v8d7g8/mars-base@sha256:9c024d5dc46f32cee946353232ef99d8f714841ed08bba9b8fb9bb237c77f1ba"
+        },
+        "tests/Dockerfile": {
+          "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh719np6e210pf8skawv132rw183pfyy-v1.1": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:06309d9ef75ee48bc5aa98258af57a6d102057983871513b5de91d6a9ead0f9a"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "7d5dd81c0197acefd46e9bc21d05c6e637726d28c245e8b61b1d474e3345ad16"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "17e0781f9837bebd7304d5f1594dbf7de9a147a3ba8f03111e005f8376b3126a"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "25d882b9179d4c0b0acd813d832094549c9b5aa637ba2883978dbe751a523ba5"
+        },
+        "tests/Dockerfile": {
+          "mode": 436,
+          "sha256": "f7c574cf212a62954cd96de929254e567263b90cdd3e87482e049a016be71c0c"
+        },
+        "tests/config.json": {
+          "mode": 436,
+          "sha256": "1e80a71d50ca26e61d859d2593af7fd7e1018dc0dd09dc884256ebaa2c01573d"
+        },
+        "tests/grader.py": {
+          "mode": 436,
+          "sha256": "47cc9eaadf21e636323c360ec4fa786f0733ec9fd1d21ea5a5717ff9f8c4077c"
+        },
+        "tests/test.patch": {
+          "mode": 436,
+          "sha256": "fcf7628db832d77da0f31fb287d5f016e27c02550ca54aa6fd19c9aa4d8bf0ec"
+        },
+        "tests/test.sh": {
+          "mode": 509,
+          "sha256": "862042ae6ce0f2d7683bb6f6f8d8e1b40dfaee4f63b250b6c08b1d64dd4130dc"
+        }
+      },
+      "id": "datacurve/python-statemachine-state-data-scoping",
+      "image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:06309d9ef75ee48bc5aa98258af57a6d102057983871513b5de91d6a9ead0f9a",
+      "image_tag": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh719np6e210pf8skawv132rw183pfyy-v1.1",
+      "native": {
+        "agent": {
+          "network_mode": "no-network",
+          "timeout_sec": 5400.0
+        },
+        "artifacts": [
+          "/logs/artifacts/model.patch"
+        ],
+        "environment": {
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh719np6e210pf8skawv132rw183pfyy-v1.1",
+          "env": {},
+          "gpus": 0,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "os": "linux",
+          "storage_mb": 20480
+        },
+        "metadata": {
+          "base_commit_hash": "8d17ba9f6ba8420cf05fddb94013bc221ed9a222",
+          "category": "feature_request",
+          "display_description": "Add per-state scoped data ownership with lifecycle resets, callback injection, history restoration, and validation.",
+          "display_title": "Add scoped state data to state machine callbacks and history",
+          "ext_id": "kh719np6e210pf8skawv132rw183pfyy",
+          "language": "python",
+          "original_title": "State-Scoped Data Model",
+          "repository_url": "https://github.com/fgmacedo/python-statemachine",
+          "task_id": "python-statemachine-state-data-scoping"
+        },
+        "schema_version": "1.3",
+        "solution": {
+          "env": {}
+        },
+        "task": {
+          "authors": [],
+          "description": "",
+          "keywords": [],
+          "name": "datacurve/python-statemachine-state-data-scoping"
+        },
+        "verifier": {
+          "collect": [
+            {
+              "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary 8d17ba9f6ba8420cf05fddb94013bc221ed9a222 HEAD > /logs/artifacts/model.patch",
+              "timeout_sec": 300.0
+            }
+          ],
+          "env": {},
+          "environment": {
+            "build_timeout_sec": 1800.0,
+            "cpus": 2,
+            "memory_mb": 8192,
+            "storage_mb": 20480
+          },
+          "environment_mode": "separate",
+          "network_mode": "no-network",
+          "timeout_sec": 1800.0
+        }
+      },
+      "overlays": [],
+      "path": "tasks/python-statemachine-state-data-scoping",
+      "published_metadata_sha256": "3038ae02e224ba3f2ae11f3ce39b9dca57ac429fa6b7ba0dcf26e24c041ac6d8",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/python-statemachine-state-data-scoping/task.toml",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "pier",
+      "source": "deepswe",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 5400,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "public.ecr.aws/x8v8d7g8/mars-base:latest": "public.ecr.aws/x8v8d7g8/mars-base@sha256:9c024d5dc46f32cee946353232ef99d8f714841ed08bba9b8fb9bb237c77f1ba"
+        },
+        "tests/Dockerfile": {
+          "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh71j0gr2axgn6v1f92cam6s6x82rkv6-v1.1": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:483e18c744ab845e5c776f514d4bc27f7e3ff66494f14f20173c73b065bc6f62"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "5003fa7a006fb18f4f563edc6f0ca514a0b141497cb2c1c0ae750a2f199c32ef"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "fc99a21974fa57940e3ff7e9eb81c31b06728cbc39177faf5500667cd51a816e"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "ca2b6454417491bb298a26a466c8388558e883dc3ac8497aae12a002170cfa35"
+        },
+        "tests/Dockerfile": {
+          "mode": 436,
+          "sha256": "3d4c1fba85e1bc64d3a412f20eb4534cb47854d892b6786c48fd0ff63bbffeb8"
+        },
+        "tests/config.json": {
+          "mode": 436,
+          "sha256": "b8db15513d3a79790bc28c1a8ffc76e713162613d242deddf87d9c53970495e3"
+        },
+        "tests/grader.py": {
+          "mode": 436,
+          "sha256": "47cc9eaadf21e636323c360ec4fa786f0733ec9fd1d21ea5a5717ff9f8c4077c"
+        },
+        "tests/test.patch": {
+          "mode": 436,
+          "sha256": "4c945a497090002daadb33c6ceca8b5e0cdee41ec5fe93a991e172dad5cc560a"
+        },
+        "tests/test.sh": {
+          "mode": 509,
+          "sha256": "ec3e9327826cbf84ac01c69dee5f0dbc4e622e5a3c948b92bac569da753cf723"
+        }
+      },
+      "id": "datacurve/scc-bounded-memory-spilling",
+      "image": "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:483e18c744ab845e5c776f514d4bc27f7e3ff66494f14f20173c73b065bc6f62",
+      "image_tag": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh71j0gr2axgn6v1f92cam6s6x82rkv6-v1.1",
+      "native": {
+        "agent": {
+          "network_mode": "no-network",
+          "timeout_sec": 5400.0
+        },
+        "artifacts": [
+          "/logs/artifacts/model.patch"
+        ],
+        "environment": {
+          "build_timeout_sec": 1800.0,
+          "cpus": 2,
+          "docker_image": "public.ecr.aws/d3j8x8q7/swe-bench-202605:kh71j0gr2axgn6v1f92cam6s6x82rkv6-v1.1",
+          "env": {},
+          "gpus": 0,
+          "mcp_servers": [],
+          "memory_mb": 8192,
+          "os": "linux",
+          "storage_mb": 20480
+        },
+        "metadata": {
+          "base_commit_hash": "bc2796e01998ebc2d40818323f93113aed2542ea",
+          "category": "feature_request",
+          "display_description": "Add an opt-in bounded-memory mode that spills per-file aggregation results to disk without changing output.",
+          "display_title": "Add bounded-memory spilling to SCC aggregation",
+          "ext_id": "kh71j0gr2axgn6v1f92cam6s6x82rkv6",
+          "language": "go",
+          "original_title": "Bounded-memory aggregation pipeline",
+          "repository_url": "https://github.com/boyter/scc.git",
+          "task_id": "scc-bounded-memory-spilling"
+        },
+        "schema_version": "1.3",
+        "solution": {
+          "env": {}
+        },
+        "task": {
+          "authors": [],
+          "description": "",
+          "keywords": [],
+          "name": "datacurve/scc-bounded-memory-spilling"
+        },
+        "verifier": {
+          "collect": [
+            {
+              "command": "cd /app && mkdir -p /logs/artifacts && git config --global --add safe.directory /app && git diff --binary bc2796e01998ebc2d40818323f93113aed2542ea HEAD > /logs/artifacts/model.patch",
+              "timeout_sec": 300.0
+            }
+          ],
+          "env": {},
+          "environment": {
+            "build_timeout_sec": 1800.0,
+            "cpus": 2,
+            "memory_mb": 8192,
+            "storage_mb": 20480
+          },
+          "environment_mode": "separate",
+          "network_mode": "no-network",
+          "timeout_sec": 1800.0
+        }
+      },
+      "overlays": [],
+      "path": "tasks/scc-bounded-memory-spilling",
+      "published_metadata_sha256": "ca2b6454417491bb298a26a466c8388558e883dc3ac8497aae12a002170cfa35",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/scc-bounded-memory-spilling/task.toml",
+      "resources": {
+        "cpus": 4,
+        "memory_mb": 16384,
+        "storage_mb": 40960
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "pier",
+      "source": "deepswe",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "cb6cf421cb9b69d43bd25cd491e49bda982fbb865d47515178d017eda727194e"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "7e52874e45f88505bd21540229719de6639a401477557d814489981d472f0e34"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "eb6bfabb7b75243c3f4d127a10c4c349d44e7e5b7bffb428edebd467adc43843"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "0156c9c4085258b696ce424cf1ce96cba44d1263c5d73bdf54083fd80237f915"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "6549f1a8e04b6163ec08877e6f6b9868bf94563f3a3c72ac1fba9c512c31689e"
+        }
+      },
+      "id": "terminal-bench/build-cython-ext",
+      "image": "alexgshaw/build-cython-ext@sha256:3612a38fadb89a96f74a1a951fb0b0af734198fd160571eeaba6401593234594",
+      "image_tag": "alexgshaw/build-cython-ext:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/build-cython-ext:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "czz@cs.cornell.edu",
+          "author_name": "Zizhao Chen",
+          "category": "debugging",
+          "difficulty": "medium",
+          "estimated_duration_sec": 540.0,
+          "expert_time_estimate_min": 60.0,
+          "junior_time_estimate_min": 180.0,
+          "tags": [
+            "coding",
+            "dependency",
+            "compilation"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "build-cython-ext",
+      "published_metadata_sha256": "d30f7dcc37286dfdccd03a6857ea678862f2a98ba7e51b08cf466f1f4d157471",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/build-cython-ext/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "ubuntu:24.04": "ubuntu@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "d5697e7a11399e45f105bf43f40e5c95746d6a8601965ea6935a52b59bbbfa2b"
+        },
+        "environment/make.py": {
+          "mode": 436,
+          "sha256": "46b95008df62fac7ca7fd7260baf36519de5718b91a4bde485c8d9b7d37f17c1"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "6ba25be4e291a4ad04ae42b2dddefcdaef67ca45ca9d5dce661a2e517b19ce7a"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "d02acae26d6238e2c05d34424258a2053f076eb88d31703348d3ac3403f963ef"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "a540714e0156fc14564badedcb48d1f7b69a4b457d876036535439b30cb8f286"
+        }
+      },
+      "id": "terminal-bench/chess-best-move",
+      "image": "alexgshaw/chess-best-move@sha256:bb447f94d9e2a8ed879f85c85a514b213b7418f9fe11fd7b2428a0b0e436e647",
+      "image_tag": "alexgshaw/chess-best-move:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/chess-best-move:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "nicholas@carlini.com",
+          "author_name": "Nicholas Carlini",
+          "category": "games",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 45.0,
+          "junior_time_estimate_min": 180.0,
+          "tags": []
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "chess-best-move",
+      "published_metadata_sha256": "df6791365659cecb96b82478fdd1fa5b19f184e22eb19fd18236fc0de7b59873",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/chess-best-move/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 1200,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "5bd29db32ea0ef2b5c87c8526d0ac1b102be922dab66510f06439ab9dc84809c"
+        },
+        "environment/code.png": {
+          "mode": 436,
+          "sha256": "f4d0330407b363a9ef03d563e5c2ffd24aa76345f997613741f9fc0935354305"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "8c3af6483e409defef9786da51f318ae2ca71afe2327b94471d2f0e2e367442c"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "ccaeb57fa92193f2256f924b32d5c4281e573ae449ef29e44d5e9cba84ef6fca"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "b9b7cb0033116df88a4807404bf309190f92d62a89df2ce64cdcbf732efe084a"
+        }
+      },
+      "id": "terminal-bench/code-from-image",
+      "image": "alexgshaw/code-from-image@sha256:2be9cdb746ed18c1b2b1404032efae0b2235a1b8fc479ef17730c95409d89f76",
+      "image_tag": "alexgshaw/code-from-image:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 1200.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/code-from-image:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "ghye@mit.edu",
+          "author_name": "Guanghao Ye",
+          "category": "software-engineering",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 30.0,
+          "junior_time_estimate_min": 120.0,
+          "tags": [
+            "ocr"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 1200.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "code-from-image",
+      "published_metadata_sha256": "0774d7fddea423d9ff9da526e3c845b3aea738537753e5be0100ab135d00902c",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/code-from-image/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 1200
+    },
+    {
+      "agent_seconds": 1200,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "ubuntu:24.04": "ubuntu@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 509,
+          "sha256": "7d9aba072a4a907229728b9739c8cf821fc2c98450babd64452682caf3759c84"
+        },
+        "environment/inputs/alice_calendar.ics": {
+          "mode": 436,
+          "sha256": "5a5d45804bffd339c2479d49e76fe817b38244d14d389afe1de583443808ecbc"
+        },
+        "environment/inputs/bob_calendar.ics": {
+          "mode": 436,
+          "sha256": "c97e85dbcdd756758f8a80f4db5fd5c1dcacee79298e4d2262f46de5ff680b50"
+        },
+        "environment/inputs/carol_calendar.ics": {
+          "mode": 436,
+          "sha256": "32a0f8687637df0a12b8e5c56d49c4192bc3e790856943632d70f237c7c1363b"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "342def78177f9bc41bea4d11af679bc385a9dda2ac8a1e425be384a5b7f937b6"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "db3d457bcae683d1d0dab33f2a059da9ef30beaa08271d766fae09d1c0054c83"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "1422b345ba3aacdfc4184e962811b6379988435896c50d8cf62903e70990c5d1"
+        }
+      },
+      "id": "terminal-bench/constraints-scheduling",
+      "image": "alexgshaw/constraints-scheduling@sha256:567ce5a189f8d11ac461790876e934cc7af38391baf89a78f95f4dafc1fec3b0",
+      "image_tag": "alexgshaw/constraints-scheduling:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 1200.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/constraints-scheduling:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "derek.pham@snorkel.ai",
+          "author_name": "Derek Pham",
+          "category": "personal-assistant",
+          "difficulty": "medium",
+          "estimated_duration_sec": 1800.0,
+          "expert_time_estimate_min": 15.0,
+          "junior_time_estimate_min": 30.0,
+          "tags": [
+            "calendar",
+            "scheduling",
+            "constraint-satisfaction",
+            "ics-parsing",
+            "temporal-reasoning"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 1200.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "constraints-scheduling",
+      "published_metadata_sha256": "828d3426ce73ad154582bcadc6a9c3beb218f838adb12f9c5524d7fcda8a247f",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/constraints-scheduling/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 1200
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "ubuntu:24.04": "ubuntu@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "63a260531c62f4ae72060db17f295c0aa03cfc6321f8162c324b7aa6b3f81302"
+        },
+        "environment/main.db": {
+          "mode": 436,
+          "sha256": "68cb288eb29e76d814b4e7ee6887b37c415675e644f88173bc191348e290d119"
+        },
+        "environment/main.db-wal.encrypted": {
+          "mode": 436,
+          "sha256": "68753bdce26196a53194260d001544cc6bb8f9f38e2f2f6826d09798e31e6e26"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "5a20375162921b8911c67035d1905df7fd335d1bed03044271e608b2c3c93b26"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "2ff8fa659f95fd16932114f50d16c44229ffeb05f116c6f9e0c7b6b376e087e2"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "88dc5c2a3abba75bca0e0f9136223ae5bb585d5984b8d9eba51a7829c1d2ba49"
+        }
+      },
+      "id": "terminal-bench/db-wal-recovery",
+      "image": "alexgshaw/db-wal-recovery@sha256:0e33ea5ec823975d1bd6c3778395c9f94251dd88f571146057bff6adb7e4594e",
+      "image_tag": "alexgshaw/db-wal-recovery:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/db-wal-recovery:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "xiangnlin@alumni.cmu.edu",
+          "author_name": "Xiangning Lin",
+          "category": "file-operations",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 45.0,
+          "junior_time_estimate_min": 240.0,
+          "tags": [
+            "database",
+            "encryption",
+            "recovery"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "db-wal-recovery",
+      "published_metadata_sha256": "b011e6694e74d393bd5596d1eb1ad559afed608a5417c6ba4e96e5bfb6a975d7",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/db-wal-recovery/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 1800,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "ubuntu:24.04": "ubuntu@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "26e9e43a98f0b1d132bb638f44b7dc882b0d0ca32d56fa33048adeee00ab600d"
+        },
+        "environment/sequences.fasta": {
+          "mode": 436,
+          "sha256": "aebe50fe8d43bb432925537aeb2be63abce3fcc259a1e04e0a37ce7af8da3da0"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "49fce0ee8b73d7ccdf4b8476c6bb87cf362689fd1d77b21a0d8737d16019a473"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "c3e47f205b39b34c9f71cd0f3ce62d810abaa591436c30c4fb3f03349a42dde5"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "355c3f627ad14243da1ec683ebdb120aca7921bb52656c5cb65b281b347ba68b"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "5bf0651b48969968dea30956d4b0cf9e499af59d73cc6886af3ad7aa92934647"
+        }
+      },
+      "id": "terminal-bench/dna-insert",
+      "image": "alexgshaw/dna-insert@sha256:4dd8760694e355de85ecf03605cb487ccdb33322f6afad513d2920829baa33b2",
+      "image_tag": "alexgshaw/dna-insert:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 1800.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/dna-insert:20251031",
+          "memory": "4G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "kkt@stanford.edu",
+          "author_name": "Karl Krauth",
+          "category": "scientific-computing",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 30.0,
+          "junior_time_estimate_min": 120.0,
+          "tags": [
+            "biology",
+            "cloning"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 1800.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "dna-insert",
+      "published_metadata_sha256": "a1e7eac9053f467baf5adeb659217c4b62a207f9086ec3d07465c30b96af42aa",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/dna-insert/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 4096,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 1800
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "ubuntu:24.04": "ubuntu@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "1c5c0a227bee1f5e2933710f3c9d89848a4dc9353c2516a549196fb18b842606"
+        },
+        "environment/task-deps/hi.c": {
+          "mode": 436,
+          "sha256": "9f6343607512e0439ba459adc5cbf209691332afd93f39360b0b261afd6cb0f2"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "f1dd8c8fd9f01101d2ecb65665bdedc33adc868abd853b3adf556f6aa4982073"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "72c2a3524622ab87d024b422e00174b6530b02e0d586ccd2f260820a486338a0"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "84ee50194effb4c72b9cbd0306cccaf0f855f3634227cd8359928722a53bbdaf"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "825569115217f1cea7b0f3c7547d60d21e6ea36f587d82cc9dfdd5dd98c04570"
+        }
+      },
+      "id": "terminal-bench/extract-elf",
+      "image": "alexgshaw/extract-elf@sha256:6932e4cb318464307eacd497ef8dc617eaf551b6a90231f815ec0b911895cfed",
+      "image_tag": "alexgshaw/extract-elf:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/extract-elf:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "nicholas@carlini.com",
+          "author_name": "Nicholas Carlini",
+          "category": "file-operations",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 30.0,
+          "junior_time_estimate_min": 240.0,
+          "tags": []
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "extract-elf",
+      "published_metadata_sha256": "0f2275b98b143b8f268ddcdd53340a2027f9d06a3882f1ee56a06474aa5570dc",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/extract-elf/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "5383f514233180e5a264c1b3180d33b00f14f622217c5062a96d4aa970d4102e"
+        },
+        "environment/text.gcode.gz": {
+          "mode": 436,
+          "sha256": "edc008516eb0c30cd2540649642c52f78894b99dc4f79547064e9ffbfbc0e55f"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "ee524a8f846b35f1784a7c9fb01c17f077f6b3b61c8b61d0d2f2a87c0be3166b"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "e816483601f36d4fa37324203d2e4716f524dd50d516e4e787ea993a7d9b68f2"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "6b049dc626aa103b20d165552e5cb39ba02c6803b04ba06a43d79435b5f701a6"
+        }
+      },
+      "id": "terminal-bench/gcode-to-text",
+      "image": "alexgshaw/gcode-to-text@sha256:0979ef40c6a3e8c4e7ab5b6c2524c74625a84799e15cd45dd98dcf83b11efd4d",
+      "image_tag": "alexgshaw/gcode-to-text:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/gcode-to-text:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "nicholas@carlini.com",
+          "author_name": "Nicholas Carlini",
+          "category": "file-operations",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 60.0,
+          "junior_time_estimate_min": 300.0,
+          "tags": [
+            "file-operations"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "gcode-to-text",
+      "published_metadata_sha256": "c89670510e04039769fb2705a3f22ed0193dbbe8a1a7d829061d2fac6b13b77b",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/gcode-to-text/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "ubuntu:24.04": "ubuntu@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "006bf5d2e3502a059f9a87bc855a7f85d6c40c67bf8a523dd3f1e9c6f64cc112"
+        },
+        "environment/challenge-setup.sh": {
+          "mode": 436,
+          "sha256": "a0a19652fc595b0bd06b6970e1d6a455bd4c50991c2ffdcc37fe5b66452b23e2"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "54ac693fd26a4c003f610d62c4b2671f1d1d04ac5b1286f780605e385a9a5861"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "6c3d6204e561ae9d9757bbc6b7f5a4ed3f94db4a0ce82037d9084644e1cf0c7f"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "dc7b01c1b9dbb0c123def54b146dc1dd399a600edee5970d043a5db5eac4c775"
+        }
+      },
+      "id": "terminal-bench/git-leak-recovery",
+      "image": "alexgshaw/git-leak-recovery@sha256:62160e522a4238b8bcd522411ea97b5b200f811e5899d34947e66809bef7e586",
+      "image_tag": "alexgshaw/git-leak-recovery:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/git-leak-recovery:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "daiyiwei98@gmail.com",
+          "author_name": "Yiwei Dai",
+          "category": "software-engineering",
+          "difficulty": "medium",
+          "estimated_duration_sec": 45.0,
+          "expert_time_estimate_min": 30.0,
+          "junior_time_estimate_min": 60.0,
+          "tags": [
+            "git",
+            "security"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "git-leak-recovery",
+      "published_metadata_sha256": "a7b286fe1bf5a5c99e42b85a60de30548449525b2e79130e30a5dedb91517c0b",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/git-leak-recovery/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "47c9982789092437f950736110b2bd18899c39b8fd20f3af3c95b848e564a197"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "f4b3facc199d5b1c78db6e603ffa29ec1b93a77ff7d291e1a92b42e6bf582bed"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "b93d343ae7dd483b15d3b846fd6c13f136a279143e840d83beb521772f4c208d"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "c348467a076bf614d0a850e25b2263f85bbf7b4c7a8d344fbd5454a0611a0df8"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "115de2e964bbe689d07930527113422ef8a9e4be4eb958ad84594e3fcd2b1b0e"
+        }
+      },
+      "id": "terminal-bench/kv-store-grpc",
+      "image": "alexgshaw/kv-store-grpc@sha256:3399400800dcb207634daa42bc1b052e831e285cc9d221eea66c47bc0fc79791",
+      "image_tag": "alexgshaw/kv-store-grpc:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/kv-store-grpc:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "minghaoyan2@gmail.com",
+          "author_name": "Minghao Yan",
+          "category": "software-engineering",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 15.0,
+          "junior_time_estimate_min": 120.0,
+          "tags": [
+            "coding",
+            "file-operations",
+            "system"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "kv-store-grpc",
+      "published_metadata_sha256": "757dd23d20eda490b4c7b38fa943e9053d92bf39e5bec7e0927fb759fcdb8d21",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/kv-store-grpc/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "93253c52a674766179244f2290ba8ed43680a7cbbbc0f7168322298c5f5a4b94"
+        },
+        "environment/src/eigen.py": {
+          "mode": 436,
+          "sha256": "bbd5be97fb11e9ed46fd5f1fb9d407efb19b265b549d3c36e2cfba923efe3d9d"
+        },
+        "environment/src/eval.py": {
+          "mode": 436,
+          "sha256": "70a12a80b9caa392b1f1f0439de853932c5ac61f1a2274b5de1ce93aebd4e139"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "6fa938389f99648508e5a9772e0d5e95d1102738c68d1ff61bd65469d76c52ab"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "878776ae4fc26e4f7ddc6313c9518e5e264abbadc1df90f09b5e199b176243db"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "fc40868bee6cbcfd6e906b0522dda9a778064ea9876e64a40a377d66087a174b"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "cdc58e3aa0960dac2e12a12b1cfa4131237d697762a6a78ebf33f80d2eb168ce"
+        }
+      },
+      "id": "terminal-bench/largest-eigenval",
+      "image": "alexgshaw/largest-eigenval@sha256:cb9e3e3b09d0783f3bbcfeec8d77bc32d3791204fb2be6650b19be4fbc082b2e",
+      "image_tag": "alexgshaw/largest-eigenval:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/largest-eigenval:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "czz@cs.cornell.edu",
+          "author_name": "Zizhao Chen",
+          "category": "mathematics",
+          "difficulty": "medium",
+          "estimated_duration_sec": 210.0,
+          "expert_time_estimate_min": 60.0,
+          "junior_time_estimate_min": 180.0,
+          "tags": [
+            "coding",
+            "optimization",
+            "constraint",
+            "numerical-approximation"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "largest-eigenval",
+      "published_metadata_sha256": "2fcac2e425ea3ab73f1dd351ec63f7b43eeb0005ca7dffd554088b9d68e56a50",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/largest-eigenval/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "b479f6e987b63a6ec118fa1691b8bb85c437b2a6a0fe63feab5ed7154957fdfc"
+        },
+        "environment/log_generator_deterministic.py": {
+          "mode": 436,
+          "sha256": "beb6eff59979e9aa0be63ce8a0f1b0df1178f92871f04ba9f76fa70cf8beb81c"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "c1d4516ad4ec2238209740eaf01291df9ab48b0028a3fc5df383c6f831453484"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "6d52ee3cd752b917e290d0cbbc99ae856ce7e851169b9cd9bb0c332404bc6873"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "2fc06a6ce1944ad82f84fb437395fa75ed8c0eadd385b92e375c27e5bc9cb2b4"
+        }
+      },
+      "id": "terminal-bench/log-summary-date-ranges",
+      "image": "alexgshaw/log-summary-date-ranges@sha256:cbeb6ba905c2fec294f16cd5e16e3ea7f2e04d38ac2484d51a11de262aa7dc51",
+      "image_tag": "alexgshaw/log-summary-date-ranges:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/log-summary-date-ranges:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "menisorfeas@gmail.com",
+          "author_name": "Orfeas Menis Mastromichalakis",
+          "category": "data-processing",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 75.0,
+          "junior_time_estimate_min": 150.0,
+          "tags": [
+            "log-analysis",
+            "report-generation",
+            "data-processing"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "log-summary-date-ranges",
+      "published_metadata_sha256": "8e441e7e30b823a3f284524e2476e87b34d94fcb246c2edd123a97954465daad",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/log-summary-date-ranges/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "ubuntu:24.04": "ubuntu@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "4a03ae6f0c60b9c2f45c33f0413b5aa75c9811870254e3ff1968fd0119173fc6"
+        },
+        "environment/task-deps/bundle1.bundle": {
+          "mode": 436,
+          "sha256": "a759f9b6ffc1a2eee50778d72a1899ad7d724becab84fa30e7aac71ee9e443a5"
+        },
+        "environment/task-deps/bundle2.bundle": {
+          "mode": 436,
+          "sha256": "75e3e3916a01c980a03715de67b16c729e03661d94a694b5f4223d229bd6593a"
+        },
+        "environment/task-deps/examples.json": {
+          "mode": 436,
+          "sha256": "5426569e4ea078bbb74039ec712a2d4d35f1f9fa3a5f26bf2a0de4a2c8ef5db8"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "2d826479873e5ac1c94c1f802763bf85c22bb04624384685ebdf6b153fe0278e"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "32696fcfedf2df9a089b97a7fb4dcb6f757b7bb438e5bff5c8c0076ea622af3a"
+        },
+        "tests/test.json": {
+          "mode": 436,
+          "sha256": "20f116a6b718bbf4874bbe203d15a5c0f85a1d88cb622e2d7529c7e4fb2d4c28"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "c9052954cd6ce25c4a375a2fb48e765b1efa5b39f7991b93993cc793af8ab9d2"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "2754ba6c5c5f75c9db5ed2c5729d9f5d7e21cb7fdb18aa0c65abdc3e7e85c149"
+        }
+      },
+      "id": "terminal-bench/merge-diff-arc-agi-task",
+      "image": "alexgshaw/merge-diff-arc-agi-task@sha256:bfc2a235f2ceea64ffb1ffc5529c2acebf570bff61f3668f0e5669ef570c17d4",
+      "image_tag": "alexgshaw/merge-diff-arc-agi-task:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/merge-diff-arc-agi-task:20251031",
+          "memory": "4G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "zhw119@ucsd.edu",
+          "author_name": "Zhi Wang",
+          "category": "debugging",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 20.0,
+          "junior_time_estimate_min": 40.0,
+          "tags": [
+            "git",
+            "coding"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "merge-diff-arc-agi-task",
+      "published_metadata_sha256": "519c6c120da503273a79dbcc33adaf240a990b6dbb3d9ca455d345f8c206d33d",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/merge-diff-arc-agi-task/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 4096,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 600,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "cde5acd6f59b6680c32d8faa6a753a806ef69bfc1d9b60e7dd6a4ef63503f0e4"
+        },
+        "environment/climate_analyzer/analyze_climate.py": {
+          "mode": 436,
+          "sha256": "112e26265c2b7a579403c9690f5d58cbc1bf59468bfcb7496e4fdbec9a565dd0"
+        },
+        "environment/climate_analyzer/config.ini": {
+          "mode": 436,
+          "sha256": "6ae640937b468eea85f75a4c2e4583a0f474f71d3fd323672a2e665ec37bb8c9"
+        },
+        "environment/climate_analyzer/requirements_old.txt": {
+          "mode": 436,
+          "sha256": "64dbcdcfaef03141a6ad0da4551c841cb75b2fc38e500eee205137d69e0ea759"
+        },
+        "environment/climate_analyzer/sample_data/climate_data.csv": {
+          "mode": 436,
+          "sha256": "97c2b98ec5506c1d31580ab95ae24588c1badb85a07a69b52500cb5b662e3e0a"
+        },
+        "environment/pyproject.toml": {
+          "mode": 436,
+          "sha256": "61af7819ffd0080a50f642018b889092b52006995429f3c19cd394b8af86f755"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "666b8ac370ae81b0e3780a36e722c91b0f986fccbdc6ed36ab3bd17e6943da0f"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "73e171f42ee5631d5e45ab48149934b98c9952ade191a0bf786047fd28ac7c52"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "e868c85466ebf4815e2e4efbd252bf50ad979bceb14325a9377b1bbf852f0281"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "0c24195ff46527764c7f8ceda9c608a189ab4a01619282942fcd27a2ea02a977"
+        }
+      },
+      "id": "terminal-bench/modernize-scientific-stack",
+      "image": "alexgshaw/modernize-scientific-stack@sha256:64e69cee13bf6b0b9016e735b51891bce996a60f1e2d1a005bf12c949e221d71",
+      "image_tag": "alexgshaw/modernize-scientific-stack:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 600.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/modernize-scientific-stack:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "wujianbo99999@gmail.com",
+          "author_name": "Jianbo Wu",
+          "category": "scientific-computing",
+          "difficulty": "medium",
+          "estimated_duration_sec": 300.0,
+          "expert_time_estimate_min": 120.0,
+          "junior_time_estimate_min": 240.0,
+          "tags": [
+            "python-migration",
+            "scientific-computing",
+            "legacy-modernization",
+            "climate-science",
+            "data-processing"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 600.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "modernize-scientific-stack",
+      "published_metadata_sha256": "cc18623c7e9663bddd13627dfc04e876bd243dd1cbbd146a3ad106ee18ce661c",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/modernize-scientific-stack/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 600
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.11-slim": "python@sha256:d1053354624536b044162aaab1e418bd000ea35184fb1ae098ab3166b1072e72"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 509,
+          "sha256": "c95a40d3d35b473dc15ae1e8784ba7fb1725805c0583fc574dd2764325d75e4f"
+        },
+        "environment/data/source_a/users.json": {
+          "mode": 436,
+          "sha256": "75e51e2d3ab0bdba2269d7cf3757576f84f3ee2c13407d2db94289a5958a1778"
+        },
+        "environment/data/source_b/users.csv": {
+          "mode": 436,
+          "sha256": "8e87d16dc47d166edd8e56165955bad265b630d53d02762367c816affb5fa760"
+        },
+        "environment/data/source_c/users.parquet": {
+          "mode": 436,
+          "sha256": "23d1ea51c4170bdba53febb885a0f495e28de525a52667347b2932136b9a72fe"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "d1d28bb6e37f7a255a1b7f78aae8591f35c0494f33e4913392424ad954aab944"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "fc843176948791287d9d9cb0d31b1da0b4e5734d2c68b8d3746ceab5abdc559a"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "d5a00e64413c0e1ae452f38a1aa1a47c3ed7b4416bbfccae1a4c053025a336d1"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "a070888930cf829aeca039771260b1386bda990ea805f313468d381ba3608ca5"
+        }
+      },
+      "id": "terminal-bench/multi-source-data-merger",
+      "image": "alexgshaw/multi-source-data-merger@sha256:8b32782078ff7383a1b4e5d3cecca8ce287e30f50bb4c0e5db009a18064e666e",
+      "image_tag": "alexgshaw/multi-source-data-merger:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/multi-source-data-merger:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "xl2681@columbia.edu",
+          "author_name": "Xin Lan",
+          "category": "data-processing",
+          "difficulty": "medium",
+          "estimated_duration_sec": 1800.0,
+          "expert_time_estimate_min": 30.0,
+          "junior_time_estimate_min": 120.0,
+          "tags": [
+            "data-processing",
+            "etl",
+            "schema-mapping",
+            "conflict-resolution",
+            "pandas",
+            "parquet"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "multi-source-data-merger",
+      "published_metadata_sha256": "33497f84f50f6cf035a8b0ac2713cb43e63397f704efa492dd7598cf93c4e793",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/multi-source-data-merger/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "f590b523038be43afcaf5291d7b9e8ed1333c48d9994e77b8dee2f2c352f0f40"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "38054a3371f7c2c853478a2f9af0bff858437d5b28a9a07483238f06e566921f"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "c3db93a3f924a942490f93b87e2bc9045a15a7a296f3de38ac795576ebe77947"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "90970bb3c372e8e7fb6bb9ac5f649ba73eb38e1a5ea2e922a9057a72b6b4192d"
+        }
+      },
+      "id": "terminal-bench/openssl-selfsigned-cert",
+      "image": "alexgshaw/openssl-selfsigned-cert@sha256:4c948a4e630af2435ae0a19108fc0814a946ac2fa29a512469e0fc77b38c8c12",
+      "image_tag": "alexgshaw/openssl-selfsigned-cert:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/openssl-selfsigned-cert:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "unknown",
+          "author_name": "Junhong Shen",
+          "category": "security",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 20.0,
+          "junior_time_estimate_min": 120.0,
+          "tags": [
+            "coding",
+            "file-operations",
+            "security",
+            "system"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "openssl-selfsigned-cert",
+      "published_metadata_sha256": "47f0cc30c42f4812f9b020692c0c898691f61e2a57fe552ec8eecceddf0153ab",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/openssl-selfsigned-cert/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "ubuntu:24.04": "ubuntu@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "2eb537f29d2bc4ab30e1b35ff352578437a08b90f91ef6360ee28d8195d5098a"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "a57c0c0e1232113113cd29a154ea7e0ac9ea45e4aedc16958fbc6bc753a4ef96"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "02c98637eba6754d556594f679404ba5ac282436d089f53d1c839b17eff9c710"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "b94a7a9882decd8114835bdf52b5bc42fc78e9fe67ecad9bd19050b11781ddec"
+        }
+      },
+      "id": "terminal-bench/polyglot-c-py",
+      "image": "alexgshaw/polyglot-c-py@sha256:0f1c3b7816d70cf5551573fd6aeef76893f2ae3000be2419997b6871b5d987ed",
+      "image_tag": "alexgshaw/polyglot-c-py:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/polyglot-c-py:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "nicholas@carlini.com",
+          "author_name": "Nicholas Carlini",
+          "category": "software-engineering",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 20.0,
+          "junior_time_estimate_min": 480.0,
+          "tags": [
+            "coding"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "polyglot-c-py",
+      "published_metadata_sha256": "22a22d069f5de2af16cd902edd11b6816a4bed2edf8921e63355a4b90b8cb4b5",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/polyglot-c-py/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 1200,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "ubuntu:24.04": "ubuntu@sha256:a61567bd31828687156d735ea8eb01ba4e37636e225dd6a48ba94136a70d9d61"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "5f264ff0bf62a49aee3c6398447de5108df141e7a2ad35c6de8ef39fa62049c6"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "4f7ac05e70cf9220ea0f1e5a052c5f908cd0fa884e847d80b0bd51bae2e96f9c"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "cbffabfe62b495480b06a8a34dfa3b11bd5a86ff20b0c82a1406491b6f50665c"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "345c3bd09ab6f6fe8c8361a58c0a47bf0a13b3fcb38a5ac7824e44ff855e8f72"
+        }
+      },
+      "id": "terminal-bench/regex-log",
+      "image": "alexgshaw/regex-log@sha256:90101b2e815323a8da20528a1439bebc407eb9761c9c68a3d557730856c878e9",
+      "image_tag": "alexgshaw/regex-log:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/regex-log:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "menisorfeas@gmail.com",
+          "author_name": "Orfeas Menis Mastromichalakis",
+          "category": "data-processing",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 45.0,
+          "junior_time_estimate_min": 180.0,
+          "tags": [
+            "regex",
+            "string-parsing",
+            "log-analysis"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [
+        {
+          "effective": 1200,
+          "field": "agent.timeout_sec",
+          "reason": "published Frontier deadline",
+          "source": 900.0
+        }
+      ],
+      "path": "regex-log",
+      "published_metadata_sha256": "c39385224ad2b3cf3e7fb5067e91d95faddc3b8f950ea2146b67d2bf9d1275c1",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/regex-log/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "bd91e6f3b7b3c0db2c1c7ca31a1028735ca3b129d1d7949f490cbd92b441437c"
+        },
+        "environment/setup.sh": {
+          "mode": 436,
+          "sha256": "452fc789f723c006ec1605b75696131614178135df156b978b8e58fe3e64316f"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "d9e10a56e94e51592c6016efb02adef852d4fd08f9ba23dc304d2673d1478e8a"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "2c0d32f42e8b534136a958f47e99c8e5097bec6d1f2a3edadb48c45f217a6306"
+        },
+        "tests/process.py": {
+          "mode": 436,
+          "sha256": "3525f32100c994ee517ba06a355f6d2130c332857da017d921aa8d9252b7022d"
+        },
+        "tests/ray_cluster.yaml": {
+          "mode": 436,
+          "sha256": "4827a78e929c005853df1af502f1a5aae2e2e9ce721ee0d33ab0731eefa128a5"
+        },
+        "tests/rw_v2_fasttext_openhermes_vs_rw_v2_bigram_0.1_arcade100k.json": {
+          "mode": 436,
+          "sha256": "2d281c309cb03e9802f532931ac6c1eca129f75c4583ae48996dbb4130f57c0f"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "16014722171ae4479112051d2e8af7d0c5bb231bae6aff1b80cfa19e718c814f"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "57e4904177acac5807b51f7c32444bde1968ba0445855fa4333d9eb73865b59e"
+        }
+      },
+      "id": "terminal-bench/sanitize-git-repo",
+      "image": "alexgshaw/sanitize-git-repo@sha256:4b5234da5bb0d67f3b0bf8db40a2883c07a5219f62b64c2bf9ff1ac84cd0f672",
+      "image_tag": "alexgshaw/sanitize-git-repo:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/sanitize-git-repo:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "unknown",
+          "author_name": "jeffreywpli",
+          "category": "security",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 30.0,
+          "junior_time_estimate_min": 60.0,
+          "tags": [
+            "security",
+            "system",
+            "version-control"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "sanitize-git-repo",
+      "published_metadata_sha256": "5e4d2c33beb58a0fd4ec2661d67a85e361097692c32083a7232594b4d4779c41",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/sanitize-git-repo/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 1200,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "49ac9305c360f117c10c940b5d036a76fb4a29a0f4302e7d75e573c352db0aea"
+        },
+        "environment/trunc.db": {
+          "mode": 436,
+          "sha256": "a7f00ee232fe621629dc014eb2619ac793131843ede1fd892f3b8b7e17332a5b"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "465c135cd80be49023ea3ecf8f1d840c679b3a960efe425d510894e417b9d802"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "8b4c4d2abfe7dc8b7a3bac4567f60c08f7a9219b2cc65df0de7c5ee3d37721d6"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "8f5bc11018687d8c5894ebf1b4ec6fad004828e5ce442d3cc04d925ef53ef881"
+        }
+      },
+      "id": "terminal-bench/sqlite-db-truncate",
+      "image": "alexgshaw/sqlite-db-truncate@sha256:aabac93c93bd1f310e6a6fb893911d7735026ed18491c72133c9196a09092ca4",
+      "image_tag": "alexgshaw/sqlite-db-truncate:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/sqlite-db-truncate:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "nicholas@carlini.com",
+          "author_name": "Nicholas Carlini",
+          "category": "debugging",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 60.0,
+          "junior_time_estimate_min": 240.0,
+          "tags": [
+            "file-operations"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [
+        {
+          "effective": 1200,
+          "field": "agent.timeout_sec",
+          "reason": "published Frontier deadline",
+          "source": 900.0
+        }
+      ],
+      "path": "sqlite-db-truncate",
+      "published_metadata_sha256": "f3d58bc0c8dd6070dbe0a206f7a559914c8fdf2aefdbca778844cae9ce8720c8",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/sqlite-db-truncate/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    },
+    {
+      "agent_seconds": 900,
+      "dockerfile_images": {
+        "environment/Dockerfile": {
+          "python:3.13-slim-bookworm": "python@sha256:2f2e5a876c71a6757f55ec57f2add0225ddaf01c802a33fcc29073943f94d907"
+        }
+      },
+      "files": {
+        "environment/Dockerfile": {
+          "mode": 436,
+          "sha256": "26f994bdf7bd3d8e261a3fd273dc1c54632d8a7e208312b2f2034bef167118af"
+        },
+        "environment/vulnerable.c": {
+          "mode": 436,
+          "sha256": "ee7c26f47dbc0c77d05225acab56866fc502fd4a27111ebefa8a648d6cc19507"
+        },
+        "instruction.md": {
+          "mode": 436,
+          "sha256": "d43c72e6c39cdeb1141a9c8eae8357df1b0901383ee2beedacf828bf017d7a2f"
+        },
+        "task.toml": {
+          "mode": 436,
+          "sha256": "f6859a220d8c5072b51f1b2e31d8b5b26f5c15ec53704f669c00b25be0c3f035"
+        },
+        "tests/test.sh": {
+          "mode": 436,
+          "sha256": "d9e46bae71e0b119bdc8aaf689de9a780db29741cb5d46bfcc9090ad8943e08e"
+        },
+        "tests/test_outputs.py": {
+          "mode": 436,
+          "sha256": "f2b65f63ac81acd1e80e1ad4c59c1022131a0f9eb20f8ab3212c4ef8d8f0c753"
+        }
+      },
+      "id": "terminal-bench/vulnerable-secret",
+      "image": "alexgshaw/vulnerable-secret@sha256:61ebb40454dd103aa2f7e71ad6dafd91cf2b301e6bb07e69d5b472412d1ee15b",
+      "image_tag": "alexgshaw/vulnerable-secret:20251031",
+      "native": {
+        "agent": {
+          "timeout_sec": 900.0
+        },
+        "environment": {
+          "build_timeout_sec": 600.0,
+          "cpus": 1,
+          "docker_image": "alexgshaw/vulnerable-secret:20251031",
+          "memory": "2G",
+          "storage": "10G"
+        },
+        "metadata": {
+          "author_email": "justin.bauer@snorkel.ai",
+          "author_name": "Justin Bauer",
+          "category": "security",
+          "difficulty": "medium",
+          "expert_time_estimate_min": 20.0,
+          "junior_time_estimate_min": 120.0,
+          "tags": [
+            "security",
+            "file-operations"
+          ]
+        },
+        "verifier": {
+          "timeout_sec": 900.0
+        },
+        "version": "1.0"
+      },
+      "overlays": [],
+      "path": "vulnerable-secret",
+      "published_metadata_sha256": "abe56d387fd01bfe8ac2165d2d00a16c96f780649ba24495cf59df4a9a3bed70",
+      "published_metadata_url": "https://raw.githubusercontent.com/frontier-harness-eval/eval/e837a70bd6beb4e72eeeda62dd06e3bd34f6cb63/tasks/vulnerable-secret/task.toml",
+      "resources": {
+        "cpus": 1,
+        "memory_mb": 2048,
+        "storage_mb": 10240
+      },
+      "reward": {
+        "fail": 0,
+        "field": "reward",
+        "pass": 1
+      },
+      "runner": "harbor",
+      "source": "terminal",
+      "verifier_seconds": 900
+    }
+  ]
+}

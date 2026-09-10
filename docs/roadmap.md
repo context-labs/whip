@@ -37,6 +37,11 @@ direct-tool and RLM agents.
 
 ## Effectiveness work
 
+- [x] Canonical Frontier evaluation CLI with fixed 8/15/30-task profiles, up to
+  32 resource-admitted trials, versioned reports, paired comparisons and automatic
+  baseline acceptance. [Workflow](../evals/README.md); implemented and tested offline.
+- [ ] Qualify the evaluation host and initialize the first canonical Full baseline
+  using the documented promotion campaign. Live execution deferred by request.
 - [x] Selectable Starlark/QuickJS engines with immutable session selection,
   shared host authority, settled checkpoints, and language-aware clients.
   See [runtime semantics](rlm-runtime.md#execution-language-and-checkpoints).

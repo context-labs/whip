@@ -1,0 +1,1 @@
+fixture-qualification: create proof.txt and a child-created child.txt. Exercise numeric file paging and a large content result, leave a background HTTP service running, and commit the solution. This authored task only checks the evaluation transport; it is excluded from every proficiency score.

@@ -902,3 +902,40 @@ Native device validation and distribution are not implied by this entry.
 [Mobile setup](mobile.md) and the
 [implementation evidence](../.ai-docs/plans/mobile-app/EVIDENCE.md) track the actual
 build/device/release state.
+
+## Canonical Frontier evaluations
+
+[Evaluation workflow](../evals/README.md): `uv run --project evals --locked whip-eval`
+runs fixed, nested Smoke 8 / Medium 15 / Full 30 profiles against Kimi K3 on
+Inference.net. All code and locks live under `evals/`; native Harbor/Pier graders
+remain authoritative. No live evaluations or qualification containers were run
+as part of this implementation, and the accepted baseline starts uninitialized.
+
+- `whip_evals/tasks.py`, `prepare.py`, and `frontier/` pin source/files, OCI images,
+  native resources/deadlines, model catalog and build/configuration. Runtime A/B
+  captures one shared binary; dirty snapshots remain development-only.
+  `test_contract.py` covers workload expansion, limits, vision capabilities,
+  immutable task preparation, native parsing and shared build identity.
+- `execution.py` owns a cross-suite pool of at most 32 native trial subprocesses,
+  reserves separate-verifier capacity, and cancels workers before waiting for
+  shutdown. Cleanup verifies native container identity and log mounts.
+  `test_pool.py` proves overlap, admission, failed-cleanup dispatch stop and
+  callback-failure cancellation; historical cleanup tests remain applicable.
+- `adapter.py` / `observe.py` retain whole-tree finality, scoped SQLite/content
+  export and cost accounting. `report.py` cross-checks ledger/state/metrics and
+  emits one JSON result plus Markdown/CSV under `evals/reports/<run-id>/`.
+  Native failures, missing grades, cost uncertainty and timeout causes remain
+  distinct. `test_reports.py` covers stale accounting, corrupt evidence, planned
+  denominators, timing, paired comparisons and immutable publication.
+- `baseline.py` accepts only explicit clean Full campaigns with three repetitions,
+  complete evidence and the versioned quality/cost/latency gates. The accepted
+  pointer uses locked compare-and-swap plus immutable history.
+  `test_baseline.py` covers first acceptance, replacement guards, stale/concurrent
+  publishers, evidence tampering and interrupted pointer writes.
+- `doctor --integration` is an explicit future-machine check using authored fake
+  model responses and both engines/runners/verifier modes. `fixtures/native/`
+  verifies paging, background service survival and a committed patch collected
+  into a separate verifier. It is excluded from proficiency scores.
+- Reports can be regenerated offline into new analysis directories. Interrupted
+  execution is not resumed. There is no eval CI or automatic artifact pruning.
+  Existing `evals/runtime-ab` studies and `evals/rlm` tests are retained.
