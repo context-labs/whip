@@ -182,10 +182,7 @@ func TestOpencodeOverlaysAnchoredOnShortView(t *testing.T) {
 	m.layout()
 	v = m.View()
 	menuRows := strings.Split(m.menuView(), "\n")
-	wantTop := m.viewTop + m.inputBodyOff - len(menuRows)
-	if wantTop < 0 {
-		wantTop = 0
-	}
+	wantTop := max(m.viewTop+m.inputBodyOff-len(menuRows), 0)
 	lines = strings.Split(v, "\n")
 	found := false
 	for i := wantTop; i < wantTop+len(menuRows) && i < len(lines); i++ {
