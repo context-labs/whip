@@ -84,7 +84,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 	session.mu.Lock()
 	session.turn.TurnID, session.turn.BaseSeq = turnID, baseSeq
 	session.mu.Unlock()
-	events := agent.Events{OnStart: started}
+	events := agent.Events{OnStart: started, EphemeralNotices: session.hookNotices}
 	events.OnMessage = session.recordTranscriptMessage
 	events.OnToolsComplete = session.recordToolMetadata
 	digest, receipts, err := session.mailboxDigest(ctx)

@@ -117,6 +117,7 @@ type turnCompaction struct {
 type turnJournal struct {
 	TurnID            string
 	BaseSeq           int
+	HookNotices       []string // ephemeral lines a hook raised this turn
 	Messages          []llm.Message
 	Compactions       []turnCompaction
 	DeliveredInbox    []int64

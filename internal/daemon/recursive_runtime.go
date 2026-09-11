@@ -788,6 +788,12 @@ func (host *recursiveHost) Call(ctx context.Context, module, operation string, a
 	if err := node.root.store.CheckModelWork(ctx, node.root.ID(), node.id); err != nil {
 		return nil, fmt.Errorf("model budget stops further host calls: %w", err)
 	}
+	// The definition's before_tool hook sees every operation here, before any
+	// module handles it; rewritten arguments take the same path fresh ones do.
+	arguments, err := node.beforeTool(ctx, module, operation, arguments)
+	if err != nil {
+		return nil, err
+	}
 	if module == rlm.ToolsModule {
 		return host.tools(ctx, operation, arguments)
 	}

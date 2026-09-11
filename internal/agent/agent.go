@@ -23,6 +23,10 @@ type Events struct {
 	// EphemeralSystem is included in every provider request for this turn but
 	// is never appended to the durable/displayed transcript.
 	EphemeralSystem string
+	// EphemeralNotices, when set, is read before every provider request and
+	// appended to EphemeralSystem, so notices raised mid-turn (a hook rewrote or
+	// denied an operation) reach the model on its next request.
+	EphemeralNotices func() string
 	// Prefix messages are appended to the durable transcript immediately
 	// before this turn's input message (a mailbox digest riding along with a
 	// user submit, for example). They are ordinary unauthored user messages.
@@ -492,10 +496,7 @@ func (a *Agent) turn(ctx context.Context, input string, parts []llm.ContentPart,
 		if err := a.maybeCompact(ctx, ev); err != nil {
 			return "", err
 		}
-		msgs := a.Messages
-		if ev.EphemeralSystem != "" {
-			msgs = withEphemeralSystem(msgs, ev.EphemeralSystem)
-		}
+		msgs := withEphemeralSystem(a.Messages, ev.ephemeral())
 		// Surface transient-request retries through the event hook so the UI
 		// shows "retrying" instead of looking hung. Set/restored per call: the
 		// client may outlive this turn's Events.
@@ -623,6 +624,17 @@ func (a *Agent) appendTurnMessages(ev Events, messages ...llm.Message) {
 
 // Ephemeral runtime context follows the primary system instructions, leaving
 // the latest user/tool message at the end of the request.
+// ephemeral joins the fixed ephemeral text with the current notices.
+func (ev Events) ephemeral() string {
+	text := ev.EphemeralSystem
+	if ev.EphemeralNotices != nil {
+		if notices := ev.EphemeralNotices(); notices != "" {
+			text = strings.TrimSpace(text + "\n" + notices)
+		}
+	}
+	return text
+}
+
 func withEphemeralSystem(messages []llm.Message, content string) []llm.Message {
 	if content == "" {
 		return messages
@@ -1124,7 +1136,7 @@ func (a *Agent) ManualCompact(ctx context.Context, ev Events) error {
 // the tool-turn cap still returns the model's best answer instead of an error.
 // A system nudge tells the model to stop calling tools and answer now.
 func (a *Agent) finalAnswer(ctx context.Context, ev Events) (string, error) {
-	msgs := append(slices.Clone(withEphemeralSystem(a.Messages, ev.EphemeralSystem)),
+	msgs := append(slices.Clone(withEphemeralSystem(a.Messages, ev.ephemeral())),
 		llm.Message{Role: "system", Content: "You have reached the tool-call limit. Do NOT request any more tools. Give your final answer now using only what you have already gathered."})
 	client := *a.Client
 	client.OnRetry = ev.OnRetry

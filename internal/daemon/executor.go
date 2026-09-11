@@ -84,10 +84,13 @@ type hookDecision struct {
 	InvocationID string
 	Deny         bool
 	Failed       bool
-	Reason       string
-	Arguments    json.RawMessage
-	Spawn        *protocol.SpawnRequest
-	Context      string
+	// Skipped marks an optional hook that went unanswered or failed; the
+	// operation proceeds unchanged.
+	Skipped   bool
+	Reason    string
+	Arguments json.RawMessage
+	Spawn     *protocol.SpawnRequest
+	Context   string
 }
 
 // maxHookContextBytes bounds a turn_start contribution.
