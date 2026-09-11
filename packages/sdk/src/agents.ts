@@ -298,15 +298,25 @@ export class Agents {
       running.set(invocation.invocation_id, controller);
       const deadline = Number(invocation.deadline_millis);
       const timer = setTimeout(() => controller.abort(new WhipError('timeout', 'Tool deadline passed')), Math.max(0, deadline - Date.now()));
+      // The daemon handles requests concurrently, so progress reports are
+      // sent one at a time, each acknowledged before the next, and the result
+      // is posted only after the last report landed. Order is preserved and no
+      // report arrives after the result and gets rejected as late.
+      let reports: Promise<unknown> = Promise.resolve();
       const context: ToolContext = {
         invocationId: invocation.invocation_id, rootId: invocation.root_id, agentId: invocation.agent_id, turnId: invocation.turn_id,
         deadline, signal: controller.signal,
-        progress: text => { if (!controller.signal.aborted) void client.call('tool.progress', { invocation_id: invocation.invocation_id, generation: invocation.generation, text }).catch(() => {}); },
+        progress: text => {
+          if (controller.signal.aborted) return;
+          reports = reports.then(() => client.call('tool.progress', { invocation_id: invocation.invocation_id, generation: invocation.generation, text })).catch(() => {});
+        },
       };
       try {
         const output = await handler((invocation.input ?? {}) as Record<string, unknown>, context);
+        await reports;
         if (!controller.signal.aborted) await settle(invocation, { output: output === undefined ? null : output });
       } catch (error) {
+        await reports;
         if (!controller.signal.aborted) await settle(invocation, { error: asError(error).message || 'tool failed' });
       } finally {
         clearTimeout(timer);

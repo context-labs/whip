@@ -1834,12 +1834,10 @@ func parseSpawnRequest(name, prompt string, arguments map[string]any) (spawnRequ
 	if err != nil {
 		return spawnRequest{}, err
 	}
-	var budgets map[string]int64
-	if limits != nil {
-		budgets = make(map[string]int64, len(limits))
-		for _, limit := range limits {
-			budgets[string(limit.Kind)] = limit.Limit
-		}
+	// The wire shape is a non-nullable object, so the map is never nil.
+	budgets := make(map[string]int64, len(limits))
+	for _, limit := range limits {
+		budgets[string(limit.Kind)] = limit.Limit
 	}
 	request := spawnRequest{Prompt: prompt, Name: name, Capabilities: capabilities, Tools: toolNames, Budgets: budgets}
 	request.Definition, _ = stringArgument(arguments, "definition")

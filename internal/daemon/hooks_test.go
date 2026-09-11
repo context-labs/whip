@@ -491,6 +491,10 @@ func TestBeforeSpawnSeesResolvedChildAndCannotWiden(t *testing.T) {
 	if second.Spawn.Resolved.Definition != "hooked" {
 		t.Fatalf("plain resolution = %+v", second.Spawn.Resolved)
 	}
+	// The SDK validates the notification against a non-nullable budgets object.
+	if encoded, _ := json.Marshal(second.Spawn); !strings.Contains(string(encoded), `"budgets":{}`) || strings.Contains(string(encoded), `"budgets":null`) {
+		t.Fatalf("spawn preview budgets are not an object: %s", encoded)
+	}
 	rewritten := second.Spawn.Request
 	rewritten.Definition, rewritten.Name = "researcher", "scout"
 	reply(second, protocol.HookResultParams{Spawn: &rewritten, Reason: "all children research"})
