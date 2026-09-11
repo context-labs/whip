@@ -86,7 +86,7 @@ func TestV2SDKBridge(t *testing.T) {
 	}
 	frontend := "http://" + listener.Addr().String()
 	runner := &sdkRunnerControl{directory: directory, holds: make(map[string]chan struct{})}
-	owner, err := New(store, func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
+	var factory Factory = func(_ context.Context, _ session.Meta, history []llm.Message) (Components, error) {
 		value := &sdkFixtureRunner{fakeRunner: &fakeRunner{history: history}, services: tools.NewServices()}
 		value.services.SetExternalPermissions(true)
 		value.fakeRunner.turn = func(ctx context.Context, input string, authored bool) (string, error) {
@@ -133,7 +133,15 @@ func TestV2SDKBridge(t *testing.T) {
 			value.root = root
 			return value.services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority)
 		}}, nil
-	})
+	}
+	if os.Getenv("WHIP_SDK_AGENTS_FIXTURE") == "1" {
+		// The TypeScript agents acceptance test needs the real runtime behind
+		// the protocol: registered definitions, executors, hooks, and children.
+		var closeModel func()
+		factory, closeModel = sdkAgentsFactory(store)
+		defer closeModel()
+	}
+	owner, err := New(store, factory)
 	if err != nil {
 		t.Fatal(err)
 	}

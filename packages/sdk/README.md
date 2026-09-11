@@ -454,6 +454,11 @@ grant authority the ledger denies and never bypass the user's permission
 mode. Denials, rewrites, and skips appear in the session stream as
 `stream.hook.decision`.
 
+`examples/agents/incident-commander.ts` is a complete agent built from every
+primitive above, with a unit test beside it and a live acceptance test
+(`npm run acceptance -w @whip/agents-example`) that runs it against a real
+daemon through the SDK.
+
 ## React example and validation
 
 Host bootstrap reads do not create sessions:

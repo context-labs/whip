@@ -42,7 +42,7 @@ export async function eventually(check, { timeout = 15_000, interval = 25, descr
 // SDK's perspective. Keeping the binary lets restart tests bypass the Go runner
 // and kill the actual daemon process, including all outstanding execution.
 // Manual native acceptance may extend the four-minute default, up to 30 minutes.
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 4 * 60_000, externalOrigin } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 4 * 60_000, externalOrigin, env = {} } = {}) {
   if (!Number.isInteger(lifetimeMs) || lifetimeMs <= 0 || lifetimeMs > 30 * 60_000) {
     throw new RangeError('Fixture lifetimeMs must be a positive integer no greater than 1800000 (30 minutes)');
   }
@@ -66,6 +66,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
         WHIP_SDK_FIXTURE_LIFETIME: `${lifetimeMs}ms`,
         WHIP_SDK_FIXTURE_ORIGIN: externalOrigin ?? '',
         WHIP_SDK_FIXTURE_ALLOWED_ORIGINS: JSON.stringify(allowedOrigins),
+        ...env,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

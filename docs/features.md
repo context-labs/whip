@@ -495,7 +495,14 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   after reconnect. Handlers receive the invocation id, root, agent, turn,
   deadline, an `AbortSignal`, and a progress reporter. `hooks.beforeTool`,
   `beforeSpawn`, and `turnStart` are served by the same executor; returning
-  nothing allows unchanged (`examples/agents`).
+  nothing allows unchanged. `examples/agents/incident-commander.ts` uses every
+  primitive at once, and `incident-commander.acceptance.mjs` drives it through
+  a live daemon (the SDK fixture with `WHIP_SDK_AGENTS_FIXTURE=1` runs the
+  recursive runtime behind a scripted model): registration, a session pinned
+  to the revision with the definition's model defaults, custom tool calls with
+  progress and handle-backed results, hook denials and rewrites, a spawn
+  redirected to a named child that runs its own narrowed tools, and the
+  fail-fast behavior of a closed executor (`npm run acceptance -w @whip/agents-example`).
 - Implementation: `packages/sdk`, `examples/client`. Coverage: SDK TypeScript
   unit tests, `daemon.acceptance.mjs`, isolated `TestV2SDKBridge`, actual SDK
   strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed
