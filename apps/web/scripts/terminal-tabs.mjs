@@ -82,6 +82,22 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(caret.caretColor, 'rgba(0, 0, 0, 0)', 'browser caret hidden inside the terminal');
     const box = await terminalView().boundingBox();
     await page.screenshot({ path: join(directory, `${name}-corner.png`), clip: { x: box.x, y: box.y, width: 160, height: 48 } });
+    // A program with mouse tracking on must receive wheel travel as SGR mouse reports, not arrow keys.
+    const writesBefore = sent.filter(frame => frame.method === 'terminal.write').length;
+    await page.keyboard.type("printf '\\e[?1000h\\e[?1006h'; cat -v");
+    await page.keyboard.press('Enter');
+    await eventually(() => outputText(terminalId).includes('cat -v'), { description: 'mouse tracking program running' });
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 120);
+    await eventually(() => outputText(terminalId).includes('^[[<65;'), { description: 'wheel down arrived as an SGR mouse report' });
+    await page.mouse.wheel(0, -120);
+    await eventually(() => outputText(terminalId).includes('^[[<64;'), { description: 'wheel up arrived as an SGR mouse report' });
+    const wheelWrites = sent.filter(frame => frame.method === 'terminal.write').slice(writesBefore).map(frame => decode(frame.params.bytes)).join('');
+    assert.ok(!wheelWrites.includes('\x1b[A') && !wheelWrites.includes('\x1b[B'), 'no arrow keys were sent while mouse tracking was on');
+    await page.keyboard.press('Control+c');
+    await page.keyboard.type("printf '\\e[?1000l\\e[?1006l'");
+    await page.keyboard.press('Enter');
+    checks.push('wheel input reaches a mouse-tracking program as SGR reports');
     checks.push('typing reaches the shell and its output returns in cursor order under the production CSP');
 
     // Reload: the tab is restored from window storage and the daemon replays.

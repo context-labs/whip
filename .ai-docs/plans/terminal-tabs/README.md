@@ -415,6 +415,14 @@ reader of the plan is not misled:
   focused contenteditable draws the browser's own text caret at its start, beside the shell's
   cursor. The surface sets `caret-color: transparent`, which inherits into that container and the
   hidden textarea; the fixture asserts the computed value while the terminal holds focus.
+- **Wheel input for TUIs.** ghostty-web's capture-phase wheel handler stops propagation before
+  its own SGR reporter runs and then sends arrow keys in the alternate screen, so a program with
+  mouse tracking on (whip's TUI, vim, less) received arrows instead of wheel events and scrolled
+  the wrong thing. The view installs a custom wheel handler: when the program has mouse tracking
+  and SGR mode on, `wheelReports` turns wheel travel into `\x1b[<64|65;col;rowM` reports at the
+  cell under the pointer, one per line, accumulating trackpad pixels across events. Otherwise
+  ghostty-web's defaults stand (arrows in the alternate screen, scrollback in the primary one).
+  The fixture runs `cat -v` with mouse tracking enabled and asserts the reports arrive.
 - **Keystroke coalescing.** Each key was its own `terminal.write` RPC; typing faster than the
   round trip exceeded the SDK's 32 in-flight request cap and silently dropped characters
   (the glyph check lost everything past the 32nd byte). `createWriteQueue` keeps one write in

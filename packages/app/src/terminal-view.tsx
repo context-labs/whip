@@ -89,6 +89,24 @@ export function createWriteQueue(send: (bytes: Uint8Array) => Promise<void>, onE
   };
 }
 
+/**
+ * Wheel input for a program that turned on mouse tracking: SGR mouse reports
+ * (button 64 up, 65 down) at the cell under the pointer, one per line of travel.
+ * Pixel deltas from trackpads accumulate across events so a slow drag still
+ * scrolls; the remainder carries to the next call and resets on direction change.
+ */
+export interface WheelGeometry { left: number; top: number; width: number; height: number; cols: number; rows: number }
+export function wheelReports(event: Pick<WheelEvent, 'deltaY' | 'deltaMode' | 'clientX' | 'clientY' | 'shiftKey' | 'altKey' | 'ctrlKey'>, geometry: WheelGeometry, remainder = 0): { sequences: string[]; remainder: number } {
+  const lineHeight = geometry.height / Math.max(1, geometry.rows);
+  const lines = event.deltaMode === 1 ? event.deltaY : event.deltaMode === 2 ? event.deltaY * geometry.rows : event.deltaY / Math.max(1, lineHeight);
+  const total = (Math.sign(lines) === Math.sign(remainder) || remainder === 0 ? remainder : 0) + lines;
+  const count = Math.min(20, Math.trunc(Math.abs(total)));
+  const col = Math.min(geometry.cols, Math.max(1, Math.floor((event.clientX - geometry.left) / (geometry.width / Math.max(1, geometry.cols))) + 1));
+  const row = Math.min(geometry.rows, Math.max(1, Math.floor((event.clientY - geometry.top) / lineHeight) + 1));
+  const button = (total < 0 ? 64 : 65) + (event.shiftKey ? 4 : 0) + (event.altKey ? 8 : 0) + (event.ctrlKey ? 16 : 0);
+  return { sequences: Array.from({ length: count }, () => `\x1b[<${button};${col};${row}M`), remainder: total - Math.sign(total) * count };
+}
+
 /** App shortcuts the shell must not swallow; everything else reaches the PTY. */
 export function passesToApp(event: KeyboardEvent, shortcuts: readonly string[]): boolean {
   return shortcuts.some(shortcut => matchesKeyboardEvent(event, shortcut as Hotkey));
@@ -159,6 +177,18 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
       });
       const writes = createWriteQueue(bytes => client.terminals.write(terminalId, bytes));
       terminal.onData(data => writes.push(data));
+      // ghostty-web's capture-phase wheel handler stops propagation before its own SGR
+      // reporter runs, then falls back to arrow keys in the alternate screen. A TUI that
+      // asked for mouse tracking (whip, vim, less) wants wheel reports instead.
+      let wheelRemainder = 0;
+      terminal.attachCustomWheelEventHandler(event => {
+        if (!terminal?.hasMouseTracking() || !terminal.getMode(1006)) return false;
+        const rect = (terminal.element ?? element).getBoundingClientRect();
+        const report = wheelReports(event, { left: rect.left, top: rect.top, width: rect.width, height: rect.height, cols: terminal.cols, rows: terminal.rows }, wheelRemainder);
+        wheelRemainder = report.remainder;
+        for (const sequence of report.sequences) writes.push(sequence);
+        return true;
+      });
       terminal.onTitleChange(title => runtime.tabs.updateTerminal(tab.id, { titleHint: title }));
       terminal.onResize(({ cols, rows }) => {
         clearTimeout(resizeTimer);

@@ -5,7 +5,7 @@ import type { WhipClient } from '@whip/sdk';
 import { RpcError } from '@whip/sdk';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
-import { TerminalView, createWriteQueue, passesToApp, terminalFontFamily } from '../src/terminal-view';
+import { TerminalView, createWriteQueue, passesToApp, terminalFontFamily, wheelReports } from '../src/terminal-view';
 import { localProfile, resolveURLConnection } from '../src/platform';
 
 const routing = vi.hoisted(() => ({ navigate: vi.fn(async () => {}) }));
@@ -18,9 +18,15 @@ const ghostty = vi.hoisted(() => {
     selection = '';
     handlers = new Map<string, Listener[]>();
     keyHandler?: (event: KeyboardEvent) => boolean;
+    wheelHandler?: (event: WheelEvent) => boolean;
+    mouseTracking = false;
+    element = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }) } as unknown as HTMLElement;
     write = vi.fn(); reset = vi.fn(); focus = vi.fn(); dispose = vi.fn(); loadAddon = vi.fn(); open = vi.fn();
     constructor(readonly options: Record<string, unknown>) { Terminal.instances.push(this); }
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { this.keyHandler = handler; }
+    attachCustomWheelEventHandler(handler: (event: WheelEvent) => boolean) { this.wheelHandler = handler; }
+    hasMouseTracking() { return this.mouseTracking; }
+    getMode() { return true; }
     private on(name: string) {
       return (listener: Listener) => { this.handlers.set(name, [...(this.handlers.get(name) ?? []), listener]); return { dispose() {} }; };
     }
@@ -103,6 +109,14 @@ it('attaches from cursor zero, writes output in order, forwards keystrokes, titl
   instance.emit('data', 'echo hi\r');
   await waitFor(() => expect(fake.terminals.write).toHaveBeenCalledTimes(1));
   expect(new TextDecoder().decode(fake.terminals.write.mock.calls[0]![1] as Uint8Array)).toBe('echo hi\r');
+  // Wheel travel only becomes mouse reports once the program asks for them.
+  const wheel = { deltaY: 40, deltaMode: 0, clientX: 15, clientY: 25, shiftKey: false, altKey: false, ctrlKey: false } as WheelEvent;
+  expect(instance.wheelHandler!(wheel)).toBe(false);
+  instance.mouseTracking = true;
+  expect(instance.wheelHandler!(wheel)).toBe(true);
+  // Two lines of travel: the queue sends the first report at once and the second when it settles.
+  await waitFor(() => expect(fake.terminals.write).toHaveBeenCalledTimes(3));
+  expect(fake.terminals.write.mock.calls.slice(1).map(([, bytes]) => new TextDecoder().decode(bytes as Uint8Array)).join('')).toBe('\x1b[<65;2;2M'.repeat(2));
   instance.emit('title', 'zsh — project');
   expect(tab()).toMatchObject({ kind: 'terminal', titleHint: 'zsh — project' });
   instance.emit('resize', { cols: 100, rows: 40 });
@@ -141,6 +155,28 @@ it('keeps one write in flight and coalesces keystrokes typed meanwhile, in order
   failing.push('lost'); failing.push('too');
   await waitFor(() => expect(errors).toHaveLength(1));
   expect(failing.pendingBytes).toBe(0);
+});
+
+it('turns wheel travel into SGR mouse reports at the cell under the pointer', () => {
+  const geometry = { left: 100, top: 50, width: 800, height: 400, cols: 80, rows: 20 };
+  const wheel = (deltaY: number, deltaMode = 0, extra: Partial<WheelEvent> = {}) => ({ deltaY, deltaMode, clientX: 100 + 10 * 4.5, clientY: 50 + 20 * 2.5, shiftKey: false, altKey: false, ctrlKey: false, ...extra });
+  // One mouse notch of 60px at a 20px line height is three lines down at column 5, row 3.
+  expect(wheelReports(wheel(60), geometry)).toEqual({ sequences: Array(3).fill('\x1b[<65;5;3M'), remainder: 0 });
+  expect(wheelReports(wheel(-20), geometry).sequences).toEqual(['\x1b[<64;5;3M']);
+  // Trackpad pixels accumulate: 8px twice is nothing, the third crosses a line.
+  let state = wheelReports(wheel(8), geometry, 0);
+  expect(state.sequences).toEqual([]);
+  state = wheelReports(wheel(8), geometry, state.remainder);
+  expect(state.sequences).toEqual([]);
+  state = wheelReports(wheel(8), geometry, state.remainder);
+  expect(state.sequences).toEqual(['\x1b[<65;5;3M']);
+  expect(state.remainder).toBeCloseTo(0.2);
+  // Reversing direction drops the carried remainder instead of fighting it.
+  expect(wheelReports(wheel(-20), geometry, 0.9).sequences).toEqual(['\x1b[<64;5;3M']);
+  // Line mode counts lines directly; modifiers set the SGR bits; positions clamp to the grid.
+  expect(wheelReports(wheel(2, 1, { shiftKey: true, ctrlKey: true }), geometry).sequences).toEqual(Array(2).fill('\x1b[<85;5;3M'));
+  expect(wheelReports({ ...wheel(20), clientX: 5000, clientY: -100 }, geometry).sequences).toEqual(['\x1b[<65;80;1M']);
+  expect(wheelReports(wheel(100_000), geometry).sequences).toHaveLength(20);
 });
 
 it('redraws when the daemon replays from a different cursor than the view saw', async () => {
