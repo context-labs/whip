@@ -8,6 +8,64 @@ function storage(): AppStorage {
   return { keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } };
 }
 describe('window session tabs', () => {
+  it('opens fresh REPL views next to their source and restores each identity independently', () => {
+    const disk = storage(), state = new SessionTabs(disk);
+    state.open('mac', 'before'); state.visit('mac', 'root', { agent: 'child', panel: 'context' }); state.open('mac', 'after');
+    const source = state.workspace().tabs.find(tab => tab.id === 'root');
+    const first = state.openRelated('root', 'repl');
+    expect(first).toMatchObject({ kind: 'repl', runtimeId: 'mac', rootId: 'root', location: { agent: 'child' } });
+    expect(first.id).not.toBe('root');
+    expect(state.workspace().tabs.map(tab => tab.id)).toEqual(['before', 'root', first.id, 'after']);
+    expect(selectedSessionTab(state.workspace())).toEqual(first);
+    const second = state.openRelated('root', 'repl');
+    expect(state.workspace().tabs.map(tab => tab.id)).toEqual(['before', 'root', second.id, first.id, 'after']);
+    expect(state.workspace().tabs.find(tab => tab.id === 'root')).toEqual(source);
+    expect(new SessionTabs(disk).workspace()).toEqual(state.workspace());
+    state.closeViews([first.id]);
+    state.visit('mac', 'root', { agent: 'child', view: 'repl' }, first.id);
+    expect(selectedSessionTab(state.workspace())?.id).toBe(first.id);
+    expect(state.workspace().tabs.find(tab => tab.id === 'root')).toEqual(source);
+  });
+  it('recreates expired history views without converting an existing chat', () => {
+    const state = new SessionTabs();
+    state.visit('mac', 'root', {});
+    const source = state.workspace().tabs[0], repl = state.openRelated('root', 'repl');
+    state.closeViews([repl.id]);
+    for (let i = 0; i < 21; i++) {
+      const id = state.open('mac', `closed-${i}`); state.closeViews([id]);
+    }
+    expect(state.workspace().closed.some(item => item.tab.id === repl.id)).toBe(false);
+    expect(state.visit('mac', 'root', { view: 'repl' }, repl.id)).toBe(repl.id);
+    expect(state.workspace().tabs.find(tab => tab.id === 'root')).toEqual(source);
+    expect(selectedSessionTab(state.workspace())).toMatchObject({ id: repl.id, kind: 'repl' });
+  });
+  it('targets the source pane after moves and returns to the nearest same-agent chat', () => {
+    const state = new SessionTabs();
+    state.visit('mac', 'root', { agent: 'child' });
+    const other = state.split('root', 'right');
+    const repl = state.openRelated('root', 'repl');
+    expect(sessionViewPane(state.workspace(), repl.id)?.id).toBe(sessionViewPane(state.workspace(), 'root')?.id);
+    expect(state.openRelated(repl.id, 'chat').id).toBe('root');
+    state.transfer(repl.id, sessionViewPane(state.workspace(), other)!.id);
+    const next = state.openRelated(repl.id, 'repl');
+    expect(sessionViewPane(state.workspace(), next.id)?.tabs.map(tab => tab.id)).toEqual([other, repl.id, next.id]);
+    state.updateLocation(other, { agent: 'different' });
+    const chat = state.openRelated(next.id, 'chat');
+    expect(chat.id).not.toBe(other);
+    expect(chat.location).toEqual({ agent: 'child' });
+    expect(sessionViewPane(state.workspace(), next.id)?.tabs.at(-1)?.id).toBe(chat.id);
+    expect(state.workspace().tabs.find(tab => tab.id === next.id)?.kind).toBe('repl');
+  });
+  it('rejects new views at capacity without altering source, focus or order', () => {
+    const state = new SessionTabs();
+    for (let i = 0; i < 32; i++) state.open('mac', `root-${i}`);
+    const before = state.workspace();
+    expect(() => state.openRelated('root-0', 'repl')).toThrow('32 open session tabs');
+    expect(state.workspace()).toBe(before);
+    expect(() => state.openRelated('closed', 'repl')).toThrow('no longer open');
+    const drafts = new SessionTabs(), draft = drafts.openNew({});
+    expect(() => drafts.openRelated(draft.id, 'repl')).toThrow('no longer open');
+  });
   it('keeps a valid agent definition on new-chat tabs and rejects malformed ids', () => {
     const state = new SessionTabs();
     const tab = state.openNew({ definition: 'junior-developer' });

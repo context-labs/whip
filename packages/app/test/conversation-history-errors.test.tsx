@@ -24,7 +24,9 @@ vi.mock('../src/timeline', async importOriginal => ({
   </>,
 }));
 vi.mock('../src/composer', () => ({ Composer: () => null }));
-vi.mock('../src/chat-activity', () => ({ ChatActivity: () => null }));
+vi.mock('../src/chat-activity', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/chat-activity')>(), ChatActivity: () => null, CurrentActivity: () => null,
+}));
 vi.mock('../src/requests', () => ({ PendingRequests: () => null }));
 vi.mock('../src/inspector', () => ({ SessionInspector: () => null }));
 vi.mock('../src/agent-turn-notice', () => ({ AgentTurnNotice: () => null, useSelectedAgent: () => undefined }));
@@ -58,7 +60,7 @@ it.each(['rewind', 'fork'] as const)('does not leak a closed clear-history failu
   const { run } = fixture();
   let rejectClear!: (error: Error) => void;
   run.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectClear = reject; }));
-  fireEvent.click(screen.getByRole('button', { name: 'Session actions' }));
+  fireEvent.click(screen.getAllByRole('button', { name: 'Session actions' }).at(-1)!);
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Clear history…' }));
   const clearDialog = await screen.findByRole('dialog', { name: 'Clear conversation history?' });
   fireEvent.click(within(clearDialog).getByRole('button', { name: 'Confirm clear' }));

@@ -3,9 +3,8 @@ import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 
 export const styles = stylex.create({
   root: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, minWidth: 0 },
-  toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: 12, borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, fontSize: typography.size13 },
+  toolbar: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '4px 12px', borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, fontSize: typography.size13 },
   title: { display: 'flex', alignItems: 'center', gap: 6, fontWeight: 550, marginRight: 4 },
-  agent: { minWidth: 0, maxWidth: '100%', backgroundColor: 'transparent' },
   count: { fontSize: typography.size12, color: surface.secondaryText, marginLeft: 'auto', whiteSpace: 'nowrap' },
   notice: { fontSize: typography.size12, lineHeight: 1.5, color: surface.secondaryText, padding: '8px 16px', margin: 0 },
   content: { maxWidth: 'none', paddingInline: 16, paddingBlock: 16 },

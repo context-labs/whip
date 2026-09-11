@@ -48,6 +48,20 @@ export async function openTerminalTab(runtime: AppRuntime, navigate: AnyRouter['
   } catch (error) { runtime.reportWorkspace(error); }
 }
 
+/** Explicit view opening creates an adjacent REPL; URL observation only selects it. */
+export async function openSessionView(runtime: AppRuntime, navigate: AnyRouter['navigate'], sourceId: string, kind: 'chat' | 'repl') {
+  try {
+    const tab = runtime.tabs.openRelated(sourceId, kind);
+    await navigate(tabDestination(tab));
+    requestAnimationFrame(() => {
+      if (selectedSessionTab(runtime.tabs.workspace())?.id === tab.id)
+        Array.from(document.querySelectorAll<HTMLElement>('[data-workspace-view]'))
+          .find(panel => panel.dataset.workspaceView === tab.id)?.focus({ preventScroll: true });
+    });
+    return tab;
+  } catch (error) { runtime.reportWorkspace(error); }
+}
+
 /** Allocate only for explicit creation intent; selecting a tab never calls this. */
 export function openNewChat(runtime: AppRuntime, navigate: AnyRouter['navigate'], options: Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode'>> = {}, replace = false) {
   try {

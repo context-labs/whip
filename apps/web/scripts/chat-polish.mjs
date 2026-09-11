@@ -106,7 +106,7 @@ for (const [name, launcher] of Object.entries({chromium, firefox})) {
       assert.equal(await hasActiveCopy(), false, 'tool completion alone does not complete the turn');
       assert.equal((await fetch(`${fixture.info.frontend}/control/release?key=large-render`, {method: 'POST'})).status, 204);
       await work.result();
-      await expect(page.getByRole('region', {name: 'Current activity', exact: true})).toHaveCount(0);
+      await expect(page.locator('[data-current-activity]').getByRole('status')).toHaveText('Idle');
       const completed = reading.locator('[data-message-role="assistant"]').last().locator('xpath=ancestor::div[@data-reading-id]');
       await expect(completed.getByRole('button', {name: 'Copy response', exact: true})).toBeVisible();
       if (await latest.count()) await latest.click();

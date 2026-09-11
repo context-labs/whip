@@ -563,7 +563,7 @@ behavior to its owning code and repeatable validation.
 | Window-local session tabs across hosts, v3 layout and retained v1/v2 recovery, overflow/search/reorder/close/reopen, preserved attachments and reading anchors, bounded background activity | `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip,compositions,reading-positions}.ts*`, `packages/ui/src/workspace-tabs.tsx`, `internal/daemon/session_summaries.go`, `internal/session/navigation.go` | App tab/routing/composition tests, `apps/web/scripts/session-tabs.mjs`, UI all-theme/CSP tab tests, `TestSessionSummariesAcrossTransports` and navigation bounds tests |
 | Independent New Chat tabs, host/setup persistence, original-ID first-message recovery, focus-safe in-place promotion and closed/orphan recovery | `packages/app/src/{session-tabs,session-tab-routing,welcome,welcome-submission,welcome-recovery,runtime}.ts*` | App tab/routing/Welcome/submission/runtime/settings/desktop-close tests; `apps/web/scripts/new-chat-tabs.mjs` |
 | Nested split views, draggable tabs between panes, duplicate chats with independent agents/scroll, shared drafts, and responsive layout restoration | `packages/app/src/{session-tabs,session-tab-strip,session-tab-routing,workspace-views,runtime,conversation,composer}.ts*`, `packages/ui/src/workspace-layout.tsx` | App model/routing/runtime/workspace/composer tests; `apps/web/scripts/workspace-layout.mjs`; UI layout Chromium/Firefox, Axe and strict-CSP fixture |
-| Read-only session REPL, in-place Open REPL/Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
+| Read-only session REPL, adjacent Open REPL and nearest same-agent Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
 | Compact growing composer, shared model/reasoning picker for idle root sessions, and neutral input focus borders | `packages/app/src/{composer,model-selection}.tsx`, shared UI form styles | Composer tests; `apps/web/scripts/browser.mjs` (growth/shrink, explicit model/effort changes, busy state, draft/reload preservation); `apps/web/scripts/model-picker.mjs` (detail-card bounds, side flipping, scrolling, keyboard and resize in Chromium/Firefox); split workspace browser fixture |
 | Right-aligned user bubbles, hover/focus timestamps and controls, immediate submission previews, queued/running inbox messages | `packages/app/src/{input-presentation,runtime}.ts`, `packages/app/src/{conversation,timeline,composer}.tsx` | `packages/app/test/input-presentation.test.tsx`, composer/runtime tests, `apps/web/scripts/user-messages.mjs` (Chromium/Firefox delayed request, running turn, reload, duplicate text, hover/focus and responsive themes) |
@@ -590,12 +590,31 @@ unsent drafts. A command outcome is separate from completion of descendant agent
 mailboxes or schedules. See [web-app.md](web-app.md) for exact startup commands,
 trusted-network setup and current browser evidence.
 
+## Session information bar and contoured tabs
+
+Desktop and web use contoured tabs and a compact bar showing host/project,
+selected agent and current activity. The bar exposes REPL, agent details and
+existing session actions; narrow panes move secondary actions into its menu.
+New Chat shows setup identity and **Not started**. REPL uses the same agent
+inspector, including pagination, and retains its language/history toolbar.
+
+Every **Open REPL** creates a fresh view immediately right of the source in its
+pane. **Open chat** selects the nearest same-agent chat there or creates one.
+Drafts, source view state, shared root subscriptions and the 32-view cap remain
+intact. History restores exact view identities, including expired closed entries.
+
+- UI: `packages/app/src/{session-info-bar,chat-activity,conversation,welcome}.tsx`,
+  `packages/ui/src/workspace-tabs{,.stylex}.ts*`.
+- Navigation: `packages/app/src/{session-tabs,session-tab-routing,session-tab-strip}.ts*`.
+- Coverage: `session-info-bar.test.tsx`, tab model/routing tests, UI all-theme/CSP
+  tests, and the packaged `repl-viewer.mjs` and `chat-activity.mjs` browser workflows.
+
 ## Chat activity
 
-Web and desktop share compact execution groups, one current status above the
-composer, and bounded named-agent rows. Authored messages retain their order;
+Web and desktop share compact execution groups, one current status in the session
+information bar, and bounded named-agent rows above the composer. Authored messages retain their order;
 expansion exposes bounded code/output and host-operation evidence with an
-in-place **Open in REPL** action. Reading aliases and stable detail windows protect
+**Open in REPL** action that creates a fresh adjacent tab. Reading aliases and stable detail windows protect
 navigation and focus. Appearance density, typography and reduced motion apply.
 
 - Runtime: `internal/rlm/kernel.go` emits host starts before dispatch and correlated

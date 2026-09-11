@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RootSnapshot } from '@whip/protocol';
 import { executionRows, type DeepReadonly, type ExecutionCell, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
-import { Badge, Button, CodeBlock, CopyButton, Select, Tooltip } from '@whip/ui';
+import { Badge, Button, CodeBlock, CopyButton, Tooltip } from '@whip/ui';
 import { Code2, Info, RotateCcw } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from './context';
 import { ReadingList } from './reading-list';
-import { CollectionMore, ContentRead, mergeBy, useCollection } from './details/shared';
+import { ContentRead } from './details/shared';
 import { styles } from './repl-view.stylex';
 import { ErrorNotice } from './error-feedback';
 import { ExecutionTime } from './execution-time';
@@ -14,7 +14,7 @@ import { ExecutionTime } from './execution-time';
 const historyHelp = 'Saved cells include code, output, results and recorded restart information. Details of individual host calls may be unavailable for older cells.';
 const executionLabel = (engine?: string) => engine === 'quickjs' ? 'JavaScript (QuickJS)' : !engine || engine === 'starlark' ? 'Starlark' : 'Unsupported execution language';
 
-export function ReplView({ view, state, agentId, runtimeId, viewId, connected, lastTurn, onAgentChange }: {
+export function ReplView({ view, state, agentId, runtimeId, viewId, connected, lastTurn }: {
   view: SessionView;
   state: DeepReadonly<SessionViewSnapshot>;
   agentId: string;
@@ -22,7 +22,6 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
   viewId: string;
   connected: boolean;
   lastTurn?: DeepReadonly<NonNullable<RootSnapshot['agents']>[number]['last_turn']>;
-  onAgentChange(agentId: string): void;
 }) {
   const root = state.root;
   const languageLabel = executionLabel(root?.meta?.execution_engine);
@@ -30,10 +29,6 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
   const rows = useMemo(() => executionRows(state, agentId), [state, agentId]);
   const cells = rows.filter(row => row.kind === 'cell');
   const ordinals = new Map(cells.map((row, index) => [row.id, index + 1]));
-  const collection = useCollection(view, 'agents');
-  const agents = mergeBy(root?.agents ?? [], collection.page?.items?.flatMap(item => item.agent ? [item.agent] : []) ?? [], item => item.id);
-  const options = [{ value: view.session.rootId, label: 'Root agent' }, ...agents.filter(agent => agent.id !== view.session.rootId).map(agent => ({ value: agent.id, label: agent.name || agent.id }))];
-  if (!options.some(option => option.value === agentId)) options.push({ value: agentId, label: agentId });
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     const ids = new Set(rows.map(row => row.id));
@@ -47,17 +42,15 @@ export function ReplView({ view, state, agentId, runtimeId, viewId, connected, l
   });
   const loading = state.status === 'loading' || history?.loading;
   const missing = !!history?.error || (!root && state.status === 'error');
-  const failed = !root?.active_turns?.[agentId] && (lastTurn ?? agents.find(agent => agent.id === agentId)?.last_turn)?.status === 'failed';
+  const failed = !root?.active_turns?.[agentId] && (lastTurn ?? root?.agents?.find(agent => agent.id === agentId)?.last_turn)?.status === 'failed';
   return <div {...stylex.props(styles.root)} data-session-view="repl">
     <div {...stylex.props(styles.toolbar)}>
-      <span {...stylex.props(styles.title)}><Code2 size={16} /> REPL
+      <span {...stylex.props(styles.title)}>
         <Tooltip label={historyHelp}>
           <Button variant="ghost" size="sm" aria-label="About REPL history" aria-description={historyHelp}><Info size={14} /></Button>
         </Tooltip>
       </span>
-      <Select label="REPL agent" value={agentId} onValueChange={onAgentChange} options={options} xstyle={styles.agent} />
       <span {...stylex.props(styles.count)}>{languageLabel} · {cells.length} loaded {cells.length === 1 ? 'cell' : 'cells'}</span>
-      {(collection.page?.has_more || root?.omitted?.agents || collection.error) && <CollectionMore collection={collection} omitted={root?.omitted?.agents} connected={connected} />}
     </div>
     {!connected && <p role="status" {...stylex.props(styles.notice)}>Execution updates are paused. Showing the last available evidence.</p>}
     {state.executions?.truncated && <p role="status" {...stylex.props(styles.notice)}>Some observed execution details were omitted to keep this view within its memory limit.</p>}

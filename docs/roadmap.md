@@ -130,7 +130,10 @@ in
 - [x] Nested in-window split panes with movable tabs, duplicate chat views, independent
   reading/agent selection and bounded observation. See the
   [split-view implementation](../.ai-docs/plans/split-views/README.md).
-- [x] Read-only session REPL notebook with tab-mode switching, independent split
+- [x] Contoured tabs and a session information bar with host/project, selected
+  agent, current activity and scoped actions; Open REPL creates a fresh tab to
+  the right. See [session chrome](../.ai-docs/plans/zed-session-chrome/README.md).
+- [x] Read-only session REPL notebook with adjacent view opening, independent split
   views and bounded live/recorded execution evidence. See the
   [session REPL implementation](../.ai-docs/plans/session-repl-viewer/README.md).
 - [x] Compact chat execution groups, shared current host-operation status,

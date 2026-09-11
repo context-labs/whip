@@ -21,6 +21,7 @@ import { PermissionModeControl } from './permission-mode';
 import { welcomeDraftKey } from './welcome-submission';
 import { errorMessage } from './platform';
 import { ErrorNotice } from './error-feedback';
+import { SessionInfoBar } from './session-info-bar';
 import { WelcomeRecovery } from './welcome-recovery';
 import { definitionOptions, useDefinitions } from './definitions';
 
@@ -41,7 +42,8 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
     try { runtime.tabs.updateNew(tab.id, { hostProfileId: id, runtimeId: next?.runtimeId }); setChangingHost(false); setHostSelectionError(undefined); }
     catch (error) { setHostSelectionError(error); }
   };
-  return <div {...stylex.props(layout.empty, styles.page)}>
+  return <><SessionInfoBar kind="new" host={host?.name ?? 'Choose a host'} cwd={tab.cwd} />
+  <div {...stylex.props(layout.empty, styles.page)}>
     <h1 {...stylex.props(layout.emptyTitle)}>What would you like to work on?</h1>
     <div {...stylex.props(styles.column)}>
       {host && runtime.platform.localRuntime && host.profile?.target.kind === 'local' && host.state !== 'connected'
@@ -58,7 +60,7 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
     </div>
     <WelcomeRecovery currentId={tab.id} />
     <HostDialog open={adding} onOpenChange={setAdding} onSaved={selectHost} />
-  </div>;
+  </div></>;
 }
 
 function NewSession({ client, host, tab, focused }: { client: WhipClient; host: HostConnection; tab: NewChatTab; focused: boolean }) {

@@ -397,9 +397,8 @@ const frame = () =>
   const switches = [];
   for (let index = 0; index < 20; index++) {
     const start = performance.now();
-    await page
-      .getByRole('link', { name: 'Root conversation', exact: true })
-      .click();
+    await page.locator('[data-session-info-bar]').getByRole('button', { name: 'Session actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Root conversation', exact: true }).click();
     await page.waitForFunction(() =>
       document
         .querySelector('[aria-label="Conversation"]')
@@ -412,7 +411,7 @@ const frame = () =>
     if (index < 19) {
       await page.goBack();
       await page
-        .getByRole('link', { name: 'Root conversation', exact: true })
+        .getByRole('button', { name: 'Agent: perf-child-000', exact: true })
         .waitFor();
       await page.waitForFunction(() =>
         document

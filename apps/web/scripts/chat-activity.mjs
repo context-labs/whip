@@ -62,7 +62,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const response = await fetch(`${fixture.info.frontend}/control/repl/activity-${value}`, { method: 'POST' });
     assert.equal(response.status, 204, await response.text());
   };
-  const dock = page.getByRole('region', { name: 'Current activity', exact: true });
+  const dock = page.locator('[data-current-activity]');
   const reading = page.getByRole('region', { name: 'Conversation', exact: true });
   const group = page.locator('[data-activity-group]').filter({ hasText: '3 executions' });
   const screenshot = label => page.screenshot({ path: join(directory, `${name}-${label}.png`) });
@@ -86,6 +86,16 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     }
     await page.goto(url);
     await page.getByRole('textbox', { name: 'Message WHIP', exact: true }).waitFor();
+    if (browser.app) {
+      // Verify the actual staged renderer's native drag hit regions.
+      const chrome = await page.locator('[data-workspace-tab-strip]').evaluate(strip => ({
+        height: strip.parentElement.getBoundingClientRect().height,
+        drag: getComputedStyle(strip.parentElement).getPropertyValue('-webkit-app-region'),
+        tab: getComputedStyle(strip.querySelector('[data-workspace-tab]')).getPropertyValue('-webkit-app-region'),
+      }));
+      assert.equal(chrome.height, 48); assert.equal(chrome.drag, 'drag'); assert.equal(chrome.tab, 'no-drag');
+      await writeFile(join(directory, 'electron-session-chrome.json'), JSON.stringify(chrome, null, 2));
+    }
     const work = client.session(root).submit({ text: 'hold:chat-activity' });
     await work.accepted();
     await eventually(async () => (await client.session(root).snapshot()).active_turns[root]);
@@ -133,8 +143,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect(page.getByRole('region', { name: 'REPL executions', exact: true })).toBeVisible();
     const notebook = page.locator('[data-repl-cell]').filter({ hasText: 'agents.wait' });
     await expect(notebook).toContainText('Running');
-    // The switch uses replace navigation; explicitly return to the same chat.
-    await page.goto(url);
+    // Opening execution evidence preserves the source chat and pushes history.
+    await page.goBack();
     await expect(dock.getByRole('status')).toHaveText('Waiting for agents');
     await expect(group).toHaveCount(1);
     await dock.getByRole('button', { name: 'Pause activity animation' }).click();

@@ -88,7 +88,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(await panel(duplicate).getByRole('button', { name: 'Reasoning effort', exact: true }).count(), 0, 'Child composer offered to change root reasoning');
     assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).count(), 1);
     assert.equal(await panel(root).getByText(/perf-child-000 message/).count(), 0);
-    await panel(duplicate).getByRole('link', { name: 'Root conversation', exact: true }).click();
+    await panel(duplicate).locator('[data-session-info-bar]').getByRole('button', { name: 'Session actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Root conversation', exact: true }).click();
     await ready(duplicate);
     checks.push('same-URL Back/Forward and independent child-agent selection');
 

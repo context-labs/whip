@@ -65,9 +65,9 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.getByRole('menu').waitFor({ state: 'hidden' });
   };
   const chooseAgent = async (id, label) => {
-    await panel(id).getByRole('combobox', { name: 'REPL agent', exact: true }).click();
-    await page.getByRole('option', { name: label, exact: true }).click();
-    await expect(panel(id).getByRole('combobox', { name: 'REPL agent', exact: true })).toHaveText(label);
+    await panel(id).getByRole('button', { name: /^Agent:/ }).click();
+    await page.getByRole('dialog', { name: 'Session details', exact: true }).getByRole('link', { name: label === 'Root agent' ? 'root' : label, exact: true }).click();
+    await expect(panel(id).getByRole('button', { name: /^Agent:/ })).toContainText(label === 'Root agent' ? 'Root' : label);
   };
   const anchor = region => region.evaluate(element => {
     const top = element.getBoundingClientRect().top;
@@ -138,12 +138,14 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.locator(`[data-workspace-tab="${root}"]`).getByRole('button', { name: /^Tab actions for / }).focus();
     await page.keyboard.press('Enter');
     await page.getByRole('menuitem', { name: 'Open REPL', exact: true }).press('Enter');
-    await ready(root, 'repl');
-    await expect(panel(root)).toBeFocused();
+    const repl = leaves((await workspace()).layout)[0].selected;
+    assert.notEqual(repl, root);
+    await ready(repl, 'repl');
+    await expect(panel(repl)).toBeFocused();
     assert.equal(new URL(page.url()).searchParams.get('view'), 'repl');
-    assert.equal(allTabs(await workspace()).length, 1, 'Opening REPL added a tab');
+    assert.deepEqual(allTabs(await workspace()).map(tab => tab.id), [root, repl], 'REPL must open immediately right of the preserved chat');
     assert.equal(allTabs(await workspace())[0].id, root, 'Opening REPL replaced the stable view ID');
-    assert.equal(await panel(root).locator('[data-whip-composer]').count(), 0);
+    assert.equal(await panel(repl).locator('[data-whip-composer]').count(), 0);
     assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, initialSnapshots, 'Mode switch acquired another root');
     assert.equal(frames.filter(frame => frame.method === 'history.page').length, initialHistory, 'Mode switch fetched history automatically');
     const savedLink = page.locator('#whip-session-navigation').getByRole('link', { name: 'Inspect Root cell 000.', exact: true });
@@ -153,35 +155,41 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const resultLink = searchDialog.getByRole('link', { name: /^Inspect Root cell 000\./ });
     assert.equal(new URL(await resultLink.getAttribute('href'), origin).searchParams.get('view'), 'repl');
     await page.keyboard.press('Escape'); await searchDialog.waitFor({ state: 'hidden' });
-    const lastCell = notebook(root).locator('[data-repl-cell]').filter({ hasText: 'Root cell 179' });
+    const lastCell = notebook(repl).locator('[data-repl-cell]').filter({ hasText: 'Root cell 179' });
     await expect(lastCell).toBeVisible();
     await expect(lastCell).toContainText('Completed');
     await expect(lastCell).toContainText('206 steps');
-    await expect(notebook(root).locator('[data-repl-cell]').filter({ hasText: 'Root cell 176' })).toContainText('Failed');
+    await expect(notebook(repl).locator('[data-repl-cell]').filter({ hasText: 'Root cell 176' })).toContainText('Failed');
     await lastCell.getByRole('button', { name: 'Show 5 more lines', exact: true }).click();
     await expect(lastCell.getByRole('button', { name: 'Collapse output', exact: true })).toHaveAttribute('aria-expanded', 'true');
     await expect(lastCell.getByRole('region', { name: 'Return value', exact: true })).toContainText('9');
-    const replAnchor = await scrollUp(notebook(root));
-    await action(root, 'Open chat'); await ready(root, 'chat');
+    const replAnchor = await scrollUp(notebook(repl));
+    await action(repl, 'Open chat'); await ready(root, 'chat');
     assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).inputValue(), 'Keep this draft while I inspect execution evidence.');
     await sameAnchor(chat(root), chatAnchor);
-    await action(root, 'Open REPL'); await ready(root, 'repl'); await sameAnchor(notebook(root), replAnchor);
-    checks.push('three-dot menu switches one stable tab; draft and independent chat/REPL reading anchors restore');
+    await panel(root).getByRole('button', { name: 'Open REPL', exact: true }).click();
+    const toolbarRepl = leaves((await workspace()).layout)[0].selected;
+    assert.notEqual(toolbarRepl, repl, 'Toolbar opening must create a fresh view even with an existing REPL');
+    assert.deepEqual(allTabs(await workspace()).map(tab => tab.id), [root, toolbarRepl, repl]);
+    await ready(toolbarRepl, 'repl');
+    await tab(toolbarRepl).press('Delete');
+    await tab(repl).click(); await ready(repl, 'repl'); await sameAnchor(notebook(repl), replAnchor);
+    checks.push('three-dot menu opens an adjacent REPL; nearest chat, draft and independent reading anchors restore');
 
     await page.goBack(); await ready(root, 'chat');
-    await page.goForward(); await ready(root, 'repl');
-    await page.reload(); await ready(root, 'repl');
-    assert.equal(allTabs(await workspace())[0].kind, 'repl');
+    await page.goForward(); await ready(repl, 'repl');
+    await page.reload(); await ready(repl, 'repl');
+    assert.deepEqual(allTabs(await workspace()).map(tab => tab.kind), ['chat', 'repl']);
     const copied = await context.newPage();
     await copied.goto(page.url()); await copied.getByRole('region', { name: 'REPL executions', exact: true }).waitFor();
     assert.equal(await copied.locator('[data-session-view="repl"]').count(), 1);
     await copied.close();
-    await page.goto(url); await ready(root, 'chat');
-    await page.goBack(); await ready(root, 'repl');
-    checks.push('Back/Forward, reload and copied ?view=repl links preserve mode; explicit no-mode URLs open chat');
+    await tab(root).click(); await ready(root, 'chat');
+    await page.goBack(); await ready(repl, 'repl');
+    checks.push('Back/Forward, reload and copied ?view=repl links preserve mode; tab links return to chat');
 
-    const splitAnchor = await scrollUp(notebook(root));
-    await action(root, 'Split right');
+    const splitAnchor = await scrollUp(notebook(repl));
+    await action(repl, 'Split right');
     await eventually(async () => leaves((await workspace()).layout).length === 2, { description: 'REPL split' });
     let state = await workspace();
     const duplicate = leaves(state.layout)[1].selected;
@@ -189,25 +197,25 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await sameAnchor(notebook(duplicate), splitAnchor);
     const subscriptionsBefore = frames.filter(frame => frame.method === 'events.subscribe').length;
     const childReadsBefore = frames.filter(frame => frame.method === 'history.page' && frame.params.agent_id === 'repl-child').length;
-    await action(root, 'Open chat'); await ready(root, 'chat');
+    await action(repl, 'Open chat'); await ready(root, 'chat');
     await chooseAgent(duplicate, 'repl-child');
     await expect(notebook(duplicate)).toContainText('Child cell 003');
     assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).inputValue(), 'Keep this draft while I inspect execution evidence.');
     assert.equal(await panel(root).getByText('Child cell 003', { exact: true }).count(), 0);
     assert.equal(frames.filter(frame => frame.method === 'events.subscribe').length, subscriptionsBefore, 'Child REPL opened another root subscription');
     assert.equal(frames.filter(frame => frame.method === 'history.page' && frame.params.agent_id === 'repl-child').length - childReadsBefore, 1);
-    await action(root, 'Open REPL'); await ready(root, 'repl');
-    await chooseAgent(root, 'repl-child');
-    await expect(notebook(root)).toContainText('Child cell 003');
+    await tab(repl).click(); await ready(repl, 'repl');
+    await chooseAgent(repl, 'repl-child');
+    await expect(notebook(repl)).toContainText('Child cell 003');
     assert.equal(frames.filter(frame => frame.method === 'history.page' && frame.params.agent_id === 'repl-child').length - childReadsBefore, 1, 'Duplicate child view loaded a second history');
-    await chooseAgent(root, 'Root agent');
+    await chooseAgent(repl, 'Root agent');
     await chooseAgent(duplicate, 'repl-empty');
     await expect(notebook(duplicate)).toContainText('No executions in the loaded history');
     await chooseAgent(duplicate, 'repl-child');
     await step('child');
     await expect(notebook(duplicate)).toContainText('synthetic child failure');
     await expect(notebook(duplicate)).toContainText('Synthetic file unavailable');
-    assert.equal(await notebook(root).getByText('Synthetic file unavailable', { exact: true }).count(), 0);
+    assert.equal(await notebook(repl).getByText('Synthetic file unavailable', { exact: true }).count(), 0);
     await screenshot('split-root-child');
     await page.setViewportSize({ width: 962, height: 1040 });
     await eventually(async () => (await page.locator('[data-workspace-frame]').count()) === 2, { description: 'two minimum-width panes' });
@@ -216,6 +224,13 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       return bounds.width >= 320 && bounds.width <= 322;
     }, { description: '320px pane geometry after viewport resize' });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    for (const id of [repl, duplicate]) {
+      const bar = panel(id).locator('[data-session-info-bar]');
+      const status = await bar.getByRole('button', { name: /^Activity:/ }).boundingBox();
+      const menu = await bar.getByRole('button', { name: 'Session actions', exact: true }).boundingBox();
+      assert(status.x + status.width <= menu.x, 'Narrow status overlaps session controls');
+      assert(await bar.evaluate(element => element.scrollWidth <= element.clientWidth), 'Information bar overflows its pane');
+    }
     await screenshot('320-pane');
     await page.setViewportSize({ width: 1600, height: 1040 });
     checks.push('chat/REPL duplicates select independent agents; duplicate child history is leased once; empty and failed child evidence is scoped');
@@ -252,12 +267,12 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     checks.push('Claude Code, light and dark screenshots with WCAG 2/2.1 A/AA Axe checks');
 
     await chooseAgent(moved, 'repl-paged');
-    await expect(panel(moved).getByText('32 loaded cells', { exact: true })).toBeVisible();
+    await expect(panel(moved).getByText(/32 loaded cells$/)).toBeVisible();
     const firstPage = await scrollPage(notebook(moved), 'repl-paged');
-    await expect(panel(moved).getByText('64 loaded cells', { exact: true })).toBeVisible();
+    await expect(panel(moved).getByText(/64 loaded cells$/)).toBeVisible();
     const finalPage = await scrollPage(notebook(moved), 'repl-paged');
     assert.ok(finalPage.params.before_seq < firstPage.params.before_seq);
-    await expect(panel(moved).getByText('80 loaded cells', { exact: true })).toBeVisible();
+    await expect(panel(moved).getByText(/80 loaded cells$/)).toBeVisible();
     const olderChild = panel(moved).getByRole('button', { name: /Load older executions$/ });
     await expect(olderChild).toHaveCount(0);
     await notebook(moved).evaluate(element => { element.scrollTop = 0; });
@@ -267,7 +282,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       const before = frames.length;
       await step('refresh');
       await eventually(() => frames.slice(before).some(frame => frame.method === 'history.page' && frame.params.agent_id === 'repl-paged' && replies.has(frame.id)), { description: 'child metadata refresh completes' });
-      await expect(panel(moved).getByText('80 loaded cells', { exact: true })).toBeVisible();
+      await expect(panel(moved).getByText(/80 loaded cells$/)).toBeVisible();
       await expect(olderChild).toHaveCount(0);
       await notebook(moved).evaluate(element => { element.scrollTop = 100; });
       await notebook(moved).evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -279,17 +294,17 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await expect(notebook(moved)).toContainText('No executions in the loaded history');
     assert.equal(backwardReads('repl-sparse').length, 0, 'A sparse page must not automatically scan older history');
     await panel(moved).getByRole('button', { name: 'Load older executions', exact: true }).click();
-    await expect(panel(moved).getByText('4 loaded cells', { exact: true })).toBeVisible();
+    await expect(panel(moved).getByText(/4 loaded cells$/)).toBeVisible();
     assert.equal(backwardReads('repl-sparse').length, 1);
     await expect(panel(moved).getByRole('button', { name: /Load older executions$/ })).toHaveCount(0);
     checks.push('a page without REPL cells has an explicit bounded fallback to earlier executions');
 
     await chooseAgent(moved, 'Root agent');
     const rootPage = await scrollPage(notebook(moved), root);
-    await action(moved, 'Open chat'); await ready(moved, 'chat');
-    const chatPage = await scrollPage(chat(moved), root);
+    await action(moved, 'Open chat'); await ready(root, 'chat');
+    const chatPage = await scrollPage(chat(root), root);
     assert.ok(chatPage.params.before_seq < rootPage.params.before_seq);
-    await action(moved, 'Open REPL'); await ready(moved, 'repl');
+    await tab(moved).click(); await ready(moved, 'repl');
     checks.push('root REPL and main chat both fetch older pages by scrolling through the shared reader');
 
     const historyBeforePaging = frames.filter(frame => frame.method === 'history.page').length;
@@ -301,7 +316,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       await older.evaluate(button => button.click());
       await eventually(() => frames.filter(frame => frame.method === 'history.page').length > historyBeforePaging + index, { description: 'explicit bounded history page' });
       await eventually(async () => !await older.count() || await older.isEnabled(), { description: 'older page completes or exhausts history' });
-      const count = Number((await panel(moved).getByText(/^\d+ loaded cells?$/).innerText()).split(' ')[0]);
+      const count = Number((await panel(moved).getByText(/\d+ loaded cells?$/).innerText()).match(/(\d+) loaded cells?/)[1]);
       assert.ok(count <= 128, `Loaded ${count} cells from more than 512 retained messages`);
     }
     const historyRequests = frames.filter(frame => frame.method === 'history.page');
@@ -338,23 +353,26 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(await page.locator('[data-workspace-frame]').count(), 1);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await screenshot('mobile');
-    const mobileAction = async label => {
+    const mobileAction = async (id, label) => {
       await page.getByRole('button', { name: /^Open sessions:/ }).click();
       const picker = page.getByRole('dialog', { name: 'Open sessions', exact: true });
-      const index = allTabs(await workspace()).findIndex(value => value.id === moved);
+      const index = allTabs(await workspace()).findIndex(value => value.id === id);
       await picker.getByRole('button', { name: /^Tab actions for / }).nth(index).click();
       await page.getByRole('menuitem', { name: label, exact: true }).click();
       await picker.waitFor({ state: 'hidden' });
     };
-    await mobileAction('Open chat'); await ready(moved, 'chat');
-    assert.equal(await panel(moved).getByLabel('Message WHIP', { exact: true }).inputValue(), 'Keep this draft while I inspect execution evidence.');
-    await mobileAction('Open REPL'); await ready(moved, 'repl');
+    await mobileAction(moved, 'Open chat'); await ready(root, 'chat');
+    assert.equal(await panel(root).getByLabel('Message WHIP', { exact: true }).inputValue(), 'Keep this draft while I inspect execution evidence.');
+    await mobileAction(root, 'Open REPL');
+    const mobileRepl = leaves((await workspace()).layout)[0].selected;
+    assert.notEqual(mobileRepl, moved);
+    await ready(mobileRepl, 'repl');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.ok(maximumSubscriptions <= 1, `Observed ${maximumSubscriptions} root subscriptions for one root`);
     assert.equal(frames.filter(frame => frame.method === 'command.submit').length, 0, 'Viewer interaction submitted a daemon command');
     assert.deepEqual(await fixture.effects(), [], 'Opening views executed fixture runner work');
     assert.deepEqual(errors, []);
-    checks.push('mobile picker switches modes; viewer actions open one shared root subscription and never submit commands');
+    checks.push('mobile picker opens fresh REPL views; viewer actions open one shared root subscription and never submit commands');
     results[name] = { browser: await browser.version(), maximumSubscriptions, historyRequests: historyRequests.length, checks };
     console.log(`${name}: ${checks.length} REPL viewer workflows passed`);
   } catch (error) {

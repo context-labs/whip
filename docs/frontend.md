@@ -633,19 +633,26 @@ New root/session, fork, and child IDs are opaque 20-character lowercase base32
 identifiers. Existing IDs remain valid. Use `root_id`/`parent_id` for hierarchy;
 never parse an ID prefix or rely on a fixed legacy hex length.
 
-A session tab's **Open REPL** menu action switches its existing descriptor to
-`kind: 'repl'`; **Open chat** reverses it. The same actions are available in the
-context menu and mobile picker. `sessionSearch` is the shared URL serializer:
-REPL uses `?view=repl`, while chat omits `view`. Navigation, copied links,
-close/reopen and window restoration preserve the mode. An explicit chat URL
-opens chat. Each duplicate view has an independent mode and selected agent.
+**Open REPL** creates a fresh view immediately to the right of its source in the
+same pane, preserving runtime, root and selected agent. The information bar,
+tab/context menus, mobile picker and conversation evidence use the same
+`openSessionView` helper and `SessionTabs.openRelated` operation. Repeated explicit
+opens create distinct views; ordinary tab selection returns to an existing view.
+**Open chat** selects the nearest same-agent chat in that pane (left wins ties),
+or creates one to the right. Neither action converts its source. The 32-view cap
+applies even when the root is already open; failure leaves the source intact.
+
+`sessionSearch` serializes REPL as `?view=repl`, while chat omits `view`.
+`whipViewId` in browser history selects the exact descriptor. Back/Forward,
+close/reopen and window restoration preserve each view's mode; expired history
+identities recreate a bounded view instead of converting another open chat.
+Copied links retain mode and agent. Each duplicate has its own reading bookmark.
 
 `SessionContent` owns connection feedback, agent leases, pending questions and
 permissions, cancellation, and inspectors for both modes. A batched
 `user.ask(questions=[...])` renders as a wizard card above the composer (same
 width): one question per page, Back/Skip/Next with Send on the last page,
-free text always allowed, and the agent's `recommended` option badged. Switching changes
-only the reader/composer branch, without starting another root subscription.
+free text always allowed, and the agent's `recommended` option badged. Opening another view shares the existing root subscription.
 Drafts and attachments remain recipient-scoped; REPL displays no composer.
 
 `ReplView` consumes `executionRows(snapshot, agentId)` from SDK state. It shows
@@ -1001,7 +1008,7 @@ Group keys survive append, prepend and live-to-recorded reconciliation; bounded
 member aliases restore old reading bookmarks. Explicit disclosure choices are
 capped at 128 and pruned with retained groups. Expanded groups show six cells in
 a stable window, three host operations per cell and bounded code/output previews;
-**Open in REPL** provides the full retained record without creating another tab.
+**Open in REPL** opens the full retained record in a fresh adjacent tab.
 Expanded details use one quiet inset rule and a content-width REPL action.
 Message prose has its own element so trailing paragraph/list margins cannot
 compound with the action area. Assistant paragraphs have no action spacer.
@@ -1023,9 +1030,10 @@ root-agent tool rows. Accounting/usage events do not consume the bounded snapsho
 presentation window. Full event bodies remain explicitly scoped content reads;
 rendering never dereferences them for each token update.
 
-`ChatActivity` reads the same selected session snapshot and execution projection.
-One unboxed status above the composer prioritizes connection health and human
-requests, then current operation/model activity. Direct child rows show agent
+`CurrentActivity` in the session information bar reads the selected session
+snapshot and execution projection. Its single polite status prioritizes connection
+health and human requests, then current operation/model activity; idle stays distinct
+from successful completion. `ChatActivity` keeps direct child rows above the composer. They show agent
 names and current lifecycle state, with at most three visible and no eager child
 transcript reads. Counts from incomplete snapshots say **At least**. Retained
 children are labeled **Session agents**, not attributed to an unproven turn.
@@ -1139,7 +1147,9 @@ The sidebar is the saved-session catalog; tabs are the current window's working
 set. Children remain within a root tab. Only the selected view in each visible pane mounts.
 Tab creation, selection, reorder, close, and reopen are local navigation actions.
 
-Desktop tabs keep readable widths in a horizontal scroller; the picker handles
+Desktop tabs retain their original rounded upper corners and curved lower
+shoulders in the 48px strip; selected tabs join the content canvas. Theme tokens
+also style the matching contoured drag preview. Tabs keep readable widths in a horizontal scroller; the picker handles
 overflow and secondary actions. On phones, use the current-session selector and
 searchable sheet. Preserve browser Back/Forward, modified link clicks, keyboard
 activation, and explicit touch/menu alternatives to dragging. Do not hijack the
@@ -1157,10 +1167,19 @@ existing page/cache limits. Sidebar labels never lease root views.
 
 New session, Search sessions and Settings are the top destinations; execution-host
 management stays in the footer. Host headings show connection status and collapse
-independently. The tab strip sits directly above the conversation,
-without a global toolbar or repeated session heading. Session details opens from
-the tab menu or command palette; its Sheet contains the session management
-actions. Connection and error notices remain visible when relevant.
+independently. Each pane's tab strip sits above a compact `SessionInfoBar`: host/project, selected
+agent, current activity and scoped actions. Full host/path identity is available
+on focus through a tooltip. Agent selection opens the existing paginated inspector;
+child views can return to Root. REPL keeps only language, loaded-cell count and
+history help in its local toolbar. New Chat shows its chosen host/project and
+**Not started**, without session actions. Loading or unavailable views retain
+identity chrome; detailed errors remain in their existing notices.
+
+Narrow panes shorten the identity trail, keep an accessible activity indicator,
+and move secondary actions into the menu. The bar shares existing session action
+and inspector owners; it adds no subscriptions, context audits or polling. Models
+and permissions stay beside the composer, along with child activity and requests.
+Session details also opens from the tab menu or command palette.
 
 Search opens a centered dialog with an automatically focused search field, host
 labels/filter, and up to 64 recent catalog entries per host. Typing debounces

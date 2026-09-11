@@ -41,7 +41,7 @@ function fixture(messages: NonNullable<SessionViewSnapshot['history'][string]>['
   const copy = vi.fn(async () => {});
   const runtime = { platform: { copy }, report: vi.fn() } as unknown as AppRuntime;
   const app = (connected = true) => <RuntimeContext.Provider value={runtime}><UIProvider><ThemeProvider initialTheme="claude-code">
-    <ReplView view={view} state={state} agentId="root" runtimeId="host" viewId="view" connected={connected} onAgentChange={vi.fn()} />
+    <ReplView view={view} state={state} agentId="root" runtimeId="host" viewId="view" connected={connected} />
   </ThemeProvider></UIProvider></RuntimeContext.Provider>;
   return { app, state, view, copy };
 }

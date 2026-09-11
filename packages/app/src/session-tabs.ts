@@ -435,6 +435,25 @@ export class SessionTabs {
     this.write({ ...workspace, layout: mapPanes(workspace.layout, pane => ({ ...pane, tabs: pane.tabs.map(item => item.id === id ? tab : item) })) });
     return true;
   }
+  openRelated(viewId: string, kind: SessionBackedTab['kind']): SessionBackedTab {
+    const workspace = this.workspace(), pane = sessionViewPane(workspace, viewId);
+    const source = pane?.tabs.find(tab => tab.id === viewId);
+    if (!pane || !source || !isSessionTab(source)) throw new Error('This session view is no longer open');
+    const index = pane.tabs.indexOf(source);
+    if (kind === 'chat') {
+      const matches = pane.tabs.filter((tab): tab is SessionBackedTab => tab.kind === 'chat'
+        && tab.runtimeId === source.runtimeId && tab.rootId === source.rootId
+        && (tab.location.agent ?? tab.rootId) === (source.location.agent ?? source.rootId));
+      const existing = matches.sort((a, b) => Math.abs(pane.tabs.indexOf(a) - index) - Math.abs(pane.tabs.indexOf(b) - index))[0];
+      if (existing) { this.activate(existing.id); return existing; }
+    }
+    if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
+    const tab: SessionBackedTab = { ...source, id: newId(), kind, location: location({ agent: source.location.agent }) };
+    const tabs = [...pane.tabs]; tabs.splice(index + 1, 0, tab);
+    this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true,
+      layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, tabs, selected: tab.id } : p) });
+    return tab;
+  }
   private add(tab: SessionTab, paneId?: string): string {
     if (!this.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening another.');
     const workspace = this.workspace();
@@ -445,7 +464,15 @@ export class SessionTabs {
     return tab.id;
   }
   visit(runtimeId: string, rootId: string, search: SessionSearch, viewId?: string) {
-    const id = this.workspace().tabs.find(t => isSessionTab(t) && t.id === viewId && t.runtimeId === runtimeId && t.rootId === rootId)?.id ?? this.open(runtimeId, rootId);
+    const closed = viewId && this.workspace().closed.find(item => item.tab.id === viewId && isSessionTab(item.tab)
+      && item.tab.runtimeId === runtimeId && item.tab.rootId === rootId);
+    if (closed) this.reopenView(viewId);
+    if (!identity(runtimeId) || !identity(rootId)) throw new Error('Invalid session identity');
+    const existing = this.workspace().tabs.find(t => isSessionTab(t) && t.id === viewId && t.runtimeId === runtimeId && t.rootId === rootId);
+    // An expired history entry must never borrow and convert another open view.
+    const id = existing?.id ?? (viewId
+      ? this.add({ id: identity(viewId) ? viewId : newId(), kind: search.view === 'repl' ? 'repl' : 'chat', runtimeId, rootId, titleHint: '', location: location(search) })
+      : this.open(runtimeId, rootId));
     const workspace = this.workspace();
     const pane = sessionViewPane(workspace, id)!;
     this.write({ ...workspace, focusedPaneId: pane.id, restoreSelection: true, layout: mapPanes(workspace.layout, p => p.id === pane.id ? { ...p, selected: id, tabs: p.tabs.map(t => isSessionTab(t) && t.id === id ? { ...t, kind: search.view === 'repl' ? 'repl' : 'chat', location: location(search) } : t) } : p) });

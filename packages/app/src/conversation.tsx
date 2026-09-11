@@ -12,7 +12,7 @@ import {
   Sheet,
   Spinner,
 } from '@whip/ui';
-import { GitBranch, MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
@@ -29,8 +29,10 @@ import { ErrorNotice } from './error-feedback';
 import { Composer } from './composer';
 import { ReplView } from './repl-view';
 import { AgentTurnNotice, useSelectedAgent } from './agent-turn-notice';
-import { ChatActivity } from './chat-activity';
+import { activityStatus, ChatActivity, CurrentActivity } from './chat-activity';
 import { conversationActivityRows, isActivityGroup, type ActivityGroup } from './chat-activity-rows';
+import { SessionInfoBar } from './session-info-bar';
+import { openSessionView } from './session-tab-routing';
 import { SessionModelPicker } from './model-selection';
 import { PermissionModePicker } from './permission-mode';
 import { admittedText, isChatInput } from './input-presentation';
@@ -41,8 +43,8 @@ import { selectedSessionTab, sessionViewPane, sessionSearch, type SessionTab } f
 
 const loadingStyles = stylex.create({
   overlay: {
-    position: 'absolute',
-    inset: 0,
+    position: 'relative',
+    flex: '1 1 0',
     zIndex: 2,
     display: 'flex',
     alignItems: 'center',
@@ -117,7 +119,7 @@ export function SessionContent({
   const runtime = useRuntime();
   useSessionTabs();
   const state = useSessionView(view);
-  const { commands, preferences } = useAppState();
+  const { commands, preferences, hosts } = useAppState();
   const submitted = useSyncExternalStore(runtime.submittedInputs.subscribe, runtime.submittedInputs.getSnapshot);
   const session = view.session;
   const connection = useWhipConnection(session.client);
@@ -161,7 +163,7 @@ export function SessionContent({
   const focused = !viewId || selectedSessionTab(runtime.tabs.workspace())?.id === viewId;
   const setPanel = (next?: InspectorSection) => {
     const search = sessionSearch({ kind, location: { ...(agentId !== session.rootId ? { agent: agentId } : {}), panel: next } });
-    void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true });
+    void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
   };
   const openCreated = async (rootId: string) => {
     const workspace = runtime.tabs.workspace();
@@ -188,7 +190,7 @@ export function SessionContent({
     submitted.filter(item => item.runtimeId === expectedRuntimeId && item.rootId === session.rootId && item.agentId === agentId),
     new Map(commands.filter(item => item.runtimeId === expectedRuntimeId && item.delivery).map(item => [item.commandId, item.delivery === 'absent' ? 'Not received · retry from the composer' : 'Checking delivery…'])),
   ) : [], [kind, history, presentation, root?.inbox, submitted, commands, expectedRuntimeId, session.rootId, agentId]);
-  const executions = useMemo(() => kind === 'chat' ? executionRows(state, agentId) : [], [kind, state, agentId]);
+  const executions = useMemo(() => executionRows(state, agentId), [state, agentId]);
   const previousGroups = useRef<readonly ActivityGroup[]>([]);
   const activityRows = useMemo(() => conversationActivityRows(rows, executions, previousGroups.current), [rows, executions]);
   useLayoutEffect(() => { previousGroups.current = activityRows.filter(isActivityGroup).slice(-128); }, [activityRows]);
@@ -217,6 +219,7 @@ export function SessionContent({
   }, [runtime, view, pendingInputIds, connection.state, wrongRuntime]);
   const agent = useSelectedAgent(view, state, agentId, connected);
   const activeTurn = root?.active_turns[agentId];
+  const status = activityStatus(state, agentId, executions, connected, agent);
   useEffect(() => {
     if (agentId === session.rootId || wrongRuntime) return;
     // The recipient history exposes failures without leaking into another tab.
@@ -260,30 +263,23 @@ export function SessionContent({
   return (
     <>
 
-      {kind === 'chat' && agentId !== session.rootId && (
-        <div {...stylex.props(layout.notice, layout.row)}>
-          <GitBranch size={14} />
-          <strong>{agent?.name || agentId}</strong>
-          <Badge>{agent?.status || 'Loading'}</Badge>
-          <span {...stylex.props(layout.grow)} />
-          <Link
-            to="/h/$runtimeId/s/$rootId"
-            params={{ runtimeId: expectedRuntimeId, rootId: session.rootId }}
-            search={{}}
-            state={{ whipViewId: viewId }}
-          >
-            Root conversation
-          </Link>
-        </div>
-      )}
+      <SessionInfoBar kind={kind} host={hosts.find(host => host.runtimeId === expectedRuntimeId)?.name ?? 'Unavailable host'}
+        cwd={agentId === session.rootId ? root?.meta.cwd : agent?.cwd}
+        agentName={agentId === session.rootId ? 'Root' : agent?.name || agentId}
+        onAgents={() => setPanel('agents')}
+        onRoot={agentId !== session.rootId ? () => {
+          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId },
+            search: sessionSearch({ kind, location: {} }), state: { whipViewId: viewId } }).catch(error => runtime.reportWorkspace(error));
+        } : undefined}
+        onRepl={kind === 'chat' ? () => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); } : undefined}
+        onDetails={() => setPanel('agents')} onPrepare={actions.prepare}
+        actions={root ? actions.items({ runtimeId: expectedRuntimeId, rootId: session.rootId, title: root.meta.title ?? '', archived: root.meta.archived }) : []}
+        activity={<CurrentActivity status={{ ...status, text: status.text || (root ? 'Idle' : 'Session unavailable') }}
+          connected={connected} onDetails={() => setPanel('agents')} />} />
       {connection.state === 'connected' && (state.error || history?.error) && <ErrorNotice type="session"
         owner={`${expectedRuntimeId}:${session.rootId}:${agentId}`} error={state.error || history?.error}
         action={<Button variant="ghost" onClick={() => void view.refresh().catch(() => {})}>Refresh</Button>} />}
-      {kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn}
-        onAgentChange={next => {
-          const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });
-          void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
-        }} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length ? (
+      {kind === 'repl' ? <><ReplView key={`repl:${expectedRuntimeId}:${session.rootId}:${agentId}`} view={view} state={state} agentId={agentId} runtimeId={expectedRuntimeId} viewId={viewId ?? session.rootId} connected={connected} lastTurn={agent?.last_turn} /><AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} /></> : activityRows.length ? (
         <Timeline
           active={!!activeTurn}
           key={`timeline:${expectedRuntimeId}:${session.rootId}:${agentId}`}
@@ -291,10 +287,7 @@ export function SessionContent({
           footer={<AgentTurnNotice agent={agent} view={view} activeTurn={activeTurn} />}
           connected={connected}
           density={preferences.toolDensity}
-          onOpenRepl={() => {
-            const search = sessionSearch({ kind: 'repl', location: { agent: agentId === session.rootId ? undefined : agentId, panel } });
-            void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: expectedRuntimeId, rootId: session.rootId }, search, state: { whipViewId: viewId }, replace: true }).catch(error => runtime.reportWorkspace(error));
-          }}
+          onOpenRepl={() => { void openSessionView(runtime, navigate, viewId ?? session.rootId, 'repl'); }}
           bookmarkKey={`${expectedRuntimeId}:${viewId ?? session.rootId}:${agentId}`}
           historyRevision={history?.revision}
           historyReady={!!history && !history.loading}
@@ -345,7 +338,7 @@ export function SessionContent({
           ))}
         </details>
       )}
-      {kind === 'chat' && <ChatActivity state={state} cells={executions} agentId={agentId} agent={agent} connected={connected}
+      {kind === 'chat' && <ChatActivity state={state} agentId={agentId} connected={connected}
         onAllAgents={() => setPanel('agents')}
         onAgent={next => {
           const search = sessionSearch({ kind, location: { agent: next === session.rootId ? undefined : next, panel } });

@@ -19,7 +19,7 @@ export const styles = stylex.create({
   activeText: { color: colors.foreground },
   status: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 14px', width: 14, height: 14 },
   title: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' },
-  metadata: { flex: '0 0 auto', maxWidth: 56, overflow: 'hidden', textOverflow: 'ellipsis', color: surface.secondaryText, fontSize: typography.size11 },
+  metadata: { flex: '0 0 auto', maxWidth: 88, overflow: 'hidden', textOverflow: 'ellipsis', color: surface.secondaryText, fontSize: typography.size11 },
   menu: { display: 'flex', alignItems: 'center', flexShrink: 0, opacity: { default: 0, [stylex.when.ancestor(':hover', tabMarker)]: 1, [stylex.when.ancestor(':focus-within', tabMarker)]: 1, [scale.touch]: 1 } },
   menuVisible: { opacity: 1 },
   close: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: { default: 24, [scale.touch]: 44 }, height: { default: 24, [scale.touch]: 44 }, flexShrink: 0, padding: 0, marginInlineEnd: scale.space1, borderWidth: 0, borderStyle: 'none', borderRadius: scale.radiusSmall, color: surface.secondaryText, backgroundColor: { default: 'transparent', ':hover': colors.element }, cursor: 'pointer', opacity: { default: 0, [stylex.when.ancestor(':hover', tabMarker)]: 1, [stylex.when.ancestor(':focus-within', tabMarker)]: 1, [scale.touch]: 1 }, outline: { default: 'none', ':focus-visible': `1px solid ${surface.secondaryText}` }, outlineOffset: -2 },

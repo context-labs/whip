@@ -149,7 +149,7 @@ it('appending executions preserves a focused cell in the bounded expanded window
 it('agent rows show names, stay bounded, and open an agent without hydrating its transcript', () => {
   const onAgent = vi.fn(), onAllAgents = vi.fn();
   const snapshot = state({ agents: Array.from({ length: 8 }, (_, index) => ({ id: `child-${index}`, parent_id: 'root', name: `Review ${index}`, model: 'model', status: 'running' })) });
-  render(<ThemeProvider><UIProvider><ChatActivity state={snapshot} cells={[]} agentId="root" connected onAgent={onAgent} onAllAgents={onAllAgents} /></UIProvider></ThemeProvider>);
+  render(<ThemeProvider><UIProvider><ChatActivity state={snapshot} agentId="root" connected onAgent={onAgent} onAllAgents={onAllAgents} /></UIProvider></ThemeProvider>);
   expect(screen.getAllByRole('button', { name: /^Review / })).toHaveLength(3);
   fireEvent.click(screen.getByRole('button', { name: /^Review 0/ }));
   expect(onAgent).toHaveBeenCalledWith('child-0');
@@ -171,7 +171,7 @@ it('expanded groups bound code and DOM work and never fetch stored bodies automa
 
 it('named agents keep focus and admission order as other agents need attention', () => {
   const children = Array.from({ length: 4 }, (_, index) => ({ id: `child-${index}`, parent_id: 'root', name: `Agent ${index}`, status: 'running' }));
-  const app = (agents: unknown[]) => <ThemeProvider><UIProvider><ChatActivity state={state({ agents })} cells={[]} agentId="root" connected onAgent={vi.fn()} onAllAgents={vi.fn()} /></UIProvider></ThemeProvider>;
+  const app = (agents: unknown[]) => <ThemeProvider><UIProvider><ChatActivity state={state({ agents })} agentId="root" connected onAgent={vi.fn()} onAllAgents={vi.fn()} /></UIProvider></ThemeProvider>;
   const view = render(app(children));
   const focused = screen.getByRole('button', { name: /^Agent 2/ });
   focused.focus();

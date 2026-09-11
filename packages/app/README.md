@@ -60,8 +60,11 @@ agent selection belong to each view. Generic geometry and dragging live in
 `whip.web.workspace.v2`, retaining the original v1 entry. It never stores a
 transcript. The full tree survives single-pane presentation on narrow screens.
 
-A tab's **Open REPL** action switches that view to the read-only execution
-notebook; **Open chat** returns to its preserved composer and reading position.
+A tab's **Open REPL** action creates a fresh read-only execution view immediately
+to its right in the same pane. **Open chat** selects the nearest same-agent chat
+there, or creates one to the right, preserving both views and their reading positions.
+The shared session information bar shows host/project, selected agent and current
+activity; requests and child activity remain above the composer.
 `?view=repl` is the shareable mode; legacy and ordinary session URLs use chat.
 `SessionContent` shares leases and human-request controls, `ReplView` renders SDK
 `executionRows`, and `ReadingList` owns virtual reading/selection behavior for

@@ -7,6 +7,7 @@ import { Button, ContextMenu, IconButton, Input, Menu, Sheet, type MenuItem } fr
 import { WorkspaceTabs, workspaceTabId } from '@whip/ui/workspace-tabs';
 import { WorkspaceLayout, workspacePanelId, type WorkspaceDrop } from '@whip/ui/workspace-layout';
 import { SessionContent, SessionLoading } from './conversation';
+import { SessionInfoBar } from './session-info-bar';
 import { isSessionTab, selectedSessionTab, sessionPanes, sessionViewPane, sessionSearch, type SessionPane, type SessionTab, type SplitEdge } from './session-tabs';
 import { TerminalView } from './terminal-view';
 import { useWorkspaceViews, workspaceRootKey } from './workspace-views';
@@ -16,7 +17,7 @@ import { colors, scale, surface } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime, useSessionTabs } from './context';
 import { ErrorNotice } from './error-feedback';
 import { Welcome } from './welcome';
-import { draftDestination, openNewChat, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
+import { draftDestination, openNewChat, openSessionView, openTerminalTab, tabDestination, sessionDestination, terminalDestination } from './session-tab-routing';
 import { layout } from './styles';
 
 export interface SessionTabActions { next(offset: -1 | 1): void; close(): boolean; reopen(): void; showPicker(): void; newTerminal(): void }
@@ -199,12 +200,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     return [
       { id: 'view', label: tab.kind === 'repl' ? 'Open chat' : 'Open REPL', onSelect: () => {
         setPicker(false);
-        void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch({ ...tab, kind: tab.kind === 'repl' ? 'chat' : 'repl' }), state: { whipViewId: tab.id } })
-          .then(() => requestAnimationFrame(() => {
-            if (selectedSessionTab(runtime.tabs.workspace())?.id === tab.id)
-              document.getElementById(workspacePanelId(tab.id))?.focus();
-          }))
-          .catch(error => runtime.reportWorkspace(error));
+        void openSessionView(runtime, navigate, tab.id, tab.kind === 'repl' ? 'chat' : 'repl');
       } },
       { id: 'details', label: 'Session details', onSelect: () => { setPicker(false); void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: { ...sessionSearch(tab), panel: 'agents' }, state: { whipViewId: tab.id } }); } },
       { id: 'terminal', label: 'Open terminal here', onSelect: () => { setPicker(false); void openTerminalTab(runtime, navigate, { runtimeId: tab.runtimeId, cwd: item(tab)?.cwd, rootId: tab.rootId, paneId: pane.id }); } },
@@ -240,7 +236,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     ]}/>}</>}
     items={pane.tabs.map(tab => ({ value: tab.id, label: title(tab), accessibleLabel: `${title(tab)} · ${hostName(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}${panes.length > 1 ? ` · Pane ${panes.indexOf(pane) + 1}` : ''}${isSessionTab(tab) && tab.location.agent ? ` · Agent ${tab.location.agent}` : ''} · ${kindLabel(tab)}${hasDraft(tab) ? ' · Unsent draft' : ''}`,
       render: <Link {...tabDestination(tab)} />,
-      status: icon(tab), metadata: <>{hostName(tab)}{tab.kind === 'repl' ? ' · REPL' : ''}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}${project(tab) ? ` · ${project(tab)}` : ''}`,
+      status: icon(tab), metadata: <>{[tab.kind === 'repl' ? 'REPL' : '', hosts.length > 1 ? hostName(tab) : ''].filter(Boolean).join(' · ')}{hasDraft(tab) && <Pencil aria-label="Unsent draft" size={10}/>}</>, tooltip: `${title(tab)} · ${hostName(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}${project(tab) ? ` · ${project(tab)}` : ''}`,
       menu: <Menu trigger={<IconButton variant="ghost" label={`Tab actions for ${title(tab)}`}><MoreHorizontal size={13}/></IconButton>} items={actions(tab)} />,
       wrap: (element: ReactElement) => <ContextMenu items={actions(tab)}>{element}</ContextMenu>,
     }))}/>;
@@ -271,7 +267,12 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
         }
         const view = views.views.get(workspaceRootKey(tab));
         return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}${tab.kind === 'repl' ? ' · REPL' : ''}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
-          content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id}/> : views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)}>{hosts.find(host => host.runtimeId === tab.runtimeId)?.state === 'connected' ? <ErrorNotice type="session" owner={workspaceRootKey(tab)} error={views.errors.get(workspaceRootKey(tab))} /> : <p role="status">{hostName(tab)} is unavailable. Connect it to continue this session.</p>}<Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading /> };
+          content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id}/> : <>
+            <SessionInfoBar kind={tab.kind} host={hostName(tab)} cwd={!tab.location.agent || tab.location.agent === tab.rootId ? item(tab)?.cwd : undefined} agentName={tab.location.agent ?? 'Root'}
+              activity={<span role="status">{views.errors.has(workspaceRootKey(tab)) ? 'Session unavailable' : 'Loading session…'}</span>}
+              onRepl={tab.kind === 'chat' ? () => { void openSessionView(runtime, navigate, tab.id, 'repl'); } : undefined} />
+            {views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)}>{hosts.find(host => host.runtimeId === tab.runtimeId)?.state === 'connected' ? <ErrorNotice type="session" owner={workspaceRootKey(tab)} error={views.errors.get(workspaceRootKey(tab))} /> : <p>{hostName(tab)} is unavailable. Connect it to continue this session.</p>}<Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading />}
+          </> };
       })}/>
       : <>{!compact && renderStrip(focusedPane, false)}{children}</>}
     <Sheet open={picker} onOpenChange={setPicker} title="Open sessions" description="Closing a tab leaves its session, drafts, and agents on the host.">

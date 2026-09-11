@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from '../src/runtime';
-import { bindSessionTabs, openNewChat } from '../src/session-tab-routing';
+import { bindSessionTabs, openNewChat, openSessionView } from '../src/session-tab-routing';
 import { SessionTabs, selectedSessionTab } from '../src/session-tabs';
 import { newSessionSearch } from '../src/sidebar-state';
 import type { AppStorage } from '../src/platform';
@@ -25,6 +25,33 @@ function fixture(path = '/', key = 'initial', storage?: AppStorage) {
   };
 }
 describe('tab route authority', () => {
+  it('opens REPL with a new history identity and Back/Forward selects without converting the chat', async () => {
+    const f = fixture('/h/mac/s/root'); f.tabs.visit('mac', 'root', { agent: 'child' });
+    f.router.state.location.search = { agent: 'child' };
+    const dispose = f.start();
+    const repl = await openSessionView(f.runtime, f.router.navigate, 'root', 'repl');
+    expect(repl).toBeDefined();
+    expect(f.router.navigate).toHaveBeenLastCalledWith({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: 'mac', rootId: 'root' }, search: { agent: 'child', view: 'repl' }, state: { whipViewId: repl!.id } });
+    f.route('/h/mac/s/root', { agent: 'child', view: 'repl' }, repl!.id);
+    f.route('/h/mac/s/root', { agent: 'child' }, 'root');
+    f.route('/h/mac/s/root', { agent: 'child', view: 'repl' }, repl!.id);
+    expect(f.tabs.workspace().tabs.map(tab => tab.kind)).toEqual(['chat', 'repl']);
+    f.tabs.closeViews([repl!.id]);
+    f.route('/h/mac/s/root', { agent: 'child', view: 'repl' }, repl!.id);
+    expect(f.tabs.workspace().tabs.map(tab => tab.kind)).toEqual(['chat', 'repl']);
+    expect(selectedSessionTab(f.tabs.workspace())?.id).toBe(repl!.id);
+    dispose();
+  });
+  it('reports stale-source and navigation failures without replacing the chat', async () => {
+    const f = fixture(); f.tabs.visit('mac', 'root', {});
+    await openSessionView(f.runtime, f.router.navigate, 'missing', 'repl');
+    expect(f.router.navigate).not.toHaveBeenCalled();
+    expect(f.runtime.reportWorkspace).toHaveBeenCalled();
+    f.router.navigate.mockRejectedValueOnce(new Error('Navigation failed'));
+    await openSessionView(f.runtime, f.router.navigate, 'root', 'repl');
+    expect(f.tabs.workspace().tabs[0]).toMatchObject({ id: 'root', kind: 'chat' });
+    expect(f.runtime.reportWorkspace).toHaveBeenLastCalledWith(new Error('Navigation failed'));
+  });
   it('restores bare-home immediately even before connection and preserves child/inspector', () => {
     const f = fixture(); f.tabs.visit('mac', 'root', { agent: 'child', panel: 'execution' }); const dispose = f.start();
     f.connect();

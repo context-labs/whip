@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { chromium, firefox } from '@playwright/test';
+import { chromium, firefox, expect } from '@playwright/test';
 import { createWhipClient } from '../../../packages/sdk/dist/index.js';
 import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
 
@@ -119,9 +119,12 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     checks.push('background permission and competing-client resolution converge without selecting the root');
 
     const streaming = client.session(roots[0]).submit({ text: 'hold:tool-stream' }); await streaming.accepted();
-    await eventually(async () => await page.locator('[data-message-id^="live-tool:"]').count() === 2, { description: 'streamed tools before switching' });
+    const executions = page.locator('[data-activity-group]').filter({ hasText: '2 executions' });
+    await expect(executions).toHaveCount(1);
     for (let index = 0; index < 3; index++) { await tab(roots[2]).click(); await ready(); await tab(roots[0]).click(); await ready(); }
-    assert.equal(await page.locator('[data-message-id^="live-tool:"]').count(), 2);
+    await expect(executions).toHaveCount(1);
+    await executions.locator('summary').click();
+    await expect(executions.locator('[data-activity-cell]')).toHaveCount(2);
     assert.equal(await page.locator('[data-message-id^="live:"]').count(), 1);
     await fixture.release('tool-stream'); assert.equal((await streaming.result()).status, 'succeeded');
     checks.push('switching during a live turn retains grouped text/tool streams without duplicates');
@@ -152,7 +155,11 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     }
     // Open tabs have one poll; sidebar rows may need multiple 32-root batches.
     assert.deepEqual([...polls.keys()].sort(), [...new Set(expectedPolls)].sort(), 'Expected only open-tab and rendered-sidebar summary batches');
-    for (const count of polls.values()) assert.ok(count >= 2 && count <= 4, `Expected a 2s poll per scope, observed ${count}`);
+    for (const [key, count] of polls) {
+      // The tab and sidebar queries are separate owners even when their root sets match.
+      const scopes = expectedPolls.filter(value => value === key).length;
+      assert.ok(count >= 2 * scopes && count <= 4 * scopes, `Expected a 2s poll for ${scopes} scopes, observed ${count}`);
+    }
     const pollCount = [...polls.values()].reduce((total, count) => total + count, 0);
     checks.push('32 tabs retain <=4 root subscriptions and bounded tab/sidebar summary polls');
 

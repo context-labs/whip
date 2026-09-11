@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { DeepReadonly, ExecutionCell, ExecutionRow, SessionViewSnapshot } from '@whip/sdk/state';
 import type { RootSnapshot } from '@whip/protocol';
-import { ActivityIndicator, Button, CodeBlock, IconButton, useTheme } from '@whip/ui';
+import { ActivityIndicator, Button, CodeBlock, IconButton, Tooltip, useTheme } from '@whip/ui';
 import { ArrowUpRight, Check, ChevronRight, Circle, CircleAlert, MessagesSquare, Pause, Play, ShieldAlert } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { appearance, colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
@@ -44,12 +44,29 @@ function agentStatus(agent: Agent, active: boolean, connected: boolean): string 
   return 'Idle';
 }
 
-export function ChatActivity({ state, cells, agentId, agent, connected, onAgent, onAllAgents }: {
-  state: DeepReadonly<SessionViewSnapshot>; cells: readonly ExecutionRow[]; agentId: string; agent?: Agent; connected: boolean;
-  onAgent(id: string): void; onAllAgents(): void;
+export function CurrentActivity({ status, connected, onDetails }: {
+  status: ReturnType<typeof activityStatus>; connected: boolean; onDetails(): void;
 }) {
   const { display, setDisplay } = useTheme();
-  const status = activityStatus(state, agentId, cells, connected, agent);
+  return <div aria-label="Current activity" data-current-activity {...stylex.props(styles.statusRow)}>
+    <Tooltip label={status.text}>
+      <Button variant="ghost" size="sm" xstyle={styles.statusButton} aria-label={`Activity: ${status.text}`} onClick={onDetails}>
+        {status.attention ? <ShieldAlert size={14} aria-hidden="true" /> : status.active ? <ActivityIndicator active reduceMotion={display.motion === 'reduce'} /> : <Circle size={10} aria-hidden="true" />}
+        <span role="status" aria-live="polite" aria-atomic="true" {...stylex.props(styles.statusText)}>{status.text}</span>
+      </Button>
+    </Tooltip>
+    {status.cell && <span {...stylex.props(styles.statusTime)}><ExecutionTime cell={status.cell} connected={connected} /></span>}
+    {status.active && <IconButton variant="ghost" size="sm" label={display.motion === 'reduce' ? 'Use system motion setting' : 'Pause activity animation'}
+      onClick={() => setDisplay({ motion: display.motion === 'reduce' ? 'system' : 'reduce' })}>
+      {display.motion === 'reduce' ? <Play size={12} /> : <Pause size={12} />}
+    </IconButton>}
+  </div>;
+}
+
+export function ChatActivity({ state, agentId, connected, onAgent, onAllAgents }: {
+  state: DeepReadonly<SessionViewSnapshot>; agentId: string; connected: boolean;
+  onAgent(id: string): void; onAllAgents(): void;
+}) {
   const root = state.root;
   const admitted = useRef<string[]>([]);
   const region = useRef<HTMLElement>(null);
@@ -62,19 +79,10 @@ export function ChatActivity({ state, cells, agentId, agent, connected, onAgent,
   const children = [...(root?.agents?.filter(item => item.parent_id === agentId && !['deleted', 'stopped'].includes(item.status) && relevant(item)) ?? [])]
     .sort((a, b) => (focused ? 0 : priority(a) - priority(b)) || previousIndex(a) - previousIndex(b));
   useLayoutEffect(() => { admitted.current = children.slice(0, 3).map(item => item.id); }, [children]);
-  if (!status.text && !children.length) return null;
-  return <section ref={region} aria-label="Current activity" data-chat-activity {...stylex.props(styles.dock)}>
-    <div {...stylex.props(styles.statusRow)}>
-      {status.attention ? <ShieldAlert size={16} aria-hidden="true" /> : status.active ? <ActivityIndicator active reduceMotion={display.motion === 'reduce'} /> : <Circle size={12} aria-hidden="true" />}
-      <span role="status" aria-live="polite" aria-atomic="true">{status.text || 'Session agents'}</span>
-      {status.cell && <ExecutionTime cell={status.cell} connected={connected} />}
-      {status.active && <IconButton variant="ghost" size="sm" label={display.motion === 'reduce' ? 'Use system motion setting' : 'Pause activity animation'}
-        onClick={() => setDisplay({ motion: display.motion === 'reduce' ? 'system' : 'reduce' })}>
-        {display.motion === 'reduce' ? <Play size={12} /> : <Pause size={12} />}
-      </IconButton>}
-    </div>
-    {!!children.length && <div aria-label="Session agents" {...stylex.props(styles.agents)}>
-      {status.text && <span {...stylex.props(styles.caption)}>Session agents</span>}
+  if (!children.length && !root?.omitted?.agents) return null;
+  return <section ref={region} aria-label="Session agent activity" data-chat-activity {...stylex.props(styles.dock)}>
+    <div aria-label="Session agents" {...stylex.props(styles.agents)}>
+      <span {...stylex.props(styles.caption)}>Session agents</span>
       {children.slice(0, 3).map(child => <button key={child.id} data-activity-agent={child.id} type="button" {...stylex.props(styles.agent)} onClick={() => onAgent(child.id)}>
         <Circle size={6} fill="currentColor" aria-hidden="true" />
         <span {...stylex.props(styles.agentName)}>{child.name || 'Unnamed agent'}</span>
@@ -83,7 +91,7 @@ export function ChatActivity({ state, cells, agentId, agent, connected, onAgent,
         <ArrowUpRight size={12} aria-hidden="true" />
       </button>)}
       {(children.length > 3 || root?.omitted?.agents) && <Button size="sm" variant="ghost" onClick={onAllAgents}>View all session agents</Button>}
-    </div>}
+    </div>
   </section>;
 }
 
@@ -160,7 +168,10 @@ export function ActivityGroupRow({ group, open, onToggle, onOpenRepl, connected,
 
 const styles = stylex.create({
   dock: { width: '100%', maxWidth: 840, marginInline: 'auto', paddingBlock: '8px 12px', paddingInline: { default: 32, [scale.phone]: 16 }, flexShrink: 0, minWidth: 0, maxHeight: '30dvh', overflowY: 'auto', color: surface.secondaryText, fontSize: typography.size13, lineHeight: 1.6 },
-  statusRow: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, minHeight: 28, overflowWrap: 'anywhere' },
+  statusRow: { display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%', fontSize: typography.size12 },
+  statusButton: { minWidth: 28, paddingInline: 4, fontSize: typography.size12 },
+  statusText: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: { '@container (max-width: 600px)': 'absolute' }, width: { '@container (max-width: 600px)': 1 }, height: { '@container (max-width: 600px)': 1 }, clipPath: { '@container (max-width: 600px)': 'inset(50%)' } },
+  statusTime: { flexShrink: 0, display: { default: 'inline', '@container (max-width: 600px)': 'none' } },
   agents: { display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, marginLeft: 24, alignItems: 'flex-start' },
   agent: { fontFamily: 'inherit', fontSize: typography.size13, color: colors.foreground, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0, minHeight: { default: 28, [scale.phone]: 44 }, maxWidth: '100%', backgroundColor: { default: 'transparent', ':hover': colors.hover }, borderWidth: 0, borderRadius: 6, paddingBlock: 4, paddingInline: 4, textAlign: 'left', cursor: 'pointer', outlineOffset: 3 },
   agentName: { minWidth: 0, overflowWrap: 'anywhere' },
