@@ -381,83 +381,145 @@ rotates the execution host's machine key. Both are ephemeral and sent once;
 inspect provider status after an uncertain acknowledgement before retrying.
 `session.terminalInput` is ephemeral and is never automatically retried.
 
-## Agent definitions and custom tools
+## Author, serve, run
 
 `@whip/sdk/agents` authors the agents a daemon runs. A definition is data: what
 the agent is told, which host modules and capabilities it receives, model and
-compaction defaults, MCP servers, custom tools, named children, and surface
-flags. The daemon validates it, stores it under a content revision, and new
-sessions pin that revision.
+compaction defaults, MCP servers, custom tools, hooks, named children, an
+output contract, and surface flags. The daemon validates it, stores it under a
+content revision, and sessions pin that revision. The program below is
+`examples/agents/support-triage.ts`, which has a unit test against the scripted
+daemon and a live acceptance beside it.
 
 ```ts
+import { createWhipClient } from '@whip/sdk';
 import { defineAgent, tool } from '@whip/sdk/agents';
+import { z } from 'zod';
 
-const lookupTicket = tool('lookup_ticket', 'Fetch a ticket by id',
-  { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-  async ({ id }: { id: string }, context) => {
-    context.progress(`looking up ${id}`);   // streamed to the session as it runs
-    return await tickets.get(id);           // a JSON value; large results become handles
-  }, { timeoutMs: 30_000 });                // default 5 minutes, ceiling 15
+const lookupTicket = tool({
+  name: 'lookup_ticket',
+  description: 'Fetch a support ticket by id',
+  input: z.object({ id: z.string() }),                 // any Standard JSON Schema: zod 4.2+, ArkType, Valibot
+  output: z.object({ id: z.string(), title: z.string(), status: z.enum(['open', 'closed']) }),
+  execute: async ({ id }, ctx) => {                     // id: string, inferred; the return must match output
+    ctx.progress(`looking up ${id}`);                   // streamed to the session while it runs
+    return tickets.get(id) ?? fail(`ticket ${id} not found`);
+  },
+  timeoutMs: 30_000,                                    // default 5 minutes, ceiling 15
+});
 
 const support = defineAgent({
   id: 'support-triage',
   instructions: { persona: 'You triage support tickets.', rules: 'Look tickets up before describing them.' },
-  modules: ['context', 'state', 'user'],
+  modules: ['context', 'files', 'user', 'agents'],
+  capabilities: ['read'],
   tools: [lookupTicket],
+  output: z.object({ ticket: z.string(), summary: z.string(), escalatedTo: z.string().nullable() }),
   children: { researcher: { modules: ['context'], tools: ['lookup_ticket'], report: 'message' } },
-});
-
-const executor = await client.agents.serve(support); // registers, binds, serves until close()
-const created = await client.sessions.create({ cwd, definition: 'support-triage' }).result();
-```
-
-Tool handlers run in the serving process. The daemon validates the model's
-arguments against the schema, records each call in its ledger, and sends it to
-the executor bound for the definition revision; the handler receives the
-invocation id (reuse it to make side effects idempotent), root, agent, and turn
-ids, the deadline, an `AbortSignal` that fires on cancellation, deadline, or
-disconnect, and `progress`. The executor re-binds after a reconnect and drains
-`executor.pending`; a call made while no executor is bound fails after a short
-wait with an error the model reads. `client.agents.register/get/list` manage
-definitions without serving tools. `agents.spawn(definition="researcher")` in a
-cell selects a named child. See `examples/agents`.
-
-Hooks let the same process observe and gate what the agent's sessions do:
-
-```ts
-const support = defineAgent({
-  id: 'support-triage',
-  modules: ['context', 'files', 'shell', 'agents'],
   hooks: {
-    beforeTool: async ({ operation, arguments: args }) => {          // every host operation
-      audit.log(operation, args);                                       // return nothing: allow, unchanged
-      if (operation === 'shell.run' && /rm -rf/.test(String(args.command))) return { decision: 'deny', reason: 'destructive' };
-      if (operation === 'files.read' && String(args.path).endsWith('.env')) return { arguments: { ...args, path: `${args.path}.example` } };
+    beforeTool: async ({ operation, arguments: args }) => {        // every host operation; return nothing to allow
+      if (operation === 'files.read' && String(args.path).endsWith('.env')) return { arguments: { ...args, path: `${args.path}.example` }, reason: 'secrets are redacted' };
     },
-    beforeSpawn: async ({ spawn, resolved }) => {                      // the request and what it resolved to
+    beforeSpawn: async ({ spawn, resolved }) => {                  // the request and what it resolved to
       if (resolved.capabilities?.includes('shell')) return { decision: 'deny', reason: 'children may not hold shell' };
     },
-    turnStart: async () => ({ context: `On call: ${await roster.current()}` }), // ephemeral, never in history
+    turnStart: { optional: true, handler: async () => ({ context: `On call: ${await roster.current()}` }) },
   },
 });
+
+const client = createWhipClient({ endpoint: 'http://127.0.0.1:8080', clientId: 'support-triage' });
+await client.connect();
+const runtime = await client.agents.serve(support);       // register, bind tools and hooks, serve until close()
+const session = await runtime.sessions.create({ cwd });  // pinned to this revision; refuses any other
+
+const turn = session.run('Triage ticket 42');
+for await (const event of turn) {
+  switch (event.type) {
+    case 'text':       process.stdout.write(event.delta); break;
+    case 'host':       console.log(`\n→ ${event.operation} ${event.status}`); break;
+    case 'hook':       console.log(`\n[hook] ${event.decision} ${event.operation}: ${event.reason}`); break;
+    case 'question':   await event.answer([event.options[0].label]); break;
+    case 'permission': await event.allow(); break;
+  }
+}
+const result = await turn.result();                       // TurnResult<{ ticket, summary, escalatedTo }>
+if (result.status === 'succeeded') console.log(result.output.summary);
+else console.error(result.failure.message);
+runtime.close();
 ```
 
-Every result field is optional and an empty result allows unchanged. A
-rewrite takes the same validated path the original arguments would, so it
-cannot widen anything. A hook is required by default: if nothing answers it
-(no executor, timeout, disconnect) or the handler throws, the operation is
-denied with an error the model reads; pass `{ optional: true, handler }` for
-an advisory hook that proceeds with a notice instead. `beforeTool` accepts
-`operations: ['shell.run', ...]` to narrow which calls it sees; timeouts
-default to 30 seconds with a 60-second ceiling. Hooks only narrow: they never
-grant authority the ledger denies and never bypass the user's permission
-mode. Denials, rewrites, and skips appear in the session stream as
-`stream.hook.decision`.
+**Tools.** `tool({...})` takes one options object. A Standard JSON Schema
+`input` infers the handler's argument type and derives the wire schema at
+draft 2020-12; raw JSON Schema is accepted and types `unknown`. The daemon
+validates every call against the input schema before the handler runs; the
+library's own validation also runs locally, for refinements JSON Schema cannot
+express and to apply defaults. `output` types the return value at compile time,
+is validated before the result is posted, and travels to the daemon as
+`output_schema`, where the guide shows the model what the tool returns and a
+result from any executor that does not match is rejected. Handlers receive the
+invocation id (reuse it to make side effects idempotent), root, agent, and
+turn ids, the deadline, an `AbortSignal`, and `progress`. Large results reach
+the cell as content handles. The SDK adds no schema dependency; the interfaces
+are mirrored as types.
 
-`examples/agents/incident-commander.ts` is a complete agent built from every
-primitive above, with a unit test beside it and a live acceptance test
-(`npm run acceptance -w @whip/agents-example`) that runs it against a real
-daemon through the SDK.
+**Serving.** `client.agents.serve(agent)` registers the definition, binds this
+connection as the executor for its revision, and answers tool invocations and
+hook events until `close()`. It returns an `AgentRuntime`: `runtime.sessions
+.create(params)` and `.open(rootId)` hand out sessions pinned to that revision
+and refuse any other, so a runtime never drives a session whose tools it does
+not serve. A call made while no executor is bound fails after a short wait with
+an error the model reads; the executor re-binds after a reconnect and drains
+`executor.pending`. `client.agents.register/get/list` manage definitions
+without serving.
+
+**Hooks.** `beforeTool` runs before every host operation the agent's cells
+call (`operations: [...]` narrows it), `beforeSpawn` after a spawn request is
+parsed and resolved, `turnStart` at the start of each turn to contribute
+ephemeral context. Every result field is optional; returning nothing allows
+unchanged. A rewrite takes the validated path the original arguments would,
+so it cannot widen. A hook is required by default: unanswered or throwing, it
+denies with an error the model reads; `{ optional: true, handler }` proceeds
+with a notice instead. Hooks only narrow and never bypass the permission mode.
+
+**Turns.** `session.run(input)` submits one turn and returns a `Turn`: an
+async iterable of typed events scoped to that turn (`text`, `reasoning`,
+`cell`, `host`, `progress`, `hook`, `question`, `permission`, `child`,
+`notice`, `usage`, `end`, and `raw` for anything else) plus `result()`,
+`text()`, `cancel()`, and `turnId`. `question` and `permission` events carry
+`answer`/`dismiss` and `allow`/`deny`, which post once. `session.prompts()`
+rebuilds the open prompts from a snapshot for a client that attached
+mid-turn. The subscription starts before the command so nothing is missed; the
+command outcome is authoritative and the stream is best effort: a consumer
+that falls behind fails the iterable, never the result. `includeChildren`
+adds the events of agents spawned during the turn.
+
+**Output contracts.** `defineAgent({ output })` states an object schema the
+final message must match. The guide tells the model; the daemon validates the
+message, returns one mismatch for correction, and fails the turn on a second
+with `output_invalid`. The validated value is `result.output`, typed by the
+schema for sessions created through the runtime.
+
+## Testing
+
+`@whip/sdk/testing` exports `scriptedDaemon()`: the in-memory transport the
+SDK's own tests use, with a reply table (`daemon.reply(method, handler)`),
+`daemon.emit(rootId, kind, payload)` for journal events, `serveSessions()` to
+answer registration, binding, snapshot, subscribe, submit, status, and
+decisions with defaults, and `daemon.turn(rootId, script)` to play a whole
+turn so a consumer of `session.run` is tested without a daemon:
+
+```ts
+import { scriptedDaemon } from '@whip/sdk/testing';
+const daemon = scriptedDaemon().serveSessions();
+const client = createWhipClient({ endpoint: daemon.factory, clientId: 'test' });
+await client.connect();
+void daemon.turn('root', { steps: [{ text: 'Hello' }, { question: { id: 'q', question: 'Ok?', options: [{ label: 'Yes' }] } }], text: 'Hello', output: { ok: true } });
+```
+
+`@whip/sdk/testing/node` exports `liveDaemon()` (also `startFixture`): the
+integration test binary serving a real daemon from an isolated home, behind a
+scripted model, as the SDK acceptance and `examples/agents` use. Node only; it
+builds and spawns Go.
 
 ## React example and validation
 

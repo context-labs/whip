@@ -1,34 +1,34 @@
-// Live acceptance: the incident commander against a real daemon. The fixture
-// runs the recursive runtime behind a scripted model, so every prompt below
-// that carries a ```cell block becomes one real rlm_exec call, and every host
-// operation, hook decision, executor round trip, and child spawn is the
-// production path. Run with: npm run acceptance -w @whip/agents-example
+// Live acceptance: the incident commander against a real daemon through the
+// SDK's run layer. The fixture runs the recursive runtime behind a scripted
+// model, so every prompt below that carries a ```cell block becomes one real
+// rlm_exec call, and every host operation, hook decision, executor round trip,
+// and child spawn is the production path. Run with:
+// npm run acceptance -w @whip/agents-example
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createWhipClient } from '@whip/sdk';
-import { eventually, startFixture } from '../../packages/sdk/scripts/fixture.mjs';
+import { eventually, startFixture } from '@whip/sdk/testing/node';
 import { createIncidentCommander } from './dist/incident-commander.js';
 
 let fixture;
 let client;
-let executor;
+let runtime;
 let session;
-let rootId;
 let state;
 const events = [];
-const deadline = () => ({ signal: AbortSignal.timeout(30_000) });
 const cell = code => `Run this cell:\n\n\`\`\`cell\n${code}\n\`\`\``;
-const decisions = () => events.filter(event => event.kind === 'stream.hook.decision').map(event => event.payload);
+const decisions = () => events.filter(event => event.type === 'hook');
 
-/** Runs one scripted cell as a root turn and returns the model's echo of the tool result. */
+/** Runs one scripted cell as a root turn through session.run and returns the model's echo of the tool result. */
 async function runCell(code) {
-  const outcome = await session.submit({ text: cell(code) }).result(deadline());
-  assert.equal(outcome.status, 'succeeded', JSON.stringify(outcome.failure));
-  const text = outcome.result.text;
-  assert.match(text, /^done: /, text);
-  return text.slice('done: '.length);
+  const turn = session.run(cell(code), { signal: AbortSignal.timeout(30_000) });
+  for await (const event of turn) events.push(event);
+  const result = await turn.result();
+  assert.equal(result.status, 'succeeded', JSON.stringify(result));
+  assert.match(result.text, /^done: /, result.text);
+  return result.text.slice('done: '.length);
 }
 /** The cell result payload the model saw; a failed cell surfaces its error text. */
 function payload(text) {
@@ -49,58 +49,52 @@ after(async () => {
 test('serve registers the definition and binds this process as its executor', async () => {
   const commander = createIncidentCommander({ id: 'incident-commander-acceptance', model: { model: 'scripted-model', provider: 'fixture' } });
   state = commander.state;
-  executor = await client.agents.serve(commander.agent);
-  assert.equal(executor.definition, 'incident-commander-acceptance');
-  assert.match(executor.revision, /^[0-9a-f]{64}$/);
-  const record = await client.agents.get(executor.definition);
-  assert.equal(record.revision, executor.revision);
+  runtime = await client.agents.serve(commander.agent);
+  assert.equal(runtime.definition, 'incident-commander-acceptance');
+  assert.match(runtime.revision, /^[0-9a-f]{64}$/);
+  const record = await client.agents.get(runtime.definition);
+  assert.equal(record.revision, runtime.revision);
   assert.equal(record.built_in, false);
   assert.deepEqual(JSON.parse(JSON.stringify(record.definition)), JSON.parse(JSON.stringify(commander.agent.document)));
   const listed = await client.agents.list();
   assert.ok(listed.items.some(item => item.id === 'coding' && item.built_in));
-  assert.ok(listed.items.some(item => item.id === executor.definition && item.revision === executor.revision));
+  assert.ok(listed.items.some(item => item.id === runtime.definition && item.revision === runtime.revision));
 });
 
-test('a session created on the definition pins its revision and takes its model defaults', async () => {
-  const created = await client.sessions.create({ cwd: fixture.directory, definition: executor.definition }).result(deadline());
-  assert.equal(created.status, 'succeeded', JSON.stringify(created.failure));
-  rootId = created.result.root_id;
-  session = client.session(rootId);
+test('the runtime creates a session pinned to its revision with the definition model defaults', async () => {
+  session = await runtime.sessions.create({ cwd: fixture.directory });
   const snapshot = await session.snapshot();
-  assert.equal(snapshot.meta.definition, executor.definition);
-  assert.equal(snapshot.meta.definition_revision, executor.revision);
+  assert.equal(snapshot.meta.definition, runtime.definition);
+  assert.equal(snapshot.meta.definition_revision, runtime.revision);
   assert.equal(snapshot.meta.model, 'scripted-model');
   assert.equal(snapshot.meta.provider, 'fixture');
-});
-
-test('the session runs without prompts and its events are observed', async () => {
-  const mode = await session.setPermissionMode(false).result(deadline());
+  const opened = await runtime.sessions.open(session.rootId);
+  assert.equal(opened.rootId, session.rootId);
+  const mode = await session.setPermissionMode(false).result({ signal: AbortSignal.timeout(30_000) });
   assert.equal(mode.status, 'succeeded', JSON.stringify(mode.failure));
-  const snapshot = await session.snapshot();
-  const stream = await client.events.subscribe(rootId, snapshot.cursor);
-  (async () => { for await (const event of stream) events.push(event); })().catch(() => {});
 });
 
 test('a custom tool call reaches this process with the turn identity and returns a value to the cell', async () => {
   const result = payload(await runCell('tools.search_incidents(query="auth", status="open")'));
   assert.deepEqual(result.value, [{ id: 'INC-101', service: 'auth', title: 'Login page times out on mobile', status: 'open', severity: 2 }]);
   const call = state.toolCalls.find(call => call.tool === 'search_incidents');
-  assert.equal(call.rootId, rootId);
-  assert.equal(call.agentId, rootId);
+  assert.equal(call.rootId, session.rootId);
+  assert.equal(call.agentId, session.rootId);
   assert.ok(call.turnId && call.invocationId);
-  const turn = state.turnStarts.find(start => start.agentId === rootId);
+  const turn = state.turnStarts.find(start => start.agentId === session.rootId);
   assert.ok(turn, 'turn_start ran for the root turn');
   assert.equal(turn.turnId, call.turnId);
   assert.match(turn.input, /^Run this cell/);
   assert.ok(state.auditLog.some(entry => entry.operation === 'tools.search_incidents' && entry.arguments.query === 'auth'), 'before_tool saw the custom tool call');
+  assert.ok(events.some(event => event.type === 'host' && event.operation === 'tools.search_incidents' && event.status === 'completed'), 'the host call appeared as a turn event');
 });
 
 test('before_tool denies a destructive shell command before it runs', async () => {
   const text = await runCell('shell.run(command="rm -rf build")');
   assert.match(text, /hook before_tool denied shell\.run: destructive shell commands are not allowed during incidents/);
-  const denial = await eventually(() => decisions().find(decision => decision.text === 'deny' && decision.args === 'shell.run'), { description: 'deny event' });
-  assert.equal(denial.name, 'before_tool');
-  assert.match(denial.result, /destructive/);
+  const denial = decisions().find(decision => decision.decision === 'deny' && decision.operation === 'shell.run');
+  assert.equal(denial?.hook, 'before_tool');
+  assert.match(denial?.reason ?? '', /destructive/);
 });
 
 test('before_tool rewrites a secret read and the rewritten path is what the host reads', async () => {
@@ -109,8 +103,8 @@ test('before_tool rewrites a secret read and the rewritten path is what the host
   const text = await runCell('files.read(path=".env")');
   assert.match(text, /SECRET=example/);
   assert.doesNotMatch(text, /SECRET=real/);
-  const rewrite = await eventually(() => decisions().find(decision => decision.text === 'rewrite' && decision.args === 'files.read'), { description: 'rewrite event' });
-  assert.equal(rewrite.result, 'secrets are redacted');
+  const rewrite = decisions().find(decision => decision.decision === 'rewrite' && decision.operation === 'files.read');
+  assert.equal(rewrite?.reason, 'secrets are redacted');
 });
 
 test('a large tool result becomes a content handle the cell reads in bounded slices', async () => {
@@ -122,7 +116,7 @@ test('a large tool result becomes a content handle the cell reads in bounded sli
   assert.match(JSON.stringify(slice.value), /RUNBOOK AUTH/);
 });
 
-test('tool progress streams to the session and a rewritten argument reaches the handler', async () => {
+test('tool progress streams into the turn and a rewritten argument reaches the handler', async () => {
   const long = 'x'.repeat(300);
   const result = payload(await runCell(`tools.page_oncall(team="auth", message="${long}")`));
   assert.equal(result.value.acknowledgedBy, 'Sam');
@@ -130,11 +124,8 @@ test('tool progress streams to the session and a rewritten argument reaches the 
   const page = [...state.pages.values()][0];
   assert.equal(page.message.length, 200, 'before_tool shortened the page');
   assert.match(page.message, /\.\.\.$/);
-  const progress = await eventually(() => {
-    const seen = events.filter(event => event.kind === 'stream.tool.progress' && event.payload.name === 'tools.page_oncall');
-    return seen.length >= 2 ? seen : undefined;
-  }, { description: 'progress events' });
-  assert.deepEqual(progress.map(event => event.payload.text), ['paging auth on-call', 'page acknowledged by Sam']);
+  const progress = events.filter(event => event.type === 'progress' && event.operation === 'tools.page_oncall');
+  assert.deepEqual(progress.map(event => event.text), ['paging auth on-call', 'page acknowledged by Sam']);
 });
 
 test('state, artifacts, and messages modules run beside the custom tools', async () => {
@@ -155,10 +146,11 @@ test('before_spawn routes an unnamed child to the investigator, which runs its o
   const result = payload(await runCell(`agents.spawn(prompt=${JSON.stringify(task)}, name="scout", report="message")`));
   assert.equal(result.value.name, 'scout');
   assert.equal(result.value.report, 'message');
-  const rewrite = await eventually(() => decisions().find(decision => decision.name === 'before_spawn' && decision.text === 'rewrite'), { description: 'spawn rewrite event' });
-  assert.equal(rewrite.result, 'unnamed children investigate');
-  const childCall = await eventually(() => state.toolCalls.find(call => call.tool === 'search_incidents' && call.agentId !== rootId), { description: 'child tool call' });
-  assert.equal(childCall.rootId, rootId);
+  const rewrite = decisions().find(decision => decision.hook === 'before_spawn' && decision.decision === 'rewrite');
+  assert.equal(rewrite?.reason, 'unnamed children investigate');
+  assert.ok(events.some(event => event.type === 'child' && event.childId === result.value.id && event.kind === 'agent.admitted'), 'the admission appeared as a child event');
+  const childCall = await eventually(() => state.toolCalls.find(call => call.tool === 'search_incidents' && call.agentId !== session.rootId), { description: 'child tool call' });
+  assert.equal(childCall.rootId, session.rootId);
   assert.equal(childCall.agentId, result.value.id);
   const childTurn = await eventually(() => state.turnStarts.find(start => start.agentId === result.value.id), { description: 'child turn_start' });
   assert.match(childTurn.input, /Investigate INC-101/);
@@ -172,9 +164,9 @@ test('before_spawn denies a child that would hold shell', async () => {
   assert.doesNotMatch(JSON.stringify((await session.agents.list()).result), /"ops"/);
 });
 
-test('a closed executor fails later calls fast instead of waiting out the timeout', async () => {
-  executor.close();
-  await executor.done;
+test('a closed runtime fails later calls fast instead of waiting out the timeout', async () => {
+  runtime.close();
+  await runtime.done;
   const started = Date.now();
   const text = await runCell('tools.search_incidents(query="auth")');
   assert.match(text, /executor closed/);

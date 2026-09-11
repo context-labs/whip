@@ -531,3 +531,61 @@ incident commander migration is a second consumer rather than the only one.
 - **Output retries cost a model round.** One retry is bounded and visible in
   the ledger and stream; a definition that wants none can be added later
   with an `output.retries` field if a consumer asks.
+
+## Implementation record (September 11, 2026)
+
+Commits on `codex/mobile-ui` (which carries `feature/agent-definition`), in
+step order: typed tools over Standard JSON Schema; the `AgentRuntime` handle;
+`session.run` turns; prompt reply methods and `session.prompts()`; the
+`@whip/sdk/testing` entries; output contracts for tools and turns (protocol
+6.6); documentation and the support-triage fixture. `go test ./...`,
+`go vet ./...`, the repository analyzer, `task contract`, and `task sdk` were
+green at every step, and `npm run acceptance` ran the live daemon fixture
+through the ported testing entry after phases 5, 6, and 7. One unrelated
+package, `internal/terminal`, showed a timing flake during the phase 6 run
+and passed three of three on rerun.
+
+Deviations from the plan as written:
+
+- **Protocol minor is 6.6, not 6.5.** Workspace terminals took 6.5 on the
+  branch while this plan was being written.
+- **`sessions.open` and `create` verify the pin through `root.snapshot`.**
+  `sessions.get` returns metadata without the definition fields, so the
+  runtime reads the snapshot's `meta.definition` and `meta.definition_revision`
+  instead.
+- **A child's `output` override is a plain schema.** The plan's
+  `*json.RawMessage` generated a `null`-only TypeScript type; `json.RawMessage`
+  with null meaning inherit generates `unknown` and keeps the same semantics.
+- **The turn id is matched by inbox sequence.** A submit command's
+  `ingress_seq` is the inbox sequence its `turn.started` carries, so the turn
+  is identified exactly rather than as the next root turn after acceptance;
+  the next-turn rule remains the fallback when acceptance is uncertain.
+- **`result()` tears down observation once the command settles.** The first
+  implementation kept the subscription open when a command failed before its
+  turn started, and the pump waited for the heartbeat to end it; settling now
+  disposes the subscription and rejects `turnId`.
+- **Child events are always surfaced; child streams are opt-in.** Admissions
+  and child turn lifecycle events belong to the parent's story and are yielded
+  as `child` events without `includeChildren`; the flag adds the child's own
+  text, host, and prompt events.
+- **The scripted daemon names turns by count, not ingress.** `question.answer`
+  and other commands also take ingress sequences, so `root-turn-N` follows the
+  number of turns played on that root.
+- **`TurnOutcome.Output` was not added.** Turn outcomes are rebuilt from
+  lifecycle events whose payload has no output field; the submit result
+  carries the validated value, which is what the SDK reads.
+- **`@whip/sdk/testing/node` is its own subpath.** The live fixture imports
+  Node modules, so it is separated from the browser-safe scripted daemon
+  rather than exported from the same entry; `scripts/fixture.mjs` re-exports
+  it so every existing script keeps its import.
+- **Derived schemas carry `$schema`.** Zod emits the 2020-12 `$schema`
+  header, so the incident commander's document changed once when its tools
+  moved to zod, and its test pins the derived schema rather than the earlier
+  hand-written one.
+- **The fixture model learned a `final` block.** A `` ```final `` fence in an
+  acceptance prompt is streamed verbatim once the cell has run, so the
+  support-triage acceptance exercises the output contract end to end; a
+  malformed tool result is asserted in the daemon test rather than live.
+- **A retry after a correction records both assistant messages.** The
+  corrective round appends to history like any other round; the plan implied
+  the invalid message would be replaced.

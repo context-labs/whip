@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "npm run build && node --test dist/*.test.js",
-    "acceptance": "npm run build && node --test --test-concurrency=1 incident-commander.acceptance.mjs"
+    "acceptance": "npm run build && node --test --test-concurrency=1 support-triage.acceptance.mjs incident-commander.acceptance.mjs"
   },
   "dependencies": {
     "@whip/sdk": "0.1.0",

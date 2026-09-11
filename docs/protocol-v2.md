@@ -80,6 +80,15 @@ with `-32012` unless the daemon started with `WHIPCODE_NETWORK_TERMINALS=1`;
 Unix-socket clients, including SSH-forwarded ones, are always allowed. The
 `terminals` capability advertises support. All additions are additive.
 
+Protocol **6.6** adds output contracts. `Definition.output` and
+`Tool.output_schema` are JSON Schemas (null when absent; a child's `output`
+overrides its parent's); the runtime guide states them, the daemon validates
+every tool result and the turn's final message, and a validated final message
+is returned as `TextResult.output` beside `text` on submit and steer commands.
+Registered documents from before this minor decode with the fields absent,
+which is the same as null, so their revisions do not move. All additions are
+additive.
+
 Fresh stores use schema 15. Versions 10–14 migrate transactionally through each
 required upgrade, preserving identity, history, command receipts and legacy Starlark
 scratch. Version 15 adds a root engine column guarded against updates and an internal

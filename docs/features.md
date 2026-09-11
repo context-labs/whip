@@ -42,6 +42,15 @@ contract easier to locate.
   after a bounded wait, a deadline or cancelled turn settles it with
   `tool.cancel`, and a disconnected executor's calls fail and are never
   replayed (`TestCustomToolInvocationRoundTrip`, `TestCustomToolFailureSemantics`).
+- A definition may declare an output contract: `output` is an object JSON
+  Schema the final assistant message must match, and each tool may declare
+  `output_schema`. The runtime guide states both (the tool catalog shows
+  `-> {fields}`), the daemon validates every tool result and the final
+  message, returns one mismatch to the model for correction through the same
+  ephemeral notice channel hooks use, fails the turn on a second with
+  `output_invalid`, and returns the validated value beside the text in the
+  submit result (`TestOutputContractValidatesTheFinalMessage`,
+  `TestCustomToolOutputSchemaIsEnforced`).
 - `agents.spawn(definition="name")` selects a named child of the parent's
   definition; its instructions, modules, capabilities, tools, budgets, and
   report mode apply as defaults and explicit arguments still only narrow.
@@ -504,21 +513,28 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   send typed decisions from trusted clients without a signer; the example always
   exposes Allow once and Deny. Provider configuration and terminal input are
   ephemeral and never enter SDK recovery storage.
-- `/agents` authors agent definitions: `defineAgent` builds the canonical
-  document, `tool` declares a custom tool with its JSON Schema and handler, and
-  `client.agents.register/get/list/serve` register definitions and run an
-  executor that serves tool invocations for one definition revision, re-binding
-  after reconnect. Handlers receive the invocation id, root, agent, turn,
-  deadline, an `AbortSignal`, and a progress reporter. `hooks.beforeTool`,
-  `beforeSpawn`, and `turnStart` are served by the same executor; returning
-  nothing allows unchanged. `examples/agents/incident-commander.ts` uses every
-  primitive at once, and `incident-commander.acceptance.mjs` drives it through
-  a live daemon (the SDK fixture with `WHIP_SDK_AGENTS_FIXTURE=1` runs the
-  recursive runtime behind a scripted model): registration, a session pinned
-  to the revision with the definition's model defaults, custom tool calls with
-  progress and handle-backed results, hook denials and rewrites, a spawn
-  redirected to a named child that runs its own narrowed tools, and the
-  fail-fast behavior of a closed executor (`npm run acceptance -w @whip/agents-example`).
+- `/agents` authors agent definitions. `tool({ name, description, input,
+  output, execute })` infers the handler's input type from a Standard JSON
+  Schema (zod 4.2+, ArkType, Valibot) and derives the wire schema at draft
+  2020-12; raw JSON Schema still works and types `unknown`. `output` types
+  the return, is validated locally, and travels as `output_schema` for the
+  guide and the daemon. `defineAgent` builds the canonical document, including
+  hooks, named children, and an `output` contract; `client.agents.serve`
+  registers it, binds this process as its executor, and returns an
+  `AgentRuntime` whose `sessions.create/open` hand out sessions pinned to
+  that revision. `session.run(input)` yields one async iterable of typed turn
+  events (text, cell, host, hook, question and permission with reply methods,
+  child, end, raw) and a `TurnResult` typed by the output contract;
+  `session.prompts()` recovers open prompts from a snapshot.
+  `@whip/sdk/testing` ships the scripted daemon (with `turn()` scripts) and
+  `@whip/sdk/testing/node` the live daemon fixture. `examples/agents/
+  support-triage.ts` is the README program with a scripted-daemon test and a
+  live acceptance; `incident-commander.ts` uses every primitive at once and
+  `incident-commander.acceptance.mjs` drives it through a live daemon (the SDK
+  fixture with `WHIP_SDK_AGENTS_FIXTURE=1` runs the recursive runtime behind a
+  scripted model), including hook denials and rewrites, a spawn redirected to
+  a named child, and the fail-fast behavior of a closed executor
+  (`npm run acceptance -w @whip/agents-example`).
 - Implementation: `packages/sdk`, `examples/client`. Coverage: SDK TypeScript
   unit tests, `daemon.acceptance.mjs`, isolated `TestV2SDKBridge`, actual SDK
   strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed

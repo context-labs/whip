@@ -433,6 +433,27 @@ ephemeral system text before the model's next request, bounded to eight
 notices and 2 KiB per turn, so the model knows what ran without any operation
 changing its result shape.
 
+## Output contracts
+
+A definition may state what a turn returns. `output` is an object JSON Schema;
+the runtime guide appends one bounded rule line stating that the final
+assistant message must be exactly one JSON value matching it, with the schema
+compacted inline (2 KiB cap). At the end of a root or child turn whose
+definition declares one, the loop hands the final message to the session
+before returning it: the message is parsed as JSON (a surrounding code fence
+is tolerated) and validated with `jsonschema-go`. A mismatch queues one
+corrective notice on the same ephemeral channel hooks use and runs one more
+model round; a second mismatch fails the turn with `output_invalid` and the
+validation error. The validated value is stored on the turn journal and
+returned beside the text in the submit command's result (`TextResult.output`).
+Named children inherit the contract unless they declare their own. Built-ins
+have none, so every prompt golden is unchanged.
+
+Tools carry the same idea: a tool's `output_schema` renders as `-> {fields}`
+on its catalog line and the daemon validates every `tool.result.output`
+against it before the value reaches the cell, settling a mismatch as an error
+naming the tool and the violation, the same shape as an invalid input.
+
 ## Limits
 
 Omitted or zero values use these defaults:
