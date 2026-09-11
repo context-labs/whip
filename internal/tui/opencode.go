@@ -1017,13 +1017,18 @@ func (m *model) ocOverlayRows(v string, rows []string) string {
 
 // ocMenuOverlay draws the completion popup ON TOP of the frame, bottom-anchored
 // to the row just above the input box (opencode's autocomplete position) — the
-// frame beneath never reflows while typing.
+// frame beneath never reflows while typing. inputBodyOff is the input's offset
+// within viewBody (pre-anchor-padding); View prepends `lead` blank rows to
+// bottom-anchor the frame, so the popup's screen row is viewTop (== lead) +
+// inputBodyOff, not inputBodyOff alone — otherwise a short view floats the
+// popup into the blank area above the content instead of above the input.
 func (m *model) ocMenuOverlay(v string) string {
 	rows := strings.Split(m.menuView(), "\n")
-	if len(rows) > m.inputBodyOff { // clip the top if there's no room above the box
-		rows = rows[len(rows)-m.inputBodyOff:]
+	room := m.viewTop + m.inputBodyOff // terminal rows above the input box (lead + content offset)
+	if len(rows) > room {              // clip the top if there's no room above the box
+		rows = rows[len(rows)-room:]
 	}
-	return ocSpliceAt(v, rows, opencodeLeftMargin, m.inputBodyOff-len(rows))
+	return ocSpliceAt(v, rows, opencodeLeftMargin, room-len(rows))
 }
 
 // opencodeAttribution renders opencode's per-response attribution line:

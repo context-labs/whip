@@ -5059,6 +5059,39 @@ func (m *model) View() string {
 		gap := strings.Repeat(" ", opencodeRightGap) // breathing room between the panels
 		v = lipgloss.JoinHorizontal(lipgloss.Top, v, gap, m.sidebarView(lipgloss.Height(v)))
 	}
+	if m.height > 0 {
+		m.viewH = lipgloss.Height(v)
+		if m.uiMode == opencodeMode {
+			// Bottom-anchor the altscreen view BEFORE the overlays splice: the
+			// transcript viewport shrinks to minTranscriptRows while a response
+			// streams (streamCap reserves the rest for the live tail), then
+			// snaps to its natural height when the final markdown flushes and
+			// the live tail drops. Top-anchoring (viewTop=0) made that delta a
+			// visible jump — the input and status bar slid down the instant
+			// markdown landed. Prepend blank rows so the content's bottom sits
+			// at the terminal bottom in both phases; inputTop stays pinned. The
+			// altscreen repaints from row 0 every frame, so (unlike the inline
+			// branch) no high-water mark is needed — lead = height - viewH each
+			// paint. Overlays splice AFTER (onto the anchored frame) so their
+			// frame-relative Y stays anchored to terminal geometry: the toast
+			// keeps its top-right row, centered dialogs keep the upper third,
+			// and the completion popup sits above the input — instead of all of
+			// them riding the content down by `lead` on a short view.
+			lead := max(m.height-m.viewH, 0)
+			if lead > 0 {
+				v = strings.Repeat("\n", lead) + v
+			}
+			m.viewTop = lead // content's real screen row; mouse Y maps through it
+		} else {
+			m.frameH = min(max(m.frameH, m.viewH), m.height)
+			m.frameTop = max(min(m.frameTop, m.height-m.frameH), 0)
+			lead := max(m.frameH-m.viewH, 0)
+			if lead > 0 {
+				v = strings.Repeat("\n", lead) + v
+			}
+			m.viewTop = m.frameTop + lead
+		}
+	}
 	if m.uiMode == opencodeMode {
 		switch { // floating dialogs over the dimmed session, opencode-style
 		case m.palette != nil:
@@ -5074,34 +5107,6 @@ func (m *model) View() string {
 		}
 		if m.toast != "" {
 			v = m.ocSpliceToast(v) // top-right toast, over everything
-		}
-	}
-	if m.height > 0 {
-		m.viewH = lipgloss.Height(v)
-		if m.uiMode == opencodeMode {
-			// Bottom-anchor the altscreen view: the transcript viewport is
-			// shrunk to minTranscriptRows while a response streams (streamCap
-			// reserves the rest for the live tail), then snaps to its natural
-			// height when the final markdown flushes and the live tail drops.
-			// Top-anchoring (viewTop=0) makes that delta a visible jump — the
-			// input and status bar slide down the instant markdown lands.
-			// Prepend blank rows so the content's bottom sits at the terminal
-			// bottom in both phases; inputTop stays pinned. The altscreen
-			// repaints from row 0 every frame, so (unlike the inline branch)
-			// no high-water mark is needed — lead = height - viewH each paint.
-			lead := max(m.height-m.viewH, 0)
-			if lead > 0 {
-				v = strings.Repeat("\n", lead) + v
-			}
-			m.viewTop = lead // content's real screen row; mouse Y maps through it
-		} else {
-			m.frameH = min(max(m.frameH, m.viewH), m.height)
-			m.frameTop = max(min(m.frameTop, m.height-m.frameH), 0)
-			lead := max(m.frameH-m.viewH, 0)
-			if lead > 0 {
-				v = strings.Repeat("\n", lead) + v
-			}
-			m.viewTop = m.frameTop + lead
 		}
 	}
 	// Record the input box's absolute screen rows for drag-select. The input is

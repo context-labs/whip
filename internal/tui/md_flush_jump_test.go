@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Reproduction for the residual "jump" the user still sees after the inline
@@ -117,5 +118,83 @@ func runMarkdownFlushJump(t *testing.T, oc bool) {
 		if s.screenH > m.height {
 			t.Errorf("step %q: frame %d rows exceeds terminal %d", s.step, s.screenH, m.height)
 		}
+	}
+}
+
+// Regression for the overlay-anchoring break the first version of the
+// bottom-anchor fix introduced: when the opencode view is short (viewH <
+// height — the streaming phase, where streamCap clamps the viewport to
+// minTranscriptRows), the lead blank rows must be prepended BEFORE the
+// overlays splice, so screen-fixed overlays keep their terminal position.
+// The toast (top-right, row 2) must NOT ride the content down toward the
+// bottom of the screen on a short view, and the completion popup must stay
+// anchored above the input box rather than floating in the blank lead area.
+func TestOpencodeOverlaysAnchoredOnShortView(t *testing.T) {
+	m := compactCmdModel()
+	m.applyUIMode(opencodeMode)
+	t.Cleanup(func() { m.applyUIMode("") })
+	m.Update(mkWinSize(80, 24))
+
+	// Force the short-view condition: a streaming turn holds the viewport at
+	// minTranscriptRows and renders a live tail below it, so viewH < height.
+	m.busy = true
+	m.turnStart = m.nowFn()
+	m.appendAssistant("a short committed line")
+	m.current = "streaming tail text still in flight"
+	m.layout()
+	m.View()
+	if m.viewH >= m.height {
+		t.Fatalf("test setup: view must be short (streaming), got viewH=%d height=%d", m.viewH, m.height)
+	}
+	lead := m.height - m.viewH
+	if m.viewTop != lead {
+		t.Fatalf("viewTop should be lead=%d, got %d", lead, m.viewTop)
+	}
+
+	// Toast: ocSpliceToast paints at frame row y=2 (pad row 2, text row 3).
+	// With lead prepended FIRST, the toast stays at terminal row 2-3. If the
+	// lead were prepended AFTER splicing (the broken first version), the toast
+	// would sit at row lead+2..lead+3. Assert it stayed at the top.
+	m.toast = "Copied to clipboard"
+	m.layout()
+	v := m.View()
+	lines := strings.Split(v, "\n")
+	toastRow := -1
+	for i, l := range lines {
+		if strings.Contains(ansi.Strip(l), "Copied to clipboard") {
+			toastRow = i
+			break
+		}
+	}
+	if toastRow < 0 {
+		t.Fatalf("toast not rendered:\n%s", v)
+	}
+	// text row is y+1 = 3 in ocSpliceToast's [pad, mid, pad] slice.
+	if toastRow != 3 {
+		t.Errorf("toast rode the lead down: row %d, want 3 (terminal top-right); lead=%d\n%s", toastRow, lead, v)
+	}
+
+	// Completion popup: bottom-anchored to the row just above the input box.
+	// Its screen row is viewTop + inputBodyOff - len(rows); on a short view
+	// (viewTop=lead) it must sit above the INPUT, not in the blank lead area.
+	m.toast = ""
+	m.menu = &menu{cands: []cand{{Text: "/cd", Desc: "change dir"}}}
+	m.layout()
+	v = m.View()
+	menuRows := strings.Split(m.menuView(), "\n")
+	wantTop := m.viewTop + m.inputBodyOff - len(menuRows)
+	if wantTop < 0 {
+		wantTop = 0
+	}
+	lines = strings.Split(v, "\n")
+	found := false
+	for i := wantTop; i < wantTop+len(menuRows) && i < len(lines); i++ {
+		if strings.Contains(ansi.Strip(lines[i]), "/cd") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("completion popup not anchored above input: want at row %d (viewTop=%d inputBodyOff=%d), lead=%d\n%s", wantTop, m.viewTop, m.inputBodyOff, lead, v)
 	}
 }
