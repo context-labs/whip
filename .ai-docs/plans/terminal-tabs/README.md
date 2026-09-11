@@ -430,6 +430,17 @@ reader of the plan is not misled:
   and Edit > Copy all resolve; a right-click context menu offers Copy as well. Paste stays on the
   native paste event (Cmd+V, Edit > Paste); the context menu has no Paste because the renderer
   cannot read the clipboard. The desktop smoke drags a selection and copies through both paths.
+- **Selecting while a program owns the mouse.** ghostty-web clears the selection every time it
+  sends bytes to the shell, and with mouse tracking on (whip's TUI, vim) every press, drag and
+  release is a mouse report, so nothing survived a drag and there was nothing to copy. As in
+  Ghostty, iTerm and Terminal.app, Shift+drag now selects locally: the view stops those mouse
+  events on its surface in the capture phase (so neither ghostty's reporter nor its own selection
+  manager sees them) and drives the selection through `Terminal.select()` from the cell math in
+  `dragSelection`. A plain drag still goes to the program. The desktop smoke's earlier Edit > Copy
+  check was hollow: on macOS a native role's `menuItem.click()` is a no-op, and the clipboard was
+  filled by ghostty's copy-on-select at mouseup. The smoke now waits for that, clears, and runs
+  `webContents.copy()`, the command the Edit menu and Cmd+C execute, for both the plain and the
+  Shift+drag selection.
 - **Keystroke coalescing.** Each key was its own `terminal.write` RPC; typing faster than the
   round trip exceeded the SDK's 32 in-flight request cap and silently dropped characters
   (the glyph check lost everything past the 32nd byte). `createWriteQueue` keeps one write in
@@ -444,7 +455,8 @@ Validation performed: `go test -race` on `internal/terminal` and the daemon term
 full `go test ./...`, `go vet`, `whipvet`; `npm run check` (protocol drift and interop, SDK
 311 tests), `npm run test:web` (549 tests including the new store, routing and view tests),
 `npm run check:desktop`, the production renderer build with the WASM asset, and the
-`apps/web/scripts/terminal-tabs.mjs` fixture. Results and screenshots live in the session's
+`apps/web/scripts/terminal-tabs.mjs` fixture (rerun after the Shift+drag change: 562 app tests,
+both browsers, seven desktop smoke checks). Results and screenshots live in the session's
 results directory; see the final report. Also performed: the staged Electron smoke on This Mac (task 8b). Not performed: the SSH-host
 smoke (task 8c), which needs a remote host.
 

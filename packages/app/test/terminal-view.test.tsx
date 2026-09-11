@@ -5,7 +5,7 @@ import type { WhipClient } from '@whip/sdk';
 import { RpcError } from '@whip/sdk';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
-import { TerminalView, createWriteQueue, passesToApp, terminalFontFamily, wheelReports } from '../src/terminal-view';
+import { TerminalView, createWriteQueue, dragSelection, passesToApp, terminalFontFamily, wheelReports } from '../src/terminal-view';
 import { localProfile, resolveURLConnection } from '../src/platform';
 
 const routing = vi.hoisted(() => ({ navigate: vi.fn(async () => {}) }));
@@ -20,8 +20,8 @@ const ghostty = vi.hoisted(() => {
     keyHandler?: (event: KeyboardEvent) => boolean;
     wheelHandler?: (event: WheelEvent) => boolean;
     mouseTracking = false;
-    element = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }) } as unknown as HTMLElement;
-    write = vi.fn(); reset = vi.fn(); focus = vi.fn(); dispose = vi.fn(); loadAddon = vi.fn(); open = vi.fn();
+    element = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }), querySelector: () => ({ getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 480 }) }) } as unknown as HTMLElement;
+    write = vi.fn(); reset = vi.fn(); focus = vi.fn(); dispose = vi.fn(); loadAddon = vi.fn(); open = vi.fn(); select = vi.fn();
     constructor(readonly options: Record<string, unknown>) { Terminal.instances.push(this); }
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { this.keyHandler = handler; }
     attachCustomWheelEventHandler(handler: (event: WheelEvent) => boolean) { this.wheelHandler = handler; }
@@ -251,6 +251,39 @@ it('reports detachment and reattaches from the last cursor on request or reconne
   fake.setState('connected');
   await waitFor(() => expect(fake.terminals.attach.mock.calls.length).toBe(attaches + 1));
   expect(fake.terminals.attach).toHaveBeenLastCalledWith('term-1', 5);
+});
+
+it('selects locally on Shift+drag while a program has mouse tracking, keeping the drag from the reporter', async () => {
+  const geometry = { left: 0, top: 0, width: 800, height: 480, cols: 80, rows: 24 };
+  expect(dragSelection({ x: 15, y: 5 }, { x: 55, y: 45 }, geometry)).toEqual({ column: 1, row: 0, length: 165 });
+  expect(dragSelection({ x: 55, y: 45 }, { x: 15, y: 5 }, geometry)).toEqual({ column: 1, row: 0, length: 165 });
+  expect(dragSelection({ x: -9, y: -9 }, { x: 9999, y: 9999 }, geometry)).toEqual({ column: 0, row: 0, length: 80 * 24 });
+  const fake = fakeClient();
+  const { view } = mount(fake.client);
+  const instance = await ready();
+  const frame = view.container.querySelector('[data-terminal-view]') as HTMLElement;
+  const surface = frame.firstElementChild as HTMLElement;
+  const reachedAncestor = vi.fn();
+  frame.addEventListener('mousedown', reachedAncestor);
+  frame.addEventListener('mouseup', reachedAncestor);
+  const drag = (shiftKey: boolean) => {
+    fireEvent.mouseDown(surface, { shiftKey, button: 0, buttons: 1, clientX: 15, clientY: 5 });
+    fireEvent.mouseMove(surface, { shiftKey, buttons: 1, clientX: 55, clientY: 45 });
+    fireEvent.mouseUp(surface, { shiftKey, button: 0, clientX: 55, clientY: 45 });
+  };
+  // Without mouse tracking the drag is ghostty's own selection; with it and no Shift it belongs to the program.
+  drag(true);
+  instance.mouseTracking = true;
+  drag(false);
+  expect(instance.select).not.toHaveBeenCalled();
+  expect(reachedAncestor).toHaveBeenCalledTimes(4);
+  drag(true);
+  expect(instance.select).toHaveBeenCalledWith(1, 0, 165);
+  expect(instance.focus).toHaveBeenCalled();
+  expect(reachedAncestor).toHaveBeenCalledTimes(4);
+  // A drag that ended outside the view does not keep extending the selection.
+  fireEvent.mouseMove(surface, { shiftKey: true, buttons: 0, clientX: 95, clientY: 45 });
+  expect(instance.select).toHaveBeenCalledTimes(1);
 });
 
 it('lets app shortcuts through and copies a selection with the platform chord', async () => {

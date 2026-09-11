@@ -94,10 +94,20 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await eventually(() => outputText(terminalId).includes('^[[<64;'), { description: 'wheel up arrived as an SGR mouse report' });
     const wheelWrites = sent.filter(frame => frame.method === 'terminal.write').slice(writesBefore).map(frame => decode(frame.params.bytes)).join('');
     assert.ok(!wheelWrites.includes('\x1b[A') && !wheelWrites.includes('\x1b[B'), 'no arrow keys were sent while mouse tracking was on');
+    // Shift+drag selects locally instead of reporting the drag to the program.
+    const reportsBefore = sent.filter(frame => frame.method === 'terminal.write').length;
+    await page.keyboard.down('Shift');
+    await page.mouse.move(box.x + 20, box.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 40, box.y + 60, { steps: 6 });
+    await page.mouse.up();
+    await page.keyboard.up('Shift');
+    await eventually(async () => (await terminalView().getAttribute('data-terminal-selection')) === 'true', { description: 'Shift+drag selected text under mouse tracking' });
+    assert.equal(sent.filter(frame => frame.method === 'terminal.write').length, reportsBefore, 'the Shift+drag sent no mouse reports');
     await page.keyboard.press('Control+c');
     await page.keyboard.type("printf '\\e[?1000l\\e[?1006l'");
     await page.keyboard.press('Enter');
-    checks.push('wheel input reaches a mouse-tracking program as SGR reports');
+    checks.push('wheel input reaches a mouse-tracking program as SGR reports and Shift+drag still selects');
     checks.push('typing reaches the shell and its output returns in cursor order under the production CSP');
 
     // Reload: the tab is restored from window storage and the daemon replays.

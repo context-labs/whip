@@ -89,26 +89,50 @@ try {
   await reattach();
   await page.screenshot({ path: path.join(artifacts, 'desktop-terminal.png') });
 
-  // Copy: select by dragging across the first rows, then copy through the native Edit
-  // menu (what Cmd+C triggers on macOS) and through the terminal's context menu.
+  // Copy: select by dragging across the first rows. ghostty-web copies a mouse
+  // selection on mouseup (the async clipboard API is denied here, so it lands through
+  // execCommand); wait for that before proving the Copy command itself, the one the
+  // Edit menu and Cmd+C run. A native role's menuItem.click() is a no-op on macOS.
+  const copyCommand = () => electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.copy());
+  const clipboard = () => electron.evaluate(({ clipboard }) => clipboard.readText());
   const canvas = await page.locator('[data-terminal-view] canvas').boundingBox();
   await page.mouse.move(canvas.x + 2, canvas.y + 2);
   await page.mouse.down();
   await page.mouse.move(canvas.x + canvas.width - 4, canvas.y + 60, { steps: 8 });
   await page.mouse.up();
   await eventually(async () => (await view.getAttribute('data-terminal-selection')) === 'true', 'terminal selection made by dragging');
+  await eventually(async () => (await clipboard()).includes('whip-42'), 'copy on select landed');
   await electron.evaluate(({ clipboard }) => clipboard.writeText(''));
-  await electron.evaluate(({ Menu }) => {
-    const edit = Menu.getApplicationMenu().items.find(item => item.role === 'editmenu' || item.label === 'Edit');
-    edit.submenu.items.find(item => item.role === 'copy').click();
-  });
-  await eventually(async () => (await electron.evaluate(({ clipboard }) => clipboard.readText())).includes('whip-42'), 'Edit > Copy put the terminal selection on the clipboard');
+  await copyCommand();
+  await eventually(async () => (await clipboard()).includes('whip-42'), 'the Copy command put the terminal selection on the clipboard');
   await electron.evaluate(({ clipboard }) => clipboard.writeText(''));
   await view.click({ button: 'right', position: { x: 40, y: 20 } });
   await page.getByRole('menuitem', { name: 'Copy', exact: true }).click();
-  await eventually(async () => (await electron.evaluate(({ clipboard }) => clipboard.readText())).includes('whip-42'), 'context menu Copy put the terminal selection on the clipboard');
-  checks.push('Cmd+C through the Edit menu and right-click Copy both copy the terminal selection');
+  await eventually(async () => (await clipboard()).includes('whip-42'), 'context menu Copy put the terminal selection on the clipboard');
+  checks.push('the Copy command (Edit menu, Cmd+C) and right-click Copy both copy the terminal selection');
   await view.click();
+
+  // A program that owns the mouse (whip's TUI, vim): a plain drag is reported to it,
+  // Shift+drag selects locally and copies through the same Copy command.
+  await page.keyboard.type("clear; echo tracked-$((60+6)); printf '\\e[?1002h\\e[?1006h'; cat -v");
+  await page.keyboard.press('Enter');
+  await replay('tracked-66');
+  await reattach();
+  await electron.evaluate(({ clipboard }) => clipboard.writeText(''));
+  await page.keyboard.down('Shift');
+  await page.mouse.move(canvas.x + 2, canvas.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(canvas.x + canvas.width - 4, canvas.y + 40, { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await eventually(async () => (await view.getAttribute('data-terminal-selection')) === 'true', 'Shift+drag selected text under mouse tracking');
+  await copyCommand();
+  await eventually(async () => (await clipboard()).includes('tracked-66'), 'the Copy command copied the Shift+drag selection');
+  await view.click();
+  await page.keyboard.press('Control+c');
+  await page.keyboard.type("printf '\\e[?1002l\\e[?1006l'");
+  await page.keyboard.press('Enter');
+  checks.push('Shift+drag selects and copies while a program has mouse tracking');
 
   // Paste goes through the renderer's native paste command; the window denies
   // clipboard-read permission, so this is the only path and only a real host proves it.

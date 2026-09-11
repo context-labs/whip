@@ -107,6 +107,21 @@ export function wheelReports(event: Pick<WheelEvent, 'deltaY' | 'deltaMode' | 'c
   return { sequences: Array.from({ length: count }, () => `\x1b[<${button};${col};${row}M`), remainder: total - Math.sign(total) * count };
 }
 
+/**
+ * Cells covered by a drag, as ghostty-web's select() takes them: the first cell
+ * in stream order and a length that wraps across rows.
+ */
+export interface DragGeometry { left: number; top: number; width: number; height: number; cols: number; rows: number }
+export function dragSelection(from: { x: number; y: number }, to: { x: number; y: number }, geometry: DragGeometry): { column: number; row: number; length: number } {
+  const cell = (point: { x: number; y: number }) => ({
+    column: Math.max(0, Math.min(geometry.cols - 1, Math.floor((point.x - geometry.left) / (geometry.width / Math.max(1, geometry.cols))))),
+    row: Math.max(0, Math.min(geometry.rows - 1, Math.floor((point.y - geometry.top) / (geometry.height / Math.max(1, geometry.rows))))),
+  });
+  let [start, end] = [cell(from), cell(to)];
+  if (start.row > end.row || (start.row === end.row && start.column > end.column)) [start, end] = [end, start];
+  return { ...start, length: (end.row - start.row) * geometry.cols + end.column - start.column + 1 };
+}
+
 /** App shortcuts the shell must not swallow; everything else reaches the PTY. */
 export function passesToApp(event: KeyboardEvent, shortcuts: readonly string[]): boolean {
   return shortcuts.some(shortcut => matchesKeyboardEvent(event, shortcut as Hotkey));
@@ -155,6 +170,7 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
     let observer: ResizeObserver | undefined;
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     let terminal: Terminal | undefined;
+    let mouseListeners = () => {};
     const themeColors = resolvedTheme.colors;
     const fontFamily = terminalFontFamily(getComputedStyle(element).fontFamily);
     // ghostty-web sizes every cell from one measurement at open; a web font that
@@ -198,6 +214,30 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
       });
       terminal.onTitleChange(title => runtime.tabs.updateTerminal(tab.id, { titleHint: title }));
       terminal.onSelectionChange(() => setHasSelection(terminal?.hasSelection() ?? false));
+      // Shift+drag selects while a program owns the mouse (whip, vim). ghostty-web
+      // reports every mouse event to such a program and clears the selection on each
+      // report, so a plain drag never leaves anything to copy; real terminals let Shift
+      // bypass reporting. Stopping the events here keeps both of its handlers out.
+      let anchor: { x: number; y: number } | undefined;
+      const shiftSelect = (event: MouseEvent) => {
+        if (event.type === 'mousedown') {
+          if (!(event.shiftKey && event.button === 0 && terminal?.hasMouseTracking())) return;
+          anchor = { x: event.clientX, y: event.clientY };
+          terminal.focus();
+        } else if (!anchor) return;
+        else if (event.type === 'mousemove' && !(event.buttons & 1)) { anchor = undefined; return; }
+        event.stopPropagation();
+        event.preventDefault();
+        const canvas = terminal?.element?.querySelector('canvas');
+        if (terminal && canvas && event.type === 'mousemove') {
+          const rect = canvas.getBoundingClientRect();
+          const { column, row, length } = dragSelection(anchor, event, { left: rect.left, top: rect.top, width: rect.width, height: rect.height, cols: terminal.cols, rows: terminal.rows });
+          terminal.select(column, row, length);
+        }
+        if (event.type === 'mouseup') anchor = undefined;
+      };
+      for (const type of ['mousedown', 'mousemove', 'mouseup'] as const) element.addEventListener(type, shiftSelect, true);
+      mouseListeners = () => { for (const type of ['mousedown', 'mousemove', 'mouseup'] as const) element.removeEventListener(type, shiftSelect, true); };
       // The selection lives on the canvas, so the native copy command (the Edit menu's
       // Cmd+C on macOS Electron, or a browser's default) finds no DOM selection. Answer
       // the clipboard events instead: beforecopy enables the command, copy supplies the text.
@@ -224,6 +264,7 @@ export function TerminalView({ tab, client, focused }: { tab: TerminalTab; clien
       observer?.disconnect();
       element.removeEventListener('beforecopy', allowCopy);
       element.removeEventListener('copy', copySelection);
+      mouseListeners();
       terminal?.dispose();
       term.current = null;
       setReady(false);
