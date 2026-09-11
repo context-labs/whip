@@ -298,6 +298,8 @@ const styles = stylex.create({
   frame: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, backgroundColor: colors.background },
   // ghostty-web focuses a contenteditable container for keyboard input; the browser
   // would draw its own caret there beside the shell's cursor. caret-color inherits.
-  surface: { flex: 1, minHeight: 0, minWidth: 0, padding: 4, overflow: 'hidden', fontFamily: typography.mono, caretColor: 'transparent' },
+  // Room above and beside the first row, as OpenCode leaves; the fit addon measures
+  // ghostty's element, which fills this content box, so the grid excludes the padding.
+  surface: { flex: 1, minHeight: 0, minWidth: 0, padding: '14px 12px 6px', overflow: 'hidden', fontFamily: typography.mono, caretColor: 'transparent' },
   bar: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, backgroundColor: surface.navigation, color: colors.foreground, fontSize: typography.size12, flexShrink: 0 },
 });
