@@ -8,15 +8,18 @@ func TestDaemonNetworkEnvironment(t *testing.T) {
 		want                  bool
 		bad                   bool
 	}{
-		{name: "disabled"},
+		{name: "enabled by default", want: true},
 		{name: "loopback", enabled: "1", want: true},
 		{name: "trusted bind", listen: "192.168.1.10:8080", want: true},
+		{name: "zero disables", enabled: "0"},
+		{name: "zero overrides listen", enabled: "0", listen: "127.0.0.1:8080"},
 		{name: "explicit disable", enabled: "false", listen: "127.0.0.1:8080"},
 		{name: "invalid boolean", enabled: "maybe", bad: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("WHIP_NETWORK", test.enabled)
 			t.Setenv("WHIP_LISTEN", test.listen)
+			t.Setenv("WHIP_NETWORK_TERMINALS", "")
 			t.Setenv("WHIP_ALLOWED_ORIGINS", "http://localhost:3000, https://whip.example")
 			t.Setenv("WHIP_ALLOWED_HOSTS", "localhost:8080, 127.0.0.1:8080")
 			options, err := daemonNetworkEnvironment()

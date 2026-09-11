@@ -64,7 +64,7 @@ func webCLI(args []string) error {
 
 func webEndpoint(status daemonStatus, publishedURL string) (string, error) {
 	if status.State == "stopped" {
-		return "", errors.New(buildinfo.Text("daemon is stopped; run `WHIP_NETWORK=1 whip daemon start`, then `whip web`"))
+		return "", errors.New(buildinfo.Text("daemon is stopped; run `whip daemon start`, then `whip web` (unset WHIP_NETWORK=0 if configured)"))
 	}
 	if status.State != "running" {
 		return "", fmt.Errorf(buildinfo.Text("daemon is unavailable: %s; inspect `whip daemon status` and `whip daemon logs`; ")+

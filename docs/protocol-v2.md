@@ -135,11 +135,11 @@ not accepted. Responses contain exactly one of `result` and `error`, including
 
 ## Local and trusted-network setup
 
-Network serving is disabled by default. Unix clients continue using the daemon
-socket. Enable a loopback listener on an ephemeral port with:
+Network serving is enabled on loopback by default. Unix clients continue using
+the daemon socket. To allow a separate browser app on localhost:3000:
 
 ```sh
-WHIP_NETWORK=1 WHIP_ALLOWED_ORIGINS=http://localhost:3000 whip daemon start
+WHIP_ALLOWED_ORIGINS=http://localhost:3000 whip daemon start
 whip daemon status --json
 ```
 
@@ -158,8 +158,8 @@ WHIP_ALLOWED_ORIGINS=http://localhost:3000,http://whip.local:3000 \
 whip daemon start
 ```
 
-`WHIP_NETWORK=false` explicitly disables serving. `WHIP_LISTEN` alone enables
-it; when network serving is enabled without a bind address, the default is
+`WHIP_NETWORK=0` (or `false`) explicitly disables serving even when `WHIP_LISTEN`
+is set. When network serving is enabled without a bind address, the default is
 `127.0.0.1:0`. With no explicit accepted hosts, only the listener's actual
 address is accepted. Hosts include the port; origins include the scheme and
 port and have no trailing slash. Wildcards and origin suffix matches are not

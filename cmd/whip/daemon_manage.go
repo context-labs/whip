@@ -140,7 +140,9 @@ func daemonStatusCLI(args []string) error {
 
 func daemonStartCLI(args []string) error {
 	if len(args) != 0 {
-		return errors.New(buildinfo.Text("usage: whip daemon start (set WHIP_NETWORK=1 for ephemeral loopback, WHIP_LISTEN for a trusted bind, WHIP_ALLOWED_ORIGINS and WHIP_ALLOWED_HOSTS for exact allowlists)"))
+		return errors.New(buildinfo.Text("usage: whip daemon start (loopback listener enabled by default; " +
+			"WHIP_NETWORK=0 disables it, WHIP_LISTEN selects a trusted bind, " +
+			"WHIP_ALLOWED_ORIGINS and WHIP_ALLOWED_HOSTS set exact allowlists)"))
 	}
 	paths, err := daemonRuntimePaths()
 	if err != nil {

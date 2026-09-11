@@ -175,9 +175,14 @@ available through the existing integration mechanisms.
 ```sh
 whipcode --version
 whipcode update
-WHIPCODE_NETWORK=1 whipcode daemon start
+whipcode daemon start
 whipcode web
 ```
+
+The daemon enables its localhost HTTP/WebSocket listener by default. Set
+`WHIPCODE_NETWORK=0` to disable it (`WHIP_NETWORK=0` for source-built `whip`).
+See [web access](docs/web-app.md#run-the-packaged-application-locally) for fixed
+ports and trusted proxy configuration.
 
 `whipcode update` installs into the invoked executable's directory and restarts
 only its daemon. To choose a destination or pin/roll back to an exact build,

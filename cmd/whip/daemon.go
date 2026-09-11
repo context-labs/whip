@@ -393,10 +393,12 @@ func screenshotParts(images [][]byte) []llm.ContentPart {
 }
 
 // Network settings are inherited by explicit starts, automatic starts, and
-// binary replacement. An ordinary invocation never enables a TCP listener.
+// binary replacement. The loopback listener is enabled unless NETWORK opts out.
 func daemonNetworkEnvironment() (daemon.NetworkOptions, error) {
-	options := daemon.NetworkOptions{Address: strings.TrimSpace(os.Getenv(buildinfo.Env("LISTEN")))}
-	options.Enabled = options.Address != ""
+	options := daemon.NetworkOptions{
+		Enabled: true,
+		Address: strings.TrimSpace(os.Getenv(buildinfo.Env("LISTEN"))),
+	}
 	if value := os.Getenv(buildinfo.Env("NETWORK")); value != "" {
 		enabled, err := strconv.ParseBool(value)
 		if err != nil {

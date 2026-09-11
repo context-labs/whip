@@ -17,7 +17,7 @@ func TestWebEndpointRequiresExplicitRuntimeChanges(t *testing.T) {
 		status                    daemonStatus
 		override, want, errorText string
 	}{
-		{name: "stopped", status: daemonStatus{State: "stopped"}, errorText: "WHIP_NETWORK=1 whip daemon start"},
+		{name: "stopped", status: daemonStatus{State: "stopped"}, errorText: "run `whip daemon start`"},
 		{name: "network disabled", status: daemonStatus{State: "running"}, errorText: "WHIP_NETWORK=1 whip daemon restart"},
 		{name: "unhealthy", status: daemonStatus{State: "unhealthy", Error: "broken"}, errorText: "broken"},
 		{name: "discovered", status: daemonStatus{State: "running", NetworkEndpoint: "http://127.0.0.1:43210"}, want: "http://127.0.0.1:43210"},

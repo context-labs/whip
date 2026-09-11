@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -42,6 +43,11 @@ func TestDaemonKernelWorker(t *testing.T) {
 func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIP_HOME", home)
+	t.Setenv("WHIP_NETWORK", "")
+	t.Setenv("WHIP_LISTEN", "")
+	t.Setenv("WHIP_ALLOWED_HOSTS", "")
+	t.Setenv("WHIP_ALLOWED_ORIGINS", "")
+	t.Setenv("WHIP_NETWORK_TERMINALS", "")
 	t.Setenv("INFERENCE_API_KEY", "test-key")
 	legacyPath := filepath.Join(home, "sessions.db")
 	legacyBytes := []byte("legacy store must remain completely untouched")
@@ -49,6 +55,7 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- runDaemon(ctx, nil) }()
 	paths, err := daemon.Paths(home)
@@ -72,6 +79,37 @@ func TestRunDaemonPublishesProtocolAndStopsCleanly(t *testing.T) {
 	}
 	if client.InitializeResult().Generation != 1 {
 		t.Fatalf("initial generation = %+v", client.InitializeResult())
+	}
+	endpoint := client.InitializeResult().NetworkEndpoint
+	if !strings.HasPrefix(endpoint, "http://127.0.0.1:") {
+		t.Fatalf("default listener is not loopback: %q", endpoint)
+	}
+	httpClient := &http.Client{Timeout: 2 * time.Second}
+	for _, test := range []struct {
+		name, host, origin string
+		status             int
+	}{
+		{name: "native client", status: http.StatusOK},
+		{name: "same origin browser", origin: endpoint, status: http.StatusOK},
+		{name: "foreign host", host: "evil.test", status: http.StatusForbidden},
+		{name: "foreign origin", origin: "https://evil.test", status: http.StatusForbidden},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, endpoint+"/api/v3/web", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Host = test.host
+			request.Header.Set("Origin", test.origin)
+			response, err := httpClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			if response.StatusCode != test.status {
+				t.Fatalf("status %d, want %d", response.StatusCode, test.status)
+			}
+		})
 	}
 	badModel, _ := json.Marshal(map[string]string{"kind": string(session.SessionKindAgent), "cwd": home, "model": "missing", "provider": "inference-net"})
 	badCreated, err := client.Command(context.Background(), daemon.CommandParams{

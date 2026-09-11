@@ -441,6 +441,13 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
 - WHIP v5 is one typed JSON-RPC 2.0 contract over Unix sockets and optional
   WebSockets; compatible builds attach without replacing the daemon. The operation
   and event registry generates TypeScript declarations and Ajv validators.
+- CLI daemon startup enables the loopback HTTP/WebSocket listener by default.
+  `WHIP_NETWORK=0` disables it even with `WHIP_LISTEN` configured; whipcode uses
+  the `WHIPCODE_` prefix. Port selection remains automatic unless configured.
+  Exact Host and Origin checks remain in force. Code: `cmd/whip/daemon.go`;
+  tests: `TestDaemonNetworkEnvironment`,
+  `TestRunDaemonPublishesProtocolAndStopsCleanly`, and
+  `TestNetworkHandlerValidatesHostOriginAndUpgrade`.
 - Command submission returns committed acceptance. Stable client/command IDs
   deduplicate retries; changed payloads conflict. Status exposes queued, running,
   waiting and terminal outcomes. Disconnecting does not cancel accepted execution.
@@ -892,8 +899,9 @@ model/default. Settings identify the target execution host; saved-host edits
 always target Local and viewing preferences stay local to the browser. Search
 and attention show source hosts, filters, separate bounded pages and partial
 failures. Responses open their owning sessions; neither index hydrates roots.
-Listener setup and exact browser Origin allowlists remain explicit trusted-network
-configuration; automatic stable-Origin handling is deferred.
+Remote listener/proxy setup and exact browser Origin allowlists remain explicit
+trusted-network configuration; automatic stable-Origin handling is deferred.
+The local loopback listener is enabled by default.
 The desktop origin `whip-app://bundle` can be explicitly allowed through
 `WHIP_ALLOWED_ORIGINS` (`WHIPCODE_ALLOWED_ORIGINS` for the whipcode distribution).
 Other custom origins, wildcards, suffixes, ports and paths remain rejected.

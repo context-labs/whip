@@ -121,6 +121,8 @@ in
 - [x] All 66 TUI themes, automatic appearance, custom-theme resolution and themed
   read-only code, with deterministic generation and component contrast checks.
 - [x] Packaged browser assets and explicit `whip web` attachment/launch command.
+- [x] Default loopback HTTP/WebSocket listener with `WHIP_NETWORK=0` opt-out;
+  exact Host/Origin checks retained. See [web access](web-app.md#run-the-packaged-application-locally).
 - [x] Session tabs with window-local restoration, preserved drafts/reading position,
   bounded background activity, and responsive themed navigation. See the
   [session-tabs implementation and acceptance](../.ai-docs/plans/session-tabs/README.md).

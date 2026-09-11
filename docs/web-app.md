@@ -172,11 +172,11 @@ catalog abbreviates them. Reproduce the browser acceptance checks with
 
 ## Run the packaged application locally
 
-Release binaries contain the web application. Start a daemon with its optional
-network listener enabled, then open the discovered endpoint:
+Release binaries contain the web application. The daemon enables its localhost
+HTTP/WebSocket listener by default. Start it, then open the discovered endpoint:
 
 ```sh
-WHIP_NETWORK=1 whip daemon start
+whip daemon start
 whip web
 ```
 
@@ -187,9 +187,14 @@ checks the packaged application and opens your default browser. To print the URL
 whip web --no-open
 ```
 
-Networking remains disabled for ordinary daemon startup. `whip web` never starts,
-replaces or reconfigures a daemon. If one is already running without networking,
-enable it with an explicit restart:
+Set `WHIP_NETWORK=0` to disable the listener, even when `WHIP_LISTEN` is set.
+The `whipcode` distribution uses `WHIPCODE_NETWORK` and `WHIPCODE_LISTEN` instead.
+To choose a fixed port, set `WHIP_LISTEN=127.0.0.1:9876` when starting the daemon.
+Without an explicit address, only loopback is exposed; enabling the listener
+does not expose a LAN interface or configure Tailscale.
+
+`whip web` never starts, replaces or reconfigures a daemon. If one is already
+running without networking, enable it with an explicit restart:
 
 ```sh
 WHIP_NETWORK=1 whip daemon restart
@@ -199,6 +204,16 @@ whip web
 Restarting interrupts active runtime work. Building a newer client alone does
 not replace an existing daemon or its embedded application.
 
+Host and Origin checks remain exact. With no configured allowlists, requests
+must use the listener's address as their Host, and browser requests must be
+same-origin. Native clients may omit Origin. For a trusted reverse proxy such as
+Tailscale Serve, explicitly include its hostname in `WHIP_ALLOWED_HOSTS` and its
+HTTPS origin in `WHIP_ALLOWED_ORIGINS`. Include the loopback address in the Host
+list too if local access is needed. See [mobile host setup](mobile.md).
+These checks protect against browser cross-origin access and DNS rebinding;
+they are not authentication for clients with direct network access. Keep remote
+access behind a trusted network or authenticated proxy.
+
 ## Build from source
 
 Use Node 24 and the Go version declared in `go.mod`:
@@ -206,7 +221,7 @@ Use Node 24 and the Go version declared in `go.mod`:
 ```sh
 npm ci
 task build
-WHIP_NETWORK=1 ./whip daemon start
+./whip daemon start
 ./whip web
 ```
 
@@ -593,11 +608,11 @@ physical touch remain separate release checks.
 ## Whipcode branch distribution
 
 The branch distribution embeds the same web app, with an independent config
-and daemon under `~/.whipcode` (or `WHIPCODE_HOME`). Start its network listener
-explicitly:
+and daemon under `~/.whipcode` (or `WHIPCODE_HOME`). Its loopback listener is also
+enabled by default:
 
 ```sh
-WHIPCODE_NETWORK=1 whipcode daemon start
+whipcode daemon start
 whipcode web
 ```
 
