@@ -6,7 +6,7 @@ export { CommandHandle, isTerminal } from './command.js';
 export type { CommandOptions, CommandOutcome, CommandStatus, RecoveryRecord, RecoveryStorage } from './command.js';
 export { Session, Sessions } from './session.js';
 export { Turn } from './turn.js';
-export type { RunOptions, TurnEvent, TurnEventBase, TurnResult, TurnStatus, TurnFailure, TurnUsage, QuestionOption, QuestionSet } from './turn.js';
+export type { RunOptions, TurnEvent, TurnEventBase, TurnResult, TurnStatus, TurnFailure, TurnUsage, QuestionOption, QuestionSet, QuestionAnswer, QuestionEvent, PermissionEvent } from './turn.js';
 export { Subscription } from './subscription.js';
 export type { SubscriptionOptions } from './subscription.js';
 export { ContentReference } from './content.js';

@@ -4,8 +4,8 @@ import type {
 } from '@whip/protocol';
 import type { WhipClient, CallOptions } from './client.js';
 import type { CommandOptions } from './command.js';
-import { Turn, type RunOptions } from './turn.js';
-import { encodeBase64 } from './util.js';
+import { Turn, permissionEvent, questionEvent, type PermissionEvent, type QuestionEvent, type RunOptions } from './turn.js';
+import { encodeBase64, object } from './util.js';
 
 /** Root-bound handle. Merely constructing it causes no I/O. */
 export class Session {
@@ -25,6 +25,14 @@ export class Session {
   /** Submit one turn and observe it: an async iterable of typed events plus a typed result. */
   run(input: string | SubmitPayload, options: RunOptions = {}): Turn {
     return new Turn(this, typeof input === 'string' ? { text: input } : input, options);
+  }
+  /** The open questions and permission prompts from a fresh snapshot, with the same reply methods turn events carry. */
+  async prompts(options: CallOptions = {}): Promise<(QuestionEvent | PermissionEvent)[]> {
+    const snapshot = await this.snapshot(options);
+    const base = (payload: Record<string, unknown>) => ({ seq: snapshot.cursor, agentId: typeof payload.agent_id === 'string' ? payload.agent_id : this.rootId, turnId: typeof payload.turn_id === 'string' ? payload.turn_id : '' });
+    const questions = (snapshot.questions ?? []).filter(object).map(payload => questionEvent(this, base(payload), payload));
+    const permissions = (snapshot.permissions ?? []).filter(object).filter(payload => payload.status === 'pending' || payload.status === undefined).map(payload => permissionEvent(this, base(payload), payload));
+    return [...questions, ...permissions];
   }
   steer(payload: SubmitPayload, options: Omit<CommandOptions, 'rootId'> = {}) { return this.command('steer', payload, options); }
   rename(title: string) { return this.command('session.rename', { title }); }

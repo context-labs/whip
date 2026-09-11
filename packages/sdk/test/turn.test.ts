@@ -1,32 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { WhipClient } from '../src/client.js';
-import type { TurnEvent } from '../src/turn.js';
+import type { PermissionEvent, QuestionEvent, TurnEvent } from '../src/turn.js';
 import { transportFixture, type FixtureConnection, type FixtureRequest } from './transport-fixture.js';
 
-function snapshot(rootId: string, cursor: string) {
+function snapshot(rootId: string, cursor: string, extra: Record<string, unknown> = {}) {
   return {
     root_id: rootId, cursor, history_revision: '1', active_turns: {},
     meta: { id: rootId, kind: 'agent', title: '', model: 'm', provider: 'p', cwd: '/srv', execution_engine: 'starlark', definition: 'coding', definition_revision: '',
       goal: '', forked_from: '', fork_seq: 0, tags: [], archived: false, pinned: false, effort: '', usage_in: 0, usage_cached: 0, usage_out: 0, updated_at: '' },
     messages: [], message_seqs: [], presentation: [], agent_presentations: {}, agents: [], inbox: [], blackboard: [],
-    budgets: [], capabilities: [], schedules: [], permissions: [], questions: [],
+    budgets: [], capabilities: [], schedules: [], permissions: [], questions: [], ...extra,
   };
 }
 
 /** A daemon that admits one submit, answers status polls from a mutable outcome, and lets the test push journal events. */
-function turnDaemon() {
+function turnDaemon(snapshotExtra: Record<string, unknown> = {}) {
   const commands = new Map<string, Record<string, unknown>>();
   let subscriptionId = '';
   let ingress = 6;
   const fixture = transportFixture({ request(request: FixtureRequest, connection: FixtureConnection) {
     switch (request.method) {
-      case 'root.snapshot': connection.reply(request, snapshot(String(request.params.root_id), '3')); break;
+      case 'root.snapshot': connection.reply(request, snapshot(String(request.params.root_id), '3', snapshotExtra)); break;
+      case 'permission.decide': connection.reply(request, { operation_id: 'op-1', lease_id: 'lease-1' }); break;
       case 'events.subscribe': subscriptionId = String(request.params.subscription_id); connection.reply(request, { subscription_id: subscriptionId, cursor: request.params.cursor }); break;
       case 'events.unsubscribe': connection.reply(request, {}); break;
       case 'command.submit': {
         const id = String(request.params.command_id);
-        const record = { operation: request.params.operation, command_id: id, ingress_seq: String(++ingress), status: request.params.operation === 'cancel' ? 'succeeded' : 'running', ...(request.params.operation === 'cancel' ? { result: {} } : {}) };
+        const immediate = request.params.operation !== 'submit';
+        const record = { operation: request.params.operation, command_id: id, ingress_seq: String(++ingress), status: immediate ? 'succeeded' : 'running', ...(immediate ? { result: {} } : {}) };
         commands.set(id, record);
         connection.reply(request, record);
         break;
@@ -88,12 +90,16 @@ test('a turn subscribes before it submits, scopes events to its own turn, and se
   assert.deepEqual(events.map(event => event.type), ['raw', 'text', 'text', 'question', 'cell', 'host', 'host', 'hook', 'usage', 'child', 'permission', 'raw', 'cell', 'end']);
   assert.ok(events.every(event => event.turnId === 'turn-1' || event.type === 'child'));
   assert.deepEqual(events[1], { type: 'text', delta: 'Hel', seq: '7', agentId: 'root', turnId: 'turn-1' });
-  assert.deepEqual(events[3], { type: 'question', id: 'q-1', question: 'Escalate?', options: [{ label: 'Yes' }, { label: 'No' }], multiple: false, seq: '10', agentId: 'root', turnId: 'turn-1' });
+  const { answer, dismiss, ...question } = events[3] as QuestionEvent;
+  assert.deepEqual(question, { type: 'question', id: 'q-1', question: 'Escalate?', options: [{ label: 'Yes' }, { label: 'No' }], multiple: false, seq: '10', agentId: 'root', turnId: 'turn-1' });
+  assert.ok(typeof answer === 'function' && typeof dismiss === 'function');
   assert.deepEqual(events[4], { type: 'cell', id: 'call-1', status: 'called', code: 'tools.lookup_ticket(id="42")', seq: '11', agentId: 'root', turnId: 'turn-1' });
   assert.deepEqual(events[6], { type: 'host', id: 'call-1', invocationId: '1:1', operation: 'tools.lookup_ticket', summary: 'id=42', status: 'completed', duration: '12ms', seq: '13', agentId: 'root', turnId: 'turn-1' });
   assert.deepEqual(events[7], { type: 'hook', hook: 'before_tool', operation: 'shell.run', decision: 'deny', reason: 'destructive', seq: '14', agentId: 'root', turnId: 'turn-1' });
   assert.deepEqual(events[9], { type: 'child', childId: 'child-1', kind: 'agent.admitted', status: 'queued', seq: '16', agentId: 'child-1', turnId: 'turn-1' });
-  assert.deepEqual(events[10], { type: 'permission', id: 'p-1', operation: 'bash', command: 'npm test', rule: 'Bash(npm *)', path: '', seq: '18', agentId: 'root', turnId: 'turn-1' });
+  const { allow, deny, ...permission } = events[10] as PermissionEvent;
+  assert.deepEqual(permission, { type: 'permission', id: 'p-1', operation: 'bash', command: 'npm test', rule: 'Bash(npm *)', path: '', seq: '18', agentId: 'root', turnId: 'turn-1' });
+  assert.ok(typeof allow === 'function' && typeof deny === 'function');
   assert.equal(events[11]?.type === 'raw' ? events[11].event.kind : '', 'future.kind');
   assert.deepEqual(events.at(-1), { type: 'end', status: 'succeeded', seq: '21', agentId: 'root', turnId: 'turn-1' });
   const result = await turn.result();
@@ -186,4 +192,55 @@ test('a consumer that falls behind fails the iterable but not the result', async
   assert.equal(result.status, 'succeeded');
   assert.equal(result.status === 'succeeded' && result.text, '01234');
   await assert.rejects((async () => { for await (const event of turn) void event; })(), { kind: 'resynchronization_required' });
+});
+
+test('question and permission events reply through the session exactly once, and prompts() recovers open ones from the snapshot', async t => {
+  const pendingQuestion = { question_id: 'q-open', question: 'Still there?', options: [{ label: 'Yes' }], multiple: false, agent_id: 'root', turn_id: 'turn-1' };
+  const pendingPermission = { id: 'p-open', agent_id: 'root', operation_id: 'op', operation: 'bash', canonical_path: '', request_digest: 'd', capability_id: 'c', capability_generation: '1', status: 'pending', command: 'rm -rf build', rule: 'Bash(rm *)' };
+  const settled = { ...pendingPermission, id: 'p-done', status: 'approved' };
+  const daemon = turnDaemon({ questions: [pendingQuestion], permissions: [pendingPermission, settled] });
+  const client = new WhipClient({ endpoint: daemon.fixture.factory, clientId: 'turns', reconnect: false, commandPollMs: 5 });
+  t.after(() => client.close());
+  await client.connect();
+  const session = client.session('root');
+  const turn = session.run('go');
+  await until(() => daemon.methods().includes('command.submit'), 'the submit');
+  daemon.emit('turn.started', root('turn-1', { inbox_seq: '7' }));
+  daemon.emit('question.pending', root('turn-1', { question_id: 'q-1', question: 'Escalate?', options: [{ label: 'Yes' }, { label: 'No' }], multiple: false }));
+  daemon.emit('question.pending', root('turn-1', { question_id: 'q-2', question: 'Which?', options: [{ label: 'a' }], multiple: false, questions: [{ question: 'Which?', options: [{ label: 'a' }], multiple: false }, { question: 'Why?', options: [{ label: 'b' }], multiple: true }] }));
+  daemon.emit('permission.pending', root('turn-1', { permission_id: 'p-1', operation: 'bash', command: 'npm test', rule: 'Bash(npm *)' }));
+  daemon.emit('permission.pending', root('turn-1', { permission_id: 'p-2', operation: 'write', command: 'notes.md', canonical_path: '/srv/notes.md' }));
+  daemon.emit('turn.succeeded', root('turn-1', { status: 'succeeded' }));
+  daemon.settle('succeeded', { result: { text: 'done' } });
+  const events: TurnEvent[] = [];
+  for await (const event of turn) events.push(event);
+  const [single, batch] = events.filter(event => event.type === 'question') as [QuestionEvent, QuestionEvent];
+  const [first, second] = events.filter(event => event.type === 'permission') as [PermissionEvent, PermissionEvent];
+  const answered = single.answer(['Yes']);
+  assert.equal(single.answer(['No']), answered, 'a second answer returns the first promise');
+  await answered;
+  await batch.answer([{ answer: ['a'] }, null]);
+  await first.allow({ remember: 'tree' });
+  await first.deny('late');
+  await second.deny('not now');
+  const answers = daemon.fixture.current.requests.filter(request => request.method === 'command.submit' && request.params.operation === 'question.answer').map(request => request.params.payload);
+  assert.deepEqual(answers, [
+    { id: 'q-1', answer: ['Yes'], dismissed: false },
+    { id: 'q-2', answer: [], dismissed: false, answers: [{ answer: ['a'], dismissed: false }, { answer: [], dismissed: true }] },
+  ]);
+  const decisions = daemon.fixture.current.requests.filter(request => request.method === 'permission.decide').map(request => (request.params.decision as Record<string, unknown>));
+  assert.equal(decisions.length, 2, 'one decision per prompt');
+  assert.deepEqual(decisions.map(({ command_id: _, ...decision }) => decision), [
+    { root_id: 'root', permission_id: 'p-1', allow: true, remember: 'tree' },
+    { root_id: 'root', permission_id: 'p-2', allow: false, reason: 'not now' },
+  ]);
+  assert.ok(decisions.every(decision => typeof decision.command_id === 'string' && decision.command_id));
+
+  const open = await session.prompts();
+  assert.deepEqual(open.map(prompt => [prompt.type, prompt.id]), [['question', 'q-open'], ['permission', 'p-open']], 'settled permissions are not offered');
+  await (open[0] as QuestionEvent).dismiss();
+  await (open[1] as PermissionEvent).deny();
+  assert.deepEqual(daemon.fixture.current.requests.filter(request => request.method === 'command.submit' && request.params.operation === 'question.answer').at(-1)?.params.payload, { id: 'q-open', answer: [], dismissed: true });
+  const last = daemon.fixture.current.requests.filter(request => request.method === 'permission.decide').at(-1)?.params.decision as Record<string, unknown>;
+  assert.deepEqual({ ...last, command_id: undefined }, { root_id: 'root', permission_id: 'p-open', allow: false, command_id: undefined });
 });

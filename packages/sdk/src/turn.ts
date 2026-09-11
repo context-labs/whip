@@ -24,6 +24,33 @@ export type TurnFailure = NonNullable<CommandResult['failure']>;
 export type TurnUsage = NonNullable<StreamEvent['usage']>;
 export interface QuestionOption { readonly label: string; readonly description?: string; readonly recommended?: boolean }
 export interface QuestionSet { readonly question: string; readonly options: readonly QuestionOption[]; readonly multiple: boolean }
+/** One entry of a batched answer; null skips that question. */
+export type QuestionAnswer = { readonly answer: readonly string[]; readonly dismissed?: boolean } | null;
+
+/** An open user.ask prompt. answer and dismiss post once; repeated calls return the first promise. */
+export interface QuestionEvent extends TurnEventBase {
+  readonly type: 'question';
+  readonly id: string;
+  readonly question: string;
+  readonly options: readonly QuestionOption[];
+  readonly multiple: boolean;
+  /** Present when the agent asked several questions at once; answer then takes one entry per question. */
+  readonly questions?: readonly QuestionSet[];
+  answer(answers: readonly string[] | readonly QuestionAnswer[]): Promise<void>;
+  dismiss(): Promise<void>;
+}
+/** An open permission prompt. allow and deny post one decision; repeated calls return the first promise. */
+export interface PermissionEvent extends TurnEventBase {
+  readonly type: 'permission';
+  readonly id: string;
+  readonly operation: string;
+  readonly command: string;
+  readonly rule: string;
+  readonly path: string;
+  /** remember installs the prompt's rule for the session tree or globally. */
+  allow(options?: { remember?: 'tree' | 'global' }): Promise<void>;
+  deny(reason?: string): Promise<void>;
+}
 
 /** Every turn event carries its ordinal and the agent and turn it belongs to. */
 export interface TurnEventBase { readonly seq: string; readonly agentId: string; readonly turnId: string }
@@ -34,8 +61,8 @@ export type TurnEvent = TurnEventBase & (
   | { readonly type: 'host'; readonly id: string; readonly invocationId: string; readonly operation: string; readonly summary: string; readonly status: 'running' | 'completed' | 'failed' | 'cancelled'; readonly error?: string; readonly duration?: string }
   | { readonly type: 'progress'; readonly id: string; readonly operation: string; readonly text: string }
   | { readonly type: 'hook'; readonly hook: string; readonly operation: string; readonly decision: string; readonly reason: string }
-  | { readonly type: 'question'; readonly id: string; readonly question: string; readonly options: readonly QuestionOption[]; readonly multiple: boolean; readonly questions?: readonly QuestionSet[] }
-  | { readonly type: 'permission'; readonly id: string; readonly operation: string; readonly command: string; readonly rule: string; readonly path: string }
+  | QuestionEvent
+  | PermissionEvent
   | { readonly type: 'child'; readonly childId: string; readonly kind: string; readonly status: string }
   | { readonly type: 'notice'; readonly text: string }
   | { readonly type: 'usage'; readonly usage: TurnUsage }
@@ -48,6 +75,40 @@ export type TurnResult<Output = unknown> =
   | { readonly status: 'failed' | 'cancelled' | 'interrupted'; readonly turnId?: string; readonly text?: string; readonly failure: TurnFailure; readonly usage?: TurnUsage };
 
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
+
+/** Build a question event whose reply methods post through the session exactly once. */
+export function questionEvent(session: Session, base: TurnEventBase, payload: Record<string, unknown>): QuestionEvent {
+  const id = text(payload.question_id);
+  let posted: Promise<void> | undefined;
+  const post = (answers: readonly string[] | readonly QuestionAnswer[], dismissed: boolean) => posted ??= (async () => {
+    const batched = answers.some(entry => entry === null || typeof entry === 'object');
+    const handle = batched
+      ? session.answerQuestions(id, (answers as readonly QuestionAnswer[]).map(entry => entry ? { answer: [...entry.answer], dismissed: entry.dismissed } : null))
+      : session.answerQuestion(id, [...(answers as readonly string[])], dismissed);
+    const outcome = await handle.result();
+    if (outcome.status !== 'succeeded') throw new WhipError(outcome.failure?.data?.kind ?? 'execution_failed', outcome.failure?.message ?? `question answer ${outcome.status}`, { cause: outcome.failure ?? undefined });
+  })();
+  return {
+    ...base, type: 'question', id, question: text(payload.question), options: Array.isArray(payload.options) ? payload.options as QuestionOption[] : [], multiple: payload.multiple === true,
+    ...(Array.isArray(payload.questions) && payload.questions.length > 0 ? { questions: payload.questions as QuestionSet[] } : {}),
+    answer: answers => post(answers, false),
+    dismiss: () => post([], true),
+  };
+}
+
+/** Build a permission event whose decision methods post through the client exactly once. */
+export function permissionEvent(session: Session, base: TurnEventBase, payload: Record<string, unknown>): PermissionEvent {
+  const id = text(payload.permission_id) || text(payload.id);
+  let posted: Promise<void> | undefined;
+  const post = (allow: boolean, extra: { reason?: string; remember?: string }) => posted ??= (async () => {
+    await session.client.permissions.decide({ root_id: session.rootId, permission_id: id, allow, ...extra });
+  })();
+  return {
+    ...base, type: 'permission', id, operation: text(payload.operation), command: text(payload.command), rule: text(payload.rule), path: text(payload.canonical_path),
+    allow: (options = {}) => post(true, options.remember ? { remember: options.remember } : {}),
+    deny: reason => post(false, reason ? { reason } : {}),
+  };
+}
 const childKinds = ['agent.admitted', 'agent.turn.started', 'agent.turn.succeeded', 'agent.turn.failed', 'agent.turn.cancelled', 'agent.turn.interrupted', 'agent.subtree.stopped', 'agent.subtree.deleted', 'agent.prompt.queued'];
 const endKinds: Record<string, TurnStatus> = { 'turn.succeeded': 'succeeded', 'turn.failed': 'failed', 'turn.cancelled': 'cancelled', 'turn.interrupted': 'interrupted' };
 
@@ -161,11 +222,8 @@ export class Turn<Output = unknown> implements AsyncIterable<TurnEvent> {
       }
       case 'stream.tool.progress': return { ...base, type: 'progress', id: text(payload.id), operation: text(payload.name), text: text(payload.text) };
       case 'stream.hook.decision': return { ...base, type: 'hook', hook: text(payload.name), operation: text(payload.args), decision: text(payload.text), reason: text(payload.result) };
-      case 'question.pending':
-        return { ...base, type: 'question', id: text(payload.question_id), question: text(payload.question), options: Array.isArray(payload.options) ? payload.options as QuestionOption[] : [], multiple: payload.multiple === true,
-          ...(Array.isArray(payload.questions) && payload.questions.length > 0 ? { questions: payload.questions as QuestionSet[] } : {}) };
-      case 'permission.pending':
-        return { ...base, type: 'permission', id: text(payload.permission_id), operation: text(payload.operation), command: text(payload.command), rule: text(payload.rule), path: text(payload.canonical_path) };
+      case 'question.pending': return questionEvent(this.session, base, payload);
+      case 'permission.pending': return permissionEvent(this.session, base, payload);
       case 'stream.notice': return { ...base, type: 'notice', text: text(payload.text) };
       case 'stream.usage': {
         if (!object(payload.usage)) return { ...base, type: 'raw', event };
